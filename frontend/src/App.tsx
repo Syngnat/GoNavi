@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
 import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, BugOutlined, SettingOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
+import DataSyncModal from './components/DataSyncModal';
 import LogPanel from './components/LogPanel';
 import { useStore } from './store';
 import { SavedConnection } from './types';
@@ -13,6 +15,7 @@ const { Sider, Content } = Layout;
 
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const { darkMode, toggleDarkMode, addTab, activeContext, connections, addConnection, tabs, activeTabId } = useStore();
 
@@ -77,6 +80,12 @@ function App() {
   };
 
   const settingsMenu: MenuProps['items'] = [
+      {
+          key: 'sync',
+          label: '数据同步',
+          icon: <UploadOutlined rotate={90} />,
+          onClick: () => setIsSyncModalOpen(true)
+      },
       {
           key: 'import',
           label: '导入连接配置',
@@ -216,6 +225,7 @@ function App() {
 
   return (
     <ConfigProvider
+        locale={zhCN}
         theme={{
             algorithm: darkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
         }}
@@ -291,6 +301,10 @@ function App() {
             open={isModalOpen} 
             onClose={handleCloseModal} 
             initialValues={editingConnection}
+          />
+          <DataSyncModal
+            open={isSyncModalOpen}
+            onClose={() => setIsSyncModalOpen(false)}
           />
           
           {/* Ghost Resize Line for Sidebar */}

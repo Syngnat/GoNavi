@@ -1,8 +1,8 @@
 package db
 
 import (
-	"fmt"
 	"GoNavi-Wails/internal/connection"
+	"fmt"
 )
 
 type Database interface {
@@ -34,6 +34,14 @@ func NewDatabase(dbType string) (Database, error) {
 		return &PostgresDB{}, nil
 	case "sqlite":
 		return &SQLiteDB{}, nil
+	case "oracle":
+		return &OracleDB{}, nil
+	case "dameng":
+		return &DamengDB{}, nil
+	case "kingbase":
+		return &KingbaseDB{}, nil
+	case "custom":
+		return &CustomDB{}, nil
 	default:
 		// Default to MySQL for backward compatibility if empty
 		if dbType == "" {

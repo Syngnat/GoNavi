@@ -19,14 +19,16 @@ type ConnectionConfig struct {
 	Database string    `json:"database"`
 	UseSSH   bool      `json:"useSSH"`
 	SSH      SSHConfig `json:"ssh"`
+	Driver   string    `json:"driver,omitempty"` // For custom connection
+	DSN      string    `json:"dsn,omitempty"`    // For custom connection
 }
 
 // QueryResult is the standard response format for Wails methods
 type QueryResult struct {
-	Success bool                   `json:"success"`
-	Message string                 `json:"message"`
-	Data    interface{}            `json:"data"`
-	Fields  []string               `json:"fields,omitempty"`
+	Success bool        `json:"success"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data"`
+	Fields  []string    `json:"fields,omitempty"`
 }
 
 // ColumnDefinition represents a table column
@@ -36,7 +38,7 @@ type ColumnDefinition struct {
 	Nullable string  `json:"nullable"` // YES/NO
 	Key      string  `json:"key"`      // PRI, UNI, MUL
 	Default  *string `json:"default"`
-	Extra    string  `json:"extra"`    // auto_increment
+	Extra    string  `json:"extra"` // auto_increment
 	Comment  string  `json:"comment"`
 }
 
