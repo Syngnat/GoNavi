@@ -6,11 +6,11 @@
 <img width="4096" height="2304" alt="image" src="https://github.com/user-attachments/assets/224a74e7-65df-4aef-9710-d8e82e3a70c1" />
 <img width="4096" height="2180" alt="image" src="https://github.com/user-attachments/assets/f0c57590-d987-4ecf-89b2-64efad60b6d7" />
 
-[![Go Version](https://img.shields.io/github/go-mod/go-version/yangguofeng/GoNavi)](https://go.dev/)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/Syngnat/GoNavi)](https://go.dev/)
 [![Wails Version](https://img.shields.io/badge/Wails-v2-red)](https://wails.io)
 [![React Version](https://img.shields.io/badge/React-v18-blue)](https://reactjs.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/yangguofeng/GoNavi/release.yml?label=Build)](https://github.com/yangguofeng/GoNavi/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/Syngnat/GoNavi/release.yml?label=Build)](https://github.com/Syngnat/GoNavi/actions)
 
 **GoNavi** 是一款基于 **Wails (Go)** 和 **React** 构建的现代化、高性能、跨平台数据库管理客户端。它旨在提供如原生应用般流畅的用户体验，同时保持极低的资源占用。
 
