@@ -52,13 +52,38 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           cd build/bin
-          zip -r ../../${{ matrix.artifact_name }}.zip ${{ matrix.artifact_name }}.app
+          echo "📂 Listing build/bin contents:"
+          ls -F
+          
+          # Find the .app bundle (safest way)
+          APP_NAME=$(find . -maxdepth 1 -name "*.app" | head -n 1)
+          
+          if [ -z "$APP_NAME" ]; then
+            echo "❌ No .app found!"
+            exit 1
+          fi
+          
+          echo "📦 Zipping $APP_NAME..."
+          zip -r "../../${{ matrix.artifact_name }}.zip" "$APP_NAME"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          mv build/bin/${{ matrix.artifact_name }}.exe .
+          cd build/bin
+          echo "📂 Listing build/bin contents:"
+          ls -F
+          
+          # Find the .exe (safest way)
+          EXE_NAME=$(find . -maxdepth 1 -name "*.exe" | head -n 1)
+          
+          if [ -z "$EXE_NAME" ]; then
+             echo "❌ No .exe found!"
+             exit 1
+          fi
+          
+          echo "📦 Moving $EXE_NAME..."
+          mv "$EXE_NAME" "../../${{ matrix.artifact_name }}.exe"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
