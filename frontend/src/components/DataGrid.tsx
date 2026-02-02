@@ -139,7 +139,7 @@ const ContextMenuRow = React.memo(({ children, ...props }: any) => {
     
     if (!record || !context) return <tr {...props}>{children}</tr>;
 
-    const { selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, copyToClipboard } = context;
+    const { selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard } = context;
 
     const getTargets = () => {
         const keys = selectedRowKeysRef.current;
