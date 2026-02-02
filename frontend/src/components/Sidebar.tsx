@@ -503,13 +503,21 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                  label: '断开连接',
                  icon: <DisconnectOutlined />,
                  onClick: () => {
+                     // Reset status recursively
                      setConnectionStates(prev => {
                          const next = { ...prev };
-                         delete next[node.key];
+                         Object.keys(next).forEach(k => {
+                             if (k === node.key || k.startsWith(`${node.key}-`)) {
+                                 delete next[k];
+                             }
+                         });
                          return next;
                      });
-                     setExpandedKeys(prev => prev.filter(k => k !== node.key));
-                     setLoadedKeys(prev => prev.filter(k => k !== node.key));
+                     // Collapse node and children
+                     setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                     // Reset loaded state recursively
+                     setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                     // Clear children (undefined to trigger reload)
                      setTreeData(origin => updateTreeData(origin, node.key, undefined));
                      message.success("已断开连接");
                  }
@@ -553,8 +561,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                        delete next[node.key];
                        return next;
                    });
-                   setExpandedKeys(prev => prev.filter(k => k !== node.key));
-                   setLoadedKeys(prev => prev.filter(k => k !== node.key));
+                   setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                   setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
                    setTreeData(origin => updateTreeData(origin, node.key, undefined));
                }
            },

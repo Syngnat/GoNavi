@@ -162,6 +162,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   }, [tab, sortInfo, filterConditions]); // Initial load and re-load on sort/filter
 
   return (
+    <div style={{ height: '100%', width: '100%', overflow: 'hidden' }}>
       <DataGrid
           data={data}
           columnNames={columnNames}
@@ -178,6 +179,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
           onToggleFilter={handleToggleFilter}
           onApplyFilter={handleApplyFilter}
       />
+    </div>
   );
 };
 

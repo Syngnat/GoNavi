@@ -5,6 +5,7 @@ import { ReloadOutlined, ImportOutlined, ExportOutlined, DownOutlined, PlusOutli
 import { Resizable } from 'react-resizable';
 import { ImportData, ExportTable, ExportData, ApplyChanges } from '../../wailsjs/go/app/App';
 import { useStore } from '../store';
+import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
 
 // --- Helper: Format Value ---
@@ -214,6 +215,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const addSqlLog = useStore(state => state.addSqlLog);
   const [form] = Form.useForm();
   const [modal, contextHolder] = Modal.useModal();
+  const gridId = useMemo(() => `grid-${uuidv4()}`, []);
   
   // Helper to export specific data
   const exportData = async (rows: any[], format: string) => {
@@ -234,16 +236,26 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   useEffect(() => {
       if (!containerRef.current) return;
+      
+      let rafId: number;
       const resizeObserver = new ResizeObserver(entries => {
-          for (let entry of entries) {
-              // Subtract header height (~40px)
-              // Ensure minimum height to prevent collapse loop
-              const h = Math.max(100, entry.contentRect.height - 42); 
-              setTableHeight(h); 
-          }
+          rafId = requestAnimationFrame(() => {
+              for (let entry of entries) {
+                  // Use boundingClientRect for more accurate render size (including padding if any)
+                  const height = entry.contentRect.height;
+                  if (height < 50) return; 
+                  // Subtract header (~42px) and a buffer
+                  const h = Math.max(100, height - 42); 
+                  setTableHeight(h); 
+              }
+          });
       });
+      
       resizeObserver.observe(containerRef.current);
-      return () => resizeObserver.disconnect();
+      return () => {
+          resizeObserver.disconnect();
+          cancelAnimationFrame(rafId);
+      };
   }, []);
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -685,7 +697,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const totalWidth = columns.reduce((sum, col) => sum + (col.width as number || 200), 0);
 
   return (
-    <div style={{ height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column' }}>
+    <div className={gridId} style={{ height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
        {/* Toolbar */}
        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center' }}>
            {onReload && <Button icon={<ReloadOutlined />} onClick={() => {
@@ -747,7 +759,7 @@ const DataGrid: React.FC<DataGridProps> = ({
            </div>
        )}
 
-       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
         {contextHolder}
         <Form component={false} form={form}>
             <DataContext.Provider value={{ selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, tableName }}>
@@ -794,9 +806,9 @@ const DataGrid: React.FC<DataGridProps> = ({
        )}
 
        <style>{`
-           .row-added td { background-color: #f6ffed !important; }
-           .row-modified td { background-color: #e6f7ff !important; }
-           .ant-table-body {
+           .${gridId} .row-added td { background-color: #f6ffed !important; }
+           .${gridId} .row-modified td { background-color: #e6f7ff !important; }
+           .${gridId} .ant-table-body {
                height: ${tableHeight}px !important;
                max-height: ${tableHeight}px !important;
            }

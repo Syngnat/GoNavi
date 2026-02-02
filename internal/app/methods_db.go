@@ -10,19 +10,7 @@ import (
 // Generic DB Methods
 
 func (a *App) DBConnect(config connection.ConnectionConfig) connection.QueryResult {
-	key := getCacheKey(config)
-	
-	// Use an anonymous function to scope the lock
-	func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if oldDB, ok := a.dbCache[key]; ok {
-			oldDB.Close()
-			delete(a.dbCache, key)
-		}
-	}()
-
-	// getDatabase acquires the lock internally, so we must be unlocked here
+	// getDatabase checks cache and Pings. If valid, reuses. If not, connects.
 	_, err := a.getDatabase(config)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -32,17 +20,6 @@ func (a *App) DBConnect(config connection.ConnectionConfig) connection.QueryResu
 }
 
 func (a *App) TestConnection(config connection.ConnectionConfig) connection.QueryResult {
-	// Force close existing cached connection if any to ensure fresh test
-	key := getCacheKey(config)
-	func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if oldDB, ok := a.dbCache[key]; ok {
-			oldDB.Close()
-			delete(a.dbCache, key)
-		}
-	}()
-
 	_, err := a.getDatabase(config)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
