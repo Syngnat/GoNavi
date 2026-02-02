@@ -1,0 +1,25 @@
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* 侧边栏 Tree 样式优化 */
+.ant-tree .ant-tree-treenode {
+  width: 100%;
+}
+
+.ant-tree .ant-tree-node-content-wrapper {
+  display: flex !important;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ant-tree .ant-tree-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "GoNavi-Wails",
+  "outputfilename": "gonavi",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "http://localhost:5173",
+  "wailsjsdir": "./frontend",
+  "version": "2",
+  "author": {
+    "name": "User",
+    "email": "user@example.com"
+  },
+  "debounceMS": 100,
+  "appargs": ""
+}

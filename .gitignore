@@ -1,0 +1,16 @@
+# IDE
+.idea/
+*.iml
+
+# build / release artifacts
+frontend/release/
+**/release/
+**/dist/
+**/build/
+
+# wails / node artifacts (按需)
+node_modules/
+
+dist/
+.DS_Store
+.gemini-clipboard
