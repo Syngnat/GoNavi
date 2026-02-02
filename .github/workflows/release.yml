@@ -60,16 +60,19 @@ jobs:
           ls -F
           
           # Find .app bundle
-          APP_NAME=$(find . -maxdepth 1 -name "*.app" | head -n 1)
+          APP_PATH=$(find . -maxdepth 1 -name "*.app" | head -n 1)
           
-          if [ -z "$APP_NAME" ]; then
+          if [ -z "$APP_PATH" ]; then
             echo "❌ 未找到 .app 应用包!"
             exit 1
           fi
           
+          # Get pure name (e.g. GoNavi.app)
+          APP_NAME=$(basename "$APP_PATH")
+          
           DMG_NAME="${{ matrix.artifact_name }}.dmg"
           
-          echo "📦 正在生成 DMG: $DMG_NAME..."
+          echo "📦 正在生成 DMG: $DMG_NAME (源应用: $APP_NAME)..."
           
           # Create DMG
           create-dmg \
