@@ -3,8 +3,11 @@ module GoNavi-Wails
 go 1.24.3
 
 require (
+	gitea.com/kingbase/gokb v0.0.0-20201021123113-29bd62a876c3
+	gitee.com/chunanyong/dm v1.8.22
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/lib/pq v1.11.1
+	github.com/sijms/go-ora/v2 v2.9.0
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/crypto v0.47.0
 	modernc.org/sqlite v1.44.3
@@ -16,6 +19,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
+	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
