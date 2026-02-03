@@ -17,14 +17,14 @@ type SQLiteDB struct {
 }
 
 func (s *SQLiteDB) Connect(config connection.ConnectionConfig) error {
-	dsn := config.Host 
+	dsn := config.Host
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	s.conn = db
 	s.pingTimeout = getConnectTimeout(config)
-	
+
 	// Force verification
 	if err := s.Ping(); err != nil {
 		return fmt.Errorf("连接建立后验证失败：%w", err)
@@ -83,19 +83,7 @@ func (s *SQLiteDB) Query(query string) ([]map[string]interface{}, []string, erro
 
 		entry := make(map[string]interface{})
 		for i, col := range columns {
-			var v interface{}
-			val := values[i]
-			b, ok := val.([]byte)
-			if ok {
-				if b == nil {
-					v = nil
-				} else {
-					v = string(b)
-				}
-			} else {
-				v = val
-			}
-			entry[col] = v
+			entry[col] = normalizeQueryValue(values[i])
 		}
 		resultData = append(resultData, entry)
 	}
@@ -124,7 +112,7 @@ func (s *SQLiteDB) GetTables(dbName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var tables []string
 	for _, row := range data {
 		if val, ok := row["name"]; ok {

@@ -48,7 +48,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 	}
 	m.conn = db
 	m.pingTimeout = getConnectTimeout(config)
-	
+
 	// Force verification
 	if err := m.Ping(); err != nil {
 		return fmt.Errorf("连接建立后验证失败：%w", err)
@@ -107,19 +107,7 @@ func (m *MySQLDB) Query(query string) ([]map[string]interface{}, []string, error
 
 		entry := make(map[string]interface{})
 		for i, col := range columns {
-			var v interface{}
-			val := values[i]
-			b, ok := val.([]byte)
-			if ok {
-				if b == nil {
-					v = nil
-				} else {
-					v = string(b)
-				}
-			} else {
-				v = val
-			}
-			entry[col] = v
+			entry[col] = normalizeQueryValue(values[i])
 		}
 		resultData = append(resultData, entry)
 	}
@@ -159,12 +147,12 @@ func (m *MySQLDB) GetTables(dbName string) ([]string, error) {
 	if dbName != "" {
 		query = fmt.Sprintf("SHOW TABLES FROM `%s`", dbName)
 	}
-	
+
 	data, _, err := m.Query(query)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var tables []string
 	for _, row := range data {
 		for _, v := range row {
@@ -185,7 +173,7 @@ func (m *MySQLDB) GetCreateStatement(dbName, tableName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	if len(data) > 0 {
 		if val, ok := data[0]["Create Table"]; ok {
 			return fmt.Sprintf("%v", val), nil
@@ -215,12 +203,12 @@ func (m *MySQLDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefin
 			Extra:    fmt.Sprintf("%v", row["Extra"]),
 			Comment:  fmt.Sprintf("%v", row["Comment"]),
 		}
-		
+
 		if row["Default"] != nil {
 			d := fmt.Sprintf("%v", row["Default"])
 			col.Default = &d
 		}
-		
+
 		columns = append(columns, col)
 	}
 	return columns, nil
@@ -248,14 +236,14 @@ func (m *MySQLDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefini
 			}
 		}
 
-        seq := 0
-        if val, ok := row["Seq_in_index"]; ok {
+		seq := 0
+		if val, ok := row["Seq_in_index"]; ok {
 			if f, ok := val.(float64); ok {
 				seq = int(f)
 			} else if i, ok := val.(int64); ok {
 				seq = int(i)
 			}
-        }
+		}
 
 		idx := connection.IndexDefinition{
 			Name:       fmt.Sprintf("%v", row["Key_name"]),
@@ -345,12 +333,12 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 	for _, update := range changes.Updates {
 		var sets []string
 		var args []interface{}
-		
+
 		for k, v := range update.Values {
 			sets = append(sets, fmt.Sprintf("`%s` = ?", k))
 			args = append(args, v)
 		}
-		
+
 		if len(sets) == 0 {
 			continue
 		}
@@ -360,7 +348,7 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 			wheres = append(wheres, fmt.Sprintf("`%s` = ?", k))
 			args = append(args, v)
 		}
-		
+
 		if len(wheres) == 0 {
 			return fmt.Errorf("update requires keys")
 		}
@@ -376,13 +364,13 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		var cols []string
 		var placeholders []string
 		var args []interface{}
-		
+
 		for k, v := range row {
 			cols = append(cols, fmt.Sprintf("`%s`", k))
 			placeholders = append(placeholders, "?")
 			args = append(args, v)
 		}
-		
+
 		if len(cols) == 0 {
 			continue
 		}

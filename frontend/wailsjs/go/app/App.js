@@ -54,6 +54,14 @@ export function DataSync(arg1) {
   return window['go']['app']['App']['DataSync'](arg1);
 }
 
+export function DataSyncAnalyze(arg1) {
+  return window['go']['app']['App']['DataSyncAnalyze'](arg1);
+}
+
+export function DataSyncPreview(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DataSyncPreview'](arg1, arg2, arg3);
+}
+
 export function ExportData(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ExportData'](arg1, arg2, arg3, arg4);
 }

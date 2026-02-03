@@ -150,19 +150,7 @@ func (k *KingbaseDB) Query(query string) ([]map[string]interface{}, []string, er
 
 		entry := make(map[string]interface{})
 		for i, col := range columns {
-			var v interface{}
-			val := values[i]
-			b, ok := val.([]byte)
-			if ok {
-				if b == nil {
-					v = nil
-				} else {
-					v = string(b)
-				}
-			} else {
-				v = val
-			}
-			entry[col] = v
+			entry[col] = normalizeQueryValue(values[i])
 		}
 		resultData = append(resultData, entry)
 	}

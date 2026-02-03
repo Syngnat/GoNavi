@@ -48,7 +48,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 	}
 	p.conn = db
 	p.pingTimeout = getConnectTimeout(config)
-		
+
 	// Force verification
 	if err := p.Ping(); err != nil {
 		return fmt.Errorf("连接建立后验证失败：%w", err)
@@ -81,8 +81,7 @@ func (p *PostgresDB) Query(query string) ([]map[string]interface{}, []string, er
 		return nil, nil, fmt.Errorf("connection not open")
 	}
 
-
-rows, err := p.conn.Query(query)
+	rows, err := p.conn.Query(query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -108,19 +107,7 @@ rows, err := p.conn.Query(query)
 
 		entry := make(map[string]interface{})
 		for i, col := range columns {
-			var v interface{}
-			val := values[i]
-			b, ok := val.([]byte)
-			if ok {
-				if b == nil {
-					v = nil
-				} else {
-					v = string(b)
-				}
-			} else {
-				v = val
-			}
-			entry[col] = v
+			entry[col] = normalizeQueryValue(values[i])
 		}
 		resultData = append(resultData, entry)
 	}
@@ -159,7 +146,7 @@ func (p *PostgresDB) GetTables(dbName string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var tables []string
 	for _, row := range data {
 		schema, okSchema := row["schemaname"]

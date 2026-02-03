@@ -2,11 +2,13 @@ import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } 
 import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal } from 'antd';
 import type { SortOrder } from 'antd/es/table/interface';
 import { ReloadOutlined, ImportOutlined, ExportOutlined, DownOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, UndoOutlined, FilterOutlined, CloseOutlined, ConsoleSqlOutlined, FileTextOutlined, CopyOutlined, ClearOutlined } from '@ant-design/icons';
-import { Resizable } from 'react-resizable';
 import { ImportData, ExportTable, ExportData, ApplyChanges } from '../../wailsjs/go/app/App';
 import { useStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
+
+// 内部行标识字段：避免与真实业务字段（如 `key` 列）冲突。
+export const GONAVI_ROW_KEY = '__gonavi_row_key__';
 
 // Normalize RFC3339-like datetime strings to `YYYY-MM-DD HH:mm:ss` for display/editing.
 const normalizeDateTimeString = (val: string) => {
@@ -73,7 +75,6 @@ const DataContext = React.createContext<{
 } | null>(null);
 
 interface Item {
-  key: string;
   [key: string]: any;
 }
 
@@ -141,8 +142,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   return <td {...restProps} onDoubleClick={editable ? toggleEdit : undefined}>{childNode}</td>;
 });
 
-const ContextMenuRow = React.memo(({ children, ...props }: any) => {
-    const record = props.record; 
+const ContextMenuRow = React.memo(({ children, record, ...props }: any) => {
     const context = useContext(DataContext);
     
     if (!record || !context) return <tr {...props}>{children}</tr>;
@@ -151,8 +151,9 @@ const ContextMenuRow = React.memo(({ children, ...props }: any) => {
 
     const getTargets = () => {
         const keys = selectedRowKeysRef.current;
-        if (keys.includes(record.key)) {
-            return displayDataRef.current.filter(d => keys.includes(d.key));
+        const recordKey = record?.[GONAVI_ROW_KEY];
+        if (recordKey !== undefined && keys.includes(recordKey)) {
+            return displayDataRef.current.filter(d => keys.includes(d?.[GONAVI_ROW_KEY]));
         }
         return [record];
     };
@@ -169,7 +170,7 @@ const ContextMenuRow = React.memo(({ children, ...props }: any) => {
         { key: 'copy', label: '复制为 Markdown', icon: <CopyOutlined />, onClick: () => { 
             const records = getTargets();
             const lines = records.map((r: any) => {
-                const { key, ...vals } = r;
+                const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = r;
                 return `| ${Object.values(vals).join(' | ')} |`;
             });
             copyToClipboard(lines.join('\n'));
@@ -207,7 +208,7 @@ interface DataGridProps {
     onReload?: () => void;
     onSort?: (field: string, order: string) => void;
     onPageChange?: (page: number, size: number) => void;
-    pagination?: { current: number, pageSize: number, total: number };
+    pagination?: { current: number, pageSize: number, total: number, totalKnown?: boolean };
     // Filtering
     showFilter?: boolean;
     onToggleFilter?: () => void;
@@ -227,7 +228,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   // Helper to export specific data
   const exportData = async (rows: any[], format: string) => {
       const hide = message.loading(`正在导出 ${rows.length} 条数据...`, 0);
-      const cleanRows = rows.map(({ key, ...rest }) => rest);
+      const cleanRows = rows.map(({ [GONAVI_ROW_KEY]: _rowKey, ...rest }) => rest);
       // Pass tableName (or 'export') as default filename
       const res = await ExportData(cleanRows, columnNames, tableName || 'export', format);
       hide();
@@ -268,7 +269,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [addedRows, setAddedRows] = useState<any[]>([]);
   const [modifiedRows, setModifiedRows] = useState<Record<string, any>>({});
-  const [deletedRowKeys, setDeletedRowKeys] = useState<Set<React.Key>>(new Set());
+  const [deletedRowKeys, setDeletedRowKeys] = useState<Set<string>>(new Set());
 
   // Filter State
   const [filterConditions, setFilterConditions] = useState<{ id: number, column: string, op: string, value: string }[]>([]);
@@ -288,8 +289,13 @@ const DataGrid: React.FC<DataGridProps> = ({
       form.resetFields();
   }, [tableName, dbName, connectionId]); // Reset on context change
 
+  const rowKeyStr = useCallback((k: React.Key) => String(k), []);
+
   const displayData = useMemo(() => {
-      return [...data, ...addedRows].filter(item => !deletedRowKeys.has(item.key));
+      return [...data, ...addedRows].filter(item => {
+          const k = item?.[GONAVI_ROW_KEY];
+          return k === undefined ? true : !deletedRowKeys.has(rowKeyStr(k));
+      });
   }, [data, addedRows, deletedRowKeys]);
 
   useEffect(() => { displayDataRef.current = displayData; }, [displayData]);
@@ -312,10 +318,21 @@ const DataGrid: React.FC<DataGridProps> = ({
     const draggingRef = useRef<{
         startX: number,
         startWidth: number,
-        key: string
+        key: string,
+        containerLeft: number
     } | null>(null);
     const ghostRef = useRef<HTMLDivElement>(null);
+    const resizeRafRef = useRef<number | null>(null);
+    const latestClientXRef = useRef<number | null>(null);
     const isResizingRef = useRef(false); // Lock for sorting
+
+    const flushGhostPosition = useCallback(() => {
+        resizeRafRef.current = null;
+        if (!draggingRef.current || !ghostRef.current) return;
+        if (latestClientXRef.current === null) return;
+        const relativeLeft = latestClientXRef.current - draggingRef.current.containerLeft;
+        ghostRef.current.style.transform = `translateX(${relativeLeft}px)`;
+    }, []);
   
         // 1. Drag Start
   
@@ -335,21 +352,18 @@ const DataGrid: React.FC<DataGridProps> = ({
   
             const currentWidth = columnWidths[key] || 200; 
   
-            
+            const containerLeft = containerRef.current?.getBoundingClientRect().left ?? 0;
   
-            draggingRef.current = { startX, startWidth: currentWidth, key };
+            draggingRef.current = { startX, startWidth: currentWidth, key, containerLeft };
+            latestClientXRef.current = startX;
   
       
   
             // Show Ghost Line at initial position
   
             if (ghostRef.current && containerRef.current) {
-  
-                const containerRect = containerRef.current.getBoundingClientRect();
-  
-                const relativeLeft = startX - containerRect.left;
-  
-                ghostRef.current.style.left = `${relativeLeft}px`;
+                const relativeLeft = startX - containerLeft;
+                ghostRef.current.style.transform = `translateX(${relativeLeft}px)`;
   
                 ghostRef.current.style.display = 'block';
   
@@ -371,13 +385,11 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   // 2. Drag Move (Global)
   const handleResizeMove = useCallback((e: MouseEvent) => {
-      if (!draggingRef.current || !ghostRef.current || !containerRef.current) return;
-
-      // Update Ghost Line Position directly
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const relativeLeft = e.clientX - containerRect.left;
-      ghostRef.current.style.left = `${relativeLeft}px`;
-  }, []);
+      if (!draggingRef.current) return;
+      latestClientXRef.current = e.clientX;
+      if (resizeRafRef.current !== null) return;
+      resizeRafRef.current = requestAnimationFrame(flushGhostPosition);
+  }, [flushGhostPosition]);
 
   // 3. Drag Stop (Global)
   const handleResizeStop = useCallback((e: MouseEvent) => {
@@ -391,6 +403,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       setColumnWidths(prev => ({ ...prev, [key]: newWidth }));
 
       // Cleanup
+      if (resizeRafRef.current !== null) {
+          cancelAnimationFrame(resizeRafRef.current);
+          resizeRafRef.current = null;
+      }
+      latestClientXRef.current = null;
       if (ghostRef.current) ghostRef.current.style.display = 'none';
       document.removeEventListener('mousemove', handleResizeMove);
       document.removeEventListener('mouseup', handleResizeStop);
@@ -413,11 +430,13 @@ const DataGrid: React.FC<DataGridProps> = ({
       // So we update 'modifiedRows'.
       
       // Check if it's an added row
-      const isAdded = addedRows.some(r => r.key === row.key);
+      const rowKey = row?.[GONAVI_ROW_KEY];
+      if (rowKey === undefined) return;
+      const isAdded = addedRows.some(r => r?.[GONAVI_ROW_KEY] === rowKey);
       if (isAdded) {
-          setAddedRows(prev => prev.map(r => r.key === row.key ? { ...r, ...row } : r));
+          setAddedRows(prev => prev.map(r => r?.[GONAVI_ROW_KEY] === rowKey ? { ...r, ...row } : r));
       } else {
-          setModifiedRows(prev => ({ ...prev, [row.key]: row }));
+          setModifiedRows(prev => ({ ...prev, [rowKeyStr(rowKey)]: row }));
       }
   }, [addedRows]);
 
@@ -426,8 +445,9 @@ const DataGrid: React.FC<DataGridProps> = ({
   // We need to merge modifiedRows into it for rendering.
   const mergedDisplayData = useMemo(() => {
       return displayData.map(row => {
-          if (modifiedRows[row.key]) {
-              return { ...row, ...modifiedRows[row.key] };
+          const k = row?.[GONAVI_ROW_KEY];
+          if (k !== undefined && modifiedRows[rowKeyStr(k)]) {
+              return { ...row, ...modifiedRows[rowKeyStr(k)] };
           }
           return row;
       });
@@ -467,7 +487,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const handleAddRow = () => {
       const newKey = `new-${Date.now()}`;
-      const newRow: any = { key: newKey };
+      const newRow: any = { [GONAVI_ROW_KEY]: newKey };
       columnNames.forEach(col => newRow[col] = ''); 
       setAddedRows(prev => [...prev, newRow]);
   };
@@ -475,7 +495,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const handleDeleteSelected = () => {
       setDeletedRowKeys(prev => {
           const newDeleted = new Set(prev);
-          selectedRowKeys.forEach(key => newDeleted.add(key));
+          selectedRowKeys.forEach(key => newDeleted.add(rowKeyStr(key)));
           return newDeleted;
       });
       setSelectedRowKeys([]);
@@ -490,27 +510,27 @@ const DataGrid: React.FC<DataGridProps> = ({
       const updates: any[] = [];
       const deletes: any[] = [];
 
-      addedRows.forEach(row => { const { key, ...vals } = row; inserts.push(vals); });
-      deletedRowKeys.forEach(key => {
+      addedRows.forEach(row => { const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = row; inserts.push(vals); });
+      deletedRowKeys.forEach(keyStr => {
           // Find original data
-          const originalRow = data.find(d => d.key === key) || addedRows.find(d => d.key === key);
+          const originalRow = data.find(d => rowKeyStr(d?.[GONAVI_ROW_KEY]) === keyStr) || addedRows.find(d => rowKeyStr(d?.[GONAVI_ROW_KEY]) === keyStr);
           if (originalRow) {
               const pkData: any = {};
               if (pkColumns.length > 0) pkColumns.forEach(k => pkData[k] = originalRow[k]);
-              else { const { key: _, ...rest } = originalRow; Object.assign(pkData, rest); }
+              else { const { [GONAVI_ROW_KEY]: _rowKey, ...rest } = originalRow; Object.assign(pkData, rest); }
               deletes.push(pkData);
           }
       });
-      Object.entries(modifiedRows).forEach(([key, newRow]) => {
-          if (deletedRowKeys.has(key)) return;
-          const originalRow = data.find(d => d.key === key);
+      Object.entries(modifiedRows).forEach(([keyStr, newRow]) => {
+          if (deletedRowKeys.has(keyStr)) return;
+          const originalRow = data.find(d => rowKeyStr(d?.[GONAVI_ROW_KEY]) === keyStr);
           if (!originalRow) return; // Should not happen for modified rows unless deleted
           
           const pkData: any = {};
           if (pkColumns.length > 0) pkColumns.forEach(k => pkData[k] = originalRow[k]);
-          else { const { key: _, ...rest } = originalRow; Object.assign(pkData, rest); }
+          else { const { [GONAVI_ROW_KEY]: _rowKey, ...rest } = originalRow; Object.assign(pkData, rest); }
           
-          const { key: _, ...vals } = newRow;
+          const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = newRow;
           updates.push({ keys: pkData, values: vals });
       });
 
@@ -575,8 +595,9 @@ const DataGrid: React.FC<DataGridProps> = ({
   const getTargets = useCallback((clickedRecord: any) => {
       const selKeys = selectedRowKeysRef.current;
       const currentData = displayDataRef.current;
-      if (selKeys.includes(clickedRecord.key)) {
-          return currentData.filter(d => selKeys.includes(d.key));
+      const clickedKey = clickedRecord?.[GONAVI_ROW_KEY];
+      if (clickedKey !== undefined && selKeys.includes(clickedKey)) {
+          return currentData.filter(d => selKeys.includes(d?.[GONAVI_ROW_KEY]));
       }
       return [clickedRecord];
   }, []);
@@ -584,7 +605,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const handleCopyInsert = useCallback((record: any) => {
       const records = getTargets(record);
       const sqls = records.map((r: any) => {
-          const { key, ...vals } = r;
+          const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = r;
           const cols = Object.keys(vals);
           const values = Object.values(vals).map(v => v === null ? 'NULL' : `'${v}'`); 
           const targetTable = tableName || 'table';
@@ -596,7 +617,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const handleCopyJson = useCallback((record: any) => {
       const records = getTargets(record);
       const cleanRecords = records.map((r: any) => {
-          const { key, ...rest } = r;
+          const { [GONAVI_ROW_KEY]: _rowKey, ...rest } = r;
           return rest;
       });
       copyToClipboard(JSON.stringify(cleanRecords, null, 2));
@@ -605,7 +626,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const handleCopyCsv = useCallback((record: any) => {
       const records = getTargets(record);
       const lines = records.map((r: any) => {
-          const { key, ...vals } = r;
+          const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = r;
           const values = Object.values(vals).map(v => v === null ? 'NULL' : `"${v}"`);
           return values.join(',');
       });
@@ -624,7 +645,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       
       // 1. Export Selected
       if (selectedRowKeys.length > 0) {
-          const selectedRows = displayData.filter(d => selectedRowKeys.includes(d.key));
+          const selectedRows = displayData.filter(d => selectedRowKeys.includes(d?.[GONAVI_ROW_KEY]));
           await exportData(selectedRows, format);
           return;
       }
@@ -703,6 +724,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   }), []); 
 
   const totalWidth = columns.reduce((sum, col) => sum + (col.width as number || 200), 0);
+  const enableVirtual = mergedDisplayData.length >= 200;
 
   return (
     <div className={gridId} style={{ height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -778,7 +800,9 @@ const DataGrid: React.FC<DataGridProps> = ({
                         columns={mergedColumns} 
                         size="small" 
                         scroll={{ x: Math.max(totalWidth, 1000), y: tableHeight }}
+                        virtual={enableVirtual}
                         loading={loading}
+                        rowKey={GONAVI_ROW_KEY}
                         pagination={false} 
                         onChange={handleTableChange}
                         bordered
@@ -787,8 +811,9 @@ const DataGrid: React.FC<DataGridProps> = ({
                             onChange: setSelectedRowKeys,
                         }}
                         rowClassName={(record) => {
-                            if (addedRows.some(r => r.key === record.key)) return 'row-added';
-                            if (modifiedRows[record.key] || deletedRowKeys.has(record.key)) return 'row-modified'; // deleted won't show
+                            const k = record?.[GONAVI_ROW_KEY];
+                            if (k !== undefined && addedRows.some(r => r?.[GONAVI_ROW_KEY] === k)) return 'row-added';
+                            if (k !== undefined && (modifiedRows[rowKeyStr(k)] || deletedRowKeys.has(rowKeyStr(k)))) return 'row-modified'; // deleted won't show
                             return '';
                         }}
                         onRow={(record) => ({ record } as any)}
@@ -800,11 +825,15 @@ const DataGrid: React.FC<DataGridProps> = ({
        
        {pagination && (
            <div style={{ padding: '8px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', background: '#fff' }}>
-               <Pagination 
+                   <Pagination 
                    current={pagination.current}
                    pageSize={pagination.pageSize}
                    total={pagination.total}
-                   showTotal={(total, range) => `当前 ${range[1] - range[0] + 1} 条 / 共 ${total} 条`}
+                   showTotal={(total, range) => {
+                       const currentCount = Math.max(0, range[1] - range[0] + 1);
+                       if (pagination.totalKnown === false) return `当前 ${currentCount} 条 / 正在统计总数...`;
+                       return `当前 ${currentCount} 条 / 共 ${total} 条`;
+                   }}
                    showSizeChanger
                    pageSizeOptions={['100', '200', '500', '1000']}
                    onChange={onPageChange}
@@ -829,11 +858,13 @@ const DataGrid: React.FC<DataGridProps> = ({
                position: 'absolute',
                top: 0,
                bottom: 0, // Fits container height
+               left: 0,
                width: '2px',
                background: '#1890ff',
                zIndex: 9999,
                display: 'none',
-               pointerEvents: 'none'
+               pointerEvents: 'none',
+               willChange: 'transform'
            }}
        />
     </div>

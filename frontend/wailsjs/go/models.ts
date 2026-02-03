@@ -142,11 +142,37 @@ export namespace connection {
 
 export namespace sync {
 	
+	export class TableOptions {
+	    insert?: boolean;
+	    update?: boolean;
+	    delete?: boolean;
+	    selectedInsertPks?: string[];
+	    selectedUpdatePks?: string[];
+	    selectedDeletePks?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TableOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.insert = source["insert"];
+	        this.update = source["update"];
+	        this.delete = source["delete"];
+	        this.selectedInsertPks = source["selectedInsertPks"];
+	        this.selectedUpdatePks = source["selectedUpdatePks"];
+	        this.selectedDeletePks = source["selectedDeletePks"];
+	    }
+	}
 	export class SyncConfig {
 	    sourceConfig: connection.ConnectionConfig;
 	    targetConfig: connection.ConnectionConfig;
 	    tables: string[];
+	    content?: string;
 	    mode: string;
+	    jobId?: string;
+	    autoAddColumns?: boolean;
+	    tableOptions?: Record<string, TableOptions>;
 	
 	    static createFrom(source: any = {}) {
 	        return new SyncConfig(source);
@@ -157,7 +183,11 @@ export namespace sync {
 	        this.sourceConfig = this.convertValues(source["sourceConfig"], connection.ConnectionConfig);
 	        this.targetConfig = this.convertValues(source["targetConfig"], connection.ConnectionConfig);
 	        this.tables = source["tables"];
+	        this.content = source["content"];
 	        this.mode = source["mode"];
+	        this.jobId = source["jobId"];
+	        this.autoAddColumns = source["autoAddColumns"];
+	        this.tableOptions = this.convertValues(source["tableOptions"], TableOptions, true);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

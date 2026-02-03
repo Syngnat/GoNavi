@@ -6,7 +6,7 @@ import { format } from 'sql-formatter';
 import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
 import { DBQuery, DBGetTables, DBGetAllColumns, DBGetDatabases, DBGetColumns } from '../../wailsjs/go/app/App';
-import DataGrid from './DataGrid';
+import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
 
 const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [query, setQuery] = useState(tab.query || 'SELECT * FROM ');
@@ -271,7 +271,11 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
             if (res.data.length > 0) {
                 const cols = Object.keys(res.data[0]);
                 setColumnNames(cols);
-                setResults(res.data.map((row: any, i: number) => ({ ...row, key: i })));
+                const rows = res.data as any[];
+                rows.forEach((row: any, i: number) => {
+                    if (row && typeof row === 'object') row[GONAVI_ROW_KEY] = i;
+                });
+                setResults(rows);
             } else {
                 message.info('查询执行成功，但没有返回结果。');
                 setResults([]);
