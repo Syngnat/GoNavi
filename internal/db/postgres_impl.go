@@ -3,6 +3,9 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
@@ -12,37 +15,45 @@ import (
 )
 
 type PostgresDB struct {
-	conn *sql.DB
+	conn        *sql.DB
+	pingTimeout time.Duration
 }
 
 func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 	// postgres://user:password@host:port/dbname?sslmode=disable
-	host := config.Host
-	port := config.Port
-	// SSH placeholder kept from original
-	if config.UseSSH {
-		// Logic to be implemented
-	}
-
 	dbname := config.Database
 	if dbname == "" {
 		dbname = "postgres" // Default DB
 	}
 
-	return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
-		config.User, config.Password, host, port, dbname)
+	u := &url.URL{
+		Scheme: "postgres",
+		Host:   net.JoinHostPort(config.Host, strconv.Itoa(config.Port)),
+		Path:   "/" + dbname,
+	}
+	u.User = url.UserPassword(config.User, config.Password)
+	q := url.Values{}
+	q.Set("sslmode", "disable")
+	q.Set("connect_timeout", strconv.Itoa(getConnectTimeoutSeconds(config)))
+	u.RawQuery = q.Encode()
+
+	return u.String()
 }
 
 func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 	dsn := p.getDSN(config)
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	p.conn = db
-	
+	p.pingTimeout = getConnectTimeout(config)
+		
 	// Force verification
-	return p.Ping()
+	if err := p.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (p *PostgresDB) Close() error {
@@ -56,7 +67,11 @@ func (p *PostgresDB) Ping() error {
 	if p.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := p.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return p.conn.PingContext(ctx)
 }

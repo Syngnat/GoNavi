@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { message } from 'antd';
 import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
-import { MySQLQuery, DBGetColumns } from '../../wailsjs/go/app/App';
+import { DBQuery, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid from './DataGrid';
 
 const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
@@ -41,6 +41,13 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
         ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
     };
 
+    const quoteIdent = (ident: string) => {
+        if (!ident) return ident;
+        if (config.type === 'mysql') return `\`${ident.replace(/`/g, '``')}\``;
+        return `"${ident.replace(/"/g, '""')}"`;
+    };
+    const escapeLiteral = (val: string) => val.replace(/'/g, "''");
+
     const dbName = tab.dbName || '';
     const tableName = tab.tableName || '';
 
@@ -48,27 +55,27 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
     filterConditions.forEach(cond => {
         if (cond.column && cond.value) {
             if (cond.op === 'LIKE') {
-                whereParts.push(`\`${cond.column}\` LIKE '%${cond.value}%'`);
+                whereParts.push(`${quoteIdent(cond.column)} LIKE '%${escapeLiteral(cond.value)}%'`);
             } else {
-                whereParts.push(`\`${cond.column}\` ${cond.op} '${cond.value}'`);
+                whereParts.push(`${quoteIdent(cond.column)} ${cond.op} '${escapeLiteral(cond.value)}'`);
             }
         }
     });
     const whereSQL = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : "";
 
-    const countSql = `SELECT COUNT(*) as total FROM \`${tableName}\` ${whereSQL}`;
+    const countSql = `SELECT COUNT(*) as total FROM ${quoteIdent(tableName)} ${whereSQL}`;
     
-    let sql = `SELECT * FROM \`${tableName}\` ${whereSQL}`;
+    let sql = `SELECT * FROM ${quoteIdent(tableName)} ${whereSQL}`;
     if (sortInfo && sortInfo.order) {
-        sql += ` ORDER BY \`${sortInfo.columnKey}\` ${sortInfo.order === 'ascend' ? 'ASC' : 'DESC'}`;
+        sql += ` ORDER BY ${quoteIdent(sortInfo.columnKey)} ${sortInfo.order === 'ascend' ? 'ASC' : 'DESC'}`;
     }
     const offset = (page - 1) * size;
     sql += ` LIMIT ${size} OFFSET ${offset}`;
 
     const startTime = Date.now();
     try {
-        const pCount = MySQLQuery(config as any, dbName, countSql);
-        const pData = MySQLQuery(config as any, dbName, sql);
+        const pCount = DBQuery(config as any, dbName, countSql);
+        const pData = DBQuery(config as any, dbName, sql);
         
         let pCols = null;
         if (pkColumns.length === 0) {

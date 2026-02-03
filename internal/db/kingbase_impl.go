@@ -14,7 +14,40 @@ import (
 )
 
 type KingbaseDB struct {
-	conn *sql.DB
+	conn        *sql.DB
+	pingTimeout time.Duration
+}
+
+func quoteConnValue(v string) string {
+	if v == "" {
+		return "''"
+	}
+
+	needsQuote := false
+	for _, r := range v {
+		switch r {
+		case ' ', '\t', '\n', '\r', '\v', '\f', '\'', '\\':
+			needsQuote = true
+		}
+		if needsQuote {
+			break
+		}
+	}
+	if !needsQuote {
+		return v
+	}
+
+	var b strings.Builder
+	b.Grow(len(v) + 2)
+	b.WriteByte('\'')
+	for _, r := range v {
+		if r == '\\' || r == '\'' {
+			b.WriteByte('\\')
+		}
+		b.WriteRune(r)
+	}
+	b.WriteByte('\'')
+	return b.String()
 }
 
 func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
@@ -39,8 +72,14 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 	}
 
 	// Construct DSN
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		address, port, config.User, config.Password, config.Database)
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=%d",
+		quoteConnValue(address),
+		port,
+		quoteConnValue(config.User),
+		quoteConnValue(config.Password),
+		quoteConnValue(config.Database),
+		getConnectTimeoutSeconds(config),
+	)
 
 	return dsn
 }
@@ -50,10 +89,14 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) error {
 	// Open using "kingbase" driver
 	db, err := sql.Open("kingbase", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	k.conn = db
-	return k.Ping()
+	k.pingTimeout = getConnectTimeout(config)
+	if err := k.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (k *KingbaseDB) Close() error {
@@ -67,7 +110,11 @@ func (k *KingbaseDB) Ping() error {
 	if k.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := k.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return k.conn.PingContext(ctx)
 }

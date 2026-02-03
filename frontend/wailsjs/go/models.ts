@@ -79,6 +79,7 @@ export namespace connection {
 	    ssh: SSHConfig;
 	    driver?: string;
 	    dsn?: string;
+	    timeout?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionConfig(source);
@@ -96,6 +97,7 @@ export namespace connection {
 	        this.ssh = this.convertValues(source["ssh"], SSHConfig);
 	        this.driver = source["driver"];
 	        this.dsn = source["dsn"];
+	        this.timeout = source["timeout"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

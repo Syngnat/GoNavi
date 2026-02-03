@@ -12,19 +12,24 @@ import (
 )
 
 type SQLiteDB struct {
-	conn *sql.DB
+	conn        *sql.DB
+	pingTimeout time.Duration
 }
 
 func (s *SQLiteDB) Connect(config connection.ConnectionConfig) error {
 	dsn := config.Host 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	s.conn = db
+	s.pingTimeout = getConnectTimeout(config)
 	
 	// Force verification
-	return s.Ping()
+	if err := s.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteDB) Close() error {
@@ -38,7 +43,11 @@ func (s *SQLiteDB) Ping() error {
 	if s.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := s.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return s.conn.PingContext(ctx)
 }

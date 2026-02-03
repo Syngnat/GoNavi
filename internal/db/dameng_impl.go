@@ -3,6 +3,9 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,14 +17,15 @@ import (
 )
 
 type DamengDB struct {
-	conn *sql.DB
+	conn        *sql.DB
+	pingTimeout time.Duration
 }
 
 func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 	// dm://user:password@host:port?schema=...
 	// or dm://user:password@host:port
 
-	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	address := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	if config.UseSSH {
 		// SSH logic similar to others, assumes port forwarding
 		_, err := ssh.RegisterSSHNetwork(config.SSH)
@@ -32,21 +36,36 @@ func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 		}
 	}
 
-	dsn := fmt.Sprintf("dm://%s:%s@%s", config.User, config.Password, address)
+	escapedPassword := url.PathEscape(config.Password)
+	q := url.Values{}
 	if config.Database != "" {
-		dsn += fmt.Sprintf("?schema=%s", config.Database)
+		q.Set("schema", config.Database)
 	}
-	return dsn
+	if escapedPassword != config.Password {
+		// 达梦驱动要求：密码包含特殊字符时，password 需 PathEscape，并添加 escapeProcess=true 让驱动解码。
+		q.Set("escapeProcess", "true")
+	}
+
+	dsn := fmt.Sprintf("dm://%s:%s@%s", config.User, escapedPassword, address)
+	encoded := q.Encode()
+	if encoded == "" {
+		return dsn
+	}
+	return dsn + "?" + encoded
 }
 
 func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
 	dsn := d.getDSN(config)
 	db, err := sql.Open("dm", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	d.conn = db
-	return d.Ping()
+	d.pingTimeout = getConnectTimeout(config)
+	if err := d.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (d *DamengDB) Close() error {
@@ -60,7 +79,11 @@ func (d *DamengDB) Ping() error {
 	if d.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := d.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return d.conn.PingContext(ctx)
 }

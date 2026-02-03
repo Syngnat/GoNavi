@@ -3,7 +3,9 @@ package sync
 import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/logger"
 	"fmt"
+	"strings"
 )
 
 // SyncConfig defines the parameters for a synchronization task
@@ -35,9 +37,11 @@ func NewSyncEngine() *SyncEngine {
 // CompareAndSync performs the synchronization
 func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 	result := SyncResult{Success: true, Logs: []string{}}
+	logger.Infof("开始数据同步：源=%s 目标=%s 表数量=%d", formatConnSummaryForSync(config.SourceConfig), formatConnSummaryForSync(config.TargetConfig), len(config.Tables))
 
 	sourceDB, err := db.NewDatabase(config.SourceConfig.Type)
 	if err != nil {
+		logger.Error(err, "初始化源数据库驱动失败：类型=%s", config.SourceConfig.Type)
 		return s.fail(result, "初始化源数据库驱动失败: "+err.Error())
 	}
 	if config.SourceConfig.Type == "custom" {
@@ -46,12 +50,14 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 
 	targetDB, err := db.NewDatabase(config.TargetConfig.Type)
 	if err != nil {
+		logger.Error(err, "初始化目标数据库驱动失败：类型=%s", config.TargetConfig.Type)
 		return s.fail(result, "初始化目标数据库驱动失败: "+err.Error())
 	}
 
 	// Connect Source
 	result.Logs = append(result.Logs, fmt.Sprintf("正在连接源数据库: %s...", config.SourceConfig.Host))
 	if err := sourceDB.Connect(config.SourceConfig); err != nil {
+		logger.Error(err, "源数据库连接失败：%s", formatConnSummaryForSync(config.SourceConfig))
 		return s.fail(result, "源数据库连接失败: "+err.Error())
 	}
 	defer sourceDB.Close()
@@ -59,6 +65,7 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 	// Connect Target
 	result.Logs = append(result.Logs, fmt.Sprintf("正在连接目标数据库: %s...", config.TargetConfig.Host))
 	if err := targetDB.Connect(config.TargetConfig); err != nil {
+		logger.Error(err, "目标数据库连接失败：%s", formatConnSummaryForSync(config.TargetConfig))
 		return s.fail(result, "目标数据库连接失败: "+err.Error())
 	}
 	defer targetDB.Close()
@@ -70,6 +77,7 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 		// 1. Get Columns & PKs (Naive approach: assume same schema)
 		cols, err := sourceDB.GetColumns(config.SourceConfig.Database, tableName)
 		if err != nil {
+			logger.Error(err, "获取源表列信息失败：表=%s", tableName)
 			result.Logs = append(result.Logs, fmt.Sprintf("获取表 %s 的列信息失败: %v", tableName, err))
 			continue
 		}
@@ -91,12 +99,14 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 		// TODO: Implement paging/streaming
 		sourceRows, _, err := sourceDB.Query(fmt.Sprintf("SELECT * FROM %s", tableName))
 		if err != nil {
+			logger.Error(err, "读取源表失败：表=%s", tableName)
 			result.Logs = append(result.Logs, fmt.Sprintf("读取源表 %s 失败: %v", tableName, err))
 			continue
 		}
 
 		targetRows, _, err := targetDB.Query(fmt.Sprintf("SELECT * FROM %s", tableName))
 		if err != nil {
+			logger.Error(err, "读取目标表失败：表=%s", tableName)
 			// Table might not exist in target?
 			// Check if error is "table not found" -> Try to Create?
 			// For now, assume table exists.
@@ -169,6 +179,21 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 	}
 
 	return result
+}
+
+func formatConnSummaryForSync(config connection.ConnectionConfig) string {
+	timeoutSeconds := config.Timeout
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 30
+	}
+
+	dbName := strings.TrimSpace(config.Database)
+	if dbName == "" {
+		dbName = "(default)"
+	}
+
+	return fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
+		config.Type, config.Host, config.Port, dbName, config.User, timeoutSeconds)
 }
 
 func (s *SyncEngine) fail(res SyncResult, msg string) SyncResult {

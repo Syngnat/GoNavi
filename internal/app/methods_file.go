@@ -9,6 +9,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/logger"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -181,7 +182,7 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 		_, err := dbInst.Exec(query)
 		if err != nil {
 			errCount++
-			fmt.Println("Import Error:", err)
+			logger.Error(err, "导入数据失败：表=%s", tableName)
 		} else {
 			successCount++
 		}

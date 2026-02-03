@@ -11,8 +11,9 @@ import (
 )
 
 type CustomDB struct {
-	conn   *sql.DB
-	driver string
+	conn        *sql.DB
+	driver      string
+	pingTimeout time.Duration
 }
 
 func (c *CustomDB) Connect(config connection.ConnectionConfig) error {
@@ -25,11 +26,15 @@ func (c *CustomDB) Connect(config connection.ConnectionConfig) error {
 
 	db, err := sql.Open(config.Driver, config.DSN)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	c.conn = db
 	c.driver = config.Driver
-	return c.Ping()
+	c.pingTimeout = getConnectTimeout(config)
+	if err := c.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (c *CustomDB) Close() error {
@@ -43,7 +48,11 @@ func (c *CustomDB) Ping() error {
 	if c.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := c.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return c.conn.PingContext(ctx)
 }

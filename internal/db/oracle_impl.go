@@ -3,6 +3,9 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +17,8 @@ import (
 )
 
 type OracleDB struct {
-	conn *sql.DB
+	conn        *sql.DB
+	pingTimeout time.Duration
 }
 
 func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
@@ -24,7 +28,6 @@ func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
 		database = config.User // Default to user service/schema if empty?
 	}
 
-	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
 	if config.UseSSH {
 		_, err := ssh.RegisterSSHNetwork(config.SSH)
 		if err == nil {
@@ -47,19 +50,28 @@ func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
 		}
 	}
 
-	// go-ora url structure: oracle://user:password@address:port/service_name
-	return fmt.Sprintf("oracle://%s:%s@%s/%s",
-		config.User, config.Password, address, database)
+	u := &url.URL{
+		Scheme: "oracle",
+		Host:   net.JoinHostPort(config.Host, strconv.Itoa(config.Port)),
+		Path:   "/" + database,
+	}
+	u.User = url.UserPassword(config.User, config.Password)
+	u.RawPath = "/" + url.PathEscape(database)
+	return u.String()
 }
 
 func (o *OracleDB) Connect(config connection.ConnectionConfig) error {
 	dsn := o.getDSN(config)
 	db, err := sql.Open("oracle", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	o.conn = db
-	return o.Ping()
+	o.pingTimeout = getConnectTimeout(config)
+	if err := o.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (o *OracleDB) Close() error {
@@ -73,7 +85,11 @@ func (o *OracleDB) Ping() error {
 	if o.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := o.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return o.conn.PingContext(ctx)
 }

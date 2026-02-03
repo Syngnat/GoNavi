@@ -16,3 +16,4 @@ dist/
 .gemini-clipboard
 GoNavi-Wails
 GoNavi-Wails.exe
+.ace-tool/

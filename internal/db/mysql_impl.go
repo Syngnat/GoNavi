@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/ssh"
 	"GoNavi-Wails/internal/utils"
 
@@ -14,7 +15,8 @@ import (
 )
 
 type MySQLDB struct {
-	conn *sql.DB
+	conn        *sql.DB
+	pingTimeout time.Duration
 }
 
 func (m *MySQLDB) getDSN(config connection.ConnectionConfig) string {
@@ -27,23 +29,31 @@ func (m *MySQLDB) getDSN(config connection.ConnectionConfig) string {
 		if err == nil {
 			protocol = netName
 			address = fmt.Sprintf("%s:%d", config.Host, config.Port)
+		} else {
+			logger.Warnf("注册 SSH 网络失败，将尝试直连：地址=%s:%d 用户=%s，原因：%v", config.Host, config.Port, config.User, err)
 		}
 	}
 
-	return fmt.Sprintf("%s:%s@%s(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-		config.User, config.Password, protocol, address, database)
+	timeout := getConnectTimeoutSeconds(config)
+
+	return fmt.Sprintf("%s:%s@%s(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=%ds",
+		config.User, config.Password, protocol, address, database, timeout)
 }
 
 func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 	dsn := m.getDSN(config)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开数据库连接失败：%w", err)
 	}
 	m.conn = db
+	m.pingTimeout = getConnectTimeout(config)
 	
 	// Force verification
-	return m.Ping()
+	if err := m.Ping(); err != nil {
+		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
 }
 
 func (m *MySQLDB) Close() error {
@@ -57,7 +67,11 @@ func (m *MySQLDB) Ping() error {
 	if m.conn == nil {
 		return fmt.Errorf("connection not open")
 	}
-	ctx, cancel := utils.ContextWithTimeout(5 * time.Second)
+	timeout := m.pingTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := utils.ContextWithTimeout(timeout)
 	defer cancel()
 	return m.conn.PingContext(ctx)
 }

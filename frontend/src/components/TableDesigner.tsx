@@ -7,7 +7,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { Resizable } from 'react-resizable';
 import { TabData, ColumnDefinition, IndexDefinition, ForeignKeyDefinition, TriggerDefinition } from '../types';
 import { useStore } from '../store';
-import { DBGetColumns, DBGetIndexes, MySQLQuery, DBGetForeignKeys, DBGetTriggers, DBShowCreateTable } from '../../wailsjs/go/app/App';
+import { DBGetColumns, DBGetIndexes, DBQuery, DBGetForeignKeys, DBGetTriggers, DBShowCreateTable } from '../../wailsjs/go/app/App';
 
 // Need styles for react-resizable
 import 'react-resizable/css/styles.css';
@@ -518,15 +518,15 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
       }
   };
 
-  const handleExecuteSave = async () => {
-      const conn = connections.find(c => c.id === tab.connectionId);
-      if (!conn) return;
-      const config = { ...conn.config, port: Number(conn.config.port), password: conn.config.password || "", database: conn.config.database || "", useSSH: conn.config.useSSH || false, ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" } };
-      const res = await MySQLQuery(config as any, tab.dbName || '', previewSql);
-      if (res.success) {
-          message.success(isNewTable ? "表创建成功！" : "表结构修改成功！");
-          setIsPreviewOpen(false);
-          if (!isNewTable) {
+	  const handleExecuteSave = async () => {
+	      const conn = connections.find(c => c.id === tab.connectionId);
+	      if (!conn) return;
+	      const config = { ...conn.config, port: Number(conn.config.port), password: conn.config.password || "", database: conn.config.database || "", useSSH: conn.config.useSSH || false, ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" } };
+	      const res = await DBQuery(config as any, tab.dbName || '', previewSql);
+	      if (res.success) {
+	          message.success(isNewTable ? "表创建成功！" : "表结构修改成功！");
+	          setIsPreviewOpen(false);
+	          if (!isNewTable) {
               fetchData();
           } else {
               // TODO: Close tab or reload sidebar?

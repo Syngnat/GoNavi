@@ -21,6 +21,7 @@ type ConnectionConfig struct {
 	SSH      SSHConfig `json:"ssh"`
 	Driver   string    `json:"driver,omitempty"` // For custom connection
 	DSN      string    `json:"dsn,omitempty"`    // For custom connection
+	Timeout  int       `json:"timeout,omitempty"` // Connection timeout in seconds (default: 30)
 }
 
 // QueryResult is the standard response format for Wails methods

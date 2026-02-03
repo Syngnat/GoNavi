@@ -5,7 +5,7 @@ import { PlayCircleOutlined, SaveOutlined, FormatPainterOutlined, SettingOutline
 import { format } from 'sql-formatter';
 import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
-import { MySQLQuery, DBGetTables, DBGetAllColumns, MySQLGetDatabases, DBGetColumns } from '../../wailsjs/go/app/App';
+import { DBQuery, DBGetTables, DBGetAllColumns, DBGetDatabases, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid from './DataGrid';
 
 const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
@@ -60,7 +60,7 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
             ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
           };
 
-          const res = await MySQLGetDatabases(config as any);
+          const res = await DBGetDatabases(config as any);
           if (res.success && Array.isArray(res.data)) {
               const dbs = res.data.map((row: any) => row.Database || row.database);
               setDbList(dbs);
@@ -252,7 +252,7 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
     const startTime = Date.now();
     try {
-        const res = await MySQLQuery(config as any, currentDb, query);
+        const res = await DBQuery(config as any, currentDb, query);
         const duration = Date.now() - startTime;
         
         addSqlLog({

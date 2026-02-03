@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/logger"
 )
 
 // Generic DB Methods
@@ -13,18 +14,22 @@ func (a *App) DBConnect(config connection.ConnectionConfig) connection.QueryResu
 	// getDatabase checks cache and Pings. If valid, reuses. If not, connects.
 	_, err := a.getDatabase(config)
 	if err != nil {
+		logger.Error(err, "DBConnect 连接失败：%s", formatConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	
+	logger.Infof("DBConnect 连接成功：%s", formatConnSummary(config))
 	return connection.QueryResult{Success: true, Message: "连接成功"}
 }
 
 func (a *App) TestConnection(config connection.ConnectionConfig) connection.QueryResult {
 	_, err := a.getDatabase(config)
 	if err != nil {
+		logger.Error(err, "TestConnection 连接测试失败：%s", formatConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	
+	logger.Infof("TestConnection 连接测试成功：%s", formatConnSummary(config))
 	return connection.QueryResult{Success: true, Message: "连接成功"}
 }
 
@@ -37,9 +42,11 @@ func (a *App) CreateDatabase(config connection.ConnectionConfig, dbName string) 
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	query := fmt.Sprintf("CREATE DATABASE `%%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", dbName)
+	escapedDbName := strings.ReplaceAll(dbName, "`", "``")
+	query := fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", escapedDbName)
 	if runConfig.Type == "postgres" {
-		query = fmt.Sprintf("CREATE DATABASE \"%%s\"", dbName)
+		escapedDbName = strings.ReplaceAll(dbName, `"`, `""`)
+		query = fmt.Sprintf("CREATE DATABASE \"%s\"", escapedDbName)
 	}
 
 	_, err = dbInst.Exec(query)
@@ -83,6 +90,7 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 
 	dbInst, err := a.getDatabase(runConfig)
 	if err != nil {
+		logger.Error(err, "DBQuery 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
@@ -90,26 +98,39 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 	if strings.HasPrefix(lowerQuery, "select") || strings.HasPrefix(lowerQuery, "show") || strings.HasPrefix(lowerQuery, "describe") || strings.HasPrefix(lowerQuery, "explain") {
 		data, columns, err := dbInst.Query(query)
 		if err != nil {
+			logger.Error(err, "DBQuery 查询失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
 		return connection.QueryResult{Success: true, Data: data, Fields: columns}
 	} else {
 		affected, err := dbInst.Exec(query)
 		if err != nil {
+			logger.Error(err, "DBQuery 执行失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
 		return connection.QueryResult{Success: true, Data: map[string]int64{"affectedRows": affected}}
 	}
 }
 
+func sqlSnippet(query string) string {
+	q := strings.TrimSpace(query)
+	const max = 200
+	if len(q) <= max {
+		return q
+	}
+	return q[:max] + "..."
+}
+
 func (a *App) DBGetDatabases(config connection.ConnectionConfig) connection.QueryResult {
 	dbInst, err := a.getDatabase(config)
 	if err != nil {
+		logger.Error(err, "DBGetDatabases 获取连接失败：%s", formatConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	dbs, err := dbInst.GetDatabases()
 	if err != nil {
+		logger.Error(err, "DBGetDatabases 获取数据库列表失败：%s", formatConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	
@@ -129,11 +150,13 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 
 	dbInst, err := a.getDatabase(runConfig)
 	if err != nil {
+		logger.Error(err, "DBGetTables 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	tables, err := dbInst.GetTables(dbName)
 	if err != nil {
+		logger.Error(err, "DBGetTables 获取表列表失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
@@ -153,11 +176,13 @@ func (a *App) DBShowCreateTable(config connection.ConnectionConfig, dbName strin
 
 	dbInst, err := a.getDatabase(runConfig)
 	if err != nil {
+		logger.Error(err, "DBShowCreateTable 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	sqlStr, err := dbInst.GetCreateStatement(dbName, tableName)
 	if err != nil {
+		logger.Error(err, "DBShowCreateTable 获取建表语句失败：%s 表=%s", formatConnSummary(runConfig), tableName)
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 

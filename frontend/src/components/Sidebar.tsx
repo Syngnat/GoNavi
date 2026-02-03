@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge } from 'antd';
-import { 
-  DatabaseOutlined, 
-  TableOutlined, 
-  ConsoleSqlOutlined, 
+	import {
+	  DatabaseOutlined, 
+	  TableOutlined, 
+	  ConsoleSqlOutlined, 
   HddOutlined, 
   FolderOpenOutlined, 
   FileTextOutlined,
@@ -23,10 +23,10 @@ import {
   ReloadOutlined,
   DeleteOutlined,
   DisconnectOutlined
-} from '@ant-design/icons';
-import { useStore } from '../store';
-import { SavedConnection } from '../types';
-import { MySQLGetDatabases, MySQLGetTables, MySQLShowCreateTable, ExportTable, OpenSQLFile, CreateDatabase } from '../../wailsjs/go/app/App';
+	} from '@ant-design/icons';
+	import { useStore } from '../store';
+	import { SavedConnection } from '../types';
+	import { DBGetDatabases, DBGetTables, DBShowCreateTable, ExportTable, OpenSQLFile, CreateDatabase } from '../../wailsjs/go/app/App';
 
 const { Search } = Input;
 
@@ -116,21 +116,21 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
     });
   };
 
-  const loadDatabases = async (node: any) => {
-      const conn = node.dataRef as SavedConnection;
-      const config = { 
-          ...conn.config, 
+	  const loadDatabases = async (node: any) => {
+	      const conn = node.dataRef as SavedConnection;
+	      const config = { 
+	          ...conn.config, 
           port: Number(conn.config.port),
           password: conn.config.password || "",
           database: conn.config.database || "",
-          useSSH: conn.config.useSSH || false,
-          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
-      };
-      const res = await MySQLGetDatabases(config as any);
-      if (res.success) {
-        setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
-        let dbs = (res.data as any[]).map((row: any) => ({
-          title: row.Database || row.database,
+	          useSSH: conn.config.useSSH || false,
+	          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+	      };
+	      const res = await DBGetDatabases(config as any);
+	      if (res.success) {
+	        setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
+	        let dbs = (res.data as any[]).map((row: any) => ({
+	          title: row.Database || row.database,
           key: `${conn.id}-${row.Database || row.database}`,
           icon: <DatabaseOutlined />,
           type: 'database' as const,
@@ -150,9 +150,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       }
   };
 
-  const loadTables = async (node: any) => {
-      const conn = node.dataRef; // has dbName
-      const dbName = conn.dbName;
+	  const loadTables = async (node: any) => {
+	      const conn = node.dataRef; // has dbName
+	      const dbName = conn.dbName;
       const key = node.key;
       
       const dbQueries = savedQueries.filter(q => q.connectionId === conn.id && q.dbName === dbName);
@@ -178,13 +178,13 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           port: Number(conn.config.port),
           password: conn.config.password || "",
           database: conn.config.database || "",
-          useSSH: conn.config.useSSH || false,
-          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
-      };
-      const res = await MySQLGetTables(config as any, conn.dbName);
-      if (res.success) {
-        setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
-        const tables = (res.data as any[]).map((row: any) => {
+	          useSSH: conn.config.useSSH || false,
+	          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+	      };
+	      const res = await DBGetTables(config as any, conn.dbName);
+	      if (res.success) {
+	        setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
+	        const tables = (res.data as any[]).map((row: any) => {
             const tableName = Object.values(row)[0] as string;
             return {
               title: tableName,
@@ -345,13 +345,13 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       }
   };
   
-  const handleCopyStructure = async (node: any) => {
-      const { config, dbName, tableName } = node.dataRef;
-      const res = await MySQLShowCreateTable({ 
-          ...config, 
-          port: Number(config.port),
-          password: config.password || "",
-          database: config.database || "",
+	  const handleCopyStructure = async (node: any) => {
+	      const { config, dbName, tableName } = node.dataRef;
+	      const res = await DBShowCreateTable({ 
+	          ...config, 
+	          port: Number(config.port),
+	          password: config.password || "",
+	          database: config.database || "",
           useSSH: config.useSSH || false,
           ssh: config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
       } as any, dbName, tableName);
