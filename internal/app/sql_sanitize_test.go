@@ -11,6 +11,24 @@ func TestSanitizeSQLForPgLike_FixesBrokenDoubleDoubleQuotes(t *testing.T) {
 	}
 }
 
+func TestSanitizeSQLForPgLike_FixesBrokenDoubleDoubleQuotes_WithExtraQuotes(t *testing.T) {
+	in := `SELECT * FROM ""ldf_server""".""t_user"" LIMIT 1`
+	out := sanitizeSQLForPgLike("kingbase", in)
+	want := `SELECT * FROM "ldf_server"."t_user" LIMIT 1`
+	if out != want {
+		t.Fatalf("unexpected sanitize output:\nIN:   %s\nOUT:  %s\nWANT: %s", in, out, want)
+	}
+}
+
+func TestSanitizeSQLForPgLike_FixesBrokenDoubleDoubleQuotes_WithQuadQuotes(t *testing.T) {
+	in := `SELECT * FROM """"ldf_server"""".""t_user"" LIMIT 1`
+	out := sanitizeSQLForPgLike("kingbase", in)
+	want := `SELECT * FROM "ldf_server"."t_user" LIMIT 1`
+	if out != want {
+		t.Fatalf("unexpected sanitize output:\nIN:   %s\nOUT:  %s\nWANT: %s", in, out, want)
+	}
+}
+
 func TestSanitizeSQLForPgLike_DoesNotTouchEscapedQuotesInsideIdentifier(t *testing.T) {
 	in := `SELECT "a""b" FROM "t""x"`
 	out := sanitizeSQLForPgLike("postgres", in)

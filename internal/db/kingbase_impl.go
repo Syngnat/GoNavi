@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/ssh"
 	"GoNavi-Wails/internal/utils"
 
@@ -17,6 +20,7 @@ import (
 type KingbaseDB struct {
 	conn        *sql.DB
 	pingTimeout time.Duration
+	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
 
 func quoteConnValue(v string) string {
@@ -58,20 +62,6 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 	address := config.Host
 	port := config.Port
 
-	if config.UseSSH {
-		netName, err := ssh.RegisterSSHNetwork(config.SSH)
-		if err == nil {
-			// Kingbase/Postgres lib/pq allows custom dialer via "host" if using unix socket,
-			// but for custom network it's harder.
-			// Ideally we use a local forwarder.
-			// For now, we assume standard TCP or handle SSH externally.
-			// If we implement the net.Dial override for "kingbase" driver (which might use lib/pq internally),
-			// we might need to check if it supports "cloudsql" style or similar custom dialers.
-			// Similar to others, skipping SSH deep integration here for now.
-			_ = netName
-		}
-	}
-
 	// Construct DSN
 	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=%d",
 		quoteConnValue(address),
@@ -86,7 +76,42 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (k *KingbaseDB) Connect(config connection.ConnectionConfig) error {
-	dsn := k.getDSN(config)
+	var dsn string
+	var err error
+
+	if config.UseSSH {
+		// Create SSH tunnel with local port forwarding
+		logger.Infof("人大金仓使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
+
+		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		if err != nil {
+			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
+		}
+		k.forwarder = forwarder
+
+		// Parse local address
+		host, portStr, err := net.SplitHostPort(forwarder.LocalAddr)
+		if err != nil {
+			return fmt.Errorf("解析本地转发地址失败：%w", err)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return fmt.Errorf("解析本地端口失败：%w", err)
+		}
+
+		// Create a modified config pointing to local forwarder
+		localConfig := config
+		localConfig.Host = host
+		localConfig.Port = port
+		localConfig.UseSSH = false
+
+		dsn = k.getDSN(localConfig)
+		logger.Infof("人大金仓通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
+	} else {
+		dsn = k.getDSN(config)
+	}
+
 	// Open using "kingbase" driver
 	db, err := sql.Open("kingbase", dsn)
 	if err != nil {
@@ -101,6 +126,15 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) error {
 }
 
 func (k *KingbaseDB) Close() error {
+	// Close SSH forwarder first if exists
+	if k.forwarder != nil {
+		if err := k.forwarder.Close(); err != nil {
+			logger.Warnf("关闭人大金仓 SSH 端口转发失败：%v", err)
+		}
+		k.forwarder = nil
+	}
+
+	// Then close database connection
 	if k.conn != nil {
 		return k.conn.Close()
 	}
@@ -144,33 +178,7 @@ func (k *KingbaseDB) Query(query string) ([]map[string]interface{}, []string, er
 		return nil, nil, err
 	}
 	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var resultData []map[string]interface{}
-
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range columns {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			continue
-		}
-
-		entry := make(map[string]interface{})
-		for i, col := range columns {
-			entry[col] = normalizeQueryValue(values[i])
-		}
-		resultData = append(resultData, entry)
-	}
-
-	return resultData, columns, nil
+	return scanRows(rows)
 }
 
 func (k *KingbaseDB) ExecContext(ctx context.Context, query string) (int64, error) {
@@ -249,15 +257,84 @@ func (k *KingbaseDB) GetCreateStatement(dbName, tableName string) (string, error
 }
 
 func (k *KingbaseDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	schema := "public"
-	if dbName != "" {
-		schema = dbName
+	// 解析 schema.table 格式
+	schema := strings.TrimSpace(dbName)
+	table := strings.TrimSpace(tableName)
+
+	// 如果 tableName 包含 schema (格式: schema.table)
+	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
+		parsedSchema := strings.TrimSpace(parts[0])
+		parsedTable := strings.TrimSpace(parts[1])
+		if parsedSchema != "" && parsedTable != "" {
+			schema = parsedSchema
+			table = parsedTable
+		}
 	}
 
-	query := fmt.Sprintf(`SELECT column_name, data_type, is_nullable, column_default 
-		FROM information_schema.columns 
-		WHERE table_schema = '%s' AND table_name = '%s' 
-		ORDER BY ordinal_position`, schema, tableName)
+	// 如果仍然没有 schema,使用 current_schema()
+	// 这样可以自动匹配当前连接的 search_path
+	if schema == "" {
+		return k.getColumnsWithCurrentSchema(table)
+	}
+
+	if table == "" {
+		return nil, fmt.Errorf("table name required")
+	}
+
+	// 转义函数:处理单引号,移除双引号
+	esc := func(s string) string {
+		// 移除前后的双引号(如果存在)
+		s = strings.Trim(s, "\"")
+		// 转义单引号
+		return strings.ReplaceAll(s, "'", "''")
+	}
+
+	query := fmt.Sprintf(`SELECT column_name, data_type, is_nullable, column_default
+		FROM information_schema.columns
+		WHERE table_schema = '%s' AND table_name = '%s'
+		ORDER BY ordinal_position`, esc(schema), esc(table))
+
+	data, _, err := k.Query(query)
+	if err != nil {
+		return nil, err
+	}
+
+	var columns []connection.ColumnDefinition
+	for _, row := range data {
+		col := connection.ColumnDefinition{
+			Name:     fmt.Sprintf("%v", row["column_name"]),
+			Type:     fmt.Sprintf("%v", row["data_type"]),
+			Nullable: fmt.Sprintf("%v", row["is_nullable"]),
+		}
+
+		if row["column_default"] != nil {
+			def := fmt.Sprintf("%v", row["column_default"])
+			col.Default = &def
+		}
+
+		columns = append(columns, col)
+	}
+	return columns, nil
+}
+
+// getColumnsWithCurrentSchema 使用 current_schema() 查询当前schema的表
+func (k *KingbaseDB) getColumnsWithCurrentSchema(tableName string) ([]connection.ColumnDefinition, error) {
+	table := strings.TrimSpace(tableName)
+	if table == "" {
+		return nil, fmt.Errorf("table name required")
+	}
+
+	// 转义函数
+	esc := func(s string) string {
+		s = strings.Trim(s, "\"")
+		return strings.ReplaceAll(s, "'", "''")
+	}
+
+	// 使用 current_schema() 获取当前schema
+	query := fmt.Sprintf(`SELECT column_name, data_type, is_nullable, column_default
+		FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = '%s'
+		ORDER BY ordinal_position`, esc(table))
 
 	data, _, err := k.Query(query)
 	if err != nil {
@@ -283,32 +360,76 @@ func (k *KingbaseDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 }
 
 func (k *KingbaseDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
-	// Postgres/Kingbase index query
-	query := fmt.Sprintf(`
-		SELECT
-			i.relname as index_name,
-			a.attname as column_name,
-			ix.indisunique as is_unique
-		FROM
-			pg_class t,
-			pg_class i,
-			pg_index ix,
-			pg_attribute a,
-			pg_namespace n
-		WHERE
-			t.oid = ix.indrelid
-			AND i.oid = ix.indexrelid
-			AND a.attrelid = t.oid
-			AND a.attnum = ANY(ix.indkey)
-			AND t.relkind = 'r'
-			AND t.relname = '%s'
-			AND n.oid = t.relnamespace
-			AND n.nspname = '%s'
-	`, tableName, "public") // Default to public if dbName (schema) not clear.
+	// 解析 schema.table 格式
+	schema := strings.TrimSpace(dbName)
+	table := strings.TrimSpace(tableName)
 
-	if dbName != "" {
-		// Update query to use dbName as schema
-		query = strings.Replace(query, "'public'", fmt.Sprintf("'%s'", dbName), 1)
+	// 如果 tableName 包含 schema (格式: schema.table)
+	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
+		parsedSchema := strings.TrimSpace(parts[0])
+		parsedTable := strings.TrimSpace(parts[1])
+		if parsedSchema != "" && parsedTable != "" {
+			schema = parsedSchema
+			table = parsedTable
+		}
+	}
+
+	if table == "" {
+		return nil, fmt.Errorf("table name required")
+	}
+
+	// 转义函数:处理单引号,移除双引号
+	esc := func(s string) string {
+		s = strings.Trim(s, "\"")
+		return strings.ReplaceAll(s, "'", "''")
+	}
+
+	// 构建查询：如果没有指定schema,使用current_schema()
+	var query string
+	if schema != "" {
+		query = fmt.Sprintf(`
+			SELECT
+				i.relname as index_name,
+				a.attname as column_name,
+				ix.indisunique as is_unique
+			FROM
+				pg_class t,
+				pg_class i,
+				pg_index ix,
+				pg_attribute a,
+				pg_namespace n
+			WHERE
+				t.oid = ix.indrelid
+				AND i.oid = ix.indexrelid
+				AND a.attrelid = t.oid
+				AND a.attnum = ANY(ix.indkey)
+				AND t.relkind = 'r'
+				AND t.relname = '%s'
+				AND n.oid = t.relnamespace
+				AND n.nspname = '%s'
+		`, esc(table), esc(schema))
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				i.relname as index_name,
+				a.attname as column_name,
+				ix.indisunique as is_unique
+			FROM
+				pg_class t,
+				pg_class i,
+				pg_index ix,
+				pg_attribute a,
+				pg_namespace n
+			WHERE
+				t.oid = ix.indrelid
+				AND i.oid = ix.indexrelid
+				AND a.attrelid = t.oid
+				AND a.attnum = ANY(ix.indkey)
+				AND t.relkind = 'r'
+				AND t.relname = '%s'
+				AND n.oid = t.relnamespace
+				AND n.nspname = current_schema()
+		`, esc(table))
 	}
 
 	data, _, err := k.Query(query)
@@ -337,27 +458,67 @@ func (k *KingbaseDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 }
 
 func (k *KingbaseDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
-	schema := "public"
-	if dbName != "" {
-		schema = dbName
+	// 解析 schema.table 格式
+	schema := strings.TrimSpace(dbName)
+	table := strings.TrimSpace(tableName)
+
+	// 如果 tableName 包含 schema (格式: schema.table)
+	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
+		parsedSchema := strings.TrimSpace(parts[0])
+		parsedTable := strings.TrimSpace(parts[1])
+		if parsedSchema != "" && parsedTable != "" {
+			schema = parsedSchema
+			table = parsedTable
+		}
 	}
 
-	query := fmt.Sprintf(`
-		SELECT
-			tc.constraint_name, 
-			kcu.column_name, 
-			ccu.table_name AS foreign_table_name,
-			ccu.column_name AS foreign_column_name 
-		FROM 
-			information_schema.table_constraints AS tc 
-			JOIN information_schema.key_column_usage AS kcu
-			  ON tc.constraint_name = kcu.constraint_name
-			  AND tc.table_schema = kcu.table_schema
-			JOIN information_schema.constraint_column_usage AS ccu
-			  ON ccu.constraint_name = tc.constraint_name
-			  AND ccu.table_schema = tc.table_schema
-		WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='%s' AND tc.table_schema='%s'`,
-		tableName, schema)
+	if table == "" {
+		return nil, fmt.Errorf("table name required")
+	}
+
+	// 转义函数:处理单引号,移除双引号
+	esc := func(s string) string {
+		s = strings.Trim(s, "\"")
+		return strings.ReplaceAll(s, "'", "''")
+	}
+
+	// 构建查询：如果没有指定schema,使用current_schema()
+	var query string
+	if schema != "" {
+		query = fmt.Sprintf(`
+			SELECT
+				tc.constraint_name,
+				kcu.column_name,
+				ccu.table_name AS foreign_table_name,
+				ccu.column_name AS foreign_column_name
+			FROM
+				information_schema.table_constraints AS tc
+				JOIN information_schema.key_column_usage AS kcu
+				  ON tc.constraint_name = kcu.constraint_name
+				  AND tc.table_schema = kcu.table_schema
+				JOIN information_schema.constraint_column_usage AS ccu
+				  ON ccu.constraint_name = tc.constraint_name
+				  AND ccu.table_schema = tc.table_schema
+			WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='%s' AND tc.table_schema='%s'`,
+			esc(table), esc(schema))
+	} else {
+		query = fmt.Sprintf(`
+			SELECT
+				tc.constraint_name,
+				kcu.column_name,
+				ccu.table_name AS foreign_table_name,
+				ccu.column_name AS foreign_column_name
+			FROM
+				information_schema.table_constraints AS tc
+				JOIN information_schema.key_column_usage AS kcu
+				  ON tc.constraint_name = kcu.constraint_name
+				  AND tc.table_schema = kcu.table_schema
+				JOIN information_schema.constraint_column_usage AS ccu
+				  ON ccu.constraint_name = tc.constraint_name
+				  AND ccu.table_schema = tc.table_schema
+			WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='%s' AND tc.table_schema=current_schema()`,
+			esc(table))
+	}
 
 	data, _, err := k.Query(query)
 	if err != nil {
@@ -379,9 +540,43 @@ func (k *KingbaseDB) GetForeignKeys(dbName, tableName string) ([]connection.Fore
 }
 
 func (k *KingbaseDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
-	query := fmt.Sprintf(`SELECT trigger_name, action_timing, event_manipulation 
-		FROM information_schema.triggers 
-		WHERE event_object_table = '%s'`, tableName)
+	// 解析 schema.table 格式
+	schema := strings.TrimSpace(dbName)
+	table := strings.TrimSpace(tableName)
+
+	// 如果 tableName 包含 schema (格式: schema.table)
+	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
+		parsedSchema := strings.TrimSpace(parts[0])
+		parsedTable := strings.TrimSpace(parts[1])
+		if parsedSchema != "" && parsedTable != "" {
+			schema = parsedSchema
+			table = parsedTable
+		}
+	}
+
+	if table == "" {
+		return nil, fmt.Errorf("table name required")
+	}
+
+	// 转义函数:处理单引号,移除双引号
+	esc := func(s string) string {
+		s = strings.Trim(s, "\"")
+		return strings.ReplaceAll(s, "'", "''")
+	}
+
+	// 构建查询：如果指定了schema,也加上schema条件
+	var query string
+	if schema != "" {
+		query = fmt.Sprintf(`SELECT trigger_name, action_timing, event_manipulation
+			FROM information_schema.triggers
+			WHERE event_object_table = '%s' AND event_object_schema = '%s'`,
+			esc(table), esc(schema))
+	} else {
+		query = fmt.Sprintf(`SELECT trigger_name, action_timing, event_manipulation
+			FROM information_schema.triggers
+			WHERE event_object_table = '%s' AND event_object_schema = current_schema()`,
+			esc(table))
+	}
 
 	data, _, err := k.Query(query)
 	if err != nil {

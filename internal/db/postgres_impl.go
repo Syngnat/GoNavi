@@ -11,15 +11,20 @@ import (
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/logger"
+	"GoNavi-Wails/internal/ssh"
 	"GoNavi-Wails/internal/utils"
 
 	_ "github.com/lib/pq"
 )
 
+
 type PostgresDB struct {
 	conn        *sql.DB
 	pingTimeout time.Duration
+	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
+
 
 func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 	// postgres://user:password@host:port/dbname?sslmode=disable
@@ -43,7 +48,42 @@ func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
-	dsn := p.getDSN(config)
+	var dsn string
+	var err error
+
+	if config.UseSSH {
+		// Create SSH tunnel with local port forwarding
+		logger.Infof("PostgreSQL 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
+
+		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		if err != nil {
+			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
+		}
+		p.forwarder = forwarder
+
+		// Parse local address
+		host, portStr, err := net.SplitHostPort(forwarder.LocalAddr)
+		if err != nil {
+			return fmt.Errorf("解析本地转发地址失败：%w", err)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return fmt.Errorf("解析本地端口失败：%w", err)
+		}
+
+		// Create a modified config pointing to local forwarder
+		localConfig := config
+		localConfig.Host = host
+		localConfig.Port = port
+		localConfig.UseSSH = false // Disable SSH flag for DSN generation
+
+		dsn = p.getDSN(localConfig)
+		logger.Infof("PostgreSQL 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
+	} else {
+		dsn = p.getDSN(config)
+	}
+
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return fmt.Errorf("打开数据库连接失败：%w", err)
@@ -58,7 +98,17 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 	return nil
 }
 
+
 func (p *PostgresDB) Close() error {
+	// Close SSH forwarder first if exists
+	if p.forwarder != nil {
+		if err := p.forwarder.Close(); err != nil {
+			logger.Warnf("关闭 PostgreSQL SSH 端口转发失败：%v", err)
+		}
+		p.forwarder = nil
+	}
+
+	// Then close database connection
 	if p.conn != nil {
 		return p.conn.Close()
 	}
@@ -102,33 +152,7 @@ func (p *PostgresDB) Query(query string) ([]map[string]interface{}, []string, er
 		return nil, nil, err
 	}
 	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var resultData []map[string]interface{}
-
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range columns {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			continue
-		}
-
-		entry := make(map[string]interface{})
-		for i, col := range columns {
-			entry[col] = normalizeQueryValue(values[i])
-		}
-		resultData = append(resultData, entry)
-	}
-
-	return resultData, columns, nil
+	return scanRows(rows)
 }
 
 func (p *PostgresDB) ExecContext(ctx context.Context, query string) (int64, error) {

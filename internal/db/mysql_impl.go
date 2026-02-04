@@ -101,33 +101,7 @@ func (m *MySQLDB) Query(query string) ([]map[string]interface{}, []string, error
 		return nil, nil, err
 	}
 	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var resultData []map[string]interface{}
-
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range columns {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			continue
-		}
-
-		entry := make(map[string]interface{})
-		for i, col := range columns {
-			entry[col] = normalizeQueryValue(values[i])
-		}
-		resultData = append(resultData, entry)
-	}
-
-	return resultData, columns, nil
+	return scanRows(rows)
 }
 
 func (m *MySQLDB) ExecContext(ctx context.Context, query string) (int64, error) {

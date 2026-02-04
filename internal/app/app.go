@@ -141,9 +141,6 @@ func (a *App) getDatabase(config connection.ConnectionConfig) (db.Database, erro
 	if len(shortKey) > 12 {
 		shortKey = shortKey[:12]
 	}
-	if config.UseSSH && config.Type != "mysql" {
-		logger.Warnf("当前仅 MySQL 支持内置 SSH 直连，其他类型请使用本地端口转发：%s", formatConnSummary(config))
-	}
 	logger.Infof("获取数据库连接：%s 缓存Key=%s", formatConnSummary(config), shortKey)
 
 	a.mu.Lock()

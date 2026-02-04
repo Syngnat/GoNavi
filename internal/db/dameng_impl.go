@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/ssh"
 	"GoNavi-Wails/internal/utils"
 
@@ -20,6 +21,7 @@ import (
 type DamengDB struct {
 	conn        *sql.DB
 	pingTimeout time.Duration
+	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
 
 func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
@@ -27,16 +29,6 @@ func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 	// or dm://user:password@host:port
 
 	address := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
-	if config.UseSSH {
-		// SSH logic similar to others, assumes port forwarding
-		_, err := ssh.RegisterSSHNetwork(config.SSH)
-		if err == nil {
-			// DM driver likely uses standard net.Dial, so we might need a local listener
-			// or assume port forwarding is handled externally or implicitly via "tcp" override if driver allows.
-			// Similar to Oracle, we skip complex custom dialer injection for now.
-		}
-	}
-
 	escapedPassword := url.PathEscape(config.Password)
 	q := url.Values{}
 	if config.Database != "" {
@@ -56,7 +48,42 @@ func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
-	dsn := d.getDSN(config)
+	var dsn string
+	var err error
+
+	if config.UseSSH {
+		// Create SSH tunnel with local port forwarding
+		logger.Infof("达梦数据库使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
+
+		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		if err != nil {
+			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
+		}
+		d.forwarder = forwarder
+
+		// Parse local address
+		host, portStr, err := net.SplitHostPort(forwarder.LocalAddr)
+		if err != nil {
+			return fmt.Errorf("解析本地转发地址失败：%w", err)
+		}
+
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return fmt.Errorf("解析本地端口失败：%w", err)
+		}
+
+		// Create a modified config pointing to local forwarder
+		localConfig := config
+		localConfig.Host = host
+		localConfig.Port = port
+		localConfig.UseSSH = false
+
+		dsn = d.getDSN(localConfig)
+		logger.Infof("达梦数据库通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
+	} else {
+		dsn = d.getDSN(config)
+	}
+
 	db, err := sql.Open("dm", dsn)
 	if err != nil {
 		return fmt.Errorf("打开数据库连接失败：%w", err)
@@ -70,6 +97,15 @@ func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
 }
 
 func (d *DamengDB) Close() error {
+	// Close SSH forwarder first if exists
+	if d.forwarder != nil {
+		if err := d.forwarder.Close(); err != nil {
+			logger.Warnf("关闭达梦数据库 SSH 端口转发失败：%v", err)
+		}
+		d.forwarder = nil
+	}
+
+	// Then close database connection
 	if d.conn != nil {
 		return d.conn.Close()
 	}
@@ -113,33 +149,7 @@ func (d *DamengDB) Query(query string) ([]map[string]interface{}, []string, erro
 		return nil, nil, err
 	}
 	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var resultData []map[string]interface{}
-
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range columns {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			continue
-		}
-
-		entry := make(map[string]interface{})
-		for i, col := range columns {
-			entry[col] = normalizeQueryValue(values[i])
-		}
-		resultData = append(resultData, entry)
-	}
-
-	return resultData, columns, nil
+	return scanRows(rows)
 }
 
 func (d *DamengDB) ExecContext(ctx context.Context, query string) (int64, error) {

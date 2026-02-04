@@ -264,8 +264,8 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
             {useSSH && (
                 <div style={{ padding: '12px', background: '#f5f5f5', borderRadius: 6, marginTop: 12 }}>
                     <div style={{ display: 'flex', gap: 16 }}>
-                        <Form.Item name="sshHost" label="SSH 主机" rules={[{ required: useSSH, message: '请输入SSH主机' }]} style={{ flex: 1 }}>
-                            <Input placeholder="ssh.example.com" />
+                        <Form.Item name="sshHost" label="SSH 主机 (域名或IP)" rules={[{ required: useSSH, message: '请输入SSH主机' }]} style={{ flex: 1 }}>
+                            <Input placeholder="例如: ssh.example.com 或 192.168.1.100" />
                         </Form.Item>
                         <Form.Item name="sshPort" label="端口" rules={[{ required: useSSH, message: '请输入SSH端口' }]} style={{ width: 100 }}>
                             <InputNumber style={{ width: '100%' }} />

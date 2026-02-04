@@ -8,14 +8,26 @@ import (
 func sanitizeSQLForPgLike(dbType string, query string) string {
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
 	case "postgres", "kingbase":
-		return fixBrokenDoubleDoubleQuotedIdent(query)
+		// 有些情况下会出现多层重复引用（例如 """"schema"""" 或 ""schema"""），单次修复不一定收敛。
+		// 这里做有限次数的迭代，直到输出不再变化。
+		out := query
+		for i := 0; i < 3; i++ {
+			fixed := fixBrokenDoubleDoubleQuotedIdent(out)
+			if fixed == out {
+				break
+			}
+			out = fixed
+		}
+		return out
 	default:
 		return query
 	}
 }
 
 // fixBrokenDoubleDoubleQuotedIdent fixes accidental identifiers like:
-//   SELECT * FROM ""schema"".""table""
+//
+//	SELECT * FROM ""schema"".""table""
+//
 // which can be produced when a quoted identifier gets wrapped by quotes again.
 //
 // It is intentionally conservative:
@@ -124,20 +136,17 @@ func fixBrokenDoubleDoubleQuotedIdent(query string) string {
 			}
 		}
 
-		// Fix: ""ident"" -> "ident" (only when it looks like a plain identifier)
-		if ch == '"' && next == '"' {
-			prevIsQuote := i > 0 && query[i-1] == '"'
-			nextIsQuote := i+2 < len(query) && query[i+2] == '"'
-			if !prevIsQuote && !nextIsQuote {
+		if ch == '"' {
+			// Fix: ""ident"" -> "ident" (only when it looks like a plain identifier)
+			// Also handle variants like ""ident""" / """"ident"""" (extra quotes at either side).
+			if next == '"' {
 				if replacement, advance, ok := tryFixDoubleDoubleQuotedIdent(query, i); ok {
 					b.WriteString(replacement)
 					i = advance - 1
 					continue
 				}
 			}
-		}
 
-		if ch == '"' {
 			b.WriteByte(ch)
 			inDoubleIdent = true
 			continue
@@ -150,7 +159,8 @@ func fixBrokenDoubleDoubleQuotedIdent(query string) string {
 }
 
 func tryFixDoubleDoubleQuotedIdent(query string, start int) (replacement string, advance int, ok bool) {
-	// start points at the first quote of `""...""`
+	// start points at the first quote of a broken identifier, usually like:
+	//   ""ident""  / ""ident""" / """"ident""""
 	if start < 0 || start+1 >= len(query) {
 		return "", 0, false
 	}
@@ -160,24 +170,31 @@ func tryFixDoubleDoubleQuotedIdent(query string, start int) (replacement string,
 	if start > 0 && query[start-1] == '"' {
 		return "", 0, false
 	}
-	if start+2 < len(query) && query[start+2] == '"' {
+
+	runLen := 0
+	for start+runLen < len(query) && query[start+runLen] == '"' {
+		runLen++
+	}
+	if runLen < 2 || runLen%2 == 1 {
+		// Odd run (e.g. """...) can be a valid quoted identifier with escaped quotes.
 		return "", 0, false
 	}
 
-	contentStart := start + 2
+	contentStart := start + runLen
 	j := contentStart
-	for j+1 < len(query) {
-		if query[j] == '"' && query[j+1] == '"' {
-			// ensure closing pair is not part of a triple quote
-			if j+2 < len(query) && query[j+2] == '"' {
-				j++
-				continue
+	for j < len(query) {
+		if query[j] == '"' {
+			endRunLen := 0
+			for j+endRunLen < len(query) && query[j+endRunLen] == '"' {
+				endRunLen++
 			}
-			content := strings.TrimSpace(query[contentStart:j])
-			if looksLikeIdentifierContent(content) {
-				return `"` + content + `"`, j + 2, true
+			if endRunLen >= 2 {
+				content := strings.TrimSpace(query[contentStart:j])
+				if looksLikeIdentifierContent(content) {
+					return `"` + content + `"`, j + endRunLen, true
+				}
+				return "", 0, false
 			}
-			return "", 0, false
 		}
 		// Fast abort: identifier-like content should not span lines.
 		if query[j] == '\n' || query[j] == '\r' {

@@ -1,11 +1,18 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 func scanRows(rows *sql.Rows) ([]map[string]interface{}, []string, error) {
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, nil, err
+	}
+
+	colTypes, err := rows.ColumnTypes()
+	if err != nil || len(colTypes) != len(columns) {
+		colTypes = nil
 	}
 
 	resultData := make([]map[string]interface{}, 0)
@@ -23,7 +30,11 @@ func scanRows(rows *sql.Rows) ([]map[string]interface{}, []string, error) {
 
 		entry := make(map[string]interface{}, len(columns))
 		for i, col := range columns {
-			entry[col] = normalizeQueryValue(values[i])
+			dbTypeName := ""
+			if colTypes != nil && i < len(colTypes) && colTypes[i] != nil {
+				dbTypeName = colTypes[i].DatabaseTypeName()
+			}
+			entry[col] = normalizeQueryValueWithDBType(values[i], dbTypeName)
 		}
 		resultData = append(resultData, entry)
 	}
@@ -33,4 +44,3 @@ func scanRows(rows *sql.Rows) ([]map[string]interface{}, []string, error) {
 	}
 	return resultData, columns, nil
 }
-
