@@ -10,23 +10,31 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 )
 
+const dbCachePingInterval = 30 * time.Second
+
+type cachedDatabase struct {
+	inst     db.Database
+	lastPing time.Time
+}
+
 // App struct
 type App struct {
 	ctx     context.Context
-	dbCache map[string]db.Database // Cache for DB connections
-	mu      sync.Mutex             // Mutex for cache access
+	dbCache map[string]cachedDatabase // Cache for DB connections
+	mu      sync.RWMutex              // Mutex for cache access
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		dbCache: make(map[string]db.Database),
+		dbCache: make(map[string]cachedDatabase),
 	}
 }
 
@@ -44,7 +52,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, dbInst := range a.dbCache {
-		if err := dbInst.Close(); err != nil {
+		if err := dbInst.inst.Close(); err != nil {
 			logger.Error(err, "关闭数据库连接失败")
 		}
 	}
@@ -136,32 +144,63 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 	return b.String()
 }
 
+func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Database, error) {
+	return a.getDatabaseWithPing(config, true)
+}
+
 // Helper: Get or create a database connection
 func (a *App) getDatabase(config connection.ConnectionConfig) (db.Database, error) {
+	return a.getDatabaseWithPing(config, false)
+}
+
+func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing bool) (db.Database, error) {
 	key := getCacheKey(config)
 	shortKey := key
 	if len(shortKey) > 12 {
 		shortKey = shortKey[:12]
 	}
-	logger.Infof("获取数据库连接：%s 缓存Key=%s", formatConnSummary(config), shortKey)
 
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.mu.RLock()
+	entry, ok := a.dbCache[key]
+	a.mu.RUnlock()
+	if ok {
+		needPing := forcePing
+		if !needPing {
+			lastPing := entry.lastPing
+			if lastPing.IsZero() || time.Since(lastPing) >= dbCachePingInterval {
+				needPing = true
+			}
+		}
 
-	if dbInst, ok := a.dbCache[key]; ok {
-		logger.Infof("命中连接缓存，开始检测可用性：缓存Key=%s", shortKey)
-		if err := dbInst.Ping(); err == nil {
-			logger.Infof("缓存连接可用：缓存Key=%s", shortKey)
-			return dbInst, nil
+		if !needPing {
+			return entry.inst, nil
+		}
+
+		if err := entry.inst.Ping(); err == nil {
+			// Update lastPing (best effort)
+			a.mu.Lock()
+			if cur, exists := a.dbCache[key]; exists && cur.inst == entry.inst {
+				cur.lastPing = time.Now()
+				a.dbCache[key] = cur
+			}
+			a.mu.Unlock()
+			return entry.inst, nil
 		} else {
-			logger.Error(err, "缓存连接不可用，准备重建：缓存Key=%s", shortKey)
+			logger.Error(err, "缓存连接不可用，准备重建：%s 缓存Key=%s", formatConnSummary(config), shortKey)
 		}
-		if err := dbInst.Close(); err != nil {
-			logger.Error(err, "关闭失效缓存连接失败：缓存Key=%s", shortKey)
+
+		// Ping failed: remove cached instance (best effort)
+		a.mu.Lock()
+		if cur, exists := a.dbCache[key]; exists && cur.inst == entry.inst {
+			if err := cur.inst.Close(); err != nil {
+				logger.Error(err, "关闭失效缓存连接失败：缓存Key=%s", shortKey)
+			}
+			delete(a.dbCache, key)
 		}
-		delete(a.dbCache, key)
+		a.mu.Unlock()
 	}
 
+	logger.Infof("获取数据库连接：%s 缓存Key=%s", formatConnSummary(config), shortKey)
 	logger.Infof("创建数据库驱动实例：类型=%s 缓存Key=%s", config.Type, shortKey)
 	dbInst, err := db.NewDatabase(config.Type)
 	if err != nil {
@@ -175,7 +214,18 @@ func (a *App) getDatabase(config connection.ConnectionConfig) (db.Database, erro
 		return nil, wrapped
 	}
 
-	a.dbCache[key] = dbInst
+	now := time.Now()
+
+	a.mu.Lock()
+	if existing, exists := a.dbCache[key]; exists && existing.inst != nil {
+		a.mu.Unlock()
+		// Prefer existing cached connection to avoid cache racing duplicates.
+		_ = dbInst.Close()
+		return existing.inst, nil
+	}
+	a.dbCache[key] = cachedDatabase{inst: dbInst, lastPing: now}
+	a.mu.Unlock()
+
 	logger.Infof("数据库连接成功并写入缓存：%s 缓存Key=%s", formatConnSummary(config), shortKey)
 	return dbInst, nil
 }

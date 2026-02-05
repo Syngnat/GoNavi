@@ -45,6 +45,35 @@ const toFormText = (val: any): string => {
     return toEditableText(val);
 };
 
+const INLINE_EDIT_MAX_CHARS = 2000;
+
+const shouldOpenModalEditor = (val: any): boolean => {
+    if (val === null || val === undefined) return false;
+    if (typeof val === 'string') {
+        return val.length > INLINE_EDIT_MAX_CHARS || val.includes('\n');
+    }
+    if (typeof val === 'object') {
+        return true;
+    }
+    return false;
+};
+
+const getCellFieldName = (record: Item, dataIndex: string) => {
+    const rowKey = record?.[GONAVI_ROW_KEY];
+    if (rowKey === undefined || rowKey === null) return dataIndex;
+    return [String(rowKey), dataIndex];
+};
+
+const setCellFieldValue = (form: any, fieldName: string | (string | number)[], value: any) => {
+    if (!form) return;
+    if (Array.isArray(fieldName)) {
+        const [rowKey, colKey] = fieldName;
+        form.setFieldsValue({ [rowKey]: { [colKey]: value } });
+        return;
+    }
+    form.setFieldsValue({ [fieldName]: value });
+};
+
 const looksLikeJsonText = (text: string): boolean => {
     const raw = (text || '').trim();
     if (!raw) return false;
@@ -96,6 +125,9 @@ const ResizableTitle = (props: any) => {
 
 // --- Contexts ---
 const EditableContext = React.createContext<any>(null);
+const CellContextMenuContext = React.createContext<{
+    showMenu: (e: React.MouseEvent, record: Item, dataIndex: string, title: React.ReactNode) => void;
+} | null>(null);
 const DataContext = React.createContext<{
     selectedRowKeysRef: React.MutableRefObject<React.Key[]>;
     displayDataRef: React.MutableRefObject<any[]>;
@@ -134,7 +166,9 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
 }) => {
   const [editing, setEditing] = useState(false);
   const inputRef = useRef<any>(null);
+  const cellRef = useRef<HTMLTableCellElement>(null);
   const form = useContext(EditableContext);
+  const cellContextMenuContext = useContext(CellContextMenuContext);
 
   useEffect(() => {
     if (editing) {
@@ -146,17 +180,37 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
     setEditing(!editing);
     const raw = record[dataIndex];
     const initialValue = typeof raw === 'string' ? normalizeDateTimeString(raw) : raw;
-    form.setFieldsValue({ [dataIndex]: initialValue });
+    const fieldName = getCellFieldName(record, dataIndex);
+    setCellFieldValue(form, fieldName, initialValue);
   };
 
   const save = async () => {
     try {
       if (!form) return;
-      const values = await form.validateFields([dataIndex]);
+      const fieldName = getCellFieldName(record, dataIndex);
+      await form.validateFields([fieldName]);
+      const nextValue = form.getFieldValue(fieldName);
+      const prevText = toFormText(record?.[dataIndex]);
+      const nextText = toFormText(nextValue);
       toggleEdit();
-      handleSave({ ...record, ...values });
+      // 仅当值发生变化时才标记为修改，避免“双击-失焦”导致整行进入 modified 状态（蓝色高亮不清除）。
+      if (nextText !== prevText) {
+        handleSave({ ...record, [dataIndex]: nextValue });
+      }
+      // 保存后移除焦点
+      if (inputRef.current) {
+        inputRef.current.blur();
+      }
     } catch (errInfo) {
       console.log('Save failed:', errInfo);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (!editable) return;
+    e.preventDefault();
+    if (cellContextMenuContext) {
+      cellContextMenuContext.showMenu(e, record, dataIndex, title);
     }
   };
 
@@ -164,11 +218,35 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
 
   if (editable) {
     childNode = editing ? (
-      <Form.Item style={{ margin: 0 }} name={dataIndex}>
-        <Input ref={inputRef} onPressEnter={save} onBlur={save} />
+      <Form.Item style={{ margin: 0 }} name={getCellFieldName(record, dataIndex)}>
+        <Input
+          ref={inputRef}
+          onPressEnter={save}
+          onBlur={save}
+          onFocus={(e) => {
+            // Enter 编辑态时直接全选，便于快速替换；同时避免双击在 input 内冒泡导致关闭编辑态。
+            try {
+              (e.target as HTMLInputElement)?.select?.();
+            } catch {
+              // ignore
+            }
+          }}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            try {
+              (e.target as HTMLInputElement)?.select?.();
+            } catch {
+              // ignore
+            }
+          }}
+        />
       </Form.Item>
     ) : (
-      <div className="editable-cell-value-wrap" style={{ paddingRight: 24, minHeight: 20 }}>
+      <div
+        className="editable-cell-value-wrap"
+        style={{ paddingRight: 24, minHeight: 20 }}
+        onContextMenu={handleContextMenu}
+      >
         {children}
       </div>
     );
@@ -176,19 +254,20 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
 
   const handleDoubleClick = () => {
       if (!editable) return;
+      // 已在编辑态时再次双击不应退出编辑；双击应支持在 Input 内进行全选。
+      if (editing) return;
+      const raw = record?.[dataIndex];
+      if (focusCell && shouldOpenModalEditor(raw)) {
+          focusCell(record, dataIndex, title);
+          return;
+      }
       toggleEdit();
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-      restProps?.onClick?.(e);
-      if (!editable) return;
-      if (typeof focusCell === 'function') focusCell(record, dataIndex, title);
   };
 
   return (
       <td
           {...restProps}
-          onClick={editable ? handleClick : restProps?.onClick}
+          ref={cellRef}
           onDoubleClick={editable ? handleDoubleClick : restProps?.onDoubleClick}
       >
           {childNode}
@@ -273,7 +352,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, dbName, connectionId, pkColumns = [], readOnly = false,
     onReload, onSort, onPageChange, pagination, showFilter, onToggleFilter, onApplyFilter
 }) => {
-  const { connections } = useStore();
+  const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
   const darkMode = useStore(state => state.darkMode);
   const selectionColumnWidth = 46;
@@ -285,14 +364,77 @@ const DataGrid: React.FC<DataGridProps> = ({
   const [cellEditorIsJson, setCellEditorIsJson] = useState(false);
   const [cellEditorMeta, setCellEditorMeta] = useState<{ record: Item; dataIndex: string; title: string } | null>(null);
   const cellEditorApplyRef = useRef<((val: string) => void) | null>(null);
-  const [activeCell, setActiveCell] = useState<{ rowKey: string; dataIndex: string; title: string } | null>(null);
   const [rowEditorOpen, setRowEditorOpen] = useState(false);
   const [rowEditorRowKey, setRowEditorRowKey] = useState<string>('');
   const rowEditorBaseRef = useRef<Record<string, string>>({});
   const rowEditorDisplayRef = useRef<Record<string, string>>({});
   const rowEditorNullColsRef = useRef<Set<string>>(new Set());
   const [rowEditorForm] = Form.useForm();
-  
+
+  // Cell Context Menu State
+  const [cellContextMenu, setCellContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    record: Item | null;
+    dataIndex: string;
+    title: string;
+  }>({
+    visible: false,
+    x: 0,
+    y: 0,
+    record: null,
+    dataIndex: '',
+    title: '',
+  });
+  const [cellSetValueInput, setCellSetValueInput] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const pendingScrollToBottomRef = useRef(false);
+
+  const scrollTableBodyToBottom = useCallback(() => {
+      const root = containerRef.current;
+      if (!root) return;
+      const body = root.querySelector('.ant-table-body') as HTMLElement | null;
+      if (!body) return;
+      body.scrollTop = body.scrollHeight;
+  }, []);
+
+  // Close cell context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (cellContextMenu.visible) {
+        setCellContextMenu(prev => ({ ...prev, visible: false }));
+      }
+      // Remove focus from any focused cell when clicking outside the table
+      const target = e.target as HTMLElement;
+      const tableContainer = containerRef.current;
+      if (tableContainer && !tableContainer.contains(target)) {
+        // Remove focus from any input elements in the table
+        const focusedElement = document.activeElement as HTMLElement;
+        if (focusedElement && focusedElement.tagName === 'INPUT' && tableContainer.contains(focusedElement)) {
+          focusedElement.blur();
+        }
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [cellContextMenu.visible]);
+
+  const showCellContextMenu = useCallback((e: React.MouseEvent, record: Item, dataIndex: string, title: React.ReactNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const titleText = typeof title === 'string' ? title : (typeof title === 'number' ? String(title) : String(dataIndex));
+    setCellContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      record,
+      dataIndex,
+      title: titleText,
+    });
+    setCellSetValueInput(toFormText(record[dataIndex]));
+  }, []);
+
   // Helper to export specific data
   const exportData = async (rows: any[], format: string) => {
       const hide = message.loading(`正在导出 ${rows.length} 条数据...`, 0);
@@ -327,10 +469,9 @@ const DataGrid: React.FC<DataGridProps> = ({
       setCellEditorOpen(true);
       cellEditorApplyRef.current = typeof onApplyValue === 'function' ? onApplyValue : null;
   }, []);
-  
+
   // Dynamic Height
   const [tableHeight, setTableHeight] = useState(500);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
       const el = containerRef.current;
@@ -382,13 +523,22 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   useEffect(() => { selectedRowKeysRef.current = selectedRowKeys; }, [selectedRowKeys]);
 
+  useEffect(() => {
+      if (!pendingScrollToBottomRef.current) return;
+      pendingScrollToBottomRef.current = false;
+      // 等待 Table 渲染出新增行后再滚动到底部（virtual 模式也适用）
+      requestAnimationFrame(() => {
+          scrollTableBodyToBottom();
+          requestAnimationFrame(() => scrollTableBodyToBottom());
+      });
+  }, [addedRows.length, scrollTableBodyToBottom]);
+
   // Reset local state when data source likely changes (e.g. tableName change)
   useEffect(() => {
       setAddedRows([]);
       setModifiedRows({});
       setDeletedRowKeys(new Set());
       setSelectedRowKeys([]);
-      setActiveCell(null);
       setRowEditorOpen(false);
       setRowEditorRowKey('');
       rowEditorBaseRef.current = {};
@@ -550,6 +700,18 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
   }, [addedRows]);
 
+  const handleCellSetNull = useCallback(() => {
+    if (!cellContextMenu.record) return;
+    handleCellSave({ ...cellContextMenu.record, [cellContextMenu.dataIndex]: null });
+    setCellContextMenu(prev => ({ ...prev, visible: false }));
+  }, [cellContextMenu, handleCellSave]);
+
+  const handleCellSetValue = useCallback(() => {
+    if (!cellContextMenu.record) return;
+    handleCellSave({ ...cellContextMenu.record, [cellContextMenu.dataIndex]: cellSetValueInput });
+    setCellContextMenu(prev => ({ ...prev, visible: false }));
+  }, [cellContextMenu, cellSetValueInput, handleCellSave]);
+
   const handleCellEditorSave = useCallback(() => {
       if (!cellEditorMeta) return;
       const apply = cellEditorApplyRef.current;
@@ -586,13 +748,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       });
   }, [displayData, modifiedRows]);
 
-  const focusCell = useCallback((record: Item, dataIndex: string, title: React.ReactNode) => {
-      const k = record?.[GONAVI_ROW_KEY];
-      if (k === undefined) return;
-      const titleText = typeof title === 'string' ? title : (typeof title === 'number' ? String(title) : String(dataIndex));
-      setActiveCell({ rowKey: rowKeyStr(k), dataIndex, title: titleText });
-  }, [rowKeyStr]);
-
   const closeRowEditor = useCallback(() => {
       setRowEditorOpen(false);
       setRowEditorRowKey('');
@@ -610,9 +765,9 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
 
       const keyStr =
-          selectedRowKeys.length === 1 ? rowKeyStr(selectedRowKeys[0]) : activeCell?.rowKey;
+          selectedRowKeys.length === 1 ? rowKeyStr(selectedRowKeys[0]) : undefined;
       if (!keyStr) {
-          message.info('请先选择一行（勾选一行或点击任意单元格）');
+          message.info('请先选择一行（勾选复选框）');
           return;
       }
 
@@ -646,7 +801,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       rowEditorForm.setFieldsValue(displayMap);
       setRowEditorRowKey(keyStr);
       setRowEditorOpen(true);
-  }, [readOnly, tableName, selectedRowKeys, activeCell, mergedDisplayData, data, addedRows, columnNames, rowEditorForm, rowKeyStr]);
+  }, [readOnly, tableName, selectedRowKeys, mergedDisplayData, data, addedRows, columnNames, rowEditorForm, rowKeyStr]);
 
   const openRowEditorFieldEditor = useCallback((dataIndex: string) => {
       if (!dataIndex) return;
@@ -695,12 +850,16 @@ const DataGrid: React.FC<DataGridProps> = ({
           title: key,
           dataIndex: key,
           key: key,
-          ellipsis: true,
-          width: columnWidths[key] || 200, 
-          sorter: !!onSort, 
+          // 不使用 ellipsis，避免 Ant Design 的 Tooltip 展开行为
+          width: columnWidths[key] || 200,
+          sorter: !!onSort,
           sortOrder: (sortInfo?.columnKey === key ? sortInfo.order : null) as SortOrder | undefined,
           editable: !readOnly && !!tableName, // Only editable if table name known
-          render: (text: any) => formatCellValue(text),
+          render: (text: any) => (
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {formatCellValue(text)}
+              </div>
+          ),
           onHeaderCell: (column: any) => ({
               width: column.width,
               onResizeStart: handleResizeStart(key), // Only need start
@@ -718,18 +877,16 @@ const DataGrid: React.FC<DataGridProps> = ({
               dataIndex: col.dataIndex,
               title: col.title,
               handleSave: handleCellSave,
-              focusCell,
-              className: (activeCell && rowKeyStr(record?.[GONAVI_ROW_KEY]) === activeCell.rowKey && col.dataIndex === activeCell.dataIndex)
-                ? 'gonavi-active-cell'
-                : undefined,
+              focusCell: openCellEditor,
           }),
       };
-  }), [columns, handleCellSave, openCellEditor, focusCell, activeCell, rowKeyStr]);
+  }), [columns, handleCellSave, openCellEditor]);
 
   const handleAddRow = () => {
       const newKey = `new-${Date.now()}`;
       const newRow: any = { [GONAVI_ROW_KEY]: newKey };
       columnNames.forEach(col => newRow[col] = ''); 
+      pendingScrollToBottomRef.current = true;
       setAddedRows(prev => [...prev, newRow]);
   };
 
@@ -770,9 +927,24 @@ const DataGrid: React.FC<DataGridProps> = ({
           const pkData: any = {};
           if (pkColumns.length > 0) pkColumns.forEach(k => pkData[k] = originalRow[k]);
           else { const { [GONAVI_ROW_KEY]: _rowKey, ...rest } = originalRow; Object.assign(pkData, rest); }
-          
-          const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = newRow;
-          updates.push({ keys: pkData, values: vals });
+
+          const hasRowKey = Object.prototype.hasOwnProperty.call(newRow as any, GONAVI_ROW_KEY);
+          let values: any = {};
+
+          if (!hasRowKey) {
+              values = { ...(newRow as any) };
+          } else {
+              columnNames.forEach((col) => {
+                  const nextVal = (newRow as any)?.[col];
+                  const prevVal = (originalRow as any)?.[col];
+                  const nextStr = toFormText(nextVal);
+                  const prevStr = toFormText(prevVal);
+                  if (nextStr !== prevStr) values[col] = nextVal;
+              });
+          }
+
+          if (Object.keys(values).length === 0) return;
+          updates.push({ keys: pkData, values });
       });
 
       if (inserts.length === 0 && updates.length === 0 && deletes.length === 0) {
@@ -809,7 +981,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               message: res.message,
               dbName
           });
-          message.success("Changes committed successfully!");
+          message.success("事务提交成功");
           setAddedRows([]);
           setModifiedRows({});
           setDeletedRowKeys(new Set());
@@ -824,7 +996,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               message: res.message,
               dbName
           });
-          message.error("Commit failed: " + res.message);
+          message.error("提交失败: " + res.message);
       }
   };
 
@@ -1118,12 +1290,11 @@ const DataGrid: React.FC<DataGridProps> = ({
     <div className={gridId} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 	       {/* Toolbar */}
 	        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center' }}>
-	            {onReload && <Button icon={<ReloadOutlined />} onClick={() => {
+	            {onReload && <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => {
 	                setAddedRows([]);
 	                setModifiedRows({});
 	               setDeletedRowKeys(new Set());
 	               setSelectedRowKeys([]);
-	               setActiveCell(null);
 	               onReload();
 	           }}>刷新</Button>}
 	           {tableName && <Button icon={<ImportOutlined />} onClick={handleImport}>导入</Button>}
@@ -1135,7 +1306,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 	                   <Button icon={<PlusOutlined />} onClick={handleAddRow}>添加行</Button>
 	                   <Button
                            icon={<EditOutlined />}
-                           disabled={selectedRowKeys.length > 1 || (selectedRowKeys.length !== 1 && !activeCell)}
+                           disabled={selectedRowKeys.length !== 1}
                            onClick={openRowEditor}
                        >
                            编辑行
@@ -1244,7 +1415,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                 open={rowEditorOpen}
                 onCancel={closeRowEditor}
                 width={980}
-                destroyOnClose
+                destroyOnHidden
                 maskClosable={false}
                 footer={[
                     <Button key="cancel" onClick={closeRowEditor}>取消</Button>,
@@ -1290,7 +1461,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 	            open={cellEditorOpen}
 	            onCancel={closeCellEditor}
             width={960}
-            destroyOnClose
+            destroyOnHidden
             maskClosable={false}
             footer={[
                 <Button key="format" onClick={handleFormatJsonInEditor} disabled={!cellEditorIsJson}>
@@ -1323,36 +1494,69 @@ const DataGrid: React.FC<DataGridProps> = ({
         </Modal>
         <Form component={false} form={form}>
             <DataContext.Provider value={{ selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, tableName }}>
-                <EditableContext.Provider value={form}>
-                    <Table 
-                        components={tableComponents}
-                        dataSource={mergedDisplayData} 
-                        columns={mergedColumns} 
-                        size="small" 
-                        tableLayout="fixed"
-                        scroll={{ x: Math.max(totalWidth, 1000), y: tableHeight }}
-                        virtual={enableVirtual}
-                        loading={loading}
-                        rowKey={GONAVI_ROW_KEY}
-                        pagination={false} 
-                        onChange={handleTableChange}
-                        bordered
-                        rowSelection={{
-                            selectedRowKeys,
-                            onChange: setSelectedRowKeys,
-                            columnWidth: selectionColumnWidth,
-                        }}
-                        rowClassName={(record) => {
-                            const k = record?.[GONAVI_ROW_KEY];
-                            if (k !== undefined && addedRows.some(r => r?.[GONAVI_ROW_KEY] === k)) return 'row-added';
-                            if (k !== undefined && (modifiedRows[rowKeyStr(k)] || deletedRowKeys.has(rowKeyStr(k)))) return 'row-modified'; // deleted won't show
-                            return '';
-                        }}
-                        onRow={(record) => ({ record } as any)}
-                    />
-                </EditableContext.Provider>
+                <CellContextMenuContext.Provider value={{ showMenu: showCellContextMenu }}>
+                    <EditableContext.Provider value={form}>
+                        <Table
+                            components={tableComponents}
+                            dataSource={mergedDisplayData}
+                            columns={mergedColumns}
+                            size="small"
+                            tableLayout="fixed"
+                            scroll={{ x: Math.max(totalWidth, 1000), y: tableHeight }}
+                            virtual={enableVirtual}
+                            loading={loading}
+                                rowKey={GONAVI_ROW_KEY}
+                                pagination={false}
+                                onChange={handleTableChange}
+                                bordered
+                                rowSelection={{
+                                    selectedRowKeys,
+                                    onChange: setSelectedRowKeys,
+                                    columnWidth: selectionColumnWidth,
+                                }}
+                                rowClassName={(record) => {
+                                    const k = record?.[GONAVI_ROW_KEY];
+                                    if (k !== undefined && addedRows.some(r => r?.[GONAVI_ROW_KEY] === k)) return 'row-added';
+                                    if (k !== undefined && (modifiedRows[rowKeyStr(k)] || deletedRowKeys.has(rowKeyStr(k)))) return 'row-modified'; // deleted won't show
+                                    return '';
+                                }}
+                                onRow={(record) => ({ record } as any)}
+                            />
+                    </EditableContext.Provider>
+                </CellContextMenuContext.Provider>
             </DataContext.Provider>
         </Form>
+
+        {/* Cell Context Menu */}
+        {cellContextMenu.visible && (
+            <div
+                style={{
+                    position: 'fixed',
+                    left: cellContextMenu.x,
+                    top: cellContextMenu.y,
+                    zIndex: 10000,
+                    background: '#fff',
+                    border: '1px solid #d9d9d9',
+                    borderRadius: 4,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    minWidth: 120,
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={handleCellSetNull}
+                >
+                    设置为 NULL
+                </div>
+            </div>
+        )}
        </div>
        
        {pagination && (
@@ -1377,10 +1581,6 @@ const DataGrid: React.FC<DataGridProps> = ({
 	        <style>{`
 	            .${gridId} .row-added td { background-color: #f6ffed !important; }
 	            .${gridId} .row-modified td { background-color: #e6f7ff !important; }
-                .${gridId} td.gonavi-active-cell {
-                    outline: 2px solid #1677ff;
-                    outline-offset: -2px;
-                }
 	        `}</style>
        
        {/* Ghost Resize Line for Columns */}

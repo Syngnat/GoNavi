@@ -11,7 +11,8 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [columnNames, setColumnNames] = useState<string[]>([]);
   const [pkColumns, setPkColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const { connections, addSqlLog } = useStore();
+  const connections = useStore(state => state.connections);
+  const addSqlLog = useStore(state => state.addSqlLog);
   const fetchSeqRef = useRef(0);
   const countSeqRef = useRef(0);
   const countKeyRef = useRef<string>('');
@@ -149,8 +150,11 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                     countKeyRef.current = countKey;
                     const countSeq = ++countSeqRef.current;
                     const countStart = Date.now();
+                    // 大表 COUNT(*) 可能非常慢，且在部分运行时环境下会影响后续操作响应；
+                    // 这里为统计请求设置更短的超时，避免“后台统计”长期占用资源。
+                    const countConfig: any = { ...(config as any), timeout: 5 };
 
-                    DBQuery(config as any, dbName, countSql)
+                    DBQuery(countConfig, dbName, countSql)
                         .then((resCount: any) => {
                             const countDuration = Date.now() - countStart;
 
@@ -209,7 +213,6 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
 
   // Handlers memoized
   const handleReload = useCallback(() => {
-    countKeyRef.current = '';
     fetchData(pagination.current, pagination.pageSize);
   }, [fetchData, pagination.current, pagination.pageSize]);
   const handleSort = useCallback((field: string, order: string) => setSortInfo({ columnKey: field, order }), []);

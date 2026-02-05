@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Form, Input, InputNumber, Button, message, Checkbox, Divider, Select, Alert, Card, Row, Col, Typography, Collapse } from 'antd';
 import { DatabaseOutlined, ConsoleSqlOutlined, FileTextOutlined, CloudServerOutlined, AppstoreAddOutlined, CloudOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
-import { DBConnect, DBGetDatabases, TestConnection, RedisConnect } from '../../wailsjs/go/app/App';
+import { DBGetDatabases, TestConnection, RedisConnect } from '../../wailsjs/go/app/App';
 import { SavedConnection } from '../types';
 
 const { Meta } = Card;
@@ -17,6 +17,8 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const [testResult, setTestResult] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [dbList, setDbList] = useState<string[]>([]);
   const [redisDbList, setRedisDbList] = useState<number[]>([]); // Redis databases 0-15
+  const testInFlightRef = useRef(false);
+  const testTimerRef = useRef<number | null>(null);
   const addConnection = useStore((state) => state.addConnection);
   const updateConnection = useStore((state) => state.updateConnection);
 
@@ -64,6 +66,15 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       }
   }, [open, initialValues]);
 
+  useEffect(() => {
+      return () => {
+          if (testTimerRef.current !== null) {
+              window.clearTimeout(testTimerRef.current);
+              testTimerRef.current = null;
+          }
+      };
+  }, []);
+
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
@@ -71,45 +82,46 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
 
       const config = await buildConfig(values);
 
-      // Use different API for Redis
       const isRedisType = values.type === 'redis';
-      const res = isRedisType
-          ? await RedisConnect(config as any)
-          : await DBConnect(config as any);
+      const newConn = {
+        id: initialValues ? initialValues.id : Date.now().toString(),
+        name: values.name || (values.type === 'sqlite' ? 'SQLite DB' : (values.type === 'redis' ? `Redis ${values.host}` : values.host)),
+        config: config,
+        includeDatabases: values.includeDatabases,
+        includeRedisDatabases: isRedisType ? values.includeRedisDatabases : undefined
+      };
+
+      if (initialValues) {
+          updateConnection(newConn);
+          message.success('配置已更新（未连接）');
+      } else {
+          addConnection(newConn);
+          message.success('配置已保存（未连接）');
+      }
 
       setLoading(false);
-
-      if (res.success) {
-        const newConn = {
-          id: initialValues ? initialValues.id : Date.now().toString(),
-          name: values.name || (values.type === 'sqlite' ? 'SQLite DB' : (values.type === 'redis' ? `Redis ${values.host}` : values.host)),
-          config: config,
-          includeDatabases: values.includeDatabases,
-          includeRedisDatabases: isRedisType ? values.includeRedisDatabases : undefined
-        };
-
-        if (initialValues) {
-            updateConnection(newConn);
-            message.success('连接已更新！');
-        } else {
-            addConnection(newConn);
-            message.success('连接已保存！');
-        }
-
-        form.resetFields();
-        setUseSSH(false);
-        setDbType('mysql');
-        setStep(1);
-        onClose();
-      } else {
-        message.error('连接失败: ' + res.message);
-      }
+      form.resetFields();
+      setUseSSH(false);
+      setDbType('mysql');
+      setStep(1);
+      onClose();
     } catch (e) {
       setLoading(false);
     }
   };
 
+  const requestTest = () => {
+      if (loading) return;
+      if (testTimerRef.current !== null) return;
+      testTimerRef.current = window.setTimeout(() => {
+          testTimerRef.current = null;
+          handleTest();
+      }, 0);
+  };
+
   const handleTest = async () => {
+      if (testInFlightRef.current) return;
+      testInFlightRef.current = true;
       try {
           const values = await form.validateFields();
           setLoading(true);
@@ -122,7 +134,6 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
               ? await RedisConnect(config as any)
               : await TestConnection(config as any);
 
-          setLoading(false);
           if (res.success) {
               setTestResult({ type: 'success', message: res.message });
               if (isRedisType) {
@@ -140,6 +151,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
               setTestResult({ type: 'error', message: "测试失败: " + res.message });
           }
       } catch (e) {
+          // ignore
+      } finally {
+          testInFlightRef.current = false;
           setLoading(false);
       }
   };
@@ -254,7 +268,10 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
         <>
         <div style={{ display: 'flex', gap: 16 }}>
             <Form.Item name="host" label={isSqlite ? "文件路径 (绝对路径)" : "主机地址 (Host)"} rules={[{ required: true, message: '请输入地址/路径' }]} style={{ flex: 1 }}>
-              <Input placeholder={isSqlite ? "/path/to/db.sqlite" : "localhost"} />
+              <Input
+                placeholder={isSqlite ? "/path/to/db.sqlite" : "localhost"}
+                onDoubleClick={requestTest}
+              />
             </Form.Item>
             {!isSqlite && (
             <Form.Item name="port" label="端口 (Port)" rules={[{ required: true, message: '请输入端口号' }]} style={{ width: 100 }}>
@@ -371,7 +388,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       }
       return [
           !initialValues && <Button key="back" onClick={() => setStep(1)} style={{ float: 'left' }}>上一步</Button>,
-          <Button key="test" loading={loading} onClick={handleTest}>测试连接</Button>,
+          <Button key="test" loading={loading} onClick={requestTest}>测试连接</Button>,
           <Button key="cancel" onClick={onClose}>取消</Button>,
           <Button key="submit" type="primary" loading={loading} onClick={handleOk}>保存</Button>
       ];

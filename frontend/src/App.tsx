@@ -17,7 +17,14 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
-  const { darkMode, toggleDarkMode, addTab, activeContext, connections, addConnection, tabs, activeTabId } = useStore();
+  const darkMode = useStore(state => state.darkMode);
+  const toggleDarkMode = useStore(state => state.toggleDarkMode);
+  const addTab = useStore(state => state.addTab);
+  const activeContext = useStore(state => state.activeContext);
+  const connections = useStore(state => state.connections);
+  const addConnection = useStore(state => state.addConnection);
+  const tabs = useStore(state => state.tabs);
+  const activeTabId = useStore(state => state.activeTabId);
 
   const handleNewQuery = () => {
       let connId = activeContext?.connectionId || '';
