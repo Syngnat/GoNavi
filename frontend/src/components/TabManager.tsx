@@ -9,7 +9,14 @@ import RedisViewer from './RedisViewer';
 import RedisCommandEditor from './RedisCommandEditor';
 
 const TabManager: React.FC = () => {
-  const { tabs, activeTabId, setActiveTab, closeTab, closeOtherTabs, closeTabsToLeft, closeTabsToRight, closeAllTabs } = useStore();
+  const tabs = useStore(state => state.tabs);
+  const activeTabId = useStore(state => state.activeTabId);
+  const setActiveTab = useStore(state => state.setActiveTab);
+  const closeTab = useStore(state => state.closeTab);
+  const closeOtherTabs = useStore(state => state.closeOtherTabs);
+  const closeTabsToLeft = useStore(state => state.closeTabsToLeft);
+  const closeTabsToRight = useStore(state => state.closeTabsToRight);
+  const closeAllTabs = useStore(state => state.closeAllTabs);
 
   const onChange = (newActiveKey: string) => {
     setActiveTab(newActiveKey);

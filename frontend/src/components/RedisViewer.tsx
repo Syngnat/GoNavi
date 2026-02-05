@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Table, Input, Button, Space, Tag, message, Modal, Form, InputNumber, Popconfirm, Tooltip } from 'antd';
+import { Table, Input, Button, Space, Tag, message, Modal, Form, InputNumber, Popconfirm, Tooltip, Radio } from 'antd';
 import { ReloadOutlined, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ClockCircleOutlined, CopyOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { RedisKeyInfo, RedisValue } from '../types';
@@ -12,6 +12,85 @@ interface RedisViewerProps {
     connectionId: string;
     redisDB: number;
 }
+
+// 尝试多种方式解码二进制数据
+const tryDecodeValue = (value: string): { displayValue: string; encoding: string; needsHex: boolean } => {
+    if (!value || value.length === 0) {
+        return { displayValue: '', encoding: 'UTF-8', needsHex: false };
+    }
+
+    // 统计字节分布
+    let nullCount = 0;
+    let printableCount = 0;
+    let highByteCount = 0;
+    const sampleSize = Math.min(value.length, 200);
+
+    for (let i = 0; i < sampleSize; i++) {
+        const code = value.charCodeAt(i);
+        if (code === 0) {
+            nullCount++;
+        } else if (code >= 32 && code < 127) {
+            printableCount++;
+        } else if (code >= 128) {
+            highByteCount++;
+        }
+    }
+
+    // 如果超过30%是null字节，很可能是二进制数据，显示十六进制
+    if (nullCount / sampleSize > 0.3) {
+        return { displayValue: toHexDisplay(value), encoding: 'HEX', needsHex: true };
+    }
+
+    // 如果超过70%是可打印ASCII字符，直接显示
+    if (printableCount / sampleSize > 0.7) {
+        return { displayValue: value, encoding: 'UTF-8', needsHex: false };
+    }
+
+    // 尝试UTF-8解码
+    if (highByteCount > 0) {
+        try {
+            const bytes = new Uint8Array(value.length);
+            for (let i = 0; i < value.length; i++) {
+                bytes[i] = value.charCodeAt(i) & 0xFF;
+            }
+            const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+
+            // 检查解码质量
+            let validChars = 0;
+            let replacementChars = 0;
+            let controlChars = 0;
+
+            for (let i = 0; i < Math.min(decoded.length, 200); i++) {
+                const code = decoded.charCodeAt(i);
+                if (code === 0xFFFD) {
+                    replacementChars++;
+                } else if (code < 32 && code !== 9 && code !== 10 && code !== 13) {
+                    controlChars++;
+                } else if ((code >= 32 && code < 127) || (code >= 0x4E00 && code <= 0x9FFF) || (code >= 0x3000 && code <= 0x303F)) {
+                    // ASCII可打印字符、中文字符、中文标点
+                    validChars++;
+                }
+            }
+
+            const totalChecked = Math.min(decoded.length, 200);
+
+            // 如果替换字符超过10%或控制字符超过20%，说明不是有效的UTF-8文本
+            if (replacementChars / totalChecked > 0.1 || controlChars / totalChecked > 0.2) {
+                return { displayValue: toHexDisplay(value), encoding: 'HEX', needsHex: true };
+            }
+
+            // 如果有效字符超过50%，使用UTF-8解码
+            if (validChars / totalChecked > 0.5) {
+                return { displayValue: decoded, encoding: 'UTF-8', needsHex: false };
+            }
+        } catch (e) {
+            // UTF-8解码失败
+        }
+    }
+
+    // 默认显示十六进制
+    return { displayValue: toHexDisplay(value), encoding: 'HEX', needsHex: true };
+};
 
 // 检测是否为二进制数据（包含大量不可打印字符）
 const isBinaryData = (value: string): boolean => {
@@ -64,15 +143,16 @@ const tryFormatJson = (value: string): { isJson: boolean; formatted: string } =>
     }
 };
 
-// 格式化字符串值 - 支持 JSON、二进制数据检测
-const formatStringValue = (value: string): { displayValue: string; isBinary: boolean; isJson: boolean } => {
+// 格式化字符串值 - 支持 JSON、二进制数据检测和智能解码
+const formatStringValue = (value: string): { displayValue: string; isBinary: boolean; isJson: boolean; encoding?: string } => {
     // 先检测是否为二进制数据
     if (isBinaryData(value)) {
-        return { displayValue: toHexDisplay(value), isBinary: true, isJson: false };
+        const { displayValue, encoding, needsHex } = tryDecodeValue(value);
+        return { displayValue, isBinary: needsHex, isJson: false, encoding };
     }
     // 尝试 JSON 格式化
     const { isJson, formatted } = tryFormatJson(value);
-    return { displayValue: formatted, isBinary: false, isJson };
+    return { displayValue: formatted, isBinary: false, isJson, encoding: 'UTF-8' };
 };
 
 // 可拖拽分隔条组件 - 使用直接 DOM 操作避免卡顿
@@ -244,6 +324,9 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
     const [ttlForm] = Form.useForm();
     const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
     const [editValue, setEditValue] = useState('');
+
+    // 视图模式状态（用于所有数据类型）
+    const [viewMode, setViewMode] = useState<'auto' | 'text' | 'utf8' | 'hex'>('auto');
 
     // JSON 编辑弹窗状态
     const [jsonEditModalOpen, setJsonEditModalOpen] = useState(false);
@@ -513,17 +596,56 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
 
         const renderStringValue = () => {
             const strValue = String(keyValue.value);
-            const { displayValue, isBinary, isJson } = formatStringValue(strValue);
+
+            // 根据查看模式生成显示内容
+            const getDisplayContent = () => {
+                if (viewMode === 'hex') {
+                    return { displayValue: toHexDisplay(strValue), isBinary: true, encoding: 'HEX' };
+                } else if (viewMode === 'text') {
+                    return { displayValue: strValue, isBinary: false, encoding: 'Text' };
+                } else if (viewMode === 'utf8') {
+                    try {
+                        const bytes = new Uint8Array(strValue.length);
+                        for (let i = 0; i < strValue.length; i++) {
+                            bytes[i] = strValue.charCodeAt(i) & 0xFF;
+                        }
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return { displayValue: decoded, isBinary: false, encoding: 'UTF-8' };
+                    } catch (e) {
+                        return { displayValue: strValue, isBinary: false, encoding: 'UTF-8 (失败)' };
+                    }
+                } else {
+                    // auto mode
+                    const { displayValue, isBinary, isJson, encoding } = formatStringValue(strValue);
+                    return { displayValue, isBinary, encoding };
+                }
+            };
+
+            const { displayValue, isBinary, encoding } = getDisplayContent();
+            const isJson = viewMode === 'auto' && formatStringValue(strValue).isJson;
 
             return (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    {isBinary && (
-                        <div style={{ padding: '4px 8px', background: '#fff7e6', borderBottom: '1px solid #ffd591', color: '#d46b08', fontSize: 12 }}>
-                            ⚠️ 检测到二进制数据，以十六进制格式显示
-                        </div>
-                    )}
+                    <div style={{
+                        padding: '4px 8px',
+                        background: '#f5f5f5',
+                        borderBottom: '1px solid #d9d9d9',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                    }}>
+                        <span style={{ fontSize: 12, color: '#666' }}>
+                            {encoding && `编码: ${encoding}`}
+                        </span>
+                        <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                            <Radio.Button value="auto">自动</Radio.Button>
+                            <Radio.Button value="text">原始文本</Radio.Button>
+                            <Radio.Button value="utf8">UTF-8</Radio.Button>
+                            <Radio.Button value="hex">十六进制</Radio.Button>
+                        </Radio.Group>
+                    </div>
                     <Editor
-                        height={isBinary ? "calc(100% - 64px)" : "calc(100% - 40px)"}
+                        height="calc(100% - 72px)"
                         language={isJson ? 'json' : 'plaintext'}
                         value={displayValue}
                         options={{
@@ -547,14 +669,16 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                     message.error('复制失败');
                                 });
                             }}>复制</Button>
-                            {!isBinary && (
+                            {!isBinary && viewMode === 'auto' && (
                                 <Button icon={<EditOutlined />} onClick={() => {
                                     setEditValue(displayValue);
                                     setEditModalOpen(true);
                                 }}>编辑</Button>
                             )}
-                            {isBinary && (
-                                <span style={{ color: '#999', fontSize: 12 }}>二进制数据不支持编辑</span>
+                            {(isBinary || viewMode !== 'auto') && (
+                                <span style={{ color: '#999', fontSize: 12 }}>
+                                    {viewMode !== 'auto' ? '切换到"自动"模式以编辑' : '二进制数据不支持编辑'}
+                                </span>
                             )}
                         </Space>
                     </div>
@@ -563,9 +687,32 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         };
 
         const renderHashValue = () => {
+            // 根据查看模式处理值
+            const processValue = (value: string) => {
+                if (viewMode === 'hex') {
+                    return { displayValue: toHexDisplay(value), isBinary: true, isJson: false, encoding: 'HEX' };
+                } else if (viewMode === 'text') {
+                    return { displayValue: value, isBinary: false, isJson: false, encoding: 'Text' };
+                } else if (viewMode === 'utf8') {
+                    try {
+                        const bytes = new Uint8Array(value.length);
+                        for (let i = 0; i < value.length; i++) {
+                            bytes[i] = value.charCodeAt(i) & 0xFF;
+                        }
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return { displayValue: decoded, isBinary: false, isJson: false, encoding: 'UTF-8' };
+                    } catch (e) {
+                        return { displayValue: value, isBinary: false, isJson: false, encoding: 'UTF-8 (失败)' };
+                    }
+                } else {
+                    // auto mode
+                    return formatStringValue(value);
+                }
+            };
+
             const data = Object.entries(keyValue.value as Record<string, string>).map(([field, value]) => {
-                const { displayValue, isBinary, isJson } = formatStringValue(value);
-                return { field, value, displayValue, isBinary, isJson };
+                const { displayValue, isBinary, isJson, encoding } = processValue(value);
+                return { field, value, displayValue, isBinary, isJson, encoding };
             });
 
             const handleEditHashField = async (field: string, newValue: string) => {
@@ -602,7 +749,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
 
             return (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Button size="small" icon={<PlusOutlined />} onClick={() => {
                             Modal.confirm({
                                 title: '添加字段',
@@ -625,6 +772,12 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 }
                             });
                         }}>添加字段</Button>
+                        <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                            <Radio.Button value="auto">自动</Radio.Button>
+                            <Radio.Button value="text">原始文本</Radio.Button>
+                            <Radio.Button value="utf8">UTF-8</Radio.Button>
+                            <Radio.Button value="hex">十六进制</Radio.Button>
+                        </Radio.Group>
                     </div>
                     <Table
                         dataSource={data}
@@ -635,17 +788,23 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 dataIndex: 'displayValue',
                                 key: 'value',
                                 ellipsis: true,
-                                render: (text: string, record: any) => (
-                                    <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{text}</pre>} overlayStyle={{ maxWidth: 600 }}>
-                                        <span style={{
-                                            color: record.isBinary ? '#999' : (record.isJson ? '#1890ff' : undefined),
-                                            fontFamily: record.isBinary ? 'monospace' : undefined,
-                                            fontSize: record.isBinary ? 11 : undefined
-                                        }}>
-                                            {record.isBinary ? '[二进制数据]' : text}
-                                        </span>
-                                    </Tooltip>
-                                )
+                                render: (text: string, record: any) => {
+                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
+                                        ? `[${record.encoding}]\n${text}`
+                                        : text;
+
+                                    return (
+                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
+                                            <span style={{
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                fontFamily: record.isBinary ? 'monospace' : undefined,
+                                                fontSize: record.isBinary ? 11 : undefined
+                                            }}>
+                                                {text}
+                                            </span>
+                                        </Tooltip>
+                                    );
+                                }
                             },
                             {
                                 title: '操作',
@@ -695,9 +854,32 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         };
 
         const renderListValue = () => {
+            // 根据查看模式处理值
+            const processValue = (value: string) => {
+                if (viewMode === 'hex') {
+                    return { displayValue: toHexDisplay(value), isBinary: true, isJson: false, encoding: 'HEX' };
+                } else if (viewMode === 'text') {
+                    return { displayValue: value, isBinary: false, isJson: false, encoding: 'Text' };
+                } else if (viewMode === 'utf8') {
+                    try {
+                        const bytes = new Uint8Array(value.length);
+                        for (let i = 0; i < value.length; i++) {
+                            bytes[i] = value.charCodeAt(i) & 0xFF;
+                        }
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return { displayValue: decoded, isBinary: false, isJson: false, encoding: 'UTF-8' };
+                    } catch (e) {
+                        return { displayValue: value, isBinary: false, isJson: false, encoding: 'UTF-8 (失败)' };
+                    }
+                } else {
+                    // auto mode
+                    return formatStringValue(value);
+                }
+            };
+
             const data = (keyValue.value as string[]).map((value, index) => {
-                const { displayValue, isBinary, isJson } = formatStringValue(value);
-                return { index, value, displayValue, isBinary, isJson };
+                const { displayValue, isBinary, isJson, encoding } = processValue(value);
+                return { index, value, displayValue, isBinary, isJson, encoding };
             });
 
             const handleEditListItem = async (index: number, newValue: string) => {
@@ -734,7 +916,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
 
             return (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Space>
                             <Button size="small" icon={<PlusOutlined />} onClick={() => {
                                 Modal.confirm({
@@ -769,6 +951,12 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 });
                             }}>添加到头部</Button>
                         </Space>
+                        <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                            <Radio.Button value="auto">自动</Radio.Button>
+                            <Radio.Button value="text">原始文本</Radio.Button>
+                            <Radio.Button value="utf8">UTF-8</Radio.Button>
+                            <Radio.Button value="hex">十六进制</Radio.Button>
+                        </Radio.Group>
                     </div>
                     <Table
                         dataSource={data}
@@ -779,17 +967,23 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 dataIndex: 'displayValue',
                                 key: 'value',
                                 ellipsis: true,
-                                render: (text: string, record: any) => (
-                                    <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{text}</pre>} overlayStyle={{ maxWidth: 600 }}>
-                                        <span style={{
-                                            color: record.isBinary ? '#999' : (record.isJson ? '#1890ff' : undefined),
-                                            fontFamily: record.isBinary ? 'monospace' : undefined,
-                                            fontSize: record.isBinary ? 11 : undefined
-                                        }}>
-                                            {record.isBinary ? '[二进制数据]' : text}
-                                        </span>
-                                    </Tooltip>
-                                )
+                                render: (text: string, record: any) => {
+                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
+                                        ? `[${record.encoding}]\n${text}`
+                                        : text;
+
+                                    return (
+                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
+                                            <span style={{
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                fontFamily: record.isBinary ? 'monospace' : undefined,
+                                                fontSize: record.isBinary ? 11 : undefined
+                                            }}>
+                                                {text}
+                                            </span>
+                                        </Tooltip>
+                                    );
+                                }
                             },
                             {
                                 title: '操作',
@@ -836,9 +1030,32 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         };
 
         const renderSetValue = () => {
+            // 根据查看模式处理值
+            const processValue = (value: string) => {
+                if (viewMode === 'hex') {
+                    return { displayValue: toHexDisplay(value), isBinary: true, isJson: false, encoding: 'HEX' };
+                } else if (viewMode === 'text') {
+                    return { displayValue: value, isBinary: false, isJson: false, encoding: 'Text' };
+                } else if (viewMode === 'utf8') {
+                    try {
+                        const bytes = new Uint8Array(value.length);
+                        for (let i = 0; i < value.length; i++) {
+                            bytes[i] = value.charCodeAt(i) & 0xFF;
+                        }
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return { displayValue: decoded, isBinary: false, isJson: false, encoding: 'UTF-8' };
+                    } catch (e) {
+                        return { displayValue: value, isBinary: false, isJson: false, encoding: 'UTF-8 (失败)' };
+                    }
+                } else {
+                    // auto mode
+                    return formatStringValue(value);
+                }
+            };
+
             const data = (keyValue.value as string[]).map((member, index) => {
-                const { displayValue, isBinary, isJson } = formatStringValue(member);
-                return { index, member, displayValue, isBinary, isJson };
+                const { displayValue, isBinary, isJson, encoding } = processValue(member);
+                return { index, member, displayValue, isBinary, isJson, encoding };
             });
 
             const handleAddSetMember = async (member: string) => {
@@ -875,7 +1092,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
 
             return (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Button size="small" icon={<PlusOutlined />} onClick={() => {
                             Modal.confirm({
                                 title: '添加成员',
@@ -890,6 +1107,12 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 }
                             });
                         }}>添加成员</Button>
+                        <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                            <Radio.Button value="auto">自动</Radio.Button>
+                            <Radio.Button value="text">原始文本</Radio.Button>
+                            <Radio.Button value="utf8">UTF-8</Radio.Button>
+                            <Radio.Button value="hex">十六进制</Radio.Button>
+                        </Radio.Group>
                     </div>
                     <Table
                         dataSource={data}
@@ -899,17 +1122,23 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 dataIndex: 'displayValue',
                                 key: 'member',
                                 ellipsis: true,
-                                render: (text: string, record: any) => (
-                                    <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{text}</pre>} overlayStyle={{ maxWidth: 600 }}>
-                                        <span style={{
-                                            color: record.isBinary ? '#999' : (record.isJson ? '#1890ff' : undefined),
-                                            fontFamily: record.isBinary ? 'monospace' : undefined,
-                                            fontSize: record.isBinary ? 11 : undefined
-                                        }}>
-                                            {record.isBinary ? '[二进制数据]' : text}
-                                        </span>
-                                    </Tooltip>
-                                )
+                                render: (text: string, record: any) => {
+                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
+                                        ? `[${record.encoding}]\n${text}`
+                                        : text;
+
+                                    return (
+                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
+                                            <span style={{
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                fontFamily: record.isBinary ? 'monospace' : undefined,
+                                                fontSize: record.isBinary ? 11 : undefined
+                                            }}>
+                                                {text}
+                                            </span>
+                                        </Tooltip>
+                                    );
+                                }
                             },
                             {
                                 title: '操作',
@@ -944,9 +1173,32 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         };
 
         const renderZSetValue = () => {
+            // 根据查看模式处理值
+            const processValue = (value: string) => {
+                if (viewMode === 'hex') {
+                    return { displayValue: toHexDisplay(value), isBinary: true, isJson: false, encoding: 'HEX' };
+                } else if (viewMode === 'text') {
+                    return { displayValue: value, isBinary: false, isJson: false, encoding: 'Text' };
+                } else if (viewMode === 'utf8') {
+                    try {
+                        const bytes = new Uint8Array(value.length);
+                        for (let i = 0; i < value.length; i++) {
+                            bytes[i] = value.charCodeAt(i) & 0xFF;
+                        }
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return { displayValue: decoded, isBinary: false, isJson: false, encoding: 'UTF-8' };
+                    } catch (e) {
+                        return { displayValue: value, isBinary: false, isJson: false, encoding: 'UTF-8 (失败)' };
+                    }
+                } else {
+                    // auto mode
+                    return formatStringValue(value);
+                }
+            };
+
             const data = (keyValue.value as Array<{ member: string; score: number }>).map((item, index) => {
-                const { displayValue, isBinary, isJson } = formatStringValue(item.member);
-                return { ...item, index, displayMember: displayValue, isBinary, isJson };
+                const { displayValue, isBinary, isJson, encoding } = processValue(item.member);
+                return { ...item, index, displayMember: displayValue, isBinary, isJson, encoding };
             });
 
             const handleAddZSetMember = async (member: string, score: number) => {
@@ -983,7 +1235,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
 
             return (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                    <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Button size="small" icon={<PlusOutlined />} onClick={() => {
                             Modal.confirm({
                                 title: '添加成员',
@@ -1008,6 +1260,12 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 }
                             });
                         }}>添加成员</Button>
+                        <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                            <Radio.Button value="auto">自动</Radio.Button>
+                            <Radio.Button value="text">原始文本</Radio.Button>
+                            <Radio.Button value="utf8">UTF-8</Radio.Button>
+                            <Radio.Button value="hex">十六进制</Radio.Button>
+                        </Radio.Group>
                     </div>
                     <Table
                         dataSource={data}
@@ -1018,17 +1276,23 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                                 dataIndex: 'displayMember',
                                 key: 'member',
                                 ellipsis: true,
-                                render: (text: string, record: any) => (
-                                    record.isBinary ? (
-                                        <Tooltip title="二进制数据，无法直接显示">
-                                            <span style={{ color: '#999', fontStyle: 'italic' }}>[二进制数据]</span>
+                                render: (text: string, record: any) => {
+                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
+                                        ? `[${record.encoding}]\n${text}`
+                                        : text;
+
+                                    return (
+                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 600 } }}>
+                                            <span style={{
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                fontFamily: record.isBinary ? 'monospace' : undefined,
+                                                fontSize: record.isBinary ? 11 : undefined
+                                            }}>
+                                                {text}
+                                            </span>
                                         </Tooltip>
-                                    ) : (
-                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0 }}>{text}</pre>} overlayStyle={{ maxWidth: 600 }}>
-                                            <span style={{ color: record.isJson ? '#1890ff' : undefined }}>{text}</span>
-                                        </Tooltip>
-                                    )
-                                )
+                                    );
+                                }
                             },
                             {
                                 title: '操作',

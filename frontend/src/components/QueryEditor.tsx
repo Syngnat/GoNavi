@@ -45,7 +45,8 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const tablesRef = useRef<string[]>([]); // Store tables for autocomplete
   const allColumnsRef = useRef<{tableName: string, name: string, type: string}[]>([]); // Store all columns
 
-  const { connections, addSqlLog } = useStore();
+  const connections = useStore(state => state.connections);
+  const addSqlLog = useStore(state => state.addSqlLog);
   const currentConnectionIdRef = useRef(currentConnectionId);
   const currentDbRef = useRef(currentDb);
   const connectionsRef = useRef(connections);

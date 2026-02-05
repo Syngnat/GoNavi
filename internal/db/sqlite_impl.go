@@ -445,6 +445,113 @@ func (s *SQLiteDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 	return triggers, nil
 }
 
+func (s *SQLiteDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	if s.conn == nil {
+		return fmt.Errorf("connection not open")
+	}
+
+	tx, err := s.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	quoteIdent := func(name string) string {
+		n := strings.TrimSpace(name)
+		n = strings.Trim(n, "\"")
+		n = strings.ReplaceAll(n, "\"", "\"\"")
+		if n == "" {
+			return "\"\""
+		}
+		return `"` + n + `"`
+	}
+
+	schema := ""
+	table := strings.TrimSpace(tableName)
+	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
+		schema = strings.TrimSpace(parts[0])
+		table = strings.TrimSpace(parts[1])
+	}
+
+	qualifiedTable := ""
+	if schema != "" {
+		qualifiedTable = fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table))
+	} else {
+		qualifiedTable = quoteIdent(table)
+	}
+
+	// 1. Deletes
+	for _, pk := range changes.Deletes {
+		var wheres []string
+		var args []interface{}
+		for k, v := range pk {
+			wheres = append(wheres, fmt.Sprintf("%s = ?", quoteIdent(k)))
+			args = append(args, v)
+		}
+		if len(wheres) == 0 {
+			continue
+		}
+		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("delete error: %v", err)
+		}
+	}
+
+	// 2. Updates
+	for _, update := range changes.Updates {
+		var sets []string
+		var args []interface{}
+
+		for k, v := range update.Values {
+			sets = append(sets, fmt.Sprintf("%s = ?", quoteIdent(k)))
+			args = append(args, v)
+		}
+
+		if len(sets) == 0 {
+			continue
+		}
+
+		var wheres []string
+		for k, v := range update.Keys {
+			wheres = append(wheres, fmt.Sprintf("%s = ?", quoteIdent(k)))
+			args = append(args, v)
+		}
+
+		if len(wheres) == 0 {
+			return fmt.Errorf("update requires keys")
+		}
+
+		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("update error: %v", err)
+		}
+	}
+
+	// 3. Inserts
+	for _, row := range changes.Inserts {
+		var cols []string
+		var placeholders []string
+		var args []interface{}
+
+		for k, v := range row {
+			cols = append(cols, quoteIdent(k))
+			placeholders = append(placeholders, "?")
+			args = append(args, v)
+		}
+
+		if len(cols) == 0 {
+			continue
+		}
+
+		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("insert error: %v", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (s *SQLiteDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
 	tables, err := s.GetTables(dbName)
 	if err != nil {

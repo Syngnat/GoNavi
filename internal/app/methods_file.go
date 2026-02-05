@@ -201,10 +201,10 @@ func (a *App) ApplyChanges(config connection.ConnectionConfig, dbName, tableName
 		if err != nil {
 			return connection.QueryResult{Success: false, Message: err.Error()}
 		}
-		return connection.QueryResult{Success: true, Message: "Changes applied successfully"}
+		return connection.QueryResult{Success: true, Message: "事务提交成功"}
 	}
-	
-	return connection.QueryResult{Success: false, Message: "Batch updates not supported for this database type"}
+
+	return connection.QueryResult{Success: false, Message: "当前数据库类型不支持批量提交"}
 }
 
 func (a *App) ExportTable(config connection.ConnectionConfig, dbName string, tableName string, format string) connection.QueryResult {

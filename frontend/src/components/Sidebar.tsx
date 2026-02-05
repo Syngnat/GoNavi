@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge } from 'antd';
+import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, Checkbox, Space, Select } from 'antd';
 	import {
 	  DatabaseOutlined,
 	  TableOutlined,
@@ -23,7 +23,8 @@ import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge }
   ReloadOutlined,
   DeleteOutlined,
   DisconnectOutlined,
-  CloudOutlined
+  CloudOutlined,
+  CheckSquareOutlined
 	} from '@ant-design/icons';
 	import { useStore } from '../store';
 	import { SavedConnection } from '../types';
@@ -42,14 +43,19 @@ interface TreeNode {
 }
 
 const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> = ({ onEditConnection }) => {
-  const { connections, savedQueries, addTab, setActiveContext, removeConnection } = useStore();
+  const connections = useStore(state => state.connections);
+  const savedQueries = useStore(state => state.savedQueries);
+  const addTab = useStore(state => state.addTab);
+  const setActiveContext = useStore(state => state.setActiveContext);
+  const removeConnection = useStore(state => state.removeConnection);
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const [searchValue, setSearchValue] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [autoExpandParent, setAutoExpandParent] = useState(true);
   const [loadedKeys, setLoadedKeys] = useState<React.Key[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  const [selectedNodes, setSelectedNodes] = useState<any[]>([]);
+  const selectedNodesRef = useRef<any[]>([]);
+  const loadingNodesRef = useRef<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, items: MenuProps['items'] } | null>(null);
   
   // Virtual Scroll State
@@ -74,6 +80,22 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const [isCreateDbModalOpen, setIsCreateDbModalOpen] = useState(false);
   const [createDbForm] = Form.useForm();
   const [targetConnection, setTargetConnection] = useState<any>(null);
+
+  // Batch Operations Modal
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchTables, setBatchTables] = useState<any[]>([]);
+  const [checkedTableKeys, setCheckedTableKeys] = useState<string[]>([]);
+  const [batchDbContext, setBatchDbContext] = useState<any>(null);
+  const [selectedConnection, setSelectedConnection] = useState<string>('');
+  const [selectedDatabase, setSelectedDatabase] = useState<string>('');
+  const [availableDatabases, setAvailableDatabases] = useState<any[]>([]);
+
+  // Batch Database Operations Modal
+  const [isBatchDbModalOpen, setIsBatchDbModalOpen] = useState(false);
+  const [batchDatabases, setBatchDatabases] = useState<any[]>([]);
+  const [checkedDbKeys, setCheckedDbKeys] = useState<string[]>([]);
+  const [batchConnContext, setBatchConnContext] = useState<any>(null);
+  const [selectedDbConnection, setSelectedDbConnection] = useState<string>('');
 
   useEffect(() => {
       // Refresh queries for expanded databases
@@ -121,6 +143,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
 	  const loadDatabases = async (node: any) => {
 	      const conn = node.dataRef as SavedConnection;
+	      const loadKey = `dbs-${conn.id}`;
+	      if (loadingNodesRef.current.has(loadKey)) return;
+	      loadingNodesRef.current.add(loadKey);
 	      const config = {
 	          ...conn.config,
           port: Number(conn.config.port),
@@ -152,43 +177,52 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                       setTreeData(origin => updateTreeData(origin, node.key, dbs));
                   } else {
                       setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
-                      message.error(res.message);
+                      message.error({ content: res.message, key: `conn-${conn.id}-dbs` });
                   }
               } catch (e: any) {
                   setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
-                  message.error('连接失败: ' + (e?.message || String(e)));
+                  message.error({ content: '连接失败: ' + (e?.message || String(e)), key: `conn-${conn.id}-dbs` });
+              } finally {
+                  loadingNodesRef.current.delete(loadKey);
               }
               return;
           }
 
-	      const res = await DBGetDatabases(config as any);
-	      if (res.success) {
-	        setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
-	        let dbs = (res.data as any[]).map((row: any) => ({
-	          title: row.Database || row.database,
-          key: `${conn.id}-${row.Database || row.database}`,
-          icon: <DatabaseOutlined />,
-          type: 'database' as const,
-          dataRef: { ...conn, dbName: row.Database || row.database },
-          isLeaf: false,
-        }));
+	      try {
+	          const res = await DBGetDatabases(config as any);
+	          if (res.success) {
+	            setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
+	            let dbs = (res.data as any[]).map((row: any) => ({
+	              title: row.Database || row.database,
+              key: `${conn.id}-${row.Database || row.database}`,
+              icon: <DatabaseOutlined />,
+              type: 'database' as const,
+              dataRef: { ...conn, dbName: row.Database || row.database },
+              isLeaf: false,
+            }));
 
-        // Filter databases if configured
-        if (conn.includeDatabases && conn.includeDatabases.length > 0) {
-            dbs = dbs.filter(db => conn.includeDatabases!.includes(db.title));
-        }
+            // Filter databases if configured
+            if (conn.includeDatabases && conn.includeDatabases.length > 0) {
+                dbs = dbs.filter(db => conn.includeDatabases!.includes(db.title));
+            }
 
-        setTreeData(origin => updateTreeData(origin, node.key, dbs));
-      } else {
-        setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
-        message.error(res.message);
-      }
+            setTreeData(origin => updateTreeData(origin, node.key, dbs));
+          } else {
+            setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
+            message.error({ content: res.message, key: `conn-${conn.id}-dbs` });
+          }
+	      } finally {
+	          loadingNodesRef.current.delete(loadKey);
+	      }
   };
 
 	  const loadTables = async (node: any) => {
 	      const conn = node.dataRef; // has dbName
 	      const dbName = conn.dbName;
       const key = node.key;
+      const loadKey = `tables-${conn.id}-${dbName}`;
+      if (loadingNodesRef.current.has(loadKey)) return;
+      loadingNodesRef.current.add(loadKey);
       
       const dbQueries = savedQueries.filter(q => q.connectionId === conn.id && q.dbName === dbName);
       
@@ -216,26 +250,30 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	          useSSH: conn.config.useSSH || false,
 	          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
 	      };
-	      const res = await DBGetTables(config as any, conn.dbName);
-	      if (res.success) {
-	        setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
-	        const tables = (res.data as any[]).map((row: any) => {
-            const tableName = Object.values(row)[0] as string;
-            return {
-              title: tableName,
-              key: `${conn.id}-${conn.dbName}-${tableName}`,
-              icon: <TableOutlined />,
-              type: 'table' as const,
-              dataRef: { ...conn, tableName },
-              isLeaf: false, 
-            };
-        });
-        
-        setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...tables]));
-      } else {
-        setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
-        message.error(res.message);
-      }
+	      try {
+	          const res = await DBGetTables(config as any, conn.dbName);
+	          if (res.success) {
+	            setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
+	            const tables = (res.data as any[]).map((row: any) => {
+                const tableName = Object.values(row)[0] as string;
+                return {
+                  title: tableName,
+                  key: `${conn.id}-${conn.dbName}-${tableName}`,
+                  icon: <TableOutlined />,
+                  type: 'table' as const,
+                  dataRef: { ...conn, tableName },
+                  isLeaf: false, 
+                };
+            });
+            
+            setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...tables]));
+          } else {
+            setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
+            message.error({ content: res.message, key: `db-${key}-tables` });
+          }
+	      } finally {
+	          loadingNodesRef.current.delete(loadKey);
+	      }
   };
 
   const onLoadData = async ({ key, children, dataRef, type }: any) => {
@@ -319,7 +357,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
   const onSelect = (keys: React.Key[], info: any) => {
       setSelectedKeys(keys);
-      setSelectedNodes(info.selectedNodes || []);
+      selectedNodesRef.current = info.selectedNodes || [];
 
       if (keys.length === 0) {
           setActiveContext(null);
@@ -487,6 +525,282 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           hide();
           message.error('导出失败: ' + (e?.message || String(e)));
       }
+  };
+
+  const openBatchOperationModal = async () => {
+      // Check if current selected node is database or table
+      let connId = '';
+      let dbName = '';
+
+      if (selectedNodesRef.current.length > 0) {
+          const node = selectedNodesRef.current[0];
+          if (node.type === 'database') {
+              connId = node.dataRef.id;
+              dbName = node.title;
+          } else if (node.type === 'table') {
+              connId = node.dataRef.id;
+              dbName = node.dataRef.dbName;
+          }
+      }
+
+      setSelectedConnection(connId);
+      setSelectedDatabase(dbName);
+      setBatchTables([]);
+      setCheckedTableKeys([]);
+      setAvailableDatabases([]);
+
+      if (connId) {
+          const conn = connections.find(c => c.id === connId);
+          if (conn) {
+              await loadDatabasesForBatch(conn);
+              if (dbName) {
+                  await loadTablesForBatch(conn, dbName);
+              }
+          }
+      }
+
+      setIsBatchModalOpen(true);
+  };
+
+  const loadDatabasesForBatch = async (conn: SavedConnection) => {
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+      };
+
+      const res = await DBGetDatabases(config as any);
+      if (res.success) {
+          let dbs = (res.data as any[]).map((row: any) => {
+              const dbName = row.Database || row.database;
+              return {
+                  title: dbName,
+                  key: `${conn.id}-${dbName}`,
+                  dbName: dbName
+              };
+          });
+
+          if (conn.includeDatabases && conn.includeDatabases.length > 0) {
+              dbs = dbs.filter(db => conn.includeDatabases!.includes(db.dbName));
+          }
+
+          setAvailableDatabases(dbs);
+      } else {
+          message.error('获取数据库列表失败: ' + res.message);
+      }
+  };
+
+  const loadTablesForBatch = async (conn: SavedConnection, dbName: string) => {
+      setBatchDbContext({ conn, dbName });
+
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+      };
+
+      const res = await DBGetTables(config as any, dbName);
+      if (res.success) {
+          const tables = (res.data as any[]).map((row: any) => {
+              const tableName = Object.values(row)[0] as string;
+              return {
+                  title: tableName,
+                  key: `${conn.id}-${dbName}-${tableName}`,
+                  tableName: tableName,
+                  dataRef: { ...conn, tableName, dbName }
+              };
+          });
+
+          setBatchTables(tables);
+          setCheckedTableKeys([]);
+      } else {
+          message.error('获取表列表失败: ' + res.message);
+      }
+  };
+
+  const handleConnectionChange = async (connId: string) => {
+      setSelectedConnection(connId);
+      setSelectedDatabase('');
+      setBatchTables([]);
+      setCheckedTableKeys([]);
+
+      const conn = connections.find(c => c.id === connId);
+      if (conn) {
+          await loadDatabasesForBatch(conn);
+      }
+  };
+
+  const handleDatabaseChange = async (dbName: string) => {
+      setSelectedDatabase(dbName);
+
+      const conn = connections.find(c => c.id === selectedConnection);
+      if (conn && dbName) {
+          await loadTablesForBatch(conn, dbName);
+      }
+  };
+
+  const handleBatchExport = async (includeData: boolean) => {
+      const selectedTables = batchTables.filter(t => checkedTableKeys.includes(t.key));
+      if (selectedTables.length === 0) {
+          message.warning('请至少选择一张表');
+          return;
+      }
+
+      setIsBatchModalOpen(false);
+
+      const { conn, dbName } = batchDbContext;
+      const tableNames = selectedTables.map(t => t.tableName);
+
+      const hide = message.loading(includeData ? `正在备份选中表 (${tableNames.length})...` : `正在导出选中表结构 (${tableNames.length})...`, 0);
+      try {
+          const res = await (window as any).go.app.App.ExportTablesSQL(normalizeConnConfig(conn.config), dbName, tableNames, includeData);
+          hide();
+          if (res.success) {
+              message.success('导出成功');
+          } else if (res.message !== 'Cancelled') {
+              message.error('导出失败: ' + res.message);
+          }
+      } catch (e: any) {
+          hide();
+          message.error('导出失败: ' + (e?.message || String(e)));
+      }
+  };
+
+  const handleCheckAll = (checked: boolean) => {
+      if (checked) {
+          setCheckedTableKeys(batchTables.map(t => t.key));
+      } else {
+          setCheckedTableKeys([]);
+      }
+  };
+
+  const handleInvertSelection = () => {
+      const allKeys = batchTables.map(t => t.key);
+      const newChecked = allKeys.filter(k => !checkedTableKeys.includes(k));
+      setCheckedTableKeys(newChecked);
+  };
+
+  const openBatchDatabaseModal = async () => {
+      // Check if current selected node is connection or database
+      let connId = '';
+
+      if (selectedNodesRef.current.length > 0) {
+          const node = selectedNodesRef.current[0];
+          if (node.type === 'connection' && node.dataRef?.config?.type !== 'redis') {
+              connId = node.key as string;
+          } else if (node.type === 'database') {
+              connId = node.dataRef.id;
+          } else if (node.type === 'table') {
+              connId = node.dataRef.id;
+          }
+      }
+
+      setSelectedDbConnection(connId);
+      setBatchDatabases([]);
+      setCheckedDbKeys([]);
+
+      if (connId) {
+          const conn = connections.find(c => c.id === connId);
+          if (conn) {
+              await loadDatabasesForDbBatch(conn);
+          }
+      }
+
+      setIsBatchDbModalOpen(true);
+  };
+
+  const loadDatabasesForDbBatch = async (conn: SavedConnection) => {
+      setBatchConnContext(conn);
+
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+      };
+
+      const res = await DBGetDatabases(config as any);
+      if (res.success) {
+          let dbs = (res.data as any[]).map((row: any) => {
+              const dbName = row.Database || row.database;
+              return {
+                  title: dbName,
+                  key: `${conn.id}-${dbName}`,
+                  dbName: dbName,
+                  dataRef: { ...conn, dbName }
+              };
+          });
+
+          if (conn.includeDatabases && conn.includeDatabases.length > 0) {
+              dbs = dbs.filter(db => conn.includeDatabases!.includes(db.dbName));
+          }
+
+          setBatchDatabases(dbs);
+          setCheckedDbKeys([]);
+      } else {
+          message.error('获取数据库列表失败: ' + res.message);
+      }
+  };
+
+  const handleDbConnectionChange = async (connId: string) => {
+      setSelectedDbConnection(connId);
+
+      const conn = connections.find(c => c.id === connId);
+      if (conn) {
+          await loadDatabasesForDbBatch(conn);
+      }
+  };
+
+  const handleBatchDbExport = async (includeData: boolean) => {
+      const selectedDbs = batchDatabases.filter(db => checkedDbKeys.includes(db.key));
+      if (selectedDbs.length === 0) {
+          message.warning('请至少选择一个数据库');
+          return;
+      }
+
+      setIsBatchDbModalOpen(false);
+
+      for (const db of selectedDbs) {
+          const hide = message.loading(includeData ? `正在备份数据库 ${db.dbName} (结构+数据)...` : `正在导出数据库 ${db.dbName} 表结构...`, 0);
+          try {
+              const res = await (window as any).go.app.App.ExportDatabaseSQL(normalizeConnConfig(batchConnContext.config), db.dbName, includeData);
+              hide();
+              if (res.success) {
+                  message.success(`${db.dbName} 导出成功`);
+              } else if (res.message !== 'Cancelled') {
+                  message.error(`${db.dbName} 导出失败: ` + res.message);
+                  break;
+              } else {
+                  break; // User cancelled
+              }
+          } catch (e: any) {
+              hide();
+              message.error(`${db.dbName} 导出失败: ` + (e?.message || String(e)));
+              break;
+          }
+      }
+  };
+
+  const handleCheckAllDb = (checked: boolean) => {
+      if (checked) {
+          setCheckedDbKeys(batchDatabases.map(db => db.key));
+      } else {
+          setCheckedDbKeys([]);
+      }
+  };
+
+  const handleInvertSelectionDb = () => {
+      const allKeys = batchDatabases.map(db => db.key);
+      const newChecked = allKeys.filter(k => !checkedDbKeys.includes(k));
+      setCheckedDbKeys(newChecked);
   };
 
   const handleRunSQLFile = async (node: any) => {
@@ -791,9 +1105,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                    setTreeData(origin => updateTreeData(origin, node.key, undefined));
                }
            },
-           { 
-               key: 'new-query', 
-               label: '新建查询', 
+           {
+               key: 'new-query',
+               label: '新建查询',
                icon: <ConsoleSqlOutlined />,
                onClick: () => {
                    addTab({
@@ -813,25 +1127,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
              }
        ];
     } else if (node.type === 'table') {
-        const sameContextSelectedTables = (selectedNodes || []).filter((n: any) => n?.type === 'table' && n?.dataRef?.id === node?.dataRef?.id && n?.dataRef?.dbName === node?.dataRef?.dbName);
-        const selectedForAction = sameContextSelectedTables.some((n: any) => n?.key === node.key) ? sameContextSelectedTables : [node];
-
         return [
-            ...(selectedForAction.length > 1 ? ([
-                {
-                    key: 'export-selected-schema',
-                    label: `导出选中表结构 (${selectedForAction.length}) (SQL)`,
-                    icon: <ExportOutlined />,
-                    onClick: () => handleExportTablesSQL(selectedForAction, false)
-                },
-                {
-                    key: 'backup-selected-sql',
-                    label: `备份选中表 (${selectedForAction.length}) (结构+数据 SQL)`,
-                    icon: <SaveOutlined />,
-                    onClick: () => handleExportTablesSQL(selectedForAction, true)
-                },
-                { type: 'divider' as const }
-            ]) : []),
             {
                 key: 'new-query',
                 label: '新建查询',
@@ -914,6 +1210,27 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         <div style={{ padding: '4px 8px' }}>
             <Search placeholder="搜索..." onChange={onSearch} size="small" />
         </div>
+
+        {/* Toolbar for batch operations - always visible */}
+        <div style={{ padding: '4px 8px', borderBottom: '1px solid #f0f0f0', display: 'flex', gap: 4 }}>
+            <Button
+                size="small"
+                icon={<CheckSquareOutlined />}
+                onClick={() => openBatchOperationModal()}
+                style={{ flex: 1 }}
+            >
+                批量操作表
+            </Button>
+            <Button
+                size="small"
+                icon={<CheckSquareOutlined />}
+                onClick={() => openBatchDatabaseModal()}
+                style={{ flex: 1 }}
+            >
+                批量操作库
+            </Button>
+        </div>
+
         <div ref={treeContainerRef} style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
             <Tree
                 showIcon
@@ -927,7 +1244,6 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 loadedKeys={loadedKeys}
                 onLoad={setLoadedKeys}
                 autoExpandParent={autoExpandParent}
-                multiple
                 selectedKeys={selectedKeys}
                 blockNode
                 height={treeHeight}
@@ -958,6 +1274,206 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 </Form.Item>
                 {/* Charset option could be added here */}
             </Form>
+        </Modal>
+
+        <Modal
+            title="批量操作表"
+            open={isBatchModalOpen}
+            onCancel={() => setIsBatchModalOpen(false)}
+            width={600}
+            footer={[
+                <Button key="cancel" onClick={() => setIsBatchModalOpen(false)}>
+                    取消
+                </Button>,
+                <Button
+                    key="export-schema"
+                    icon={<ExportOutlined />}
+                    onClick={() => handleBatchExport(false)}
+                    disabled={checkedTableKeys.length === 0}
+                >
+                    导出表结构 ({checkedTableKeys.length})
+                </Button>,
+                <Button
+                    key="backup"
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    onClick={() => handleBatchExport(true)}
+                    disabled={checkedTableKeys.length === 0}
+                >
+                    备份表 ({checkedTableKeys.length})
+                </Button>
+            ]}
+        >
+            <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>选择连接：</label>
+                    <Select
+                        value={selectedConnection}
+                        onChange={handleConnectionChange}
+                        style={{ width: '100%' }}
+                        placeholder="请选择连接"
+                    >
+                        {connections.filter(c => c.config.type !== 'redis').map(conn => (
+                            <Select.Option key={conn.id} value={conn.id}>
+                                {conn.name}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                    <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>选择数据库：</label>
+                    <Select
+                        value={selectedDatabase}
+                        onChange={handleDatabaseChange}
+                        style={{ width: '100%' }}
+                        placeholder="请先选择连接"
+                        disabled={!selectedConnection}
+                    >
+                        {availableDatabases.map(db => (
+                            <Select.Option key={db.key} value={db.dbName}>
+                                {db.title}
+                            </Select.Option>
+                        ))}
+                    </Select>
+                </div>
+            </div>
+
+            {batchTables.length > 0 && (
+                <>
+                    <div style={{ marginBottom: 16 }}>
+                        <Space>
+                            <Button
+                                size="small"
+                                onClick={() => handleCheckAll(true)}
+                            >
+                                全选
+                            </Button>
+                            <Button
+                                size="small"
+                                onClick={() => handleCheckAll(false)}
+                            >
+                                取消全选
+                            </Button>
+                            <Button
+                                size="small"
+                                onClick={handleInvertSelection}
+                            >
+                                反选
+                            </Button>
+                            <span style={{ color: '#999' }}>
+                                已选择 {checkedTableKeys.length} / {batchTables.length} 张表
+                            </span>
+                        </Space>
+                    </div>
+                    <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                        <Checkbox.Group
+                            value={checkedTableKeys}
+                            onChange={(values) => setCheckedTableKeys(values as string[])}
+                            style={{ width: '100%' }}
+                        >
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                                {batchTables.map(table => (
+                                    <Checkbox key={table.key} value={table.key}>
+                                        <TableOutlined style={{ marginRight: 8 }} />
+                                        {table.title}
+                                    </Checkbox>
+                                ))}
+                            </Space>
+                        </Checkbox.Group>
+                    </div>
+                </>
+            )}
+        </Modal>
+
+        <Modal
+            title="批量操作库"
+            open={isBatchDbModalOpen}
+            onCancel={() => setIsBatchDbModalOpen(false)}
+            width={600}
+            footer={[
+                <Button key="cancel" onClick={() => setIsBatchDbModalOpen(false)}>
+                    取消
+                </Button>,
+                <Button
+                    key="export-schema"
+                    icon={<ExportOutlined />}
+                    onClick={() => handleBatchDbExport(false)}
+                    disabled={checkedDbKeys.length === 0}
+                >
+                    导出库结构 ({checkedDbKeys.length})
+                </Button>,
+                <Button
+                    key="backup"
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    onClick={() => handleBatchDbExport(true)}
+                    disabled={checkedDbKeys.length === 0}
+                >
+                    备份库 ({checkedDbKeys.length})
+                </Button>
+            ]}
+        >
+            <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', marginBottom: 4, fontWeight: 500 }}>选择连接：</label>
+                <Select
+                    value={selectedDbConnection}
+                    onChange={handleDbConnectionChange}
+                    style={{ width: '100%' }}
+                    placeholder="请选择连接"
+                >
+                    {connections.filter(c => c.config.type !== 'redis').map(conn => (
+                        <Select.Option key={conn.id} value={conn.id}>
+                            {conn.name}
+                        </Select.Option>
+                    ))}
+                </Select>
+            </div>
+
+            {batchDatabases.length > 0 && (
+                <>
+                    <div style={{ marginBottom: 16 }}>
+                        <Space>
+                            <Button
+                                size="small"
+                                onClick={() => handleCheckAllDb(true)}
+                            >
+                                全选
+                            </Button>
+                            <Button
+                                size="small"
+                                onClick={() => handleCheckAllDb(false)}
+                            >
+                                取消全选
+                            </Button>
+                            <Button
+                                size="small"
+                                onClick={handleInvertSelectionDb}
+                            >
+                                反选
+                            </Button>
+                            <span style={{ color: '#999' }}>
+                                已选择 {checkedDbKeys.length} / {batchDatabases.length} 个库
+                            </span>
+                        </Space>
+                    </div>
+                    <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                        <Checkbox.Group
+                            value={checkedDbKeys}
+                            onChange={(values) => setCheckedDbKeys(values as string[])}
+                            style={{ width: '100%' }}
+                        >
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                                {batchDatabases.map(db => (
+                                    <Checkbox key={db.key} value={db.key}>
+                                        <DatabaseOutlined style={{ marginRight: 8 }} />
+                                        {db.title}
+                                    </Checkbox>
+                                ))}
+                            </Space>
+                        </Checkbox.Group>
+                    </div>
+                </>
+            )}
         </Modal>
     </div>
   );

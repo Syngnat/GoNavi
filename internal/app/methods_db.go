@@ -14,8 +14,8 @@ import (
 // Generic DB Methods
 
 func (a *App) DBConnect(config connection.ConnectionConfig) connection.QueryResult {
-	// getDatabase checks cache and Pings. If valid, reuses. If not, connects.
-	_, err := a.getDatabase(config)
+	// 连接测试需要强制 ping，避免缓存命中但连接已失效时误判成功。
+	_, err := a.getDatabaseForcePing(config)
 	if err != nil {
 		logger.Error(err, "DBConnect 连接失败：%s", formatConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -26,7 +26,7 @@ func (a *App) DBConnect(config connection.ConnectionConfig) connection.QueryResu
 }
 
 func (a *App) TestConnection(config connection.ConnectionConfig) connection.QueryResult {
-	_, err := a.getDatabase(config)
+	_, err := a.getDatabaseForcePing(config)
 	if err != nil {
 		logger.Error(err, "TestConnection 连接测试失败：%s", formatConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}

@@ -248,7 +248,141 @@ func (c *CustomDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 }
 
 func (c *CustomDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
-	return fmt.Errorf("read-only mode for custom")
+	if c.conn == nil {
+		return fmt.Errorf("connection not open")
+	}
+
+	tx, err := c.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	driver := strings.ToLower(strings.TrimSpace(c.driver))
+	isMySQL := strings.Contains(driver, "mysql")
+	isPostgres := strings.Contains(driver, "postgres") || strings.Contains(driver, "kingbase") || strings.Contains(driver, "pg")
+	isOracle := strings.Contains(driver, "oracle") || strings.Contains(driver, "ora") || strings.Contains(driver, "dm") || strings.Contains(driver, "dameng")
+
+	quoteIdent := func(name string) string {
+		n := strings.TrimSpace(name)
+		if isMySQL {
+			n = strings.Trim(n, "`")
+			n = strings.ReplaceAll(n, "`", "``")
+			if n == "" {
+				return "``"
+			}
+			return "`" + n + "`"
+		}
+		n = strings.Trim(n, "\"")
+		n = strings.ReplaceAll(n, "\"", "\"\"")
+		if n == "" {
+			return "\"\""
+		}
+		return `"` + n + `"`
+	}
+
+	placeholder := func(idx int) string {
+		if isPostgres {
+			return fmt.Sprintf("$%d", idx)
+		}
+		if isOracle {
+			return fmt.Sprintf(":%d", idx)
+		}
+		// MySQL / SQLite / default
+		return "?"
+	}
+
+	schema := ""
+	table := strings.TrimSpace(tableName)
+	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
+		schema = strings.TrimSpace(parts[0])
+		table = strings.TrimSpace(parts[1])
+	}
+
+	qualifiedTable := ""
+	if schema != "" {
+		qualifiedTable = fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table))
+	} else {
+		qualifiedTable = quoteIdent(table)
+	}
+
+	// 1. Deletes
+	for _, pk := range changes.Deletes {
+		var wheres []string
+		var args []interface{}
+		idx := 0
+		for k, v := range pk {
+			idx++
+			wheres = append(wheres, fmt.Sprintf("%s = %s", quoteIdent(k), placeholder(idx)))
+			args = append(args, v)
+		}
+		if len(wheres) == 0 {
+			continue
+		}
+		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("delete error: %v", err)
+		}
+	}
+
+	// 2. Updates
+	for _, update := range changes.Updates {
+		var sets []string
+		var args []interface{}
+		idx := 0
+
+		for k, v := range update.Values {
+			idx++
+			sets = append(sets, fmt.Sprintf("%s = %s", quoteIdent(k), placeholder(idx)))
+			args = append(args, v)
+		}
+
+		if len(sets) == 0 {
+			continue
+		}
+
+		var wheres []string
+		for k, v := range update.Keys {
+			idx++
+			wheres = append(wheres, fmt.Sprintf("%s = %s", quoteIdent(k), placeholder(idx)))
+			args = append(args, v)
+		}
+
+		if len(wheres) == 0 {
+			return fmt.Errorf("update requires keys")
+		}
+
+		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("update error: %v", err)
+		}
+	}
+
+	// 3. Inserts
+	for _, row := range changes.Inserts {
+		var cols []string
+		var placeholders []string
+		var args []interface{}
+		idx := 0
+
+		for k, v := range row {
+			idx++
+			cols = append(cols, quoteIdent(k))
+			placeholders = append(placeholders, placeholder(idx))
+			args = append(args, v)
+		}
+
+		if len(cols) == 0 {
+			continue
+		}
+
+		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		if _, err := tx.Exec(query, args...); err != nil {
+			return fmt.Errorf("insert error: %v", err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (c *CustomDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {

@@ -318,14 +318,18 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		var args []interface{}
 		for k, v := range pk {
 			wheres = append(wheres, fmt.Sprintf("`%s` = ?", k))
-			args = append(args, v)
+			args = append(args, normalizeMySQLDateTimeValue(v))
 		}
 		if len(wheres) == 0 {
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM `%s` WHERE %s", tableName, strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		res, err := tx.Exec(query, args...)
+		if err != nil {
 			return fmt.Errorf("delete error: %v", err)
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+			return fmt.Errorf("删除未生效：未匹配到任何行")
 		}
 	}
 
@@ -336,7 +340,7 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 
 		for k, v := range update.Values {
 			sets = append(sets, fmt.Sprintf("`%s` = ?", k))
-			args = append(args, v)
+			args = append(args, normalizeMySQLDateTimeValue(v))
 		}
 
 		if len(sets) == 0 {
@@ -346,7 +350,7 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		var wheres []string
 		for k, v := range update.Keys {
 			wheres = append(wheres, fmt.Sprintf("`%s` = ?", k))
-			args = append(args, v)
+			args = append(args, normalizeMySQLDateTimeValue(v))
 		}
 
 		if len(wheres) == 0 {
@@ -354,8 +358,12 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		}
 
 		query := fmt.Sprintf("UPDATE `%s` SET %s WHERE %s", tableName, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		res, err := tx.Exec(query, args...)
+		if err != nil {
 			return fmt.Errorf("update error: %v", err)
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+			return fmt.Errorf("更新未生效：未匹配到任何行")
 		}
 	}
 
@@ -368,7 +376,7 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		for k, v := range row {
 			cols = append(cols, fmt.Sprintf("`%s`", k))
 			placeholders = append(placeholders, "?")
-			args = append(args, v)
+			args = append(args, normalizeMySQLDateTimeValue(v))
 		}
 
 		if len(cols) == 0 {
@@ -376,12 +384,91 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		}
 
 		query := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)", tableName, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		res, err := tx.Exec(query, args...)
+		if err != nil {
 			return fmt.Errorf("insert error: %v", err)
+		}
+		if affected, err := res.RowsAffected(); err == nil && affected == 0 {
+			return fmt.Errorf("插入未生效：未影响任何行")
 		}
 	}
 
 	return tx.Commit()
+}
+
+func normalizeMySQLDateTimeValue(value interface{}) interface{} {
+	text, ok := value.(string)
+	if !ok {
+		return value
+	}
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return value
+	}
+
+	cleaned := strings.ReplaceAll(raw, "+ ", "+")
+	cleaned = strings.ReplaceAll(cleaned, "- ", "-")
+
+	if len(cleaned) >= 19 && cleaned[10] == 'T' {
+		if strings.HasSuffix(cleaned, "Z") || hasTimezoneOffset(cleaned) {
+			if t, err := time.Parse(time.RFC3339Nano, cleaned); err == nil {
+				return formatMySQLDateTime(t)
+			}
+			if t, err := time.Parse(time.RFC3339, cleaned); err == nil {
+				return formatMySQLDateTime(t)
+			}
+		}
+		return strings.Replace(cleaned, "T", " ", 1)
+	}
+
+	if strings.Contains(cleaned, " ") && (strings.HasSuffix(cleaned, "Z") || hasTimezoneOffset(cleaned)) {
+		candidate := strings.Replace(cleaned, " ", "T", 1)
+		if t, err := time.Parse(time.RFC3339Nano, candidate); err == nil {
+			return formatMySQLDateTime(t)
+		}
+		if t, err := time.Parse(time.RFC3339, candidate); err == nil {
+			return formatMySQLDateTime(t)
+		}
+	}
+
+	return value
+}
+
+func hasTimezoneOffset(text string) bool {
+	pos := strings.LastIndexAny(text, "+-")
+	if pos < 0 || pos < 10 || pos+1 >= len(text) {
+		return false
+	}
+	offset := text[pos+1:]
+	if len(offset) == 5 && offset[2] == ':' {
+		return isAllDigits(offset[:2]) && isAllDigits(offset[3:])
+	}
+	if len(offset) == 4 {
+		return isAllDigits(offset)
+	}
+	return false
+}
+
+func isAllDigits(text string) bool {
+	if text == "" {
+		return false
+	}
+	for _, r := range text {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func formatMySQLDateTime(t time.Time) string {
+	base := t.Format("2006-01-02 15:04:05")
+	nanos := t.Nanosecond()
+	if nanos == 0 {
+		return base
+	}
+	micro := nanos / 1000
+	return fmt.Sprintf("%s.%06d", base, micro)
 }
 
 func (m *MySQLDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
