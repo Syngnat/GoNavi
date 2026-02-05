@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message } from 'antd';
+import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, BugOutlined, SettingOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
@@ -25,6 +25,105 @@ function App() {
   const addConnection = useStore(state => state.addConnection);
   const tabs = useStore(state => state.tabs);
   const activeTabId = useStore(state => state.activeTabId);
+  const updateCheckInFlightRef = React.useRef(false);
+  const updateDownloadInFlightRef = React.useRef(false);
+  const updateDownloadedVersionRef = React.useRef<string | null>(null);
+  const updateDeferredVersionRef = React.useRef<string | null>(null);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [aboutLoading, setAboutLoading] = useState(false);
+  const [aboutInfo, setAboutInfo] = useState<{ version: string; author: string; buildTime?: string; repoUrl?: string; issueUrl?: string; releaseUrl?: string } | null>(null);
+
+  type UpdateInfo = {
+      hasUpdate: boolean;
+      currentVersion: string;
+      latestVersion: string;
+      releaseName?: string;
+      releaseNotesUrl?: string;
+      assetName?: string;
+      assetUrl?: string;
+      assetSize?: number;
+      sha256?: string;
+  };
+
+  const promptRestartForUpdate = (info: UpdateInfo) => {
+      Modal.confirm({
+          title: '更新已下载',
+          content: `版本 ${info.latestVersion} 已下载完成，是否现在重启完成更新？`,
+          okText: '立即重启',
+          cancelText: '稍后',
+          onOk: async () => {
+              updateDeferredVersionRef.current = null;
+              const res = await (window as any).go.app.App.InstallUpdateAndRestart();
+              if (!res?.success) {
+                  message.error('更新安装失败: ' + (res?.message || '未知错误'));
+              }
+          },
+          onCancel: () => {
+              updateDeferredVersionRef.current = info.latestVersion;
+          }
+      });
+  };
+
+  const downloadUpdate = React.useCallback(async (info: UpdateInfo, silent: boolean) => {
+      if (updateDownloadInFlightRef.current) return;
+      if (updateDownloadedVersionRef.current === info.latestVersion) {
+          if (!silent) {
+              message.info(`更新包已就绪（${info.latestVersion}）`);
+          }
+          if (!silent || updateDeferredVersionRef.current !== info.latestVersion) {
+              promptRestartForUpdate(info);
+          }
+          return;
+      }
+      updateDownloadInFlightRef.current = true;
+      const key = 'update-download';
+      message.loading({ content: `正在下载更新 ${info.latestVersion}...`, key, duration: 0 });
+      const res = await (window as any).go.app.App.DownloadUpdate();
+      updateDownloadInFlightRef.current = false;
+      if (res?.success) {
+          updateDownloadedVersionRef.current = info.latestVersion;
+          message.success({ content: '更新下载完成', key, duration: 2 });
+          if (!silent || updateDeferredVersionRef.current !== info.latestVersion) {
+              promptRestartForUpdate(info);
+          }
+      } else {
+          message.error({ content: '更新下载失败: ' + (res?.message || '未知错误'), key, duration: 4 });
+      }
+  }, []);
+
+  const checkForUpdates = React.useCallback(async (silent: boolean) => {
+      if (updateCheckInFlightRef.current) return;
+      updateCheckInFlightRef.current = true;
+      const res = await (window as any).go.app.App.CheckForUpdates();
+      updateCheckInFlightRef.current = false;
+      if (!res?.success) {
+          if (!silent) {
+              message.error('检查更新失败: ' + (res?.message || '未知错误'));
+          }
+          return;
+      }
+      const info: UpdateInfo = res.data;
+      if (!info) return;
+      if (info.hasUpdate) {
+          if (!silent) {
+              message.info(`发现新版本 ${info.latestVersion}，开始下载...`);
+          }
+          await downloadUpdate(info, silent);
+      } else if (!silent) {
+          message.success(`当前已是最新版本（${info.currentVersion || '未知'}）`);
+      }
+  }, [downloadUpdate]);
+
+  const loadAboutInfo = React.useCallback(async () => {
+      setAboutLoading(true);
+      const res = await (window as any).go.app.App.GetAppInfo();
+      if (res?.success) {
+          setAboutInfo(res.data);
+      } else {
+          message.error('获取应用信息失败: ' + (res?.message || '未知错误'));
+      }
+      setAboutLoading(false);
+  }, []);
 
   const handleNewQuery = () => {
       let connId = activeContext?.connectionId || '';
@@ -44,7 +143,8 @@ function App() {
           title: '新建查询',
           type: 'query',
           connectionId: connId,
-          dbName: db
+          dbName: db,
+          query: ''
       });
   };
 
@@ -86,13 +186,7 @@ function App() {
       }
   };
 
-  const settingsMenu: MenuProps['items'] = [
-      {
-          key: 'sync',
-          label: '数据同步',
-          icon: <UploadOutlined rotate={90} />,
-          onClick: () => setIsSyncModalOpen(true)
-      },
+  const toolsMenu: MenuProps['items'] = [
       {
           key: 'import',
           label: '导入连接配置',
@@ -104,8 +198,15 @@ function App() {
           label: '导出连接配置',
           icon: <DownloadOutlined />,
           onClick: handleExportConnections
+      },
+      {
+          key: 'sync',
+          label: '数据同步',
+          icon: <UploadOutlined rotate={90} />,
+          onClick: () => setIsSyncModalOpen(true)
       }
   ];
+
 
   // Log Panel
   const [logPanelHeight, setLogPanelHeight] = useState(200);
@@ -230,6 +331,25 @@ function App() {
     }
   }, [darkMode]);
 
+  useEffect(() => {
+      if (isAboutOpen) {
+          loadAboutInfo();
+      }
+  }, [isAboutOpen, loadAboutInfo]);
+
+  useEffect(() => {
+      const startupTimer = window.setTimeout(() => {
+          checkForUpdates(true);
+      }, 2000);
+      const interval = window.setInterval(() => {
+          checkForUpdates(true);
+      }, 30 * 60 * 1000);
+      return () => {
+          window.clearTimeout(startupTimer);
+          window.clearInterval(interval);
+      };
+  }, [checkForUpdates]);
+
   return (
     <ConfigProvider
         locale={zhCN}
@@ -237,7 +357,26 @@ function App() {
             algorithm: darkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
         }}
     >
-        <Layout style={{ height: '100vh', overflow: 'hidden' }}>
+        <Layout style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div
+            style={{
+                height: 36,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                gap: 4,
+                padding: '0 8px',
+                borderBottom: darkMode ? '1px solid #303030' : '1px solid #f0f0f0',
+                background: darkMode ? '#141414' : '#fff'
+            }}
+          >
+            <Dropdown menu={{ items: toolsMenu }} placement="bottomLeft">
+                <Button type="text" icon={<ToolOutlined />} title="工具">工具</Button>
+            </Dropdown>
+            <Button type="text" icon={<InfoCircleOutlined />} title="关于" onClick={() => setIsAboutOpen(true)}>关于</Button>
+          </div>
+          <Layout style={{ flex: 1, minHeight: 0 }}>
           <Sider 
             theme={darkMode ? "dark" : "light"} 
             width={sidebarWidth} 
@@ -253,11 +392,8 @@ function App() {
                     <Button type="text" icon={darkMode ? <BulbFilled /> : <BulbOutlined />} onClick={toggleDarkMode} title="切换主题" />
                     <Button type="text" icon={<ConsoleSqlOutlined />} onClick={handleNewQuery} title="新建查询" />
                     <Button type="text" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)} title="新建连接" />
-                    <Dropdown menu={{ items: settingsMenu }} placement="bottomRight">
-                        <Button type="text" icon={<SettingOutlined />} title="更多设置" />
-                    </Dropdown>
                 </div>
-                </div>
+            </div>
                 
                 <div style={{ flex: 1, overflow: 'hidden' }}>
                     <Sidebar onEditConnection={handleEditConnection} />
@@ -304,6 +440,7 @@ function App() {
                 />
             )}
           </Content>
+          </Layout>
           <ConnectionModal 
             open={isModalOpen} 
             onClose={handleCloseModal} 
@@ -313,6 +450,50 @@ function App() {
             open={isSyncModalOpen}
             onClose={() => setIsSyncModalOpen(false)}
           />
+          <Modal
+            title="关于 GoNavi"
+            open={isAboutOpen}
+            onCancel={() => setIsAboutOpen(false)}
+            footer={[
+                <Button key="check" icon={<CloudDownloadOutlined />} onClick={() => checkForUpdates(false)}>检查更新</Button>,
+                <Button key="close" type="primary" onClick={() => setIsAboutOpen(false)}>关闭</Button>
+            ]}
+          >
+            {aboutLoading ? (
+                <div style={{ padding: '16px 0', textAlign: 'center' }}>
+                    <Spin />
+                </div>
+            ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div>版本：{aboutInfo?.version || '未知'}</div>
+                    <div>作者：{aboutInfo?.author || '未知'}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <GithubOutlined />
+                    {aboutInfo?.repoUrl ? (
+                        <a onClick={(e) => { e.preventDefault(); (window as any).runtime.BrowserOpenURL(aboutInfo.repoUrl); }} href={aboutInfo.repoUrl}>
+                            {aboutInfo.repoUrl}
+                        </a>
+                    ) : '未知'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <BugOutlined />
+                    {aboutInfo?.issueUrl ? (
+                        <a onClick={(e) => { e.preventDefault(); (window as any).runtime.BrowserOpenURL(aboutInfo.issueUrl); }} href={aboutInfo.issueUrl}>
+                            {aboutInfo.issueUrl}
+                        </a>
+                    ) : '未知'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CloudDownloadOutlined />
+                    {aboutInfo?.releaseUrl ? (
+                        <a onClick={(e) => { e.preventDefault(); (window as any).runtime.BrowserOpenURL(aboutInfo.releaseUrl); }} href={aboutInfo.releaseUrl}>
+                            {aboutInfo.releaseUrl}
+                        </a>
+                    ) : '未知'}
+                </div>
+            </div>
+            )}
+          </Modal>
           
           {/* Ghost Resize Line for Sidebar */}
           <div 

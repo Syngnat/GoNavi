@@ -12,6 +12,7 @@ if [ -z "$VERSION" ]; then
     VERSION="0.0.0"
 fi
 echo "ℹ️  检测到版本号: $VERSION"
+LDFLAGS="-X GoNavi-Wails/internal/app.AppVersion=$VERSION"
 
 # 颜色配置
 GREEN='\033[0;32m'
@@ -27,7 +28,7 @@ mkdir -p $DIST_DIR
 
 # --- macOS ARM64 构建 ---
 echo -e "${GREEN}🍎 正在构建 macOS (arm64)...${NC}"
-wails build -platform darwin/arm64 -clean
+wails build -platform darwin/arm64 -clean -ldflags "$LDFLAGS"
 if [ $? -eq 0 ]; then
     APP_SRC="$BUILD_BIN_DIR/$DEFAULT_BINARY_NAME.app"
     APP_DEST_NAME="${APP_NAME}-${VERSION}-mac-arm64.app"
@@ -81,7 +82,7 @@ fi
 
 # --- macOS AMD64 构建 ---
 echo -e "${GREEN}🍎 正在构建 macOS (amd64)...${NC}"
-wails build -platform darwin/amd64 -clean
+wails build -platform darwin/amd64 -clean -ldflags "$LDFLAGS"
 if [ $? -eq 0 ]; then
     APP_SRC="$BUILD_BIN_DIR/$DEFAULT_BINARY_NAME.app"
     APP_DEST_NAME="${APP_NAME}-${VERSION}-mac-amd64.app"
@@ -131,7 +132,7 @@ fi
 # --- Windows AMD64 构建 ---
 echo -e "${GREEN}🪟 正在构建 Windows (amd64)...${NC}"
 if command -v x86_64-w64-mingw32-gcc &> /dev/null; then
-    wails build -platform windows/amd64 -clean
+    wails build -platform windows/amd64 -clean -ldflags "$LDFLAGS"
     if [ $? -eq 0 ]; then
         mv "$BUILD_BIN_DIR/${DEFAULT_BINARY_NAME}.exe" "$DIST_DIR/${APP_NAME}-${VERSION}-windows-amd64.exe"
         echo "   ✅ 已生成 ${APP_NAME}-${VERSION}-windows-amd64.exe"
@@ -145,7 +146,7 @@ fi
 # --- Windows ARM64 构建 ---
 echo -e "${GREEN}🪟 正在构建 Windows (arm64)...${NC}"
 if command -v aarch64-w64-mingw32-gcc &> /dev/null; then
-    wails build -platform windows/arm64 -clean
+    wails build -platform windows/arm64 -clean -ldflags "$LDFLAGS"
     if [ $? -eq 0 ]; then
         mv "$BUILD_BIN_DIR/${DEFAULT_BINARY_NAME}.exe" "$DIST_DIR/${APP_NAME}-${VERSION}-windows-arm64.exe"
         echo "   ✅ 已生成 ${APP_NAME}-${VERSION}-windows-arm64.exe"
@@ -165,7 +166,7 @@ CURRENT_ARCH=$(uname -m)
 
 if [ "$CURRENT_OS" = "Linux" ] && [ "$CURRENT_ARCH" = "x86_64" ]; then
     # 本机 Linux amd64，直接构建
-    wails build -platform linux/amd64 -clean
+    wails build -platform linux/amd64 -clean -ldflags "$LDFLAGS"
     if [ $? -eq 0 ]; then
         mv "$BUILD_BIN_DIR/${DEFAULT_BINARY_NAME}" "$DIST_DIR/${APP_NAME}-${VERSION}-linux-amd64"
         chmod +x "$DIST_DIR/${APP_NAME}-${VERSION}-linux-amd64"
@@ -183,7 +184,7 @@ elif command -v x86_64-linux-gnu-gcc &> /dev/null; then
     export CC=x86_64-linux-gnu-gcc
     export CXX=x86_64-linux-gnu-g++
     export CGO_ENABLED=1
-    wails build -platform linux/amd64 -clean
+    wails build -platform linux/amd64 -clean -ldflags "$LDFLAGS"
     if [ $? -eq 0 ]; then
         mv "$BUILD_BIN_DIR/${DEFAULT_BINARY_NAME}" "$DIST_DIR/${APP_NAME}-${VERSION}-linux-amd64"
         chmod +x "$DIST_DIR/${APP_NAME}-${VERSION}-linux-amd64"
@@ -205,7 +206,7 @@ fi
 echo -e "${GREEN}🐧 正在构建 Linux (arm64)...${NC}"
 if [ "$CURRENT_OS" = "Linux" ] && [ "$CURRENT_ARCH" = "aarch64" ]; then
     # 本机 Linux arm64，直接构建
-    wails build -platform linux/arm64 -clean
+    wails build -platform linux/arm64 -clean -ldflags "$LDFLAGS"
     if [ $? -eq 0 ]; then
         mv "$BUILD_BIN_DIR/${DEFAULT_BINARY_NAME}" "$DIST_DIR/${APP_NAME}-${VERSION}-linux-arm64"
         chmod +x "$DIST_DIR/${APP_NAME}-${VERSION}-linux-arm64"
@@ -222,7 +223,7 @@ elif command -v aarch64-linux-gnu-gcc &> /dev/null; then
     export CC=aarch64-linux-gnu-gcc
     export CXX=aarch64-linux-gnu-g++
     export CGO_ENABLED=1
-    wails build -platform linux/arm64 -clean
+    wails build -platform linux/arm64 -clean -ldflags "$LDFLAGS"
     if [ $? -eq 0 ]; then
         mv "$BUILD_BIN_DIR/${DEFAULT_BINARY_NAME}" "$DIST_DIR/${APP_NAME}-${VERSION}-linux-arm64"
         chmod +x "$DIST_DIR/${APP_NAME}-${VERSION}-linux-arm64"
@@ -243,6 +244,27 @@ fi
 
 # 清理中间构建目录
 rm -rf "build/bin"
+
+echo -e "${GREEN}🔐 生成 SHA256SUMS...${NC}"
+if command -v sha256sum &> /dev/null; then
+    cd "$DIST_DIR"
+    : > SHA256SUMS
+    for f in *; do
+        [ -f "$f" ] || continue
+        sha256sum "$f" >> SHA256SUMS
+    done
+    cd ..
+elif command -v shasum &> /dev/null; then
+    cd "$DIST_DIR"
+    : > SHA256SUMS
+    for f in *; do
+        [ -f "$f" ] || continue
+        shasum -a 256 "$f" >> SHA256SUMS
+    done
+    cd ..
+else
+    echo -e "${YELLOW}   ⚠️  未找到 sha256sum/shasum，跳过校验文件生成。${NC}"
+fi
 
 echo ""
 echo -e "${GREEN}🎉 所有任务完成！构建产物在 'dist/' 目录下：${NC}"

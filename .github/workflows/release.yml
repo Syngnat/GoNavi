@@ -88,7 +88,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.artifact_name }}
+          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.artifact_name }} -ldflags "-X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
 
       # macOS Packaging
       - name: Package macOS DMG
@@ -248,6 +248,11 @@ jobs:
 
       - name: List Assets
         run: ls -R release-assets
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

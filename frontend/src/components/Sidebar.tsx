@@ -979,7 +979,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                        title: `新建查询`,
                        type: 'query',
                        connectionId: node.key,
-                       dbName: undefined
+                       dbName: undefined,
+                       query: ''
                    });
                }
              },
@@ -1115,7 +1116,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                        title: `新建查询 (${node.title})`,
                        type: 'query',
                        connectionId: node.dataRef.id,
-                       dbName: node.title
+                       dbName: node.title,
+                       query: ''
                    });
                }
              },
@@ -1138,7 +1140,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                        title: `新建查询`,
                        type: 'query',
                        connectionId: node.dataRef.id,
-                       dbName: node.dataRef.dbName
+                       dbName: node.dataRef.dbName,
+                       query: ''
                    });
                 }
             },
