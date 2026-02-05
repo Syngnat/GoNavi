@@ -42,8 +42,9 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const dragRef = useRef<{ startY: number, startHeight: number } | null>(null);
-  const tablesRef = useRef<string[]>([]); // Store tables for autocomplete
-  const allColumnsRef = useRef<{tableName: string, name: string, type: string}[]>([]); // Store all columns
+  const tablesRef = useRef<{dbName: string, tableName: string}[]>([]); // Store tables for autocomplete (cross-db)
+  const allColumnsRef = useRef<{dbName: string, tableName: string, name: string, type: string}[]>([]); // Store all columns (cross-db)
+  const visibleDbsRef = useRef<string[]>([]); // Store visible databases for cross-db intellisense
 
   const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
@@ -52,7 +53,8 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const connectionsRef = useRef(connections);
   const columnsCacheRef = useRef<Record<string, ColumnDefinition[]>>({});
   const saveQuery = useStore(state => state.saveQuery);
-  const darkMode = useStore(state => state.darkMode);
+  const theme = useStore(state => state.theme);
+  const darkMode = theme === 'dark';
   const sqlFormatOptions = useStore(state => state.sqlFormatOptions);
   const setSqlFormatOptions = useStore(state => state.setSqlFormatOptions);
   const queryOptions = useStore(state => state.queryOptions);
@@ -80,9 +82,9 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
       const fetchDbs = async () => {
           const conn = connections.find(c => c.id === currentConnectionId);
           if (!conn) return;
-          
-          const config = { 
-            ...conn.config, 
+
+          const config = {
+            ...conn.config,
             port: Number(conn.config.port),
             password: conn.config.password || "",
             database: conn.config.database || "",
@@ -92,27 +94,41 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
           const res = await DBGetDatabases(config as any);
           if (res.success && Array.isArray(res.data)) {
-              const dbs = res.data.map((row: any) => row.Database || row.database);
+              let dbs = res.data.map((row: any) => row.Database || row.database);
+
+              // 过滤只显示 includeDatabases 中配置的数据库
+              const includeDbs = conn.includeDatabases;
+              if (includeDbs && includeDbs.length > 0) {
+                  dbs = dbs.filter((db: string) => includeDbs.includes(db));
+              }
+
+              // 存储可见数据库列表用于跨库智能提示
+              visibleDbsRef.current = dbs;
+
               setDbList(dbs);
               if (!currentDbRef.current) {
-                  if (conn.config.database) setCurrentDb(conn.config.database);
+                  if (conn.config.database && dbs.includes(conn.config.database)) setCurrentDb(conn.config.database);
                   else if (dbs.length > 0 && dbs[0] !== 'information_schema') setCurrentDb(dbs[0]);
               }
           } else {
+              visibleDbsRef.current = [];
               setDbList([]);
           }
       };
       fetchDbs();
   }, [currentConnectionId, connections]);
 
-  // Fetch Metadata for Autocomplete
+  // Fetch Metadata for Autocomplete (Cross-database)
   useEffect(() => {
       const fetchMetadata = async () => {
           const conn = connections.find(c => c.id === currentConnectionId);
-          if (!conn || !currentDb) return;
+          if (!conn) return;
 
-          const config = { 
-            ...conn.config, 
+          const visibleDbs = visibleDbsRef.current;
+          if (!visibleDbs || visibleDbs.length === 0) return;
+
+          const config = {
+            ...conn.config,
             port: Number(conn.config.port),
             password: conn.config.password || "",
             database: conn.config.database || "",
@@ -120,25 +136,39 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
             ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
           };
 
-          const resTables = await DBGetTables(config as any, currentDb);
-          if (resTables.success && Array.isArray(resTables.data)) {
-              const tableNames = resTables.data.map((row: any) => Object.values(row)[0] as string);
-              tablesRef.current = tableNames;
-          } else {
-              tablesRef.current = [];
-          }
+          // 加载所有可见数据库的表
+          const allTables: {dbName: string, tableName: string}[] = [];
+          const allColumns: {dbName: string, tableName: string, name: string, type: string}[] = [];
 
-          if (config.type === 'mysql' || !config.type) {
-              const resCols = await DBGetAllColumns(config as any, currentDb);
+          for (const dbName of visibleDbs) {
+              // 获取表
+              const resTables = await DBGetTables(config as any, dbName);
+              if (resTables.success && Array.isArray(resTables.data)) {
+                  const tableNames = resTables.data.map((row: any) => Object.values(row)[0] as string);
+                  tableNames.forEach((tableName: string) => {
+                      allTables.push({ dbName, tableName });
+                  });
+              }
+
+              // 获取列 (所有数据库类型都支持 DBGetAllColumns)
+              const resCols = await DBGetAllColumns(config as any, dbName);
               if (resCols.success && Array.isArray(resCols.data)) {
-                  allColumnsRef.current = resCols.data;
-              } else {
-                  allColumnsRef.current = [];
+                  resCols.data.forEach((col: any) => {
+                      allColumns.push({
+                          dbName,
+                          tableName: col.tableName,
+                          name: col.name,
+                          type: col.type
+                      });
+                  });
               }
           }
+
+          tablesRef.current = allTables;
+          allColumnsRef.current = allColumns;
       };
       fetchMetadata();
-  }, [currentConnectionId, currentDb, connections]);
+  }, [currentConnectionId, connections, dbList]); // dbList 变化时触发重新加载
 
   // Handle Resizing
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -241,61 +271,125 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
               const fullText = model.getValue();
 
-              // 1) alias.field completion: when cursor is after "<alias>.<prefix>"
+              // 获取当前行光标前的内容
               const linePrefix = model.getLineContent(position.lineNumber).slice(0, position.column - 1);
+
+              // 0) 三段式 db.table.column 格式：当输入 db.table. 时提示列
+              const threePartMatch = linePrefix.match(/([`"]?[\w]+[`"]?)\.([`"]?[\w]+[`"]?)\.(\w*)$/);
+              if (threePartMatch) {
+                  const dbPart = stripQuotes(threePartMatch[1]);
+                  const tablePart = stripQuotes(threePartMatch[2]);
+                  const colPrefix = (threePartMatch[3] || '').toLowerCase();
+
+                  // 在 allColumnsRef 中查找匹配的列
+                  const cols = allColumnsRef.current.filter(c =>
+                      (c.dbName || '').toLowerCase() === dbPart.toLowerCase() &&
+                      (c.tableName || '').toLowerCase() === tablePart.toLowerCase()
+                  );
+
+                  const filtered = colPrefix
+                      ? cols.filter(c => (c.name || '').toLowerCase().startsWith(colPrefix))
+                      : cols;
+
+                  const suggestions = filtered.map(c => ({
+                      label: c.name,
+                      kind: monaco.languages.CompletionItemKind.Field,
+                      insertText: c.name,
+                      detail: `${c.type} (${c.dbName}.${c.tableName})`,
+                      range,
+                      sortText: '0' + c.name
+                  }));
+                  return { suggestions };
+              }
+
+              // 1) 两段式 qualifier.xxx 格式
               const qualifierMatch = linePrefix.match(/([`"]?[A-Za-z_][\w]*[`"]?)\.(\w*)$/);
               if (qualifierMatch) {
-                  const alias = stripQuotes(qualifierMatch[1]);
-                  const colPrefix = (qualifierMatch[2] || '').toLowerCase();
+                  const qualifier = stripQuotes(qualifierMatch[1]);
+                  const prefix = (qualifierMatch[2] || '').toLowerCase();
 
+                  // 首先检查 qualifier 是否是数据库名（跨库表提示）
+                  const visibleDbs = visibleDbsRef.current;
+                  if (visibleDbs.some(db => db.toLowerCase() === qualifier.toLowerCase())) {
+                      // qualifier 是数据库名，提示该库的表
+                      const tables = tablesRef.current.filter(t =>
+                          (t.dbName || '').toLowerCase() === qualifier.toLowerCase()
+                      );
+                      const filtered = prefix
+                          ? tables.filter(t => (t.tableName || '').toLowerCase().startsWith(prefix))
+                          : tables;
+
+                      const suggestions = filtered.map(t => ({
+                          label: t.tableName,
+                          kind: monaco.languages.CompletionItemKind.Class,
+                          insertText: t.tableName,
+                          detail: `Table (${t.dbName})`,
+                          range,
+                          sortText: '0' + t.tableName
+                      }));
+                      return { suggestions };
+                  }
+
+                  // 否则检查是否是表别名或表名，提示列
                   const reserved = new Set([
                       'where', 'on', 'group', 'order', 'limit', 'having',
                       'left', 'right', 'inner', 'outer', 'full', 'cross', 'join',
                       'union', 'except', 'intersect', 'as', 'set', 'values', 'returning',
                   ]);
 
-                  const aliasMap: Record<string, string> = {};
-                  // Capture table and optional alias, support schema.table
+                  const aliasMap: Record<string, {dbName: string, tableName: string}> = {};
+                  // Capture table and optional alias, support db.table format
                   const aliasRegex = /\b(?:FROM|JOIN|UPDATE|INTO|DELETE\s+FROM)\s+([`"]?[\w]+[`"]?(?:\s*\.\s*[`"]?[\w]+[`"]?)?)(?:\s+(?:AS\s+)?([`"]?[\w]+[`"]?))?/gi;
                   let m;
                   while ((m = aliasRegex.exec(fullText)) !== null) {
                       const tableIdent = normalizeQualifiedName(m[1] || '');
                       if (!tableIdent) continue;
+
+                      // 解析 db.table 或 table 格式
+                      const parts = tableIdent.split('.');
+                      let dbName = currentDbRef.current || '';
+                      let tableName = tableIdent;
+                      if (parts.length === 2) {
+                          dbName = parts[0];
+                          tableName = parts[1];
+                      }
+
                       const shortTable = getLastPart(tableIdent);
-                      // allow "table." as qualifier too
-                      if (shortTable) aliasMap[shortTable.toLowerCase()] = tableIdent;
+                      // 用表名作为 qualifier
+                      if (shortTable) aliasMap[shortTable.toLowerCase()] = { dbName, tableName };
 
                       const a = stripQuotes(m[2] || '').trim();
                       if (!a) continue;
                       const al = a.toLowerCase();
                       if (reserved.has(al)) continue;
-                      aliasMap[al] = tableIdent;
+                      aliasMap[al] = { dbName, tableName };
                   }
 
-                  const tableIdent = aliasMap[alias.toLowerCase()];
-                  if (tableIdent) {
-                      const shortTable = getLastPart(tableIdent);
-
+                  const tableInfo = aliasMap[qualifier.toLowerCase()];
+                  if (tableInfo) {
                       // Prefer preloaded MySQL all-columns cache
-                      let cols: { name: string, type?: string, tableName?: string }[] = [];
+                      let cols: { name: string, type?: string, tableName?: string, dbName?: string }[] = [];
                       if (allColumnsRef.current.length > 0) {
                           cols = allColumnsRef.current
-                              .filter(c => (c.tableName || '').toLowerCase() === (shortTable || '').toLowerCase())
-                              .map(c => ({ name: c.name, type: c.type, tableName: c.tableName }));
+                              .filter(c =>
+                                  (c.dbName || '').toLowerCase() === (tableInfo.dbName || '').toLowerCase() &&
+                                  (c.tableName || '').toLowerCase() === (tableInfo.tableName || '').toLowerCase()
+                              )
+                              .map(c => ({ name: c.name, type: c.type, tableName: c.tableName, dbName: c.dbName }));
                       } else {
-                          const dbCols = await getColumnsByDB(tableIdent);
-                          cols = dbCols.map(c => ({ name: c.name, type: c.type, tableName: shortTable }));
+                          const dbCols = await getColumnsByDB(tableInfo.tableName);
+                          cols = dbCols.map(c => ({ name: c.name, type: c.type, tableName: tableInfo.tableName }));
                       }
 
-                      const filtered = colPrefix
-                          ? cols.filter(c => (c.name || '').toLowerCase().startsWith(colPrefix))
+                      const filtered = prefix
+                          ? cols.filter(c => (c.name || '').toLowerCase().startsWith(prefix))
                           : cols;
 
                       const suggestions = filtered.map(c => ({
                           label: c.name,
                           kind: monaco.languages.CompletionItemKind.Field,
                           insertText: c.name,
-                          detail: c.type ? `${c.type}${c.tableName ? ` (${c.tableName})` : ''}` : (c.tableName ? `(${c.tableName})` : ''),
+                          detail: c.type ? `${c.type} (${c.dbName ? c.dbName + '.' : ''}${c.tableName})` : (c.tableName ? `(${c.tableName})` : ''),
                           range,
                           sortText: '0' + c.name
                       }));
@@ -310,35 +404,72 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
               while ((match = tableRegex.exec(fullText)) !== null) {
                   const t = normalizeQualifiedName(match[1] || '');
                   if (!t) continue;
-                  foundTables.add(getLastPart(t).toLowerCase());
+                  // 存储完整标识 db.table 或 table
+                  foundTables.add(t.toLowerCase());
               }
 
+              const currentDatabase = currentDbRef.current || '';
+
+              // 相关列提示：匹配 SQL 中引用的表（FROM/JOIN 等）
+              // 权重最高，输入 WHERE 条件时优先显示
               const relevantColumns = allColumnsRef.current
-                  .filter(c => foundTables.has((c.tableName || '').toLowerCase()))
-                  .map(c => ({
-                      label: c.name,
-                      kind: monaco.languages.CompletionItemKind.Field,
-                      insertText: c.name,
-                      detail: `${c.type} (${c.tableName})`,
+                  .filter(c => {
+                      const fullIdent = `${c.dbName}.${c.tableName}`.toLowerCase();
+                      const shortIdent = (c.tableName || '').toLowerCase();
+                      return foundTables.has(fullIdent) || foundTables.has(shortIdent);
+                  })
+                  .map(c => {
+                      // 当前库的表字段优先级更高
+                      const isCurrentDb = (c.dbName || '').toLowerCase() === currentDatabase.toLowerCase();
+                      return {
+                          label: c.name,
+                          kind: monaco.languages.CompletionItemKind.Field,
+                          insertText: c.name,
+                          detail: `${c.type} (${c.dbName}.${c.tableName})`,
+                          range,
+                          sortText: isCurrentDb ? '00' + c.name : '01' + c.name // FROM 表字段最优先
+                      };
+                  });
+
+              // 表提示：当前库显示表名，其他库显示 db.table 格式
+              const tableSuggestions = tablesRef.current.map(t => {
+                  const isCurrentDb = (t.dbName || '').toLowerCase() === currentDatabase.toLowerCase();
+                  const label = isCurrentDb ? t.tableName : `${t.dbName}.${t.tableName}`;
+                  const insertText = isCurrentDb ? t.tableName : `${t.dbName}.${t.tableName}`;
+                  return {
+                      label,
+                      kind: monaco.languages.CompletionItemKind.Class,
+                      insertText,
+                      detail: `Table (${t.dbName})`,
                       range,
-                      sortText: '0' + c.name
-                  }));
+                      sortText: isCurrentDb ? '10' + t.tableName : '11' + t.tableName // 表次优先
+                  };
+              });
+
+              // 数据库提示
+              const dbSuggestions = visibleDbsRef.current.map(db => ({
+                  label: db,
+                  kind: monaco.languages.CompletionItemKind.Module,
+                  insertText: db,
+                  detail: 'Database',
+                  range,
+                  sortText: '20' + db // 数据库最后
+              }));
+
+              // 关键字提示
+              const keywordSuggestions = ['SELECT', 'FROM', 'WHERE', 'LIMIT', 'INSERT', 'UPDATE', 'DELETE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'GROUP BY', 'ORDER BY', 'AS', 'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'VALUES', 'SET', 'CREATE', 'TABLE', 'DROP', 'ALTER', 'Add', 'MODIFY', 'CHANGE', 'COLUMN', 'KEY', 'PRIMARY', 'FOREIGN', 'REFERENCES', 'CONSTRAINT', 'DEFAULT', 'AUTO_INCREMENT', 'COMMENT', 'SHOW', 'DESCRIBE', 'EXPLAIN'].map(k => ({
+                  label: k,
+                  kind: monaco.languages.CompletionItemKind.Keyword,
+                  insertText: k,
+                  range,
+                  sortText: '30' + k // 关键字权重最低
+              }));
 
               const suggestions = [
-                  ...['SELECT', 'FROM', 'WHERE', 'LIMIT', 'INSERT', 'UPDATE', 'DELETE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'GROUP BY', 'ORDER BY', 'AS', 'AND', 'OR', 'NOT', 'NULL', 'IS', 'IN', 'VALUES', 'SET', 'CREATE', 'TABLE', 'DROP', 'ALTER', 'Add', 'MODIFY', 'CHANGE', 'COLUMN', 'KEY', 'PRIMARY', 'FOREIGN', 'REFERENCES', 'CONSTRAINT', 'DEFAULT', 'AUTO_INCREMENT', 'COMMENT', 'SHOW', 'DESCRIBE', 'EXPLAIN'].map(k => ({
-                      label: k,
-                      kind: monaco.languages.CompletionItemKind.Keyword,
-                      insertText: k,
-                      range
-                  })),
-                  ...tablesRef.current.map(t => ({
-                      label: t,
-                      kind: monaco.languages.CompletionItemKind.Class,
-                      insertText: t,
-                      detail: 'Table',
-                      range
-                  })),
-                  ...relevantColumns
+                  ...relevantColumns,   // FROM 表的列最优先
+                  ...tableSuggestions,  // 表次之
+                  ...dbSuggestions,     // 数据库
+                  ...keywordSuggestions // 关键字最后
               ];
               return { suggestions };
           }

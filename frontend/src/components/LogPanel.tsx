@@ -12,7 +12,21 @@ interface LogPanelProps {
 const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) => {
     const sqlLogs = useStore(state => state.sqlLogs);
     const clearSqlLogs = useStore(state => state.clearSqlLogs);
-    const darkMode = useStore(state => state.darkMode);
+    const theme = useStore(state => state.theme);
+    const appearance = useStore(state => state.appearance);
+    const darkMode = theme === 'dark';
+
+    // Background Helper
+    const getBg = (darkHex: string) => {
+        if (!darkMode) return `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`;
+        const hex = darkHex.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${appearance.opacity ?? 0.95})`;
+    };
+    const bgMain = getBg('#1f1f1f');
+    const bgToolbar = getBg('#2a2a2a');
 
     const columns = [
         {
@@ -53,8 +67,9 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
     return (
         <div style={{ 
             height, 
-            borderTop: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', 
-            background: darkMode ? '#1f1f1f' : '#fff',
+            borderTop: 'none', 
+            background: bgMain,
+            backdropFilter: `blur(${appearance.blur ?? 0}px)`,
             display: 'flex',
             flexDirection: 'column',
             position: 'relative',
@@ -77,11 +92,10 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
             {/* Toolbar */}
             <div style={{ 
                 padding: '4px 8px', 
-                borderBottom: darkMode ? '1px solid #303030' : '1px solid #f0f0f0',
+                borderBottom: 'none',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                background: darkMode ? '#2a2a2a' : '#fafafa',
                 height: 32
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 'bold', fontSize: '12px' }}>

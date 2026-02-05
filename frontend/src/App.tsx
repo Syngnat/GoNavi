@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin } from 'antd';
+import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Popover } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, InfoCircleOutlined, GithubOutlined } from '@ant-design/icons';
+import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
@@ -17,8 +17,27 @@ function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
-  const darkMode = useStore(state => state.darkMode);
-  const toggleDarkMode = useStore(state => state.toggleDarkMode);
+  const themeMode = useStore(state => state.theme);
+  const setTheme = useStore(state => state.setTheme);
+  const appearance = useStore(state => state.appearance);
+  const setAppearance = useStore(state => state.setAppearance);
+  const darkMode = themeMode === 'dark';
+
+  // Background Helper
+  const getBg = (darkHex: string, lightHex: string) => {
+      if (!darkMode) return `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`; // Light mode usually white
+      
+      // Parse hex to rgb
+      const hex = darkHex.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${appearance.opacity ?? 0.95})`;
+  };
+  // Specific colors
+  const bgMain = getBg('#141414', '#ffffff');
+  const bgContent = getBg('#1d1d1d', '#ffffff');
+  
   const addTab = useStore(state => state.addTab);
   const activeContext = useStore(state => state.activeContext);
   const connections = useStore(state => state.connections);
@@ -228,6 +247,30 @@ function App() {
       }
   ];
 
+  const themeMenu: MenuProps['items'] = [
+      {
+          key: 'light',
+          label: '亮色主题',
+          icon: themeMode === 'light' ? <CheckOutlined /> : undefined,
+          onClick: () => setTheme('light')
+      },
+      {
+          key: 'dark',
+          label: '暗色主题',
+          icon: themeMode === 'dark' ? <CheckOutlined /> : undefined,
+          onClick: () => setTheme('dark')
+      },
+      { type: 'divider' },
+      {
+          key: 'settings',
+          label: '外观设置...',
+          icon: <SettingOutlined />,
+          onClick: () => setIsAppearanceModalOpen(true)
+      }
+  ];
+
+  const [isAppearanceModalOpen, setIsAppearanceModalOpen] = useState(false);
+
 
   // Log Panel
   const [logPanelHeight, setLogPanelHeight] = useState(200);
@@ -383,9 +426,91 @@ function App() {
         locale={zhCN}
         theme={{
             algorithm: darkMode ? theme.darkAlgorithm : theme.defaultAlgorithm,
+            token: {
+                colorBgLayout: 'transparent',
+                colorBgContainer: darkMode 
+                    ? `rgba(29, 29, 29, ${appearance.opacity ?? 0.95})` 
+                    : `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`,
+                colorBgElevated: darkMode 
+                    ? '#1f1f1f' 
+                    : '#ffffff',
+                colorFillAlter: darkMode
+                    ? `rgba(38, 38, 38, ${appearance.opacity ?? 0.95})`
+                    : `rgba(250, 250, 250, ${appearance.opacity ?? 0.95})`,
+            },
+            components: {
+                Layout: {
+                    colorBgBody: 'transparent', 
+                    colorBgHeader: 'transparent',
+                    bodyBg: 'transparent',
+                    headerBg: 'transparent',
+                    siderBg: 'transparent',
+                    triggerBg: 'transparent'
+                },
+                Table: {
+                    headerBg: 'transparent',
+                    rowHoverBg: darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)',
+                },
+                Tabs: {
+                    cardBg: 'transparent',
+                    itemActiveColor: darkMode ? '#177ddc' : '#1890ff',
+                }
+            }
         }}
     >
-        <Layout style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Layout style={{ 
+            height: '100vh', 
+            overflow: 'hidden', 
+            display: 'flex', 
+            flexDirection: 'column',
+            background: 'transparent',
+            backdropFilter: `blur(${appearance.blur ?? 0}px)` 
+        }}>
+          {/* Custom Title Bar */}
+          <div
+            style={{
+                height: 32,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: bgMain,
+                backdropFilter: `blur(${appearance.blur ?? 0}px)`,
+                borderBottom: 'none',
+                userSelect: 'none',
+                WebkitAppRegion: 'drag', // Wails drag region
+                '--wails-draggable': 'drag',
+                paddingLeft: 16
+            } as any}
+          >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+                  {/* Logo can be added here if available */}
+                  GoNavi
+              </div>
+              <div style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}>
+                  <Button 
+                    type="text" 
+                    icon={<MinusOutlined />} 
+                    style={{ height: '100%', borderRadius: 0, width: 46 }} 
+                    onClick={() => (window as any).runtime.WindowMinimise()} 
+                  />
+                  <Button 
+                    type="text" 
+                    icon={<BorderOutlined />} 
+                    style={{ height: '100%', borderRadius: 0, width: 46 }} 
+                    onClick={() => (window as any).runtime.WindowToggleMaximise()} 
+                  />
+                  <Button 
+                    type="text" 
+                    icon={<CloseOutlined />} 
+                    danger
+                    className="titlebar-close-btn"
+                    style={{ height: '100%', borderRadius: 0, width: 46 }} 
+                    onClick={() => (window as any).runtime.Quit()} 
+                  />
+              </div>
+          </div>
+
           <div
             style={{
                 height: 36,
@@ -395,29 +520,32 @@ function App() {
                 justifyContent: 'flex-start',
                 gap: 4,
                 padding: '0 8px',
-                borderBottom: darkMode ? '1px solid #303030' : '1px solid #f0f0f0',
-                background: darkMode ? '#141414' : '#fff'
+                borderBottom: 'none',
+                background: bgMain,
+                backdropFilter: `blur(${appearance.blur ?? 0}px)`
             }}
           >
             <Dropdown menu={{ items: toolsMenu }} placement="bottomLeft">
                 <Button type="text" icon={<ToolOutlined />} title="工具">工具</Button>
             </Dropdown>
+            <Dropdown menu={{ items: themeMenu }} placement="bottomLeft">
+                <Button type="text" icon={<SkinOutlined />} title="主题">主题</Button>
+            </Dropdown>
             <Button type="text" icon={<InfoCircleOutlined />} title="关于" onClick={() => setIsAboutOpen(true)}>关于</Button>
           </div>
           <Layout style={{ flex: 1, minHeight: 0 }}>
           <Sider 
-            theme={darkMode ? "dark" : "light"} 
             width={sidebarWidth} 
             style={{ 
-                borderRight: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', 
-                position: 'relative'
+                borderRight: 'none', 
+                position: 'relative',
+                background: bgMain
             }}
           >
             <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                <div style={{ padding: '10px', borderBottom: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                <span style={{ fontWeight: 'bold', paddingLeft: 8 }}>GoNavi</span>
+                <div style={{ padding: '10px', borderBottom: 'none', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0 }}>
+                
                 <div>
-                    <Button type="text" icon={darkMode ? <BulbFilled /> : <BulbOutlined />} onClick={toggleDarkMode} title="切换主题" />
                     <Button type="text" icon={<ConsoleSqlOutlined />} onClick={handleNewQuery} title="新建查询" />
                     <Button type="text" icon={<PlusOutlined />} onClick={() => setIsModalOpen(true)} title="新建连接" />
                 </div>
@@ -428,9 +556,9 @@ function App() {
                 </div>
 
                 {/* Sidebar Footer for Log Toggle */}
-                <div style={{ padding: '8px', borderTop: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{ padding: '8px', borderTop: 'none', display: 'flex', justifyContent: 'center', flexShrink: 0 }}>
                     <Button 
-                        type={isLogPanelOpen ? "primary" : "text"} 
+                        type={isLogPanelOpen ? "primary" : "text"}  
                         icon={<BugOutlined />} 
                         onClick={() => setIsLogPanelOpen(!isLogPanelOpen)}
                         block
@@ -456,8 +584,8 @@ function App() {
                 title="拖动调整宽度"
             />
           </Sider>
-           <Content style={{ background: darkMode ? '#141414' : '#fff', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+           <Content style={{ background: 'transparent', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: bgContent, backdropFilter: `blur(${appearance.blur ?? 0}px)` }}>
                  <TabManager />
              </div>
              {isLogPanelOpen && (
@@ -528,6 +656,47 @@ function App() {
                 </div>
             </div>
             )}
+          </Modal>
+
+          <Modal
+              title="外观设置"
+              open={isAppearanceModalOpen}
+              onCancel={() => setIsAppearanceModalOpen(false)}
+              footer={null}
+              width={400}
+          >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '12px 0' }}>
+                  <div>
+                      <div style={{ marginBottom: 8, fontWeight: 500 }}>背景不透明度 (Opacity)</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                          <Slider 
+                            min={0.1} 
+                            max={1.0} 
+                            step={0.05} 
+                            value={appearance.opacity ?? 0.95} 
+                            onChange={(v) => setAppearance({ opacity: v })} 
+                            style={{ flex: 1 }}
+                          />
+                          <span style={{ width: 40 }}>{Math.round((appearance.opacity ?? 0.95) * 100)}%</span>
+                      </div>
+                  </div>
+                  <div>
+                      <div style={{ marginBottom: 8, fontWeight: 500 }}>高斯模糊 (Blur)</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                          <Slider 
+                            min={0} 
+                            max={20} 
+                            value={appearance.blur ?? 0} 
+                            onChange={(v) => setAppearance({ blur: v })} 
+                            style={{ flex: 1 }}
+                          />
+                          <span style={{ width: 40 }}>{appearance.blur}px</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                          * 仅控制应用内覆盖层的模糊效果
+                      </div>
+                  </div>
+              </div>
           </Modal>
           
           {/* Ghost Resize Line for Sidebar */}

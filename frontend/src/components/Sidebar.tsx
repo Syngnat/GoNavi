@@ -48,7 +48,21 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const addTab = useStore(state => state.addTab);
   const setActiveContext = useStore(state => state.setActiveContext);
   const removeConnection = useStore(state => state.removeConnection);
+  const theme = useStore(state => state.theme);
+  const appearance = useStore(state => state.appearance);
+  const darkMode = theme === 'dark';
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
+
+  // Background Helper (Duplicate logic for now, ideally shared)
+  const getBg = (darkHex: string) => {
+      if (!darkMode) return `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`;
+      const hex = darkHex.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${appearance.opacity ?? 0.95})`;
+  };
+  const bgMain = getBg('#141414');
   const [searchValue, setSearchValue] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [autoExpandParent, setAutoExpandParent] = useState(true);
@@ -1215,7 +1229,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         </div>
 
         {/* Toolbar for batch operations - always visible */}
-        <div style={{ padding: '4px 8px', borderBottom: '1px solid #f0f0f0', display: 'flex', gap: 4 }}>
+        <div style={{ padding: '4px 8px', borderBottom: 'none', display: 'flex', gap: 4 }}>
             <Button
                 size="small"
                 icon={<CheckSquareOutlined />}
@@ -1368,7 +1382,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                             </span>
                         </Space>
                     </div>
-                    <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <div style={{ maxHeight: 400, overflow: 'auto', border: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
                         <Checkbox.Group
                             value={checkedTableKeys}
                             onChange={(values) => setCheckedTableKeys(values as string[])}
@@ -1459,7 +1473,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                             </span>
                         </Space>
                     </div>
-                    <div style={{ maxHeight: 400, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
+                    <div style={{ maxHeight: 400, overflow: 'auto', border: darkMode ? '1px solid #303030' : '1px solid #f0f0f0', borderRadius: 4, padding: 8 }}>
                         <Checkbox.Group
                             value={checkedDbKeys}
                             onChange={(values) => setCheckedDbKeys(values as string[])}

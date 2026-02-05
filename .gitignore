@@ -6,7 +6,7 @@
 frontend/release/
 **/release/
 **/dist/
-**/build/
+build/bin/
 
 # wails / node artifacts (按需)
 node_modules/
@@ -17,3 +17,5 @@ dist/
 GoNavi-Wails
 GoNavi-Wails.exe
 .ace-tool/
+.claude/
+tmpclaude-*

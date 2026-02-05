@@ -122,6 +122,9 @@ const TabManager: React.FC = () => {
             .main-tabs .ant-tabs-tabpane-hidden {
               display: none !important;
             }
+            .main-tabs .ant-tabs-nav::before {
+                border-bottom: none !important;
+            }
         `}</style>
         <Tabs
             className="main-tabs"

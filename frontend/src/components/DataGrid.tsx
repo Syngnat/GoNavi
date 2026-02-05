@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal } from 'antd';
 import type { SortOrder } from 'antd/es/table/interface';
 import { ReloadOutlined, ImportOutlined, ExportOutlined, DownOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, UndoOutlined, FilterOutlined, CloseOutlined, ConsoleSqlOutlined, FileTextOutlined, CopyOutlined, ClearOutlined, EditOutlined } from '@ant-design/icons';
@@ -209,6 +210,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   const handleContextMenu = (e: React.MouseEvent) => {
     if (!editable) return;
     e.preventDefault();
+    e.stopPropagation(); // 阻止冒泡到行级菜单
     if (cellContextMenuContext) {
       cellContextMenuContext.showMenu(e, record, dataIndex, title);
     }
@@ -354,8 +356,33 @@ const DataGrid: React.FC<DataGridProps> = ({
 }) => {
   const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
-  const darkMode = useStore(state => state.darkMode);
+  const theme = useStore(state => state.theme);
+  const appearance = useStore(state => state.appearance);
+  const darkMode = theme === 'dark';
+  const opacity = appearance.opacity ?? 0.95;
   const selectionColumnWidth = 46;
+
+  // Background Helper
+  const getBg = (darkHex: string) => {
+      if (!darkMode) return `rgba(255, 255, 255, ${opacity})`;
+      const hex = darkHex.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  };
+  const blur = appearance.blur ?? 0;
+  const bgContent = getBg('#1d1d1d');
+  const bgFilter = getBg('#262626');
+  const bgContextMenu = getBg('#1f1f1f');
+  
+  // Row Colors with Opacity
+  const getRowBg = (r: number, g: number, b: number) => `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  const rowAddedBg = darkMode ? getRowBg(22, 43, 22) : getRowBg(246, 255, 237);
+  const rowModBg = darkMode ? getRowBg(22, 34, 56) : getRowBg(230, 247, 255);
+  const rowAddedHover = darkMode ? getRowBg(31, 61, 31) : getRowBg(217, 247, 190);
+  const rowModHover = darkMode ? getRowBg(29, 53, 94) : getRowBg(186, 231, 255);
+  
   const [form] = Form.useForm();
   const [modal, contextHolder] = Modal.useModal();
   const gridId = useMemo(() => `grid-${uuidv4()}`, []);
@@ -1287,7 +1314,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const enableVirtual = mergedDisplayData.length >= 200;
 
   return (
-    <div className={gridId} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <div className={gridId} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: bgContent, backdropFilter: blur > 0 ? `blur(${blur}px)` : undefined }}>
 	       {/* Toolbar */}
 	        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center' }}>
 	            {onReload && <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => {
@@ -1336,7 +1363,12 @@ const DataGrid: React.FC<DataGridProps> = ({
 
        {/* Filter Panel */}
        {showFilter && (
-           <div style={{ padding: '8px', background: '#f5f5f5', borderBottom: '1px solid #eee' }}>
+           <div style={{ 
+               padding: '8px', 
+               margin: '4px 8px 0 8px', 
+               borderRadius: '8px',
+               background: bgFilter, 
+           }}>
                {filterConditions.map(cond => (
                    <div key={cond.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
                        <Select
@@ -1427,7 +1459,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                     <span>{rowEditorRowKey ? `rowKey: ${rowEditorRowKey}` : ''}</span>
                 </div>
                 <Form form={rowEditorForm} layout="vertical">
-                    <div style={{ maxHeight: '62vh', overflow: 'auto', paddingRight: 8 }}>
+                    <div className="custom-scrollbar" style={{ maxHeight: '62vh', overflow: 'auto', paddingRight: 8 }}>
                         {columnNames.map((col) => {
                             const sample = rowEditorDisplayRef.current?.[col] ?? '';
                             const placeholder = rowEditorNullColsRef.current?.has(col) ? '(NULL)' : undefined;
@@ -1527,19 +1559,21 @@ const DataGrid: React.FC<DataGridProps> = ({
             </DataContext.Provider>
         </Form>
 
-        {/* Cell Context Menu */}
-        {cellContextMenu.visible && (
+        {/* Cell Context Menu - 使用 Portal 渲染到 body，避免 backdropFilter 影响 fixed 定位 */}
+        {cellContextMenu.visible && createPortal(
             <div
                 style={{
                     position: 'fixed',
                     left: cellContextMenu.x,
                     top: cellContextMenu.y,
                     zIndex: 10000,
-                    background: '#fff',
-                    border: '1px solid #d9d9d9',
+                    background: bgContextMenu,
+                    backdropFilter: blur > 0 ? `blur(${blur}px)` : undefined,
+                    border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9',
                     borderRadius: 4,
                     boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                    minWidth: 120,
+                    minWidth: 160,
+                    color: darkMode ? '#fff' : 'rgba(0, 0, 0, 0.88)'
                 }}
                 onClick={(e) => e.stopPropagation()}
             >
@@ -1549,18 +1583,133 @@ const DataGrid: React.FC<DataGridProps> = ({
                         cursor: 'pointer',
                         transition: 'background 0.2s',
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = '#f5f5f5'}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
                     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     onClick={handleCellSetNull}
                 >
                     设置为 NULL
                 </div>
-            </div>
+                <div style={{ height: 1, background: darkMode ? '#303030' : '#f0f0f0', margin: '4px 0' }} />
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleCopyInsert(cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    复制为 INSERT
+                </div>
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleCopyJson(cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    复制为 JSON
+                </div>
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleCopyCsv(cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    复制为 CSV
+                </div>
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) {
+                            const records = getTargets(cellContextMenu.record);
+                            const lines = records.map((r: any) => {
+                                const { [GONAVI_ROW_KEY]: _rowKey, ...vals } = r;
+                                return `| ${Object.values(vals).join(' | ')} |`;
+                            });
+                            copyToClipboard(lines.join('\n'));
+                        }
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    复制为 Markdown
+                </div>
+                <div style={{ height: 1, background: darkMode ? '#303030' : '#f0f0f0', margin: '4px 0' }} />
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleExportSelected('csv', cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    导出为 CSV
+                </div>
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleExportSelected('xlsx', cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    导出为 Excel
+                </div>
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleExportSelected('json', cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    导出为 JSON
+                </div>
+            </div>,
+            document.body
         )}
        </div>
        
        {pagination && (
-           <div style={{ padding: '8px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', background: '#fff' }}>
+           <div style={{ padding: '8px', borderTop: 'none', display: 'flex', justifyContent: 'flex-end' }}>
                    <Pagination 
                    current={pagination.current}
                    pageSize={pagination.pageSize}
@@ -1579,8 +1728,16 @@ const DataGrid: React.FC<DataGridProps> = ({
        )}
 
 	        <style>{`
-	            .${gridId} .row-added td { background-color: #f6ffed !important; }
-	            .${gridId} .row-modified td { background-color: #e6f7ff !important; }
+                .${gridId} .ant-table { background: transparent !important; }
+                .${gridId} .ant-table-container { background: transparent !important; border: none !important; }
+                .${gridId} .ant-table-tbody > tr > td { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
+                .${gridId} .ant-table-thead > tr > th { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
+                .${gridId} .ant-table-thead > tr > th::before { display: none !important; }
+                .${gridId} .ant-table-tbody > tr:hover > td { background-color: ${darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'} !important; }
+	            .${gridId} .row-added td { background-color: ${rowAddedBg} !important; color: ${darkMode ? '#e6fffb' : 'inherit'}; }
+	            .${gridId} .row-modified td { background-color: ${rowModBg} !important; color: ${darkMode ? '#e6f7ff' : 'inherit'}; }
+                .${gridId} .ant-table-tbody > tr.row-added:hover > td { background-color: ${rowAddedHover} !important; }
+                .${gridId} .ant-table-tbody > tr.row-modified:hover > td { background-color: ${rowModHover} !important; }
 	        `}</style>
        
        {/* Ghost Resize Line for Columns */}
