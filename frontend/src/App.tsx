@@ -669,7 +669,7 @@ function App() {
           <Sider 
             width={sidebarWidth} 
             style={{ 
-                borderRight: 'none', 
+                borderRight: '1px solid rgba(128,128,128,0.2)',
                 position: 'relative',
                 background: bgMain
             }}
