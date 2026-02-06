@@ -29,6 +29,7 @@ import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, 
 	import { useStore } from '../store';
 	import { SavedConnection } from '../types';
 	import { DBGetDatabases, DBGetTables, DBShowCreateTable, ExportTable, OpenSQLFile, CreateDatabase } from '../../wailsjs/go/app/App';
+  import { normalizeOpacityForPlatform } from '../utils/appearance';
 
 const { Search } = Input;
 
@@ -51,16 +52,17 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const theme = useStore(state => state.theme);
   const appearance = useStore(state => state.appearance);
   const darkMode = theme === 'dark';
+  const opacity = normalizeOpacityForPlatform(appearance.opacity);
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
 
   // Background Helper (Duplicate logic for now, ideally shared)
   const getBg = (darkHex: string) => {
-      if (!darkMode) return `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`;
+      if (!darkMode) return `rgba(255, 255, 255, ${opacity})`;
       const hex = darkHex.replace('#', '');
       const r = parseInt(hex.substring(0, 2), 16);
       const g = parseInt(hex.substring(2, 4), 16);
       const b = parseInt(hex.substring(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, ${appearance.opacity ?? 0.95})`;
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   };
   const bgMain = getBg('#141414');
   const [searchValue, setSearchValue] = useState('');

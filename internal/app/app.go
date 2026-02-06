@@ -26,9 +26,9 @@ type cachedDatabase struct {
 
 // App struct
 type App struct {
-	ctx     context.Context
-	dbCache map[string]cachedDatabase // Cache for DB connections
-	mu      sync.RWMutex              // Mutex for cache access
+	ctx         context.Context
+	dbCache     map[string]cachedDatabase // Cache for DB connections
+	mu          sync.RWMutex              // Mutex for cache access
 	updateMu    sync.Mutex
 	updateState updateState
 }
@@ -45,6 +45,7 @@ func NewApp() *App {
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	logger.Init()
+	applyMacWindowTranslucencyFix()
 	logger.Infof("应用启动完成")
 }
 

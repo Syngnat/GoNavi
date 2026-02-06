@@ -9,6 +9,7 @@ import DataSyncModal from './components/DataSyncModal';
 import LogPanel from './components/LogPanel';
 import { useStore } from './store';
 import { SavedConnection } from './types';
+import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform } from './utils/appearance';
 import './App.css';
 
 const { Sider, Content } = Layout;
@@ -22,17 +23,21 @@ function App() {
   const appearance = useStore(state => state.appearance);
   const setAppearance = useStore(state => state.setAppearance);
   const darkMode = themeMode === 'dark';
+  const effectiveOpacity = normalizeOpacityForPlatform(appearance.opacity);
+  const effectiveBlur = normalizeBlurForPlatform(appearance.blur);
+  const blurFilter = blurToFilter(effectiveBlur);
+  const windowCornerRadius = 14;
 
   // Background Helper
   const getBg = (darkHex: string, lightHex: string) => {
-      if (!darkMode) return `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`; // Light mode usually white
+      if (!darkMode) return `rgba(255, 255, 255, ${effectiveOpacity})`; // Light mode usually white
       
       // Parse hex to rgb
       const hex = darkHex.replace('#', '');
       const r = parseInt(hex.substring(0, 2), 16);
       const g = parseInt(hex.substring(2, 4), 16);
       const b = parseInt(hex.substring(4, 6), 16);
-      return `rgba(${r}, ${g}, ${b}, ${appearance.opacity ?? 0.95})`;
+      return `rgba(${r}, ${g}, ${b}, ${effectiveOpacity})`;
   };
   // Specific colors
   const bgMain = getBg('#141414', '#ffffff');
@@ -386,13 +391,9 @@ function App() {
   };
 
   useEffect(() => {
-    if (darkMode) {
-        document.body.style.backgroundColor = '#141414';
-        document.body.style.color = '#ffffff';
-    } else {
-        document.body.style.backgroundColor = '#ffffff';
-        document.body.style.color = '#000000';
-    }
+    document.body.style.backgroundColor = 'transparent';
+    document.body.style.color = darkMode ? '#ffffff' : '#000000';
+    document.body.setAttribute('data-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
   useEffect(() => {
@@ -429,14 +430,14 @@ function App() {
             token: {
                 colorBgLayout: 'transparent',
                 colorBgContainer: darkMode 
-                    ? `rgba(29, 29, 29, ${appearance.opacity ?? 0.95})` 
-                    : `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`,
+                    ? `rgba(29, 29, 29, ${effectiveOpacity})` 
+                    : `rgba(255, 255, 255, ${effectiveOpacity})`,
                 colorBgElevated: darkMode 
                     ? '#1f1f1f' 
                     : '#ffffff',
                 colorFillAlter: darkMode
-                    ? `rgba(38, 38, 38, ${appearance.opacity ?? 0.95})`
-                    : `rgba(250, 250, 250, ${appearance.opacity ?? 0.95})`,
+                    ? `rgba(38, 38, 38, ${effectiveOpacity})`
+                    : `rgba(250, 250, 250, ${effectiveOpacity})`,
             },
             components: {
                 Layout: {
@@ -464,7 +465,10 @@ function App() {
             display: 'flex', 
             flexDirection: 'column',
             background: 'transparent',
-            backdropFilter: `blur(${appearance.blur ?? 0}px)` 
+            borderRadius: windowCornerRadius,
+            clipPath: `inset(0 round ${windowCornerRadius}px)`,
+            backdropFilter: blurFilter,
+            WebkitBackdropFilter: blurFilter,
         }}>
           {/* Custom Title Bar */}
           <div
@@ -475,7 +479,8 @@ function App() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 background: bgMain,
-                backdropFilter: `blur(${appearance.blur ?? 0}px)`,
+                backdropFilter: blurFilter,
+                WebkitBackdropFilter: blurFilter,
                 borderBottom: 'none',
                 userSelect: 'none',
                 WebkitAppRegion: 'drag', // Wails drag region
@@ -522,7 +527,8 @@ function App() {
                 padding: '0 8px',
                 borderBottom: 'none',
                 background: bgMain,
-                backdropFilter: `blur(${appearance.blur ?? 0}px)`
+                backdropFilter: blurFilter,
+                WebkitBackdropFilter: blurFilter,
             }}
           >
             <Dropdown menu={{ items: toolsMenu }} placement="bottomLeft">
@@ -585,7 +591,7 @@ function App() {
             />
           </Sider>
            <Content style={{ background: 'transparent', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: bgContent, backdropFilter: `blur(${appearance.blur ?? 0}px)` }}>
+             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: bgContent, backdropFilter: blurFilter, WebkitBackdropFilter: blurFilter }}>
                  <TabManager />
              </div>
              {isLogPanelOpen && (

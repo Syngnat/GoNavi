@@ -6,6 +6,10 @@ html, body, #root {
   background-color: transparent !important; /* CRITICAL: Allow Wails window transparency */
 }
 
+body, #root {
+  border-radius: 14px; /* Slightly rounded app window corners */
+}
+
 /* 侧边栏 Tree 样式优化 */
 .ant-tree .ant-tree-treenode {
   width: 100%;

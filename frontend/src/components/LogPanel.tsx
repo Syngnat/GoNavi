@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Table, Tag, Button, Tooltip } from 'antd';
 import { ClearOutlined, CloseOutlined, CaretRightOutlined, BugOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
+import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform } from '../utils/appearance';
 
 interface LogPanelProps {
     height: number;
@@ -15,18 +16,21 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
     const theme = useStore(state => state.theme);
     const appearance = useStore(state => state.appearance);
     const darkMode = theme === 'dark';
+    const opacity = normalizeOpacityForPlatform(appearance.opacity);
+    const blur = normalizeBlurForPlatform(appearance.blur);
 
     // Background Helper
     const getBg = (darkHex: string) => {
-        if (!darkMode) return `rgba(255, 255, 255, ${appearance.opacity ?? 0.95})`;
+        if (!darkMode) return `rgba(255, 255, 255, ${opacity})`;
         const hex = darkHex.replace('#', '');
         const r = parseInt(hex.substring(0, 2), 16);
         const g = parseInt(hex.substring(2, 4), 16);
         const b = parseInt(hex.substring(4, 6), 16);
-        return `rgba(${r}, ${g}, ${b}, ${appearance.opacity ?? 0.95})`;
+        return `rgba(${r}, ${g}, ${b}, ${opacity})`;
     };
     const bgMain = getBg('#1f1f1f');
     const bgToolbar = getBg('#2a2a2a');
+    const blurFilter = blurToFilter(blur);
 
     const columns = [
         {
@@ -69,7 +73,8 @@ const LogPanel: React.FC<LogPanelProps> = ({ height, onClose, onResizeStart }) =
             height, 
             borderTop: 'none', 
             background: bgMain,
-            backdropFilter: `blur(${appearance.blur ?? 0}px)`,
+            backdropFilter: blurFilter,
+            WebkitBackdropFilter: blurFilter,
             display: 'flex',
             flexDirection: 'column',
             position: 'relative',

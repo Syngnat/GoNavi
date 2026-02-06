@@ -9,6 +9,7 @@ import { useStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
 import { buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent } from '../utils/sql';
+import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform } from '../utils/appearance';
 
 // 内部行标识字段：避免与真实业务字段（如 `key` 列）冲突。
 export const GONAVI_ROW_KEY = '__gonavi_row_key__';
@@ -359,7 +360,9 @@ const DataGrid: React.FC<DataGridProps> = ({
   const theme = useStore(state => state.theme);
   const appearance = useStore(state => state.appearance);
   const darkMode = theme === 'dark';
-  const opacity = appearance.opacity ?? 0.95;
+  const opacity = normalizeOpacityForPlatform(appearance.opacity);
+  const blur = normalizeBlurForPlatform(appearance.blur);
+  const blurFilter = blurToFilter(blur);
   const selectionColumnWidth = 46;
 
   // Background Helper
@@ -371,7 +374,6 @@ const DataGrid: React.FC<DataGridProps> = ({
       const b = parseInt(hex.substring(4, 6), 16);
       return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   };
-  const blur = appearance.blur ?? 0;
   const bgContent = getBg('#1d1d1d');
   const bgFilter = getBg('#262626');
   const bgContextMenu = getBg('#1f1f1f');
@@ -1314,7 +1316,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const enableVirtual = mergedDisplayData.length >= 200;
 
   return (
-    <div className={gridId} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: bgContent, backdropFilter: blur > 0 ? `blur(${blur}px)` : undefined }}>
+    <div className={gridId} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: bgContent, backdropFilter: blurFilter, WebkitBackdropFilter: blurFilter }}>
 	       {/* Toolbar */}
 	        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center' }}>
 	            {onReload && <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => {
@@ -1568,7 +1570,8 @@ const DataGrid: React.FC<DataGridProps> = ({
                     top: cellContextMenu.y,
                     zIndex: 10000,
                     background: bgContextMenu,
-                    backdropFilter: blur > 0 ? `blur(${blur}px)` : undefined,
+                    backdropFilter: blurFilter,
+                    WebkitBackdropFilter: blurFilter,
                     border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9',
                     borderRadius: 4,
                     boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
