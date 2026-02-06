@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Popover } from 'antd';
+import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Progress } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { PlusOutlined, BulbOutlined, BulbFilled, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons';
+import { EventsOn } from '../wailsjs/runtime/runtime';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
@@ -52,6 +53,7 @@ function App() {
   const updateCheckInFlightRef = React.useRef(false);
   const updateDownloadInFlightRef = React.useRef(false);
   const updateDownloadedVersionRef = React.useRef<string | null>(null);
+  const updateDownloadMetaRef = React.useRef<UpdateDownloadResultData | null>(null);
   const updateDeferredVersionRef = React.useRef<string | null>(null);
   const updateNotifiedVersionRef = React.useRef<string | null>(null);
   const updateMutedVersionRef = React.useRef<string | null>(null);
@@ -60,6 +62,23 @@ function App() {
   const [aboutInfo, setAboutInfo] = useState<{ version: string; author: string; buildTime?: string; repoUrl?: string; issueUrl?: string; releaseUrl?: string } | null>(null);
   const [aboutUpdateStatus, setAboutUpdateStatus] = useState<string>('');
   const [lastUpdateInfo, setLastUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateDownloadProgress, setUpdateDownloadProgress] = useState<{
+      open: boolean;
+      version: string;
+      status: 'idle' | 'start' | 'downloading' | 'done' | 'error';
+      percent: number;
+      downloaded: number;
+      total: number;
+      message: string;
+  }>({
+      open: false,
+      version: '',
+      status: 'idle',
+      percent: 0,
+      downloaded: 0,
+      total: 0,
+      message: ''
+  });
 
   type UpdateInfo = {
       hasUpdate: boolean;
@@ -73,10 +92,51 @@ function App() {
       sha256?: string;
   };
 
-  const promptRestartForUpdate = (info: UpdateInfo) => {
+  type UpdateDownloadProgressEvent = {
+      status?: 'start' | 'downloading' | 'done' | 'error';
+      percent?: number;
+      downloaded?: number;
+      total?: number;
+      message?: string;
+  };
+
+  type UpdateDownloadResultData = {
+      info?: UpdateInfo;
+      downloadPath?: string;
+      installLogPath?: string;
+      installTarget?: string;
+      platform?: string;
+      autoRelaunch?: boolean;
+  };
+
+  const formatBytes = (bytes?: number) => {
+      if (!bytes || bytes <= 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let value = bytes;
+      let idx = 0;
+      while (value >= 1024 && idx < units.length - 1) {
+          value /= 1024;
+          idx++;
+      }
+      return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+  };
+
+  const promptRestartForUpdate = (info: UpdateInfo, resultData?: UpdateDownloadResultData) => {
+      const downloadPathHint = resultData?.downloadPath
+          ? `更新包路径：${resultData.downloadPath}`
+          : '';
+      const installLogHint = resultData?.installLogPath
+          ? `安装日志：${resultData.installLogPath}`
+          : '';
       Modal.confirm({
           title: '更新已下载',
-          content: `版本 ${info.latestVersion} 已下载完成，是否现在重启完成更新？`,
+          content: (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, userSelect: 'text' }}>
+                  <div>{`版本 ${info.latestVersion} 已下载完成，是否现在重启完成更新？`}</div>
+                  {downloadPathHint ? <div style={{ fontSize: 12, color: '#8c8c8c' }}>{downloadPathHint}</div> : null}
+                  {installLogHint ? <div style={{ fontSize: 12, color: '#8c8c8c' }}>{installLogHint}</div> : null}
+              </div>
+          ),
           okText: '立即重启',
           cancelText: '稍后',
           onOk: async () => {
@@ -96,25 +156,49 @@ function App() {
       if (updateDownloadInFlightRef.current) return;
       if (updateDownloadedVersionRef.current === info.latestVersion) {
           if (!silent) {
-              message.info(`更新包已就绪（${info.latestVersion}）`);
+              const cachedDownloadPath = updateDownloadMetaRef.current?.downloadPath;
+              message.info(cachedDownloadPath ? `更新包已就绪（${info.latestVersion}），路径：${cachedDownloadPath}` : `更新包已就绪（${info.latestVersion}）`);
           }
           if (!silent || updateDeferredVersionRef.current !== info.latestVersion) {
-              promptRestartForUpdate(info);
+              promptRestartForUpdate(info, updateDownloadMetaRef.current || undefined);
           }
           return;
       }
       updateDownloadInFlightRef.current = true;
+      updateDownloadMetaRef.current = null;
       const key = 'update-download';
+      setUpdateDownloadProgress({
+          open: true,
+          version: info.latestVersion,
+          status: 'start',
+          percent: 0,
+          downloaded: 0,
+          total: info.assetSize || 0,
+          message: ''
+      });
       message.loading({ content: `正在下载更新 ${info.latestVersion}...`, key, duration: 0 });
       const res = await (window as any).go.app.App.DownloadUpdate();
       updateDownloadInFlightRef.current = false;
       if (res?.success) {
+          const resultData = (res?.data || {}) as UpdateDownloadResultData;
+          updateDownloadMetaRef.current = resultData;
           updateDownloadedVersionRef.current = info.latestVersion;
-          message.success({ content: '更新下载完成', key, duration: 2 });
+          setUpdateDownloadProgress(prev => ({ ...prev, status: 'done', percent: 100, open: false }));
+          if (resultData?.downloadPath) {
+              message.success({ content: `更新下载完成，更新包路径：${resultData.downloadPath}`, key, duration: 5 });
+          } else {
+              message.success({ content: '更新下载完成', key, duration: 2 });
+          }
+          setAboutUpdateStatus(`发现新版本 ${info.latestVersion}（已下载，待重启安装）`);
           if (!silent || updateDeferredVersionRef.current !== info.latestVersion) {
-              promptRestartForUpdate(info);
+              promptRestartForUpdate(info, resultData);
           }
       } else {
+          setUpdateDownloadProgress(prev => ({
+              ...prev,
+              status: 'error',
+              message: res?.message || '未知错误'
+          }));
           message.error({ content: '更新下载失败: ' + (res?.message || '未知错误'), key, duration: 4 });
       }
   }, []);
@@ -329,6 +413,14 @@ function App() {
       setIsModalOpen(false);
       setEditingConnection(null);
   };
+
+  const handleTitleBarDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-no-titlebar-toggle="true"]')) {
+          return;
+      }
+      (window as any).runtime.WindowToggleMaximise();
+  };
   
   // Sidebar Resizing
   const [sidebarWidth, setSidebarWidth] = useState(300);
@@ -422,6 +514,35 @@ function App() {
       };
   }, [checkForUpdates]);
 
+  useEffect(() => {
+      const offDownloadProgress = EventsOn('update:download-progress', (event: UpdateDownloadProgressEvent) => {
+          if (!event) return;
+          const status = event.status || 'downloading';
+          const nextStatus: 'idle' | 'start' | 'downloading' | 'done' | 'error' =
+              status === 'start' || status === 'downloading' || status === 'done' || status === 'error'
+                  ? status
+                  : 'downloading';
+          const downloaded = typeof event.downloaded === 'number' ? event.downloaded : 0;
+          const total = typeof event.total === 'number' ? event.total : 0;
+          const percentRaw = typeof event.percent === 'number'
+              ? event.percent
+              : (total > 0 ? (downloaded / total) * 100 : 0);
+          const percent = Math.max(0, Math.min(100, percentRaw));
+          setUpdateDownloadProgress(prev => ({
+              open: nextStatus === 'start' || nextStatus === 'downloading' || nextStatus === 'error',
+              version: prev.version,
+              status: nextStatus,
+              percent,
+              downloaded,
+              total,
+              message: String(event.message || '')
+          }));
+      });
+      return () => {
+          offDownloadProgress();
+      };
+  }, []);
+
   return (
     <ConfigProvider
         locale={zhCN}
@@ -472,6 +593,7 @@ function App() {
         }}>
           {/* Custom Title Bar */}
           <div
+            onDoubleClick={handleTitleBarDoubleClick}
             style={{
                 height: 32,
                 flexShrink: 0,
@@ -492,7 +614,11 @@ function App() {
                   {/* Logo can be added here if available */}
                   GoNavi
               </div>
-              <div style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}>
+              <div
+                data-no-titlebar-toggle="true"
+                onDoubleClick={(e) => e.stopPropagation()}
+                style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}
+              >
                   <Button 
                     type="text" 
                     icon={<MinusOutlined />} 
@@ -679,11 +805,11 @@ function App() {
                             min={0.1} 
                             max={1.0} 
                             step={0.05} 
-                            value={appearance.opacity ?? 0.95} 
+                            value={appearance.opacity ?? 1.0} 
                             onChange={(v) => setAppearance({ opacity: v })} 
                             style={{ flex: 1 }}
                           />
-                          <span style={{ width: 40 }}>{Math.round((appearance.opacity ?? 0.95) * 100)}%</span>
+                          <span style={{ width: 40 }}>{Math.round((appearance.opacity ?? 1.0) * 100)}%</span>
                       </div>
                   </div>
                   <div>
@@ -702,6 +828,56 @@ function App() {
                           * 仅控制应用内覆盖层的模糊效果
                       </div>
                   </div>
+              </div>
+          </Modal>
+
+          <Modal
+              title={updateDownloadProgress.version ? `下载更新 ${updateDownloadProgress.version}` : '下载更新'}
+              open={updateDownloadProgress.open}
+              closable={updateDownloadProgress.status === 'error'}
+              maskClosable={false}
+              keyboard={updateDownloadProgress.status === 'error'}
+              onCancel={() => {
+                  if (updateDownloadProgress.status === 'error') {
+                      setUpdateDownloadProgress({
+                          open: false,
+                          version: '',
+                          status: 'idle',
+                          percent: 0,
+                          downloaded: 0,
+                          total: 0,
+                          message: ''
+                      });
+                  }
+              }}
+              footer={updateDownloadProgress.status === 'error' ? [
+                  <Button
+                      key="close"
+                      onClick={() => setUpdateDownloadProgress({
+                          open: false,
+                          version: '',
+                          status: 'idle',
+                          percent: 0,
+                          downloaded: 0,
+                          total: 0,
+                          message: ''
+                      })}
+                  >
+                      关闭
+                  </Button>
+              ] : null}
+          >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <Progress
+                      percent={Math.round(updateDownloadProgress.percent)}
+                      status={updateDownloadProgress.status === 'error' ? 'exception' : (updateDownloadProgress.status === 'done' ? 'success' : 'active')}
+                  />
+                  <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                      {`${formatBytes(updateDownloadProgress.downloaded)} / ${formatBytes(updateDownloadProgress.total)}`}
+                  </div>
+                  {updateDownloadProgress.message ? (
+                      <div style={{ fontSize: 12, color: '#ff4d4f' }}>{updateDownloadProgress.message}</div>
+                  ) : null}
               </div>
           </Modal>
           

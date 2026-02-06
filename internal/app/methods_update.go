@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,9 +23,10 @@ import (
 )
 
 const (
-	updateRepo          = "Syngnat/GoNavi"
-	updateAPIURL        = "https://api.github.com/repos/" + updateRepo + "/releases/latest"
-	updateChecksumAsset = "SHA256SUMS"
+	updateRepo                  = "Syngnat/GoNavi"
+	updateAPIURL                = "https://api.github.com/repos/" + updateRepo + "/releases/latest"
+	updateChecksumAsset         = "SHA256SUMS"
+	updateDownloadProgressEvent = "update:download-progress"
 )
 
 type updateState struct {
@@ -54,11 +56,29 @@ type AppInfo struct {
 	BuildTime  string `json:"buildTime,omitempty"`
 }
 
+type updateDownloadResult struct {
+	Info           UpdateInfo `json:"info"`
+	DownloadPath   string     `json:"downloadPath,omitempty"`
+	InstallLogPath string     `json:"installLogPath,omitempty"`
+	InstallTarget  string     `json:"installTarget,omitempty"`
+	Platform       string     `json:"platform"`
+	AutoRelaunch   bool       `json:"autoRelaunch"`
+}
+
+type updateDownloadProgressPayload struct {
+	Status     string  `json:"status"`
+	Percent    float64 `json:"percent"`
+	Downloaded int64   `json:"downloaded"`
+	Total      int64   `json:"total"`
+	Message    string  `json:"message,omitempty"`
+}
+
 type stagedUpdate struct {
-	Version   string
-	AssetName string
-	FilePath  string
-	StagedDir string
+	Version        string
+	AssetName      string
+	FilePath       string
+	StagedDir      string
+	InstallLogPath string
 }
 
 type githubRelease struct {
@@ -124,13 +144,15 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: false, Message: "未找到可用的更新包"}
 	}
-	if a.updateState.staged != nil && a.updateState.staged.Version == info.LatestVersion {
+	staged := a.updateState.staged
+	if staged != nil && staged.Version == info.LatestVersion {
 		a.updateMu.Unlock()
-		return connection.QueryResult{Success: true, Message: "更新包已下载完成", Data: info}
+		return connection.QueryResult{Success: true, Message: "更新包已下载完成", Data: buildUpdateDownloadResult(*info, staged)}
 	}
 	a.updateState.downloading = true
 	a.updateMu.Unlock()
 
+	a.emitUpdateDownloadProgress("start", 0, info.AssetSize, "")
 	result := a.downloadAndStageUpdate(*info)
 
 	a.updateMu.Lock()
@@ -143,6 +165,9 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 func (a *App) InstallUpdateAndRestart() connection.QueryResult {
 	a.updateMu.Lock()
 	staged := a.updateState.staged
+	if staged != nil && strings.TrimSpace(staged.InstallLogPath) == "" {
+		staged.InstallLogPath = buildUpdateInstallLogPath(filepath.Dir(staged.FilePath))
+	}
 	a.updateMu.Unlock()
 	if staged == nil {
 		return connection.QueryResult{Success: false, Message: "未找到已下载的更新包"}
@@ -150,7 +175,17 @@ func (a *App) InstallUpdateAndRestart() connection.QueryResult {
 
 	if err := launchUpdateScript(staged); err != nil {
 		logger.Error(err, "启动更新脚本失败")
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		msg := err.Error()
+		if staged.InstallLogPath != "" {
+			msg = fmt.Sprintf("%s（更新日志：%s）", msg, staged.InstallLogPath)
+		}
+		return connection.QueryResult{
+			Success: false,
+			Message: msg,
+			Data: map[string]any{
+				"logPath": staged.InstallLogPath,
+			},
+		}
 	}
 
 	go func() {
@@ -161,41 +196,79 @@ func (a *App) InstallUpdateAndRestart() connection.QueryResult {
 		os.Exit(0)
 	}()
 
-	return connection.QueryResult{Success: true, Message: "更新已开始安装"}
+	msg := "更新已开始安装"
+	if staged.InstallLogPath != "" {
+		msg = fmt.Sprintf("更新已开始安装，日志路径：%s", staged.InstallLogPath)
+	}
+	return connection.QueryResult{
+		Success: true,
+		Message: msg,
+		Data: map[string]any{
+			"logPath": staged.InstallLogPath,
+		},
+	}
 }
 
 func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
-	stagedDir, err := os.MkdirTemp("", "gonavi-update-")
-	if err != nil {
-		return connection.QueryResult{Success: false, Message: "创建临时目录失败"}
+	workspaceDir := strings.TrimSpace(resolveUpdateWorkspaceDir())
+	if workspaceDir == "" {
+		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, "无法确定当前应用目录")
+		return connection.QueryResult{Success: false, Message: "无法确定当前应用目录，无法下载更新"}
+	}
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		errMsg := fmt.Sprintf("无法访问应用目录：%s", workspaceDir)
+		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, errMsg)
+		return connection.QueryResult{Success: false, Message: errMsg}
 	}
 
-	assetPath := filepath.Join(stagedDir, info.AssetName)
-	actualHash, err := downloadFileWithHash(info.AssetURL, assetPath)
+	stagedDir, err := os.MkdirTemp(workspaceDir, ".gonavi-update-work-")
 	if err != nil {
+		errMsg := fmt.Sprintf("无法在应用目录创建更新工作目录：%s", workspaceDir)
+		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, errMsg)
+		return connection.QueryResult{Success: false, Message: errMsg}
+	}
+
+	assetPath := filepath.Join(workspaceDir, info.AssetName)
+	actualHash, err := downloadFileWithHash(info.AssetURL, assetPath, func(downloaded, total int64) {
+		reportTotal := total
+		if reportTotal <= 0 {
+			reportTotal = info.AssetSize
+		}
+		a.emitUpdateDownloadProgress("downloading", downloaded, reportTotal, "")
+	})
+	if err != nil {
+		_ = os.Remove(assetPath)
 		_ = os.RemoveAll(stagedDir)
+		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	if info.SHA256 == "" {
+		_ = os.Remove(assetPath)
 		_ = os.RemoveAll(stagedDir)
+		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, "缺少更新包校验值（SHA256SUMS）")
 		return connection.QueryResult{Success: false, Message: "缺少更新包校验值（SHA256SUMS）"}
 	}
 	if !strings.EqualFold(info.SHA256, actualHash) {
+		_ = os.Remove(assetPath)
 		_ = os.RemoveAll(stagedDir)
+		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, "更新包校验失败，请重试")
 		return connection.QueryResult{Success: false, Message: "更新包校验失败，请重试"}
 	}
 
-	a.updateMu.Lock()
-	a.updateState.staged = &stagedUpdate{
-		Version:   info.LatestVersion,
-		AssetName: info.AssetName,
-		FilePath:  assetPath,
-		StagedDir: stagedDir,
+	staged := &stagedUpdate{
+		Version:        info.LatestVersion,
+		AssetName:      info.AssetName,
+		FilePath:       assetPath,
+		StagedDir:      stagedDir,
+		InstallLogPath: buildUpdateInstallLogPath(workspaceDir),
 	}
+	a.updateMu.Lock()
+	a.updateState.staged = staged
 	a.updateMu.Unlock()
 
-	return connection.QueryResult{Success: true, Message: "更新包下载完成", Data: info}
+	a.emitUpdateDownloadProgress("done", info.AssetSize, info.AssetSize, "")
+	return connection.QueryResult{Success: true, Message: "更新包下载完成", Data: buildUpdateDownloadResult(info, staged)}
 }
 
 func fetchLatestUpdateInfo() (UpdateInfo, error) {
@@ -370,7 +443,32 @@ func parseSHA256Sums(content string) map[string]string {
 	return result
 }
 
-func downloadFileWithHash(url, filePath string) (string, error) {
+type downloadProgressWriter struct {
+	total      int64
+	written    int64
+	lastEmit   time.Time
+	emitEvery  time.Duration
+	onProgress func(downloaded, total int64)
+}
+
+func (w *downloadProgressWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	if n == 0 {
+		return 0, nil
+	}
+	w.written += int64(n)
+	if w.onProgress == nil {
+		return n, nil
+	}
+	now := time.Now()
+	if w.lastEmit.IsZero() || now.Sub(w.lastEmit) >= w.emitEvery || (w.total > 0 && w.written >= w.total) {
+		w.lastEmit = now
+		w.onProgress(w.written, w.total)
+	}
+	return n, nil
+}
+
+func downloadFileWithHash(url, filePath string, onProgress func(downloaded, total int64)) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Minute}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -395,12 +493,97 @@ func downloadFileWithHash(url, filePath string) (string, error) {
 	defer out.Close()
 
 	hasher := sha256.New()
-	writer := io.MultiWriter(out, hasher)
-	if _, err := io.Copy(writer, resp.Body); err != nil {
+	total := resp.ContentLength
+	progressWriter := &downloadProgressWriter{
+		total:      total,
+		emitEvery:  120 * time.Millisecond,
+		onProgress: onProgress,
+	}
+	writers := []io.Writer{out, hasher, progressWriter}
+	if onProgress != nil {
+		onProgress(0, total)
+	}
+	if _, err := io.Copy(io.MultiWriter(writers...), resp.Body); err != nil {
 		return "", err
+	}
+	if onProgress != nil {
+		onProgress(progressWriter.written, total)
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func buildUpdateDownloadResult(info UpdateInfo, staged *stagedUpdate) updateDownloadResult {
+	result := updateDownloadResult{
+		Info:          info,
+		Platform:      stdRuntime.GOOS,
+		InstallTarget: resolveUpdateInstallTarget(),
+		AutoRelaunch:  true,
+	}
+	if staged != nil {
+		result.DownloadPath = staged.FilePath
+		result.InstallLogPath = staged.InstallLogPath
+	}
+	return result
+}
+
+func buildUpdateInstallLogPath(baseDir string) string {
+	platform := stdRuntime.GOOS
+	if platform == "darwin" {
+		platform = "macos"
+	}
+	logDir := strings.TrimSpace(baseDir)
+	if logDir == "" {
+		logDir = os.TempDir()
+	}
+	return filepath.Join(logDir, fmt.Sprintf("gonavi-update-%s-%d.log", platform, time.Now().UnixNano()))
+}
+
+func resolveUpdateWorkspaceDir() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exePath, _ = filepath.EvalSymlinks(exePath)
+	if stdRuntime.GOOS == "darwin" {
+		appPath := detectMacAppPath(exePath)
+		if appPath != "" {
+			return filepath.Dir(appPath)
+		}
+	}
+	return filepath.Dir(exePath)
+}
+
+func resolveUpdateInstallTarget() string {
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	exePath, _ = filepath.EvalSymlinks(exePath)
+	if stdRuntime.GOOS == "darwin" {
+		return resolveMacUpdateTarget(exePath)
+	}
+	return exePath
+}
+
+func (a *App) emitUpdateDownloadProgress(status string, downloaded, total int64, message string) {
+	if a.ctx == nil {
+		return
+	}
+	payload := updateDownloadProgressPayload{
+		Status:     status,
+		Percent:    0,
+		Downloaded: downloaded,
+		Total:      total,
+		Message:    strings.TrimSpace(message),
+	}
+	if total > 0 {
+		payload.Percent = math.Min(100, (float64(downloaded)/float64(total))*100)
+	}
+	if status == "done" && payload.Percent < 100 {
+		payload.Percent = 100
+	}
+	wailsRuntime.EventsEmit(a.ctx, updateDownloadProgressEvent, payload)
 }
 
 func launchUpdateScript(staged *stagedUpdate) error {
@@ -425,7 +608,11 @@ func launchUpdateScript(staged *stagedUpdate) error {
 
 func launchWindowsUpdate(staged *stagedUpdate, targetExe string, pid int) error {
 	scriptPath := filepath.Join(staged.StagedDir, "update.cmd")
-	logPath := filepath.Join(staged.StagedDir, "update.log")
+	logPath := strings.TrimSpace(staged.InstallLogPath)
+	if logPath == "" {
+		logPath = buildUpdateInstallLogPath(filepath.Dir(staged.FilePath))
+		staged.InstallLogPath = logPath
+	}
 	content := buildWindowsScript(staged.FilePath, targetExe, staged.StagedDir, logPath, pid)
 	if err := os.WriteFile(scriptPath, []byte(content), 0o644); err != nil {
 		return err
@@ -442,7 +629,11 @@ func launchMacUpdate(staged *stagedUpdate, targetExe string, pid int) error {
 	if err := os.MkdirAll(mountDir, 0o755); err != nil {
 		return err
 	}
-	logPath := filepath.Join(staged.StagedDir, "update.log")
+	logPath := strings.TrimSpace(staged.InstallLogPath)
+	if logPath == "" {
+		logPath = buildUpdateInstallLogPath(filepath.Dir(staged.FilePath))
+		staged.InstallLogPath = logPath
+	}
 
 	scriptPath := filepath.Join(staged.StagedDir, "update.sh")
 	content := buildMacScript(staged.FilePath, targetApp, staged.StagedDir, mountDir, logPath, pid)
@@ -509,8 +700,12 @@ exit /b 1
 :move_done
 start "" "%%TARGET%%" >> "%%LOG_FILE%%" 2>&1
 if %%ERRORLEVEL%% NEQ 0 (
-  call :log relaunch failed
-  exit /b 1
+  call :log cmd start failed, trying powershell Start-Process
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%%TARGET%%'" >> "%%LOG_FILE%%" 2>&1
+  if %%ERRORLEVEL%% NEQ 0 (
+    call :log relaunch failed
+    exit /b 1
+  )
 )
 rmdir /S /Q "%%STAGED%%" >> "%%LOG_FILE%%" 2>&1
 call :log update finished
@@ -531,30 +726,69 @@ TARGET_APP="%s"
 STAGED="%s"
 MOUNT_DIR="%s"
 LOG_FILE="%s"
+TMP_APP="${TARGET_APP}.new"
+BACKUP_APP="${TARGET_APP}.backup"
+APP_BIN_NAME=$(basename "$TARGET_APP" .app)
+APP_BIN_REL="Contents/MacOS/$APP_BIN_NAME"
 
 log() {
   echo "[$(date '+%%Y-%%m-%%d %%H:%%M:%%S')] $*" >> "$LOG_FILE"
 }
 
-run_admin_install() {
-  /usr/bin/osascript <<'APPLESCRIPT' "$APP_SRC" "$TARGET_APP" "$LOG_FILE"
+run_admin_replace() {
+  /usr/bin/osascript <<'APPLESCRIPT' "$APP_SRC" "$TARGET_APP" "$TMP_APP" "$BACKUP_APP" "$APP_BIN_REL" "$LOG_FILE"
 on run argv
   set srcPath to item 1 of argv
   set dstPath to item 2 of argv
-  set logPath to item 3 of argv
-  do shell script "rm -rf " & quoted form of dstPath & " && cp -R " & quoted form of srcPath & " " & quoted form of dstPath & " >> " & quoted form of logPath & " 2>&1" with administrator privileges
+  set tmpPath to item 3 of argv
+  set bakPath to item 4 of argv
+  set binRel to item 5 of argv
+  set logPath to item 6 of argv
+  set cmd to "set -eu; " & ¬
+    "rm -rf " & quoted form of tmpPath & " " & quoted form of bakPath & "; " & ¬
+    "/usr/bin/ditto " & quoted form of srcPath & " " & quoted form of tmpPath & "; " & ¬
+    "if [ ! -x " & quoted form of (tmpPath & "/" & binRel) & " ]; then echo 'tmp app binary missing' >> " & quoted form of logPath & "; exit 1; fi; " & ¬
+    "xattr -rd com.apple.quarantine " & quoted form of tmpPath & " >> " & quoted form of logPath & " 2>&1 || true; " & ¬
+    "if [ -d " & quoted form of dstPath & " ]; then mv " & quoted form of dstPath & " " & quoted form of bakPath & "; fi; " & ¬
+    "mv " & quoted form of tmpPath & " " & quoted form of dstPath & "; " & ¬
+    "rm -rf " & quoted form of bakPath & "; " & ¬
+    "xattr -rd com.apple.quarantine " & quoted form of dstPath & " >> " & quoted form of logPath & " 2>&1 || true"
+  do shell script cmd with administrator privileges
 end run
 APPLESCRIPT
 }
 
-run_admin_xattr() {
-  /usr/bin/osascript <<'APPLESCRIPT' "$TARGET_APP" "$LOG_FILE"
-on run argv
-  set dstPath to item 1 of argv
-  set logPath to item 2 of argv
-  do shell script "xattr -rd com.apple.quarantine " & quoted form of dstPath & " >> " & quoted form of logPath & " 2>&1" with administrator privileges
-end run
-APPLESCRIPT
+replace_app_direct() {
+  rm -rf "$TMP_APP" "$BACKUP_APP" >>"$LOG_FILE" 2>&1 || true
+  /usr/bin/ditto "$APP_SRC" "$TMP_APP" >>"$LOG_FILE" 2>&1
+  if [ ! -x "$TMP_APP/$APP_BIN_REL" ]; then
+    log "tmp app binary missing: $TMP_APP/$APP_BIN_REL"
+    return 1
+  fi
+  xattr -rd com.apple.quarantine "$TMP_APP" >>"$LOG_FILE" 2>&1 || true
+  if [ -d "$TARGET_APP" ]; then
+    mv "$TARGET_APP" "$BACKUP_APP" >>"$LOG_FILE" 2>&1
+  fi
+  if ! mv "$TMP_APP" "$TARGET_APP" >>"$LOG_FILE" 2>&1; then
+    log "move new app failed, trying rollback"
+    rm -rf "$TARGET_APP" >>"$LOG_FILE" 2>&1 || true
+    if [ -d "$BACKUP_APP" ]; then
+      mv "$BACKUP_APP" "$TARGET_APP" >>"$LOG_FILE" 2>&1 || true
+    fi
+    return 1
+  fi
+  rm -rf "$BACKUP_APP" >>"$LOG_FILE" 2>&1 || true
+  xattr -rd com.apple.quarantine "$TARGET_APP" >>"$LOG_FILE" 2>&1 || true
+  return 0
+}
+
+relaunch_app() {
+  if /usr/bin/open -n "$TARGET_APP" >>"$LOG_FILE" 2>&1; then
+    return 0
+  fi
+  log "open -n failed, trying binary launch"
+  "$TARGET_APP/$APP_BIN_REL" >>"$LOG_FILE" 2>&1 &
+  return 0
 }
 
 log "updater started"
@@ -571,21 +805,22 @@ if [ -z "$APP_SRC" ]; then
 fi
 
 log "install target: $TARGET_APP"
-if ! rm -rf "$TARGET_APP" >>"$LOG_FILE" 2>&1 || ! cp -R "$APP_SRC" "$TARGET_APP" >>"$LOG_FILE" 2>&1; then
-  log "direct install failed, trying admin install"
-  run_admin_install >>"$LOG_FILE" 2>&1
+if ! replace_app_direct; then
+  log "direct replace failed, trying admin replace"
+  run_admin_replace >>"$LOG_FILE" 2>&1
 fi
 
-if ! xattr -rd com.apple.quarantine "$TARGET_APP" >>"$LOG_FILE" 2>&1; then
-  log "direct xattr failed, trying admin xattr"
-  run_admin_xattr >>"$LOG_FILE" 2>&1 || true
+if [ ! -x "$TARGET_APP/$APP_BIN_REL" ]; then
+  log "target app binary missing after replace: $TARGET_APP/$APP_BIN_REL"
+  hdiutil detach "$MOUNT_DIR" -quiet >>"$LOG_FILE" 2>&1 || true
+  exit 1
 fi
 
 hdiutil detach "$MOUNT_DIR" -quiet >>"$LOG_FILE" 2>&1 || true
 rm -rf "$MOUNT_DIR" "$DMG" "$STAGED" >>"$LOG_FILE" 2>&1 || true
-open "$TARGET_APP" >>"$LOG_FILE" 2>&1
+relaunch_app
 log "relaunch requested"
-`, pid, dmgPath, targetApp, stagedDir, mountDir, logPath)
+	`, pid, dmgPath, targetApp, stagedDir, mountDir, logPath)
 }
 
 func buildLinuxScript(tarPath, targetExe, stagedDir string, pid int) string {

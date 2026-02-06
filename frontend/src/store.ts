@@ -2,6 +2,19 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { SavedConnection, TabData, SavedQuery } from './types';
 
+const DEFAULT_APPEARANCE = { opacity: 1.0, blur: 0 };
+const LEGACY_DEFAULT_OPACITY = 0.95;
+const OPACITY_EPSILON = 1e-6;
+
+const isLegacyDefaultAppearance = (appearance: Partial<{ opacity: number; blur: number }> | undefined): boolean => {
+  if (!appearance) {
+    return true;
+  }
+  const opacity = typeof appearance.opacity === 'number' ? appearance.opacity : LEGACY_DEFAULT_OPACITY;
+  const blur = typeof appearance.blur === 'number' ? appearance.blur : 0;
+  return Math.abs(opacity - LEGACY_DEFAULT_OPACITY) < OPACITY_EPSILON && blur === 0;
+};
+
 export interface SqlLog {
   id: string;
   timestamp: number;
@@ -59,7 +72,7 @@ export const useStore = create<AppState>()(
       activeContext: null,
       savedQueries: [],
       theme: 'light',
-      appearance: { opacity: 0.95, blur: 0 },
+      appearance: { ...DEFAULT_APPEARANCE },
       sqlFormatOptions: { keywordCase: 'upper' },
       queryOptions: { maxRows: 5000 },
       sqlLogs: [],
@@ -138,6 +151,33 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'lite-db-storage', // name of the item in the storage (must be unique)
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        if (!persistedState || typeof persistedState !== 'object') {
+          return persistedState as AppState;
+        }
+        const state = persistedState as Partial<AppState>;
+        const nextState: Partial<AppState> = { ...state };
+        const appearance = state.appearance;
+
+        if (!appearance || typeof appearance !== 'object') {
+          nextState.appearance = { ...DEFAULT_APPEARANCE };
+          return nextState as AppState;
+        }
+
+        const nextAppearance = {
+          opacity: typeof appearance.opacity === 'number' ? appearance.opacity : DEFAULT_APPEARANCE.opacity,
+          blur: typeof appearance.blur === 'number' ? appearance.blur : DEFAULT_APPEARANCE.blur,
+        };
+
+        if (version < 2 && isLegacyDefaultAppearance(appearance)) {
+          nextState.appearance = { ...DEFAULT_APPEARANCE };
+        } else {
+          nextState.appearance = nextAppearance;
+        }
+
+        return nextState as AppState;
+      },
       partialize: (state) => ({ connections: state.connections, savedQueries: state.savedQueries, theme: state.theme, appearance: state.appearance, sqlFormatOptions: state.sqlFormatOptions, queryOptions: state.queryOptions }), // Don't persist logs
     }
   )

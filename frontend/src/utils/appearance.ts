@@ -1,4 +1,4 @@
-const DEFAULT_OPACITY = 0.95;
+const DEFAULT_OPACITY = 1.0;
 const MIN_OPACITY = 0.1;
 const MAX_OPACITY = 1.0;
 
