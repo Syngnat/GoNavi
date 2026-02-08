@@ -2,10 +2,10 @@ const DEFAULT_OPACITY = 1.0;
 const MIN_OPACITY = 0.1;
 const MAX_OPACITY = 1.0;
 
-// macOS 端进一步增强通透感：同滑块值下更低等效不透明度、降低过重模糊。
-const MAC_OPACITY_FACTOR = 0.20;
+// 平台透明度映射因子：值越大，滑块变化越平滑（1.0 = 线性映射）
+const MAC_OPACITY_FACTOR = 0.60;
 const MAC_BLUR_FACTOR = 1.00;
-const WINDOWS_OPACITY_FACTOR = 0.20;
+const WINDOWS_OPACITY_FACTOR = 0.70;
 const WINDOWS_BLUR_FACTOR = 1.00;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));

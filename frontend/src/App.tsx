@@ -10,7 +10,7 @@ import DataSyncModal from './components/DataSyncModal';
 import LogPanel from './components/LogPanel';
 import { useStore } from './store';
 import { SavedConnection } from './types';
-import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform } from './utils/appearance';
+import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform, isWindowsPlatform } from './utils/appearance';
 import './App.css';
 
 const { Sider, Content } = Layout;
@@ -814,19 +814,27 @@ function App() {
                   </div>
                   <div>
                       <div style={{ marginBottom: 8, fontWeight: 500 }}>高斯模糊 (Blur)</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                          <Slider 
-                            min={0} 
-                            max={20} 
-                            value={appearance.blur ?? 0} 
-                            onChange={(v) => setAppearance({ blur: v })} 
-                            style={{ flex: 1 }}
-                          />
-                          <span style={{ width: 40 }}>{appearance.blur}px</span>
-                      </div>
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
-                          * 仅控制应用内覆盖层的模糊效果
-                      </div>
+                      {isWindowsPlatform() ? (
+                          <div style={{ fontSize: 12, color: '#888' }}>
+                              Windows 使用系统 Acrylic 效果，模糊程度由系统控制
+                          </div>
+                      ) : (
+                          <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                                  <Slider
+                                    min={0}
+                                    max={20}
+                                    value={appearance.blur ?? 0}
+                                    onChange={(v) => setAppearance({ blur: v })}
+                                    style={{ flex: 1 }}
+                                  />
+                                  <span style={{ width: 40 }}>{appearance.blur}px</span>
+                              </div>
+                              <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                                  * 仅控制应用内覆盖层的模糊效果
+                              </div>
+                          </>
+                      )}
                   </div>
               </div>
           </Modal>
