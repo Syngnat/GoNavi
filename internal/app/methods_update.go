@@ -221,14 +221,18 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: errMsg}
 	}
 
-	stagedDir, err := os.MkdirTemp(workspaceDir, ".gonavi-update-work-")
-	if err != nil {
-		errMsg := fmt.Sprintf("无法在应用目录创建更新工作目录：%s", workspaceDir)
+	// 使用版本号命名的工作目录，便于识别和调试
+	stagedDir := filepath.Join(workspaceDir, fmt.Sprintf(".gonavi-update-%s-%s", stdRuntime.GOOS, info.LatestVersion))
+	// 清理可能残留的旧目录（上次下载失败后未清理）
+	_ = os.RemoveAll(stagedDir)
+	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+		errMsg := fmt.Sprintf("无法在应用目录创建更新工作目录：%s", stagedDir)
 		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, errMsg)
 		return connection.QueryResult{Success: false, Message: errMsg}
 	}
 
-	assetPath := filepath.Join(workspaceDir, info.AssetName)
+	// 下载到 staging 目录，避免覆盖正在运行的可执行文件
+	assetPath := filepath.Join(stagedDir, info.AssetName)
 	actualHash, err := downloadFileWithHash(info.AssetURL, assetPath, func(downloaded, total int64) {
 		reportTotal := total
 		if reportTotal <= 0 {
