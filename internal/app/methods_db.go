@@ -47,9 +47,12 @@ func (a *App) CreateDatabase(config connection.ConnectionConfig, dbName string) 
 
 	escapedDbName := strings.ReplaceAll(dbName, "`", "``")
 	query := fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", escapedDbName)
-	if runConfig.Type == "postgres" {
+	dbType := strings.ToLower(strings.TrimSpace(runConfig.Type))
+	if dbType == "postgres" || dbType == "kingbase" || dbType == "highgo" || dbType == "vastbase" {
 		escapedDbName = strings.ReplaceAll(dbName, `"`, `""`)
 		query = fmt.Sprintf("CREATE DATABASE \"%s\"", escapedDbName)
+	} else if dbType == "mariadb" {
+		// MariaDB uses same syntax as MySQL
 	}
 
 	_, err = dbInst.Exec(query)
@@ -95,7 +98,7 @@ func normalizeSchemaAndTableByType(dbType string, dbName string, tableName strin
 	}
 
 	switch dbType {
-	case "postgres", "kingbase":
+	case "postgres", "kingbase", "highgo", "vastbase":
 		return "public", rawTable
 	default:
 		return rawDB, rawTable
@@ -116,7 +119,7 @@ func buildRunConfigForDDL(config connection.ConnectionConfig, dbType string, dbN
 	if strings.EqualFold(strings.TrimSpace(config.Type), "custom") {
 		// custom 连接的 dbName 语义依赖 driver，尽量在常见驱动上对齐内置类型行为。
 		switch dbType {
-		case "mysql", "postgres", "kingbase", "dameng":
+		case "mysql", "mariadb", "postgres", "kingbase", "vastbase", "dameng":
 			if strings.TrimSpace(dbName) != "" {
 				runConfig.Database = strings.TrimSpace(dbName)
 			}
@@ -137,9 +140,9 @@ func (a *App) RenameDatabase(config connection.ConnectionConfig, oldName string,
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql":
-		return connection.QueryResult{Success: false, Message: "MySQL 不支持直接重命名数据库，请新建库后迁移数据"}
-	case "postgres", "kingbase":
+	case "mysql", "mariadb":
+		return connection.QueryResult{Success: false, Message: "MySQL/MariaDB 不支持直接重命名数据库，请新建库后迁移数据"}
+	case "postgres", "kingbase", "highgo", "vastbase":
 		if strings.EqualFold(strings.TrimSpace(config.Database), oldName) {
 			return connection.QueryResult{Success: false, Message: "当前连接正在使用目标数据库，请先连接到其他数据库后再重命名"}
 		}
@@ -173,11 +176,11 @@ func (a *App) DropDatabase(config connection.ConnectionConfig, dbName string) co
 		sql       string
 	)
 	switch dbType {
-	case "mysql":
+	case "mysql", "mariadb":
 		runConfig = config
 		runConfig.Database = ""
 		sql = fmt.Sprintf("DROP DATABASE %s", quoteIdentByType(dbType, dbName))
-	case "postgres", "kingbase":
+	case "postgres", "kingbase", "highgo", "vastbase":
 		if strings.EqualFold(strings.TrimSpace(config.Database), dbName) {
 			return connection.QueryResult{Success: false, Message: "当前连接正在使用目标数据库，请先连接到其他数据库后再删除"}
 		}
@@ -215,7 +218,7 @@ func (a *App) RenameTable(config connection.ConnectionConfig, dbName string, old
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql", "postgres", "kingbase", "sqlite", "oracle", "dameng":
+	case "mysql", "mariadb", "postgres", "kingbase", "sqlite", "oracle", "dameng", "highgo", "vastbase", "sqlserver":
 	default:
 		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前数据源(%s)暂不支持重命名表", dbType)}
 	}
@@ -227,10 +230,19 @@ func (a *App) RenameTable(config connection.ConnectionConfig, dbName string, old
 	oldQualifiedTable := quoteTableIdentByType(dbType, schemaName, pureOldTableName)
 	newTableQuoted := quoteIdentByType(dbType, newTableName)
 
-	sql := fmt.Sprintf("ALTER TABLE %s RENAME TO %s", oldQualifiedTable, newTableQuoted)
-	if dbType == "mysql" {
+	var sql string
+	switch dbType {
+	case "mysql", "mariadb":
 		newQualifiedTable := quoteTableIdentByType(dbType, schemaName, newTableName)
 		sql = fmt.Sprintf("RENAME TABLE %s TO %s", oldQualifiedTable, newQualifiedTable)
+	case "sqlserver":
+		// SQL Server 使用 sp_rename，参数为 'schema.oldname', 'newname'
+		oldFullName := schemaName + "." + pureOldTableName
+		escapedOld := strings.ReplaceAll(oldFullName, "'", "''")
+		escapedNew := strings.ReplaceAll(newTableName, "'", "''")
+		sql = fmt.Sprintf("EXEC sp_rename '%s', '%s'", escapedOld, escapedNew)
+	default:
+		sql = fmt.Sprintf("ALTER TABLE %s RENAME TO %s", oldQualifiedTable, newTableQuoted)
 	}
 
 	runConfig := buildRunConfigForDDL(config, dbType, dbName)
@@ -252,7 +264,7 @@ func (a *App) DropTable(config connection.ConnectionConfig, dbName string, table
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql", "postgres", "kingbase", "sqlite", "oracle", "dameng":
+	case "mysql", "mariadb", "postgres", "kingbase", "sqlite", "oracle", "dameng", "highgo", "vastbase", "sqlserver":
 	default:
 		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前数据源(%s)暂不支持删除表", dbType)}
 	}

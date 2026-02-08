@@ -14,8 +14,8 @@ func normalizeRunConfig(config connection.ConnectionConfig, dbName string) conne
 	}
 
 	switch strings.ToLower(strings.TrimSpace(config.Type)) {
-	case "mysql", "postgres", "kingbase":
-		// 这些类型的 dbName 表示“数据库”，需要写入连接配置以选择目标库。
+	case "mysql", "mariadb", "postgres", "kingbase", "highgo", "vastbase", "sqlserver", "mongodb":
+		// 这些类型的 dbName 表示"数据库"，需要写入连接配置以选择目标库。
 		runConfig.Database = name
 	case "dameng":
 		// 达梦使用 schema 参数，沿用现有行为：dbName 表示 schema。
@@ -45,9 +45,12 @@ func normalizeSchemaAndTable(config connection.ConnectionConfig, dbName string, 
 	}
 
 	switch strings.ToLower(strings.TrimSpace(config.Type)) {
-	case "postgres", "kingbase":
-		// PG/金仓：dbName 在 UI 里是“数据库”，schema 需从 tableName 或使用默认 public。
+	case "postgres", "kingbase", "highgo", "vastbase":
+		// PG/金仓/瀚高/海量：dbName 在 UI 里是"数据库"，schema 需从 tableName 或使用默认 public。
 		return "public", rawTable
+	case "sqlserver":
+		// SQL Server：dbName 表示数据库，schema 默认 dbo
+		return "dbo", rawTable
 	default:
 		// MySQL：dbName 表示数据库；Oracle/达梦：dbName 表示 schema/owner。
 		return rawDB, rawTable

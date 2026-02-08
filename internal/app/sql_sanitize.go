@@ -7,7 +7,7 @@ import (
 
 func sanitizeSQLForPgLike(dbType string, query string) string {
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "postgres", "kingbase":
+	case "postgres", "kingbase", "highgo", "vastbase":
 		// 有些情况下会出现多层重复引用（例如 """"schema"""" 或 ""schema"""），单次修复不一定收敛。
 		// 这里做有限次数的迭代，直到输出不再变化。
 		out := query

@@ -408,8 +408,11 @@ func quoteIdentByType(dbType string, ident string) string {
 	}
 
 	switch dbType {
-	case "mysql":
+	case "mysql", "mariadb":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
+	case "sqlserver":
+		escaped := strings.ReplaceAll(ident, "]", "]]")
+		return "[" + escaped + "]"
 	default:
 		return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 	}

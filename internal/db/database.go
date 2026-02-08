@@ -40,6 +40,16 @@ func NewDatabase(dbType string) (Database, error) {
 		return &DamengDB{}, nil
 	case "kingbase":
 		return &KingbaseDB{}, nil
+	case "mongodb":
+		return &MongoDB{}, nil
+	case "sqlserver":
+		return &SqlServerDB{}, nil
+	case "highgo":
+		return &HighGoDB{}, nil
+	case "mariadb":
+		return &MariaDB{}, nil
+	case "vastbase":
+		return &VastbaseDB{}, nil
 	case "custom":
 		return &CustomDB{}, nil
 	default:

@@ -22,8 +22,11 @@ func quoteIdentByType(dbType string, ident string) string {
 	}
 
 	switch dbType {
-	case "mysql":
+	case "mysql", "mariadb":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
+	case "sqlserver":
+		escaped := strings.ReplaceAll(ident, "]", "]]")
+		return "[" + escaped + "]"
 	default:
 		return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
 	}
@@ -71,7 +74,7 @@ func normalizeSchemaAndTable(dbType string, dbName string, tableName string) (st
 	}
 
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "postgres", "kingbase":
+	case "postgres", "kingbase", "vastbase":
 		return "public", rawTable
 	default:
 		return rawDB, rawTable
@@ -88,7 +91,7 @@ func qualifiedNameForQuery(dbType string, schema string, table string, original 
 	}
 
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "postgres", "kingbase":
+	case "postgres", "kingbase", "vastbase":
 		s := strings.TrimSpace(schema)
 		if s == "" {
 			s = "public"
@@ -97,7 +100,7 @@ func qualifiedNameForQuery(dbType string, schema string, table string, original 
 			return raw
 		}
 		return s + "." + table
-	case "mysql":
+	case "mysql", "mariadb":
 		s := strings.TrimSpace(schema)
 		if s == "" || table == "" {
 			return table

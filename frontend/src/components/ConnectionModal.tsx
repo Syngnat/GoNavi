@@ -14,6 +14,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const [useSSH, setUseSSH] = useState(false);
   const [dbType, setDbType] = useState('mysql');
   const [step, setStep] = useState(1); // 1: Select Type, 2: Configure
+  const [activeGroup, setActiveGroup] = useState(0); // Active category index in step 1
   const [testResult, setTestResult] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const [dbList, setDbList] = useState<string[]>([]);
   const [redisDbList, setRedisDbList] = useState<number[]>([]); // Redis databases 0-15
@@ -62,6 +63,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
               form.resetFields();
               setUseSSH(false);
               setDbType('mysql');
+              setActiveGroup(0);
           }
       }
   }, [open, initialValues]);
@@ -195,6 +197,11 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           case 'oracle': defaultPort = 1521; break;
           case 'dameng': defaultPort = 5236; break;
           case 'kingbase': defaultPort = 54321; break;
+          case 'sqlserver': defaultPort = 1433; break;
+          case 'mongodb': defaultPort = 27017; break;
+          case 'highgo': defaultPort = 5866; break;
+          case 'mariadb': defaultPort = 3306; break;
+          case 'vastbase': defaultPort = 5432; break;
           default: defaultPort = 3306;
       }
       if (type !== 'sqlite' && type !== 'custom') {
@@ -208,32 +215,75 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const isCustom = dbType === 'custom';
   const isRedis = dbType === 'redis';
 
-  const dbTypes = [
-      { key: 'mysql', name: 'MySQL', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#00758F' }} /> },
-      { key: 'postgres', name: 'PostgreSQL', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#336791' }} /> },
-      { key: 'redis', name: 'Redis', icon: <CloudOutlined style={{ fontSize: 24, color: '#DC382D' }} /> },
-      { key: 'sqlite', name: 'SQLite', icon: <FileTextOutlined style={{ fontSize: 24, color: '#003B57' }} /> },
-      { key: 'oracle', name: 'Oracle', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#F80000' }} /> },
-      { key: 'dameng', name: 'Dameng (达梦)', icon: <CloudServerOutlined style={{ fontSize: 24, color: '#1890ff' }} /> },
-      { key: 'kingbase', name: 'Kingbase (人大金仓)', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#faad14' }} /> },
-      { key: 'custom', name: 'Custom (自定义)', icon: <AppstoreAddOutlined style={{ fontSize: 24, color: '#595959' }} /> },
+  const dbTypeGroups = [
+      { label: '关系型数据库', items: [
+          { key: 'mysql', name: 'MySQL', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#00758F' }} /> },
+          { key: 'mariadb', name: 'MariaDB', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#003545' }} /> },
+          { key: 'postgres', name: 'PostgreSQL', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#336791' }} /> },
+          { key: 'sqlserver', name: 'SQL Server', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#CC2927' }} /> },
+          { key: 'sqlite', name: 'SQLite', icon: <FileTextOutlined style={{ fontSize: 24, color: '#003B57' }} /> },
+          { key: 'oracle', name: 'Oracle', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#F80000' }} /> },
+      ]},
+      { label: '国产数据库', items: [
+          { key: 'dameng', name: 'Dameng (达梦)', icon: <CloudServerOutlined style={{ fontSize: 24, color: '#1890ff' }} /> },
+          { key: 'kingbase', name: 'Kingbase (人大金仓)', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#faad14' }} /> },
+          { key: 'highgo', name: 'HighGo (瀚高)', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#00a854' }} /> },
+          { key: 'vastbase', name: 'Vastbase (海量)', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#1a6dff' }} /> },
+      ]},
+      { label: 'NoSQL', items: [
+          { key: 'mongodb', name: 'MongoDB', icon: <CloudServerOutlined style={{ fontSize: 24, color: '#47A248' }} /> },
+          { key: 'redis', name: 'Redis', icon: <CloudOutlined style={{ fontSize: 24, color: '#DC382D' }} /> },
+      ]},
+      { label: '其他', items: [
+          { key: 'custom', name: 'Custom (自定义)', icon: <AppstoreAddOutlined style={{ fontSize: 24, color: '#595959' }} /> },
+      ]},
   ];
 
+  const dbTypes = dbTypeGroups.flatMap(g => g.items);
+
   const renderStep1 = () => (
-      <Row gutter={[16, 16]}>
-          {dbTypes.map(item => (
-              <Col span={8} key={item.key}>
-                  <Card 
-                      hoverable 
-                      onClick={() => handleTypeSelect(item.key)}
-                      style={{ textAlign: 'center', cursor: 'pointer' }}
+      <div style={{ display: 'flex', height: 360 }}>
+          {/* 左侧分类导航 */}
+          <div style={{ width: 120, borderRight: '1px solid #f0f0f0', paddingRight: 8, flexShrink: 0 }}>
+              {dbTypeGroups.map((group, idx) => (
+                  <div
+                      key={group.label}
+                      onClick={() => setActiveGroup(idx)}
+                      style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          borderRadius: 6,
+                          marginBottom: 4,
+                          background: activeGroup === idx ? '#e6f4ff' : 'transparent',
+                          color: activeGroup === idx ? '#1677ff' : undefined,
+                          fontWeight: activeGroup === idx ? 500 : 400,
+                          transition: 'all 0.2s',
+                          fontSize: 13,
+                      }}
                   >
-                      <div style={{ marginBottom: 12 }}>{item.icon}</div>
-                      <Text strong>{item.name}</Text>
-                  </Card>
-              </Col>
-          ))}
-      </Row>
+                      {group.label}
+                  </div>
+              ))}
+          </div>
+          {/* 右侧数据源卡片 */}
+          <div style={{ flex: 1, paddingLeft: 16, overflowY: 'auto', overflowX: 'hidden' }}>
+              <Row gutter={[12, 12]}>
+                  {dbTypeGroups[activeGroup]?.items.map(item => (
+                      <Col span={8} key={item.key}>
+                          <Card
+                              hoverable
+                              onClick={() => handleTypeSelect(item.key)}
+                              style={{ textAlign: 'center', cursor: 'pointer', height: 100 }}
+                              styles={{ body: { padding: '16px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }}
+                          >
+                              <div style={{ marginBottom: 8 }}>{item.icon}</div>
+                              <Text strong style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>{item.name}</Text>
+                          </Card>
+                      </Col>
+                  ))}
+              </Row>
+          </div>
+      </div>
   );
 
   const renderStep2 = () => (
@@ -401,15 +451,16 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   };
 
   return (
-    <Modal 
+    <Modal
         title={getTitle()}
-        open={open} 
-        onCancel={onClose} 
+        open={open}
+        onCancel={onClose}
         footer={getFooter()}
-        width={step === 1 ? 700 : 600}
-        zIndex={10001} 
-        destroyOnHidden 
+        width={step === 1 ? 650 : 600}
+        zIndex={10001}
+        destroyOnHidden
         maskClosable={false}
+        styles={step === 1 ? { body: { padding: '16px 24px', overflow: 'hidden' } } : undefined}
     >
       {step === 1 ? renderStep1() : renderStep2()}
     </Modal>
