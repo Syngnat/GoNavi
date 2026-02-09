@@ -3,6 +3,7 @@ import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, 
 	import {
 	  DatabaseOutlined,
 	  TableOutlined,
+	  EyeOutlined,
 	  ConsoleSqlOutlined,
   HddOutlined,
   FolderOpenOutlined,
@@ -28,7 +29,7 @@ import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, 
 	} from '@ant-design/icons';
 	import { useStore } from '../store';
 	import { SavedConnection } from '../types';
-	import { DBGetDatabases, DBGetTables, DBShowCreateTable, ExportTable, OpenSQLFile, CreateDatabase, RenameDatabase, DropDatabase, RenameTable, DropTable } from '../../wailsjs/go/app/App';
+	import { DBGetDatabases, DBGetTables, DBQuery, DBShowCreateTable, ExportTable, OpenSQLFile, CreateDatabase, RenameDatabase, DropDatabase, RenameTable, DropTable } from '../../wailsjs/go/app/App';
   import { normalizeOpacityForPlatform } from '../utils/appearance';
 
 const { Search } = Input;
@@ -40,7 +41,7 @@ interface TreeNode {
   children?: TreeNode[];
   icon?: React.ReactNode;
   dataRef?: any;
-  type?: 'connection' | 'database' | 'table' | 'queries-folder' | 'saved-query' | 'folder-columns' | 'folder-indexes' | 'folder-fks' | 'folder-triggers' | 'redis-db';
+  type?: 'connection' | 'database' | 'table' | 'view' | 'db-trigger' | 'object-group' | 'queries-folder' | 'saved-query' | 'folder-columns' | 'folder-indexes' | 'folder-fks' | 'folder-triggers' | 'redis-db';
 }
 
 type BatchTableExportMode = 'schema' | 'backup' | 'dataOnly';
@@ -203,6 +204,161 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       return rawName.substring(lastDotIndex + 1);
   };
 
+  const getMetadataDialect = (conn: SavedConnection | undefined): string => {
+      const type = String(conn?.config?.type || '').trim().toLowerCase();
+      if (type === 'custom') {
+          return String((conn?.config as any)?.driver || '').trim().toLowerCase();
+      }
+      if (type === 'mariadb') return 'mysql';
+      if (type === 'dameng') return 'dm';
+      return type;
+  };
+
+  const escapeSQLLiteral = (raw: string): string => String(raw || '').replace(/'/g, "''");
+  const quoteSqlServerIdentifier = (raw: string): string => `[${String(raw || '').replace(/]/g, ']]')}]`;
+
+  const getCaseInsensitiveValue = (row: Record<string, any>, candidateKeys: string[]): string => {
+      const keyMap = new Map<string, any>();
+      Object.keys(row || {}).forEach((key) => keyMap.set(key.toLowerCase(), row[key]));
+      for (const key of candidateKeys) {
+          const value = keyMap.get(key.toLowerCase());
+          if (value !== undefined && value !== null) {
+              const normalized = String(value).trim();
+              if (normalized !== '') return normalized;
+          }
+      }
+      return '';
+  };
+
+  const getFirstRowValue = (row: Record<string, any>): string => {
+      for (const value of Object.values(row || {})) {
+          if (value !== undefined && value !== null) {
+              const normalized = String(value).trim();
+              if (normalized !== '') return normalized;
+          }
+      }
+      return '';
+  };
+
+  const buildQualifiedName = (schemaName: string, objectName: string): string => {
+      const schema = String(schemaName || '').trim();
+      const name = String(objectName || '').trim();
+      if (!name) return '';
+      if (!schema) return name;
+      if (name.includes('.')) return name;
+      return `${schema}.${name}`;
+  };
+
+  const buildViewsMetadataQuery = (dialect: string, dbName: string): string => {
+      const safeDbName = escapeSQLLiteral(dbName);
+      switch (dialect) {
+          case 'mysql':
+              if (!safeDbName) return '';
+              return `SELECT TABLE_NAME AS view_name FROM information_schema.views WHERE table_schema = '${safeDbName}' ORDER BY TABLE_NAME`;
+          case 'postgres':
+          case 'kingbase':
+          case 'highgo':
+          case 'vastbase':
+              return `SELECT schemaname AS schema_name, viewname AS view_name FROM pg_catalog.pg_views WHERE schemaname != 'information_schema' AND schemaname NOT LIKE 'pg_%' ORDER BY schemaname, viewname`;
+          case 'sqlserver': {
+              const safeDb = quoteSqlServerIdentifier(dbName || 'master');
+              return `SELECT s.name AS schema_name, v.name AS view_name FROM ${safeDb}.sys.views v JOIN ${safeDb}.sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name`;
+          }
+          case 'oracle':
+          case 'dm': {
+              if (!safeDbName) {
+                  return `SELECT VIEW_NAME AS view_name FROM USER_VIEWS ORDER BY VIEW_NAME`;
+              }
+              return `SELECT OWNER AS schema_name, VIEW_NAME AS view_name FROM ALL_VIEWS WHERE OWNER = '${safeDbName.toUpperCase()}' ORDER BY VIEW_NAME`;
+          }
+          case 'sqlite':
+              return `SELECT name AS view_name FROM sqlite_master WHERE type = 'view' ORDER BY name`;
+          default:
+              return '';
+      }
+  };
+
+  const buildTriggersMetadataQuery = (dialect: string, dbName: string): string => {
+      const safeDbName = escapeSQLLiteral(dbName);
+      switch (dialect) {
+          case 'mysql':
+              if (!safeDbName) return '';
+              return `SELECT TRIGGER_NAME AS trigger_name, EVENT_OBJECT_TABLE AS table_name, TRIGGER_SCHEMA AS schema_name FROM information_schema.triggers WHERE trigger_schema = '${safeDbName}' ORDER BY EVENT_OBJECT_TABLE, TRIGGER_NAME`;
+          case 'postgres':
+          case 'kingbase':
+          case 'highgo':
+          case 'vastbase':
+              return `SELECT DISTINCT event_object_schema AS schema_name, event_object_table AS table_name, trigger_name FROM information_schema.triggers WHERE trigger_schema NOT IN ('pg_catalog', 'information_schema') AND trigger_schema NOT LIKE 'pg_%' ORDER BY event_object_schema, event_object_table, trigger_name`;
+          case 'sqlserver': {
+              const safeDb = quoteSqlServerIdentifier(dbName || 'master');
+              return `SELECT s.name AS schema_name, t.name AS table_name, tr.name AS trigger_name FROM ${safeDb}.sys.triggers tr JOIN ${safeDb}.sys.tables t ON tr.parent_id = t.object_id JOIN ${safeDb}.sys.schemas s ON t.schema_id = s.schema_id WHERE tr.parent_class = 1 ORDER BY s.name, t.name, tr.name`;
+          }
+          case 'oracle':
+          case 'dm': {
+              if (!safeDbName) {
+                  return `SELECT TRIGGER_NAME AS trigger_name, TABLE_NAME AS table_name FROM USER_TRIGGERS ORDER BY TABLE_NAME, TRIGGER_NAME`;
+              }
+              return `SELECT OWNER AS schema_name, TABLE_NAME AS table_name, TRIGGER_NAME AS trigger_name FROM ALL_TRIGGERS WHERE OWNER = '${safeDbName.toUpperCase()}' ORDER BY TABLE_NAME, TRIGGER_NAME`;
+          }
+          case 'sqlite':
+              return `SELECT name AS trigger_name, tbl_name AS table_name FROM sqlite_master WHERE type = 'trigger' ORDER BY tbl_name, name`;
+          default:
+              return '';
+      }
+  };
+
+  const queryMetadataRows = async (conn: any, dbName: string, query: string): Promise<Record<string, any>[]> => {
+      if (!query) return [];
+      try {
+          const config = buildRuntimeConfig(conn, dbName);
+          const result = await DBQuery(config as any, dbName, query);
+          if (!result.success || !Array.isArray(result.data)) return [];
+          return result.data as Record<string, any>[];
+      } catch {
+          return [];
+      }
+  };
+
+  const loadViews = async (conn: any, dbName: string): Promise<string[]> => {
+      const dialect = getMetadataDialect(conn as SavedConnection);
+      const query = buildViewsMetadataQuery(dialect, dbName);
+      const rows = await queryMetadataRows(conn, dbName, query);
+      const seen = new Set<string>();
+      const views: string[] = [];
+
+      rows.forEach((row) => {
+          const schemaName = getCaseInsensitiveValue(row, ['schema_name', 'schemaname', 'owner', 'table_schema']);
+          const viewName = getCaseInsensitiveValue(row, ['view_name', 'viewname', 'table_name', 'name']) || getFirstRowValue(row);
+          const fullName = buildQualifiedName(schemaName, viewName);
+          if (!fullName || seen.has(fullName)) return;
+          seen.add(fullName);
+          views.push(fullName);
+      });
+      return views;
+  };
+
+  const loadDatabaseTriggers = async (conn: any, dbName: string): Promise<Array<{ displayName: string; triggerName: string; tableName: string }>> => {
+      const dialect = getMetadataDialect(conn as SavedConnection);
+      const query = buildTriggersMetadataQuery(dialect, dbName);
+      const rows = await queryMetadataRows(conn, dbName, query);
+      const seen = new Set<string>();
+      const triggers: Array<{ displayName: string; triggerName: string; tableName: string }> = [];
+
+      rows.forEach((row) => {
+          const triggerName = getCaseInsensitiveValue(row, ['trigger_name', 'triggername', 'name']) || getFirstRowValue(row);
+          if (!triggerName) return;
+          const schemaName = getCaseInsensitiveValue(row, ['schema_name', 'schemaname', 'owner', 'event_object_schema', 'trigger_schema']);
+          const tableName = getCaseInsensitiveValue(row, ['table_name', 'event_object_table', 'tbl_name']);
+          const fullTableName = buildQualifiedName(schemaName, tableName);
+          const uniqueKey = `${triggerName}@@${fullTableName}`;
+          if (seen.has(uniqueKey)) return;
+          seen.add(uniqueKey);
+          const displayName = fullTableName ? `${triggerName} (${fullTableName})` : triggerName;
+          triggers.push({ displayName, triggerName, tableName: fullTableName });
+      });
+      return triggers;
+  };
+
 	  const loadDatabases = async (node: any) => {
 	      const conn = node.dataRef as SavedConnection;
 	      const loadKey = `dbs-${conn.id}`;
@@ -328,8 +484,56 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                   isLeaf: false, 
                 };
             });
-            
-            setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...tables]));
+
+            const [views, triggers] = await Promise.all([
+                loadViews(conn, conn.dbName),
+                loadDatabaseTriggers(conn, conn.dbName),
+            ]);
+
+            // Sort tables by display name (case-insensitive)
+            tables.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+
+            // Sort views by name (case-insensitive)
+            views.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+            // Sort triggers by display name (case-insensitive)
+            triggers.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
+
+            const viewNodes: TreeNode[] = views.map((viewName) => ({
+                title: getSidebarTableDisplayName(conn, viewName),
+                key: `${conn.id}-${conn.dbName}-view-${viewName}`,
+                icon: <EyeOutlined />,
+                type: 'view',
+                dataRef: { ...conn, viewName, tableName: viewName },
+                isLeaf: true,
+            }));
+
+            const triggerNodes: TreeNode[] = triggers.map((trigger) => ({
+                title: trigger.displayName,
+                key: `${conn.id}-${conn.dbName}-trigger-${trigger.triggerName}-${trigger.tableName}`,
+                icon: <FunctionOutlined />,
+                type: 'db-trigger',
+                dataRef: { ...conn, triggerName: trigger.triggerName, triggerTableName: trigger.tableName },
+                isLeaf: true,
+            }));
+
+            const buildObjectGroup = (groupKey: string, groupTitle: string, groupIcon: React.ReactNode, children: TreeNode[]): TreeNode => ({
+                title: `${groupTitle} (${children.length})`,
+                key: `${key}-${groupKey}`,
+                icon: groupIcon,
+                type: 'object-group',
+                isLeaf: children.length === 0,
+                children: children.length > 0 ? children : undefined,
+                dataRef: { ...conn, dbName: conn.dbName, groupKey }
+            });
+
+            const groupedNodes: TreeNode[] = [
+                buildObjectGroup('tables', '表', <TableOutlined />, tables),
+                buildObjectGroup('views', '视图', <EyeOutlined />, viewNodes),
+                buildObjectGroup('triggers', '触发器', <FunctionOutlined />, triggerNodes),
+            ];
+
+            setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...groupedNodes]));
           } else {
             setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
             message.error({ content: res.message, key: `db-${key}-tables` });
@@ -348,7 +552,6 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         await loadTables({ key, dataRef });
     } else if (type === 'table') {
         // Expand table to show object categories
-        const { tableName, dbName, id } = dataRef;
         const conn = dataRef; 
 
         const folders: TreeNode[] = [
@@ -437,6 +640,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           setActiveContext({ connectionId: dataRef.id, dbName: title });
       } else if (type === 'table') {
           setActiveContext({ connectionId: dataRef.id, dbName: dataRef.dbName });
+      } else if (type === 'view' || type === 'db-trigger') {
+          setActiveContext({ connectionId: dataRef.id, dbName: dataRef.dbName });
       } else if (type === 'saved-query') {
           setActiveContext({ connectionId: dataRef.connectionId, dbName: dataRef.dbName });
       } else if (type === 'redis-db') {
@@ -466,6 +671,17 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               tableName,
           });
           return;
+      } else if (node.type === 'view') {
+          const { viewName, dbName, id } = node.dataRef;
+          addTab({
+              id: node.key,
+              title: viewName,
+              type: 'table',
+              connectionId: id,
+              dbName,
+              tableName: viewName,
+          });
+          return;
       } else if (node.type === 'saved-query') {
           const q = node.dataRef;
           addTab({
@@ -485,6 +701,17 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               type: 'redis-keys',
               connectionId: id,
               redisDB: redisDB
+          });
+          return;
+      } else if (node.type === 'db-trigger') {
+          const { triggerName, dbName, id } = node.dataRef;
+          addTab({
+              id: `trigger-${node.key}`,
+              title: `触发器: ${triggerName}`,
+              type: 'trigger',
+              connectionId: id,
+              dbName,
+              triggerName
           });
           return;
       }
@@ -1358,6 +1585,30 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                  onClick: () => handleRunSQLFile(node)
              }
        ];
+    } else if (node.type === 'view') {
+        return [
+            {
+                key: 'open-view',
+                label: '浏览视图数据',
+                icon: <EyeOutlined />,
+                onClick: () => onDoubleClick(null, node)
+            },
+            {
+                key: 'new-query',
+                label: '新建查询',
+                icon: <ConsoleSqlOutlined />,
+                onClick: () => {
+                    addTab({
+                        id: `query-${Date.now()}`,
+                        title: `新建查询`,
+                        type: 'query',
+                        connectionId: node.dataRef.id,
+                        dbName: node.dataRef.dbName,
+                        query: ''
+                    });
+                }
+            }
+        ];
     } else if (node.type === 'table') {
         return [
             {
@@ -1443,8 +1694,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
     const displayTitle = String(node.title ?? '');
     let hoverTitle = displayTitle;
-    if (node.type === 'table') {
-        const rawTableName = String(node?.dataRef?.tableName || '').trim();
+    if (node.type === 'table' || node.type === 'view') {
+        const rawTableName = String(node?.dataRef?.tableName || node?.dataRef?.viewName || '').trim();
         const conn = node?.dataRef as SavedConnection | undefined;
         if (rawTableName && shouldHideSchemaPrefix(conn)) {
             const lastDotIndex = rawTableName.lastIndexOf('.');

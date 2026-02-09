@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useContext, useMemo, useRef } from 'react';
-import { Table, Tabs, Button, message, Input, Checkbox, Modal, AutoComplete, Tooltip, Select } from 'antd';
-import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Table, Tabs, Button, message, Input, Checkbox, Modal, AutoComplete, Tooltip, Select, Empty, Space } from 'antd';
+import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Resizable } from 'react-resizable';
+import Editor, { loader } from '@monaco-editor/react';
 import { TabData, ColumnDefinition, IndexDefinition, ForeignKeyDefinition, TriggerDefinition } from '../types';
 import { useStore } from '../store';
 import { DBGetColumns, DBGetIndexes, DBQuery, DBGetForeignKeys, DBGetTriggers, DBShowCreateTable } from '../../wailsjs/go/app/App';
@@ -162,12 +163,46 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [previewSql, setPreviewSql] = useState<string>('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [activeKey, setActiveKey] = useState(tab.initialTab || "columns");
+  const [selectedTrigger, setSelectedTrigger] = useState<TriggerDefinition | null>(null);
+  const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false);
+  const [isTriggerEditModalOpen, setIsTriggerEditModalOpen] = useState(false);
+  const [triggerEditMode, setTriggerEditMode] = useState<'create' | 'edit'>('create');
+  const [triggerEditSql, setTriggerEditSql] = useState<string>('');
+  const [triggerExecuting, setTriggerExecuting] = useState(false);
   
   const connections = useStore(state => state.connections);
+  const theme = useStore(state => state.theme);
+  const darkMode = theme === 'dark';
   const readOnly = !!tab.readOnly;
 
   const [tableHeight, setTableHeight] = useState(500);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // 初始化透明 Monaco Editor 主题
+  useEffect(() => {
+    loader.init().then(monaco => {
+      monaco.editor.defineTheme('transparent-dark', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#00000000',
+          'editor.lineHighlightBackground': '#ffffff10',
+          'editorGutter.background': '#00000000',
+        }
+      });
+      monaco.editor.defineTheme('transparent-light', {
+        base: 'vs',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': '#00000000',
+          'editor.lineHighlightBackground': '#00000010',
+          'editorGutter.background': '#00000000',
+        }
+      });
+    });
+  }, []);
 
   useEffect(() => {
       if (!containerRef.current) return;
@@ -364,6 +399,215 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   useEffect(() => {
     fetchData();
   }, [tab]);
+
+  // --- Trigger Handlers ---
+
+  const getDbType = (): string => {
+    const conn = connections.find(c => c.id === tab.connectionId);
+    const type = String(conn?.config?.type || '').toLowerCase();
+    if (type === 'mariadb') return 'mysql';
+    if (type === 'dameng') return 'dm';
+    return type;
+  };
+
+  const generateTriggerTemplate = (): string => {
+    const dbType = getDbType();
+    const tblName = tab.tableName || 'table_name';
+
+    switch (dbType) {
+      case 'mysql':
+        return `CREATE TRIGGER trigger_name
+BEFORE INSERT ON \`${tblName}\`
+FOR EACH ROW
+BEGIN
+    -- 触发器逻辑
+END;`;
+      case 'postgres':
+      case 'kingbase':
+      case 'highgo':
+      case 'vastbase':
+        return `CREATE OR REPLACE FUNCTION trigger_function_name()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- 触发器逻辑
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_name
+BEFORE INSERT ON "${tblName}"
+FOR EACH ROW
+EXECUTE FUNCTION trigger_function_name();`;
+      case 'sqlserver':
+        return `CREATE TRIGGER trigger_name
+ON [${tblName}]
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    -- 触发器逻辑
+END;`;
+      case 'oracle':
+      case 'dm':
+        return `CREATE OR REPLACE TRIGGER trigger_name
+BEFORE INSERT ON "${tblName}"
+FOR EACH ROW
+BEGIN
+    -- 触发器逻辑
+    NULL;
+END;`;
+      case 'sqlite':
+        return `CREATE TRIGGER trigger_name
+AFTER INSERT ON "${tblName}"
+BEGIN
+    -- 触发器逻辑
+END;`;
+      default:
+        return `-- 请输入 CREATE TRIGGER 语句`;
+    }
+  };
+
+  const buildDropTriggerSql = (triggerName: string): string => {
+    const dbType = getDbType();
+    const tblName = tab.tableName || '';
+
+    switch (dbType) {
+      case 'mysql':
+        return `DROP TRIGGER IF EXISTS \`${triggerName}\``;
+      case 'postgres':
+      case 'kingbase':
+      case 'highgo':
+      case 'vastbase':
+        return `DROP TRIGGER IF EXISTS "${triggerName}" ON "${tblName}"`;
+      case 'sqlserver':
+        return `DROP TRIGGER IF EXISTS [${triggerName}]`;
+      case 'oracle':
+      case 'dm':
+        return `DROP TRIGGER "${triggerName}"`;
+      case 'sqlite':
+        return `DROP TRIGGER IF EXISTS "${triggerName}"`;
+      default:
+        return `DROP TRIGGER ${triggerName}`;
+    }
+  };
+
+  const handleCreateTrigger = () => {
+    setTriggerEditMode('create');
+    setTriggerEditSql(generateTriggerTemplate());
+    setIsTriggerEditModalOpen(true);
+  };
+
+  const handleEditTrigger = () => {
+    if (!selectedTrigger) return;
+    setTriggerEditMode('edit');
+    // 构建完整的 CREATE TRIGGER 语句
+    const dbType = getDbType();
+    const tblName = tab.tableName || '';
+    let createSql = '';
+
+    if (dbType === 'mysql') {
+      createSql = `CREATE TRIGGER \`${selectedTrigger.name}\`
+${selectedTrigger.timing} ${selectedTrigger.event} ON \`${tblName}\`
+FOR EACH ROW
+${selectedTrigger.statement}`;
+    } else {
+      createSql = selectedTrigger.statement || '-- 无法获取完整的触发器定义';
+    }
+
+    setTriggerEditSql(createSql);
+    setIsTriggerEditModalOpen(true);
+  };
+
+  const handleDeleteTrigger = () => {
+    if (!selectedTrigger) return;
+
+    Modal.confirm({
+      title: '确认删除触发器',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除触发器 "${selectedTrigger.name}" 吗？此操作不可撤销。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        const conn = connections.find(c => c.id === tab.connectionId);
+        if (!conn) {
+          message.error('未找到连接');
+          return;
+        }
+
+        const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+        };
+
+        const dropSql = buildDropTriggerSql(selectedTrigger.name);
+
+        try {
+          const res = await DBQuery(config as any, tab.dbName || '', dropSql);
+          if (res.success) {
+            message.success('触发器删除成功');
+            setSelectedTrigger(null);
+            fetchData(); // 刷新列表
+          } else {
+            message.error('删除失败: ' + res.message);
+          }
+        } catch (e: any) {
+          message.error('删除失败: ' + (e?.message || String(e)));
+        }
+      }
+    });
+  };
+
+  const handleExecuteTriggerSql = async () => {
+    const conn = connections.find(c => c.id === tab.connectionId);
+    if (!conn) {
+      message.error('未找到连接');
+      return;
+    }
+
+    const config = {
+      ...conn.config,
+      port: Number(conn.config.port),
+      password: conn.config.password || "",
+      database: conn.config.database || "",
+      useSSH: conn.config.useSSH || false,
+      ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+    };
+
+    setTriggerExecuting(true);
+
+    try {
+      // 如果是编辑模式，先删除旧触发器
+      if (triggerEditMode === 'edit' && selectedTrigger) {
+        const dropSql = buildDropTriggerSql(selectedTrigger.name);
+        const dropRes = await DBQuery(config as any, tab.dbName || '', dropSql);
+        if (!dropRes.success) {
+          message.error('删除旧触发器失败: ' + dropRes.message);
+          setTriggerExecuting(false);
+          return;
+        }
+      }
+
+      // 执行创建语句
+      const res = await DBQuery(config as any, tab.dbName || '', triggerEditSql);
+      if (res.success) {
+        message.success(triggerEditMode === 'create' ? '触发器创建成功' : '触发器修改成功');
+        setIsTriggerEditModalOpen(false);
+        setSelectedTrigger(null);
+        fetchData(); // 刷新列表
+      } else {
+        message.error('执行失败: ' + res.message);
+      }
+    } catch (e: any) {
+      message.error('执行失败: ' + (e?.message || String(e)));
+    } finally {
+      setTriggerExecuting(false);
+    }
+  };
 
   // --- Handlers ---
 
@@ -680,19 +924,61 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
                         key: 'triggers',
                         label: '触发器',
                         children: (
-                            <Table 
-                                dataSource={triggers} 
-                                columns={[
-                                    { title: '名', dataIndex: 'name', key: 'name' },
-                                    { title: '时间', dataIndex: 'timing', key: 'timing' },
-                                    { title: '事件', dataIndex: 'event', key: 'event' },
-                                    { title: '语句', dataIndex: 'statement', key: 'statement', ellipsis: true },
-                                ]}
-                                rowKey="name" 
-                                size="small" 
-                                pagination={false} 
-                                loading={loading}
-                            />
+                            <div>
+                                <div style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
+                                    <Button
+                                        size="small"
+                                        icon={<EyeOutlined />}
+                                        disabled={!selectedTrigger}
+                                        onClick={() => setIsTriggerModalOpen(true)}
+                                    >
+                                        查看语句
+                                    </Button>
+                                    <Button size="small" icon={<PlusOutlined />} onClick={handleCreateTrigger}>新增</Button>
+                                    <Button size="small" icon={<EditOutlined />} disabled={!selectedTrigger} onClick={handleEditTrigger}>修改</Button>
+                                    <Button size="small" icon={<DeleteOutlined />} danger disabled={!selectedTrigger} onClick={handleDeleteTrigger}>删除</Button>
+                                    <span style={{ marginLeft: 'auto', color: '#888', fontSize: 12, alignSelf: 'center' }}>
+                                        {selectedTrigger ? `已选择: ${selectedTrigger.name}` : '请点击选择触发器'}
+                                    </span>
+                                </div>
+                                <Table
+                                    dataSource={triggers}
+                                    columns={[
+                                        { title: '名称', dataIndex: 'name', key: 'name' },
+                                        { title: '时机', dataIndex: 'timing', key: 'timing', width: 100 },
+                                        { title: '事件', dataIndex: 'event', key: 'event', width: 100 },
+                                    ]}
+                                    rowKey="name"
+                                    size="small"
+                                    pagination={false}
+                                    loading={loading}
+                                    locale={{ emptyText: <Empty description="该表暂无触发器" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                                    rowSelection={{
+                                        type: 'radio',
+                                        selectedRowKeys: selectedTrigger ? [selectedTrigger.name] : [],
+                                        onChange: (_, selectedRows) => setSelectedTrigger(selectedRows[0] || null),
+                                        onSelect: (record, selected) => {
+                                            // 点击单选按钮时，如果已选中则取消
+                                            if (selectedTrigger?.name === record.name) {
+                                                setSelectedTrigger(null);
+                                            } else {
+                                                setSelectedTrigger(record);
+                                            }
+                                        },
+                                    }}
+                                    onRow={(record) => ({
+                                        onClick: () => {
+                                            // 点击已选中的行时取消选择
+                                            if (selectedTrigger?.name === record.name) {
+                                                setSelectedTrigger(null);
+                                            } else {
+                                                setSelectedTrigger(record);
+                                            }
+                                        },
+                                        style: { cursor: 'pointer' }
+                                    })}
+                                />
+                            </div>
                         )
                     }
                 ] : []),
@@ -701,8 +987,22 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
                     label: 'DDL',
                     icon: <FileTextOutlined />,
                     children: (
-                        <div style={{ height: 'calc(100vh - 200px)', overflow: 'auto', padding: 10, background: '#f5f5f5', border: '1px solid #eee' }}>
-                            <pre>{ddl}</pre>
+                        <div style={{ height: 'calc(100vh - 200px)', border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', borderRadius: 4 }}>
+                            <Editor
+                                height="100%"
+                                language="sql"
+                                theme={darkMode ? 'transparent-dark' : 'transparent-light'}
+                                value={ddl}
+                                options={{
+                                    readOnly: true,
+                                    minimap: { enabled: false },
+                                    fontSize: 14,
+                                    lineNumbers: 'on',
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'on',
+                                    automaticLayout: true,
+                                }}
+                            />
                         </div>
                     )
                 }] : [])
@@ -724,6 +1024,75 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
                 </pre>
             </div>
             <p style={{ marginTop: 10, color: '#faad14' }}>请仔细检查 SQL，执行后不可撤销。</p>
+        </Modal>
+
+        <Modal
+            title={selectedTrigger ? `触发器: ${selectedTrigger.name}` : '触发器详情'}
+            open={isTriggerModalOpen}
+            onCancel={() => setIsTriggerModalOpen(false)}
+            footer={null}
+            width={700}
+        >
+            {selectedTrigger && (
+                <div>
+                    <div style={{ marginBottom: 12, display: 'flex', gap: 24 }}>
+                        <span><strong>时机:</strong> {selectedTrigger.timing}</span>
+                        <span><strong>事件:</strong> {selectedTrigger.event}</span>
+                    </div>
+                    <div style={{ border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', borderRadius: 4 }}>
+                        <Editor
+                            height="350px"
+                            language="sql"
+                            theme={darkMode ? 'transparent-dark' : 'transparent-light'}
+                            value={selectedTrigger.statement}
+                            options={{
+                                readOnly: true,
+                                minimap: { enabled: false },
+                                fontSize: 14,
+                                lineNumbers: 'on',
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                automaticLayout: true,
+                            }}
+                        />
+                    </div>
+                </div>
+            )}
+        </Modal>
+
+        <Modal
+            title={triggerEditMode === 'create' ? '新增触发器' : '修改触发器'}
+            open={isTriggerEditModalOpen}
+            onCancel={() => setIsTriggerEditModalOpen(false)}
+            width={800}
+            okText={triggerEditMode === 'create' ? '创建' : '保存'}
+            cancelText="取消"
+            confirmLoading={triggerExecuting}
+            onOk={handleExecuteTriggerSql}
+        >
+            <div style={{ marginBottom: 8, color: '#888', fontSize: 12 }}>
+                {triggerEditMode === 'edit' && selectedTrigger && (
+                    <span>修改触发器时会先删除原触发器，再创建新触发器。</span>
+                )}
+            </div>
+            <div style={{ border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', borderRadius: 4 }}>
+                <Editor
+                    height="350px"
+                    language="sql"
+                    theme={darkMode ? 'vs-dark' : 'light'}
+                    value={triggerEditSql}
+                    onChange={(val) => setTriggerEditSql(val || '')}
+                    options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        lineNumbers: 'on',
+                        scrollBeyondLastLine: false,
+                        wordWrap: 'on',
+                        automaticLayout: true,
+                    }}
+                />
+            </div>
+            <p style={{ marginTop: 10, color: '#faad14' }}>请仔细检查 SQL 语句，执行后不可撤销。</p>
         </Modal>
     </div>
   );

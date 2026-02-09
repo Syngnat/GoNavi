@@ -62,7 +62,7 @@ export interface TriggerDefinition {
 export interface TabData {
   id: string;
   title: string;
-  type: 'query' | 'table' | 'design' | 'redis-keys' | 'redis-command';
+  type: 'query' | 'table' | 'design' | 'redis-keys' | 'redis-command' | 'trigger';
   connectionId: string;
   dbName?: string;
   tableName?: string;
@@ -70,6 +70,7 @@ export interface TabData {
   initialTab?: string;
   readOnly?: boolean;
   redisDB?: number; // Redis database index for redis tabs
+  triggerName?: string; // Trigger name for trigger tabs
 }
 
 export interface DatabaseNode {
