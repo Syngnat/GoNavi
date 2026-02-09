@@ -11,6 +11,51 @@ import 'react-resizable/css/styles.css';
 import { buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent } from '../utils/sql';
 import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform } from '../utils/appearance';
 
+// --- Error Boundary ---
+interface DataGridErrorBoundaryState {
+    hasError: boolean;
+    error: Error | null;
+}
+
+class DataGridErrorBoundary extends React.Component<
+    { children: React.ReactNode },
+    DataGridErrorBoundaryState
+> {
+    constructor(props: { children: React.ReactNode }) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error: Error): DataGridErrorBoundaryState {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+        console.error('DataGrid render error:', error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div style={{ padding: 16, color: '#ff4d4f' }}>
+                    <h4>渲染错误</h4>
+                    <p>数据表格渲染时发生错误，可能是数据格式问题。</p>
+                    <pre style={{ fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                        {this.state.error?.message}
+                    </pre>
+                    <Button
+                        size="small"
+                        onClick={() => this.setState({ hasError: false, error: null })}
+                    >
+                        重试
+                    </Button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
 // 内部行标识字段：避免与真实业务字段（如 `key` 列）冲突。
 export const GONAVI_ROW_KEY = '__gonavi_row_key__';
 
@@ -23,12 +68,23 @@ const normalizeDateTimeString = (val: string) => {
 
 // --- Helper: Format Value ---
 const formatCellValue = (val: any) => {
-    if (val === null) return <span style={{ color: '#ccc' }}>NULL</span>;
-    if (typeof val === 'object') return JSON.stringify(val);
-    if (typeof val === 'string') {
-        return normalizeDateTimeString(val);
+    try {
+        if (val === null) return <span style={{ color: '#ccc' }}>NULL</span>;
+        if (typeof val === 'object') {
+            try {
+                return JSON.stringify(val);
+            } catch {
+                return '[Object]';
+            }
+        }
+        if (typeof val === 'string') {
+            return normalizeDateTimeString(val);
+        }
+        return String(val);
+    } catch (e) {
+        console.error('formatCellValue error:', e);
+        return '[Error]';
     }
-    return String(val);
 };
 
 const toEditableText = (val: any): string => {
@@ -2161,4 +2217,13 @@ const DataGrid: React.FC<DataGridProps> = ({
   );
 };
 
-export default React.memo(DataGrid);
+// 使用 ErrorBoundary 包裹 DataGrid，防止数据渲染错误导致应用崩溃
+const MemoizedDataGrid = React.memo(DataGrid);
+
+const DataGridWithErrorBoundary: React.FC<DataGridProps> = (props) => (
+    <DataGridErrorBoundary>
+        <MemoizedDataGrid {...props} />
+    </DataGridErrorBoundary>
+);
+
+export default DataGridWithErrorBoundary;
