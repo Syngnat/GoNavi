@@ -10,6 +10,10 @@ const { Search } = Input;
 
 const KEY_GROUP_DELIMITER = ':';
 const EMPTY_SEGMENT_LABEL = '(empty)';
+const REDIS_TREE_KEY_TYPE_WIDTH = 92;
+const REDIS_TREE_KEY_TYPE_WIDTH_NARROW = 84;
+const REDIS_TREE_KEY_TTL_WIDTH = 92;
+const REDIS_TREE_HIDE_TTL_THRESHOLD = 460;
 
 interface RedisViewerProps {
     connectionId: string;
@@ -263,7 +267,8 @@ const countGroupLeafNodes = (group: RedisKeyTreeGroup): number => {
 const buildRedisKeyTree = (
     keys: RedisKeyInfo[],
     formatTTL: (ttl: number) => string,
-    getTypeColor: (type: string) => string
+    getTypeColor: (type: string) => string,
+    showTTL: boolean
 ): RedisKeyTreeResult => {
     const root = createTreeGroup('__root__', '__root__');
 
@@ -330,48 +335,66 @@ const buildRedisKeyTree = (
                 title: (
                     <div
                         style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'minmax(0, 1fr) 92px 92px',
-                            columnGap: 8,
+                            display: 'flex',
                             alignItems: 'center',
+                            gap: 8,
                             minWidth: 0,
                             width: '100%',
+                            overflow: 'hidden',
                         }}
                     >
-                        <Space size={6} style={{ minWidth: 0 }}>
-                            <KeyOutlined style={{ color: '#1677ff' }} />
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                minWidth: 0,
+                                flex: 1,
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <KeyOutlined style={{ color: '#1677ff', flexShrink: 0 }} />
                             <Tooltip title={leaf.keyInfo.key}>
                                 <span
                                     style={{
-                                        maxWidth: '100%',
+                                        minWidth: 0,
                                         overflow: 'hidden',
                                         textOverflow: 'ellipsis',
                                         whiteSpace: 'nowrap',
-                                        display: 'inline-block',
-                                        verticalAlign: 'bottom',
+                                        display: 'block',
                                     }}
                                 >
                                     {leaf.label}
                                 </span>
                             </Tooltip>
-                        </Space>
+                        </div>
                         <Tag
                             color={getTypeColor(leaf.keyInfo.type)}
-                            style={{ marginInlineEnd: 0, width: '100%', textAlign: 'center' }}
+                            style={{
+                                marginInlineEnd: 0,
+                                width: showTTL ? REDIS_TREE_KEY_TYPE_WIDTH : REDIS_TREE_KEY_TYPE_WIDTH_NARROW,
+                                textAlign: 'center',
+                                flexShrink: 0
+                            }}
                         >
                             {leaf.keyInfo.type}
                         </Tag>
-                        <span
-                            style={{
-                                width: '100%',
-                                fontSize: 12,
-                                color: '#999',
-                                textAlign: 'left',
-                                whiteSpace: 'nowrap',
-                            }}
-                        >
-                            {formatTTL(leaf.keyInfo.ttl)}
-                        </span>
+                        {showTTL && (
+                            <span
+                                style={{
+                                    width: REDIS_TREE_KEY_TTL_WIDTH,
+                                    fontSize: 12,
+                                    color: '#999',
+                                    textAlign: 'left',
+                                    whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                }}
+                            >
+                                {formatTTL(leaf.keyInfo.ttl)}
+                            </span>
+                        )}
                     </div>
                 ),
             };
@@ -424,6 +447,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
     // 面板宽度状态和 ref - 默认占据 50% 宽度
     const [leftPanelWidth, setLeftPanelWidth] = useState<number | string>('50%');
     const leftPanelRef = useRef<HTMLDivElement>(null);
+    const [showTreeKeyTTL, setShowTreeKeyTTL] = useState(true);
     const [expandedGroupKeys, setExpandedGroupKeys] = useState<string[]>([]);
 
     const getConfig = useCallback(() => {
@@ -614,9 +638,36 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
         return `${Math.floor(ttl / 86400)}天${Math.floor((ttl % 86400) / 3600)}时`;
     };
 
+    useEffect(() => {
+        const target = leftPanelRef.current;
+        if (!target) return;
+
+        const updateTTLVisibility = (width: number) => {
+            const nextShowTTL = width > REDIS_TREE_HIDE_TTL_THRESHOLD;
+            setShowTreeKeyTTL((prev) => (prev === nextShowTTL ? prev : nextShowTTL));
+        };
+
+        updateTTLVisibility(Math.round(target.getBoundingClientRect().width));
+
+        if (typeof ResizeObserver !== 'undefined') {
+            const observer = new ResizeObserver((entries) => {
+                const width = Math.round(entries[0]?.contentRect.width || target.getBoundingClientRect().width);
+                updateTTLVisibility(width);
+            });
+            observer.observe(target);
+            return () => observer.disconnect();
+        }
+
+        const handleWindowResize = () => {
+            updateTTLVisibility(Math.round(target.getBoundingClientRect().width));
+        };
+        window.addEventListener('resize', handleWindowResize);
+        return () => window.removeEventListener('resize', handleWindowResize);
+    }, []);
+
     const keyTree = useMemo(() => {
-        return buildRedisKeyTree(keys, formatTTL, getTypeColor);
-    }, [keys]);
+        return buildRedisKeyTree(keys, formatTTL, getTypeColor, showTreeKeyTTL);
+    }, [keys, showTreeKeyTTL]);
 
     const selectedTreeNodeKeys = useMemo(() => {
         if (!selectedKey) {
