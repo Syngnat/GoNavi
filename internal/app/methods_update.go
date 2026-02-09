@@ -857,7 +857,12 @@ func detectMacAppPath(exePath string) string {
 	parts := strings.Split(exePath, string(filepath.Separator))
 	for i := len(parts) - 1; i >= 0; i-- {
 		if strings.HasSuffix(parts[i], ".app") {
-			return filepath.Join(parts[:i+1]...)
+			appPath := filepath.Join(parts[:i+1]...)
+			// 确保返回绝对路径
+			if !filepath.IsAbs(appPath) {
+				appPath = string(filepath.Separator) + appPath
+			}
+			return appPath
 		}
 	}
 	return ""
