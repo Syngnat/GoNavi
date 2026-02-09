@@ -8,9 +8,29 @@ import TableDesigner from './TableDesigner';
 import RedisViewer from './RedisViewer';
 import RedisCommandEditor from './RedisCommandEditor';
 import TriggerViewer from './TriggerViewer';
+import type { TabData } from '../types';
+
+const detectConnectionEnvLabel = (connectionName: string): string | null => {
+  const tokens = connectionName.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (tokens.includes('prod') || tokens.includes('production')) return 'PROD';
+  if (tokens.includes('uat')) return 'UAT';
+  if (tokens.includes('dev') || tokens.includes('development')) return 'DEV';
+  if (tokens.includes('sit')) return 'SIT';
+  if (tokens.includes('stg') || tokens.includes('stage') || tokens.includes('staging') || tokens.includes('pre')) return 'STG';
+  if (tokens.includes('test') || tokens.includes('qa')) return 'TEST';
+  return null;
+};
+
+const buildTabDisplayTitle = (tab: TabData, connectionName: string | undefined): string => {
+  if (tab.type !== 'table' && tab.type !== 'design') return tab.title;
+  if (!connectionName) return tab.title;
+  const prefix = detectConnectionEnvLabel(connectionName) || connectionName;
+  return `[${prefix}] ${tab.title}`;
+};
 
 const TabManager: React.FC = () => {
   const tabs = useStore(state => state.tabs);
+  const connections = useStore(state => state.connections);
   const activeTabId = useStore(state => state.activeTabId);
   const setActiveTab = useStore(state => state.setActiveTab);
   const closeTab = useStore(state => state.closeTab);
@@ -30,6 +50,8 @@ const TabManager: React.FC = () => {
   };
 
   const items = useMemo(() => tabs.map((tab, index) => {
+    const connectionName = connections.find((conn) => conn.id === tab.connectionId)?.name;
+    const displayTitle = buildTabDisplayTitle(tab, connectionName);
     let content;
     if (tab.type === 'query') {
       content = <QueryEditor tab={tab} />;
@@ -76,13 +98,13 @@ const TabManager: React.FC = () => {
     return {
       label: (
         <Dropdown menu={{ items: menuItems }} trigger={['contextMenu']}>
-          <span onContextMenu={(e) => e.preventDefault()}>{tab.title}</span>
+          <span onContextMenu={(e) => e.preventDefault()}>{displayTitle}</span>
         </Dropdown>
       ),
       key: tab.id,
       children: content,
     };
-  }), [tabs, closeOtherTabs, closeTabsToLeft, closeTabsToRight, closeAllTabs]);
+  }), [tabs, connections, closeOtherTabs, closeTabsToLeft, closeTabsToRight, closeAllTabs]);
 
   return (
     <>

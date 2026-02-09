@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal } from 'antd';
+import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal, Checkbox } from 'antd';
 import type { SortOrder } from 'antd/es/table/interface';
 import { ReloadOutlined, ImportOutlined, ExportOutlined, DownOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, UndoOutlined, FilterOutlined, CloseOutlined, ConsoleSqlOutlined, FileTextOutlined, CopyOutlined, ClearOutlined, EditOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
@@ -8,7 +8,7 @@ import { ImportData, ExportTable, ExportData, ExportQuery, ApplyChanges } from '
 import { useStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
-import { buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent } from '../utils/sql';
+import { buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent, type FilterCondition } from '../utils/sql';
 import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform } from '../utils/appearance';
 
 // --- Error Boundary ---
@@ -58,6 +58,19 @@ class DataGridErrorBoundary extends React.Component<
 
 // 内部行标识字段：避免与真实业务字段（如 `key` 列）冲突。
 export const GONAVI_ROW_KEY = '__gonavi_row_key__';
+
+// Cell key helpers for batch selection/fill.
+// Use a control character separator to avoid collisions with rowKey/columnName contents (e.g. `new-123`).
+const CELL_KEY_SEP = '\u0001';
+const makeCellKey = (rowKey: string, colName: string) => `${rowKey}${CELL_KEY_SEP}${colName}`;
+const splitCellKey = (cellKey: string): { rowKey: string; colName: string } | null => {
+    const sepIndex = cellKey.indexOf(CELL_KEY_SEP);
+    if (sepIndex === -1) return null;
+    return {
+        rowKey: cellKey.slice(0, sepIndex),
+        colName: cellKey.slice(sepIndex + CELL_KEY_SEP.length),
+    };
+};
 
 // Normalize RFC3339-like datetime strings to `YYYY-MM-DD HH:mm:ss` for display/editing.
 // Also handle invalid datetime values like '0000-00-00 00:00:00'
@@ -109,47 +122,15 @@ const toFormText = (val: any): string => {
     return toEditableText(val);
 };
 
-const INLINE_EDIT_MAX_CHARS = 2000;
-
-/**
- * 智能自增算法：
- * - 纯数字：+1
- * - 字符串末尾数字：末尾数字 +1（保持前导零位数）
- * - 无数字：原值不变
- */
-const smartIncrement = (value: any, step: number = 1): any => {
-    if (value === null || value === undefined) return value;
-
-    // 纯数字类型
-    if (typeof value === 'number') {
-        return value + step;
-    }
-
-    const str = String(value);
-
-    // 纯数字字符串
-    if (/^-?\d+(\.\d+)?$/.test(str)) {
-        const num = parseFloat(str);
-        if (Number.isInteger(num)) {
-            return String(num + step);
-        }
-        return String((num + step).toFixed((str.split('.')[1] || '').length));
-    }
-
-    // 字符串末尾数字模式（如 item_1, user001）
-    const match = str.match(/^(.*?)(\d+)$/);
-    if (match) {
-        const prefix = match[1];
-        const numStr = match[2];
-        const num = parseInt(numStr, 10) + step;
-        // 保持前导零位数
-        const newNumStr = String(num).padStart(numStr.length, '0');
-        return prefix + newNumStr;
-    }
-
-    // 无法自增，返回原值
-    return value;
+// 用于变更比较：NULL 与 undefined 视为同类空值；与空字符串严格区分。
+const isCellValueEqualForDiff = (left: any, right: any): boolean => {
+    const leftNullish = left === null || left === undefined;
+    const rightNullish = right === null || right === undefined;
+    if (leftNullish || rightNullish) return leftNullish && rightNullish;
+    return toFormText(left) === toFormText(right);
 };
+
+const INLINE_EDIT_MAX_CHARS = 2000;
 
 const shouldOpenModalEditor = (val: any): boolean => {
     if (val === null || val === undefined) return false;
@@ -232,7 +213,6 @@ const EditableContext = React.createContext<any>(null);
 const CellContextMenuContext = React.createContext<{
     showMenu: (e: React.MouseEvent, record: Item, dataIndex: string, title: React.ReactNode) => void;
     handleBatchFillToSelected: (record: Item, dataIndex: string) => void;
-    handleDragFillStart: (record: Item, dataIndex: string, cellElement: HTMLElement) => void;
 } | null>(null);
 const DataContext = React.createContext<{
     selectedRowKeysRef: React.MutableRefObject<React.Key[]>;
@@ -271,9 +251,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   ...restProps
 }) => {
   const [editing, setEditing] = useState(false);
-  const [isHovered, setIsHovered] = useState(false);
   const inputRef = useRef<any>(null);
-  const cellRef = useRef<HTMLTableCellElement>(null);
   const form = useContext(EditableContext);
   const cellContextMenuContext = useContext(CellContextMenuContext);
 
@@ -297,11 +275,9 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
       const fieldName = getCellFieldName(record, dataIndex);
       await form.validateFields([fieldName]);
       const nextValue = form.getFieldValue(fieldName);
-      const prevText = toFormText(record?.[dataIndex]);
-      const nextText = toFormText(nextValue);
       toggleEdit();
       // 仅当值发生变化时才标记为修改，避免“双击-失焦”导致整行进入 modified 状态（蓝色高亮不清除）。
-      if (nextText !== prevText) {
+      if (!isCellValueEqualForDiff(record?.[dataIndex], nextValue)) {
         handleSave({ ...record, [dataIndex]: nextValue });
       }
       // 保存后移除焦点
@@ -354,35 +330,8 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
         className="editable-cell-value-wrap"
         style={{ paddingRight: 24, minHeight: 20, position: 'relative' }}
         onContextMenu={handleContextMenu}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
       >
         {children}
-        {/* 填充柄 - 仅在悬停时显示 */}
-        {isHovered && cellContextMenuContext && (
-          <div
-            className="fill-handle"
-            style={{
-              position: 'absolute',
-              right: 2,
-              bottom: 2,
-              width: 8,
-              height: 8,
-              background: '#1890ff',
-              cursor: 'crosshair',
-              borderRadius: 1,
-              zIndex: 10,
-            }}
-            title="拖拽向下填充"
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (cellRef.current && cellContextMenuContext) {
-                cellContextMenuContext.handleDragFillStart(record, dataIndex, cellRef.current);
-              }
-            }}
-          />
-        )}
       </div>
     );
   }
@@ -402,7 +351,8 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   return (
       <td
           {...restProps}
-          ref={cellRef}
+          data-row-key={record ? String(record?.[GONAVI_ROW_KEY]) : undefined}
+          data-col-name={dataIndex || undefined}
           onDoubleClick={editable ? handleDoubleClick : restProps?.onDoubleClick}
       >
           {childNode}
@@ -480,8 +430,16 @@ interface DataGridProps {
     // Filtering
     showFilter?: boolean;
     onToggleFilter?: () => void;
-    onApplyFilter?: (conditions: any[]) => void;
+    onApplyFilter?: (conditions: GridFilterCondition[]) => void;
 }
+
+type GridFilterCondition = FilterCondition & {
+    id: number;
+    column: string;
+    op: string;
+    value: string;
+    value2?: string;
+};
 
 const DataGrid: React.FC<DataGridProps> = ({ 
     data, columnNames, loading, tableName, dbName, connectionId, pkColumns = [], readOnly = false,
@@ -527,7 +485,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const cellEditorApplyRef = useRef<((val: string) => void) | null>(null);
   const [rowEditorOpen, setRowEditorOpen] = useState(false);
   const [rowEditorRowKey, setRowEditorRowKey] = useState<string>('');
-  const rowEditorBaseRef = useRef<Record<string, string>>({});
+  const rowEditorBaseRawRef = useRef<Record<string, any>>({});
   const rowEditorDisplayRef = useRef<Record<string, string>>({});
   const rowEditorNullColsRef = useRef<Set<string>>(new Set());
   const [rowEditorForm] = Form.useForm();
@@ -552,33 +510,20 @@ const DataGrid: React.FC<DataGridProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const pendingScrollToBottomRef = useRef(false);
 
-  // 拖拽填充状态 - 只保留必要的 React 状态
-  const [dragFillActive, setDragFillActive] = useState(false);
-  const dragFillGhostRef = useRef<HTMLDivElement>(null);
-  const dragFillRafRef = useRef<number | null>(null);
-  // 使用 ref 存储拖拽数据，避免状态更新导致重渲染
-  const dragFillDataRef = useRef<{
-    startRecord: Item | null;
-    dataIndex: string;
-    startRowIndex: number;
-    currentRowIndex: number;
-    startCellRect: DOMRect | null;
-    colIndex: number;
-    // 缓存 DOM 查询结果
-    cachedRows: HTMLElement[];
-    cachedRowKeys: string[];
-    cachedStartEl: HTMLElement | null;
-  }>({
-    startRecord: null,
-    dataIndex: '',
-    startRowIndex: -1,
-    currentRowIndex: -1,
-    startCellRect: null,
-    colIndex: -1,
-    cachedRows: [],
-    cachedRowKeys: [],
-    cachedStartEl: null,
-  });
+  // 批量编辑模式状态
+  const [cellEditMode, setCellEditMode] = useState(false);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [batchEditModalOpen, setBatchEditModalOpen] = useState(false);
+  const [batchEditValue, setBatchEditValue] = useState('');
+  const [batchEditSetNull, setBatchEditSetNull] = useState(false);
+
+  // 使用 ref 来优化拖拽性能，完全避免状态更新
+  const cellSelectionRafRef = useRef<number | null>(null);
+  const cellSelectionScrollRafRef = useRef<number | null>(null);
+  const isDraggingRef = useRef(false);
+  const currentSelectionRef = useRef<Set<string>>(new Set());
+  const selectionStartRef = useRef<{ rowKey: string; colName: string; rowIndex: number; colIndex: number } | null>(null);
+  const rowIndexMapRef = useRef<Map<string, number>>(new Map());
 
   const scrollTableBodyToBottom = useCallback(() => {
       const root = containerRef.current;
@@ -704,7 +649,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const [deletedRowKeys, setDeletedRowKeys] = useState<Set<string>>(new Set());
 
   // Filter State
-  const [filterConditions, setFilterConditions] = useState<{ id: number, column: string, op: string, value: string, value2?: string }[]>([]);
+  const [filterConditions, setFilterConditions] = useState<GridFilterCondition[]>([]);
   const [nextFilterId, setNextFilterId] = useState(1);
 
   const selectedRowKeysRef = useRef(selectedRowKeys);
@@ -730,7 +675,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       setSelectedRowKeys([]);
       setRowEditorOpen(false);
       setRowEditorRowKey('');
-      rowEditorBaseRef.current = {};
+      rowEditorBaseRawRef.current = {};
       rowEditorDisplayRef.current = {};
       rowEditorNullColsRef.current = new Set();
       rowEditorForm.resetFields();
@@ -739,6 +684,259 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [tableName, dbName, connectionId]); // Reset on context change
 
   const rowKeyStr = useCallback((k: React.Key) => String(k), []);
+
+  const columnIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    columnNames.forEach((name, idx) => map.set(name, idx));
+    return map;
+  }, [columnNames]);
+
+  // 直接操作 DOM 更新选中效果，避免 React 重渲染
+  const updateCellSelection = useCallback((newSelection: Set<string>) => {
+    const tableBody = containerRef.current?.querySelector('.ant-table-body');
+    if (!tableBody) return;
+
+    // 只同步可见单元格（兼容 virtual 渲染 + 极大选区）
+    const visibleCells = tableBody.querySelectorAll('td[data-row-key][data-col-name]');
+    visibleCells.forEach((cell) => {
+      const el = cell as HTMLElement;
+      const rowKey = el.getAttribute('data-row-key');
+      const colName = el.getAttribute('data-col-name');
+      if (!rowKey || !colName) return;
+      const key = makeCellKey(rowKey, colName);
+      if (newSelection.has(key)) {
+        if (el.getAttribute('data-cell-selected') !== 'true') el.setAttribute('data-cell-selected', 'true');
+      } else {
+        if (el.hasAttribute('data-cell-selected')) el.removeAttribute('data-cell-selected');
+      }
+    });
+  }, []);
+
+  // 批量填充选中的单元格
+  const handleBatchFillCells = useCallback(() => {
+    const cellsToFill = currentSelectionRef.current;
+    if (cellsToFill.size === 0) {
+      message.info('请先选择要填充的单元格');
+      return;
+    }
+
+    const fillValue = batchEditSetNull ? null : batchEditValue;
+
+    const addedRowMap = new Map<string, any>();
+    addedRows.forEach((r) => {
+      const k = r?.[GONAVI_ROW_KEY];
+      if (k === undefined) return;
+      addedRowMap.set(rowKeyStr(k), r);
+    });
+
+    const baseRowMap = new Map<string, any>();
+    displayDataRef.current.forEach((r) => {
+      const k = r?.[GONAVI_ROW_KEY];
+      if (k === undefined) return;
+      baseRowMap.set(rowKeyStr(k), r);
+    });
+
+    const patchesByRow = new Map<string, Record<string, any>>();
+    let updatedCount = 0;
+
+    cellsToFill.forEach((cellKey) => {
+      const parts = splitCellKey(cellKey);
+      if (!parts) return;
+      const { rowKey, colName } = parts;
+
+      const existing = modifiedRows[rowKey];
+      const baseRow = baseRowMap.get(rowKey);
+      let currentVal: any = undefined;
+
+      const addedRow = addedRowMap.get(rowKey);
+      if (addedRow) {
+        currentVal = addedRow?.[colName];
+      } else if (existing && Object.prototype.hasOwnProperty.call(existing as any, GONAVI_ROW_KEY)) {
+        currentVal = (existing as any)?.[colName];
+      } else if (existing && Object.prototype.hasOwnProperty.call(existing as any, colName)) {
+        currentVal = (existing as any)?.[colName];
+      } else {
+        currentVal = baseRow?.[colName];
+      }
+
+      const isSame = isCellValueEqualForDiff(currentVal, fillValue);
+      if (isSame) return;
+
+      const patch = patchesByRow.get(rowKey) || {};
+      patch[colName] = fillValue;
+      patchesByRow.set(rowKey, patch);
+      updatedCount++;
+    });
+
+    if (updatedCount === 0) {
+      message.info('选中的单元格无需更新');
+      return;
+    }
+
+    // 仅做一次状态提交，避免大量 setState 循环
+    setAddedRows(prev => prev.map(r => {
+      const k = r?.[GONAVI_ROW_KEY];
+      if (k === undefined) return r;
+      const patch = patchesByRow.get(rowKeyStr(k));
+      if (!patch) return r;
+      return { ...r, ...patch };
+    }));
+
+    setModifiedRows(prev => {
+      let next: Record<string, any> | null = null;
+
+      patchesByRow.forEach((patch, keyStr) => {
+        if (addedRowMap.has(keyStr)) return;
+
+        const existing = prev[keyStr];
+        const merged = existing ? { ...(existing as any), ...patch } : patch;
+        if (!next) next = { ...prev };
+        next[keyStr] = merged;
+      });
+
+      return next || prev;
+    });
+
+    message.success(`已填充 ${updatedCount} 个单元格`);
+    setBatchEditModalOpen(false);
+
+    // 清除选中状态
+    setSelectedCells(new Set());
+    currentSelectionRef.current = new Set();
+    selectionStartRef.current = null;
+    isDraggingRef.current = false;
+    updateCellSelection(new Set());
+  }, [batchEditValue, batchEditSetNull, addedRows, modifiedRows, rowKeyStr, updateCellSelection]);
+
+  // 事件委托：在容器级别处理批量编辑模式的鼠标事件
+  useEffect(() => {
+    if (!cellEditMode) return;
+
+    const container = containerRef.current;
+    if (!container) return;
+
+    const getCellInfo = (target: HTMLElement): { rowKey: string; colName: string } | null => {
+      const td = target.closest('td[data-row-key][data-col-name]') as HTMLElement;
+      if (!td) return null;
+      const rowKey = td.getAttribute('data-row-key');
+      const colName = td.getAttribute('data-col-name');
+      if (!rowKey || !colName) return null;
+      return { rowKey, colName };
+    };
+
+    const onMouseDown = (e: MouseEvent) => {
+      const cellInfo = getCellInfo(e.target as HTMLElement);
+      if (!cellInfo) return;
+
+      e.preventDefault();
+      isDraggingRef.current = true;
+      const currentData = displayDataRef.current;
+      const nextRowIndexMap = new Map<string, number>();
+      currentData.forEach((r, idx) => {
+        const k = r?.[GONAVI_ROW_KEY];
+        if (k === undefined) return;
+        nextRowIndexMap.set(String(k), idx);
+      });
+      rowIndexMapRef.current = nextRowIndexMap;
+
+      const startRowIndex = nextRowIndexMap.get(cellInfo.rowKey) ?? -1;
+      const startColIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
+      selectionStartRef.current = { rowKey: cellInfo.rowKey, colName: cellInfo.colName, rowIndex: startRowIndex, colIndex: startColIndex };
+      currentSelectionRef.current = new Set([makeCellKey(cellInfo.rowKey, cellInfo.colName)]);
+      updateCellSelection(currentSelectionRef.current);
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current || !selectionStartRef.current) return;
+
+      const cellInfo = getCellInfo(e.target as HTMLElement);
+      if (!cellInfo) return;
+
+      // 使用 RAF 节流
+      if (cellSelectionRafRef.current !== null) {
+        cancelAnimationFrame(cellSelectionRafRef.current);
+      }
+
+      cellSelectionRafRef.current = requestAnimationFrame(() => {
+        cellSelectionRafRef.current = null;
+        const start = selectionStartRef.current;
+        if (!start) return;
+
+        const currentData = displayDataRef.current;
+        const rowIndexMap = rowIndexMapRef.current;
+        const startRowIndex = start.rowIndex;
+        const endRowIndex = rowIndexMap.get(cellInfo.rowKey) ?? -1;
+        if (startRowIndex === -1 || endRowIndex === -1) return;
+
+        const startColIndex = start.colIndex;
+        const endColIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
+        if (startColIndex === -1 || endColIndex === -1) return;
+
+        const minRowIndex = Math.min(startRowIndex, endRowIndex);
+        const maxRowIndex = Math.max(startRowIndex, endRowIndex);
+        const minColIndex = Math.min(startColIndex, endColIndex);
+        const maxColIndex = Math.max(startColIndex, endColIndex);
+
+        const newSelectedCells = new Set<string>();
+        for (let i = minRowIndex; i <= maxRowIndex; i++) {
+          const row = currentData[i];
+          const rKey = String(row?.[GONAVI_ROW_KEY]);
+          for (let j = minColIndex; j <= maxColIndex; j++) {
+            newSelectedCells.add(makeCellKey(rKey, columnNames[j]));
+          }
+        }
+
+        currentSelectionRef.current = newSelectedCells;
+        updateCellSelection(newSelectedCells);
+      });
+    };
+
+    const onMouseUp = () => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+
+      if (cellSelectionRafRef.current !== null) {
+        cancelAnimationFrame(cellSelectionRafRef.current);
+        cellSelectionRafRef.current = null;
+      }
+
+      if (currentSelectionRef.current.size > 0) {
+        setSelectedCells(new Set(currentSelectionRef.current));
+      }
+    };
+
+    const onScroll = () => {
+      if (currentSelectionRef.current.size === 0) return;
+      if (cellSelectionScrollRafRef.current !== null) {
+        cancelAnimationFrame(cellSelectionScrollRafRef.current);
+      }
+      cellSelectionScrollRafRef.current = requestAnimationFrame(() => {
+        cellSelectionScrollRafRef.current = null;
+        updateCellSelection(currentSelectionRef.current);
+      });
+    };
+
+    container.addEventListener('mousedown', onMouseDown);
+    container.addEventListener('mousemove', onMouseMove);
+    container.addEventListener('scroll', onScroll, true);
+    document.addEventListener('mouseup', onMouseUp);
+
+    return () => {
+      container.removeEventListener('mousedown', onMouseDown);
+      container.removeEventListener('mousemove', onMouseMove);
+      container.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('mouseup', onMouseUp);
+      if (cellSelectionRafRef.current !== null) {
+        cancelAnimationFrame(cellSelectionRafRef.current);
+        cellSelectionRafRef.current = null;
+      }
+      if (cellSelectionScrollRafRef.current !== null) {
+        cancelAnimationFrame(cellSelectionScrollRafRef.current);
+        cellSelectionScrollRafRef.current = null;
+      }
+      isDraggingRef.current = false;
+    };
+  }, [cellEditMode, columnNames, columnIndexMap, updateCellSelection]);
 
   // 批量填充到选中行
   const handleBatchFillToSelected = useCallback((sourceRecord: Item, dataIndex: string) => {
@@ -760,249 +958,43 @@ const DataGrid: React.FC<DataGridProps> = ({
     }
 
     // 批量更新
-    let updatedCount = 0;
-    targetKeys.forEach(key => {
-      const keyStr = rowKeyStr(key);
-      const isAdded = addedRows.some(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr);
+    const addedKeySet = new Set<string>();
+    addedRows.forEach((r) => {
+      const k = r?.[GONAVI_ROW_KEY];
+      if (k === undefined) return;
+      addedKeySet.add(rowKeyStr(k));
+    });
 
-      if (isAdded) {
-        setAddedRows(prev => prev.map(r => {
-          if (rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr) {
-            updatedCount++;
-            return { ...r, [dataIndex]: sourceValue };
-          }
-          return r;
-        }));
-      } else {
-        setModifiedRows(prev => {
-          const existing = prev[keyStr] || {};
-          // 获取原始行数据
-          const originalRow = displayDataRef.current.find(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr);
-          updatedCount++;
-          return {
-            ...prev,
-            [keyStr]: { ...originalRow, ...existing, [dataIndex]: sourceValue }
-          };
-        });
-      }
+    const targetKeyStrList = targetKeys.map(rowKeyStr);
+    const targetKeyStrSet = new Set(targetKeyStrList);
+    const updatedCount = targetKeyStrSet.size;
+
+    setAddedRows(prev => prev.map(r => {
+      const k = r?.[GONAVI_ROW_KEY];
+      if (k === undefined) return r;
+      const keyStr = rowKeyStr(k);
+      if (!targetKeyStrSet.has(keyStr)) return r;
+      return { ...r, [dataIndex]: sourceValue };
+    }));
+
+    setModifiedRows(prev => {
+      let next: Record<string, any> | null = null;
+
+      targetKeyStrSet.forEach((keyStr) => {
+        if (addedKeySet.has(keyStr)) return;
+        const existing = prev[keyStr];
+        const patch = { [dataIndex]: sourceValue };
+        const merged = existing ? { ...(existing as any), ...patch } : patch;
+        if (!next) next = { ...prev };
+        next[keyStr] = merged;
+      });
+
+      return next || prev;
     });
 
     message.success(`已填充 ${updatedCount} 行`);
     setCellContextMenu(prev => ({ ...prev, visible: false }));
   }, [addedRows, rowKeyStr]);
-
-  // 拖拽填充开始
-  const handleDragFillStart = useCallback((record: Item, dataIndex: string, cellElement: HTMLElement) => {
-    const currentData = displayDataRef.current;
-    const rowKey = record?.[GONAVI_ROW_KEY];
-    const rowIndex = currentData.findIndex(r => r?.[GONAVI_ROW_KEY] === rowKey);
-
-    if (rowIndex === -1) return;
-
-    const cellRect = cellElement.getBoundingClientRect();
-
-    // 预先计算列索引
-    let colIndex = -1;
-    const headerRow = containerRef.current?.querySelector('.ant-table-thead tr');
-    if (headerRow) {
-      const headerCells = headerRow.querySelectorAll('th');
-      headerCells.forEach((th, idx) => {
-        const titleSpan = th.querySelector('.ant-table-column-title');
-        const titleText = titleSpan?.textContent?.trim() || th.textContent?.trim();
-        if (titleText === dataIndex) {
-          colIndex = idx;
-        }
-      });
-    }
-
-    // 预先缓存所有行的 DOM 元素和 key
-    const tableBody = containerRef.current?.querySelector('.ant-table-body');
-    const rows = tableBody ? Array.from(tableBody.querySelectorAll('tr[data-row-key]')) as HTMLElement[] : [];
-    const rowKeys = rows.map(r => r.getAttribute('data-row-key') || '');
-    const startKey = String(rowKey);
-    const startEl = rows.find((_, i) => rowKeys[i] === startKey) || null;
-
-    // 存储到 ref
-    dragFillDataRef.current = {
-      startRecord: record,
-      dataIndex,
-      startRowIndex: rowIndex,
-      currentRowIndex: rowIndex,
-      startCellRect: cellRect,
-      colIndex,
-      cachedRows: rows,
-      cachedRowKeys: rowKeys,
-      cachedStartEl: startEl,
-    };
-
-    setDragFillActive(true);
-    document.body.style.cursor = 'crosshair';
-    document.body.style.userSelect = 'none';
-  }, []);
-
-  // 拖拽填充移动（极致优化：最小化 DOM 操作）
-  const handleDragFillMove = useCallback((e: MouseEvent) => {
-    const data = dragFillDataRef.current;
-    if (!data.startRecord) return;
-
-    const ghost = dragFillGhostRef.current;
-    if (!ghost) return;
-
-    const mouseY = e.clientY;
-    const rows = data.cachedRows;
-    const rowKeys = data.cachedRowKeys;
-    const startEl = data.cachedStartEl;
-
-    if (!startEl || rows.length === 0) {
-      ghost.style.display = 'none';
-      return;
-    }
-
-    // 二分查找优化：找到鼠标所在的行
-    let endEl: HTMLElement = startEl;
-    let endIdx = data.startRowIndex;
-
-    // 使用简单遍历（行数通常不多，二分查找收益有限）
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const rect = row.getBoundingClientRect();
-
-      // 只需要检查行的底部边界
-      if (mouseY >= rect.top) {
-        const currentData = displayDataRef.current;
-        const rowKey = rowKeys[i];
-        const dataIdx = currentData.findIndex(r => String(r?.[GONAVI_ROW_KEY]) === rowKey);
-
-        if (dataIdx > data.startRowIndex) {
-          endEl = row;
-          endIdx = dataIdx;
-        }
-      }
-    }
-
-    data.currentRowIndex = endIdx;
-
-    // 直接读取位置并更新样式（单次 reflow）
-    const startRect = startEl.getBoundingClientRect();
-    const endRect = endEl.getBoundingClientRect();
-
-    const cells = startEl.querySelectorAll('td');
-    const targetCell = (data.colIndex >= 0 && cells[data.colIndex]) ? cells[data.colIndex] : null;
-    const cellLeft = targetCell ? targetCell.getBoundingClientRect().left : data.startCellRect!.left;
-    const cellWidth = targetCell ? targetCell.getBoundingClientRect().width : data.startCellRect!.width;
-
-    // 批量设置样式（浏览器会合并为一次重绘）
-    ghost.style.cssText = `
-      position: fixed;
-      display: block;
-      left: ${cellLeft}px;
-      top: ${startRect.top}px;
-      width: ${cellWidth}px;
-      height: ${endRect.bottom - startRect.top}px;
-      border: 2px solid #1890ff;
-      background: rgba(24, 144, 255, 0.1);
-      pointer-events: none;
-      z-index: 9998;
-    `;
-  }, []);
-
-  // 拖拽填充结束
-  const handleDragFillEnd = useCallback(() => {
-    // 清理 RAF
-    if (dragFillRafRef.current !== null) {
-      cancelAnimationFrame(dragFillRafRef.current);
-      dragFillRafRef.current = null;
-    }
-
-    const data = dragFillDataRef.current;
-
-    if (!data.startRecord) {
-      setDragFillActive(false);
-      return;
-    }
-
-    const { startRecord, dataIndex, startRowIndex, currentRowIndex } = data;
-    const sourceValue = startRecord[dataIndex];
-    const currentData = displayDataRef.current;
-
-    // 计算需要填充的行
-    if (currentRowIndex > startRowIndex) {
-      let updatedCount = 0;
-      for (let i = startRowIndex + 1; i <= currentRowIndex && i < currentData.length; i++) {
-        const targetRow = currentData[i];
-        const targetKey = targetRow?.[GONAVI_ROW_KEY];
-        if (targetKey === undefined) continue;
-
-        const keyStr = rowKeyStr(targetKey);
-        const step = i - startRowIndex;
-        const fillValue = smartIncrement(sourceValue, step);
-
-        const isAdded = addedRows.some(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr);
-
-        if (isAdded) {
-          setAddedRows(prev => prev.map(r => {
-            if (rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr) {
-              updatedCount++;
-              return { ...r, [dataIndex]: fillValue };
-            }
-            return r;
-          }));
-        } else {
-          setModifiedRows(prev => {
-            const existing = prev[keyStr] || {};
-            updatedCount++;
-            return {
-              ...prev,
-              [keyStr]: { ...targetRow, ...existing, [dataIndex]: fillValue }
-            };
-          });
-        }
-      }
-
-      if (updatedCount > 0) {
-        message.success(`已填充 ${updatedCount} 行`);
-      }
-    }
-
-    // 重置状态
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-
-    if (dragFillGhostRef.current) {
-      dragFillGhostRef.current.style.display = 'none';
-    }
-
-    // 重置 ref
-    dragFillDataRef.current = {
-      startRecord: null,
-      dataIndex: '',
-      startRowIndex: -1,
-      currentRowIndex: -1,
-      startCellRect: null,
-      colIndex: -1,
-      cachedRows: [],
-      cachedRowKeys: [],
-      cachedStartEl: null,
-    };
-
-    setDragFillActive(false);
-  }, [addedRows, rowKeyStr]);
-
-  // 全局鼠标事件监听（拖拽填充）
-  useEffect(() => {
-    if (!dragFillActive) return;
-
-    const handleMouseMove = (e: MouseEvent) => handleDragFillMove(e);
-    const handleMouseUp = () => handleDragFillEnd();
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dragFillActive, handleDragFillMove, handleDragFillEnd]);
 
   const displayData = useMemo(() => {
       return [...data, ...addedRows].filter(item => {
@@ -1204,7 +1196,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const closeRowEditor = useCallback(() => {
       setRowEditorOpen(false);
       setRowEditorRowKey('');
-      rowEditorBaseRef.current = {};
+      rowEditorBaseRawRef.current = {};
       rowEditorDisplayRef.current = {};
       rowEditorNullColsRef.current = new Set();
       rowEditorForm.resetFields();
@@ -1235,23 +1227,25 @@ const DataGrid: React.FC<DataGridProps> = ({
           addedRows.find(r => rowKeyStr(r?.[GONAVI_ROW_KEY]) === keyStr) ||
           displayRow;
 
-      const baseMap: Record<string, string> = {};
+      const baseRawMap: Record<string, any> = {};
       const displayMap: Record<string, string> = {};
+      const formMap: Record<string, any> = {};
       const nullCols = new Set<string>();
 
       columnNames.forEach((col) => {
           const baseVal = (baseRow as any)?.[col];
           const displayVal = (displayRow as any)?.[col];
-          baseMap[col] = toFormText(baseVal);
+          baseRawMap[col] = baseVal;
           displayMap[col] = toFormText(displayVal);
+          formMap[col] = displayVal === null || displayVal === undefined ? undefined : toFormText(displayVal);
           if (baseVal === null || baseVal === undefined) nullCols.add(col);
       });
 
-      rowEditorBaseRef.current = baseMap;
+      rowEditorBaseRawRef.current = baseRawMap;
       rowEditorDisplayRef.current = displayMap;
       rowEditorNullColsRef.current = nullCols;
 
-      rowEditorForm.setFieldsValue(displayMap);
+      rowEditorForm.setFieldsValue(formMap);
       setRowEditorRowKey(keyStr);
       setRowEditorOpen(true);
   }, [readOnly, tableName, selectedRowKeys, mergedDisplayData, data, addedRows, columnNames, rowEditorForm, rowKeyStr]);
@@ -1279,13 +1273,12 @@ const DataGrid: React.FC<DataGridProps> = ({
           return;
       }
 
-      const baseMap = rowEditorBaseRef.current || {};
+      const baseRawMap = rowEditorBaseRawRef.current || {};
       const patch: Record<string, any> = {};
       columnNames.forEach((col) => {
           const nextVal = values[col];
-          const nextStr = toFormText(nextVal);
-          const baseStr = baseMap[col] ?? '';
-          if (nextStr !== baseStr) patch[col] = nextStr;
+          const baseVal = baseRawMap[col];
+          if (!isCellValueEqualForDiff(baseVal, nextVal)) patch[col] = nextVal;
       });
 
       setModifiedRows(prev => {
@@ -1390,9 +1383,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               columnNames.forEach((col) => {
                   const nextVal = (newRow as any)?.[col];
                   const prevVal = (originalRow as any)?.[col];
-                  const nextStr = toFormText(nextVal);
-                  const prevStr = toFormText(prevVal);
-                  if (nextStr !== prevStr) values[col] = nextVal;
+                  if (!isCellValueEqualForDiff(prevVal, nextVal)) values[col] = nextVal;
               });
           }
 
@@ -1697,18 +1688,19 @@ const DataGrid: React.FC<DataGridProps> = ({
   const isListOp = useCallback((op: string) => op === 'IN' || op === 'NOT_IN', []);
 
   const addFilter = () => {
-      setFilterConditions([...filterConditions, { id: nextFilterId, column: columnNames[0] || '', op: '=', value: '', value2: '' }]);
+      setFilterConditions([...filterConditions, { id: nextFilterId, enabled: true, column: columnNames[0] || '', op: '=', value: '', value2: '' }]);
       setNextFilterId(nextFilterId + 1);
   };
-  const updateFilter = (id: number, field: string, val: string) => {
+  const updateFilter = (id: number, field: keyof GridFilterCondition, val: string | boolean) => {
       setFilterConditions(prev => prev.map(c => {
           if (c.id !== id) return c;
-          const next: any = { ...c, [field]: val };
+          const next: GridFilterCondition = { ...c, [field]: val } as GridFilterCondition;
           if (field === 'op') {
-              if (isNoValueOp(val)) {
+              const nextOp = String(val);
+              if (isNoValueOp(nextOp)) {
                   next.value = '';
                   next.value2 = '';
-              } else if (isBetweenOp(val)) {
+              } else if (isBetweenOp(nextOp)) {
                   if (typeof next.value2 !== 'string') next.value2 = '';
               } else {
                   next.value2 = '';
@@ -1740,7 +1732,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   const enableVirtual = mergedDisplayData.length >= 200;
 
   return (
-    <div className={gridId} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: bgContent, backdropFilter: blurFilter, WebkitBackdropFilter: blurFilter }}>
+    <div className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''}`} ref={containerRef} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: bgContent, backdropFilter: blurFilter, WebkitBackdropFilter: blurFilter }}>
 	       {/* Toolbar */}
 	        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center' }}>
 	            {onReload && <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => {
@@ -1766,6 +1758,46 @@ const DataGrid: React.FC<DataGridProps> = ({
                        </Button>
 	                   <Button icon={<DeleteOutlined />} danger disabled={selectedRowKeys.length === 0} onClick={handleDeleteSelected}>删除选中</Button>
 	                   {selectedRowKeys.length > 0 && <span style={{ fontSize: '12px', color: '#888' }}>已选 {selectedRowKeys.length}</span>}
+	                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
+	                   <Button
+                            icon={<EditOutlined />}
+                            type={cellEditMode ? 'primary' : 'default'}
+                            onClick={() => {
+                                const next = !cellEditMode;
+                                setCellEditMode(next);
+                                setSelectedCells(new Set());
+                                currentSelectionRef.current = new Set();
+                                selectionStartRef.current = null;
+                                isDraggingRef.current = false;
+                                if (cellSelectionRafRef.current !== null) {
+                                    cancelAnimationFrame(cellSelectionRafRef.current);
+                                    cellSelectionRafRef.current = null;
+                                }
+                                if (cellSelectionScrollRafRef.current !== null) {
+                                    cancelAnimationFrame(cellSelectionScrollRafRef.current);
+                                    cellSelectionScrollRafRef.current = null;
+                                }
+                                updateCellSelection(new Set());
+                                if (!next) setBatchEditModalOpen(false);
+                                message.info(next ? '已进入单元格编辑模式，可拖拽选择多个单元格' : '已退出单元格编辑模式');
+                            }}
+                        >
+                            单元格编辑器
+                        </Button>
+                       {cellEditMode && selectedCells.size > 0 && (
+                           <>
+                               <Button
+                                   type="primary"
+                                   onClick={() => {
+                                       setBatchEditValue('');
+                                       setBatchEditSetNull(false);
+                                       setBatchEditModalOpen(true);
+                                   }}
+                               >
+                                   批量填充 ({selectedCells.size})
+                               </Button>
+                           </>
+                       )}
 	                   <div style={{ width: 1, background: '#eee', height: 20, margin: '0 8px' }} />
 	                   <Button icon={<SaveOutlined />} type="primary" disabled={!hasChanges} onClick={handleCommit}>提交事务 ({addedRows.length + Object.keys(modifiedRows).length + deletedRowKeys.size})</Button>
 	                   {hasChanges && (<Button icon={<UndoOutlined />} onClick={() => {
@@ -1796,7 +1828,14 @@ const DataGrid: React.FC<DataGridProps> = ({
                background: bgFilter, 
            }}>
                {filterConditions.map(cond => (
-                   <div key={cond.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start' }}>
+                   <div key={cond.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start', opacity: cond.enabled === false ? 0.58 : 1 }}>
+                       <Checkbox
+                           checked={cond.enabled !== false}
+                           onChange={e => updateFilter(cond.id, 'enabled', e.target.checked)}
+                           style={{ marginTop: 6 }}
+                       >
+                           启用
+                       </Checkbox>
                        <Select
                            style={{ width: 180 }}
                            value={cond.column}
@@ -1857,6 +1896,8 @@ const DataGrid: React.FC<DataGridProps> = ({
                ))}
                <div style={{ display: 'flex', gap: 8 }}>
                    <Button type="dashed" onClick={addFilter} size="small" icon={<PlusOutlined />}>添加条件</Button>
+                   <Button size="small" onClick={() => setFilterConditions(prev => prev.map(c => ({ ...c, enabled: true })))}>全启用</Button>
+                   <Button size="small" onClick={() => setFilterConditions(prev => prev.map(c => ({ ...c, enabled: false })))}>全停用</Button>
                    <Button type="primary" onClick={applyFilters} size="small">应用</Button>
                    <Button size="small" icon={<ClearOutlined />} onClick={() => {
                        setFilterConditions([]);
@@ -1950,37 +1991,65 @@ const DataGrid: React.FC<DataGridProps> = ({
                 />
             )}
         </Modal>
+
+        {/* 批量编辑弹窗 */}
+        <Modal
+            title={`批量填充 (${selectedCells.size} 个单元格)`}
+            open={batchEditModalOpen}
+            onCancel={() => setBatchEditModalOpen(false)}
+            onOk={handleBatchFillCells}
+            width={500}
+        >
+            <div style={{ marginBottom: 16 }}>
+                <Checkbox
+                    checked={batchEditSetNull}
+                    onChange={(e) => setBatchEditSetNull(e.target.checked)}
+                >
+                    设置为 NULL
+                </Checkbox>
+            </div>
+            {!batchEditSetNull && (
+                <Input.TextArea
+                    value={batchEditValue}
+                    onChange={(e) => setBatchEditValue(e.target.value)}
+                    placeholder="输入要填充的值"
+                    autoSize={{ minRows: 3, maxRows: 10 }}
+                    autoFocus
+                />
+            )}
+        </Modal>
+
         <Form component={false} form={form}>
             <DataContext.Provider value={{ selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, tableName }}>
-                <CellContextMenuContext.Provider value={{ showMenu: showCellContextMenu, handleBatchFillToSelected, handleDragFillStart }}>
-                    <EditableContext.Provider value={form}>
-                        <Table
-                            components={tableComponents}
-                            dataSource={mergedDisplayData}
-                            columns={mergedColumns}
-                            size="small"
-                            tableLayout="fixed"
-                            scroll={{ x: Math.max(totalWidth, 1000), y: tableHeight }}
-                            virtual={enableVirtual}
-                            loading={loading}
-                                rowKey={GONAVI_ROW_KEY}
-                                pagination={false}
-                                onChange={handleTableChange}
-                                bordered
-                                rowSelection={{
-                                    selectedRowKeys,
-                                    onChange: setSelectedRowKeys,
-                                    columnWidth: selectionColumnWidth,
-                                }}
-                                rowClassName={(record) => {
-                                    const k = record?.[GONAVI_ROW_KEY];
-                                    if (k !== undefined && addedRows.some(r => r?.[GONAVI_ROW_KEY] === k)) return 'row-added';
-                                    if (k !== undefined && (modifiedRows[rowKeyStr(k)] || deletedRowKeys.has(rowKeyStr(k)))) return 'row-modified'; // deleted won't show
-                                    return '';
-                                }}
-                                onRow={(record) => ({ record } as any)}
-                            />
-                    </EditableContext.Provider>
+                <CellContextMenuContext.Provider value={{ showMenu: showCellContextMenu, handleBatchFillToSelected }}>
+                        <EditableContext.Provider value={form}>
+                            <Table
+                                components={tableComponents}
+                                dataSource={mergedDisplayData}
+                                columns={mergedColumns}
+                                size="small"
+                                tableLayout="fixed"
+                                scroll={{ x: Math.max(totalWidth, 1000), y: tableHeight }}
+                                virtual={enableVirtual}
+                                loading={loading}
+                                    rowKey={GONAVI_ROW_KEY}
+                                    pagination={false}
+                                    onChange={handleTableChange}
+                                    bordered
+                                    rowSelection={{
+                                        selectedRowKeys,
+                                        onChange: setSelectedRowKeys,
+                                        columnWidth: selectionColumnWidth,
+                                    }}
+                                    rowClassName={(record) => {
+                                        const k = record?.[GONAVI_ROW_KEY];
+                                        if (k !== undefined && addedRows.some(r => r?.[GONAVI_ROW_KEY] === k)) return 'row-added';
+                                        if (k !== undefined && (modifiedRows[rowKeyStr(k)] || deletedRowKeys.has(rowKeyStr(k)))) return 'row-modified'; // deleted won't show
+                                        return '';
+                                    }}
+                                    onRow={(record) => ({ record } as any)}
+                                />
+                        </EditableContext.Provider>
                 </CellContextMenuContext.Provider>
             </DataContext.Provider>
         </Form>
@@ -2181,11 +2250,17 @@ const DataGrid: React.FC<DataGridProps> = ({
                 .${gridId} .ant-table-thead > tr > th { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
                 .${gridId} .ant-table-thead > tr > th::before { display: none !important; }
                 .${gridId} .ant-table-tbody > tr:hover > td { background-color: ${darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'} !important; }
+                .${gridId} .ant-table-tbody > tr.ant-table-row-selected > td { background-color: ${darkMode ? 'rgba(24, 144, 255, 0.15)' : 'rgba(24, 144, 255, 0.08)'} !important; }
+                .${gridId} .ant-table-tbody > tr.ant-table-row-selected:hover > td { background-color: ${darkMode ? 'rgba(24, 144, 255, 0.25)' : 'rgba(24, 144, 255, 0.12)'} !important; }
 	            .${gridId} .row-added td { background-color: ${rowAddedBg} !important; color: ${darkMode ? '#e6fffb' : 'inherit'}; }
 	            .${gridId} .row-modified td { background-color: ${rowModBg} !important; color: ${darkMode ? '#e6f7ff' : 'inherit'}; }
                 .${gridId} .ant-table-tbody > tr.row-added:hover > td { background-color: ${rowAddedHover} !important; }
                 .${gridId} .ant-table-tbody > tr.row-modified:hover > td { background-color: ${rowModHover} !important; }
-                .${gridId} .fill-handle:hover { background: #0050b3 !important; transform: scale(1.2); }
+                .${gridId}.cell-edit-mode .ant-table-tbody > tr > td[data-col-name] { user-select: none; -webkit-user-select: none; cursor: crosshair; }
+                .${gridId}.cell-edit-mode .ant-table-tbody > tr > td[data-cell-selected="true"] {
+                    box-shadow: inset 0 0 0 2px #1890ff;
+                    background-image: linear-gradient(${darkMode ? 'rgba(24, 144, 255, 0.18)' : 'rgba(24, 144, 255, 0.08)'}, ${darkMode ? 'rgba(24, 144, 255, 0.18)' : 'rgba(24, 144, 255, 0.08)'});
+                }
 	        `}</style>
        
        {/* Ghost Resize Line for Columns */}
@@ -2204,21 +2279,6 @@ const DataGrid: React.FC<DataGridProps> = ({
                willChange: 'transform'
            }}
        />
-       {/* 拖拽填充选区指示器 - 使用 fixed 定位基于视口 */}
-       {dragFillActive && createPortal(
-           <div
-               ref={dragFillGhostRef}
-               style={{
-                   position: 'fixed',
-                   border: '2px solid #1890ff',
-                   background: 'rgba(24, 144, 255, 0.1)',
-                   pointerEvents: 'none',
-                   zIndex: 9998,
-                   display: 'none',
-               }}
-           />,
-           document.body
-       )}
     </div>
   );
 };

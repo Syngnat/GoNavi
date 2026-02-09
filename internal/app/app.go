@@ -103,10 +103,11 @@ type withLogHint struct {
 }
 
 func (e withLogHint) Error() string {
+	message := normalizeErrorMessage(e.err)
 	if strings.TrimSpace(e.logPath) == "" {
-		return e.err.Error()
+		return message
 	}
-	return fmt.Sprintf("%s（详细日志：%s）", e.err.Error(), e.logPath)
+	return fmt.Sprintf("%s（详细日志：%s）", message, e.logPath)
 }
 
 func (e withLogHint) Unwrap() error {
@@ -127,6 +128,33 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
 		config.Type, config.Host, config.Port, dbName, config.User, timeoutSeconds))
+
+	if len(config.Hosts) > 0 {
+		b.WriteString(fmt.Sprintf(" 节点数=%d", len(config.Hosts)))
+	}
+	if strings.TrimSpace(config.Topology) != "" {
+		b.WriteString(fmt.Sprintf(" 拓扑=%s", strings.TrimSpace(config.Topology)))
+	}
+	if strings.TrimSpace(config.URI) != "" {
+		b.WriteString(fmt.Sprintf(" URI=已配置(长度=%d)", len(config.URI)))
+	}
+	if strings.TrimSpace(config.MySQLReplicaUser) != "" {
+		b.WriteString(" MySQL从库凭据=已配置")
+	}
+	if strings.EqualFold(strings.TrimSpace(config.Type), "mongodb") {
+		if strings.TrimSpace(config.MongoReplicaUser) != "" {
+			b.WriteString(" Mongo从库凭据=已配置")
+		}
+		if strings.TrimSpace(config.ReplicaSet) != "" {
+			b.WriteString(fmt.Sprintf(" 副本集=%s", strings.TrimSpace(config.ReplicaSet)))
+		}
+		if strings.TrimSpace(config.ReadPreference) != "" {
+			b.WriteString(fmt.Sprintf(" 读偏好=%s", strings.TrimSpace(config.ReadPreference)))
+		}
+		if strings.TrimSpace(config.AuthSource) != "" {
+			b.WriteString(fmt.Sprintf(" 认证库=%s", strings.TrimSpace(config.AuthSource)))
+		}
+	}
 
 	if config.UseSSH {
 		b.WriteString(fmt.Sprintf(" SSH=%s:%d 用户=%s", config.SSH.Host, config.SSH.Port, config.SSH.User))

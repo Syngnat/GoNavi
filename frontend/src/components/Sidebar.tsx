@@ -148,14 +148,25 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   }, [savedQueries]);
 
   useEffect(() => {
-    setTreeData(connections.map(conn => ({
-      title: conn.name,
-      key: conn.id,
-      icon: conn.config.type === 'redis' ? <CloudOutlined style={{ color: '#DC382D' }} /> : <HddOutlined />,
-      type: 'connection',
-      dataRef: conn,
-      isLeaf: false,
-    })));
+    setTreeData((prev) => {
+      const prevMap = new Map<string, TreeNode>();
+      prev.forEach((node) => {
+        prevMap.set(String(node.key), node);
+      });
+
+      return connections.map((conn) => {
+        const existing = prevMap.get(conn.id);
+        return {
+          title: conn.name,
+          key: conn.id,
+          icon: conn.config.type === 'redis' ? <CloudOutlined style={{ color: '#DC382D' }} /> : <HddOutlined />,
+          type: 'connection',
+          dataRef: conn,
+          isLeaf: false,
+          children: existing?.children,
+        } as TreeNode;
+      });
+    });
   }, [connections]);
 
   const updateTreeData = (list: TreeNode[], key: React.Key, children: TreeNode[] | undefined): TreeNode[] => {

@@ -4,7 +4,7 @@ import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
 import { DBQuery, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
-import { buildWhereSQL, quoteIdentPart, quoteQualifiedIdent } from '../utils/sql';
+import { buildWhereSQL, quoteIdentPart, quoteQualifiedIdent, type FilterCondition } from '../utils/sql';
 
 const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [data, setData] = useState<any[]>([]);
@@ -29,7 +29,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [sortInfo, setSortInfo] = useState<{ columnKey: string, order: string } | null>(null);
   
   const [showFilter, setShowFilter] = useState(false);
-  const [filterConditions, setFilterConditions] = useState<any[]>([]);
+  const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
   const currentConnType = (connections.find(c => c.id === tab.connectionId)?.config?.type || '').toLowerCase();
   const forceReadOnly = currentConnType === 'tdengine';
 
@@ -220,7 +220,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const handleSort = useCallback((field: string, order: string) => setSortInfo({ columnKey: field, order }), []);
   const handlePageChange = useCallback((page: number, size: number) => fetchData(page, size), [fetchData]);
   const handleToggleFilter = useCallback(() => setShowFilter(prev => !prev), []);
-  const handleApplyFilter = useCallback((conditions: any[]) => setFilterConditions(conditions), []);
+  const handleApplyFilter = useCallback((conditions: FilterCondition[]) => setFilterConditions(conditions), []);
 
   useEffect(() => {
     fetchData(1, pagination.pageSize); 

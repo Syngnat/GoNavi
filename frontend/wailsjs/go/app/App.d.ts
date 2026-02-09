@@ -62,6 +62,8 @@ export function ImportData(arg1:connection.ConnectionConfig,arg2:string,arg3:str
 
 export function InstallUpdateAndRestart():Promise<connection.QueryResult>;
 
+export function MongoDiscoverMembers(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
+
 export function MySQLConnect(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
 
 export function MySQLGetDatabases(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;

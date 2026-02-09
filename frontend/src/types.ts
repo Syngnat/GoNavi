@@ -12,10 +12,32 @@ export interface ConnectionConfig {
   port: number;
   user: string;
   password?: string;
+  savePassword?: boolean;
   database?: string;
   useSSH?: boolean;
   ssh?: SSHConfig;
   redisDB?: number; // Redis database index (0-15)
+  uri?: string; // Connection URI for copy/paste
+  hosts?: string[]; // Multi-host addresses: host:port
+  topology?: 'single' | 'replica';
+  mysqlReplicaUser?: string;
+  mysqlReplicaPassword?: string;
+  replicaSet?: string;
+  authSource?: string;
+  readPreference?: string;
+  mongoSrv?: boolean;
+  mongoAuthMechanism?: string;
+  mongoReplicaUser?: string;
+  mongoReplicaPassword?: string;
+}
+
+export interface MongoMemberInfo {
+  host: string;
+  role: string;
+  state: string;
+  stateCode?: number;
+  healthy: boolean;
+  isSelf?: boolean;
 }
 
 export interface SavedConnection {
