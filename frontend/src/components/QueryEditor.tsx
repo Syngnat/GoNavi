@@ -919,7 +919,7 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
   const applyAutoLimit = (sql: string, dbType: string, maxRows: number): { sql: string; applied: boolean; maxRows: number } => {
       const normalizedType = (dbType || 'mysql').toLowerCase();
-      const supportsLimit = normalizedType === 'mysql' || normalizedType === 'postgres' || normalizedType === 'kingbase' || normalizedType === 'sqlite' || normalizedType === '';
+      const supportsLimit = normalizedType === 'mysql' || normalizedType === 'postgres' || normalizedType === 'kingbase' || normalizedType === 'sqlite' || normalizedType === 'tdengine' || normalizedType === '';
       if (!supportsLimit) return { sql, applied: false, maxRows };
       if (!Number.isFinite(maxRows) || maxRows <= 0) return { sql, applied: false, maxRows };
 
@@ -997,6 +997,8 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
         const nextResultSets: ResultSet[] = [];
         const maxRows = Number(queryOptions?.maxRows) || 0;
         const dbType = String((config as any).type || 'mysql');
+        const normalizedDbType = dbType.toLowerCase();
+        const forceReadOnlyResult = normalizedDbType === 'tdengine';
         const wantsLimitProbe = Number.isFinite(maxRows) && maxRows > 0;
         const probeLimit = wantsLimitProbe ? (maxRows + 1) : 0;
         let anyTruncated = false;
@@ -1053,7 +1055,9 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                 const tableMatch = rawStatement.match(/^\s*SELECT\s+\*\s+FROM\s+[`"]?(\w+)[`"]?\s*(?:WHERE.*)?(?:ORDER BY.*)?(?:LIMIT.*)?$/i);
                 if (tableMatch) {
                     simpleTableName = tableMatch[1];
-                    pendingPk.push({ resultKey: `result-${idx + 1}`, tableName: simpleTableName });
+                    if (!forceReadOnlyResult) {
+                        pendingPk.push({ resultKey: `result-${idx + 1}`, tableName: simpleTableName });
+                    }
                 }
 
                 nextResultSets.push({

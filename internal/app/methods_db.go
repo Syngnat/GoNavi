@@ -51,6 +51,8 @@ func (a *App) CreateDatabase(config connection.ConnectionConfig, dbName string) 
 	if dbType == "postgres" || dbType == "kingbase" || dbType == "highgo" || dbType == "vastbase" {
 		escapedDbName = strings.ReplaceAll(dbName, `"`, `""`)
 		query = fmt.Sprintf("CREATE DATABASE \"%s\"", escapedDbName)
+	} else if dbType == "tdengine" {
+		query = fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", quoteIdentByType(dbType, dbName))
 	} else if dbType == "mariadb" {
 		// MariaDB uses same syntax as MySQL
 	}
@@ -176,7 +178,7 @@ func (a *App) DropDatabase(config connection.ConnectionConfig, dbName string) co
 		sql       string
 	)
 	switch dbType {
-	case "mysql", "mariadb":
+	case "mysql", "mariadb", "tdengine":
 		runConfig = config
 		runConfig.Database = ""
 		sql = fmt.Sprintf("DROP DATABASE %s", quoteIdentByType(dbType, dbName))
@@ -264,7 +266,7 @@ func (a *App) DropTable(config connection.ConnectionConfig, dbName string, table
 
 	dbType := resolveDDLDBType(config)
 	switch dbType {
-	case "mysql", "mariadb", "postgres", "kingbase", "sqlite", "oracle", "dameng", "highgo", "vastbase", "sqlserver":
+	case "mysql", "mariadb", "postgres", "kingbase", "sqlite", "oracle", "dameng", "highgo", "vastbase", "sqlserver", "tdengine":
 	default:
 		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前数据源(%s)暂不支持删除表", dbType)}
 	}

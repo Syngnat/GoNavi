@@ -30,6 +30,8 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   
   const [showFilter, setShowFilter] = useState(false);
   const [filterConditions, setFilterConditions] = useState<any[]>([]);
+  const currentConnType = (connections.find(c => c.id === tab.connectionId)?.config?.type || '').toLowerCase();
+  const forceReadOnly = currentConnType === 'tdengine';
 
   useEffect(() => {
     setPkColumns([]);
@@ -241,6 +243,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
           showFilter={showFilter}
           onToggleFilter={handleToggleFilter}
           onApplyFilter={handleApplyFilter}
+          readOnly={forceReadOnly}
       />
     </div>
   );

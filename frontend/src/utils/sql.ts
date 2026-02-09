@@ -35,7 +35,7 @@ export const quoteIdentPart = (dbType: string, ident: string) => {
   if (!raw) return raw;
   const dbTypeLower = (dbType || '').toLowerCase();
 
-  if (dbTypeLower === 'mysql') {
+  if (dbTypeLower === 'mysql' || dbTypeLower === 'tdengine') {
     return `\`${raw.replace(/`/g, '``')}\``;
   }
 
@@ -197,4 +197,3 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
 
   return whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
 };
-

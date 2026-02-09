@@ -165,6 +165,44 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
     });
   };
 
+  const SIDEBAR_SCHEMA_DB_TYPES = new Set([
+      'postgres',
+      'kingbase',
+      'highgo',
+      'vastbase',
+      'sqlserver',
+      'oracle',
+      'dameng',
+  ]);
+
+  const SIDEBAR_SCHEMA_CUSTOM_DRIVERS = new Set([
+      'postgres',
+      'kingbase',
+      'highgo',
+      'vastbase',
+      'sqlserver',
+      'oracle',
+      'dm',
+  ]);
+
+  const shouldHideSchemaPrefix = (conn: SavedConnection | undefined): boolean => {
+      const dbType = String(conn?.config?.type || '').trim().toLowerCase();
+      if (SIDEBAR_SCHEMA_DB_TYPES.has(dbType)) return true;
+      if (dbType !== 'custom') return false;
+
+      const customDriver = String((conn?.config as any)?.driver || '').trim().toLowerCase();
+      return SIDEBAR_SCHEMA_CUSTOM_DRIVERS.has(customDriver);
+  };
+
+  const getSidebarTableDisplayName = (conn: SavedConnection | undefined, tableName: string): string => {
+      const rawName = String(tableName || '').trim();
+      if (!rawName) return rawName;
+      if (!shouldHideSchemaPrefix(conn)) return rawName;
+      const lastDotIndex = rawName.lastIndexOf('.');
+      if (lastDotIndex <= 0 || lastDotIndex >= rawName.length - 1) return rawName;
+      return rawName.substring(lastDotIndex + 1);
+  };
+
 	  const loadDatabases = async (node: any) => {
 	      const conn = node.dataRef as SavedConnection;
 	      const loadKey = `dbs-${conn.id}`;
@@ -280,8 +318,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	            setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
 	            const tables = (res.data as any[]).map((row: any) => {
                 const tableName = Object.values(row)[0] as string;
+                const tableDisplayName = getSidebarTableDisplayName(conn, tableName);
                 return {
-                  title: tableName,
+                  title: tableDisplayName,
                   key: `${conn.id}-${conn.dbName}-${tableName}`,
                   icon: <TableOutlined />,
                   type: 'table' as const,
@@ -1402,7 +1441,20 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         <Badge status={status} style={{ marginRight: 8 }} />
     ) : null;
 
-    return <span title={node.title}>{statusBadge}{node.title}</span>;
+    const displayTitle = String(node.title ?? '');
+    let hoverTitle = displayTitle;
+    if (node.type === 'table') {
+        const rawTableName = String(node?.dataRef?.tableName || '').trim();
+        const conn = node?.dataRef as SavedConnection | undefined;
+        if (rawTableName && shouldHideSchemaPrefix(conn)) {
+            const lastDotIndex = rawTableName.lastIndexOf('.');
+            if (lastDotIndex > 0 && lastDotIndex < rawTableName.length - 1) {
+                hoverTitle = rawTableName;
+            }
+        }
+    }
+
+    return <span title={hoverTitle}>{statusBadge}{displayTitle}</span>;
   };
 
   const onRightClick = ({ event, node }: any) => {

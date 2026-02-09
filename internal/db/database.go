@@ -50,6 +50,8 @@ func NewDatabase(dbType string) (Database, error) {
 		return &MariaDB{}, nil
 	case "vastbase":
 		return &VastbaseDB{}, nil
+	case "tdengine":
+		return &TDengineDB{}, nil
 	case "custom":
 		return &CustomDB{}, nil
 	default:

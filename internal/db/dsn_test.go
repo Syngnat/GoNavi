@@ -95,3 +95,20 @@ func TestKingbaseDSN_QuotesPasswordWithSpaces(t *testing.T) {
 		t.Fatalf("dsn 未对包含空格的密码进行引号包裹：%s", dsn)
 	}
 }
+
+func TestTDengineDSN_UsesWebSocketFormat(t *testing.T) {
+	td := &TDengineDB{}
+	cfg := connection.ConnectionConfig{
+		Type:     "tdengine",
+		Host:     "127.0.0.1",
+		Port:     6041,
+		User:     "root",
+		Password: "taosdata",
+		Database: "power",
+	}
+
+	dsn := td.getDSN(cfg)
+	if !strings.HasPrefix(dsn, "root:taosdata@ws(127.0.0.1:6041)/power") {
+		t.Fatalf("tdengine dsn 格式不正确：%s", dsn)
+	}
+}

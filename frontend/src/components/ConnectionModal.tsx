@@ -194,6 +194,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           case 'mysql': defaultPort = 3306; break;
           case 'postgres': defaultPort = 5432; break;
           case 'redis': defaultPort = 6379; break;
+          case 'tdengine': defaultPort = 6041; break;
           case 'oracle': defaultPort = 1521; break;
           case 'dameng': defaultPort = 5236; break;
           case 'kingbase': defaultPort = 54321; break;
@@ -233,6 +234,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       { label: 'NoSQL', items: [
           { key: 'mongodb', name: 'MongoDB', icon: <CloudServerOutlined style={{ fontSize: 24, color: '#47A248' }} /> },
           { key: 'redis', name: 'Redis', icon: <CloudOutlined style={{ fontSize: 24, color: '#DC382D' }} /> },
+      ]},
+      { label: '时序数据库', items: [
+          { key: 'tdengine', name: 'TDengine', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#2F54EB' }} /> },
       ]},
       { label: '其他', items: [
           { key: 'custom', name: 'Custom (自定义)', icon: <AppstoreAddOutlined style={{ fontSize: 24, color: '#595959' }} /> },

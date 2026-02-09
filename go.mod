@@ -10,6 +10,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.9.6
 	github.com/redis/go-redis/v9 v9.17.3
 	github.com/sijms/go-ora/v2 v2.9.0
+	github.com/taosdata/driver-go/v3 v3.7.8
 	github.com/wailsapp/wails/v2 v2.11.0
 	go.mongodb.org/mongo-driver/v2 v2.5.0
 	golang.org/x/crypto v0.47.0
@@ -29,7 +30,9 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/jchv/go-winloader v0.0.0-20210711035445-715c2860da7e // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
@@ -39,6 +42,8 @@ require (
 	github.com/leaanthony/u v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 // indirect
+	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
