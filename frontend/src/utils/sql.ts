@@ -1,5 +1,6 @@
 export type FilterCondition = {
   id?: number;
+  enabled?: boolean;
   column?: string;
   op?: string;
   value?: string;
@@ -75,6 +76,8 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
   const whereParts: string[] = [];
 
   (conditions || []).forEach((cond) => {
+    if (cond?.enabled === false) return;
+
     const op = (cond?.op || '').trim();
     const column = (cond?.column || '').trim();
     const value = (cond?.value ?? '').toString();

@@ -74,6 +74,7 @@ export namespace connection {
 	    port: number;
 	    user: string;
 	    password: string;
+	    savePassword?: boolean;
 	    database: string;
 	    useSSH: boolean;
 	    ssh: SSHConfig;
@@ -81,6 +82,18 @@ export namespace connection {
 	    dsn?: string;
 	    timeout?: number;
 	    redisDB?: number;
+	    uri?: string;
+	    hosts?: string[];
+	    topology?: string;
+	    mysqlReplicaUser?: string;
+	    mysqlReplicaPassword?: string;
+	    replicaSet?: string;
+	    authSource?: string;
+	    readPreference?: string;
+	    mongoSrv?: boolean;
+	    mongoAuthMechanism?: string;
+	    mongoReplicaUser?: string;
+	    mongoReplicaPassword?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionConfig(source);
@@ -93,6 +106,7 @@ export namespace connection {
 	        this.port = source["port"];
 	        this.user = source["user"];
 	        this.password = source["password"];
+	        this.savePassword = source["savePassword"];
 	        this.database = source["database"];
 	        this.useSSH = source["useSSH"];
 	        this.ssh = this.convertValues(source["ssh"], SSHConfig);
@@ -100,6 +114,18 @@ export namespace connection {
 	        this.dsn = source["dsn"];
 	        this.timeout = source["timeout"];
 	        this.redisDB = source["redisDB"];
+	        this.uri = source["uri"];
+	        this.hosts = source["hosts"];
+	        this.topology = source["topology"];
+	        this.mysqlReplicaUser = source["mysqlReplicaUser"];
+	        this.mysqlReplicaPassword = source["mysqlReplicaPassword"];
+	        this.replicaSet = source["replicaSet"];
+	        this.authSource = source["authSource"];
+	        this.readPreference = source["readPreference"];
+	        this.mongoSrv = source["mongoSrv"];
+	        this.mongoAuthMechanism = source["mongoAuthMechanism"];
+	        this.mongoReplicaUser = source["mongoReplicaUser"];
+	        this.mongoReplicaPassword = source["mongoReplicaPassword"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

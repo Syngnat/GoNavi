@@ -118,6 +118,10 @@ export function InstallUpdateAndRestart() {
   return window['go']['app']['App']['InstallUpdateAndRestart']();
 }
 
+export function MongoDiscoverMembers(arg1) {
+  return window['go']['app']['App']['MongoDiscoverMembers'](arg1);
+}
+
 export function MySQLConnect(arg1) {
   return window['go']['app']['App']['MySQLConnect'](arg1);
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,16 +22,161 @@ type MySQLDB struct {
 	pingTimeout time.Duration
 }
 
+const defaultMySQLPort = 3306
+
+func parseHostPortWithDefault(raw string, defaultPort int) (string, int, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", 0, false
+	}
+
+	if strings.HasPrefix(text, "[") {
+		end := strings.Index(text, "]")
+		if end < 0 {
+			return text, defaultPort, true
+		}
+		host := text[1:end]
+		portText := strings.TrimSpace(text[end+1:])
+		if strings.HasPrefix(portText, ":") {
+			if p, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(portText, ":"))); err == nil && p > 0 {
+				return host, p, true
+			}
+		}
+		return host, defaultPort, true
+	}
+
+	lastColon := strings.LastIndex(text, ":")
+	if lastColon > 0 && strings.Count(text, ":") == 1 {
+		host := strings.TrimSpace(text[:lastColon])
+		portText := strings.TrimSpace(text[lastColon+1:])
+		if host != "" {
+			if p, err := strconv.Atoi(portText); err == nil && p > 0 {
+				return host, p, true
+			}
+			return host, defaultPort, true
+		}
+	}
+
+	return text, defaultPort, true
+}
+
+func normalizeMySQLAddress(host string, port int) string {
+	h := strings.TrimSpace(host)
+	if h == "" {
+		h = "localhost"
+	}
+	p := port
+	if p <= 0 {
+		p = defaultMySQLPort
+	}
+	return fmt.Sprintf("%s:%d", h, p)
+}
+
+func applyMySQLURI(config connection.ConnectionConfig) connection.ConnectionConfig {
+	uriText := strings.TrimSpace(config.URI)
+	if uriText == "" {
+		return config
+	}
+	if !strings.HasPrefix(strings.ToLower(uriText), "mysql://") {
+		return config
+	}
+
+	parsed, err := url.Parse(uriText)
+	if err != nil {
+		return config
+	}
+
+	if parsed.User != nil {
+		if config.User == "" {
+			config.User = parsed.User.Username()
+		}
+		if pass, ok := parsed.User.Password(); ok && config.Password == "" {
+			config.Password = pass
+		}
+	}
+
+	if dbName := strings.TrimPrefix(parsed.Path, "/"); dbName != "" && config.Database == "" {
+		config.Database = dbName
+	}
+
+	defaultPort := config.Port
+	if defaultPort <= 0 {
+		defaultPort = defaultMySQLPort
+	}
+
+	hostsFromURI := make([]string, 0, 4)
+	hostText := strings.TrimSpace(parsed.Host)
+	if hostText != "" {
+		for _, entry := range strings.Split(hostText, ",") {
+			host, port, ok := parseHostPortWithDefault(entry, defaultPort)
+			if !ok {
+				continue
+			}
+			hostsFromURI = append(hostsFromURI, normalizeMySQLAddress(host, port))
+		}
+	}
+
+	if len(config.Hosts) == 0 && len(hostsFromURI) > 0 {
+		config.Hosts = hostsFromURI
+	}
+	if strings.TrimSpace(config.Host) == "" && len(hostsFromURI) > 0 {
+		host, port, ok := parseHostPortWithDefault(hostsFromURI[0], defaultPort)
+		if ok {
+			config.Host = host
+			config.Port = port
+		}
+	}
+
+	if config.Topology == "" {
+		topology := strings.TrimSpace(parsed.Query().Get("topology"))
+		if topology != "" {
+			config.Topology = strings.ToLower(topology)
+		}
+	}
+
+	return config
+}
+
+func collectMySQLAddresses(config connection.ConnectionConfig) []string {
+	defaultPort := config.Port
+	if defaultPort <= 0 {
+		defaultPort = defaultMySQLPort
+	}
+
+	candidates := make([]string, 0, len(config.Hosts)+1)
+	if len(config.Hosts) > 0 {
+		candidates = append(candidates, config.Hosts...)
+	} else {
+		candidates = append(candidates, normalizeMySQLAddress(config.Host, defaultPort))
+	}
+
+	result := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, entry := range candidates {
+		host, port, ok := parseHostPortWithDefault(entry, defaultPort)
+		if !ok {
+			continue
+		}
+		normalized := normalizeMySQLAddress(host, port)
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
 func (m *MySQLDB) getDSN(config connection.ConnectionConfig) string {
 	database := config.Database
 	protocol := "tcp"
-	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	address := normalizeMySQLAddress(config.Host, config.Port)
 
 	if config.UseSSH {
 		netName, err := ssh.RegisterSSHNetwork(config.SSH)
 		if err == nil {
 			protocol = netName
-			address = fmt.Sprintf("%s:%d", config.Host, config.Port)
+			address = normalizeMySQLAddress(config.Host, config.Port)
 		} else {
 			logger.Warnf("注册 SSH 网络失败，将尝试直连：地址=%s:%d 用户=%s，原因：%v", config.Host, config.Port, config.User, err)
 		}
@@ -41,20 +188,67 @@ func (m *MySQLDB) getDSN(config connection.ConnectionConfig) string {
 		config.User, config.Password, protocol, address, database, timeout)
 }
 
-func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
-	dsn := m.getDSN(config)
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
-	}
-	m.conn = db
-	m.pingTimeout = getConnectTimeout(config)
+func resolveMySQLCredential(config connection.ConnectionConfig, addressIndex int) (string, string) {
+	primaryUser := strings.TrimSpace(config.User)
+	primaryPassword := config.Password
+	replicaUser := strings.TrimSpace(config.MySQLReplicaUser)
+	replicaPassword := config.MySQLReplicaPassword
 
-	// Force verification
-	if err := m.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+	if addressIndex > 0 && replicaUser != "" {
+		return replicaUser, replicaPassword
 	}
-	return nil
+
+	if primaryUser == "" && replicaUser != "" {
+		return replicaUser, replicaPassword
+	}
+
+	return config.User, primaryPassword
+}
+
+func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
+	runConfig := applyMySQLURI(config)
+	addresses := collectMySQLAddresses(runConfig)
+	if len(addresses) == 0 {
+		return fmt.Errorf("连接建立后验证失败：未找到可用的 MySQL 地址")
+	}
+
+	var errorDetails []string
+	for index, address := range addresses {
+		candidateConfig := runConfig
+		host, port, ok := parseHostPortWithDefault(address, defaultMySQLPort)
+		if !ok {
+			continue
+		}
+		candidateConfig.Host = host
+		candidateConfig.Port = port
+		candidateConfig.User, candidateConfig.Password = resolveMySQLCredential(runConfig, index)
+
+		dsn := m.getDSN(candidateConfig)
+		db, err := sql.Open("mysql", dsn)
+		if err != nil {
+			errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败: %v", address, err))
+			continue
+		}
+
+		timeout := getConnectTimeout(candidateConfig)
+		ctx, cancel := utils.ContextWithTimeout(timeout)
+		pingErr := db.PingContext(ctx)
+		cancel()
+		if pingErr != nil {
+			_ = db.Close()
+			errorDetails = append(errorDetails, fmt.Sprintf("%s 验证失败: %v", address, pingErr))
+			continue
+		}
+
+		m.conn = db
+		m.pingTimeout = timeout
+		return nil
+	}
+
+	if len(errorDetails) == 0 {
+		return fmt.Errorf("连接建立后验证失败：未找到可用的 MySQL 地址")
+	}
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(errorDetails, "；"))
 }
 
 func (m *MySQLDB) Close() error {

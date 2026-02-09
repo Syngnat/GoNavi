@@ -36,6 +36,41 @@ func (a *App) TestConnection(config connection.ConnectionConfig) connection.Quer
 	return connection.QueryResult{Success: true, Message: "连接成功"}
 }
 
+func (a *App) MongoDiscoverMembers(config connection.ConnectionConfig) connection.QueryResult {
+	config.Type = "mongodb"
+
+	dbInst, err := a.getDatabaseForcePing(config)
+	if err != nil {
+		logger.Error(err, "MongoDiscoverMembers 获取连接失败：%s", formatConnSummary(config))
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	discoverable, ok := dbInst.(interface {
+		DiscoverMembers() (string, []connection.MongoMemberInfo, error)
+	})
+	if !ok {
+		return connection.QueryResult{Success: false, Message: "当前 MongoDB 驱动不支持成员发现"}
+	}
+
+	replicaSet, members, err := discoverable.DiscoverMembers()
+	if err != nil {
+		logger.Error(err, "MongoDiscoverMembers 执行失败：%s", formatConnSummary(config))
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	data := map[string]interface{}{
+		"replicaSet": replicaSet,
+		"members":    members,
+	}
+
+	logger.Infof("MongoDiscoverMembers 成功：%s 成员数=%d 副本集=%s", formatConnSummary(config), len(members), replicaSet)
+	return connection.QueryResult{
+		Success: true,
+		Message: fmt.Sprintf("发现 %d 个成员", len(members)),
+		Data:    data,
+	}
+}
+
 func (a *App) CreateDatabase(config connection.ConnectionConfig, dbName string) connection.QueryResult {
 	runConfig := config
 	runConfig.Database = ""

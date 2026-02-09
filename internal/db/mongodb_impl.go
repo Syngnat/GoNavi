@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,53 +27,264 @@ type MongoDB struct {
 	forwarder   *ssh.LocalForwarder
 }
 
-func (m *MongoDB) getURI(config connection.ConnectionConfig) string {
-	// mongodb://user:password@host:port/database?authSource=admin
-	host := config.Host
-	port := config.Port
-	if port == 0 {
-		port = 27017
+const defaultMongoPort = 27017
+
+func normalizeMongoAddress(host string, port int) string {
+	h := strings.TrimSpace(host)
+	if h == "" {
+		h = "localhost"
+	}
+	p := port
+	if p <= 0 {
+		p = defaultMongoPort
+	}
+	return fmt.Sprintf("%s:%d", h, p)
+}
+
+func normalizeMongoSeed(raw string, defaultPort int, useSRV bool) (string, bool) {
+	host, port, ok := parseHostPortWithDefault(raw, defaultPort)
+	if !ok {
+		return "", false
 	}
 
-	uri := fmt.Sprintf("mongodb://%s:%d", host, port)
+	if useSRV {
+		normalized := strings.TrimSpace(host)
+		if normalized == "" {
+			return "", false
+		}
+		return normalized, true
+	}
 
-	if config.User != "" {
-		encodedUser := url.QueryEscape(config.User)
-		if config.Password != "" {
-			encodedPass := url.QueryEscape(config.Password)
-			uri = fmt.Sprintf("mongodb://%s:%s@%s:%d", encodedUser, encodedPass, host, port)
+	return normalizeMongoAddress(host, port), true
+}
+
+func collectMongoSeeds(config connection.ConnectionConfig) []string {
+	defaultPort := config.Port
+	if defaultPort <= 0 {
+		defaultPort = defaultMongoPort
+	}
+	useSRV := config.MongoSRV
+
+	candidates := make([]string, 0, len(config.Hosts)+1)
+	if len(config.Hosts) > 0 {
+		candidates = append(candidates, config.Hosts...)
+	} else {
+		if useSRV {
+			candidates = append(candidates, strings.TrimSpace(config.Host))
 		} else {
-			uri = fmt.Sprintf("mongodb://%s@%s:%d", encodedUser, host, port)
+			candidates = append(candidates, normalizeMongoAddress(config.Host, defaultPort))
 		}
 	}
 
-	// Add connection options
-	params := []string{}
-	timeout := getConnectTimeoutSeconds(config)
-	params = append(params, fmt.Sprintf("connectTimeoutMS=%d", timeout*1000))
-	params = append(params, fmt.Sprintf("serverSelectionTimeoutMS=%d", timeout*1000))
-
-	// authSource: 优先使用 config.Database，为空时默认 admin
-	authSource := "admin"
-	if config.Database != "" {
-		authSource = config.Database
+	result := make([]string, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, entry := range candidates {
+		normalized, ok := normalizeMongoSeed(entry, defaultPort, useSRV)
+		if !ok {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
 	}
-	params = append(params, fmt.Sprintf("authSource=%s", authSource))
 
-	if len(params) > 0 {
-		uri = uri + "/?" + strings.Join(params, "&")
+	return result
+}
+
+func applyMongoURI(config connection.ConnectionConfig) connection.ConnectionConfig {
+	uriText := strings.TrimSpace(config.URI)
+	if uriText == "" {
+		return config
+	}
+	lowerURI := strings.ToLower(uriText)
+	if strings.HasPrefix(lowerURI, "mongodb+srv://") {
+		config.MongoSRV = true
+	}
+	if !strings.HasPrefix(lowerURI, "mongodb://") && !strings.HasPrefix(lowerURI, "mongodb+srv://") {
+		return config
+	}
+
+	parsed, err := url.Parse(uriText)
+	if err != nil {
+		return config
+	}
+
+	if parsed.User != nil {
+		if config.User == "" {
+			config.User = parsed.User.Username()
+		}
+		if pass, ok := parsed.User.Password(); ok && config.Password == "" {
+			config.Password = pass
+		}
+	}
+
+	if dbName := strings.TrimPrefix(parsed.Path, "/"); dbName != "" && config.Database == "" {
+		config.Database = dbName
+	}
+
+	defaultPort := config.Port
+	if defaultPort <= 0 {
+		defaultPort = defaultMongoPort
+	}
+	hostsFromURI := make([]string, 0, 4)
+	hostText := strings.TrimSpace(parsed.Host)
+	if hostText != "" {
+		for _, entry := range strings.Split(hostText, ",") {
+			normalized, ok := normalizeMongoSeed(entry, defaultPort, config.MongoSRV)
+			if ok {
+				hostsFromURI = append(hostsFromURI, normalized)
+			}
+		}
+	}
+
+	if len(config.Hosts) == 0 && len(hostsFromURI) > 0 {
+		config.Hosts = hostsFromURI
+	}
+	if strings.TrimSpace(config.Host) == "" && len(hostsFromURI) > 0 {
+		host, port, ok := parseHostPortWithDefault(hostsFromURI[0], defaultPort)
+		if ok {
+			config.Host = host
+			config.Port = port
+		}
+	}
+
+	query := parsed.Query()
+	if config.AuthSource == "" {
+		config.AuthSource = strings.TrimSpace(query.Get("authSource"))
+	}
+	if config.ReadPreference == "" {
+		config.ReadPreference = strings.TrimSpace(query.Get("readPreference"))
+	}
+	if config.ReplicaSet == "" {
+		config.ReplicaSet = strings.TrimSpace(query.Get("replicaSet"))
+	}
+	if config.MongoAuthMechanism == "" {
+		config.MongoAuthMechanism = strings.TrimSpace(query.Get("authMechanism"))
+	}
+	if config.Topology == "" {
+		if len(config.Hosts) > 1 || strings.TrimSpace(config.ReplicaSet) != "" {
+			config.Topology = "replica"
+		} else {
+			config.Topology = "single"
+		}
+	}
+
+	return config
+}
+
+func (m *MongoDB) getURI(config connection.ConnectionConfig) string {
+	if strings.TrimSpace(config.URI) != "" {
+		return strings.TrimSpace(config.URI)
+	}
+
+	seeds := collectMongoSeeds(config)
+	if len(seeds) == 0 {
+		if config.MongoSRV {
+			seed := strings.TrimSpace(config.Host)
+			if seed == "" {
+				seed = "localhost"
+			}
+			seeds = append(seeds, seed)
+		} else {
+			seeds = append(seeds, normalizeMongoAddress(config.Host, config.Port))
+		}
+	}
+
+	scheme := "mongodb"
+	if config.MongoSRV {
+		scheme = "mongodb+srv"
+	}
+	hostText := strings.Join(seeds, ",")
+	uri := fmt.Sprintf("%s://%s", scheme, hostText)
+
+	if config.User != "" {
+		encodedUser := url.PathEscape(config.User)
+		if config.Password != "" {
+			encodedPass := url.PathEscape(config.Password)
+			uri = fmt.Sprintf("%s://%s:%s@%s", scheme, encodedUser, encodedPass, hostText)
+		} else {
+			uri = fmt.Sprintf("%s://%s@%s", scheme, encodedUser, hostText)
+		}
+	}
+
+	path := "/"
+	if strings.TrimSpace(config.Database) != "" {
+		path = "/" + url.PathEscape(strings.TrimSpace(config.Database))
+	}
+	uri += path
+
+	params := url.Values{}
+	timeout := getConnectTimeoutSeconds(config)
+	params.Set("connectTimeoutMS", strconv.Itoa(timeout*1000))
+	params.Set("serverSelectionTimeoutMS", strconv.Itoa(timeout*1000))
+
+	authSource := strings.TrimSpace(config.AuthSource)
+	if authSource == "" && strings.TrimSpace(config.Database) != "" {
+		authSource = strings.TrimSpace(config.Database)
+	}
+	if authSource == "" {
+		authSource = "admin"
+	}
+	params.Set("authSource", authSource)
+
+	if replicaSet := strings.TrimSpace(config.ReplicaSet); replicaSet != "" {
+		params.Set("replicaSet", replicaSet)
+	}
+	if readPreference := strings.TrimSpace(config.ReadPreference); readPreference != "" {
+		params.Set("readPreference", readPreference)
+	}
+	if authMechanism := strings.TrimSpace(config.MongoAuthMechanism); authMechanism != "" {
+		params.Set("authMechanism", authMechanism)
+	}
+
+	if encoded := params.Encode(); encoded != "" {
+		uri += "?" + encoded
 	}
 
 	return uri
 }
 
+func buildMongoAuthAttempts(config connection.ConnectionConfig) []connection.ConnectionConfig {
+	attempts := []connection.ConnectionConfig{config}
+	replicaUser := strings.TrimSpace(config.MongoReplicaUser)
+	if replicaUser == "" {
+		return attempts
+	}
+	if replicaUser == strings.TrimSpace(config.User) && config.MongoReplicaPassword == config.Password {
+		return attempts
+	}
+
+	replicaConfig := config
+	replicaConfig.URI = ""
+	replicaConfig.User = replicaUser
+	replicaConfig.Password = config.MongoReplicaPassword
+	attempts = append(attempts, replicaConfig)
+	return attempts
+}
+
 func (m *MongoDB) Connect(config connection.ConnectionConfig) error {
-	var uri string
+	runConfig := applyMongoURI(config)
+	connectConfig := runConfig
 
-	if config.UseSSH {
-		logger.Infof("MongoDB 使用 SSH 连接：地址=%s:%d", config.Host, config.Port)
+	if runConfig.UseSSH && runConfig.MongoSRV {
+		return fmt.Errorf("MongoDB SRV 记录模式暂不支持 SSH 隧道")
+	}
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+	if runConfig.UseSSH {
+		seeds := collectMongoSeeds(runConfig)
+		if len(seeds) == 0 {
+			seeds = append(seeds, normalizeMongoAddress(runConfig.Host, runConfig.Port))
+		}
+		targetHost, targetPort, ok := parseHostPortWithDefault(seeds[0], defaultMongoPort)
+		if !ok {
+			return fmt.Errorf("MongoDB 连接失败：无效地址 %s", seeds[0])
+		}
+
+		logger.Infof("MongoDB 使用 SSH 连接：地址=%s:%d", targetHost, targetPort)
+
+		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, targetHost, targetPort)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -88,35 +300,55 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) error {
 			return fmt.Errorf("解析本地端口失败：%w", err)
 		}
 
-		localConfig := config
+		localConfig := runConfig
 		localConfig.Host = host
 		localConfig.Port = port
 		localConfig.UseSSH = false
-
-		uri = m.getURI(localConfig)
-		logger.Infof("MongoDB 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		uri = m.getURI(config)
+		localConfig.URI = ""
+		localConfig.Hosts = []string{normalizeMongoAddress(host, port)}
+		connectConfig = localConfig
+		logger.Infof("MongoDB 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, targetHost, targetPort)
 	}
 
-	m.pingTimeout = getConnectTimeout(config)
-	m.database = config.Database
+	m.pingTimeout = getConnectTimeout(connectConfig)
+	m.database = connectConfig.Database
 	if m.database == "" {
 		m.database = "admin"
 	}
 
-	clientOpts := options.Client().ApplyURI(uri)
-	client, err := mongo.Connect(clientOpts)
-	if err != nil {
-		return fmt.Errorf("MongoDB 连接失败：%w", err)
-	}
-	m.client = client
+	attemptConfigs := buildMongoAuthAttempts(connectConfig)
+	var errorDetails []string
+	for index, attemptConfig := range attemptConfigs {
+		authLabel := "主库凭据"
+		if index > 0 {
+			authLabel = "从库凭据"
+		}
 
-	if err := m.Ping(); err != nil {
-		return fmt.Errorf("MongoDB 连接验证失败：%w", err)
+		uri := m.getURI(attemptConfig)
+		clientOpts := options.Client().ApplyURI(uri)
+		client, err := mongo.Connect(clientOpts)
+		if err != nil {
+			errorDetails = append(errorDetails, fmt.Sprintf("%s连接失败: %v", authLabel, err))
+			continue
+		}
+
+		m.client = client
+		if err := m.Ping(); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			_ = client.Disconnect(ctx)
+			cancel()
+			m.client = nil
+			errorDetails = append(errorDetails, fmt.Sprintf("%s验证失败: %v", authLabel, err))
+			continue
+		}
+		return nil
 	}
 
-	return nil
+	if len(errorDetails) > 0 {
+		return fmt.Errorf("MongoDB 连接失败：%s", strings.Join(errorDetails, "；"))
+	}
+
+	return fmt.Errorf("MongoDB 连接失败：无可用连接方案")
 }
 
 func (m *MongoDB) Close() error {
@@ -146,6 +378,226 @@ func (m *MongoDB) Ping() error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	return m.client.Ping(ctx, readpref.Primary())
+}
+
+func asMongoStringList(raw interface{}) []string {
+	values, ok := raw.(bson.A)
+	if !ok {
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, entry := range values {
+		text := strings.TrimSpace(fmt.Sprintf("%v", entry))
+		if text != "" {
+			result = append(result, text)
+		}
+	}
+	return result
+}
+
+func asMongoString(raw interface{}) string {
+	if raw == nil {
+		return ""
+	}
+	if value, ok := raw.(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", raw))
+}
+
+func asMongoInt(raw interface{}) int {
+	switch value := raw.(type) {
+	case int:
+		return value
+	case int32:
+		return int(value)
+	case int64:
+		return int(value)
+	case float32:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
+func asMongoBool(raw interface{}) bool {
+	switch value := raw.(type) {
+	case bool:
+		return value
+	case int:
+		return value != 0
+	case int32:
+		return value != 0
+	case int64:
+		return value != 0
+	case float32:
+		return value != 0
+	case float64:
+		return value != 0
+	default:
+		return false
+	}
+}
+
+func mongoStateByCode(code int) string {
+	switch code {
+	case 1:
+		return "PRIMARY"
+	case 2:
+		return "SECONDARY"
+	case 3:
+		return "RECOVERING"
+	case 5:
+		return "STARTUP2"
+	case 6:
+		return "UNKNOWN"
+	case 7:
+		return "ARBITER"
+	case 8:
+		return "DOWN"
+	case 9:
+		return "ROLLBACK"
+	case 10:
+		return "REMOVED"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func normalizeMongoStateLabel(state string, stateCode int) string {
+	normalized := strings.ToUpper(strings.TrimSpace(state))
+	if normalized != "" {
+		return normalized
+	}
+	return mongoStateByCode(stateCode)
+}
+
+func buildMembersFromReplStatus(raw bson.M) []connection.MongoMemberInfo {
+	items, ok := raw["members"].(bson.A)
+	if !ok {
+		return nil
+	}
+
+	members := make([]connection.MongoMemberInfo, 0, len(items))
+	for _, entry := range items {
+		member, ok := entry.(bson.M)
+		if !ok {
+			continue
+		}
+		host := asMongoString(member["name"])
+		if host == "" {
+			continue
+		}
+		stateCode := asMongoInt(member["state"])
+		state := normalizeMongoStateLabel(asMongoString(member["stateStr"]), stateCode)
+		members = append(members, connection.MongoMemberInfo{
+			Host:      host,
+			Role:      state,
+			State:     state,
+			StateCode: stateCode,
+			Healthy:   asMongoInt(member["health"]) > 0 || asMongoBool(member["health"]),
+			IsSelf:    asMongoBool(member["self"]),
+		})
+	}
+
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].Host < members[j].Host
+	})
+	return members
+}
+
+func buildMembersFromHello(raw bson.M) []connection.MongoMemberInfo {
+	hosts := asMongoStringList(raw["hosts"])
+	if len(hosts) == 0 {
+		return nil
+	}
+	primary := asMongoString(raw["primary"])
+	selfHost := asMongoString(raw["me"])
+	passiveSet := make(map[string]struct{})
+	for _, host := range asMongoStringList(raw["passives"]) {
+		passiveSet[host] = struct{}{}
+	}
+	arbiterSet := make(map[string]struct{})
+	for _, host := range asMongoStringList(raw["arbiters"]) {
+		arbiterSet[host] = struct{}{}
+	}
+
+	members := make([]connection.MongoMemberInfo, 0, len(hosts))
+	for _, host := range hosts {
+		state := "SECONDARY"
+		stateCode := 2
+		if host == primary {
+			state = "PRIMARY"
+			stateCode = 1
+		} else if _, ok := arbiterSet[host]; ok {
+			state = "ARBITER"
+			stateCode = 7
+		} else if _, ok := passiveSet[host]; ok {
+			state = "PASSIVE"
+			stateCode = 6
+		}
+		members = append(members, connection.MongoMemberInfo{
+			Host:      host,
+			Role:      state,
+			State:     state,
+			StateCode: stateCode,
+			Healthy:   true,
+			IsSelf:    host == selfHost,
+		})
+	}
+
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].Host < members[j].Host
+	})
+	return members
+}
+
+func (m *MongoDB) DiscoverMembers() (string, []connection.MongoMemberInfo, error) {
+	if m.client == nil {
+		return "", nil, fmt.Errorf("connection not open")
+	}
+
+	timeout := m.pingTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	adminDB := m.client.Database("admin")
+
+	var replStatus bson.M
+	replErr := adminDB.RunCommand(ctx, bson.D{{Key: "replSetGetStatus", Value: 1}}).Decode(&replStatus)
+	if replErr == nil {
+		replicaSet := asMongoString(replStatus["set"])
+		members := buildMembersFromReplStatus(replStatus)
+		if len(members) > 0 {
+			return replicaSet, members, nil
+		}
+	}
+
+	var helloResult bson.M
+	helloErr := adminDB.RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&helloResult)
+	if helloErr != nil {
+		if err := adminDB.RunCommand(ctx, bson.D{{Key: "isMaster", Value: 1}}).Decode(&helloResult); err != nil {
+			if replErr != nil {
+				return "", nil, fmt.Errorf("成员发现失败：replSetGetStatus=%v；hello=%v", replErr, err)
+			}
+			return "", nil, fmt.Errorf("成员发现失败：hello=%w", err)
+		}
+	}
+
+	replicaSet := asMongoString(helloResult["setName"])
+	members := buildMembersFromHello(helloResult)
+	if len(members) == 0 {
+		if replErr != nil {
+			return replicaSet, nil, fmt.Errorf("未获取到成员信息：replSetGetStatus=%v", replErr)
+		}
+		return replicaSet, nil, fmt.Errorf("未获取到成员信息")
+	}
+	return replicaSet, members, nil
 }
 
 // Query executes a MongoDB command and returns results
