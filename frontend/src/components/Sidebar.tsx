@@ -54,6 +54,10 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const removeConnection = useStore(state => state.removeConnection);
   const theme = useStore(state => state.theme);
   const appearance = useStore(state => state.appearance);
+  const tableAccessCount = useStore(state => state.tableAccessCount);
+  const tableSortPreference = useStore(state => state.tableSortPreference);
+  const recordTableAccess = useStore(state => state.recordTableAccess);
+  const setTableSortPreference = useStore(state => state.setTableSortPreference);
   const darkMode = theme === 'dark';
   const opacity = normalizeOpacityForPlatform(appearance.opacity);
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
@@ -490,8 +494,28 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 loadDatabaseTriggers(conn, conn.dbName),
             ]);
 
-            // Sort tables by display name (case-insensitive)
-            tables.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+            // 获取当前数据库的排序偏好
+            const sortPreferenceKey = `${conn.id}-${conn.dbName}`;
+            const sortBy = tableSortPreference[sortPreferenceKey] || 'name';
+
+            // 根据排序偏好排序表
+            if (sortBy === 'frequency') {
+                // 按使用频率排序（降序）
+                tables.sort((a, b) => {
+                    const keyA = `${conn.id}-${conn.dbName}-${a.dataRef.tableName}`;
+                    const keyB = `${conn.id}-${conn.dbName}-${b.dataRef.tableName}`;
+                    const countA = tableAccessCount[keyA] || 0;
+                    const countB = tableAccessCount[keyB] || 0;
+                    if (countA !== countB) {
+                        return countB - countA; // 降序
+                    }
+                    // 频率相同时按名称排序
+                    return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+                });
+            } else {
+                // 按名称排序（字母顺序）
+                tables.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+            }
 
             // Sort views by name (case-insensitive)
             views.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
@@ -662,6 +686,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const onDoubleClick = (e: any, node: any) => {
       if (node.type === 'table') {
           const { tableName, dbName, id } = node.dataRef;
+          // 记录表访问
+          recordTableAccess(id, dbName, tableName);
           addTab({
               id: node.key,
               title: tableName,
@@ -718,10 +744,10 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
       const key = node.key;
       const isExpanded = expandedKeys.includes(key);
-      const newExpandedKeys = isExpanded 
-          ? expandedKeys.filter(k => k !== key) 
+      const newExpandedKeys = isExpanded
+          ? expandedKeys.filter(k => k !== key)
           : [...expandedKeys, key];
-      
+
       setExpandedKeys(newExpandedKeys);
       if (!isExpanded) setAutoExpandParent(false);
   };
@@ -1321,6 +1347,42 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
     const conn = node.dataRef as SavedConnection;
     const isRedis = conn?.config?.type === 'redis';
 
+    // 表分组节点的右键菜单
+    if (node.type === 'object-group' && node.dataRef?.groupKey === 'tables') {
+        const groupData = node.dataRef; // { ...conn, dbName, groupKey }
+        const sortPreferenceKey = `${groupData.id}-${groupData.dbName}`;
+        const currentSort = tableSortPreference[sortPreferenceKey] || 'name';
+
+        return [
+            {
+                key: 'sort-by-name',
+                label: '按名称排序',
+                icon: currentSort === 'name' ? <CheckSquareOutlined /> : null,
+                onClick: () => {
+                    setTableSortPreference(groupData.id, groupData.dbName, 'name');
+                    const dbNode = {
+                        key: `${groupData.id}-${groupData.dbName}`,
+                        dataRef: groupData
+                    };
+                    loadTables(dbNode);
+                }
+            },
+            {
+                key: 'sort-by-frequency',
+                label: '按使用频率排序',
+                icon: currentSort === 'frequency' ? <CheckSquareOutlined /> : null,
+                onClick: () => {
+                    setTableSortPreference(groupData.id, groupData.dbName, 'frequency');
+                    const dbNode = {
+                        key: `${groupData.id}-${groupData.dbName}`,
+                        dataRef: groupData
+                    };
+                    loadTables(dbNode);
+                }
+            }
+        ];
+    }
+
     if (node.type === 'connection') {
         // Redis connection menu
         if (isRedis) {
@@ -1687,7 +1749,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         if (connectionStates[node.key] === 'success') status = 'success';
         else if (connectionStates[node.key] === 'error') status = 'error';
     }
-    
+
     const statusBadge = node.type === 'connection' || node.type === 'database' ? (
         <Badge status={status} style={{ marginRight: 8 }} />
     ) : null;

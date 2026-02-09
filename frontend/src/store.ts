@@ -37,11 +37,13 @@ interface AppState {
   sqlFormatOptions: { keywordCase: 'upper' | 'lower' };
   queryOptions: { maxRows: number };
   sqlLogs: SqlLog[];
-  
+  tableAccessCount: Record<string, number>;
+  tableSortPreference: Record<string, 'name' | 'frequency'>;
+
   addConnection: (conn: SavedConnection) => void;
   updateConnection: (conn: SavedConnection) => void;
   removeConnection: (id: string) => void;
-  
+
   addTab: (tab: TabData) => void;
   closeTab: (id: string) => void;
   closeOtherTabs: (id: string) => void;
@@ -58,9 +60,12 @@ interface AppState {
   setAppearance: (appearance: Partial<{ opacity: number; blur: number }>) => void;
   setSqlFormatOptions: (options: { keywordCase: 'upper' | 'lower' }) => void;
   setQueryOptions: (options: Partial<{ maxRows: number }>) => void;
-  
+
   addSqlLog: (log: SqlLog) => void;
   clearSqlLogs: () => void;
+
+  recordTableAccess: (connectionId: string, dbName: string, tableName: string) => void;
+  setTableSortPreference: (connectionId: string, dbName: string, sortBy: 'name' | 'frequency') => void;
 }
 
 export const useStore = create<AppState>()(
@@ -76,10 +81,12 @@ export const useStore = create<AppState>()(
       sqlFormatOptions: { keywordCase: 'upper' },
       queryOptions: { maxRows: 5000 },
       sqlLogs: [],
+      tableAccessCount: {},
+      tableSortPreference: {},
 
       addConnection: (conn) => set((state) => ({ connections: [...state.connections, conn] })),
-      updateConnection: (conn) => set((state) => ({ 
-          connections: state.connections.map(c => c.id === conn.id ? conn : c) 
+      updateConnection: (conn) => set((state) => ({
+          connections: state.connections.map(c => c.id === conn.id ? conn : c)
       })),
       removeConnection: (id) => set((state) => ({ connections: state.connections.filter(c => c.id !== id) })),
 
@@ -145,9 +152,30 @@ export const useStore = create<AppState>()(
       setAppearance: (appearance) => set((state) => ({ appearance: { ...state.appearance, ...appearance } })),
       setSqlFormatOptions: (options) => set({ sqlFormatOptions: options }),
       setQueryOptions: (options) => set((state) => ({ queryOptions: { ...state.queryOptions, ...options } })),
-      
+
       addSqlLog: (log) => set((state) => ({ sqlLogs: [log, ...state.sqlLogs].slice(0, 1000) })), // Keep last 1000 logs
       clearSqlLogs: () => set({ sqlLogs: [] }),
+
+      recordTableAccess: (connectionId, dbName, tableName) => set((state) => {
+        const key = `${connectionId}-${dbName}-${tableName}`;
+        const currentCount = state.tableAccessCount[key] || 0;
+        return {
+          tableAccessCount: {
+            ...state.tableAccessCount,
+            [key]: currentCount + 1
+          }
+        };
+      }),
+
+      setTableSortPreference: (connectionId, dbName, sortBy) => set((state) => {
+        const key = `${connectionId}-${dbName}`;
+        return {
+          tableSortPreference: {
+            ...state.tableSortPreference,
+            [key]: sortBy
+          }
+        };
+      }),
     }),
     {
       name: 'lite-db-storage', // name of the item in the storage (must be unique)
@@ -178,7 +206,16 @@ export const useStore = create<AppState>()(
 
         return nextState as AppState;
       },
-      partialize: (state) => ({ connections: state.connections, savedQueries: state.savedQueries, theme: state.theme, appearance: state.appearance, sqlFormatOptions: state.sqlFormatOptions, queryOptions: state.queryOptions }), // Don't persist logs
+      partialize: (state) => ({
+        connections: state.connections,
+        savedQueries: state.savedQueries,
+        theme: state.theme,
+        appearance: state.appearance,
+        sqlFormatOptions: state.sqlFormatOptions,
+        queryOptions: state.queryOptions,
+        tableAccessCount: state.tableAccessCount,
+        tableSortPreference: state.tableSortPreference
+      }), // Don't persist logs
     }
   )
 );
