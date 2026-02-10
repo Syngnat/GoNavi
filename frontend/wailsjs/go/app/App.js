@@ -122,6 +122,10 @@ export function ImportData(arg1, arg2, arg3) {
   return window['go']['app']['App']['ImportData'](arg1, arg2, arg3);
 }
 
+export function ImportDataWithProgress(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['ImportDataWithProgress'](arg1, arg2, arg3, arg4);
+}
+
 export function InstallUpdateAndRestart() {
   return window['go']['app']['App']['InstallUpdateAndRestart']();
 }
@@ -152,6 +156,10 @@ export function MySQLShowCreateTable(arg1, arg2, arg3) {
 
 export function OpenSQLFile() {
   return window['go']['app']['App']['OpenSQLFile']();
+}
+
+export function PreviewImportFile(arg1) {
+  return window['go']['app']['App']['PreviewImportFile'](arg1);
 }
 
 export function RedisConnect(arg1) {

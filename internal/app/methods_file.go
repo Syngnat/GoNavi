@@ -14,9 +14,9 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
-	"GoNavi-Wails/internal/logger"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/xuri/excelize/v2"
 )
 
 func (a *App) OpenSQLFile() connection.QueryResult {
@@ -77,13 +77,41 @@ func (a *App) ImportConfigFile() connection.QueryResult {
 	return connection.QueryResult{Success: true, Data: string(content)}
 }
 
+
+// PreviewImportFile 解析导入文件，返回字段列表、总行数、前 5 行预览数据
+func (a *App) PreviewImportFile(filePath string) connection.QueryResult {
+	if filePath == "" {
+		return connection.QueryResult{Success: false, Message: "File path required"}
+	}
+
+	rows, columns, err := parseImportFile(filePath)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	totalRows := len(rows)
+	previewRows := rows
+	if len(rows) > 5 {
+		previewRows = rows[:5]
+	}
+
+	result := map[string]interface{}{
+		"columns":     columns,
+		"totalRows":   totalRows,
+		"previewRows": previewRows,
+		"filePath":    filePath,
+	}
+
+	return connection.QueryResult{Success: true, Data: result}
+}
+
 func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName string) connection.QueryResult {
 	selection, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: fmt.Sprintf("Import into %s", tableName),
 		Filters: []runtime.FileFilter{
 			{
 				DisplayName: "Data Files",
-				Pattern:     "*.csv;*.json",
+				Pattern:     "*.csv;*.json;*.xlsx;*.xls",
 			},
 		},
 	})
@@ -96,44 +124,107 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 		return connection.QueryResult{Success: false, Message: "Cancelled"}
 	}
 
-	f, err := os.Open(selection)
-	if err != nil {
-		return connection.QueryResult{Success: false, Message: err.Error()}
-	}
-	defer f.Close()
+	// 返回文件路径供前端预览
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{"filePath": selection}}
+}
 
+// parseImportFile 解析导入文件，返回数据行和列名
+func parseImportFile(filePath string) ([]map[string]interface{}, []string, error) {
 	var rows []map[string]interface{}
+	var columns []string
+	lower := strings.ToLower(filePath)
 
-	if strings.HasSuffix(strings.ToLower(selection), ".json") {
+	if strings.HasSuffix(lower, ".json") {
+		f, err := os.Open(filePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer f.Close()
 		decoder := json.NewDecoder(f)
 		if err := decoder.Decode(&rows); err != nil {
-			return connection.QueryResult{Success: false, Message: "JSON Parse Error: " + err.Error()}
+			return nil, nil, fmt.Errorf("JSON Parse Error: %w", err)
 		}
-	} else if strings.HasSuffix(strings.ToLower(selection), ".csv") {
+		if len(rows) > 0 {
+			for k := range rows[0] {
+				columns = append(columns, k)
+			}
+		}
+	} else if strings.HasSuffix(lower, ".csv") {
+		f, err := os.Open(filePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		defer f.Close()
 		reader := csv.NewReader(f)
 		records, err := reader.ReadAll()
 		if err != nil {
-			return connection.QueryResult{Success: false, Message: "CSV Parse Error: " + err.Error()}
+			return nil, nil, fmt.Errorf("CSV Parse Error: %w", err)
 		}
 		if len(records) < 2 {
-			return connection.QueryResult{Success: false, Message: "CSV empty or missing header"}
+			return nil, nil, fmt.Errorf("CSV empty or missing header")
 		}
-		headers := records[0]
+		columns = records[0]
 		for _, record := range records[1:] {
 			row := make(map[string]interface{})
 			for i, val := range record {
-				if i < len(headers) {
+				if i < len(columns) {
 					if val == "NULL" {
-						row[headers[i]] = nil
+						row[columns[i]] = nil
 					} else {
-						row[headers[i]] = val
+						row[columns[i]] = val
 					}
 				}
 			}
 			rows = append(rows, row)
 		}
+	} else if strings.HasSuffix(lower, ".xlsx") || strings.HasSuffix(lower, ".xls") {
+		xlsx, err := excelize.OpenFile(filePath)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Excel Parse Error: %w", err)
+		}
+		defer xlsx.Close()
+
+		sheetName := xlsx.GetSheetName(0)
+		if sheetName == "" {
+			return nil, nil, fmt.Errorf("Excel file has no sheets")
+		}
+
+		xlRows, err := xlsx.GetRows(sheetName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Excel Read Error: %w", err)
+		}
+		if len(xlRows) < 2 {
+			return nil, nil, fmt.Errorf("Excel empty or missing header")
+		}
+
+		columns = xlRows[0]
+		for _, record := range xlRows[1:] {
+			row := make(map[string]interface{})
+			for i, val := range record {
+				if i < len(columns) && columns[i] != "" {
+					if val == "NULL" {
+						row[columns[i]] = nil
+					} else {
+						row[columns[i]] = val
+					}
+				}
+			}
+			if len(row) > 0 {
+				rows = append(rows, row)
+			}
+		}
 	} else {
-		return connection.QueryResult{Success: false, Message: "Unsupported file format"}
+		return nil, nil, fmt.Errorf("Unsupported file format")
+	}
+
+	return rows, columns, nil
+}
+
+// ImportDataWithProgress 执行导入并发送进度事件
+func (a *App) ImportDataWithProgress(config connection.ConnectionConfig, dbName, tableName, filePath string) connection.QueryResult {
+	rows, columns, err := parseImportFile(filePath)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	if len(rows) == 0 {
@@ -146,17 +237,18 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
+	totalRows := len(rows)
 	successCount := 0
-	errCount := 0
-	firstRow := rows[0]
-	var cols []string
-	for k := range firstRow {
-		cols = append(cols, k)
+	var errorLogs []string
+
+	quotedCols := make([]string, len(columns))
+	for i, c := range columns {
+		quotedCols[i] = quoteIdentByType(runConfig.Type, c)
 	}
 
-	for _, row := range rows {
+	for idx, row := range rows {
 		var values []string
-		for _, col := range cols {
+		for _, col := range columns {
 			val := row[col]
 			if val == nil {
 				values = append(values, "NULL")
@@ -166,10 +258,6 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 				values = append(values, fmt.Sprintf("'%s'", vStr))
 			}
 		}
-		quotedCols := make([]string, len(cols))
-		for i, c := range cols {
-			quotedCols[i] = quoteIdentByType(runConfig.Type, c)
-		}
 
 		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
 			quoteQualifiedIdentByType(runConfig.Type, tableName),
@@ -178,14 +266,31 @@ func (a *App) ImportData(config connection.ConnectionConfig, dbName, tableName s
 
 		_, err := dbInst.Exec(query)
 		if err != nil {
-			errCount++
-			logger.Error(err, "导入数据失败：表=%s", tableName)
+			errorLogs = append(errorLogs, fmt.Sprintf("Row %d: %s", idx+1, err.Error()))
 		} else {
 			successCount++
 		}
+
+		// 每 10 行发送一次进度事件
+		if (idx+1)%10 == 0 || idx == totalRows-1 {
+			runtime.EventsEmit(a.ctx, "import:progress", map[string]interface{}{
+				"current": idx + 1,
+				"total":   totalRows,
+				"success": successCount,
+				"errors":  len(errorLogs),
+			})
+		}
 	}
 
-	return connection.QueryResult{Success: true, Message: fmt.Sprintf("Imported: %d, Failed: %d", successCount, errCount)}
+	result := map[string]interface{}{
+		"success":      successCount,
+		"failed":       len(errorLogs),
+		"total":        totalRows,
+		"errorLogs":    errorLogs,
+		"errorSummary": fmt.Sprintf("Imported: %d, Failed: %d", successCount, len(errorLogs)),
+	}
+
+	return connection.QueryResult{Success: true, Data: result, Message: fmt.Sprintf("Imported: %d, Failed: %d", successCount, len(errorLogs))}
 }
 
 func (a *App) ApplyChanges(config connection.ConnectionConfig, dbName, tableName string, changes connection.ChangeSet) connection.QueryResult {
@@ -695,12 +800,17 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 		return fmt.Errorf("file required")
 	}
 
+	// xlsx 使用 excelize 写入真正的 Excel 格式
+	if format == "xlsx" {
+		return writeRowsToXlsx(f.Name(), data, columns)
+	}
+
 	var csvWriter *csv.Writer
 	var jsonEncoder *json.Encoder
 	isJsonFirstRow := true
 
 	switch format {
-	case "csv", "xlsx":
+	case "csv":
 		if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
 			return err
 		}
@@ -747,7 +857,7 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 		}
 
 		switch format {
-		case "csv", "xlsx":
+		case "csv":
 			if err := csvWriter.Write(record); err != nil {
 				return err
 			}
@@ -768,7 +878,7 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 		}
 	}
 
-	if format == "csv" || format == "xlsx" {
+	if format == "csv" {
 		csvWriter.Flush()
 		if err := csvWriter.Error(); err != nil {
 			return err
@@ -782,4 +892,33 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 	}
 
 	return nil
+}
+
+// writeRowsToXlsx 使用 excelize 写入真正的 xlsx 格式文件
+func writeRowsToXlsx(filename string, data []map[string]interface{}, columns []string) error {
+	xlsx := excelize.NewFile()
+	defer xlsx.Close()
+
+	sheet := "Sheet1"
+
+	// 写入表头
+	for i, col := range columns {
+		cell, _ := excelize.CoordinatesToCellName(i+1, 1)
+		xlsx.SetCellValue(sheet, cell, col)
+	}
+
+	// 写入数据行
+	for rowIdx, rowMap := range data {
+		for colIdx, col := range columns {
+			cell, _ := excelize.CoordinatesToCellName(colIdx+1, rowIdx+2)
+			val := rowMap[col]
+			if val == nil {
+				xlsx.SetCellValue(sheet, cell, "NULL")
+			} else {
+				xlsx.SetCellValue(sheet, cell, fmt.Sprintf("%v", val))
+			}
+		}
+	}
+
+	return xlsx.SaveAs(filename)
 }
