@@ -1,17 +1,13 @@
-import React, { useEffect, useState, useContext, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useContext, useMemo, useRef, useCallback } from 'react';
 import { Table, Tabs, Button, message, Input, Checkbox, Modal, AutoComplete, Tooltip, Select, Empty, Space } from 'antd';
 import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Resizable } from 'react-resizable';
 import Editor, { loader } from '@monaco-editor/react';
 import { TabData, ColumnDefinition, IndexDefinition, ForeignKeyDefinition, TriggerDefinition } from '../types';
 import { useStore } from '../store';
 import { DBGetColumns, DBGetIndexes, DBQuery, DBGetForeignKeys, DBGetTriggers, DBShowCreateTable } from '../../wailsjs/go/app/App';
-
-// Need styles for react-resizable
-import 'react-resizable/css/styles.css';
 
 interface EditableColumn extends ColumnDefinition {
     _key: string;
@@ -58,45 +54,43 @@ const COLLATIONS = {
     ]
 };
 
-// --- Resizable Header Component ---
+// --- Resizable Header Component (Native, same interaction as DataGrid) ---
 const ResizableTitle = (props: any) => {
-  const { onResize, width, ...restProps } = props;
+  const { onResizeStart, width, ...restProps } = props;
+  const nextStyle = { ...(restProps.style || {}) } as React.CSSProperties;
+
+  if (width) {
+    nextStyle.width = width;
+  }
 
   if (!width) {
-    return <th {...restProps} />;
+    return <th {...restProps} style={nextStyle} />;
   }
 
   return (
-    <Resizable
-      width={width}
-      height={0}
-      handle={
-        <span
-          className="react-resizable-handle"
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-          }}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault(); // Prevent text selection and focus hijacking
-          }}
-          style={{
-              position: 'absolute',
-              right: -5,
-              bottom: 0,
-              top: 0,
-              width: 10,
-              cursor: 'col-resize',
-              zIndex: 10
-          }}
-        />
-      }
-      onResize={onResize}
-      draggableOpts={{ enableUserSelectHack: true }}
-    >
-      <th {...restProps} style={{ ...restProps.style, position: 'relative' }} />
-    </Resizable>
+    <th {...restProps} style={{ ...nextStyle, position: 'relative' }}>
+      {restProps.children}
+      <span
+        className="react-resizable-handle"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          if (typeof onResizeStart === 'function') {
+            onResizeStart(e);
+          }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: 'absolute',
+          right: 0,
+          bottom: 0,
+          top: 0,
+          width: 10,
+          cursor: 'col-resize',
+          zIndex: 10,
+          touchAction: 'none',
+        }}
+      />
+    </th>
   );
 };
 
@@ -218,6 +212,14 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
 
   // --- Resizable Columns State ---
   const [tableColumns, setTableColumns] = useState<any[]>([]);
+  const resizeDragRef = useRef<{ startX: number; startWidth: number; index: number; containerLeft: number } | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
+  const latestResizeXRef = useRef<number | null>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
+  const resizeListenerRef = useRef<{ move: ((e: MouseEvent) => void) | null; up: ((e: MouseEvent) => void) | null }>({
+    move: null,
+    up: null,
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -318,25 +320,97 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
       setTableColumns(initialCols);
   }, [readOnly]); // Re-create if readOnly changes
 
-  const rafRef = React.useRef<number | null>(null);
+  const flushResizeGhost = useCallback(() => {
+    resizeRafRef.current = null;
+    if (!resizeDragRef.current || !ghostRef.current) return;
+    if (latestResizeXRef.current === null) return;
+    const relativeLeft = latestResizeXRef.current - resizeDragRef.current.containerLeft;
+    ghostRef.current.style.transform = `translateX(${relativeLeft}px)`;
+  }, []);
 
-  // Resize Handler
-  const handleResize = (index: number) => (_: React.SyntheticEvent, { size }: { size: { width: number } }) => {
-      if (rafRef.current) {
-          cancelAnimationFrame(rafRef.current);
-      }
-      rafRef.current = requestAnimationFrame(() => {
-        setTableColumns((columns) => {
-            const nextColumns = [...columns];
-            nextColumns[index] = {
-                ...nextColumns[index],
-                width: size.width,
-            };
-            return nextColumns;
+  const detachResizeListeners = useCallback(() => {
+    if (resizeListenerRef.current.move) {
+      document.removeEventListener('mousemove', resizeListenerRef.current.move);
+      resizeListenerRef.current.move = null;
+    }
+    if (resizeListenerRef.current.up) {
+      document.removeEventListener('mouseup', resizeListenerRef.current.up);
+      resizeListenerRef.current.up = null;
+    }
+  }, []);
+
+  const cleanupResizeState = useCallback(() => {
+    if (resizeRafRef.current !== null) {
+      cancelAnimationFrame(resizeRafRef.current);
+      resizeRafRef.current = null;
+    }
+    latestResizeXRef.current = null;
+    resizeDragRef.current = null;
+    if (ghostRef.current) {
+      ghostRef.current.style.display = 'none';
+    }
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }, []);
+
+  const handleResizeStart = useCallback((index: number) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startX = e.clientX;
+    const currentWidth = Number(tableColumns[index]?.width || 200);
+    const containerLeft = containerRef.current?.getBoundingClientRect().left ?? 0;
+    resizeDragRef.current = { startX, startWidth: currentWidth, index, containerLeft };
+    latestResizeXRef.current = startX;
+
+    if (ghostRef.current && containerRef.current) {
+      const relativeLeft = startX - containerLeft;
+      ghostRef.current.style.transform = `translateX(${relativeLeft}px)`;
+      ghostRef.current.style.display = 'block';
+    }
+
+    detachResizeListeners();
+
+    const onMove = (event: MouseEvent) => {
+      if (!resizeDragRef.current) return;
+      latestResizeXRef.current = event.clientX;
+      if (resizeRafRef.current !== null) return;
+      resizeRafRef.current = requestAnimationFrame(flushResizeGhost);
+    };
+
+    const onUp = (event: MouseEvent) => {
+      if (resizeDragRef.current) {
+        const { startX: dragStartX, startWidth, index: dragIndex } = resizeDragRef.current;
+        const deltaX = event.clientX - dragStartX;
+        const newWidth = Math.max(50, startWidth + deltaX);
+        setTableColumns((prevColumns) => {
+          if (!prevColumns[dragIndex]) return prevColumns;
+          const nextColumns = [...prevColumns];
+          nextColumns[dragIndex] = {
+            ...nextColumns[dragIndex],
+            width: newWidth,
+          };
+          return nextColumns;
         });
-        rafRef.current = null;
-      });
-  };
+      }
+
+      detachResizeListeners();
+      cleanupResizeState();
+    };
+
+    resizeListenerRef.current = { move: onMove, up: onUp };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [cleanupResizeState, detachResizeListeners, flushResizeGhost, tableColumns]);
+
+  useEffect(() => {
+    return () => {
+      detachResizeListeners();
+      cleanupResizeState();
+    };
+  }, [cleanupResizeState, detachResizeListeners]);
 
   const fetchData = async () => {
     if (isNewTable) return; // Don't fetch for new table
@@ -786,7 +860,7 @@ ${selectedTrigger.statement}`;
     ...col,
     onHeaderCell: (column: any) => ({
       width: column.width,
-      onResize: handleResize(index),
+      onResizeStart: handleResizeStart(index),
     }),
   }));
 
@@ -833,6 +907,21 @@ ${selectedTrigger.statement}`;
         </SortableContext>
       </DndContext>
   )}
+        <div
+          ref={ghostRef}
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: '2px',
+            background: '#1890ff',
+            zIndex: 9999,
+            display: 'none',
+            pointerEvents: 'none',
+            willChange: 'transform',
+          }}
+        />
   </div>
   );
 
