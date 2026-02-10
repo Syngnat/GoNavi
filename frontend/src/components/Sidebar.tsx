@@ -268,6 +268,19 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       return `${schema}.${name}`;
   };
 
+  const splitQualifiedName = (qualifiedName: string): { schemaName: string; objectName: string } => {
+      const raw = String(qualifiedName || '').trim();
+      if (!raw) return { schemaName: '', objectName: '' };
+      const idx = raw.lastIndexOf('.');
+      if (idx <= 0 || idx >= raw.length - 1) {
+          return { schemaName: '', objectName: raw };
+      }
+      return {
+          schemaName: raw.substring(0, idx),
+          objectName: raw.substring(idx + 1),
+      };
+  };
+
   const buildViewsMetadataQuery = (dialect: string, dbName: string): string => {
       const safeDbName = escapeSQLLiteral(dbName);
       switch (dialect) {
@@ -539,105 +552,214 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	          const res = await DBGetTables(config as any, conn.dbName);
 	          if (res.success) {
 	            setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
-	            const tables = (res.data as any[]).map((row: any) => {
-                const tableName = Object.values(row)[0] as string;
-                const tableDisplayName = getSidebarTableDisplayName(conn, tableName);
-                return {
-                  title: tableDisplayName,
-                  key: `${conn.id}-${conn.dbName}-${tableName}`,
-                  icon: <TableOutlined />,
-                  type: 'table' as const,
-                  dataRef: { ...conn, tableName },
-                  isLeaf: false, 
-                };
-            });
 
-            const [views, triggers, routines] = await Promise.all([
-                loadViews(conn, conn.dbName),
-                loadDatabaseTriggers(conn, conn.dbName),
-                loadFunctions(conn, conn.dbName),
-            ]);
+	            const tableEntries = (res.data as any[]).map((row: any) => {
+	                const tableName = Object.values(row)[0] as string;
+	                const parsed = splitQualifiedName(tableName);
+	                return {
+	                    tableName,
+	                    schemaName: parsed.schemaName,
+	                    displayName: getSidebarTableDisplayName(conn, tableName),
+	                };
+	            });
 
-            // 获取当前数据库的排序偏好
-            const sortPreferenceKey = `${conn.id}-${conn.dbName}`;
-            const sortBy = tableSortPreference[sortPreferenceKey] || 'name';
+	            const [views, triggers, routines] = await Promise.all([
+	                loadViews(conn, conn.dbName),
+	                loadDatabaseTriggers(conn, conn.dbName),
+	                loadFunctions(conn, conn.dbName),
+	            ]);
 
-            // 根据排序偏好排序表
-            if (sortBy === 'frequency') {
-                // 按使用频率排序（降序）
-                tables.sort((a, b) => {
-                    const keyA = `${conn.id}-${conn.dbName}-${a.dataRef.tableName}`;
-                    const keyB = `${conn.id}-${conn.dbName}-${b.dataRef.tableName}`;
-                    const countA = tableAccessCount[keyA] || 0;
-                    const countB = tableAccessCount[keyB] || 0;
-                    if (countA !== countB) {
-                        return countB - countA; // 降序
-                    }
-                    // 频率相同时按名称排序
-                    return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
-                });
-            } else {
-                // 按名称排序（字母顺序）
-                tables.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
-            }
+	            const viewEntries = views.map((viewName) => {
+	                const parsed = splitQualifiedName(viewName);
+	                return {
+	                    viewName,
+	                    schemaName: parsed.schemaName,
+	                    displayName: getSidebarTableDisplayName(conn, viewName),
+	                };
+	            });
 
-            // Sort views by name (case-insensitive)
-            views.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+	            const triggerEntries = triggers.map((trigger) => {
+	                const triggerParsed = splitQualifiedName(trigger.triggerName);
+	                const tableParsed = splitQualifiedName(trigger.tableName);
+	                const schemaName = tableParsed.schemaName || triggerParsed.schemaName;
+	                const triggerObjectName = triggerParsed.objectName || trigger.triggerName;
+	                const tableObjectName = tableParsed.objectName || trigger.tableName;
+	                const displayName = tableObjectName ? `${triggerObjectName} (${tableObjectName})` : triggerObjectName;
+	                return {
+	                    ...trigger,
+	                    schemaName,
+	                    displayName,
+	                };
+	            });
 
-            // Sort triggers by display name (case-insensitive)
-            triggers.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
+	            const routineEntries = routines.map((routine) => {
+	                const parsed = splitQualifiedName(routine.routineName);
+	                const typeLabel = routine.routineType === 'PROCEDURE' ? 'P' : 'F';
+	                return {
+	                    ...routine,
+	                    schemaName: parsed.schemaName,
+	                    displayName: `${parsed.objectName || routine.routineName} [${typeLabel}]`,
+	                };
+	            });
 
-            // Sort routines by display name (case-insensitive)
-            routines.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
+	            // 获取当前数据库的排序偏好
+	            const sortPreferenceKey = `${conn.id}-${conn.dbName}`;
+	            const sortBy = tableSortPreference[sortPreferenceKey] || 'name';
 
-            const viewNodes: TreeNode[] = views.map((viewName) => ({
-                title: getSidebarTableDisplayName(conn, viewName),
-                key: `${conn.id}-${conn.dbName}-view-${viewName}`,
-                icon: <EyeOutlined />,
-                type: 'view',
-                dataRef: { ...conn, viewName, tableName: viewName },
-                isLeaf: true,
-            }));
+	            // 根据排序偏好排序表
+	            if (sortBy === 'frequency') {
+	                // 按使用频率排序（降序）
+	                tableEntries.sort((a, b) => {
+	                    const keyA = `${conn.id}-${conn.dbName}-${a.tableName}`;
+	                    const keyB = `${conn.id}-${conn.dbName}-${b.tableName}`;
+	                    const countA = tableAccessCount[keyA] || 0;
+	                    const countB = tableAccessCount[keyB] || 0;
+	                    if (countA !== countB) {
+	                        return countB - countA;
+	                    }
+	                    return a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase());
+	                });
+	            } else {
+	                tableEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
+	            }
 
-            const triggerNodes: TreeNode[] = triggers.map((trigger) => ({
-                title: trigger.displayName,
-                key: `${conn.id}-${conn.dbName}-trigger-${trigger.triggerName}-${trigger.tableName}`,
-                icon: <FunctionOutlined />,
-                type: 'db-trigger',
-                dataRef: { ...conn, triggerName: trigger.triggerName, triggerTableName: trigger.tableName },
-                isLeaf: true,
-            }));
+	            // Sort views by name (case-insensitive)
+	            viewEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
-            const routineNodes: TreeNode[] = routines.map((r) => ({
-                title: r.displayName,
-                key: `${conn.id}-${conn.dbName}-routine-${r.routineName}`,
-                icon: <CodeOutlined />,
-                type: 'routine',
-                dataRef: { ...conn, routineName: r.routineName, routineType: r.routineType },
-                isLeaf: true,
-            }));
+	            // Sort triggers by display name (case-insensitive)
+	            triggerEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
-            const buildObjectGroup = (groupKey: string, groupTitle: string, groupIcon: React.ReactNode, children: TreeNode[]): TreeNode => ({
-                title: `${groupTitle} (${children.length})`,
-                key: `${key}-${groupKey}`,
-                icon: groupIcon,
-                type: 'object-group',
-                isLeaf: children.length === 0,
-                children: children.length > 0 ? children : undefined,
-                dataRef: { ...conn, dbName: conn.dbName, groupKey }
-            });
+	            // Sort routines by display name (case-insensitive)
+	            routineEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
-            const groupedNodes: TreeNode[] = [
-                buildObjectGroup('tables', '表', <TableOutlined />, tables),
-                buildObjectGroup('views', '视图', <EyeOutlined />, viewNodes),
-                buildObjectGroup('routines', '函数', <CodeOutlined />, routineNodes),
-                buildObjectGroup('triggers', '触发器', <FunctionOutlined />, triggerNodes),
-            ];
+	            const buildTableNode = (entry: { tableName: string; schemaName: string; displayName: string }): TreeNode => ({
+	                title: entry.displayName,
+	                key: `${conn.id}-${conn.dbName}-${entry.tableName}`,
+	                icon: <TableOutlined />,
+	                type: 'table',
+	                dataRef: { ...conn, tableName: entry.tableName, schemaName: entry.schemaName },
+	                isLeaf: false,
+	            });
 
-            setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...groupedNodes]));
-          } else {
-            setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
-            message.error({ content: res.message, key: `db-${key}-tables` });
+	            const buildViewNode = (entry: { viewName: string; schemaName: string; displayName: string }): TreeNode => ({
+	                title: entry.displayName,
+	                key: `${conn.id}-${conn.dbName}-view-${entry.viewName}`,
+	                icon: <EyeOutlined />,
+	                type: 'view',
+	                dataRef: { ...conn, viewName: entry.viewName, tableName: entry.viewName, schemaName: entry.schemaName },
+	                isLeaf: true,
+	            });
+
+	            const buildTriggerNode = (entry: { triggerName: string; tableName: string; schemaName: string; displayName: string }): TreeNode => ({
+	                title: entry.displayName,
+	                key: `${conn.id}-${conn.dbName}-trigger-${entry.triggerName}-${entry.tableName}`,
+	                icon: <FunctionOutlined />,
+	                type: 'db-trigger',
+	                dataRef: { ...conn, triggerName: entry.triggerName, triggerTableName: entry.tableName, schemaName: entry.schemaName },
+	                isLeaf: true,
+	            });
+
+	            const buildRoutineNode = (entry: { routineName: string; routineType: string; schemaName: string; displayName: string }): TreeNode => ({
+	                title: entry.displayName,
+	                key: `${conn.id}-${conn.dbName}-routine-${entry.routineName}`,
+	                icon: <CodeOutlined />,
+	                type: 'routine',
+	                dataRef: { ...conn, routineName: entry.routineName, routineType: entry.routineType, schemaName: entry.schemaName },
+	                isLeaf: true,
+	            });
+
+	            const buildObjectGroup = (
+	                parentKey: string,
+	                groupKey: string,
+	                groupTitle: string,
+	                groupIcon: React.ReactNode,
+	                children: TreeNode[],
+	                extraData: Record<string, any> = {}
+	            ): TreeNode => ({
+	                title: `${groupTitle} (${children.length})`,
+	                key: `${parentKey}-${groupKey}`,
+	                icon: groupIcon,
+	                type: 'object-group',
+	                isLeaf: children.length === 0,
+	                children: children.length > 0 ? children : undefined,
+	                dataRef: { ...conn, dbName: conn.dbName, groupKey, ...extraData }
+	            });
+
+	            const shouldGroupBySchema = shouldHideSchemaPrefix(conn as SavedConnection);
+	            if (shouldGroupBySchema) {
+	                type SchemaBucket = {
+	                    schemaName: string;
+	                    tables: TreeNode[];
+	                    views: TreeNode[];
+	                    routines: TreeNode[];
+	                    triggers: TreeNode[];
+	                };
+
+	                const schemaMap = new Map<string, SchemaBucket>();
+	                const getSchemaBucket = (rawSchemaName: string): SchemaBucket => {
+	                    const schemaName = String(rawSchemaName || '').trim();
+	                    const schemaKey = schemaName || '__default__';
+	                    let bucket = schemaMap.get(schemaKey);
+	                    if (!bucket) {
+	                        bucket = {
+	                            schemaName,
+	                            tables: [],
+	                            views: [],
+	                            routines: [],
+	                            triggers: [],
+	                        };
+	                        schemaMap.set(schemaKey, bucket);
+	                    }
+	                    return bucket;
+	                };
+
+	                tableEntries.forEach((entry) => getSchemaBucket(entry.schemaName).tables.push(buildTableNode(entry)));
+	                viewEntries.forEach((entry) => getSchemaBucket(entry.schemaName).views.push(buildViewNode(entry)));
+	                routineEntries.forEach((entry) => getSchemaBucket(entry.schemaName).routines.push(buildRoutineNode(entry)));
+	                triggerEntries.forEach((entry) => getSchemaBucket(entry.schemaName).triggers.push(buildTriggerNode(entry)));
+
+	                const schemaNodes: TreeNode[] = Array.from(schemaMap.values())
+	                    .sort((a, b) => {
+	                        if (!a.schemaName && !b.schemaName) return 0;
+	                        if (!a.schemaName) return -1;
+	                        if (!b.schemaName) return 1;
+	                        return a.schemaName.toLowerCase().localeCompare(b.schemaName.toLowerCase());
+	                    })
+	                    .map((bucket) => {
+	                        const schemaNodeKey = `${key}-schema-${bucket.schemaName || 'default'}`;
+	                        const schemaTitle = bucket.schemaName || '默认模式';
+	                        const groupedNodes: TreeNode[] = [
+	                            buildObjectGroup(schemaNodeKey, 'tables', '表', <TableOutlined />, bucket.tables, { schemaName: bucket.schemaName }),
+	                            buildObjectGroup(schemaNodeKey, 'views', '视图', <EyeOutlined />, bucket.views, { schemaName: bucket.schemaName }),
+	                            buildObjectGroup(schemaNodeKey, 'routines', '函数', <CodeOutlined />, bucket.routines, { schemaName: bucket.schemaName }),
+	                            buildObjectGroup(schemaNodeKey, 'triggers', '触发器', <FunctionOutlined />, bucket.triggers, { schemaName: bucket.schemaName }),
+	                        ];
+
+	                        return {
+	                            title: schemaTitle,
+	                            key: schemaNodeKey,
+	                            icon: <FolderOpenOutlined />,
+	                            type: 'object-group' as const,
+	                            isLeaf: groupedNodes.length === 0,
+	                            children: groupedNodes,
+	                            dataRef: { ...conn, dbName: conn.dbName, groupKey: 'schema', schemaName: bucket.schemaName }
+	                        };
+	                    });
+
+	                setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...schemaNodes]));
+	            } else {
+	                const groupedNodes: TreeNode[] = [
+	                    buildObjectGroup(key as string, 'tables', '表', <TableOutlined />, tableEntries.map(buildTableNode)),
+	                    buildObjectGroup(key as string, 'views', '视图', <EyeOutlined />, viewEntries.map(buildViewNode)),
+	                    buildObjectGroup(key as string, 'routines', '函数', <CodeOutlined />, routineEntries.map(buildRoutineNode)),
+	                    buildObjectGroup(key as string, 'triggers', '触发器', <FunctionOutlined />, triggerEntries.map(buildTriggerNode)),
+	                ];
+
+	                setTreeData(origin => updateTreeData(origin, key, [queriesNode, ...groupedNodes]));
+	            }
+	          } else {
+	            setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
+	            message.error({ content: res.message, key: `db-${key}-tables` });
           }
 	      } finally {
 	          loadingNodesRef.current.delete(loadKey);

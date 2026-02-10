@@ -73,15 +73,18 @@ const splitCellKey = (cellKey: string): { rowKey: string; colName: string } | nu
     };
 };
 
-// Normalize RFC3339-like datetime strings to `YYYY-MM-DD HH:mm:ss` for display/editing.
-// Also handle invalid datetime values like '0000-00-00 00:00:00'
+// Normalize common datetime strings to `YYYY-MM-DD HH:mm:ss` for display/editing.
+// Handles RFC3339 and Go-style datetime text like `2024-05-13 08:32:47 +0800 CST`.
+// Also keep invalid datetime values like `0000-00-00 00:00:00` unchanged.
 const normalizeDateTimeString = (val: string) => {
     // 检查是否为无效日期时间（0000-00-00 或类似格式）
     if (/^0{4}-0{2}-0{2}/.test(val)) {
         return val; // 保持原样显示，不尝试转换
     }
 
-    const match = val.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/);
+    const match = val.match(
+        /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?(?:\s*(?:Z|[+-]\d{2}:?\d{2})(?:\s+[A-Za-z_\/+-]+)?)?$/
+    );
     if (!match) return val;
     return `${match[1]} ${match[2]}`;
 };
@@ -179,11 +182,12 @@ const normalizeValueForJsonView = (value: any): any => {
     if (value === null || value === undefined) return value;
 
     if (typeof value === 'string') {
-        if (!looksLikeJsonText(value)) return value;
+        const normalizedText = normalizeDateTimeString(value);
+        if (!looksLikeJsonText(normalizedText)) return normalizedText;
         try {
-            return normalizeValueForJsonView(JSON.parse(value));
+            return normalizeValueForJsonView(JSON.parse(normalizedText));
         } catch {
-            return value;
+            return normalizedText;
         }
     }
 

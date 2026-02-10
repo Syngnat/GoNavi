@@ -77,7 +77,6 @@ func (a *App) ImportConfigFile() connection.QueryResult {
 	return connection.QueryResult{Success: true, Data: string(content)}
 }
 
-
 // PreviewImportFile 解析导入文件，返回字段列表、总行数、前 5 行预览数据
 func (a *App) PreviewImportFile(filePath string) connection.QueryResult {
 	if filePath == "" {
@@ -220,6 +219,148 @@ func parseImportFile(filePath string) ([]map[string]interface{}, []string, error
 	return rows, columns, nil
 }
 
+func normalizeColumnName(name string) string {
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func buildImportColumnTypeMap(defs []connection.ColumnDefinition) map[string]string {
+	result := make(map[string]string, len(defs))
+	for _, def := range defs {
+		key := normalizeColumnName(def.Name)
+		if key == "" {
+			continue
+		}
+		result[key] = strings.TrimSpace(def.Type)
+	}
+	return result
+}
+
+func isTimezoneAwareColumnType(columnType string) bool {
+	typ := strings.ToLower(strings.TrimSpace(columnType))
+	if typ == "" {
+		return false
+	}
+	return strings.Contains(typ, "with time zone") ||
+		strings.Contains(typ, "with timezone") ||
+		strings.Contains(typ, "datetimeoffset") ||
+		strings.Contains(typ, "timestamptz")
+}
+
+func isDateTimeColumnType(columnType string) bool {
+	typ := strings.ToLower(strings.TrimSpace(columnType))
+	if typ == "" {
+		return false
+	}
+	return strings.Contains(typ, "datetime") || strings.Contains(typ, "timestamp")
+}
+
+func isTimeOnlyColumnType(columnType string) bool {
+	typ := strings.ToLower(strings.TrimSpace(columnType))
+	if typ == "" {
+		return false
+	}
+	if strings.Contains(typ, "datetime") || strings.Contains(typ, "timestamp") {
+		return false
+	}
+	return strings.Contains(typ, "time")
+}
+
+func isDateOnlyColumnType(dbType, columnType string) bool {
+	typ := strings.ToLower(strings.TrimSpace(columnType))
+	if typ == "" {
+		return false
+	}
+	if strings.Contains(typ, "datetime") || strings.Contains(typ, "timestamp") || strings.Contains(typ, "time") {
+		return false
+	}
+	if !strings.Contains(typ, "date") {
+		return false
+	}
+	db := strings.ToLower(strings.TrimSpace(dbType))
+	// Oracle/Dameng 的 DATE 带时间语义，不能按纯日期裁剪。
+	return db != "oracle" && db != "dameng"
+}
+
+func isTemporalColumnType(dbType, columnType string) bool {
+	return isDateTimeColumnType(columnType) || isTimeOnlyColumnType(columnType) || isDateOnlyColumnType(dbType, columnType)
+}
+
+func parseTemporalString(raw string) (time.Time, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return time.Time{}, false
+	}
+
+	layouts := []string{
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999 -0700",
+		"2006-01-02 15:04:05 -0700",
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		"15:04:05.999999999",
+		"15:04:05",
+	}
+
+	for _, layout := range layouts {
+		parsed, err := time.Parse(layout, text)
+		if err == nil {
+			return parsed, true
+		}
+	}
+
+	return time.Time{}, false
+}
+
+func normalizeImportTemporalValue(dbType, columnType, raw string) string {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return text
+	}
+
+	parsed, ok := parseTemporalString(text)
+	if !ok {
+		if isDateTimeColumnType(columnType) {
+			candidate := strings.ReplaceAll(text, "T", " ")
+			if len(candidate) >= 19 {
+				prefix := candidate[:19]
+				if _, err := time.Parse("2006-01-02 15:04:05", prefix); err == nil {
+					return prefix
+				}
+			}
+		}
+		return text
+	}
+
+	if isTimeOnlyColumnType(columnType) {
+		return parsed.Format("15:04:05")
+	}
+	if isDateOnlyColumnType(dbType, columnType) {
+		return parsed.Format("2006-01-02")
+	}
+	if isTimezoneAwareColumnType(columnType) {
+		return parsed.Format("2006-01-02 15:04:05-07:00")
+	}
+	return parsed.Format("2006-01-02 15:04:05")
+}
+
+func formatImportSQLValue(dbType, columnType string, value interface{}) string {
+	if value == nil {
+		return "NULL"
+	}
+
+	if isTemporalColumnType(dbType, columnType) {
+		normalized := normalizeImportTemporalValue(dbType, columnType, fmt.Sprintf("%v", value))
+		escaped := strings.ReplaceAll(normalized, "'", "''")
+		return "'" + escaped + "'"
+	}
+
+	return formatSQLValue(dbType, value)
+}
+
 // ImportDataWithProgress 执行导入并发送进度事件
 func (a *App) ImportDataWithProgress(config connection.ConnectionConfig, dbName, tableName, filePath string) connection.QueryResult {
 	rows, columns, err := parseImportFile(filePath)
@@ -237,6 +378,12 @@ func (a *App) ImportDataWithProgress(config connection.ConnectionConfig, dbName,
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
+	schemaName, pureTableName := normalizeSchemaAndTable(config, dbName, tableName)
+	columnTypeMap := map[string]string{}
+	if defs, colErr := dbInst.GetColumns(schemaName, pureTableName); colErr == nil {
+		columnTypeMap = buildImportColumnTypeMap(defs)
+	}
+
 	totalRows := len(rows)
 	successCount := 0
 	var errorLogs []string
@@ -250,13 +397,8 @@ func (a *App) ImportDataWithProgress(config connection.ConnectionConfig, dbName,
 		var values []string
 		for _, col := range columns {
 			val := row[col]
-			if val == nil {
-				values = append(values, "NULL")
-			} else {
-				vStr := fmt.Sprintf("%v", val)
-				vStr = strings.ReplaceAll(vStr, "'", "''")
-				values = append(values, fmt.Sprintf("'%s'", vStr))
-			}
+			colType := columnTypeMap[normalizeColumnName(col)]
+			values = append(values, formatImportSQLValue(runConfig.Type, colType, val))
 		}
 
 		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)",
@@ -848,7 +990,7 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 				continue
 			}
 
-			s := fmt.Sprintf("%v", val)
+			s := formatExportCellText(val)
 			if format == "md" {
 				s = strings.ReplaceAll(s, "|", "\\|")
 				s = strings.ReplaceAll(s, "\n", "<br>")
@@ -894,6 +1036,24 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 	return nil
 }
 
+func formatExportCellText(val interface{}) string {
+	if val == nil {
+		return "NULL"
+	}
+
+	switch v := val.(type) {
+	case time.Time:
+		return v.Format("2006-01-02 15:04:05")
+	case *time.Time:
+		if v == nil {
+			return "NULL"
+		}
+		return v.Format("2006-01-02 15:04:05")
+	default:
+		return fmt.Sprintf("%v", val)
+	}
+}
+
 // writeRowsToXlsx 使用 excelize 写入真正的 xlsx 格式文件
 func writeRowsToXlsx(filename string, data []map[string]interface{}, columns []string) error {
 	xlsx := excelize.NewFile()
@@ -915,7 +1075,7 @@ func writeRowsToXlsx(filename string, data []map[string]interface{}, columns []s
 			if val == nil {
 				xlsx.SetCellValue(sheet, cell, "NULL")
 			} else {
-				xlsx.SetCellValue(sheet, cell, fmt.Sprintf("%v", val))
+				xlsx.SetCellValue(sheet, cell, formatExportCellText(val))
 			}
 		}
 	}
