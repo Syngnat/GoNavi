@@ -115,6 +115,8 @@ function App() {
       assetUrl?: string;
       assetSize?: number;
       sha256?: string;
+      downloaded?: boolean;
+      downloadPath?: string;
   };
 
   type UpdateDownloadProgressEvent = {
@@ -247,12 +249,30 @@ function App() {
       if (!info) return;
       setLastUpdateInfo(info);
       if (info.hasUpdate) {
+          const localDownloaded = updateDownloadedVersionRef.current === info.latestVersion;
+          const hasDownloaded = Boolean(info.downloaded) || localDownloaded;
+          if (hasDownloaded) {
+              const downloadPath = info.downloadPath || updateDownloadMetaRef.current?.downloadPath || '';
+              updateDownloadedVersionRef.current = info.latestVersion;
+              updateDownloadMetaRef.current = {
+                  ...(updateDownloadMetaRef.current || {}),
+                  info,
+                  downloadPath: downloadPath || undefined,
+              };
+          } else {
+              if (updateDownloadedVersionRef.current !== info.latestVersion) {
+                  updateDownloadMetaRef.current = null;
+              }
+          }
+          const statusText = hasDownloaded
+              ? `发现新版本 ${info.latestVersion}（已下载，待重启安装）`
+              : `发现新版本 ${info.latestVersion}（未下载）`;
           if (!silent) {
               message.info(`发现新版本 ${info.latestVersion}`);
-              setAboutUpdateStatus(`发现新版本 ${info.latestVersion}（未下载）`);
+              setAboutUpdateStatus(statusText);
           }
           if (silent && isAboutOpen) {
-              setAboutUpdateStatus(`发现新版本 ${info.latestVersion}（未下载）`);
+              setAboutUpdateStatus(statusText);
           }
           if (silent && !isAboutOpen && updateMutedVersionRef.current !== info.latestVersion && updateNotifiedVersionRef.current !== info.latestVersion) {
               updateNotifiedVersionRef.current = info.latestVersion;
