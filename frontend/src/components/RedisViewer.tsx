@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Table, Input, Button, Space, Tag, Tree, Spin, message, Modal, Form, InputNumber, Popconfirm, Tooltip, Radio } from 'antd';
 import { ReloadOutlined, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ClockCircleOutlined, CopyOutlined, FolderOpenOutlined, KeyOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
-import { RedisKeyInfo, RedisValue } from '../types';
+import { RedisKeyInfo, RedisValue, StreamEntry } from '../types';
 import Editor from '@monaco-editor/react';
 import type { DataNode } from 'antd/es/tree';
 
@@ -625,6 +625,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
             case 'list': return 'orange';
             case 'set': return 'purple';
             case 'zset': return 'magenta';
+            case 'stream': return 'cyan';
             default: return 'default';
         }
     };
@@ -1468,6 +1469,212 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
             );
         };
 
+        const renderStreamValue = () => {
+            const processValue = (value: string) => {
+                if (viewMode === 'hex') {
+                    return { displayValue: toHexDisplay(value), isBinary: true, isJson: false, encoding: 'HEX' };
+                } else if (viewMode === 'text') {
+                    return { displayValue: value, isBinary: false, isJson: false, encoding: 'Text' };
+                } else if (viewMode === 'utf8') {
+                    try {
+                        const bytes = new Uint8Array(value.length);
+                        for (let i = 0; i < value.length; i++) {
+                            bytes[i] = value.charCodeAt(i) & 0xFF;
+                        }
+                        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+                        return { displayValue: decoded, isBinary: false, isJson: false, encoding: 'UTF-8' };
+                    } catch (e) {
+                        return { displayValue: value, isBinary: false, isJson: false, encoding: 'UTF-8 (失败)' };
+                    }
+                } else {
+                    return formatStringValue(value);
+                }
+            };
+
+            const data = (keyValue.value as StreamEntry[]).map((item, index) => {
+                const rawFieldsText = JSON.stringify(item.fields ?? {}, null, 2);
+                const { displayValue, isBinary, isJson, encoding } = processValue(rawFieldsText);
+                return {
+                    index,
+                    id: item.id,
+                    rawFieldsText,
+                    displayFields: displayValue,
+                    isBinary,
+                    isJson,
+                    encoding,
+                };
+            });
+
+            const handleAddStreamEntry = async (fieldsText: string, id: string) => {
+                const config = getConfig();
+                if (!config) return;
+
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(fieldsText);
+                } catch (e) {
+                    message.error('字段 JSON 格式不正确');
+                    return;
+                }
+
+                if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                    message.error('字段必须是 JSON 对象');
+                    return;
+                }
+
+                const fieldMap: Record<string, string> = {};
+                Object.entries(parsed as Record<string, unknown>).forEach(([field, value]) => {
+                    fieldMap[field] = value == null ? '' : String(value);
+                });
+
+                if (Object.keys(fieldMap).length === 0) {
+                    message.error('至少提供一个字段');
+                    return;
+                }
+
+                try {
+                    const res = await (window as any).go.app.App.RedisStreamAdd(config, selectedKey, fieldMap, id || '*');
+                    if (res.success) {
+                        const newID = res.data?.id ? ` (${res.data.id})` : '';
+                        message.success(`添加成功${newID}`);
+                        loadKeyValue(selectedKey);
+                    } else {
+                        message.error('添加失败: ' + res.message);
+                    }
+                } catch (e: any) {
+                    message.error('添加失败: ' + (e?.message || String(e)));
+                }
+            };
+
+            const handleDeleteStreamEntry = async (id: string) => {
+                const config = getConfig();
+                if (!config) return;
+
+                try {
+                    const res = await (window as any).go.app.App.RedisStreamDelete(config, selectedKey, [id]);
+                    if (res.success) {
+                        const deleted = Number(res.data?.deleted ?? 0);
+                        if (deleted > 0) {
+                            message.success('删除成功');
+                        } else {
+                            message.warning('未删除任何消息，可能已不存在');
+                        }
+                        loadKeyValue(selectedKey);
+                    } else {
+                        message.error('删除失败: ' + res.message);
+                    }
+                } catch (e: any) {
+                    message.error('删除失败: ' + (e?.message || String(e)));
+                }
+            };
+
+            return (
+                <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                    <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Button size="small" icon={<PlusOutlined />} onClick={() => {
+                            Modal.confirm({
+                                title: '添加 Stream 消息',
+                                width: 680,
+                                content: (
+                                    <div>
+                                        <div style={{ marginBottom: 8 }}>
+                                            <label>ID（可选，默认 *）：</label>
+                                            <Input id="new-stream-id" placeholder="例如: * 或 1723110000000-0" />
+                                        </div>
+                                        <div>
+                                            <label>字段 JSON：</label>
+                                            <Input.TextArea id="new-stream-fields" rows={8} defaultValue={'{\n  "field": "value"\n}'} />
+                                        </div>
+                                    </div>
+                                ),
+                                onOk: async () => {
+                                    const id = (document.getElementById('new-stream-id') as HTMLInputElement)?.value?.trim() || '*';
+                                    const fieldsText = (document.getElementById('new-stream-fields') as HTMLTextAreaElement)?.value || '{}';
+                                    await handleAddStreamEntry(fieldsText, id);
+                                }
+                            });
+                        }}>添加消息</Button>
+                        <Radio.Group size="small" value={viewMode} onChange={(e) => setViewMode(e.target.value)}>
+                            <Radio.Button value="auto">自动</Radio.Button>
+                            <Radio.Button value="text">原始文本</Radio.Button>
+                            <Radio.Button value="utf8">UTF-8</Radio.Button>
+                            <Radio.Button value="hex">十六进制</Radio.Button>
+                        </Radio.Group>
+                    </div>
+                    <Table
+                        dataSource={data}
+                        columns={[
+                            {
+                                title: 'ID',
+                                dataIndex: 'id',
+                                key: 'id',
+                                width: 240,
+                                ellipsis: true,
+                            },
+                            {
+                                title: '字段',
+                                dataIndex: 'displayFields',
+                                key: 'fields',
+                                ellipsis: true,
+                                render: (text: string, record: any) => {
+                                    const tooltipContent = record.encoding && record.encoding !== 'UTF-8'
+                                        ? `[${record.encoding}]\n${text}`
+                                        : text;
+
+                                    return (
+                                        <Tooltip title={<pre style={{ maxHeight: 300, overflow: 'auto', margin: 0, fontSize: 12 }}>{tooltipContent}</pre>} styles={{ root: { maxWidth: 720 } }}>
+                                            <span style={{
+                                                color: record.isBinary ? '#d46b08' : (record.isJson ? '#1890ff' : undefined),
+                                                fontFamily: record.isBinary ? 'monospace' : undefined,
+                                                fontSize: record.isBinary ? 11 : undefined
+                                            }}>
+                                                {text}
+                                            </span>
+                                        </Tooltip>
+                                    );
+                                }
+                            },
+                            {
+                                title: '操作',
+                                key: 'action',
+                                width: 140,
+                                render: (_: any, record: any) => (
+                                    <Space size="small">
+                                        <Tooltip title="复制 ID">
+                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
+                                                navigator.clipboard.writeText(record.id).then(() => {
+                                                    message.success('已复制');
+                                                }).catch(() => {
+                                                    message.error('复制失败');
+                                                });
+                                            }} />
+                                        </Tooltip>
+                                        <Tooltip title="复制字段 JSON">
+                                            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => {
+                                                navigator.clipboard.writeText(record.rawFieldsText).then(() => {
+                                                    message.success('已复制');
+                                                }).catch(() => {
+                                                    message.error('复制失败');
+                                                });
+                                            }} />
+                                        </Tooltip>
+                                        <Popconfirm title="确定删除此消息？" onConfirm={() => handleDeleteStreamEntry(record.id)}>
+                                            <Button type="text" size="small" danger icon={<DeleteOutlined />} />
+                                        </Popconfirm>
+                                    </Space>
+                                )
+                            }
+                        ]}
+                        rowKey="id"
+                        size="small"
+                        pagination={{ pageSize: 50 }}
+                        scroll={{ y: 'calc(100vh - 350px)' }}
+                        style={{ flex: 1 }}
+                    />
+                </div>
+            );
+        };
+
         return (
             <div style={{ padding: 12, height: '100%', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
@@ -1511,6 +1718,7 @@ const RedisViewer: React.FC<RedisViewerProps> = ({ connectionId, redisDB }) => {
                     {keyValue.type === 'list' && renderListValue()}
                     {keyValue.type === 'set' && renderSetValue()}
                     {keyValue.type === 'zset' && renderZSetValue()}
+                    {keyValue.type === 'stream' && renderStreamValue()}
                 </div>
             </div>
         );

@@ -43,6 +43,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const [redisDbList, setRedisDbList] = useState<number[]>([]); // Redis databases 0-15
   const [mongoMembers, setMongoMembers] = useState<MongoMemberInfo[]>([]);
   const [discoveringMembers, setDiscoveringMembers] = useState(false);
+  const [uriFeedback, setUriFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
   const testInFlightRef = useRef(false);
   const testTimerRef = useRef<number | null>(null);
   const addConnection = useStore((state) => state.addConnection);
@@ -393,9 +394,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           const values = form.getFieldsValue(true);
           const uri = buildUriFromValues(values);
           form.setFieldValue('uri', uri);
-          message.success('URI 已生成');
+          setUriFeedback({ type: 'success', message: 'URI 已生成' });
       } catch {
-          message.error('生成 URI 失败');
+          setUriFeedback({ type: 'error', message: '生成 URI 失败' });
       }
   };
 
@@ -404,21 +405,21 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           const uriText = String(form.getFieldValue('uri') || '').trim();
           const type = String(form.getFieldValue('type') || dbType).trim().toLowerCase();
           if (!uriText) {
-              message.warning('请先输入 URI');
+              setUriFeedback({ type: 'warning', message: '请先输入 URI' });
               return;
           }
           const parsedValues = parseUriToValues(uriText, type);
           if (!parsedValues) {
-              message.error('当前 URI 与数据源类型不匹配，或 URI 格式不支持');
+              setUriFeedback({ type: 'error', message: '当前 URI 与数据源类型不匹配，或 URI 格式不支持' });
               return;
           }
           form.setFieldsValue({ ...parsedValues, uri: uriText });
           if (testResult) {
               setTestResult(null);
           }
-          message.success('已根据 URI 回填连接参数');
+          setUriFeedback({ type: 'success', message: '已根据 URI 回填连接参数' });
       } catch {
-          message.error('URI 解析失败，请检查格式后重试');
+          setUriFeedback({ type: 'error', message: 'URI 解析失败，请检查格式后重试' });
       }
   };
 
@@ -430,14 +431,14 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           form.setFieldValue('uri', uriText);
       }
       if (!uriText) {
-          message.warning('没有可复制的 URI');
+          setUriFeedback({ type: 'warning', message: '没有可复制的 URI' });
           return;
       }
       try {
           await navigator.clipboard.writeText(uriText);
-          message.success('URI 已复制');
+          setUriFeedback({ type: 'success', message: 'URI 已复制' });
       } catch {
-          message.error('复制失败');
+          setUriFeedback({ type: 'error', message: '复制失败' });
       }
   };
 
@@ -448,6 +449,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           setDbList([]);
           setRedisDbList([]);
           setMongoMembers([]);
+          setUriFeedback(null);
           if (initialValues) {
               // Edit mode: Go directly to step 2
               setStep(2);
@@ -925,6 +927,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
                 setTestResult(null); // Clear result on change
                 setTestErrorLogOpen(false);
             }
+            if (changed.uri !== undefined || changed.type !== undefined) {
+                setUriFeedback(null);
+            }
             if (changed.useSSH !== undefined) setUseSSH(changed.useSSH);
             // Type change handled by step 1, but keep sync if select changes (hidden now)
             if (changed.type !== undefined) setDbType(changed.type);
@@ -958,6 +963,16 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
             <Button onClick={handleParseURI}>从 URI 解析</Button>
             <Button onClick={handleCopyURI}>复制 URI</Button>
         </Space>
+        {uriFeedback && (
+            <Alert
+                showIcon
+                closable
+                type={uriFeedback.type}
+                message={uriFeedback.message}
+                onClose={() => setUriFeedback(null)}
+                style={{ marginBottom: 12 }}
+            />
+        )}
         
         {isCustom ? (
             <>

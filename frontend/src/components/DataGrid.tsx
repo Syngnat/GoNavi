@@ -9,7 +9,7 @@ import ImportPreviewModal from './ImportPreviewModal';
 import { useStore } from '../store';
 import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
-import { buildOrderBySQL, buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent, type FilterCondition } from '../utils/sql';
+import { buildOrderBySQL, buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
 import { isMacLikePlatform, normalizeOpacityForPlatform } from '../utils/appearance';
 
 // --- Error Boundary ---
@@ -496,6 +496,7 @@ interface DataGridProps {
     onSort?: (field: string, order: string) => void;
     onPageChange?: (page: number, size: number) => void;
     pagination?: { current: number, pageSize: number, total: number, totalKnown?: boolean };
+    sortInfoExternal?: { columnKey: string, order: string } | null;
     // Filtering
     showFilter?: boolean;
     onToggleFilter?: () => void;
@@ -514,7 +515,7 @@ type GridViewMode = 'table' | 'json' | 'text';
 
 const DataGrid: React.FC<DataGridProps> = ({ 
     data, columnNames, loading, tableName, dbName, connectionId, pkColumns = [], readOnly = false,
-    onReload, onSort, onPageChange, pagination, showFilter, onToggleFilter, onApplyFilter
+    onReload, onSort, onPageChange, pagination, sortInfoExternal, showFilter, onToggleFilter, onApplyFilter
 }) => {
   const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
@@ -660,6 +661,21 @@ const DataGrid: React.FC<DataGridProps> = ({
   
   const [sortInfo, setSortInfo] = useState<{ columnKey: string, order: string } | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+      const nextOrder = sortInfoExternal?.order === 'ascend' || sortInfoExternal?.order === 'descend'
+          ? sortInfoExternal.order
+          : '';
+      const nextColumn = nextOrder ? String(sortInfoExternal?.columnKey || '') : '';
+      const currColumn = String(sortInfo?.columnKey || '');
+      const currOrder = sortInfo?.order === 'ascend' || sortInfo?.order === 'descend' ? sortInfo.order : '';
+      if (nextColumn === currColumn && nextOrder === currOrder) return;
+      if (!nextColumn || !nextOrder) {
+          setSortInfo(null);
+      } else {
+          setSortInfo({ columnKey: nextColumn, order: nextOrder });
+      }
+  }, [sortInfoExternal, sortInfo]);
 
   const closeCellEditor = useCallback(() => {
       setCellEditorOpen(false);
@@ -1113,9 +1129,16 @@ const DataGrid: React.FC<DataGridProps> = ({
   const handleTableChange = (pag: any, filtersArg: any, sorter: any) => {
       if (isResizingRef.current) return; // Block sort if resizing
       if (sorter.field) {
+          const field = String(sorter.field);
           const order = sorter.order as string;
-          setSortInfo({ columnKey: sorter.field as string, order });
-          if (onSort) onSort(sorter.field, order);
+          const normalizedOrder = order === 'ascend' || order === 'descend' ? order : '';
+          if (!normalizedOrder) {
+              setSortInfo(null);
+              if (onSort) onSort('', '');
+              return;
+          }
+          setSortInfo({ columnKey: field, order: normalizedOrder });
+          if (onSort) onSort(field, normalizedOrder);
       } else {
           setSortInfo(null);
           if (onSort) onSort('', '');
@@ -1820,6 +1843,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       const whereSQL = buildWhereSQL(dbType, filterConditions);
       let sql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
       sql += buildOrderBySQL(dbType, sortInfo, pkColumns);
+      const normalizedType = String(dbType || '').trim().toLowerCase();
+      const hasExplicitSort = !!sortInfo?.columnKey && (sortInfo?.order === 'ascend' || sortInfo?.order === 'descend');
+      if (hasExplicitSort && (normalizedType === 'mysql' || normalizedType === 'mariadb')) {
+          sql = withSortBufferTuningSQL(normalizedType, sql, 32 * 1024 * 1024);
+      }
       const offset = (pagination.current - 1) * pagination.pageSize;
       sql += ` LIMIT ${pagination.pageSize} OFFSET ${offset}`;
       return sql;
@@ -2034,9 +2062,9 @@ const DataGrid: React.FC<DataGridProps> = ({
   }, [viewMode, totalWidth, mergedDisplayData.length, recalculateTableMetrics]);
 
   return (
-    <div className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''}`} ref={containerRef} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: bgContent }}>
-	       {/* Toolbar */}
-	        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div className={`${gridId}${cellEditMode ? ' cell-edit-mode' : ''} data-grid-root`} style={{ flex: '1 1 auto', height: '100%', overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: bgContent }}>
+		       {/* Toolbar */}
+		        <div className="data-grid-toolbar-scroll" style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, overflowX: 'auto', overflowY: 'hidden', scrollbarGutter: 'stable', WebkitOverflowScrolling: 'touch' }}>
 	            {onReload && <Button icon={<ReloadOutlined />} disabled={loading} onClick={() => {
 	                setAddedRows([]);
 	                setModifiedRows({});
@@ -2121,36 +2149,38 @@ const DataGrid: React.FC<DataGridProps> = ({
            )}
 
            <div style={{ marginLeft: 'auto' }} />
-           <Segmented
-               size="small"
-               value={viewMode}
-               options={[
-                   { label: '表格', value: 'table' },
-                   { label: 'JSON', value: 'json' },
-                   { label: '文本', value: 'text' }
-               ]}
-               onChange={(val) => {
-                   const nextMode = String(val) as GridViewMode;
-                   if (nextMode === 'json' && cellEditMode) {
-                       setCellEditMode(false);
-                       setSelectedCells(new Set());
-                       currentSelectionRef.current = new Set();
-                       selectionStartRef.current = null;
-                       updateCellSelection(new Set());
-                   }
-                   if (nextMode === 'text') {
-                       const selectedKey = selectedRowKeys[0];
-                       if (selectedKey !== undefined) {
-                           const idx = mergedDisplayData.findIndex((row) => rowKeyStr(row?.[GONAVI_ROW_KEY]) === rowKeyStr(selectedKey));
-                           if (idx >= 0) {
-                               setTextRecordIndex(idx);
-                           }
-                       }
-                   }
-                   setViewMode(nextMode);
-               }}
-           />
-       </div>
+	           <div style={{ flexShrink: 0 }}>
+	               <Segmented
+	                   size="small"
+	                   value={viewMode}
+	                   options={[
+	                       { label: '表格', value: 'table' },
+	                       { label: 'JSON', value: 'json' },
+	                       { label: '文本', value: 'text' }
+	                   ]}
+	                   onChange={(val) => {
+	                       const nextMode = String(val) as GridViewMode;
+	                       if (nextMode === 'json' && cellEditMode) {
+	                           setCellEditMode(false);
+	                           setSelectedCells(new Set());
+	                           currentSelectionRef.current = new Set();
+	                           selectionStartRef.current = null;
+	                           updateCellSelection(new Set());
+	                       }
+	                       if (nextMode === 'text') {
+	                           const selectedKey = selectedRowKeys[0];
+	                           if (selectedKey !== undefined) {
+	                               const idx = mergedDisplayData.findIndex((row) => rowKeyStr(row?.[GONAVI_ROW_KEY]) === rowKeyStr(selectedKey));
+	                               if (idx >= 0) {
+	                                   setTextRecordIndex(idx);
+	                               }
+	                           }
+	                       }
+	                       setViewMode(nextMode);
+	                   }}
+	               />
+	           </div>
+	       </div>
 
        {/* Filter Panel */}
        {showFilter && (
@@ -2448,8 +2478,8 @@ const DataGrid: React.FC<DataGridProps> = ({
                     />
                 </div>
             </div>
-        ) : (
-            <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+	        ) : (
+	            <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 <div style={{ padding: '8px 12px', borderBottom: darkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Button size="small" onClick={() => setTextRecordIndex(i => Math.max(0, i - 1))} disabled={textViewRows.length === 0 || textRecordIndex <= 0}>
                         上一条
@@ -2466,7 +2496,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                         </Button>
                     )}
                 </div>
-                <div className="custom-scrollbar" style={{ flex: 1, overflow: 'auto', padding: '8px 12px' }}>
+	                <div className="custom-scrollbar" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '8px 12px' }}>
                     {currentTextRow ? columnNames.map((col) => (
                         <div key={col} style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 10, padding: '6px 0', borderBottom: darkMode ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)', alignItems: 'start' }}>
                             <div style={{ fontWeight: 600, color: darkMode ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.88)', wordBreak: 'break-all' }}>
@@ -2672,8 +2702,21 @@ const DataGrid: React.FC<DataGridProps> = ({
            </div>
        )}
 
-	        <style>{`
-                .${gridId} .ant-table { background: transparent !important; }
+		        <style>{`
+	                .${gridId} .data-grid-toolbar-scroll > * {
+	                    flex-shrink: 0;
+	                }
+	                .${gridId} .data-grid-toolbar-scroll::-webkit-scrollbar {
+	                    height: 7px;
+	                }
+	                .${gridId} .data-grid-toolbar-scroll::-webkit-scrollbar-thumb {
+	                    background: ${darkMode ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.22)'};
+	                    border-radius: 999px;
+	                }
+	                .${gridId} .data-grid-toolbar-scroll::-webkit-scrollbar-track {
+	                    background: transparent;
+	                }
+	                .${gridId} .ant-table { background: transparent !important; }
                 .${gridId} .ant-table-container { background: transparent !important; border: none !important; }
                 .${gridId} .ant-table-tbody > tr > td { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
                 .${gridId} .ant-table-thead > tr > th { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }

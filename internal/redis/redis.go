@@ -4,7 +4,7 @@ import "GoNavi-Wails/internal/connection"
 
 // RedisValue represents a Redis value with its type and metadata
 type RedisValue struct {
-	Type   string      `json:"type"`   // string, hash, list, set, zset
+	Type   string      `json:"type"`   // string, hash, list, set, zset, stream
 	TTL    int64       `json:"ttl"`    // TTL in seconds, -1 means no expiry, -2 means key doesn't exist
 	Value  interface{} `json:"value"`  // The actual value
 	Length int64       `json:"length"` // Length/size of the value
@@ -72,6 +72,11 @@ type RedisClient interface {
 	ZSetAdd(key string, members ...ZSetMember) error
 	ZSetRemove(key string, members ...string) error
 
+	// Stream operations
+	GetStream(key, start, stop string, count int64) ([]StreamEntry, error)
+	StreamAdd(key string, fields map[string]string, id string) (string, error)
+	StreamDelete(key string, ids ...string) (int64, error)
+
 	// Command execution
 	ExecuteCommand(args []string) (interface{}, error)
 
@@ -87,4 +92,10 @@ type RedisClient interface {
 type ZSetMember struct {
 	Member string  `json:"member"`
 	Score  float64 `json:"score"`
+}
+
+// StreamEntry represents a single stream message
+type StreamEntry struct {
+	ID     string            `json:"id"`
+	Fields map[string]string `json:"fields"`
 }

@@ -269,6 +269,8 @@ interface AppState {
   closeOtherTabs: (id: string) => void;
   closeTabsToLeft: (id: string) => void;
   closeTabsToRight: (id: string) => void;
+  closeTabsByConnection: (connectionId: string) => void;
+  closeTabsByDatabase: (connectionId: string, dbName: string) => void;
   closeAllTabs: () => void;
   setActiveTab: (id: string) => void;
   setActiveContext: (context: { connectionId: string; dbName: string } | null) => void;
@@ -426,6 +428,45 @@ export const useStore = create<AppState>()(
         const newTabs = state.tabs.slice(0, index + 1);
         const activeStillExists = state.activeTabId ? newTabs.some(t => t.id === state.activeTabId) : false;
         return { tabs: newTabs, activeTabId: activeStillExists ? state.activeTabId : id };
+      }),
+
+      closeTabsByConnection: (connectionId) => set((state) => {
+        const targetConnectionId = String(connectionId || '').trim();
+        if (!targetConnectionId) return state;
+        const newTabs = state.tabs.filter(t => String(t.connectionId || '').trim() !== targetConnectionId);
+        const activeStillExists = state.activeTabId ? newTabs.some(t => t.id === state.activeTabId) : false;
+        const nextActiveTabId = activeStillExists
+          ? state.activeTabId
+          : (newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+        const nextActiveContext = state.activeContext?.connectionId === targetConnectionId ? null : state.activeContext;
+        return {
+          tabs: newTabs,
+          activeTabId: nextActiveTabId,
+          activeContext: nextActiveContext,
+        };
+      }),
+
+      closeTabsByDatabase: (connectionId, dbName) => set((state) => {
+        const targetConnectionId = String(connectionId || '').trim();
+        const targetDbName = String(dbName || '').trim();
+        if (!targetConnectionId || !targetDbName) return state;
+        const newTabs = state.tabs.filter((tab) => {
+          const sameConnection = String(tab.connectionId || '').trim() === targetConnectionId;
+          const sameDb = String(tab.dbName || '').trim() === targetDbName;
+          return !(sameConnection && sameDb);
+        });
+        const activeStillExists = state.activeTabId ? newTabs.some(t => t.id === state.activeTabId) : false;
+        const nextActiveTabId = activeStillExists
+          ? state.activeTabId
+          : (newTabs.length > 0 ? newTabs[newTabs.length - 1].id : null);
+        const sameActiveContext = state.activeContext
+          && state.activeContext.connectionId === targetConnectionId
+          && state.activeContext.dbName === targetDbName;
+        return {
+          tabs: newTabs,
+          activeTabId: nextActiveTabId,
+          activeContext: sameActiveContext ? null : state.activeContext,
+        };
       }),
 
       closeAllTabs: () => set(() => ({ tabs: [], activeTabId: null })),

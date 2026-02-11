@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
@@ -67,7 +68,39 @@ func (s *SphinxDB) GetDatabases() ([]string, error) {
 }
 
 func (s *SphinxDB) GetTables(dbName string) ([]string, error) {
-	return s.MySQLDB.GetTables(s.resolveDatabaseName(dbName))
+	tables, err := s.MySQLDB.GetTables(s.resolveDatabaseName(dbName))
+	if err == nil {
+		return tables, nil
+	}
+	if !isSphinxUnsupportedFeatureError(err) {
+		return nil, err
+	}
+
+	// Sphinx/Manticore 常见返回列名为 `Index`，并且不支持 `SHOW TABLES FROM <db>` 语法。
+	data, fields, fallbackErr := s.MySQLDB.Query("SHOW TABLES")
+	if fallbackErr != nil {
+		return nil, fallbackErr
+	}
+
+	fallbackTables := make([]string, 0, len(data))
+	for _, row := range data {
+		if val, ok := row["Index"]; ok {
+			fallbackTables = append(fallbackTables, fmt.Sprintf("%v", val))
+			continue
+		}
+		if val, ok := row["index"]; ok {
+			fallbackTables = append(fallbackTables, fmt.Sprintf("%v", val))
+			continue
+		}
+		for _, field := range fields {
+			if val, ok := row[field]; ok {
+				fallbackTables = append(fallbackTables, fmt.Sprintf("%v", val))
+				break
+			}
+		}
+	}
+
+	return fallbackTables, nil
 }
 
 func (s *SphinxDB) GetCreateStatement(dbName, tableName string) (string, error) {

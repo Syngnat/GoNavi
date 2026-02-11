@@ -450,6 +450,40 @@ func (a *App) RedisZSetRemove(config connection.ConnectionConfig, key string, me
 	return connection.QueryResult{Success: true, Message: "删除成功"}
 }
 
+// RedisStreamAdd adds an entry to a stream
+func (a *App) RedisStreamAdd(config connection.ConnectionConfig, key string, fields map[string]string, id string) connection.QueryResult {
+	config.Type = "redis"
+	client, err := a.getRedisClient(config)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	newID, err := client.StreamAdd(key, fields, id)
+	if err != nil {
+		logger.Error(err, "RedisStreamAdd 添加失败：key=%s id=%s", key, id)
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	return connection.QueryResult{Success: true, Message: "添加成功", Data: map[string]string{"id": newID}}
+}
+
+// RedisStreamDelete deletes stream entries by IDs
+func (a *App) RedisStreamDelete(config connection.ConnectionConfig, key string, ids []string) connection.QueryResult {
+	config.Type = "redis"
+	client, err := a.getRedisClient(config)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	deleted, err := client.StreamDelete(key, ids...)
+	if err != nil {
+		logger.Error(err, "RedisStreamDelete 删除失败：key=%s ids=%v", key, ids)
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	return connection.QueryResult{Success: true, Message: "删除成功", Data: map[string]int64{"deleted": deleted}}
+}
+
 // RedisFlushDB flushes the current database
 func (a *App) RedisFlushDB(config connection.ConnectionConfig) connection.QueryResult {
 	config.Type = "redis"

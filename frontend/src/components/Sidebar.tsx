@@ -53,6 +53,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const addTab = useStore(state => state.addTab);
   const setActiveContext = useStore(state => state.setActiveContext);
   const removeConnection = useStore(state => state.removeConnection);
+  const closeTabsByConnection = useStore(state => state.closeTabsByConnection);
+  const closeTabsByDatabase = useStore(state => state.closeTabsByDatabase);
   const theme = useStore(state => state.theme);
   const appearance = useStore(state => state.appearance);
   const tableAccessCount = useStore(state => state.tableAccessCount);
@@ -1592,6 +1594,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               const res = await DropDatabase(config as any, dbName);
               if (res.success) {
                   message.success("数据库删除成功");
+                  closeTabsByDatabase(conn.id, dbName);
                   setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${dbName}`)));
                   setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${dbName}`)));
                   await loadDatabases(getConnectionNodeRef(conn));
@@ -2095,6 +2098,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                         setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
                         setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
                         setTreeData(origin => updateTreeData(origin, node.key, undefined));
+                        closeTabsByConnection(String(node.key));
                         message.success("已断开连接");
                     }
                 },
@@ -2107,7 +2111,10 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                         Modal.confirm({
                             title: '确认删除',
                             content: `确定要删除连接 "${node.title}" 吗？`,
-                            onOk: () => removeConnection(node.key)
+                            onOk: () => {
+                                closeTabsByConnection(String(node.key));
+                                removeConnection(node.key);
+                            }
                         });
                     }
                 }
@@ -2177,6 +2184,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                      setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
                      // Clear children (undefined to trigger reload)
                      setTreeData(origin => updateTreeData(origin, node.key, undefined));
+                     closeTabsByConnection(String(node.key));
                      message.success("已断开连接");
                  }
              },
@@ -2189,7 +2197,10 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                      Modal.confirm({
                          title: '确认删除',
                          content: `确定要删除连接 "${node.title}" 吗？`,
-                         onOk: () => removeConnection(node.key)
+                         onOk: () => {
+                             closeTabsByConnection(String(node.key));
+                             removeConnection(node.key);
+                         }
                      });
                  }
              }
@@ -2276,6 +2287,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                label: '关闭数据库',
                icon: <DisconnectOutlined />,
                onClick: () => {
+                   const dbConnId = String(node.dataRef?.id || '');
+                   const dbName = String(node.dataRef?.dbName || node.title || '').trim();
                    setConnectionStates(prev => {
                        const next = { ...prev };
                        delete next[node.key];
@@ -2284,6 +2297,10 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                    setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
                    setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
                    setTreeData(origin => updateTreeData(origin, node.key, undefined));
+                   if (dbConnId && dbName) {
+                       closeTabsByDatabase(dbConnId, dbName);
+                   }
+                   message.success("已关闭数据库");
                }
            },
            {

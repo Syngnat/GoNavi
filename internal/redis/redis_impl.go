@@ -334,6 +334,26 @@ func (r *RedisClientImpl) GetValue(key string) (*RedisValue, error) {
 		result.Value = members
 		result.Length = length
 
+	case "stream":
+		length, err := r.client.XLen(ctx, key).Result()
+		if err != nil {
+			return nil, err
+		}
+		result.Length = length
+		if length == 0 {
+			result.Value = []StreamEntry{}
+			break
+		}
+		limit := int64(1000)
+		if length < limit {
+			limit = length
+		}
+		val, err := r.client.XRangeN(ctx, key, "-", "+", limit).Result()
+		if err != nil {
+			return nil, err
+		}
+		result.Value = toStreamEntries(val)
+
 	default:
 		return nil, fmt.Errorf("不支持的 Redis 数据类型: %s", keyType)
 	}
@@ -521,6 +541,91 @@ func (r *RedisClientImpl) ZSetRemove(key string, members ...string) error {
 		args[i] = m
 	}
 	return r.client.ZRem(ctx, key, args...).Err()
+}
+
+// GetStream gets stream entries in a range
+func (r *RedisClientImpl) GetStream(key, start, stop string, count int64) ([]StreamEntry, error) {
+	if r.client == nil {
+		return nil, fmt.Errorf("Redis 客户端未连接")
+	}
+	if start == "" {
+		start = "-"
+	}
+	if stop == "" {
+		stop = "+"
+	}
+	if count <= 0 {
+		count = 1000
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	val, err := r.client.XRangeN(ctx, key, start, stop, count).Result()
+	if err != nil {
+		return nil, err
+	}
+	return toStreamEntries(val), nil
+}
+
+// StreamAdd adds an entry to a stream
+func (r *RedisClientImpl) StreamAdd(key string, fields map[string]string, id string) (string, error) {
+	if r.client == nil {
+		return "", fmt.Errorf("Redis 客户端未连接")
+	}
+	if len(fields) == 0 {
+		return "", fmt.Errorf("Stream 字段不能为空")
+	}
+	if id == "" {
+		id = "*"
+	}
+
+	values := make(map[string]interface{}, len(fields))
+	for field, value := range fields {
+		values[field] = value
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	newID, err := r.client.XAdd(ctx, &redis.XAddArgs{
+		Stream: key,
+		ID:     id,
+		Values: values,
+	}).Result()
+	if err != nil {
+		return "", err
+	}
+	return newID, nil
+}
+
+// StreamDelete deletes entries from a stream by IDs
+func (r *RedisClientImpl) StreamDelete(key string, ids ...string) (int64, error) {
+	if r.client == nil {
+		return 0, fmt.Errorf("Redis 客户端未连接")
+	}
+	if len(ids) == 0 {
+		return 0, fmt.Errorf("Stream ID 不能为空")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return r.client.XDel(ctx, key, ids...).Result()
+}
+
+func toStreamEntries(messages []redis.XMessage) []StreamEntry {
+	entries := make([]StreamEntry, 0, len(messages))
+	for _, msg := range messages {
+		fields := make(map[string]string, len(msg.Values))
+		for field, value := range msg.Values {
+			fields[field] = fmt.Sprint(value)
+		}
+		entries = append(entries, StreamEntry{
+			ID:     msg.ID,
+			Fields: fields,
+		})
+	}
+	return entries
 }
 
 // ExecuteCommand executes a raw Redis command

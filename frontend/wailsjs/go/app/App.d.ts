@@ -120,6 +120,10 @@ export function RedisSetString(arg1:connection.ConnectionConfig,arg2:string,arg3
 
 export function RedisSetTTL(arg1:connection.ConnectionConfig,arg2:string,arg3:number):Promise<connection.QueryResult>;
 
+export function RedisStreamAdd(arg1:connection.ConnectionConfig,arg2:string,arg3:Record<string, string>,arg4:string):Promise<connection.QueryResult>;
+
+export function RedisStreamDelete(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<string>):Promise<connection.QueryResult>;
+
 export function RedisTestConnection(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
 
 export function RedisZSetAdd(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<redis.ZSetMember>):Promise<connection.QueryResult>;

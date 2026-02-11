@@ -131,7 +131,7 @@ export interface RedisScanResult {
 }
 
 export interface RedisValue {
-  type: 'string' | 'hash' | 'list' | 'set' | 'zset';
+  type: 'string' | 'hash' | 'list' | 'set' | 'zset' | 'stream';
   ttl: number;
   value: any;
   length: number;
@@ -145,4 +145,9 @@ export interface RedisDBInfo {
 export interface ZSetMember {
   member: string;
   score: number;
+}
+
+export interface StreamEntry {
+  id: string;
+  fields: Record<string, string>;
 }

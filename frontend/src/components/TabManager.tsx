@@ -116,6 +116,7 @@ const TabManager: React.FC = () => {
               height: 100%;
               flex: 1 1 auto;
               min-height: 0;
+              min-width: 0;
               display: flex;
               flex-direction: column;
               overflow: hidden;
@@ -126,6 +127,7 @@ const TabManager: React.FC = () => {
             .main-tabs .ant-tabs-content-holder {
               flex: 1 1 auto;
               min-height: 0;
+              min-width: 0;
               overflow: hidden;
               display: flex;
               flex-direction: column;
@@ -133,12 +135,14 @@ const TabManager: React.FC = () => {
             .main-tabs .ant-tabs-content {
               flex: 1 1 auto;
               min-height: 0;
+              min-width: 0;
               display: flex;
               flex-direction: column;
             }
             .main-tabs .ant-tabs-tabpane {
               flex: 1 1 auto;
               min-height: 0;
+              min-width: 0;
               display: flex;
               flex-direction: column;
               overflow: hidden;
@@ -146,6 +150,7 @@ const TabManager: React.FC = () => {
             .main-tabs .ant-tabs-tabpane > div {
               flex: 1 1 auto;
               min-height: 0;
+              min-width: 0;
             }
             .main-tabs .ant-tabs-tabpane-hidden {
               display: none !important;

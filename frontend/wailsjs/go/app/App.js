@@ -234,6 +234,14 @@ export function RedisSetTTL(arg1, arg2, arg3) {
   return window['go']['app']['App']['RedisSetTTL'](arg1, arg2, arg3);
 }
 
+export function RedisStreamAdd(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['RedisStreamAdd'](arg1, arg2, arg3, arg4);
+}
+
+export function RedisStreamDelete(arg1, arg2, arg3) {
+  return window['go']['app']['App']['RedisStreamDelete'](arg1, arg2, arg3);
+}
+
 export function RedisTestConnection(arg1) {
   return window['go']['app']['App']['RedisTestConnection'](arg1);
 }
