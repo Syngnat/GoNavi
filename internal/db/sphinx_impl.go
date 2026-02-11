@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/logger"
 )
 
 const sphinxDefaultDatabaseName = "default"
@@ -108,7 +109,67 @@ func (s *SphinxDB) GetCreateStatement(dbName, tableName string) (string, error) 
 }
 
 func (s *SphinxDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	return s.MySQLDB.GetColumns(s.resolveDatabaseName(dbName), tableName)
+	// Sphinx 使用 DESCRIBE 语法获取索引结构
+	query := fmt.Sprintf("DESCRIBE %s", tableName)
+	data, _, err := s.MySQLDB.Query(query)
+	if err != nil {
+		// 如果 DESCRIBE 失败，尝试使用 MySQL 的方式作为降级
+		return s.MySQLDB.GetColumns(s.resolveDatabaseName(dbName), tableName)
+	}
+
+	var columns []connection.ColumnDefinition
+	for _, row := range data {
+		// Sphinx DESCRIBE 返回的字段：Field, Type, Properties
+		fieldName := ""
+		if val, ok := row["Field"]; ok {
+			fieldName = fmt.Sprintf("%v", val)
+		} else if val, ok := row["field"]; ok {
+			fieldName = fmt.Sprintf("%v", val)
+		}
+
+		fieldType := ""
+		if val, ok := row["Type"]; ok {
+			fieldType = fmt.Sprintf("%v", val)
+		} else if val, ok := row["type"]; ok {
+			fieldType = fmt.Sprintf("%v", val)
+		}
+
+		properties := ""
+		if val, ok := row["Properties"]; ok {
+			properties = fmt.Sprintf("%v", val)
+		} else if val, ok := row["properties"]; ok {
+			properties = fmt.Sprintf("%v", val)
+		}
+
+		if fieldName == "" {
+			continue
+		}
+
+		col := connection.ColumnDefinition{
+			Name:     fieldName,
+			Type:     fieldType,
+			Nullable: "YES", // Sphinx 默认字段可为空
+			Key:      "",    // Sphinx 没有主键概念
+			Default:  nil,   // Sphinx DESCRIBE 不返回默认值
+			Extra:    properties,
+			Comment:  "",
+		}
+
+		// 根据 properties 判断是否为索引字段
+		if strings.Contains(strings.ToLower(properties), "indexed") {
+			col.Key = "MUL"
+		}
+
+		columns = append(columns, col)
+	}
+
+	// 如果没有获取到任何列，尝试使用 MySQL 方式
+	if len(columns) == 0 {
+		logger.Warnf("Sphinx DESCRIBE 未返回任何列，尝试使用 MySQL 方式获取：表=%s", tableName)
+		return s.MySQLDB.GetColumns(s.resolveDatabaseName(dbName), tableName)
+	}
+
+	return columns, nil
 }
 
 func (s *SphinxDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
