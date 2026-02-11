@@ -61,7 +61,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
 
     const dbType = config.type || '';
     const dbTypeLower = String(dbType || '').trim().toLowerCase();
-    const isMySQLFamily = dbTypeLower === 'mysql' || dbTypeLower === 'mariadb';
+    const isMySQLFamily = dbTypeLower === 'mysql' || dbTypeLower === 'mariadb' || dbTypeLower === 'diros';
 
     const dbName = tab.dbName || '';
     const tableName = tab.tableName || '';

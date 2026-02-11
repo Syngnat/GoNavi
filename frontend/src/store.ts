@@ -14,6 +14,7 @@ const DEFAULT_CONNECTION_TYPE = 'mysql';
 const SUPPORTED_CONNECTION_TYPES = new Set([
   'mysql',
   'mariadb',
+  'diros',
   'sphinx',
   'postgres',
   'redis',
@@ -26,6 +27,7 @@ const SUPPORTED_CONNECTION_TYPES = new Set([
   'highgo',
   'vastbase',
   'sqlite',
+  'duckdb',
   'custom',
 ]);
 
@@ -34,6 +36,10 @@ const getDefaultPortByType = (type: string): number => {
     case 'mysql':
     case 'mariadb':
       return 3306;
+    case 'diros':
+      return 9030;
+    case 'duckdb':
+      return 0;
     case 'sphinx':
       return 9306;
     case 'postgres':

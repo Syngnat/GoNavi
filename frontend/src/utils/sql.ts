@@ -36,7 +36,7 @@ export const quoteIdentPart = (dbType: string, ident: string) => {
   if (!raw) return raw;
   const dbTypeLower = (dbType || '').toLowerCase();
 
-  if (dbTypeLower === 'mysql' || dbTypeLower === 'mariadb' || dbTypeLower === 'sphinx' || dbTypeLower === 'tdengine') {
+  if (dbTypeLower === 'mysql' || dbTypeLower === 'mariadb' || dbTypeLower === 'diros' || dbTypeLower === 'sphinx' || dbTypeLower === 'tdengine') {
     return `\`${raw.replace(/`/g, '``')}\``;
   }
 
@@ -111,7 +111,7 @@ export const buildOrderBySQL = (
   // MySQL/MariaDB 大表在无显式排序需求时强制 ORDER BY（即使按主键）可能触发 filesort，
   // 导致 `Error 1038 (HY001): Out of sort memory`。
   // 因此仅在用户主动点击排序时下发 ORDER BY，默认分页查询不加兜底排序。
-  if (dbTypeLower === 'mysql' || dbTypeLower === 'mariadb') {
+  if (dbTypeLower === 'mysql' || dbTypeLower === 'mariadb' || dbTypeLower === 'diros') {
     return '';
   }
 

@@ -922,7 +922,7 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
   const applyAutoLimit = (sql: string, dbType: string, maxRows: number): { sql: string; applied: boolean; maxRows: number } => {
       const normalizedType = (dbType || 'mysql').toLowerCase();
-      const supportsLimit = normalizedType === 'mysql' || normalizedType === 'mariadb' || normalizedType === 'sphinx' || normalizedType === 'postgres' || normalizedType === 'kingbase' || normalizedType === 'sqlite' || normalizedType === 'tdengine' || normalizedType === '';
+      const supportsLimit = normalizedType === 'mysql' || normalizedType === 'mariadb' || normalizedType === 'diros' || normalizedType === 'sphinx' || normalizedType === 'postgres' || normalizedType === 'kingbase' || normalizedType === 'sqlite' || normalizedType === 'duckdb' || normalizedType === 'tdengine' || normalizedType === '';
       if (!supportsLimit) return { sql, applied: false, maxRows };
       if (!Number.isFinite(maxRows) || maxRows <= 0) return { sql, applied: false, maxRows };
 

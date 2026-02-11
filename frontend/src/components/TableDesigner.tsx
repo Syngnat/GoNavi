@@ -479,7 +479,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   const getDbType = (): string => {
     const conn = connections.find(c => c.id === tab.connectionId);
     const type = String(conn?.config?.type || '').toLowerCase();
-    if (type === 'mariadb' || type === 'sphinx') return 'mysql';
+    if (type === 'mariadb' || type === 'diros' || type === 'sphinx') return 'mysql';
     if (type === 'dameng') return 'dm';
     return type;
   };
