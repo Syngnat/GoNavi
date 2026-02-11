@@ -4,7 +4,7 @@ import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
 import { DBQuery, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
-import { buildOrderBySQL, buildWhereSQL, quoteQualifiedIdent, type FilterCondition } from '../utils/sql';
+import { buildOrderBySQL, buildWhereSQL, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
 
 const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [data, setData] = useState<any[]>([]);
@@ -60,6 +60,8 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
     };
 
     const dbType = config.type || '';
+    const dbTypeLower = String(dbType || '').trim().toLowerCase();
+    const isMySQLFamily = dbTypeLower === 'mysql' || dbTypeLower === 'mariadb';
 
     const dbName = tab.dbName || '';
     const tableName = tab.tableName || '';
@@ -74,24 +76,46 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
     // 大表性能：打开表不阻塞在 COUNT(*)，先通过多取 1 条判断是否还有下一页；总数在后台统计并异步回填。
     sql += ` LIMIT ${size + 1} OFFSET ${offset}`;
 
-    const startTime = Date.now();
+    const requestStartTime = Date.now();
+    let executedSql = sql;
     try {
-        const pData = DBQuery(config as any, dbName, sql);
+        const executeDataQuery = async (querySql: string, attemptLabel: string) => {
+            const startTime = Date.now();
+            const result = await DBQuery(config as any, dbName, querySql);
+            addSqlLog({
+                id: `log-${Date.now()}-data`,
+                timestamp: Date.now(),
+                sql: querySql,
+                status: result.success ? 'success' : 'error',
+                duration: Date.now() - startTime,
+                message: result.success ? '' : `${attemptLabel}: ${result.message}`,
+                affectedRows: Array.isArray(result.data) ? result.data.length : undefined,
+                dbName
+            });
+            return result;
+        };
 
-        const resData = await pData;
-        const duration = Date.now() - startTime;
-        
-        // Log Execution
-        addSqlLog({
-            id: `log-${Date.now()}-data`,
-            timestamp: Date.now(),
-            sql: sql,
-            status: resData.success ? 'success' : 'error',
-            duration: duration,
-            message: resData.success ? '' : resData.message,
-            affectedRows: Array.isArray(resData.data) ? resData.data.length : undefined,
-            dbName
-        });
+        const hasSort = !!sortInfo?.columnKey && (sortInfo?.order === 'ascend' || sortInfo?.order === 'descend');
+        const isSortMemoryErr = (msg: string) => /error\s*1038|out of sort memory/i.test(String(msg || ''));
+        let resData = await executeDataQuery(sql, '主查询');
+
+        if (!resData.success && isMySQLFamily && hasSort && isSortMemoryErr(resData.message)) {
+            const retrySql32MB = withSortBufferTuningSQL(dbType, sql, 32 * 1024 * 1024);
+            if (retrySql32MB !== sql) {
+                executedSql = retrySql32MB;
+                resData = await executeDataQuery(retrySql32MB, '重试(32MB sort_buffer)');
+            }
+            if (!resData.success && isSortMemoryErr(resData.message)) {
+                const retrySql128MB = withSortBufferTuningSQL(dbType, sql, 128 * 1024 * 1024);
+                if (retrySql128MB !== executedSql) {
+                    executedSql = retrySql128MB;
+                    resData = await executeDataQuery(retrySql128MB, '重试(128MB sort_buffer)');
+                }
+            }
+            if (resData.success) {
+                message.warning('已自动提升排序缓冲并重试成功。');
+            }
+        }
         
         if (pkColumns.length === 0) {
             const pkKey = `${tab.connectionId}|${dbName}|${tableName}`;
@@ -187,7 +211,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
                 }
             }
         } else {
-            message.error(resData.message);
+            message.error(String(resData.message || '查询失败'));
         }
     } catch (e: any) {
         if (fetchSeqRef.current !== seq) return;
@@ -195,9 +219,9 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
         addSqlLog({
             id: `log-${Date.now()}-error`,
             timestamp: Date.now(),
-            sql: sql,
+            sql: executedSql,
             status: 'error',
-            duration: Date.now() - startTime,
+            duration: Date.now() - requestStartTime,
             message: e.message,
             dbName
         });
@@ -211,7 +235,15 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const handleReload = useCallback(() => {
     fetchData(pagination.current, pagination.pageSize);
   }, [fetchData, pagination.current, pagination.pageSize]);
-  const handleSort = useCallback((field: string, order: string) => setSortInfo({ columnKey: field, order }), []);
+  const handleSort = useCallback((field: string, order: string) => {
+    const normalizedOrder = order === 'ascend' || order === 'descend' ? order : '';
+    const normalizedField = String(field || '').trim();
+    if (!normalizedField || !normalizedOrder) {
+      setSortInfo(null);
+      return;
+    }
+    setSortInfo({ columnKey: normalizedField, order: normalizedOrder });
+  }, []);
   const handlePageChange = useCallback((page: number, size: number) => fetchData(page, size), [fetchData]);
   const handleToggleFilter = useCallback(() => setShowFilter(prev => !prev), []);
   const handleApplyFilter = useCallback((conditions: FilterCondition[]) => setFilterConditions(conditions), []);
@@ -221,7 +253,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   }, [tab, sortInfo, filterConditions]); // Initial load and re-load on sort/filter
 
   return (
-    <div style={{ flex: '1 1 auto', minHeight: 0, height: '100%', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, height: '100%', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <DataGrid
           data={data}
           columnNames={columnNames}
@@ -238,6 +270,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
           onToggleFilter={handleToggleFilter}
           onApplyFilter={handleApplyFilter}
           readOnly={forceReadOnly}
+          sortInfoExternal={sortInfo}
       />
     </div>
   );

@@ -705,7 +705,7 @@ function App() {
             </Dropdown>
             <Button type="text" icon={<InfoCircleOutlined />} title="关于" onClick={() => setIsAboutOpen(true)}>关于</Button>
           </div>
-          <Layout style={{ flex: 1, minHeight: 0 }}>
+          <Layout style={{ flex: 1, minHeight: 0, minWidth: 0 }}>
           <Sider 
             width={sidebarWidth} 
             style={{ 
@@ -756,8 +756,8 @@ function App() {
                 title="拖动调整宽度"
             />
           </Sider>
-           <Content style={{ background: 'transparent', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-             <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: bgContent }}>
+           <Content style={{ background: 'transparent', overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+             <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: bgContent }}>
                  <TabManager />
              </div>
              {isLogPanelOpen && (

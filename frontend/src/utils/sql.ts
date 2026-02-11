@@ -68,16 +68,51 @@ type SortInfo = {
   order?: string;
 } | null | undefined;
 
+// 为排序查询按库类型注入 sort_buffer 提升参数（仅影响当前语句）。
+// MySQL: 使用 Optimizer Hint `SET_VAR`。
+// MariaDB: 使用 `SET STATEMENT ... FOR` 包装当前查询。
+export const withSortBufferTuningSQL = (
+  dbType: string,
+  sql: string,
+  sortBufferBytes: number,
+) => {
+  const rawSql = String(sql || '');
+  const trimmed = rawSql.trim();
+  if (!trimmed) return rawSql;
+  if (!/^select\b/i.test(trimmed)) return rawSql;
+
+  const normalizedType = String(dbType || '').trim().toLowerCase();
+  const bytes = Math.max(256 * 1024, Math.floor(Number(sortBufferBytes) || 0));
+  if (normalizedType === 'mysql') {
+    return rawSql.replace(
+      /^\s*select\b/i,
+      (matched) => `${matched} /*+ SET_VAR(sort_buffer_size=${bytes}) */`,
+    );
+  }
+  if (normalizedType === 'mariadb') {
+    return `SET STATEMENT sort_buffer_size=${bytes} FOR ${rawSql}`;
+  }
+  return rawSql;
+};
+
 export const buildOrderBySQL = (
   dbType: string,
   sortInfo: SortInfo,
   fallbackColumns: string[] = [],
 ) => {
+  const dbTypeLower = String(dbType || '').trim().toLowerCase();
   const sortColumn = normalizeIdentPart(String(sortInfo?.columnKey || ''));
   const sortOrder = String(sortInfo?.order || '');
   const direction = sortOrder === 'ascend' ? 'ASC' : sortOrder === 'descend' ? 'DESC' : '';
   if (sortColumn && direction) {
     return ` ORDER BY ${quoteIdentPart(dbType, sortColumn)} ${direction}`;
+  }
+
+  // MySQL/MariaDB 大表在无显式排序需求时强制 ORDER BY（即使按主键）可能触发 filesort，
+  // 导致 `Error 1038 (HY001): Out of sort memory`。
+  // 因此仅在用户主动点击排序时下发 ORDER BY，默认分页查询不加兜底排序。
+  if (dbTypeLower === 'mysql' || dbTypeLower === 'mariadb') {
+    return '';
   }
 
   const seen = new Set<string>();
