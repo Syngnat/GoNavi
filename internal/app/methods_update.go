@@ -324,7 +324,11 @@ func fetchLatestUpdateInfo() (UpdateInfo, error) {
 		return UpdateInfo{}, errors.New("无法解析最新版本号")
 	}
 
-	assetName, err := expectedAssetName(stdRuntime.GOOS, stdRuntime.GOARCH)
+	assetVersion := strings.TrimSpace(release.TagName)
+	if assetVersion == "" {
+		assetVersion = latestVersion
+	}
+	assetName, err := expectedAssetName(stdRuntime.GOOS, stdRuntime.GOARCH, assetVersion)
 	if err != nil {
 		return UpdateInfo{}, err
 	}
@@ -394,25 +398,32 @@ func fetchLatestRelease() (*githubRelease, error) {
 	return &release, nil
 }
 
-func expectedAssetName(goos, goarch string) (string, error) {
+func expectedAssetName(goos, goarch, version string) (string, error) {
+	version = strings.TrimSpace(version)
+	version = strings.TrimPrefix(version, "v")
+	version = strings.TrimPrefix(version, "V")
+	if version == "" {
+		return "", errors.New("无法解析发布版本号")
+	}
+
 	switch goos {
 	case "windows":
 		if goarch == "amd64" {
-			return "GoNavi-windows-amd64.exe", nil
+			return fmt.Sprintf("GoNavi-%s-Windows-Amd64.exe", version), nil
 		}
 		if goarch == "arm64" {
-			return "GoNavi-windows-arm64.exe", nil
+			return fmt.Sprintf("GoNavi-%s-Windows-Arm64.exe", version), nil
 		}
 	case "darwin":
 		if goarch == "amd64" {
-			return "GoNavi-mac-amd64.dmg", nil
+			return fmt.Sprintf("GoNavi-%s-MacOS-Amd64.dmg", version), nil
 		}
 		if goarch == "arm64" {
-			return "GoNavi-mac-arm64.dmg", nil
+			return fmt.Sprintf("GoNavi-%s-MacOS-Arm64.dmg", version), nil
 		}
 	case "linux":
 		if goarch == "amd64" {
-			return "GoNavi-linux-amd64.tar.gz", nil
+			return fmt.Sprintf("GoNavi-%s-Linux-Amd64.tar.gz", version), nil
 		}
 	}
 	return "", fmt.Errorf("当前平台暂不支持在线更新：%s/%s", goos, goarch)
@@ -860,6 +871,38 @@ if not exist "%%SOURCE%%" (
   exit /b 1
 )
 
+for %%I in ("%%TARGET%%") do set "TARGET_NAME=%%~nxI"
+for %%I in ("%%SOURCE%%") do set "SOURCE_EXT=%%~xI"
+set "SOURCE_EXE="
+
+if /I "%%SOURCE_EXT%%"==".zip" (
+  set "EXTRACT_DIR=%%STAGED%%\_extract"
+  if exist "%%EXTRACT_DIR%%" (
+    rmdir /S /Q "%%EXTRACT_DIR%%" >> "%%LOG_FILE%%" 2>&1
+  )
+  mkdir "%%EXTRACT_DIR%%" >> "%%LOG_FILE%%" 2>&1
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "$src=$env:SOURCE; $dst=$env:EXTRACT_DIR; Expand-Archive -LiteralPath $src -DestinationPath $dst -Force" >> "%%LOG_FILE%%" 2>&1
+  if %%ERRORLEVEL%% NEQ 0 (
+    call :log expand zip failed: %%SOURCE%%
+    exit /b 1
+  )
+  if exist "%%EXTRACT_DIR%%\%%TARGET_NAME%%" (
+    set "SOURCE_EXE=%%EXTRACT_DIR%%\%%TARGET_NAME%%"
+  ) else (
+    for /R "%%EXTRACT_DIR%%" %%F in (*.exe) do (
+      if not defined SOURCE_EXE (
+        set "SOURCE_EXE=%%~fF"
+      )
+    )
+  )
+  if not defined SOURCE_EXE (
+    call :log no executable found in portable zip: %%SOURCE%%
+    exit /b 1
+  )
+) else (
+  set "SOURCE_EXE=%%SOURCE%%"
+)
+
 :waitloop
 tasklist /FI "PID eq %%PID%%" | find "%%PID%%" >nul
 if %%ERRORLEVEL%%==0 (
@@ -870,10 +913,10 @@ call :log host process exited
 
 set /a RETRY=0
 :move_retry
-move /Y "%%SOURCE%%" "%%TARGET%%" >> "%%LOG_FILE%%" 2>&1
+move /Y "%%SOURCE_EXE%%" "%%TARGET%%" >> "%%LOG_FILE%%" 2>&1
 if %%ERRORLEVEL%%==0 goto move_done
 
-copy /Y "%%SOURCE%%" "%%TARGET%%" >> "%%LOG_FILE%%" 2>&1
+copy /Y "%%SOURCE_EXE%%" "%%TARGET%%" >> "%%LOG_FILE%%" 2>&1
 if %%ERRORLEVEL%%==0 goto move_done
 
 set /a RETRY+=1

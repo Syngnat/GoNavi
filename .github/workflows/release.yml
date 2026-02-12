@@ -19,23 +19,29 @@ jobs:
         include:
           - os: macos-latest
             platform: darwin/amd64
-            artifact_name: GoNavi-mac-amd64
-            asset_ext: .dmg
+            os_name: MacOS
+            arch_name: Amd64
+            build_name: gonavi-build-darwin-amd64
           - os: macos-latest
             platform: darwin/arm64
-            artifact_name: GoNavi-mac-arm64
-            asset_ext: .dmg
+            os_name: MacOS
+            arch_name: Arm64
+            build_name: gonavi-build-darwin-arm64
           - os: windows-latest
             platform: windows/amd64
-            artifact_name: GoNavi-windows-amd64
-            asset_ext: .exe
+            os_name: Windows
+            arch_name: Amd64
+            build_name: gonavi-build-windows-amd64
           - os: windows-latest
             platform: windows/arm64
-            artifact_name: GoNavi-windows-arm64
-            asset_ext: .exe
+            os_name: Windows
+            arch_name: Arm64
+            build_name: gonavi-build-windows-arm64
           - os: ubuntu-22.04
             platform: linux/amd64
-            artifact_name: GoNavi-linux-amd64
+            os_name: Linux
+            arch_name: Amd64
+            build_name: gonavi-build-linux-amd64
 
     steps:
       - name: Checkout code
@@ -88,13 +94,15 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.artifact_name }} -ldflags "-X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
 
       # macOS Packaging
       - name: Package macOS DMG
         if: contains(matrix.platform, 'darwin')
         run: |
           brew install create-dmg
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
           cd build/bin
           
           APP_PATH=$(find . -maxdepth 1 -name "*.app" | head -n 1)
@@ -107,7 +115,8 @@ jobs:
           echo "🔏 正在进行 Ad-hoc 签名..."
           codesign --force --options runtime --deep --sign - "$APP_NAME"
           
-          DMG_NAME="${{ matrix.artifact_name }}.dmg"
+          DMG_NAME="${{ matrix.build_name }}.dmg"
+          FINAL_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}.dmg"
           echo "📦 正在生成 DMG: $DMG_NAME..."
           
           create-dmg \
@@ -121,35 +130,48 @@ jobs:
             "$DMG_NAME" \
             "$APP_NAME"
             
-          mv "$DMG_NAME" ../../
+          mv "$DMG_NAME" "../../$FINAL_NAME"
 
       # Windows Packaging
-      - name: Prepare Windows Exe
+      - name: Package Windows Portable Zip
         if: contains(matrix.platform, 'windows')
-        shell: bash
+        shell: pwsh
         run: |
-          cd build/bin
-          TARGET="${{ matrix.artifact_name }}"
-          
-          if [ -f "$TARGET.exe" ]; then
-              FINAL_EXE="$TARGET.exe"
-          elif [ -f "$TARGET" ]; then
-              mv "$TARGET" "$TARGET.exe"
-              FINAL_EXE="$TARGET.exe"
-          else
-              echo "❌ 未找到构建产物 '$TARGET'!"
+          Set-Location build/bin
+          $version = "${{ github.ref_name }}"
+          if ($version.StartsWith("v")) {
+              $version = $version.Substring(1)
+          }
+          $target = "${{ matrix.build_name }}"
+          $finalExeName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}.exe"
+          $finalZipName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}.zip"
+
+          if (Test-Path "$target.exe") {
+              $finalExe = "$target.exe"
+          } elseif (Test-Path "$target") {
+              Rename-Item -Path "$target" -NewName "$target.exe"
+              $finalExe = "$target.exe"
+          } else {
+              Write-Error "❌ 未找到构建产物 '$target'!"
               exit 1
-          fi
-          
-          echo "📦 正在移动 $FINAL_EXE 到根目录..."
-          mv "$FINAL_EXE" "../../$FINAL_EXE"
+          }
+
+          Write-Host "📦 生成 Windows 可执行文件 $finalExeName..."
+          Copy-Item -LiteralPath $finalExe -Destination "..\\..\\$finalExeName" -Force
+
+          Write-Host "📦 生成 Windows 压缩包 $finalZipName..."
+          Compress-Archive -LiteralPath $finalExe -DestinationPath "..\\..\\$finalZipName" -Force
 
       # Linux Packaging (tar.gz and AppImage)
       - name: Package Linux
         if: contains(matrix.platform, 'linux')
         run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
           cd build/bin
-          TARGET="${{ matrix.artifact_name }}"
+          TARGET="${{ matrix.build_name }}"
+          TAR_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}.tar.gz"
+          APPIMAGE_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}.AppImage"
 
           if [ ! -f "$TARGET" ]; then
               echo "❌ 未找到构建产物 '$TARGET'!"
@@ -159,9 +181,9 @@ jobs:
           chmod +x "$TARGET"
 
           # 1. Create tar.gz
-          echo "📦 正在打包 $TARGET.tar.gz..."
-          tar -czvf "$TARGET.tar.gz" "$TARGET"
-          mv "$TARGET.tar.gz" ../../
+          echo "📦 正在打包 $TAR_NAME..."
+          tar -czvf "$TAR_NAME" "$TARGET"
+          mv "$TAR_NAME" ../../
 
           # 2. Create AppImage (skip for ARM64 or if tools unavailable)
           if [ -f /tmp/skip-appimage ]; then
@@ -211,13 +233,13 @@ jobs:
           }
 
           # Rename output
-          mv GoNavi*.AppImage "$TARGET.AppImage" 2>/dev/null || {
+          mv GoNavi*.AppImage "$APPIMAGE_NAME" 2>/dev/null || {
               echo "⚠️ AppImage 重命名失败"
               exit 0
           }
 
-          if [ -f "$TARGET.AppImage" ]; then
-              mv "$TARGET.AppImage" ../../
+          if [ -f "$APPIMAGE_NAME" ]; then
+              mv "$APPIMAGE_NAME" ../../
               echo "✅ AppImage 生成成功"
           fi
 
@@ -229,6 +251,7 @@ jobs:
           path: |
             GoNavi-*.dmg
             GoNavi-*.exe
+            GoNavi-*.zip
             GoNavi-*.tar.gz
             GoNavi-*.AppImage
           retention-days: 1
