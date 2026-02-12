@@ -50,9 +50,11 @@ const TriggerViewer: React.FC<TriggerViewerProps> = ({ tab }) => {
     const getMetadataDialect = (conn: any): string => {
         const type = String(conn?.config?.type || '').trim().toLowerCase();
         if (type === 'custom') {
-            return String(conn?.config?.driver || '').trim().toLowerCase();
+            const driver = String(conn?.config?.driver || '').trim().toLowerCase();
+            if (driver === 'diros' || driver === 'doris') return 'mysql';
+            return driver;
         }
-        if (type === 'mariadb' || type === 'sphinx') return 'mysql';
+        if (type === 'mariadb' || type === 'diros' || type === 'sphinx') return 'mysql';
         if (type === 'dameng') return 'dm';
         return type;
     };
@@ -100,6 +102,8 @@ LIMIT 1`];
                 return [`SELECT TRIGGER_BODY FROM ALL_TRIGGERS WHERE OWNER = '${safeDbName.toUpperCase()}' AND TRIGGER_NAME = '${safeTriggerName.toUpperCase()}'`];
             case 'sqlite':
                 return [`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = '${safeTriggerName}'`];
+            case 'duckdb':
+                return [`-- DuckDB 不支持触发器`];
             case 'tdengine':
                 return [`-- TDengine 不支持触发器`];
             case 'mongodb':

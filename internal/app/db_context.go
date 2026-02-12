@@ -14,7 +14,7 @@ func normalizeRunConfig(config connection.ConnectionConfig, dbName string) conne
 	}
 
 	switch strings.ToLower(strings.TrimSpace(config.Type)) {
-	case "mysql", "mariadb", "sphinx", "postgres", "kingbase", "highgo", "vastbase", "sqlserver", "mongodb", "tdengine":
+	case "mysql", "mariadb", "diros", "sphinx", "postgres", "kingbase", "highgo", "vastbase", "sqlserver", "mongodb", "tdengine":
 		// 这些类型的 dbName 表示"数据库"，需要写入连接配置以选择目标库。
 		runConfig.Database = name
 	case "dameng":

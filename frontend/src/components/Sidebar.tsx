@@ -228,9 +228,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const getMetadataDialect = (conn: SavedConnection | undefined): string => {
       const type = String(conn?.config?.type || '').trim().toLowerCase();
       if (type === 'custom') {
-          return String((conn?.config as any)?.driver || '').trim().toLowerCase();
+          const driver = String((conn?.config as any)?.driver || '').trim().toLowerCase();
+          if (driver === 'diros' || driver === 'doris') return 'mysql';
+          return driver;
       }
-      if (type === 'mariadb' || type === 'sphinx') return 'mysql';
+      if (type === 'mariadb' || type === 'diros' || type === 'sphinx') return 'mysql';
       if (type === 'dameng') return 'dm';
       return type;
   };
@@ -283,6 +285,18 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       return '';
   };
 
+  const getCaseInsensitiveRawValue = (row: Record<string, any>, candidateKeys: string[]): any => {
+      const keyMap = new Map<string, any>();
+      Object.keys(row || {}).forEach((key) => keyMap.set(key.toLowerCase(), row[key]));
+      for (const key of candidateKeys) {
+          const value = keyMap.get(key.toLowerCase());
+          if (value !== undefined && value !== null) {
+              return value;
+          }
+      }
+      return undefined;
+  };
+
   const getFirstRowValue = (row: Record<string, any>): string => {
       for (const value of Object.values(row || {})) {
           if (value !== undefined && value !== null) {
@@ -326,6 +340,44 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       };
   };
 
+  const parseDuckDBParameterNames = (raw: any): string[] => {
+      if (Array.isArray(raw)) {
+          return raw
+              .map((item) => String(item ?? '').trim())
+              .filter((item) => item !== '' && item.toLowerCase() !== '<nil>');
+      }
+
+      const text = String(raw ?? '').trim();
+      if (!text) return [];
+      const normalized = text.startsWith('[') && text.endsWith(']')
+          ? text.slice(1, -1)
+          : text;
+      return normalized
+          .split(',')
+          .map((part) => part.trim())
+          .filter((part) => part !== '' && part.toLowerCase() !== '<nil>');
+  };
+
+  const buildDuckDBMacroDDL = (
+      schemaName: string,
+      functionName: string,
+      parametersRaw: any,
+      macroDefinitionRaw: any
+  ): string => {
+      const schema = String(schemaName || '').trim();
+      const name = String(functionName || '').trim();
+      const macroDefinition = String(macroDefinitionRaw || '').trim();
+      if (!name || !macroDefinition) return '';
+
+      const parameters = parseDuckDBParameterNames(parametersRaw).join(', ');
+      const qualifiedName = schema ? `${schema}.${name}` : name;
+      const isTableMacro = !macroDefinition.startsWith('(');
+      if (isTableMacro) {
+          return `CREATE OR REPLACE MACRO ${qualifiedName}(${parameters}) AS TABLE ${macroDefinition};`;
+      }
+      return `CREATE OR REPLACE MACRO ${qualifiedName}(${parameters}) AS ${macroDefinition};`;
+  };
+
   const buildViewsMetadataQuerySpecs = (dialect: string, dbName: string): MetadataQuerySpec[] => {
       const safeDbName = escapeSQLLiteral(dbName);
       switch (dialect) {
@@ -358,6 +410,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               return [{ sql: `SELECT OWNER AS schema_name, VIEW_NAME AS view_name FROM ALL_VIEWS WHERE OWNER = '${safeDbName.toUpperCase()}' ORDER BY VIEW_NAME` }];
           case 'sqlite':
               return [{ sql: `SELECT name AS view_name FROM sqlite_master WHERE type = 'view' ORDER BY name` }];
+          case 'duckdb':
+              return [{ sql: `SELECT table_schema AS schema_name, table_name AS view_name FROM information_schema.views WHERE table_schema NOT IN ('information_schema', 'pg_catalog') ORDER BY table_schema, table_name` }];
           default:
               return [];
       }
@@ -395,6 +449,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               return [{ sql: `SELECT OWNER AS schema_name, TABLE_NAME AS table_name, TRIGGER_NAME AS trigger_name FROM ALL_TRIGGERS WHERE OWNER = '${safeDbName.toUpperCase()}' ORDER BY TABLE_NAME, TRIGGER_NAME` }];
           case 'sqlite':
               return [{ sql: `SELECT name AS trigger_name, tbl_name AS table_name FROM sqlite_master WHERE type = 'trigger' ORDER BY tbl_name, name` }];
+          case 'duckdb':
+              return [];
           default:
               return [];
       }
@@ -438,6 +494,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                   return [{ sql: `SELECT OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM USER_OBJECTS WHERE OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME` }];
               }
               return [{ sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM ALL_OBJECTS WHERE OWNER = '${safeDbName.toUpperCase()}' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME` }];
+          case 'duckdb':
+              return [{
+                  sql: `SELECT schema_name, function_name AS routine_name, 'FUNCTION' AS routine_type FROM duckdb_functions() WHERE internal = false AND lower(function_type) = 'macro' AND COALESCE(macro_definition, '') <> '' ORDER BY schema_name, function_name`,
+                  inferredType: 'FUNCTION',
+              }];
           default:
               return [];
       }
@@ -1697,6 +1758,13 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               case 'sqlite':
                   query = `SELECT sql AS view_definition FROM sqlite_master WHERE type='view' AND name='${escapeSQLLiteral(viewName)}'`;
                   break;
+              case 'duckdb': {
+                  const parts = splitQualifiedName(viewName);
+                  const viewSchema = escapeSQLLiteral(parts.schemaName || 'main');
+                  const viewObject = escapeSQLLiteral(parts.objectName || viewName);
+                  query = `SELECT view_definition FROM information_schema.views WHERE table_schema='${viewSchema}' AND table_name='${viewObject}' LIMIT 1`;
+                  break;
+              }
           }
           if (query) {
               const result = await DBQuery(config as any, dbName, query);
@@ -1739,6 +1807,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               template = `CREATE OR REPLACE VIEW view_name AS\nSELECT column1, column2\nFROM table_name\nWHERE condition;`;
               break;
           case 'sqlite':
+          case 'duckdb':
               template = `CREATE VIEW view_name AS\nSELECT column1, column2\nFROM table_name\nWHERE condition;`;
               break;
           default:
@@ -1831,9 +1900,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       try {
           const config = buildRuntimeConfig(conn, dbName);
           let query = '';
-          const parts = routineName.split('.');
-          const name = parts.length > 1 ? parts[1] : routineName;
-          const schema = parts.length > 1 ? parts[0] : '';
+          const parsedRoutine = splitQualifiedName(routineName);
+          const name = parsedRoutine.objectName || routineName;
+          const schema = parsedRoutine.schemaName;
 
           switch (dialect) {
               case 'mysql':
@@ -1856,6 +1925,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                   }
                   break;
               }
+              case 'duckdb': {
+                  const schemaRef = schema || 'main';
+                  query = `SELECT schema_name, function_name, parameters, macro_definition FROM duckdb_functions() WHERE internal = false AND lower(function_type) = 'macro' AND schema_name = '${escapeSQLLiteral(schemaRef)}' AND function_name = '${escapeSQLLiteral(name)}' LIMIT 1`;
+                  break;
+              }
           }
           if (query) {
               const result = await DBQuery(config as any, dbName, query);
@@ -1863,6 +1937,15 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                   if (dialect === 'oracle' || dialect === 'dm') {
                       const lines = result.data.map((row: any) => row.text || row.TEXT || Object.values(row)[0] || '').join('');
                       if (lines) template = `-- 编辑${typeLabel} ${routineName}\nCREATE OR REPLACE ${lines}`;
+                  } else if (dialect === 'duckdb') {
+                      const row = result.data[0] as Record<string, any>;
+                      const ddl = buildDuckDBMacroDDL(
+                          String(getCaseInsensitiveRawValue(row, ['schema_name']) || schema || '').trim(),
+                          String(getCaseInsensitiveRawValue(row, ['function_name']) || name || '').trim(),
+                          getCaseInsensitiveRawValue(row, ['parameters']),
+                          getCaseInsensitiveRawValue(row, ['macro_definition'])
+                      );
+                      if (ddl) template = `-- 编辑${typeLabel} ${routineName}\n${ddl}`;
                   } else {
                       const row = result.data[0] as Record<string, any>;
                       const def = row.routine_definition || row.ROUTINE_DEFINITION || Object.values(row).find(v => typeof v === 'string' && String(v).length > 10) || '';
@@ -1909,6 +1992,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               template = isProc
                   ? `CREATE OR REPLACE PROCEDURE proc_name(param1 IN NUMBER)\nIS\nBEGIN\n    -- procedure body\n    NULL;\nEND;`
                   : `CREATE OR REPLACE FUNCTION func_name(param1 IN NUMBER)\nRETURN NUMBER\nIS\nBEGIN\n    RETURN param1 * 2;\nEND;`;
+              break;
+          case 'duckdb':
+              template = isProc
+                  ? `-- DuckDB 暂不支持存储过程\n-- 请使用 SQL Macro 作为函数能力\nCREATE MACRO func_name(param1) AS (param1 * 2);`
+                  : `CREATE MACRO func_name(param1) AS (param1 * 2);`;
               break;
           default:
               template = isProc
@@ -2031,20 +2119,24 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
     // 函数分组节点的右键菜单
     if (node.type === 'object-group' && node.dataRef?.groupKey === 'routines') {
-        return [
+        const dialect = getMetadataDialect(node.dataRef as SavedConnection);
+        const routineMenu: MenuProps['items'] = [
             {
                 key: 'create-function',
                 label: '新建函数',
                 icon: <PlusOutlined />,
                 onClick: () => openCreateRoutine(node, 'FUNCTION')
             },
-            {
+        ];
+        if (dialect !== 'duckdb') {
+            routineMenu.push({
                 key: 'create-procedure',
                 label: '新建存储过程',
                 icon: <PlusOutlined />,
                 onClick: () => openCreateRoutine(node, 'PROCEDURE')
-            },
-        ];
+            });
+        }
+        return routineMenu;
     }
 
     if (node.type === 'connection') {

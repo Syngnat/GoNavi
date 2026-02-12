@@ -45,6 +45,8 @@ type UpdateInfo struct {
 	AssetURL        string `json:"assetUrl"`
 	AssetSize       int64  `json:"assetSize"`
 	SHA256          string `json:"sha256"`
+	Downloaded      bool   `json:"downloaded"`
+	DownloadPath    string `json:"downloadPath,omitempty"`
 }
 
 type AppInfo struct {
@@ -102,8 +104,27 @@ func (a *App) CheckForUpdates() connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
+	var currentStaged *stagedUpdate
+	a.updateMu.Lock()
+	currentStaged = a.updateState.staged
+	a.updateMu.Unlock()
+
+	if info.HasUpdate {
+		reusable := resolveReusableStagedUpdate(info, currentStaged)
+		if reusable != nil {
+			info.Downloaded = true
+			info.DownloadPath = reusable.FilePath
+			currentStaged = reusable
+		} else if currentStaged != nil && currentStaged.Version != info.LatestVersion {
+			currentStaged = nil
+		}
+	} else {
+		currentStaged = nil
+	}
+
 	a.updateMu.Lock()
 	a.updateState.lastCheck = &info
+	a.updateState.staged = currentStaged
 	a.updateMu.Unlock()
 
 	msg := "已是最新版本"
@@ -144,11 +165,13 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: false, Message: "未找到可用的更新包"}
 	}
-	staged := a.updateState.staged
-	if staged != nil && staged.Version == info.LatestVersion {
+	staged := resolveReusableStagedUpdate(*info, a.updateState.staged)
+	if staged != nil {
+		a.updateState.staged = staged
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: true, Message: "更新包已下载完成", Data: buildUpdateDownloadResult(*info, staged)}
 	}
+	a.updateState.staged = nil
 	a.updateState.downloading = true
 	a.updateMu.Unlock()
 
@@ -210,7 +233,7 @@ func (a *App) InstallUpdateAndRestart() connection.QueryResult {
 }
 
 func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
-	workspaceDir := strings.TrimSpace(resolveUpdateWorkspaceDir())
+	workspaceDir := strings.TrimSpace(resolveUpdateWorkspaceDir(info.LatestVersion))
 	if workspaceDir == "" {
 		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, "无法确定当前应用目录")
 		return connection.QueryResult{Success: false, Message: "无法确定当前应用目录，无法下载更新"}
@@ -243,8 +266,8 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		return connection.QueryResult{Success: false, Message: errMsg}
 	}
 
-	// 下载到 staging 目录，避免覆盖正在运行的可执行文件
-	assetPath := filepath.Join(stagedDir, info.AssetName)
+	// macOS 下载包放在桌面版本目录根级；其他平台继续放在 staging 目录。
+	assetPath := resolveUpdateAssetPath(workspaceDir, stagedDir, info.AssetName)
 	actualHash, err := downloadFileWithHash(info.AssetURL, assetPath, func(downloaded, total int64) {
 		reportTotal := total
 		if reportTotal <= 0 {
@@ -279,6 +302,8 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		StagedDir:      stagedDir,
 		InstallLogPath: buildUpdateInstallLogPath(workspaceDir),
 	}
+	info.Downloaded = true
+	info.DownloadPath = assetPath
 	a.updateMu.Lock()
 	a.updateState.staged = staged
 	a.updateMu.Unlock()
@@ -575,14 +600,146 @@ func buildUpdateInstallLogPath(baseDir string) string {
 	return filepath.Join(logDir, fmt.Sprintf("gonavi-update-%s-%d.log", platform, time.Now().UnixNano()))
 }
 
-func resolveUpdateWorkspaceDir() string {
-	// 使用系统临时目录作为更新工作区，避免以下问题：
-	// 1. Windows: exe 所在目录可能被杀毒软件/索引服务锁定，或缺少写权限（如 Program Files）
-	// 2. macOS: /Applications 需要管理员权限才能写入
-	// 3. 运行中的 exe 文件锁与 staging 文件冲突
-	dir := filepath.Join(os.TempDir(), "gonavi-updates")
-	_ = os.MkdirAll(dir, 0o755)
-	return dir
+func sanitizeVersionForPath(version string) string {
+	trimmed := strings.TrimSpace(version)
+	if trimmed == "" {
+		return "latest"
+	}
+
+	var builder strings.Builder
+	lastDash := false
+	for _, r := range trimmed {
+		isAllowed := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
+		if isAllowed {
+			builder.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			builder.WriteRune('-')
+			lastDash = true
+		}
+	}
+
+	result := strings.Trim(builder.String(), "-")
+	if result == "" {
+		return "latest"
+	}
+	return result
+}
+
+func resolveLegacyUpdateWorkspaceDir() string {
+	return filepath.Join(os.TempDir(), "gonavi-updates")
+}
+
+func resolveUpdateWorkspaceDir(version string) string {
+	// 默认使用系统临时目录作为更新工作区，避免目录权限与锁冲突。
+	// macOS 用户要求更新包默认保存在桌面：Desktop/GoNavi-<version>/。
+	if stdRuntime.GOOS == "darwin" {
+		homeDir, err := os.UserHomeDir()
+		if err == nil && strings.TrimSpace(homeDir) != "" {
+			desktopDir := filepath.Join(homeDir, "Desktop")
+			if st, statErr := os.Stat(desktopDir); statErr == nil && st.IsDir() {
+				return filepath.Join(desktopDir, fmt.Sprintf("GoNavi-%s", sanitizeVersionForPath(version)))
+			}
+		}
+	}
+	return resolveLegacyUpdateWorkspaceDir()
+}
+
+func resolveUpdateAssetPath(workspaceDir string, stagedDir string, assetName string) string {
+	name := strings.TrimSpace(assetName)
+	if stdRuntime.GOOS == "darwin" {
+		return filepath.Join(workspaceDir, name)
+	}
+	return filepath.Join(stagedDir, name)
+}
+
+func isExistingDownloadedAsset(filePath string, expectedSize int64) bool {
+	path := strings.TrimSpace(filePath)
+	if path == "" {
+		return false
+	}
+	stat, err := os.Stat(path)
+	if err != nil || stat.IsDir() {
+		return false
+	}
+	if expectedSize > 0 && stat.Size() != expectedSize {
+		return false
+	}
+	return true
+}
+
+func resolveReusableStagedUpdate(info UpdateInfo, current *stagedUpdate) *stagedUpdate {
+	version := strings.TrimSpace(info.LatestVersion)
+	assetName := strings.TrimSpace(info.AssetName)
+	if version == "" || assetName == "" {
+		return nil
+	}
+
+	if current != nil && strings.TrimSpace(current.Version) == version {
+		currentPath := strings.TrimSpace(current.FilePath)
+		if isExistingDownloadedAsset(currentPath, info.AssetSize) {
+			if strings.TrimSpace(current.InstallLogPath) == "" {
+				current.InstallLogPath = buildUpdateInstallLogPath(filepath.Dir(currentPath))
+			}
+			return current
+		}
+	}
+
+	type pathCandidate struct {
+		workspaceDir string
+		stagedDir    string
+		assetPath    string
+	}
+	stagedDirName := fmt.Sprintf(".gonavi-update-%s-%s", stdRuntime.GOOS, version)
+	workspaceCandidates := []string{
+		resolveUpdateWorkspaceDir(version),
+		resolveLegacyUpdateWorkspaceDir(),
+	}
+	seenWorkspace := make(map[string]struct{}, len(workspaceCandidates))
+	candidates := make([]pathCandidate, 0, 4)
+	for _, workspaceDir := range workspaceCandidates {
+		workspaceDir = strings.TrimSpace(workspaceDir)
+		if workspaceDir == "" {
+			continue
+		}
+		if _, exists := seenWorkspace[workspaceDir]; exists {
+			continue
+		}
+		seenWorkspace[workspaceDir] = struct{}{}
+
+		stagedDir := filepath.Join(workspaceDir, stagedDirName)
+		assetPath := resolveUpdateAssetPath(workspaceDir, stagedDir, assetName)
+		candidates = append(candidates, pathCandidate{
+			workspaceDir: workspaceDir,
+			stagedDir:    stagedDir,
+			assetPath:    assetPath,
+		})
+		legacyAssetPath := filepath.Join(stagedDir, assetName)
+		if legacyAssetPath != assetPath {
+			candidates = append(candidates, pathCandidate{
+				workspaceDir: workspaceDir,
+				stagedDir:    stagedDir,
+				assetPath:    legacyAssetPath,
+			})
+		}
+	}
+
+	for _, candidate := range candidates {
+		if !isExistingDownloadedAsset(candidate.assetPath, info.AssetSize) {
+			continue
+		}
+		return &stagedUpdate{
+			Version:        version,
+			AssetName:      assetName,
+			FilePath:       candidate.assetPath,
+			StagedDir:      candidate.stagedDir,
+			InstallLogPath: buildUpdateInstallLogPath(candidate.workspaceDir),
+		}
+	}
+
+	return nil
 }
 
 func resolveUpdateInstallTarget() string {

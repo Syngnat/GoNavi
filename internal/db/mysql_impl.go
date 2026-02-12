@@ -77,7 +77,8 @@ func applyMySQLURI(config connection.ConnectionConfig) connection.ConnectionConf
 	if uriText == "" {
 		return config
 	}
-	if !strings.HasPrefix(strings.ToLower(uriText), "mysql://") {
+	lowerURI := strings.ToLower(uriText)
+	if !strings.HasPrefix(lowerURI, "mysql://") {
 		return config
 	}
 

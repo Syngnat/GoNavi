@@ -22,7 +22,7 @@ func quoteIdentByType(dbType string, ident string) string {
 	}
 
 	switch dbType {
-	case "mysql", "mariadb", "sphinx":
+	case "mysql", "mariadb", "diros", "sphinx":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
 	case "sqlserver":
 		escaped := strings.ReplaceAll(ident, "]", "]]")
@@ -100,7 +100,7 @@ func qualifiedNameForQuery(dbType string, schema string, table string, original 
 			return raw
 		}
 		return s + "." + table
-	case "mysql", "mariadb", "sphinx":
+	case "mysql", "mariadb", "diros", "sphinx":
 		s := strings.TrimSpace(schema)
 		if s == "" || table == "" {
 			return table

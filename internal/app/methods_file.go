@@ -655,7 +655,7 @@ func quoteIdentByType(dbType string, ident string) string {
 	}
 
 	switch dbType {
-	case "mysql", "mariadb", "sphinx", "tdengine":
+	case "mysql", "mariadb", "diros", "sphinx", "tdengine":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
 	case "sqlserver":
 		escaped := strings.ReplaceAll(ident, "]", "]]")
@@ -787,7 +787,7 @@ func formatSQLValue(dbType string, v interface{}) string {
 	case time.Time:
 		return "'" + val.Format("2006-01-02 15:04:05") + "'"
 	case string:
-		if strings.ToLower(strings.TrimSpace(dbType)) == "mysql" && isMySQLHexLiteral(val) {
+		if (strings.ToLower(strings.TrimSpace(dbType)) == "mysql" || strings.ToLower(strings.TrimSpace(dbType)) == "diros") && isMySQLHexLiteral(val) {
 			return val
 		}
 		escaped := strings.ReplaceAll(val, "'", "''")

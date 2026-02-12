@@ -23,9 +23,11 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
     const getMetadataDialect = (conn: any): string => {
         const type = String(conn?.config?.type || '').trim().toLowerCase();
         if (type === 'custom') {
-            return String(conn?.config?.driver || '').trim().toLowerCase();
+            const driver = String(conn?.config?.driver || '').trim().toLowerCase();
+            if (driver === 'diros' || driver === 'doris') return 'mysql';
+            return driver;
         }
-        if (type === 'mariadb' || type === 'sphinx') return 'mysql';
+        if (type === 'mariadb' || type === 'diros' || type === 'sphinx') return 'mysql';
         if (type === 'dameng') return 'dm';
         return type;
     };
@@ -45,6 +47,55 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
             return { schema: raw.substring(0, idx), name: raw.substring(idx + 1) };
         }
         return { schema: '', name: raw };
+    };
+
+    const getCaseInsensitiveRawValue = (row: Record<string, any>, candidateKeys: string[]): any => {
+        const keyMap = new Map<string, any>();
+        Object.keys(row || {}).forEach((key) => keyMap.set(key.toLowerCase(), row[key]));
+        for (const key of candidateKeys) {
+            const value = keyMap.get(key.toLowerCase());
+            if (value !== undefined && value !== null) {
+                return value;
+            }
+        }
+        return undefined;
+    };
+
+    const parseDuckDBParameterNames = (raw: any): string[] => {
+        if (Array.isArray(raw)) {
+            return raw
+                .map((item) => String(item ?? '').trim())
+                .filter((item) => item !== '' && item.toLowerCase() !== '<nil>');
+        }
+        const text = String(raw ?? '').trim();
+        if (!text) return [];
+        const normalized = text.startsWith('[') && text.endsWith(']')
+            ? text.slice(1, -1)
+            : text;
+        return normalized
+            .split(',')
+            .map((part) => part.trim())
+            .filter((part) => part !== '' && part.toLowerCase() !== '<nil>');
+    };
+
+    const buildDuckDBMacroDDL = (
+        schemaName: string,
+        functionName: string,
+        parametersRaw: any,
+        macroDefinitionRaw: any
+    ): string => {
+        const schema = String(schemaName || '').trim();
+        const name = String(functionName || '').trim();
+        const macroDefinition = String(macroDefinitionRaw || '').trim();
+        if (!name || !macroDefinition) return '';
+
+        const parameters = parseDuckDBParameterNames(parametersRaw).join(', ');
+        const qualifiedName = schema ? `${schema}.${name}` : name;
+        const isTableMacro = !macroDefinition.startsWith('(');
+        if (isTableMacro) {
+            return `CREATE OR REPLACE MACRO ${qualifiedName}(${parameters}) AS TABLE ${macroDefinition};`;
+        }
+        return `CREATE OR REPLACE MACRO ${qualifiedName}(${parameters}) AS ${macroDefinition};`;
     };
 
     const buildShowViewQueries = (dialect: string, viewName: string, dbName: string): string[] => {
@@ -81,6 +132,10 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
                 return [`SELECT TEXT AS view_definition FROM USER_VIEWS WHERE VIEW_NAME = '${safeName.toUpperCase()}'`];
             case 'sqlite':
                 return [`SELECT sql AS view_definition FROM sqlite_master WHERE type='view' AND name='${safeName}'`];
+            case 'duckdb': {
+                const schemaRef = schema || 'main';
+                return [`SELECT view_definition FROM information_schema.views WHERE table_schema = '${escapeSQLLiteral(schemaRef)}' AND table_name = '${safeName}' LIMIT 1`];
+            }
             default:
                 return [`-- 暂不支持该数据库类型的视图定义查看`];
         }
@@ -120,8 +175,16 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
                 }
                 return [`SELECT TEXT FROM USER_SOURCE WHERE NAME = '${safeName.toUpperCase()}' AND TYPE = '${upperType}' ORDER BY LINE`];
             }
+            case 'duckdb': {
+                const schemaRef = schema || 'main';
+                const safeSchema = escapeSQLLiteral(schemaRef);
+                return [
+                    `SELECT schema_name, function_name, parameters, macro_definition FROM duckdb_functions() WHERE internal = false AND lower(function_type) = 'macro' AND schema_name = '${safeSchema}' AND function_name = '${safeName}' LIMIT 1`,
+                    `SELECT schema_name, function_name, parameters, macro_definition FROM duckdb_functions() WHERE internal = false AND lower(function_type) = 'macro' AND function_name = '${safeName}' ORDER BY CASE WHEN schema_name = '${safeSchema}' THEN 0 ELSE 1 END, schema_name LIMIT 1`,
+                ];
+            }
             case 'sqlite':
-                return [`-- SQLite 不支持存储函数/存储过程`];
+                return [`-- SQLite 不支持函数/存储过程定义管理`];
             default:
                 return [`-- 暂不支持该数据库类型的函数/存储过程定义查看`];
         }
@@ -243,6 +306,21 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
             case 'dm': {
                 // Oracle/DM ALL_SOURCE returns multiple rows, one per line
                 return data.map(row => row.text || row.TEXT || Object.values(row)[0] || '').join('');
+            }
+            case 'duckdb': {
+                const row = data[0] as Record<string, any>;
+                const ddl = buildDuckDBMacroDDL(
+                    String(getCaseInsensitiveRawValue(row, ['schema_name']) || '').trim(),
+                    String(getCaseInsensitiveRawValue(row, ['function_name', 'routine_name', 'name']) || '').trim(),
+                    getCaseInsensitiveRawValue(row, ['parameters']),
+                    getCaseInsensitiveRawValue(row, ['macro_definition'])
+                );
+                if (ddl) return ddl;
+                const fallback = getCaseInsensitiveRawValue(row, ['macro_definition', 'routine_definition', 'definition']);
+                if (fallback !== undefined && fallback !== null && String(fallback).trim() !== '') {
+                    return String(fallback);
+                }
+                return JSON.stringify(row, null, 2);
             }
             default: {
                 const row = data[0];

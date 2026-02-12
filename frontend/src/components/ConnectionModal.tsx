@@ -14,6 +14,7 @@ const MAX_TIMEOUT_SECONDS = 3600;
 const getDefaultPortByType = (type: string) => {
   switch (type) {
     case 'mysql': return 3306;
+    case 'diros': return 9030;
     case 'sphinx': return 9306;
     case 'postgres': return 5432;
     case 'redis': return 6379;
@@ -26,9 +27,12 @@ const getDefaultPortByType = (type: string) => {
     case 'highgo': return 5866;
     case 'mariadb': return 3306;
     case 'vastbase': return 5432;
+    case 'duckdb': return 0;
     default: return 3306;
   }
 };
+
+const isFileDatabaseType = (type: string) => type === 'sqlite' || type === 'duckdb';
 
 const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialValues?: SavedConnection | null }> = ({ open, onClose, initialValues }) => {
   const [form] = Form.useForm();
@@ -209,9 +213,11 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           return null;
       }
 
-      if (type === 'mysql' || type === 'mariadb' || type === 'sphinx') {
+      if (type === 'mysql' || type === 'mariadb' || type === 'diros' || type === 'sphinx') {
           const mysqlDefaultPort = getDefaultPortByType(type);
-          const parsed = parseMultiHostUri(trimmedUri, 'mysql');
+          const parsed = parseMultiHostUri(trimmedUri, 'mysql')
+              || parseMultiHostUri(trimmedUri, 'diros')
+              || parseMultiHostUri(trimmedUri, 'doris');
           if (!parsed) {
               return null;
           }
@@ -240,6 +246,41 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
                   ? Math.min(3600, Math.trunc(timeoutValue))
                   : undefined,
           };
+      }
+
+      if (isFileDatabaseType(type)) {
+          const tryExtractPath = (uri: string, scheme: string): string | null => {
+              const parsed = parseMultiHostUri(uri, scheme);
+              if (!parsed) {
+                  return null;
+              }
+              const host = String(parsed.hosts?.[0] || '').trim();
+              const dbPath = String(parsed.database || '').trim();
+              if (host && dbPath) {
+                  return `/${host}/${dbPath}`.replace(/\/+/g, '/');
+              }
+              if (host) {
+                  return `/${host}`.replace(/\/+/g, '/');
+              }
+              if (dbPath) {
+                  return dbPath.startsWith('/') ? dbPath : `/${dbPath}`;
+              }
+              return null;
+          };
+
+          const pathFromScheme = tryExtractPath(trimmedUri, type);
+          if (pathFromScheme) {
+              return { host: decodeURIComponent(pathFromScheme) };
+          }
+
+          const rawPath = trimmedUri
+              .replace(/^sqlite:\/\//i, '')
+              .replace(/^duckdb:\/\//i, '')
+              .trim();
+          if (!rawPath) {
+              return null;
+          }
+          return { host: decodeURIComponent(rawPath) };
       }
 
       if (type === 'mongodb') {
@@ -305,9 +346,15 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   });
 
   const getUriPlaceholder = () => {
-      if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'sphinx') {
+      if (dbType === 'mysql' || dbType === 'mariadb' || dbType === 'diros' || dbType === 'sphinx') {
           const defaultPort = getDefaultPortByType(dbType);
-          return `mysql://user:pass@127.0.0.1:${defaultPort},127.0.0.2:${defaultPort}/db_name?topology=replica`;
+          const scheme = dbType === 'diros' ? 'diros' : 'mysql';
+          return `${scheme}://user:pass@127.0.0.1:${defaultPort},127.0.0.2:${defaultPort}/db_name?topology=replica`;
+      }
+      if (isFileDatabaseType(dbType)) {
+          return dbType === 'duckdb'
+              ? 'duckdb:///Users/name/demo.duckdb'
+              : 'sqlite:///Users/name/demo.sqlite';
       }
       if (dbType === 'mongodb') {
           return 'mongodb+srv://user:pass@cluster0.example.com/db_name?authSource=admin&authMechanism=SCRAM-SHA-256';
@@ -328,7 +375,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           ? `${encodeURIComponent(user)}${password ? `:${encodeURIComponent(password)}` : ''}@`
           : '';
 
-      if (type === 'mysql' || type === 'mariadb' || type === 'sphinx') {
+      if (type === 'mysql' || type === 'mariadb' || type === 'diros' || type === 'sphinx') {
           const primary = toAddress(host, port, defaultPort);
           const replicas = values.mysqlTopology === 'replica'
               ? normalizeAddressList(values.mysqlReplicaHosts, defaultPort)
@@ -343,7 +390,17 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           }
           const dbPath = database ? `/${encodeURIComponent(database)}` : '/';
           const query = params.toString();
-          return `mysql://${encodedAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
+          const scheme = type === 'diros' ? 'diros' : 'mysql';
+          return `${scheme}://${encodedAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
+      }
+
+      if (isFileDatabaseType(type)) {
+          const pathText = String(values.host || '').trim();
+          if (!pathText) {
+              return `${type}://`;
+          }
+          const normalizedPath = pathText.startsWith('/') ? pathText : `/${pathText}`;
+          return `${type}://${encodeURI(normalizedPath)}`;
       }
 
       if (type === 'mongodb') {
@@ -463,7 +520,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
               );
               const primaryHost = primaryAddress?.host || String(config.host || 'localhost');
               const primaryPort = primaryAddress?.port || Number(config.port || defaultPort);
-              const mysqlReplicaHosts = (configType === 'mysql' || configType === 'mariadb' || configType === 'sphinx') ? normalizedHosts.slice(1) : [];
+              const mysqlReplicaHosts = (configType === 'mysql' || configType === 'mariadb' || configType === 'diros' || configType === 'sphinx') ? normalizedHosts.slice(1) : [];
               const mongoHosts = configType === 'mongodb' ? normalizedHosts.slice(1) : [];
               const mysqlIsReplica = String(config.topology || '').toLowerCase() === 'replica' || mysqlReplicaHosts.length > 0;
               const mongoIsReplica = String(config.topology || '').toLowerCase() === 'replica' || mongoHosts.length > 0 || !!config.replicaSet;
@@ -539,7 +596,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       const isRedisType = values.type === 'redis';
       const newConn = {
         id: initialValues ? initialValues.id : Date.now().toString(),
-        name: values.name || (values.type === 'sqlite' ? 'SQLite DB' : (values.type === 'redis' ? `Redis ${displayHost}` : displayHost)),
+        name: values.name || (isFileDatabaseType(values.type) ? (values.type === 'duckdb' ? 'DuckDB DB' : 'SQLite DB') : (values.type === 'redis' ? `Redis ${displayHost}` : displayHost)),
         config: config,
         includeDatabases: values.includeDatabases,
         includeRedisDatabases: isRedisType ? values.includeRedisDatabases : undefined
@@ -710,7 +767,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           ? mergedValues.savePassword !== false
           : true;
 
-      if (type === 'mysql' || type === 'mariadb' || type === 'sphinx') {
+      if (type === 'mysql' || type === 'mariadb' || type === 'diros' || type === 'sphinx') {
           const replicas = mergedValues.mysqlTopology === 'replica'
               ? normalizeAddressList(mergedValues.mysqlReplicaHosts, defaultPort)
               : [];
@@ -793,7 +850,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       form.setFieldsValue({ type: type });
 
       const defaultPort = getDefaultPortByType(type);
-      if (type !== 'sqlite' && type !== 'custom') {
+      if (!isFileDatabaseType(type) && type !== 'custom') {
           form.setFieldsValue({
               port: defaultPort,
               mysqlTopology: 'single',
@@ -817,7 +874,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       setStep(2);
   };
 
-  const isSqlite = dbType === 'sqlite';
+  const isFileDb = isFileDatabaseType(dbType);
   const isCustom = dbType === 'custom';
   const isRedis = dbType === 'redis';
 
@@ -825,10 +882,12 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       { label: '关系型数据库', items: [
           { key: 'mysql', name: 'MySQL', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#00758F' }} /> },
           { key: 'mariadb', name: 'MariaDB', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#003545' }} /> },
+          { key: 'diros', name: 'Diros', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#0050b3' }} /> },
           { key: 'sphinx', name: 'Sphinx', icon: <ConsoleSqlOutlined style={{ fontSize: 24, color: '#2F5D62' }} /> },
           { key: 'postgres', name: 'PostgreSQL', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#336791' }} /> },
           { key: 'sqlserver', name: 'SQL Server', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#CC2927' }} /> },
           { key: 'sqlite', name: 'SQLite', icon: <FileTextOutlined style={{ fontSize: 24, color: '#003B57' }} /> },
+          { key: 'duckdb', name: 'DuckDB', icon: <FileTextOutlined style={{ fontSize: 24, color: '#f59e0b' }} /> },
           { key: 'oracle', name: 'Oracle', icon: <DatabaseOutlined style={{ fontSize: 24, color: '#F80000' }} /> },
       ]},
       { label: '国产数据库', items: [
@@ -988,16 +1047,16 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
         <div style={{ display: 'flex', gap: 16 }}>
             <Form.Item
                 name="host"
-                label={isSqlite ? "文件路径 (绝对路径)" : "主机地址 (Host)"}
+                label={isFileDb ? "文件路径 (绝对路径)" : "主机地址 (Host)"}
                 rules={[createUriAwareRequiredRule('请输入地址/路径')]}
                 style={{ flex: 1 }}
             >
               <Input
-                placeholder={isSqlite ? "/path/to/db.sqlite" : "localhost"}
+                placeholder={isFileDb ? (dbType === 'duckdb' ? "/path/to/db.duckdb" : "/path/to/db.sqlite") : "localhost"}
                 onDoubleClick={requestTest}
               />
             </Form.Item>
-            {!isSqlite && (
+            {!isFileDb && (
             <Form.Item
                 name="port"
                 label="端口 (Port)"
@@ -1009,7 +1068,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
             )}
         </div>
 
-        {(dbType === 'mysql' || dbType === 'mariadb' || dbType === 'sphinx') && (
+        {(dbType === 'mysql' || dbType === 'mariadb' || dbType === 'diros' || dbType === 'sphinx') && (
         <>
             <Form.Item name="mysqlTopology" label="连接模式">
                 <Select
@@ -1174,7 +1233,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
         )}
 
         {/* Non-Redis, non-SQLite: username and password */}
-        {!isSqlite && !isRedis && (
+        {!isFileDb && !isRedis && (
         <div style={{ display: 'flex', gap: 16 }}>
             <Form.Item
                 name="user"
@@ -1209,7 +1268,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
         </Form.Item>
         )}
 
-        {!isSqlite && !isRedis && (
+        {!isFileDb && !isRedis && (
         <Form.Item name="includeDatabases" label="显示数据库 (留空显示全部)" help="连接测试成功后可选择">
             <Select mode="multiple" placeholder="选择显示的数据库" allowClear>
                 {dbList.map(db => <Select.Option key={db} value={db}>{db}</Select.Option>)}
@@ -1217,7 +1276,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
         </Form.Item>
         )}
 
-        {!isSqlite && (
+        {!isFileDb && (
         <>
             <Divider style={{ margin: '12px 0' }} />
             <Form.Item name="useSSH" valuePropName="checked" style={{ marginBottom: 0 }}>
