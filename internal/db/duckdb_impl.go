@@ -9,8 +9,6 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/utils"
-
-	_ "github.com/marcboeker/go-duckdb"
 )
 
 type DuckDB struct {
@@ -19,6 +17,10 @@ type DuckDB struct {
 }
 
 func (d *DuckDB) Connect(config connection.ConnectionConfig) error {
+	if supported, reason := duckDBBuildSupportStatus(); !supported {
+		return fmt.Errorf("DuckDB 驱动不可用：%s", reason)
+	}
+
 	dsn := strings.TrimSpace(config.Host)
 	if dsn == "" {
 		dsn = strings.TrimSpace(config.Database)
@@ -35,6 +37,8 @@ func (d *DuckDB) Connect(config connection.ConnectionConfig) error {
 	d.pingTimeout = getConnectTimeout(config)
 
 	if err := d.Ping(); err != nil {
+		_ = db.Close()
+		d.conn = nil
 		return fmt.Errorf("连接建立后验证失败：%w", err)
 	}
 	return nil
