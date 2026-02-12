@@ -44,7 +44,9 @@ static void gonaviTuneWindowTranslucency(NSWindow *window) {
 		[effectView release];
 	}
 
-	[effectView setMaterial:NSVisualEffectMaterialHUDWindow];
+	if (@available(macOS 10.14, *)) {
+		[effectView setMaterial:NSVisualEffectMaterialHUDWindow];
+	}
 	[effectView setBlendingMode:NSVisualEffectBlendingModeBehindWindow];
 	[effectView setState:NSVisualEffectStateActive];
 	// 默认 alpha=0（不可见），由前端根据用户外观设置动态启用
