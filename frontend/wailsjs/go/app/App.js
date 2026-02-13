@@ -10,6 +10,10 @@ export function CheckForUpdates() {
   return window['go']['app']['App']['CheckForUpdates']();
 }
 
+export function ConfigureDriverRuntimeDirectory(arg1) {
+  return window['go']['app']['App']['ConfigureDriverRuntimeDirectory'](arg1);
+}
+
 export function CreateDatabase(arg1, arg2) {
   return window['go']['app']['App']['CreateDatabase'](arg1, arg2);
 }
@@ -66,6 +70,10 @@ export function DataSyncPreview(arg1, arg2, arg3) {
   return window['go']['app']['App']['DataSyncPreview'](arg1, arg2, arg3);
 }
 
+export function DownloadDriverPackage(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DownloadDriverPackage'](arg1, arg2, arg3);
+}
+
 export function DownloadUpdate() {
   return window['go']['app']['App']['DownloadUpdate']();
 }
@@ -114,6 +122,10 @@ export function GetAppInfo() {
   return window['go']['app']['App']['GetAppInfo']();
 }
 
+export function GetDriverStatusList(arg1, arg2) {
+  return window['go']['app']['App']['GetDriverStatusList'](arg1, arg2);
+}
+
 export function ImportConfigFile() {
   return window['go']['app']['App']['ImportConfigFile']();
 }
@@ -124,6 +136,10 @@ export function ImportData(arg1, arg2, arg3) {
 
 export function ImportDataWithProgress(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ImportDataWithProgress'](arg1, arg2, arg3, arg4);
+}
+
+export function InstallLocalDriverPackage(arg1, arg2, arg3) {
+  return window['go']['app']['App']['InstallLocalDriverPackage'](arg1, arg2, arg3);
 }
 
 export function InstallUpdateAndRestart() {
@@ -254,6 +270,10 @@ export function RedisZSetRemove(arg1, arg2, arg3) {
   return window['go']['app']['App']['RedisZSetRemove'](arg1, arg2, arg3);
 }
 
+export function RemoveDriverPackage(arg1, arg2) {
+  return window['go']['app']['App']['RemoveDriverPackage'](arg1, arg2);
+}
+
 export function RenameDatabase(arg1, arg2, arg3) {
   return window['go']['app']['App']['RenameDatabase'](arg1, arg2, arg3);
 }
@@ -264,6 +284,26 @@ export function RenameTable(arg1, arg2, arg3, arg4) {
 
 export function RenameView(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['RenameView'](arg1, arg2, arg3, arg4);
+}
+
+export function ResolveDriverDownloadDirectory(arg1) {
+  return window['go']['app']['App']['ResolveDriverDownloadDirectory'](arg1);
+}
+
+export function ResolveDriverPackageDownloadURL(arg1, arg2) {
+  return window['go']['app']['App']['ResolveDriverPackageDownloadURL'](arg1, arg2);
+}
+
+export function ResolveDriverRepositoryURL(arg1) {
+  return window['go']['app']['App']['ResolveDriverRepositoryURL'](arg1);
+}
+
+export function SelectDriverDownloadDirectory(arg1) {
+  return window['go']['app']['App']['SelectDriverDownloadDirectory'](arg1);
+}
+
+export function SelectDriverPackageFile(arg1) {
+  return window['go']['app']['App']['SelectDriverPackageFile'](arg1);
 }
 
 export function SetWindowTranslucency(arg1, arg2) {

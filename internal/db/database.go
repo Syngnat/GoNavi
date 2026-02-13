@@ -3,6 +3,7 @@ package db
 import (
 	"GoNavi-Wails/internal/connection"
 	"fmt"
+	"strings"
 )
 
 type Database interface {
@@ -25,46 +26,61 @@ type BatchApplier interface {
 	ApplyChanges(tableName string, changes connection.ChangeSet) error
 }
 
+type databaseFactory func() Database
+
+var databaseFactories = map[string]databaseFactory{
+	"mysql": func() Database {
+		return &MySQLDB{}
+	},
+	"postgres": func() Database {
+		return &PostgresDB{}
+	},
+	"oracle": func() Database {
+		return &OracleDB{}
+	},
+	"custom": func() Database {
+		return &CustomDB{}
+	},
+}
+
+func init() {
+	registerOptionalDatabaseFactories()
+}
+
+func registerDatabaseFactory(factory databaseFactory, dbTypes ...string) {
+	if factory == nil || len(dbTypes) == 0 {
+		return
+	}
+	for _, dbType := range dbTypes {
+		normalized := normalizeDatabaseType(dbType)
+		if normalized == "" {
+			continue
+		}
+		databaseFactories[normalized] = factory
+	}
+}
+
+func normalizeDatabaseType(dbType string) string {
+	normalized := strings.ToLower(strings.TrimSpace(dbType))
+	switch normalized {
+	case "doris":
+		return "diros"
+	case "postgresql":
+		return "postgres"
+	default:
+		return normalized
+	}
+}
+
 // Factory
 func NewDatabase(dbType string) (Database, error) {
-	switch dbType {
-	case "mysql":
-		return &MySQLDB{}, nil
-	case "postgres":
-		return &PostgresDB{}, nil
-	case "sqlite":
-		return &SQLiteDB{}, nil
-	case "oracle":
-		return &OracleDB{}, nil
-	case "dameng":
-		return &DamengDB{}, nil
-	case "kingbase":
-		return &KingbaseDB{}, nil
-	case "mongodb":
-		return &MongoDB{}, nil
-	case "sqlserver":
-		return &SqlServerDB{}, nil
-	case "highgo":
-		return &HighGoDB{}, nil
-	case "mariadb":
-		return &MariaDB{}, nil
-	case "diros", "doris":
-		return &DirosDB{}, nil
-	case "sphinx":
-		return &SphinxDB{}, nil
-	case "vastbase":
-		return &VastbaseDB{}, nil
-	case "tdengine":
-		return &TDengineDB{}, nil
-	case "duckdb":
-		return &DuckDB{}, nil
-	case "custom":
-		return &CustomDB{}, nil
-	default:
-		// Default to MySQL for backward compatibility if empty
-		if dbType == "" {
-			return &MySQLDB{}, nil
-		}
+	normalized := normalizeDatabaseType(dbType)
+	if normalized == "" {
+		normalized = "mysql"
+	}
+	factory, ok := databaseFactories[normalized]
+	if !ok {
 		return nil, fmt.Errorf("unsupported database type: %s", dbType)
 	}
+	return factory(), nil
 }

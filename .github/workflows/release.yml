@@ -94,7 +94,48 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+
+      - name: Build Optional Driver Agents
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_PLATFORM="${{ matrix.platform }}"
+          GOOS="${TARGET_PLATFORM%%/*}"
+          GOARCH="${TARGET_PLATFORM##*/}"
+          DRIVERS=(mariadb diros sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase mongodb tdengine)
+
+          for DRIVER in "${DRIVERS[@]}"; do
+            TAG="gonavi_${DRIVER}_driver"
+            OUTPUT="${DRIVER}-driver-agent-${GOOS}-${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              OUTPUT="${OUTPUT}.exe"
+            fi
+            echo "🔧 构建 ${OUTPUT} (tag=${TAG})"
+            if [ "$DRIVER" = "duckdb" ]; then
+              set +e
+              CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" go build \
+                -tags "${TAG}" \
+                -trimpath \
+                -ldflags "-s -w" \
+                -o "${OUTPUT}" \
+                ./cmd/optional-driver-agent
+              DUCKDB_RC=$?
+              set -e
+              if [ "${DUCKDB_RC}" -ne 0 ]; then
+                echo "⚠️ DuckDB 代理构建失败（平台 ${GOOS}/${GOARCH}），跳过该资产，不阻断发布"
+                rm -f "${OUTPUT}"
+                continue
+              fi
+            else
+              CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
+                -tags "${TAG}" \
+                -trimpath \
+                -ldflags "-s -w" \
+                -o "${OUTPUT}" \
+                ./cmd/optional-driver-agent
+            fi
+          done
 
       # macOS Packaging
       - name: Package macOS DMG
@@ -254,6 +295,7 @@ jobs:
             GoNavi-*.zip
             GoNavi-*.tar.gz
             GoNavi-*.AppImage
+            *-driver-agent-*
           retention-days: 1
 
   # Phase 2: Collect all artifacts and Publish Release (Single Job)
@@ -273,9 +315,21 @@ jobs:
         run: ls -R release-assets
 
       - name: Generate SHA256SUMS
+        shell: bash
         run: |
           cd release-assets
-          sha256sum * > SHA256SUMS
+          FILES=()
+          while IFS= read -r file; do
+            if [ -n "$file" ]; then
+              FILES+=("$file")
+            fi
+          done < <(find . -maxdepth 1 -type f ! -name SHA256SUMS -exec basename {} \; | sort)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "⚠️ 未找到可签名资产，生成空 SHA256SUMS"
+            : > SHA256SUMS
+          else
+            sha256sum "${FILES[@]}" > SHA256SUMS
+          fi
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

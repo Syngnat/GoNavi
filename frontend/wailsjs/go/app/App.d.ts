@@ -8,6 +8,8 @@ export function ApplyChanges(arg1:connection.ConnectionConfig,arg2:string,arg3:s
 
 export function CheckForUpdates():Promise<connection.QueryResult>;
 
+export function ConfigureDriverRuntimeDirectory(arg1:string):Promise<connection.QueryResult>;
+
 export function CreateDatabase(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
 export function DBConnect(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
@@ -36,6 +38,8 @@ export function DataSyncAnalyze(arg1:sync.SyncConfig):Promise<connection.QueryRe
 
 export function DataSyncPreview(arg1:sync.SyncConfig,arg2:string,arg3:number):Promise<connection.QueryResult>;
 
+export function DownloadDriverPackage(arg1:string,arg2:string,arg3:string):Promise<connection.QueryResult>;
+
 export function DownloadUpdate():Promise<connection.QueryResult>;
 
 export function DropDatabase(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
@@ -60,11 +64,15 @@ export function ExportTablesSQL(arg1:connection.ConnectionConfig,arg2:string,arg
 
 export function GetAppInfo():Promise<connection.QueryResult>;
 
+export function GetDriverStatusList(arg1:string,arg2:string):Promise<connection.QueryResult>;
+
 export function ImportConfigFile():Promise<connection.QueryResult>;
 
 export function ImportData(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
 export function ImportDataWithProgress(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
+
+export function InstallLocalDriverPackage(arg1:string,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
 export function InstallUpdateAndRestart():Promise<connection.QueryResult>;
 
@@ -130,11 +138,23 @@ export function RedisZSetAdd(arg1:connection.ConnectionConfig,arg2:string,arg3:A
 
 export function RedisZSetRemove(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<string>):Promise<connection.QueryResult>;
 
+export function RemoveDriverPackage(arg1:string,arg2:string):Promise<connection.QueryResult>;
+
 export function RenameDatabase(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
 export function RenameTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
 export function RenameView(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
+
+export function ResolveDriverDownloadDirectory(arg1:string):Promise<connection.QueryResult>;
+
+export function ResolveDriverPackageDownloadURL(arg1:string,arg2:string):Promise<connection.QueryResult>;
+
+export function ResolveDriverRepositoryURL(arg1:string):Promise<connection.QueryResult>;
+
+export function SelectDriverDownloadDirectory(arg1:string):Promise<connection.QueryResult>;
+
+export function SelectDriverPackageFile(arg1:string):Promise<connection.QueryResult>;
 
 export function SetWindowTranslucency(arg1:number,arg2:number):Promise<void>;
 

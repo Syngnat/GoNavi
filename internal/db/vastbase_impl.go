@@ -1,3 +1,5 @@
+//go:build gonavi_full_drivers || gonavi_vastbase_driver
+
 package db
 
 import (

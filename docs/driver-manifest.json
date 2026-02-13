@@ -1,0 +1,83 @@
+{
+  "engine": "go",
+  "drivers": {
+    "mariadb": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/mariadb"
+    },
+    "diros": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/diros"
+    },
+    "sphinx": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/sphinx"
+    },
+    "sqlserver": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/sqlserver"
+    },
+    "sqlite": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/sqlite"
+    },
+    "duckdb": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/duckdb"
+    },
+    "dameng": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/dameng"
+    },
+    "kingbase": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/kingbase"
+    },
+    "highgo": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/highgo"
+    },
+    "vastbase": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/vastbase"
+    },
+    "mongodb": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/mongodb"
+    },
+    "tdengine": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/tdengine"
+    },
+    "postgres": {
+      "engine": "go",
+      "version": "go-embedded",
+      "checksumPolicy": "off",
+      "downloadUrl": "builtin://activate/postgres"
+    }
+  }
+}

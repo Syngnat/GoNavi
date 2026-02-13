@@ -12,7 +12,7 @@ if [ -z "$VERSION" ]; then
     VERSION="0.0.0"
 fi
 echo "ℹ️  检测到版本号: $VERSION"
-LDFLAGS="-X GoNavi-Wails/internal/app.AppVersion=$VERSION"
+LDFLAGS="-s -w -X GoNavi-Wails/internal/app.AppVersion=$VERSION"
 
 # 颜色配置
 GREEN='\033[0;32m'
