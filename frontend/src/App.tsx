@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
 import DataSyncModal from './components/DataSyncModal';
+import DriverManagerModal from './components/DriverManagerModal';
 import LogPanel from './components/LogPanel';
 import { useStore } from './store';
 import { SavedConnection } from './types';
@@ -19,6 +20,7 @@ const { Sider, Content } = Layout;
 function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isDriverModalOpen, setIsDriverModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
   const themeMode = useStore(state => state.theme);
   const setTheme = useStore(state => state.setTheme);
@@ -378,6 +380,12 @@ function App() {
           label: '数据同步',
           icon: <UploadOutlined rotate={90} />,
           onClick: () => setIsSyncModalOpen(true)
+      },
+      {
+          key: 'drivers',
+          label: '驱动管理',
+          icon: <SettingOutlined />,
+          onClick: () => setIsDriverModalOpen(true)
       }
   ];
 
@@ -465,6 +473,12 @@ function App() {
   const handleCloseModal = () => {
       setIsModalOpen(false);
       setEditingConnection(null);
+  };
+
+  const handleOpenDriverManagerFromConnection = () => {
+      setIsModalOpen(false);
+      setEditingConnection(null);
+      setIsDriverModalOpen(true);
   };
 
   const handleTitleBarDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -793,10 +807,15 @@ function App() {
             open={isModalOpen} 
             onClose={handleCloseModal} 
             initialValues={editingConnection}
+            onOpenDriverManager={handleOpenDriverManagerFromConnection}
           />
           <DataSyncModal
             open={isSyncModalOpen}
             onClose={() => setIsSyncModalOpen(false)}
+          />
+          <DriverManagerModal
+            open={isDriverModalOpen}
+            onClose={() => setIsDriverModalOpen(false)}
           />
           <Modal
             title="关于 GoNavi"

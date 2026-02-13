@@ -1,3 +1,5 @@
+//go:build gonavi_full_drivers
+
 package db
 
 import (

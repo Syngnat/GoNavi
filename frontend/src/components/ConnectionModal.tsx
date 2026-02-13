@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Modal, Form, Input, InputNumber, Button, message, Checkbox, Divider, Select, Alert, Card, Row, Col, Typography, Collapse, Space, Table, Tag } from 'antd';
 import { DatabaseOutlined, ConsoleSqlOutlined, FileTextOutlined, CloudServerOutlined, AppstoreAddOutlined, CloudOutlined, CheckCircleFilled, CloseCircleFilled } from '@ant-design/icons';
 import { useStore } from '../store';
-import { DBGetDatabases, MongoDiscoverMembers, TestConnection, RedisConnect } from '../../wailsjs/go/app/App';
+import { DBGetDatabases, GetDriverStatusList, MongoDiscoverMembers, TestConnection, RedisConnect } from '../../wailsjs/go/app/App';
 import { MongoMemberInfo, SavedConnection } from '../types';
 
 const { Meta } = Card;
@@ -34,7 +34,26 @@ const getDefaultPortByType = (type: string) => {
 
 const isFileDatabaseType = (type: string) => type === 'sqlite' || type === 'duckdb';
 
-const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialValues?: SavedConnection | null }> = ({ open, onClose, initialValues }) => {
+type DriverStatusSnapshot = {
+  type: string;
+  name: string;
+  connectable: boolean;
+  message?: string;
+};
+
+const normalizeDriverType = (value: string): string => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'postgresql') return 'postgres';
+  if (normalized === 'doris') return 'diros';
+  return normalized;
+};
+
+const ConnectionModal: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  initialValues?: SavedConnection | null;
+  onOpenDriverManager?: () => void;
+}> = ({ open, onClose, initialValues, onOpenDriverManager }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [useSSH, setUseSSH] = useState(false);
@@ -48,6 +67,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const [mongoMembers, setMongoMembers] = useState<MongoMemberInfo[]>([]);
   const [discoveringMembers, setDiscoveringMembers] = useState(false);
   const [uriFeedback, setUriFeedback] = useState<{ type: 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const [typeSelectWarning, setTypeSelectWarning] = useState<{ driverName: string; reason: string } | null>(null);
+  const [driverStatusMap, setDriverStatusMap] = useState<Record<string, DriverStatusSnapshot>>({});
+  const [driverStatusLoaded, setDriverStatusLoaded] = useState(false);
   const testInFlightRef = useRef(false);
   const testTimerRef = useRef<number | null>(null);
   const addConnection = useStore((state) => state.addConnection);
@@ -55,6 +77,70 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const mysqlTopology = Form.useWatch('mysqlTopology', form) || 'single';
   const mongoTopology = Form.useWatch('mongoTopology', form) || 'single';
   const mongoSrv = Form.useWatch('mongoSrv', form) || false;
+
+  const fetchDriverStatusMap = async (): Promise<Record<string, DriverStatusSnapshot>> => {
+      const result: Record<string, DriverStatusSnapshot> = {};
+      const res = await GetDriverStatusList('', '');
+      if (!res?.success) {
+          return result;
+      }
+      const data = (res?.data || {}) as any;
+      const drivers = Array.isArray(data.drivers) ? data.drivers : [];
+      drivers.forEach((item: any) => {
+          const type = normalizeDriverType(String(item.type || '').trim());
+          if (!type) return;
+          result[type] = {
+              type,
+              name: String(item.name || item.type || type).trim(),
+              connectable: !!item.connectable,
+              message: String(item.message || '').trim() || undefined,
+          };
+      });
+      return result;
+  };
+
+  const refreshDriverStatus = async () => {
+      try {
+          const next = await fetchDriverStatusMap();
+          setDriverStatusMap(next);
+      } catch {
+          setDriverStatusMap({});
+      } finally {
+          setDriverStatusLoaded(true);
+      }
+  };
+
+  const resolveDriverUnavailableReason = async (type: string): Promise<string> => {
+      const normalized = normalizeDriverType(type);
+      if (!normalized || normalized === 'custom') {
+          return '';
+      }
+      let snapshot = driverStatusMap;
+      if (!snapshot[normalized]) {
+          snapshot = await fetchDriverStatusMap();
+          setDriverStatusMap(snapshot);
+      }
+      const status = snapshot[normalized];
+      if (!status || status.connectable) {
+          return '';
+      }
+      return status.message || `${status.name || normalized} 驱动未安装启用，请先在驱动管理中安装`;
+  };
+
+  const promptInstallDriver = (driverType: string, reason: string) => {
+      const normalized = normalizeDriverType(driverType);
+      const snapshot = driverStatusMap[normalized];
+      const driverName = snapshot?.name || normalized || '当前';
+      Modal.confirm({
+          title: `${driverName} 驱动不可用`,
+          content: reason || `${driverName} 驱动未安装启用，请先在驱动管理中安装`,
+          okText: '去驱动管理安装',
+          cancelText: '取消',
+          onOk: () => {
+              onOpenDriverManager?.();
+          },
+      });
+  };
 
   const parseHostPort = (raw: string, defaultPort: number): { host: string; port: number } | null => {
       const text = String(raw || '').trim();
@@ -507,6 +593,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
           setRedisDbList([]);
           setMongoMembers([]);
           setUriFeedback(null);
+          setTypeSelectWarning(null);
+          setDriverStatusLoaded(false);
+          void refreshDriverStatus();
           if (initialValues) {
               // Edit mode: Go directly to step 2
               setStep(2);
@@ -588,6 +677,12 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const handleOk = async () => {
     try {
       const values = await form.validateFields();
+      const unavailableReason = await resolveDriverUnavailableReason(values.type);
+      if (unavailableReason) {
+          message.warning(unavailableReason);
+          promptInstallDriver(values.type, unavailableReason);
+          return;
+      }
       setLoading(true);
 
       const config = await buildConfig(values, true);
@@ -641,6 +736,13 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       testInFlightRef.current = true;
       try {
           const values = await form.validateFields();
+          const unavailableReason = await resolveDriverUnavailableReason(values.type);
+          if (unavailableReason) {
+              const failMessage = buildTestFailureMessage(unavailableReason, '驱动未安装启用');
+              setTestResult({ type: 'error', message: failMessage });
+              promptInstallDriver(values.type, unavailableReason);
+              return;
+          }
           setLoading(true);
           setTestResult(null);
           const config = await buildConfig(values, false);
@@ -845,7 +947,15 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       };
   };
 
-  const handleTypeSelect = (type: string) => {
+  const handleTypeSelect = async (type: string) => {
+      const unavailableReason = await resolveDriverUnavailableReason(type);
+      if (unavailableReason) {
+          const normalized = normalizeDriverType(type);
+          const driverName = driverStatusMap[normalized]?.name || type;
+          setTypeSelectWarning({ driverName, reason: unavailableReason });
+          return;
+      }
+      setTypeSelectWarning(null);
       setDbType(type);
       form.setFieldsValue({ type: type });
 
@@ -877,6 +987,14 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const isFileDb = isFileDatabaseType(dbType);
   const isCustom = dbType === 'custom';
   const isRedis = dbType === 'redis';
+  const currentDriverType = normalizeDriverType(dbType);
+  const currentDriverSnapshot = driverStatusMap[currentDriverType];
+  const currentDriverUnavailableReason = currentDriverType !== 'custom'
+      && currentDriverSnapshot
+      && !currentDriverSnapshot.connectable
+      ? (currentDriverSnapshot.message || `${currentDriverSnapshot.name || dbType} 驱动未安装启用`)
+      : '';
+  const driverStatusChecking = currentDriverType !== 'custom' && !driverStatusLoaded && step === 2;
 
   const dbTypeGroups = [
       { label: '关系型数据库', items: [
@@ -911,6 +1029,24 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
   const dbTypes = dbTypeGroups.flatMap(g => g.items);
 
   const renderStep1 = () => (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {typeSelectWarning && (
+              <Alert
+                  type="warning"
+                  showIcon
+                  closable
+                  message={`${typeSelectWarning.driverName} 驱动未启用`}
+                  description={(
+                      <Space size={8}>
+                          <span>{typeSelectWarning.reason}</span>
+                          <Button type="link" size="small" onClick={() => onOpenDriverManager?.()}>
+                              去驱动管理安装
+                          </Button>
+                      </Space>
+                  )}
+                  onClose={() => setTypeSelectWarning(null)}
+              />
+          )}
       <div style={{ display: 'flex', height: 360 }}>
           {/* 左侧分类导航 */}
           <div style={{ width: 120, borderRight: '1px solid #f0f0f0', paddingRight: 8, flexShrink: 0 }}>
@@ -941,7 +1077,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
                       <Col span={8} key={item.key}>
                           <Card
                               hoverable
-                              onClick={() => handleTypeSelect(item.key)}
+                              onClick={() => { void handleTypeSelect(item.key); }}
                               style={{ textAlign: 'center', cursor: 'pointer', height: 100 }}
                               styles={{ body: { padding: '16px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' } }}
                           >
@@ -952,6 +1088,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
                   ))}
               </Row>
           </div>
+      </div>
       </div>
   );
 
@@ -1030,6 +1167,22 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
                 message={uriFeedback.message}
                 onClose={() => setUriFeedback(null)}
                 style={{ marginBottom: 12 }}
+            />
+        )}
+        {currentDriverUnavailableReason && (
+            <Alert
+                showIcon
+                type="warning"
+                style={{ marginBottom: 12 }}
+                message="当前数据源驱动未启用"
+                description={(
+                    <Space size={8}>
+                        <span>{currentDriverUnavailableReason}</span>
+                        <Button type="link" size="small" onClick={() => onOpenDriverManager?.()}>
+                            去驱动管理安装
+                        </Button>
+                    </Space>
+                )}
             />
         )}
         
@@ -1342,6 +1495,7 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
       }
       const isTestSuccess = testResult?.type === 'success';
       const hasTestError = !!testResult && !isTestSuccess;
+      const operationBlocked = !!currentDriverUnavailableReason || driverStatusChecking;
       return (
           <div style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
@@ -1387,9 +1541,9 @@ const ConnectionModal: React.FC<{ open: boolean; onClose: () => void; initialVal
                   )}
               </div>
               <Space size={8} style={{ flexShrink: 0 }}>
-                  <Button key="test" loading={loading} onClick={requestTest}>测试连接</Button>
+                  <Button key="test" loading={loading} disabled={operationBlocked} onClick={requestTest}>测试连接</Button>
                   <Button key="cancel" onClick={onClose}>取消</Button>
-                  <Button key="submit" type="primary" loading={loading} onClick={handleOk}>保存</Button>
+                  <Button key="submit" type="primary" loading={loading} disabled={operationBlocked} onClick={handleOk}>保存</Button>
               </Space>
           </div>
       );

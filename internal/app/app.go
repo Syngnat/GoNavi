@@ -198,6 +198,20 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 		shortKey = shortKey[:12]
 	}
 
+	if supported, reason := db.DriverRuntimeSupportStatus(config.Type); !supported {
+		if strings.TrimSpace(reason) == "" {
+			reason = fmt.Sprintf("%s 驱动未启用，请先在驱动管理中安装启用", strings.TrimSpace(config.Type))
+		}
+		// Best-effort cleanup: if cached instance exists for this exact config, close it.
+		a.mu.Lock()
+		if cur, exists := a.dbCache[key]; exists && cur.inst != nil {
+			_ = cur.inst.Close()
+			delete(a.dbCache, key)
+		}
+		a.mu.Unlock()
+		return nil, withLogHint{err: fmt.Errorf("%s", reason), logPath: logger.Path()}
+	}
+
 	a.mu.RLock()
 	entry, ok := a.dbCache[key]
 	a.mu.RUnlock()

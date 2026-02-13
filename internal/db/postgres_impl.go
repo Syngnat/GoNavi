@@ -18,13 +18,11 @@ import (
 	_ "github.com/lib/pq"
 )
 
-
 type PostgresDB struct {
 	conn        *sql.DB
 	pingTimeout time.Duration
 	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
-
 
 func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 	// postgres://user:password@host:port/dbname?sslmode=disable
@@ -48,6 +46,13 @@ func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
+	if supported, reason := DriverRuntimeSupportStatus("postgres"); !supported {
+		if strings.TrimSpace(reason) == "" {
+			reason = "PostgreSQL 纯 Go 驱动未启用，请先在驱动管理中安装启用"
+		}
+		return fmt.Errorf("%s", reason)
+	}
+
 	var dsn string
 	var err error
 
@@ -97,7 +102,6 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 	}
 	return nil
 }
-
 
 func (p *PostgresDB) Close() error {
 	// Close SSH forwarder first if exists
