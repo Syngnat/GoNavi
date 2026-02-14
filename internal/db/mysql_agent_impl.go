@@ -67,8 +67,12 @@ func newMySQLAgentClient(executablePath string) (*mysqlAgentClient, error) {
 	if pathText == "" {
 		return nil, fmt.Errorf("MySQL 驱动代理路径为空")
 	}
-	if info, err := os.Stat(pathText); err != nil || info.IsDir() {
+	info, err := os.Stat(pathText)
+	if err != nil {
 		return nil, fmt.Errorf("MySQL 驱动代理不存在：%s", pathText)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("MySQL 驱动代理路径是目录：%s", pathText)
 	}
 
 	cmd := exec.Command(pathText)
