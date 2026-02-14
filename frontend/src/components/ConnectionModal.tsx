@@ -27,6 +27,7 @@ const getDefaultPortByType = (type: string) => {
     case 'highgo': return 5866;
     case 'mariadb': return 3306;
     case 'vastbase': return 5432;
+    case 'sqlite': return 0;
     case 'duckdb': return 0;
     default: return 3306;
   }
@@ -236,6 +237,23 @@ const ConnectionModal: React.FC<{
       }
   };
 
+  const normalizeFileDbPath = (rawPath: string): string => {
+      let pathText = String(rawPath || '').trim();
+      if (!pathText) {
+          return '';
+      }
+      // 兼容 sqlite:///C:/... 或 sqlite:///C:\... 解析后多出的前导斜杠。
+      if (/^\/[a-zA-Z]:[\\/]/.test(pathText)) {
+          pathText = pathText.slice(1);
+      }
+      // 兼容历史版本把 Windows 文件路径误拼成 :3306:3306。
+      const legacyMatch = pathText.match(/^([a-zA-Z]:[\\/].*?)(?::\d+)+$/);
+      if (legacyMatch?.[1]) {
+          return legacyMatch[1];
+      }
+      return pathText;
+  };
+
   const parseMultiHostUri = (uriText: string, expectedScheme: string) => {
       const prefix = `${expectedScheme}://`;
       if (!uriText.toLowerCase().startsWith(prefix)) {
@@ -335,30 +353,6 @@ const ConnectionModal: React.FC<{
       }
 
       if (isFileDatabaseType(type)) {
-          const tryExtractPath = (uri: string, scheme: string): string | null => {
-              const parsed = parseMultiHostUri(uri, scheme);
-              if (!parsed) {
-                  return null;
-              }
-              const host = String(parsed.hosts?.[0] || '').trim();
-              const dbPath = String(parsed.database || '').trim();
-              if (host && dbPath) {
-                  return `/${host}/${dbPath}`.replace(/\/+/g, '/');
-              }
-              if (host) {
-                  return `/${host}`.replace(/\/+/g, '/');
-              }
-              if (dbPath) {
-                  return dbPath.startsWith('/') ? dbPath : `/${dbPath}`;
-              }
-              return null;
-          };
-
-          const pathFromScheme = tryExtractPath(trimmedUri, type);
-          if (pathFromScheme) {
-              return { host: decodeURIComponent(pathFromScheme) };
-          }
-
           const rawPath = trimmedUri
               .replace(/^sqlite:\/\//i, '')
               .replace(/^duckdb:\/\//i, '')
@@ -366,7 +360,7 @@ const ConnectionModal: React.FC<{
           if (!rawPath) {
               return null;
           }
-          return { host: decodeURIComponent(rawPath) };
+          return { host: normalizeFileDbPath(safeDecode(rawPath)) };
       }
 
       if (type === 'mongodb') {
@@ -481,12 +475,11 @@ const ConnectionModal: React.FC<{
       }
 
       if (isFileDatabaseType(type)) {
-          const pathText = String(values.host || '').trim();
+          const pathText = normalizeFileDbPath(String(values.host || '').trim());
           if (!pathText) {
               return `${type}://`;
           }
-          const normalizedPath = pathText.startsWith('/') ? pathText : `/${pathText}`;
-          return `${type}://${encodeURI(normalizedPath)}`;
+          return `${type}://${encodeURI(pathText)}`;
       }
 
       if (type === 'mongodb') {
@@ -602,13 +595,20 @@ const ConnectionModal: React.FC<{
               const config: any = initialValues.config || {};
               const configType = String(config.type || 'mysql');
               const defaultPort = getDefaultPortByType(configType);
-              const normalizedHosts = normalizeAddressList(config.hosts, defaultPort);
-              const primaryAddress = parseHostPort(
-                  normalizedHosts[0] || toAddress(config.host || 'localhost', Number(config.port || defaultPort), defaultPort),
-                  defaultPort
-              );
-              const primaryHost = primaryAddress?.host || String(config.host || 'localhost');
-              const primaryPort = primaryAddress?.port || Number(config.port || defaultPort);
+              const isFileDbConfigType = isFileDatabaseType(configType);
+              const normalizedHosts = isFileDbConfigType ? [] : normalizeAddressList(config.hosts, defaultPort);
+              const primaryAddress = isFileDbConfigType
+                  ? null
+                  : parseHostPort(
+                      normalizedHosts[0] || toAddress(config.host || 'localhost', Number(config.port || defaultPort), defaultPort),
+                      defaultPort
+                  );
+              const primaryHost = isFileDbConfigType
+                  ? normalizeFileDbPath(String(config.host || ''))
+                  : (primaryAddress?.host || String(config.host || 'localhost'));
+              const primaryPort = isFileDbConfigType
+                  ? 0
+                  : (primaryAddress?.port || Number(config.port || defaultPort));
               const mysqlReplicaHosts = (configType === 'mysql' || configType === 'mariadb' || configType === 'diros' || configType === 'sphinx') ? normalizedHosts.slice(1) : [];
               const mongoHosts = configType === 'mongodb' ? normalizedHosts.slice(1) : [];
               const mysqlIsReplica = String(config.topology || '').toLowerCase() === 'replica' || mysqlReplicaHosts.length > 0;
@@ -847,12 +847,22 @@ const ConnectionModal: React.FC<{
 
       const type = String(mergedValues.type || '').toLowerCase();
       const defaultPort = getDefaultPortByType(type);
-      const parsedPrimary = parseHostPort(
-          toAddress(mergedValues.host || 'localhost', Number(mergedValues.port || defaultPort), defaultPort),
-          defaultPort
-      );
-      const primaryHost = parsedPrimary?.host || 'localhost';
-      const primaryPort = parsedPrimary?.port || defaultPort;
+      const isFileDbType = isFileDatabaseType(type);
+
+      let primaryHost = 'localhost';
+      let primaryPort = defaultPort;
+      if (isFileDbType) {
+          // 文件型数据库（sqlite/duckdb）这里的 host 即数据库文件路径，不应参与 host:port 拼接与解析。
+          primaryHost = normalizeFileDbPath(String(mergedValues.host || '').trim());
+          primaryPort = 0;
+      } else {
+          const parsedPrimary = parseHostPort(
+              toAddress(mergedValues.host || 'localhost', Number(mergedValues.port || defaultPort), defaultPort),
+              defaultPort
+          );
+          primaryHost = parsedPrimary?.host || 'localhost';
+          primaryPort = parsedPrimary?.port || defaultPort;
+      }
 
       let hosts: string[] = [];
       let topology: 'single' | 'replica' | undefined;
@@ -960,7 +970,36 @@ const ConnectionModal: React.FC<{
       form.setFieldsValue({ type: type });
 
       const defaultPort = getDefaultPortByType(type);
-      if (!isFileDatabaseType(type) && type !== 'custom') {
+      if (isFileDatabaseType(type)) {
+          setUseSSH(false);
+          form.setFieldsValue({
+              host: '',
+              port: 0,
+              user: '',
+              password: '',
+              database: '',
+              useSSH: false,
+              sshHost: '',
+              sshPort: 22,
+              sshUser: '',
+              sshPassword: '',
+              sshKeyPath: '',
+              mysqlTopology: 'single',
+              mongoTopology: 'single',
+              mongoSrv: false,
+              mongoReadPreference: 'primary',
+              mongoReplicaSet: '',
+              mongoAuthSource: '',
+              mongoAuthMechanism: '',
+              savePassword: true,
+              mysqlReplicaHosts: [],
+              mongoHosts: [],
+              mysqlReplicaUser: '',
+              mysqlReplicaPassword: '',
+              mongoReplicaUser: '',
+              mongoReplicaPassword: '',
+          });
+      } else if (type !== 'custom') {
           form.setFieldsValue({
               port: defaultPort,
               mysqlTopology: 'single',
