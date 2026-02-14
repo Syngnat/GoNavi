@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useContext, useMemo, useRef, useCallback } from 'react';
 import { Table, Tabs, Button, message, Input, Checkbox, Modal, AutoComplete, Tooltip, Select, Empty, Space } from 'antd';
-import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined, CopyOutlined } from '@ant-design/icons';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -157,6 +157,12 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [previewSql, setPreviewSql] = useState<string>('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [activeKey, setActiveKey] = useState(tab.initialTab || "columns");
+  const [selectedColumnRowKeys, setSelectedColumnRowKeys] = useState<string[]>([]);
+  const [isCopyColumnsModalOpen, setIsCopyColumnsModalOpen] = useState(false);
+  const [copyTableName, setCopyTableName] = useState('');
+  const [copyCharset, setCopyCharset] = useState('utf8mb4');
+  const [copyCollation, setCopyCollation] = useState('utf8mb4_unicode_ci');
+  const [copyExecuting, setCopyExecuting] = useState(false);
   const [selectedTrigger, setSelectedTrigger] = useState<TriggerDefinition | null>(null);
   const [isTriggerModalOpen, setIsTriggerModalOpen] = useState(false);
   const [isTriggerEditModalOpen, setIsTriggerEditModalOpen] = useState(false);
@@ -233,6 +239,10 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
           setActiveKey(tab.initialTab);
       }
   }, [tab.initialTab]);
+
+  useEffect(() => {
+      setSelectedColumnRowKeys(prev => prev.filter(key => columns.some(c => c._key === key)));
+  }, [columns]);
 
   // Initial Columns Definition
   useEffect(() => {
@@ -458,6 +468,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
         }));
         setColumns(JSON.parse(JSON.stringify(colsWithKey)));
         setOriginalColumns(JSON.parse(JSON.stringify(colsWithKey)));
+        setSelectedColumnRowKeys([]);
     } else {
         message.error("Failed to load columns: " + colsRes.message);
     }
@@ -721,6 +732,85 @@ ${selectedTrigger.statement}`;
       setColumns(prev => prev.filter(c => c._key !== key));
   };
 
+  const selectedColumns = useMemo(() => {
+      if (selectedColumnRowKeys.length === 0) return [];
+      const selectedSet = new Set(selectedColumnRowKeys);
+      return columns.filter(col => selectedSet.has(col._key));
+  }, [columns, selectedColumnRowKeys]);
+
+  const escapeBacktickIdentifier = (name: string) => String(name || '').replace(/`/g, '``');
+  const escapeSqlString = (value: string) => String(value || '').replace(/'/g, "''");
+
+  const buildCreateTableSql = (targetTableName: string, targetColumns: EditableColumn[], targetCharset: string, targetCollation: string) => {
+      const tableName = `\`${escapeBacktickIdentifier(targetTableName)}\``;
+      const colDefs = targetColumns.map(curr => {
+          let extra = curr.extra || "";
+          if (curr.isAutoIncrement && !extra.toLowerCase().includes('auto_increment')) {
+              extra += " AUTO_INCREMENT";
+          }
+          return `\`${escapeBacktickIdentifier(curr.name)}\` ${curr.type} ${curr.nullable === 'NO' ? 'NOT NULL' : 'NULL'} ${curr.default ? `DEFAULT '${escapeSqlString(String(curr.default))}'` : ''} ${extra} COMMENT '${escapeSqlString(curr.comment || '')}'`;
+      });
+      const pks = targetColumns.filter(c => c.key === 'PRI').map(c => `\`${escapeBacktickIdentifier(c.name)}\``);
+      if (pks.length > 0) {
+          colDefs.push(`PRIMARY KEY (${pks.join(', ')})`);
+      }
+      return `CREATE TABLE ${tableName} (\n  ${colDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=${targetCharset} COLLATE=${targetCollation};`;
+  };
+
+  const openCopySelectedColumnsModal = () => {
+      if (selectedColumns.length === 0) {
+          message.warning('请先勾选要复制的字段');
+          return;
+      }
+      const sourceName = (tab.tableName || 'new_table').trim();
+      setCopyTableName(`${sourceName}_copy`);
+      setCopyCharset(charset);
+      const charsetCollations = (COLLATIONS as any)[charset] || [];
+      setCopyCollation(
+          charsetCollations.some((item: any) => item.value === collation)
+              ? collation
+              : (charsetCollations[0]?.value || 'utf8mb4_unicode_ci')
+      );
+      setIsCopyColumnsModalOpen(true);
+  };
+
+  const handleExecuteCopySelectedColumns = async () => {
+      if (!copyTableName.trim()) {
+          message.error('请输入目标表名');
+          return;
+      }
+      if (selectedColumns.length === 0) {
+          message.error('未选择可复制字段');
+          return;
+      }
+      const conn = connections.find(c => c.id === tab.connectionId);
+      if (!conn) {
+          message.error('Connection not found');
+          return;
+      }
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+      };
+      const sql = buildCreateTableSql(copyTableName.trim(), selectedColumns, copyCharset, copyCollation);
+      setCopyExecuting(true);
+      try {
+          const res = await DBQuery(config as any, tab.dbName || '', sql);
+          if (res.success) {
+              message.success(`已将 ${selectedColumns.length} 个字段复制到新表 ${copyTableName.trim()}`);
+              setIsCopyColumnsModalOpen(false);
+          } else {
+              message.error("执行失败: " + res.message);
+          }
+      } finally {
+          setCopyExecuting(false);
+      }
+  };
+
   const onDragEnd = ({ active, over }: any) => {
     if (active.id !== over?.id) {
       setColumns((previous) => {
@@ -745,21 +835,7 @@ ${selectedTrigger.statement}`;
       
       if (isNewTable) {
           // CREATE TABLE
-          const colDefs = columns.map(curr => {
-              let extra = curr.extra || "";
-              if (curr.isAutoIncrement) {
-                  extra += " AUTO_INCREMENT";
-              }
-              return `\`${curr.name}\` ${curr.type} ${curr.nullable === 'NO' ? 'NOT NULL' : 'NULL'} ${curr.default ? `DEFAULT '${curr.default}'` : ''} ${extra} COMMENT '${curr.comment}'`;
-          });
-          
-          const pks = columns.filter(c => c.key === 'PRI').map(c => `\`${c.name}\``);
-          if (pks.length > 0) {
-              colDefs.push(`PRIMARY KEY (${pks.join(', ')})`);
-          }
-          
-          // Append Charset and Collation
-          const sql = `CREATE TABLE ${tableName} (\n  ${colDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=${charset} COLLATE=${collation};`;
+          const sql = buildCreateTableSql(isNewTable ? newTableName : tab.tableName || '', columns, charset, collation);
           setPreviewSql(sql);
           setIsPreviewOpen(true);
       } else {
@@ -893,6 +969,10 @@ ${selectedTrigger.statement}`;
             <Table 
                 dataSource={columns} 
                 columns={resizableColumns} 
+                rowSelection={{
+                    selectedRowKeys: selectedColumnRowKeys,
+                    onChange: (nextSelectedRowKeys) => setSelectedColumnRowKeys(nextSelectedRowKeys as string[]),
+                }}
                 rowKey="_key" 
                 size="small" 
                 pagination={false} 
@@ -958,6 +1038,15 @@ ${selectedTrigger.statement}`;
             {!readOnly && <Button icon={<SaveOutlined />} type="primary" onClick={generateDDL}>保存</Button>}
             {!isNewTable && <Button icon={<ReloadOutlined />} onClick={fetchData}>刷新</Button>}
             {!readOnly && <Button icon={<PlusOutlined />} onClick={handleAddColumn}>添加字段</Button>}
+            {!readOnly && (
+                <Button
+                    icon={<CopyOutlined />}
+                    onClick={openCopySelectedColumnsModal}
+                    disabled={selectedColumns.length === 0}
+                >
+                    复制选中到新表
+                </Button>
+            )}
             <div style={{ flex: 1 }} />
         </div>
         <Tabs 
@@ -1097,6 +1186,47 @@ ${selectedTrigger.statement}`;
                 }] : [])
             ]}
         />
+
+        <Modal
+            title="复制选中字段到新表"
+            open={isCopyColumnsModalOpen}
+            onCancel={() => setIsCopyColumnsModalOpen(false)}
+            onOk={handleExecuteCopySelectedColumns}
+            okText="创建新表"
+            cancelText="取消"
+            confirmLoading={copyExecuting}
+            width={560}
+        >
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <div style={{ color: '#666' }}>
+                    已选择字段：{selectedColumns.length}
+                </div>
+                <Input
+                    placeholder="请输入目标表名"
+                    value={copyTableName}
+                    onChange={e => setCopyTableName(e.target.value)}
+                    maxLength={128}
+                />
+                <Space wrap>
+                    <Select
+                        value={copyCharset}
+                        onChange={v => {
+                            setCopyCharset(v);
+                            const cols = (COLLATIONS as any)[v];
+                            if (cols && cols.length > 0) setCopyCollation(cols[0].value);
+                        }}
+                        options={CHARSETS}
+                        style={{ width: 160 }}
+                    />
+                    <Select
+                        value={copyCollation}
+                        onChange={setCopyCollation}
+                        options={(COLLATIONS as any)[copyCharset] || []}
+                        style={{ width: 220 }}
+                    />
+                </Space>
+            </Space>
+        </Modal>
 
         <Modal
             title="确认 SQL 变更"
