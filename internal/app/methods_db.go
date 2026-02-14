@@ -465,6 +465,7 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 
 func (a *App) DBShowCreateTable(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
 	runConfig := normalizeRunConfig(config, dbName)
+	dbType := resolveDDLDBType(config)
 
 	dbInst, err := a.getDatabase(runConfig)
 	if err != nil {
@@ -478,8 +479,118 @@ func (a *App) DBShowCreateTable(config connection.ConnectionConfig, dbName strin
 		logger.Error(err, "DBShowCreateTable 获取建表语句失败：%s 表=%s", formatConnSummary(runConfig), tableName)
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	if shouldFallbackCreateStatement(dbType, sqlStr) {
+		columns, colErr := dbInst.GetColumns(schemaName, pureTableName)
+		if colErr != nil {
+			logger.Error(colErr, "DBShowCreateTable 兜底加载字段失败：%s 表=%s", formatConnSummary(runConfig), tableName)
+			return connection.QueryResult{Success: false, Message: colErr.Error()}
+		}
+		fallbackDDL, buildErr := buildFallbackCreateStatement(dbType, schemaName, pureTableName, columns)
+		if buildErr != nil {
+			logger.Error(buildErr, "DBShowCreateTable 兜底生成 DDL 失败：%s 表=%s", formatConnSummary(runConfig), tableName)
+			return connection.QueryResult{Success: false, Message: buildErr.Error()}
+		}
+		sqlStr = fallbackDDL
+	}
 
 	return connection.QueryResult{Success: true, Data: sqlStr}
+}
+
+func shouldFallbackCreateStatement(dbType string, ddl string) bool {
+	switch dbType {
+	case "postgres", "kingbase", "highgo", "vastbase":
+	default:
+		return false
+	}
+
+	trimmed := strings.TrimSpace(ddl)
+	if trimmed == "" {
+		return true
+	}
+	if hasCreateTableHead(trimmed) {
+		return false
+	}
+
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "not fully supported") ||
+		strings.Contains(lower, "not directly supported") ||
+		strings.Contains(lower, "not supported") {
+		return true
+	}
+	return true
+}
+
+func hasCreateTableHead(sqlText string) bool {
+	lines := strings.Split(sqlText, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "--") || strings.HasPrefix(line, "/*") || strings.HasPrefix(line, "*") {
+			continue
+		}
+		return strings.HasPrefix(strings.ToLower(line), "create table")
+	}
+	return false
+}
+
+func buildFallbackCreateStatement(dbType string, schemaName string, tableName string, columns []connection.ColumnDefinition) (string, error) {
+	table := strings.TrimSpace(tableName)
+	if table == "" {
+		return "", fmt.Errorf("表名不能为空")
+	}
+	if len(columns) == 0 {
+		return "", fmt.Errorf("未获取到字段定义，无法生成建表语句")
+	}
+
+	qualifiedTable := quoteTableIdentByType(dbType, schemaName, table)
+	columnLines := make([]string, 0, len(columns)+1)
+	primaryKeys := make([]string, 0, 2)
+
+	for _, col := range columns {
+		colNameRaw := strings.TrimSpace(col.Name)
+		if colNameRaw == "" {
+			continue
+		}
+		colType := strings.TrimSpace(col.Type)
+		if colType == "" {
+			colType = "text"
+		}
+
+		colName := quoteIdentByType(dbType, colNameRaw)
+		defParts := []string{fmt.Sprintf("%s %s", colName, colType)}
+
+		if strings.EqualFold(strings.TrimSpace(col.Nullable), "NO") {
+			defParts = append(defParts, "NOT NULL")
+		}
+		if col.Default != nil {
+			defVal := strings.TrimSpace(*col.Default)
+			if defVal != "" {
+				defParts = append(defParts, "DEFAULT "+defVal)
+			}
+		}
+
+		columnLines = append(columnLines, "  "+strings.Join(defParts, " "))
+		if strings.EqualFold(strings.TrimSpace(col.Key), "PRI") {
+			primaryKeys = append(primaryKeys, colName)
+		}
+	}
+
+	if len(columnLines) == 0 {
+		return "", fmt.Errorf("字段定义为空，无法生成建表语句")
+	}
+	if len(primaryKeys) > 0 {
+		columnLines = append(columnLines, "  PRIMARY KEY ("+strings.Join(primaryKeys, ", ")+")")
+	}
+
+	ddl := strings.Builder{}
+	ddl.WriteString("CREATE TABLE ")
+	ddl.WriteString(qualifiedTable)
+	ddl.WriteString(" (\n")
+	ddl.WriteString(strings.Join(columnLines, ",\n"))
+	ddl.WriteString("\n);")
+	return ddl.String(), nil
 }
 
 func (a *App) DBGetColumns(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
