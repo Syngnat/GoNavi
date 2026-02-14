@@ -169,6 +169,10 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [triggerEditMode, setTriggerEditMode] = useState<'create' | 'edit'>('create');
   const [triggerEditSql, setTriggerEditSql] = useState<string>('');
   const [triggerExecuting, setTriggerExecuting] = useState(false);
+  const [isCommentModalOpen, setIsCommentModalOpen] = useState(false);
+  const [commentEditorColumnKey, setCommentEditorColumnKey] = useState('');
+  const [commentEditorColumnName, setCommentEditorColumnName] = useState('');
+  const [commentEditorValue, setCommentEditorValue] = useState('');
   
   const connections = useStore(state => state.connections);
   const theme = useStore(state => state.theme);
@@ -177,6 +181,21 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
 
   const [tableHeight, setTableHeight] = useState(500);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const openCommentEditor = useCallback((record: EditableColumn) => {
+      if (!record?._key) return;
+      setCommentEditorColumnKey(record._key);
+      setCommentEditorColumnName(record.name || '');
+      setCommentEditorValue(record.comment || '');
+      setIsCommentModalOpen(true);
+  }, []);
+
+  const closeCommentEditor = useCallback(() => {
+      setIsCommentModalOpen(false);
+      setCommentEditorColumnKey('');
+      setCommentEditorColumnName('');
+      setCommentEditorValue('');
+  }, []);
 
   // 初始化透明 Monaco Editor 主题
   useEffect(() => {
@@ -314,8 +333,27 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
               dataIndex: 'comment', 
               key: 'comment',
               width: 200,
-              render: (text: string, record: EditableColumn) => readOnly ? text : (
-                  <Input value={text} onChange={e => handleColumnChange(record._key, 'comment', e.target.value)} variant="borderless" />
+              render: (text: string, record: EditableColumn) => readOnly ? (
+                  <Tooltip title={text || ''}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{text || ''}</div>
+                  </Tooltip>
+              ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Input
+                          value={text}
+                          onChange={e => handleColumnChange(record._key, 'comment', e.target.value)}
+                          onDoubleClick={() => openCommentEditor(record)}
+                          variant="borderless"
+                      />
+                      <Tooltip title="弹框编辑注释">
+                          <Button
+                              type="text"
+                              size="small"
+                              icon={<EditOutlined />}
+                              onClick={() => openCommentEditor(record)}
+                          />
+                      </Tooltip>
+                  </div>
               )
           },
           ...(readOnly ? [] : [{
@@ -449,7 +487,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
         DBGetTriggers(config as any, tab.dbName || '', tab.tableName || '')
     ];
 
-    if (readOnly) {
+    if (!isNewTable) {
         promises.push(DBShowCreateTable(config as any, tab.dbName || '', tab.tableName || ''));
     }
 
@@ -458,7 +496,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
     const idxRes = results[1];
     const fkRes = results[2];
     const trigRes = results[3];
-    const ddlRes = readOnly ? results[4] : null;
+    const ddlRes = !isNewTable ? results[4] : null;
 
     if (colsRes.success) {
         const colsWithKey = (colsRes.data as ColumnDefinition[]).map((c, index) => ({
@@ -476,7 +514,7 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
     if (idxRes.success) setIndexes(idxRes.data);
     if (fkRes.success) setFks(fkRes.data);
     if (trigRes.success) setTriggers(trigRes.data);
-    if (ddlRes && ddlRes.success) setDdl(ddlRes.data);
+    if (ddlRes && ddlRes.success) setDdl(String(ddlRes.data || ''));
     
     setLoading(false);
   };
@@ -1160,7 +1198,7 @@ ${selectedTrigger.statement}`;
                         )
                     }
                 ] : []),
-                ...(readOnly ? [{
+                ...(!isNewTable ? [{
                     key: 'ddl',
                     label: 'DDL',
                     icon: <FileTextOutlined />,
@@ -1186,6 +1224,30 @@ ${selectedTrigger.statement}`;
                 }] : [])
             ]}
         />
+
+        <Modal
+            title={`字段注释${commentEditorColumnName ? ` - ${commentEditorColumnName}` : ''}`}
+            open={isCommentModalOpen}
+            onCancel={closeCommentEditor}
+            onOk={() => {
+                if (commentEditorColumnKey) {
+                    handleColumnChange(commentEditorColumnKey, 'comment', commentEditorValue);
+                }
+                closeCommentEditor();
+            }}
+            okText="应用"
+            cancelText="取消"
+            width={640}
+            destroyOnClose
+        >
+            <Input.TextArea
+                value={commentEditorValue}
+                onChange={(e) => setCommentEditorValue(e.target.value)}
+                autoSize={{ minRows: 8, maxRows: 18 }}
+                placeholder="请输入字段注释"
+                maxLength={2000}
+            />
+        </Modal>
 
         <Modal
             title="复制选中字段到新表"
