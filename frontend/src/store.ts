@@ -252,6 +252,12 @@ export interface SqlLog {
   affectedRows?: number;
 }
 
+export interface QueryOptions {
+  maxRows: number;
+  showColumnComment: boolean;
+  showColumnType: boolean;
+}
+
 interface AppState {
   connections: SavedConnection[];
   tabs: TabData[];
@@ -261,7 +267,7 @@ interface AppState {
   theme: 'light' | 'dark';
   appearance: { opacity: number; blur: number };
   sqlFormatOptions: { keywordCase: 'upper' | 'lower' };
-  queryOptions: { maxRows: number };
+  queryOptions: QueryOptions;
   sqlLogs: SqlLog[];
   tableAccessCount: Record<string, number>;
   tableSortPreference: Record<string, 'name' | 'frequency'>;
@@ -287,7 +293,7 @@ interface AppState {
   setTheme: (theme: 'light' | 'dark') => void;
   setAppearance: (appearance: Partial<{ opacity: number; blur: number }>) => void;
   setSqlFormatOptions: (options: { keywordCase: 'upper' | 'lower' }) => void;
-  setQueryOptions: (options: Partial<{ maxRows: number }>) => void;
+  setQueryOptions: (options: Partial<QueryOptions>) => void;
 
   addSqlLog: (log: SqlLog) => void;
   clearSqlLogs: () => void;
@@ -326,13 +332,15 @@ const sanitizeSqlFormatOptions = (value: unknown): { keywordCase: 'upper' | 'low
   return { keywordCase: raw.keywordCase === 'lower' ? 'lower' : 'upper' };
 };
 
-const sanitizeQueryOptions = (value: unknown): { maxRows: number } => {
+const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   const raw = (value && typeof value === 'object') ? value as Record<string, unknown> : {};
   const maxRows = Number(raw.maxRows);
+  const showColumnComment = typeof raw.showColumnComment === 'boolean' ? raw.showColumnComment : true;
+  const showColumnType = typeof raw.showColumnType === 'boolean' ? raw.showColumnType : true;
   if (!Number.isFinite(maxRows) || maxRows <= 0) {
-    return { maxRows: 5000 };
+    return { maxRows: 5000, showColumnComment, showColumnType };
   }
-  return { maxRows: Math.min(50000, Math.trunc(maxRows)) };
+  return { maxRows: Math.min(50000, Math.trunc(maxRows)), showColumnComment, showColumnType };
 };
 
 const sanitizeTableAccessCount = (value: unknown): Record<string, number> => {
@@ -383,7 +391,7 @@ export const useStore = create<AppState>()(
       theme: 'light',
       appearance: { ...DEFAULT_APPEARANCE },
       sqlFormatOptions: { keywordCase: 'upper' },
-      queryOptions: { maxRows: 5000 },
+      queryOptions: { maxRows: 5000, showColumnComment: true, showColumnType: true },
       sqlLogs: [],
       tableAccessCount: {},
       tableSortPreference: {},
