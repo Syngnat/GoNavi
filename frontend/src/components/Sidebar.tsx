@@ -573,16 +573,33 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
       results.forEach((queryResult) => {
           queryResult.rows.forEach((row) => {
-              const triggerName = getCaseInsensitiveValue(row, ['trigger_name', 'triggername', 'trigger', 'name']) || getFirstRowValue(row);
-              if (!triggerName) return;
-              const schemaName = getCaseInsensitiveValue(row, ['schema_name', 'schemaname', 'owner', 'event_object_schema', 'trigger_schema', 'db']);
-              const tableName = getCaseInsensitiveValue(row, ['table_name', 'event_object_table', 'tbl_name', 'table']);
-              const fullTableName = buildQualifiedName(schemaName, tableName);
-              const uniqueKey = `${triggerName}@@${fullTableName}`;
+              const rawTriggerName = getCaseInsensitiveValue(row, ['trigger_name', 'triggername', 'trigger', 'name']) || getFirstRowValue(row);
+              if (!rawTriggerName) return;
+
+              const rawSchemaName = getCaseInsensitiveValue(row, ['schema_name', 'schemaname', 'owner', 'event_object_schema', 'trigger_schema', 'db']);
+              const rawTableName = getCaseInsensitiveValue(row, ['table_name', 'event_object_table', 'tbl_name', 'table']);
+
+              const triggerParts = splitQualifiedName(rawTriggerName);
+              const tableParts = splitQualifiedName(rawTableName);
+
+              const resolvedSchema = (
+                  rawSchemaName
+                  || tableParts.schemaName
+                  || triggerParts.schemaName
+                  || dbName
+              ).trim();
+              const resolvedTriggerName = (triggerParts.objectName || rawTriggerName).trim();
+              const resolvedTableName = (tableParts.objectName || rawTableName).trim();
+              const fullTableName = buildQualifiedName(resolvedSchema, resolvedTableName);
+
+              // MySQL 下 trigger 名在同 schema 内唯一，直接按 schema+trigger 去重可彻底规避多元数据查询导致的重复
+              const uniqueKey = dialect === 'mysql'
+                  ? `${resolvedSchema.toLowerCase()}@@${resolvedTriggerName.toLowerCase()}`
+                  : `${resolvedSchema.toLowerCase()}@@${resolvedTriggerName.toLowerCase()}@@${resolvedTableName.toLowerCase()}`;
               if (seen.has(uniqueKey)) return;
               seen.add(uniqueKey);
-              const displayName = fullTableName ? `${triggerName} (${fullTableName})` : triggerName;
-              triggers.push({ displayName, triggerName, tableName: fullTableName });
+              const displayName = fullTableName ? `${resolvedTriggerName} (${fullTableName})` : resolvedTriggerName;
+              triggers.push({ displayName, triggerName: resolvedTriggerName, tableName: fullTableName || resolvedTableName });
           });
       });
       return { triggers, supported: hasSuccessfulQuery };
@@ -755,19 +772,35 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	                };
 	            });
 
-            const triggerEntries = triggersResult.triggers.map((trigger) => {
-                const triggerParsed = splitQualifiedName(trigger.triggerName);
-                const tableParsed = splitQualifiedName(trigger.tableName);
-                const schemaName = tableParsed.schemaName || triggerParsed.schemaName;
-	                const triggerObjectName = triggerParsed.objectName || trigger.triggerName;
-	                const tableObjectName = tableParsed.objectName || trigger.tableName;
-	                const displayName = tableObjectName ? `${triggerObjectName} (${tableObjectName})` : triggerObjectName;
-	                return {
-	                    ...trigger,
-	                    schemaName,
-	                    displayName,
-	                };
-	            });
+            const triggerEntries = (() => {
+                const deduped: Array<{ displayName: string; triggerName: string; tableName: string; schemaName: string }> = [];
+                const triggerSeen = new Set<string>();
+                const metadataDialect = getMetadataDialect(conn as SavedConnection);
+
+                triggersResult.triggers.forEach((trigger) => {
+                    const triggerParsed = splitQualifiedName(trigger.triggerName);
+                    const tableParsed = splitQualifiedName(trigger.tableName);
+                    const schemaName = tableParsed.schemaName || triggerParsed.schemaName || String(conn.dbName || '').trim();
+                    const triggerObjectName = (triggerParsed.objectName || trigger.triggerName).trim();
+                    const tableObjectName = (tableParsed.objectName || trigger.tableName).trim();
+                    const displayName = tableObjectName ? `${triggerObjectName} (${tableObjectName})` : triggerObjectName;
+                    const dedupeKey = metadataDialect === 'mysql'
+                        ? `${schemaName.toLowerCase()}@@${triggerObjectName.toLowerCase()}`
+                        : `${schemaName.toLowerCase()}@@${triggerObjectName.toLowerCase()}@@${tableObjectName.toLowerCase()}`;
+
+                    if (triggerSeen.has(dedupeKey)) return;
+                    triggerSeen.add(dedupeKey);
+                    deduped.push({
+                        ...trigger,
+                        schemaName,
+                        triggerName: triggerObjectName,
+                        tableName: buildQualifiedName(schemaName, tableObjectName) || tableObjectName,
+                        displayName,
+                    });
+                });
+
+                return deduped;
+            })();
 
             const routineEntries = routinesResult.routines.map((routine) => {
                 const parsed = splitQualifiedName(routine.routineName);
@@ -1061,9 +1094,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           setActiveContext({ connectionId: dataRef.id, dbName: `db${dataRef.redisDB}` });
       }
 
-      if (type === 'folder-columns') openDesign(info.node, 'columns', true);
-      else if (type === 'folder-indexes') openDesign(info.node, 'indexes', true);
-      else if (type === 'folder-fks') openDesign(info.node, 'foreignKeys', true);
+      if (type === 'folder-columns') openDesign(info.node, 'columns', false);
+      else if (type === 'folder-indexes') openDesign(info.node, 'indexes', false);
+      else if (type === 'folder-fks') openDesign(info.node, 'foreignKeys', false);
       else if (type === 'folder-triggers') openDesign(info.node, 'triggers', true);
   };
 
