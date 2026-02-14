@@ -129,6 +129,7 @@ wails build -clean
 支持构建：
 *   macOS (AMD64 / ARM64)
 *   Windows (AMD64)
+*   Linux (AMD64，提供 WebKitGTK 4.0 与 4.1 变体产物)
 
 ---
 
@@ -145,6 +146,27 @@ wails build -clean
     sudo xattr -rd com.apple.quarantine /Applications/GoNavi.app
     ```
 4.  或者：在 Finder 中右键点击应用图标，按住 `Control` 键选择 **打开**，然后在弹出的窗口中再次点击 **打开**。
+
+### Linux 启动报错缺少 `libwebkit2gtk` / `libjavascriptcoregtk`
+
+GoNavi 的 Linux 二进制依赖系统 WebKitGTK 运行库。不同发行版默认版本不同：
+
+- Debian 13 / Ubuntu 24.04 及更新版本：通常为 WebKitGTK 4.1
+- Ubuntu 22.04 / Debian 12 等：通常为 WebKitGTK 4.0
+
+如果启动时报错（如 `libwebkit2gtk-4.0.so.37: cannot open shared object file`），请按系统安装对应依赖后重试：
+
+```bash
+# Debian 13 / Ubuntu 24.04+
+sudo apt-get update
+sudo apt-get install -y libgtk-3-0 libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0
+
+# Ubuntu 22.04 / Debian 12
+sudo apt-get update
+sudo apt-get install -y libgtk-3-0 libwebkit2gtk-4.0-37 libjavascriptcoregtk-4.0-18
+```
+
+如果你使用的是 Release 中带 `-WebKit41` 后缀的 Linux 产物，请优先在 Debian 13 / Ubuntu 24.04+ 上使用；普通 Linux 产物更适合 WebKitGTK 4.0 运行环境。
 
 ---
 

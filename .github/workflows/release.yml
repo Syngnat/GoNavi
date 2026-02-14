@@ -22,26 +22,56 @@ jobs:
             os_name: MacOS
             arch_name: Amd64
             build_name: gonavi-build-darwin-amd64
+            wails_tags: ""
+            artifact_suffix: ""
+            build_optional_agents: true
+            linux_webkit: ""
           - os: macos-latest
             platform: darwin/arm64
             os_name: MacOS
             arch_name: Arm64
             build_name: gonavi-build-darwin-arm64
+            wails_tags: ""
+            artifact_suffix: ""
+            build_optional_agents: true
+            linux_webkit: ""
           - os: windows-latest
             platform: windows/amd64
             os_name: Windows
             arch_name: Amd64
             build_name: gonavi-build-windows-amd64
+            wails_tags: ""
+            artifact_suffix: ""
+            build_optional_agents: true
+            linux_webkit: ""
           - os: windows-latest
             platform: windows/arm64
             os_name: Windows
             arch_name: Arm64
             build_name: gonavi-build-windows-arm64
+            wails_tags: ""
+            artifact_suffix: ""
+            build_optional_agents: true
+            linux_webkit: ""
           - os: ubuntu-22.04
             platform: linux/amd64
             os_name: Linux
             arch_name: Amd64
             build_name: gonavi-build-linux-amd64
+            wails_tags: ""
+            artifact_suffix: ""
+            build_optional_agents: true
+            linux_webkit: "4.0"
+          # Debian 13 (trixie) 默认仓库已切到 WebKitGTK 4.1：单独提供 4.1 变体产物
+          - os: ubuntu-24.04
+            platform: linux/amd64
+            os_name: Linux
+            arch_name: Amd64
+            build_name: gonavi-build-linux-amd64-webkit41
+            wails_tags: "webkit2_41"
+            artifact_suffix: "-WebKit41"
+            build_optional_agents: false
+            linux_webkit: "4.1"
 
     steps:
       - name: Checkout code
@@ -63,7 +93,17 @@ jobs:
         if: contains(matrix.platform, 'linux')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libfuse2
+          sudo apt-get install -y libgtk-3-dev
+
+          # WebKitGTK 4.1 需要 libsoup3；4.0 使用 libsoup2（通常由 webkit2gtk dev 包拉起）
+          if [ "${{ matrix.linux_webkit }}" = "4.1" ]; then
+            sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev
+          else
+            sudo apt-get install -y libwebkit2gtk-4.0-dev
+          fi
+
+          # AppImage 运行/打包可能需要 FUSE2。不同发行版/版本包名不同，做兼容兜底。
+          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
 
           # Download linuxdeploy tools for AppImage packaging
           LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
@@ -94,9 +134,15 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+          set -euo pipefail
+          TAG_ARGS=()
+          if [ -n "${{ matrix.wails_tags }}" ]; then
+            TAG_ARGS+=(-tags "${{ matrix.wails_tags }}")
+          fi
+          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} "${TAG_ARGS[@]}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
 
       - name: Build Optional Driver Agents
+        if: ${{ matrix.build_optional_agents }}
         shell: bash
         run: |
           set -euo pipefail
@@ -160,7 +206,7 @@ jobs:
           codesign --force --options runtime --deep --sign - "$APP_NAME"
           
           DMG_NAME="${{ matrix.build_name }}.dmg"
-          FINAL_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}.dmg"
+          FINAL_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.dmg"
           echo "📦 正在生成 DMG: $DMG_NAME..."
           
           create-dmg \
@@ -187,8 +233,8 @@ jobs:
               $version = $version.Substring(1)
           }
           $target = "${{ matrix.build_name }}"
-          $finalExeName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}.exe"
-          $finalZipName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}.zip"
+          $finalExeName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.exe"
+          $finalZipName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.zip"
 
           if (Test-Path "$target.exe") {
               $finalExe = "$target.exe"
@@ -214,8 +260,8 @@ jobs:
           VERSION="${VERSION#v}"
           cd build/bin
           TARGET="${{ matrix.build_name }}"
-          TAR_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}.tar.gz"
-          APPIMAGE_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}.AppImage"
+          TAR_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.tar.gz"
+          APPIMAGE_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.AppImage"
 
           if [ ! -f "$TARGET" ]; then
               echo "❌ 未找到构建产物 '$TARGET'!"

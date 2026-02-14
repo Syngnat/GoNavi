@@ -68,11 +68,16 @@ func newOptionalDriverAgentClient(driverType string, executablePath string) (*op
 	if pathText == "" {
 		return nil, fmt.Errorf("%s 驱动代理路径为空", driverDisplayName(driverType))
 	}
-	if info, err := os.Stat(pathText); err != nil || info.IsDir() {
+	info, err := os.Stat(pathText)
+	if err != nil {
 		return nil, fmt.Errorf("%s 驱动代理不存在：%s", driverDisplayName(driverType), pathText)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%s 驱动代理路径是目录：%s", driverDisplayName(driverType), pathText)
 	}
 
 	cmd := exec.Command(pathText)
+	configureAgentProcess(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("创建 %s 驱动代理 stdin 失败：%w", driverDisplayName(driverType), err)
