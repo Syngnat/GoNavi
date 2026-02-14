@@ -6,6 +6,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,7 +24,14 @@ type SQLiteDB struct {
 }
 
 func (s *SQLiteDB) Connect(config connection.ConnectionConfig) error {
-	dsn := config.Host
+	dsn, err := resolveSQLiteDSN(config)
+	if err != nil {
+		return err
+	}
+	if err := ensureSQLiteParentDir(dsn); err != nil {
+		return err
+	}
+
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("打开数据库连接失败：%w", err)
@@ -31,7 +41,136 @@ func (s *SQLiteDB) Connect(config connection.ConnectionConfig) error {
 
 	// Force verification
 	if err := s.Ping(); err != nil {
+		_ = db.Close()
+		s.conn = nil
 		return fmt.Errorf("连接建立后验证失败：%w", err)
+	}
+	return nil
+}
+
+func resolveSQLiteDSN(config connection.ConnectionConfig) (string, error) {
+	dsn := strings.TrimSpace(config.Host)
+	if dsn == "" {
+		dsn = strings.TrimSpace(config.Database)
+	}
+	dsn = normalizeSQLitePath(dsn)
+	if dsn == "" {
+		return "", fmt.Errorf("SQLite 需要本地数据库文件路径（例如 /path/to/demo.sqlite）")
+	}
+	if strings.EqualFold(dsn, ":memory:") {
+		return dsn, nil
+	}
+	if looksLikeHostPort(dsn) {
+		return "", fmt.Errorf("SQLite 需要本地数据库文件路径，当前输入看起来是主机地址：%s", dsn)
+	}
+	return dsn, nil
+}
+
+func normalizeSQLitePath(raw string) string {
+	text := strings.TrimSpace(raw)
+	if strings.HasPrefix(text, "/") && len(text) > 3 && isWindowsDrivePath(text[1:]) {
+		text = text[1:]
+	}
+	if isWindowsDrivePath(text) {
+		text = trimLegacyPortSuffix(text)
+	}
+	return text
+}
+
+func isWindowsDrivePath(path string) bool {
+	if len(path) < 3 {
+		return false
+	}
+	drive := path[0]
+	if !((drive >= 'a' && drive <= 'z') || (drive >= 'A' && drive <= 'Z')) {
+		return false
+	}
+	if path[1] != ':' {
+		return false
+	}
+	sep := path[2]
+	return sep == '\\' || sep == '/'
+}
+
+func trimLegacyPortSuffix(path string) string {
+	normalized := path
+	for {
+		idx := strings.LastIndex(normalized, ":")
+		if idx <= 1 || idx+1 >= len(normalized) {
+			return normalized
+		}
+		suffix := normalized[idx+1:]
+		validDigits := true
+		for _, ch := range suffix {
+			if ch < '0' || ch > '9' {
+				validDigits = false
+				break
+			}
+		}
+		if !validDigits {
+			return normalized
+		}
+		normalized = normalized[:idx]
+	}
+}
+
+func looksLikeHostPort(raw string) bool {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return false
+	}
+	if strings.ContainsAny(text, `/\`) {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(text), "file:") {
+		return false
+	}
+	if strings.HasPrefix(text, "[") {
+		closing := strings.LastIndex(text, "]")
+		if closing <= 0 || closing+1 >= len(text) {
+			return false
+		}
+		portText := strings.TrimSpace(strings.TrimPrefix(text[closing+1:], ":"))
+		return isValidPortText(portText)
+	}
+	if strings.Count(text, ":") != 1 {
+		return false
+	}
+	split := strings.LastIndex(text, ":")
+	if split <= 0 || split+1 >= len(text) {
+		return false
+	}
+	return isValidPortText(strings.TrimSpace(text[split+1:]))
+}
+
+func isValidPortText(text string) bool {
+	port, err := strconv.Atoi(text)
+	return err == nil && port > 0 && port <= 65535
+}
+
+func ensureSQLiteParentDir(dsn string) error {
+	text := strings.TrimSpace(dsn)
+	if text == "" || strings.EqualFold(text, ":memory:") {
+		return nil
+	}
+	// file: URI 由驱动处理，避免在这里误判路径格式。
+	if strings.HasPrefix(strings.ToLower(text), "file:") {
+		return nil
+	}
+	path := text
+	if idx := strings.Index(path, "?"); idx >= 0 {
+		path = path[:idx]
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	dir := filepath.Dir(path)
+	if dir == "." || dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("创建 SQLite 数据文件目录失败：%w", err)
 	}
 	return nil
 }

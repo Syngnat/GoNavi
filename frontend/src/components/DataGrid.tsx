@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal, Checkbox, Segmented } from 'antd';
+import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Modal, Checkbox, Segmented, Tooltip, Popover } from 'antd';
 import type { SortOrder } from 'antd/es/table/interface';
 import { ReloadOutlined, ImportOutlined, ExportOutlined, DownOutlined, PlusOutlined, DeleteOutlined, SaveOutlined, UndoOutlined, FilterOutlined, CloseOutlined, ConsoleSqlOutlined, FileTextOutlined, CopyOutlined, ClearOutlined, EditOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
 import Editor from '@monaco-editor/react';
-import { ImportData, ExportTable, ExportData, ExportQuery, ApplyChanges } from '../../wailsjs/go/app/App';
+import { ImportData, ExportTable, ExportData, ExportQuery, ApplyChanges, DBGetColumns } from '../../wailsjs/go/app/App';
 import ImportPreviewModal from './ImportPreviewModal';
 import { useStore } from '../store';
+import type { ColumnDefinition } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import 'react-resizable/css/styles.css';
 import { buildOrderBySQL, buildWhereSQL, escapeLiteral, quoteIdentPart, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
@@ -292,6 +293,7 @@ const DataContext = React.createContext<{
     handleExportSelected: (format: string, r: any) => void;
     copyToClipboard: (t: string) => void;
     tableName?: string;
+    enableRowContextMenu: boolean;
 } | null>(null);
 
 interface Item {
@@ -434,7 +436,11 @@ const ContextMenuRow = React.memo(({ children, record, ...props }: any) => {
     
     if (!record || !context) return <tr {...props}>{children}</tr>;
 
-    const { selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard } = context;
+    const { selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, enableRowContextMenu } = context;
+
+    if (!enableRowContextMenu) {
+        return <tr {...props}>{children}</tr>;
+    }
 
     const getTargets = () => {
         const keys = selectedRowKeysRef.current;
@@ -513,6 +519,11 @@ type GridFilterCondition = FilterCondition & {
 
 type GridViewMode = 'table' | 'json' | 'text';
 
+type ColumnMeta = {
+    type: string;
+    comment: string;
+};
+
 const DataGrid: React.FC<DataGridProps> = ({ 
     data, columnNames, loading, tableName, dbName, connectionId, pkColumns = [], readOnly = false,
     onReload, onSort, onPageChange, pagination, sortInfoExternal, showFilter, onToggleFilter, onApplyFilter
@@ -521,10 +532,14 @@ const DataGrid: React.FC<DataGridProps> = ({
   const addSqlLog = useStore(state => state.addSqlLog);
   const theme = useStore(state => state.theme);
   const appearance = useStore(state => state.appearance);
+  const queryOptions = useStore(state => state.queryOptions);
+  const setQueryOptions = useStore(state => state.setQueryOptions);
   const isMacLike = useMemo(() => isMacLikePlatform(), []);
   const darkMode = theme === 'dark';
   const opacity = normalizeOpacityForPlatform(appearance.opacity);
   const canModifyData = !readOnly && !!tableName;
+  const showColumnComment = queryOptions?.showColumnComment !== false;
+  const showColumnType = queryOptions?.showColumnType !== false;
   const selectionColumnWidth = 46;
 
   // Background Helper
@@ -538,7 +553,7 @@ const DataGrid: React.FC<DataGridProps> = ({
   };
   const bgContent = getBg('#1d1d1d');
   const bgFilter = getBg('#262626');
-  const bgContextMenu = getBg('#1f1f1f');
+  const bgContextMenu = darkMode ? '#1f1f1f' : '#ffffff';
   
   // Row Colors with Opacity
   const getRowBg = (r: number, g: number, b: number) => `rgba(${r}, ${g}, ${b}, ${opacity})`;
@@ -661,6 +676,9 @@ const DataGrid: React.FC<DataGridProps> = ({
   
   const [sortInfo, setSortInfo] = useState<{ columnKey: string, order: string } | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [columnMetaMap, setColumnMetaMap] = useState<Record<string, ColumnMeta>>({});
+  const columnMetaCacheRef = useRef<Record<string, Record<string, ColumnMeta>>>({});
+  const columnMetaSeqRef = useRef(0);
 
   useEffect(() => {
       const nextOrder = sortInfoExternal?.order === 'ascend' || sortInfoExternal?.order === 'descend'
@@ -676,6 +694,129 @@ const DataGrid: React.FC<DataGridProps> = ({
           setSortInfo({ columnKey: nextColumn, order: nextOrder });
       }
   }, [sortInfoExternal, sortInfo]);
+
+  useEffect(() => {
+      const normalizedTableName = String(tableName || '').trim();
+      const normalizedDbName = String(dbName || '').trim();
+      if (!connectionId || !normalizedTableName) {
+          setColumnMetaMap({});
+          return;
+      }
+      const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
+      setColumnMetaMap(columnMetaCacheRef.current[cacheKey] || {});
+  }, [connectionId, dbName, tableName]);
+
+  useEffect(() => {
+      const normalizedTableName = String(tableName || '').trim();
+      const normalizedDbName = String(dbName || '').trim();
+      if (!connectionId || !normalizedTableName) return;
+
+      const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
+      if (columnMetaCacheRef.current[cacheKey]) return;
+
+      const conn = connections.find(c => c.id === connectionId);
+      if (!conn) {
+          setColumnMetaMap({});
+          return;
+      }
+
+      const config = {
+          ...conn.config,
+          port: Number(conn.config.port),
+          password: conn.config.password || "",
+          database: conn.config.database || "",
+          useSSH: conn.config.useSSH || false,
+          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
+      };
+
+      const seq = ++columnMetaSeqRef.current;
+      DBGetColumns(config as any, normalizedDbName, normalizedTableName)
+          .then((res) => {
+              if (seq !== columnMetaSeqRef.current) return;
+              if (!res.success || !Array.isArray(res.data)) {
+                  setColumnMetaMap({});
+                  return;
+              }
+              const nextMap: Record<string, ColumnMeta> = {};
+              (res.data as ColumnDefinition[]).forEach((column: any) => {
+                  const name = String(column?.name ?? column?.Name ?? '').trim();
+                  if (!name) return;
+                  const type = String(column?.type ?? column?.Type ?? '').trim();
+                  const comment = String(column?.comment ?? column?.Comment ?? '').trim();
+                  nextMap[name] = { type, comment };
+              });
+              columnMetaCacheRef.current[cacheKey] = nextMap;
+              setColumnMetaMap(nextMap);
+          })
+          .catch(() => {
+              if (seq !== columnMetaSeqRef.current) return;
+              setColumnMetaMap({});
+          });
+  }, [connections, connectionId, dbName, tableName]);
+
+  const columnMetaMapByLowerName = useMemo(() => {
+      const next: Record<string, ColumnMeta> = {};
+      Object.entries(columnMetaMap).forEach(([name, meta]) => {
+          const lowerName = String(name || '').toLowerCase();
+          if (!lowerName || next[lowerName]) return;
+          next[lowerName] = meta;
+      });
+      return next;
+  }, [columnMetaMap]);
+
+  const renderColumnTitle = useCallback((name: string): React.ReactNode => {
+      const normalizedName = String(name || '');
+      const meta = columnMetaMap[normalizedName] || columnMetaMapByLowerName[normalizedName.toLowerCase()];
+      const hoverLines: string[] = [];
+      if (meta?.type) hoverLines.push(`类型：${meta.type}`);
+      if (meta?.comment) hoverLines.push(`备注：${meta.comment}`);
+
+      const titleNode = (
+          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, lineHeight: 1.2 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>{normalizedName}</span>
+              {showColumnType && meta?.type && (
+                  <span
+                      style={{
+                          marginTop: 2,
+                          fontSize: 11,
+                          color: '#8c8c8c',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                      }}
+                  >
+                      {meta.type}
+                  </span>
+              )}
+              {showColumnComment && meta?.comment && (
+                  <span
+                      style={{
+                          marginTop: 2,
+                          fontSize: 11,
+                          color: '#8c8c8c',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                      }}
+                  >
+                      {meta.comment}
+                  </span>
+              )}
+          </div>
+      );
+
+      if (hoverLines.length === 0) return titleNode;
+      return (
+          <Tooltip
+              title={<pre style={{ maxHeight: 260, overflow: 'auto', margin: 0, fontSize: 12, whiteSpace: 'pre-wrap' }}>{hoverLines.join('\n')}</pre>}
+              styles={{ root: { maxWidth: 640 } }}
+          >
+              <span style={{ display: 'inline-flex', maxWidth: '100%' }}>{titleNode}</span>
+          </Tooltip>
+      );
+  }, [columnMetaMap, columnMetaMapByLowerName, showColumnComment, showColumnType]);
 
   const closeCellEditor = useCallback(() => {
       setCellEditorOpen(false);
@@ -1592,7 +1733,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const columns = useMemo(() => {
       return columnNames.map(key => ({
-          title: key,
+          title: renderColumnTitle(key),
           dataIndex: key,
           key: key,
           // 不使用 ellipsis，避免 Ant Design 的 Tooltip 展开行为
@@ -1608,9 +1749,29 @@ const DataGrid: React.FC<DataGridProps> = ({
           onHeaderCell: (column: any) => ({
               width: column.width,
               onResizeStart: handleResizeStart(key), // Only need start
+              onClickCapture: (event: React.MouseEvent<HTMLElement>) => {
+                  if (!onSort) return;
+                  const headerCell = event.currentTarget as HTMLElement;
+                  const upArrow = headerCell.querySelector('.ant-table-column-sorter-up') as HTMLElement | null;
+                  const downArrow = headerCell.querySelector('.ant-table-column-sorter-down') as HTMLElement | null;
+                  const isInArrow = [upArrow, downArrow].some((el) => {
+                      if (!el) return false;
+                      const rect = el.getBoundingClientRect();
+                      return (
+                          event.clientX >= rect.left &&
+                          event.clientX <= rect.right &&
+                          event.clientY >= rect.top &&
+                          event.clientY <= rect.bottom
+                      );
+                  });
+                  if (isInArrow) return;
+                  // 仅允许点击上下箭头触发排序，点击字段名或表头其它区域不触发排序。
+                  event.preventDefault();
+                  event.stopPropagation();
+              },
           }),
       }));
-  }, [columnNames, columnWidths, sortInfo, handleResizeStart, canModifyData, onSort]);
+  }, [columnNames, columnWidths, sortInfo, handleResizeStart, canModifyData, onSort, renderColumnTitle]);
 
   const mergedColumns = useMemo(() => columns.map(col => {
       if (!col.editable) return col;
@@ -1620,7 +1781,7 @@ const DataGrid: React.FC<DataGridProps> = ({
               record,
               editable: col.editable,
               dataIndex: col.dataIndex,
-              title: col.title,
+              title: String(col.dataIndex),
               handleSave: handleCellSave,
               focusCell: openCellEditor,
           }),
@@ -2037,6 +2198,23 @@ const DataGrid: React.FC<DataGridProps> = ({
       { key: 'md', label: 'Markdown', onClick: () => handleExport('md') },
   ];
 
+  const columnInfoSettingContent = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 168 }}>
+          <Checkbox
+              checked={showColumnComment}
+              onChange={(e) => setQueryOptions({ showColumnComment: e.target.checked })}
+          >
+              下方显示备注
+          </Checkbox>
+          <Checkbox
+              checked={showColumnType}
+              onChange={(e) => setQueryOptions({ showColumnType: e.target.checked })}
+          >
+              下方显示类型
+          </Checkbox>
+      </div>
+  );
+
   const tableComponents = useMemo(() => ({
       body: { cell: EditableCell, row: ContextMenuRow },
       header: { cell: ResizableTitle }
@@ -2149,6 +2327,15 @@ const DataGrid: React.FC<DataGridProps> = ({
            )}
 
            <div style={{ marginLeft: 'auto' }} />
+	           <div style={{ flexShrink: 0 }}>
+	               <Popover
+	                   trigger="click"
+	                   placement="bottomRight"
+	                   content={columnInfoSettingContent}
+	               >
+	                   <Button icon={<FileTextOutlined />}>字段信息</Button>
+	               </Popover>
+	           </div>
 	           <div style={{ flexShrink: 0 }}>
 	               <Segmented
 	                   size="small"
@@ -2413,13 +2600,14 @@ const DataGrid: React.FC<DataGridProps> = ({
 
         {viewMode === 'table' ? (
             <Form component={false} form={form}>
-                <DataContext.Provider value={{ selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, tableName }}>
+                <DataContext.Provider value={{ selectedRowKeysRef, displayDataRef, handleCopyInsert, handleCopyJson, handleCopyCsv, handleExportSelected, copyToClipboard, tableName, enableRowContextMenu: !canModifyData }}>
                     <CellContextMenuContext.Provider value={{ showMenu: showCellContextMenu, handleBatchFillToSelected }}>
                             <EditableContext.Provider value={form}>
                                 <Table
                                     components={tableComponents}
                                     dataSource={mergedDisplayData}
                                     columns={mergedColumns}
+                                    showSorterTooltip={{ target: 'sorter-icon' }}
                                     size="small"
                                     tableLayout="fixed"
                                     scroll={{ x: tableScrollX, y: tableHeight }}
@@ -2721,6 +2909,9 @@ const DataGrid: React.FC<DataGridProps> = ({
                 .${gridId} .ant-table-tbody > tr > td { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
                 .${gridId} .ant-table-thead > tr > th { background: transparent !important; border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important; border-inline-end: 1px solid transparent !important; }
                 .${gridId} .ant-table-thead > tr > th::before { display: none !important; }
+                .${gridId} .ant-table-thead > tr > th .ant-table-column-sorters { cursor: default !important; }
+                .${gridId} .ant-table-thead > tr > th .ant-table-column-sorter,
+                .${gridId} .ant-table-thead > tr > th .ant-table-column-sorter * { cursor: pointer !important; }
                 .${gridId} .ant-table-tbody > tr:hover > td { background-color: ${darkMode ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.02)'} !important; }
                 .${gridId} .ant-table-tbody > tr.ant-table-row-selected > td { background-color: ${darkMode ? 'rgba(24, 144, 255, 0.15)' : 'rgba(24, 144, 255, 0.08)'} !important; }
                 .${gridId} .ant-table-tbody > tr.ant-table-row-selected:hover > td { background-color: ${darkMode ? 'rgba(24, 144, 255, 0.25)' : 'rgba(24, 144, 255, 0.12)'} !important; }

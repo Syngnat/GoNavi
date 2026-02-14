@@ -133,8 +133,17 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
-		config.Type, config.Host, config.Port, dbName, config.User, timeoutSeconds))
+	normalizedType := strings.ToLower(strings.TrimSpace(config.Type))
+	if normalizedType == "sqlite" || normalizedType == "duckdb" {
+		path := strings.TrimSpace(config.Host)
+		if path == "" {
+			path = "(未配置)"
+		}
+		b.WriteString(fmt.Sprintf("类型=%s 路径=%s 超时=%ds", config.Type, path, timeoutSeconds))
+	} else {
+		b.WriteString(fmt.Sprintf("类型=%s 地址=%s:%d 数据库=%s 用户=%s 超时=%ds",
+			config.Type, config.Host, config.Port, dbName, config.User, timeoutSeconds))
+	}
 
 	if len(config.Hosts) > 0 {
 		b.WriteString(fmt.Sprintf(" 节点数=%d", len(config.Hosts)))
