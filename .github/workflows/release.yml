@@ -135,11 +135,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG_ARGS=()
           if [ -n "${{ matrix.wails_tags }}" ]; then
-            TAG_ARGS+=(-tags "${{ matrix.wails_tags }}")
+            wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -tags "${{ matrix.wails_tags }}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+          else
+            wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
           fi
-          wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} "${TAG_ARGS[@]}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
 
       - name: Build Optional Driver Agents
         if: ${{ matrix.build_optional_agents }}
