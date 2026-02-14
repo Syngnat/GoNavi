@@ -104,6 +104,8 @@ jobs:
           GOOS="${TARGET_PLATFORM%%/*}"
           GOARCH="${TARGET_PLATFORM##*/}"
           DRIVERS=(mariadb diros sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase mongodb tdengine)
+          OUTDIR="drivers/${{ matrix.os_name }}"
+          mkdir -p "$OUTDIR"
 
           for DRIVER in "${DRIVERS[@]}"; do
             TAG="gonavi_${DRIVER}_driver"
@@ -111,20 +113,21 @@ jobs:
             if [ "$GOOS" = "windows" ]; then
               OUTPUT="${OUTPUT}.exe"
             fi
-            echo "🔧 构建 ${OUTPUT} (tag=${TAG})"
+            OUTPUT_PATH="${OUTDIR}/${OUTPUT}"
+            echo "🔧 构建 ${OUTPUT_PATH} (tag=${TAG})"
             if [ "$DRIVER" = "duckdb" ]; then
               set +e
               CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" go build \
                 -tags "${TAG}" \
                 -trimpath \
                 -ldflags "-s -w" \
-                -o "${OUTPUT}" \
+                -o "${OUTPUT_PATH}" \
                 ./cmd/optional-driver-agent
               DUCKDB_RC=$?
               set -e
               if [ "${DUCKDB_RC}" -ne 0 ]; then
                 echo "⚠️ DuckDB 代理构建失败（平台 ${GOOS}/${GOARCH}），跳过该资产，不阻断发布"
-                rm -f "${OUTPUT}"
+                rm -f "${OUTPUT_PATH}"
                 continue
               fi
             else
@@ -132,7 +135,7 @@ jobs:
                 -tags "${TAG}" \
                 -trimpath \
                 -ldflags "-s -w" \
-                -o "${OUTPUT}" \
+                -o "${OUTPUT_PATH}" \
                 ./cmd/optional-driver-agent
             fi
           done
@@ -295,7 +298,7 @@ jobs:
             GoNavi-*.zip
             GoNavi-*.tar.gz
             GoNavi-*.AppImage
-            *-driver-agent-*
+            drivers/**
           retention-days: 1
 
   # Phase 2: Collect all artifacts and Publish Release (Single Job)
@@ -313,6 +316,59 @@ jobs:
 
       - name: List Assets
         run: ls -R release-assets
+
+      - name: Package Driver Agents Bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          if [ ! -d drivers ]; then
+            echo "⚠️ 未找到 drivers 目录，跳过驱动总包打包"
+            exit 0
+          fi
+          if [ -z "$(find drivers -type f 2>/dev/null | head -n 1)" ]; then
+            echo "⚠️ drivers 目录为空，跳过驱动总包打包"
+            rm -rf drivers
+            exit 0
+          fi
+
+          echo "📦 打包驱动总包：GoNavi-DriverAgents.zip"
+          python3 - <<'PY'
+          import json
+          import os
+          import zipfile
+          from pathlib import Path
+
+          out_name = "GoNavi-DriverAgents.zip"
+          index_name = "GoNavi-DriverAgents-Index.json"
+          base = Path("drivers")
+          out_path = Path(out_name)
+          index_path = Path(index_name)
+          if out_path.exists():
+              out_path.unlink()
+          if index_path.exists():
+              index_path.unlink()
+
+          size_index = {}
+          with zipfile.ZipFile(out_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for p in base.rglob("*"):
+                  if not p.is_file():
+                      continue
+                  arcname = p.relative_to(base).as_posix()
+                  zf.write(p, arcname)
+                  size_index[p.name] = p.stat().st_size
+
+          index_path.write_text(
+              json.dumps({"assets": size_index}, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+
+          print(f"created {out_name} size={out_path.stat().st_size} bytes")
+          print(f"created {index_name} entries={len(size_index)}")
+          PY
+
+          # Release 只发布一个驱动总包，避免大量平铺资产污染 Release 页面
+          rm -rf drivers
 
       - name: Generate SHA256SUMS
         shell: bash

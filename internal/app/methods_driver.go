@@ -1,6 +1,7 @@
 package app
 
 import (
+	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -111,13 +112,20 @@ type driverReleaseAssetSizeCacheEntry struct {
 	Err       string
 }
 
+type driverBundleAssetIndex struct {
+	Assets map[string]int64 `json:"assets"`
+}
+
 const (
 	// 默认使用内置 manifest，避免依赖网络与外部仓库 404。
 	defaultDriverManifestURLValue       = "builtin://manifest"
+	optionalDriverBundleAssetName       = "GoNavi-DriverAgents.zip"
+	optionalDriverBundleIndexAssetName  = "GoNavi-DriverAgents-Index.json"
 	driverManifestCacheTTL              = 5 * time.Minute
 	driverReleaseAssetSizeCacheTTL      = 30 * time.Minute
 	driverReleaseAssetSizeErrorCacheTTL = 30 * time.Second
 	driverReleaseAssetSizeProbeTimeout  = 4 * time.Second
+	driverBundleIndexMaxSize            = 1 << 20
 	driverManifestMaxSize               = 2 << 20
 	driverChecksumPolicyStrict          = "strict"
 	driverChecksumPolicyWarn            = "warn"
@@ -1123,6 +1131,19 @@ func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, execut
 			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %s", candidateURL, strings.TrimSpace(dlErr.Error())))
 		}
 	}
+	bundleURLs := resolveOptionalDriverBundleDownloadURLs()
+	if len(bundleURLs) > 0 {
+		for _, bundleURL := range bundleURLs {
+			if a != nil {
+				a.emitDriverDownloadProgress(driverType, "downloading", 20, 100, fmt.Sprintf("从驱动总包提取 %s 代理", displayName))
+			}
+			source, hash, bundleErr := downloadOptionalDriverAgentFromBundle(a, definition, bundleURL, executablePath)
+			if bundleErr == nil {
+				return source, hash, nil
+			}
+			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %s", bundleURL, strings.TrimSpace(bundleErr.Error())))
+		}
+	}
 	if a != nil {
 		a.emitDriverDownloadProgress(driverType, "downloading", 92, 100, "未命中预编译包，尝试开发态本地构建")
 	}
@@ -1174,6 +1195,112 @@ func downloadOptionalDriverAgentBinary(a *App, definition driverDefinition, urlT
 		return "", fmt.Errorf("设置代理权限失败：%w", chmodErr)
 	}
 	return hash, nil
+}
+
+func downloadOptionalDriverAgentFromBundle(a *App, definition driverDefinition, bundleURL, executablePath string) (string, string, error) {
+	driverType := normalizeDriverType(definition.Type)
+	displayName := resolveDriverDisplayName(definition)
+	trimmedURL := strings.TrimSpace(bundleURL)
+	if trimmedURL == "" {
+		return "", "", fmt.Errorf("驱动总包下载地址为空")
+	}
+
+	bundleTempPath := executablePath + ".bundle.zip.tmp"
+	_ = os.Remove(bundleTempPath)
+	_, err := downloadFileWithHash(trimmedURL, bundleTempPath, func(downloaded, total int64) {
+		if a == nil {
+			return
+		}
+		scaledDownloaded, scaledTotal := scaleProgress(downloaded, total, 20, 78)
+		a.emitDriverDownloadProgress(driverType, "downloading", scaledDownloaded, scaledTotal, fmt.Sprintf("下载 %s 驱动总包", displayName))
+	})
+	if err != nil {
+		_ = os.Remove(bundleTempPath)
+		return "", "", fmt.Errorf("下载驱动总包失败：%w", err)
+	}
+	defer func() { _ = os.Remove(bundleTempPath) }()
+
+	reader, err := zip.OpenReader(bundleTempPath)
+	if err != nil {
+		return "", "", fmt.Errorf("打开驱动总包失败：%w", err)
+	}
+	defer reader.Close()
+
+	entryPath := optionalDriverBundleEntryPath(driverType)
+	expectedBaseName := optionalDriverReleaseAssetName(driverType)
+	findEntry := func() *zip.File {
+		for _, file := range reader.File {
+			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
+			if name == entryPath {
+				return file
+			}
+		}
+		for _, file := range reader.File {
+			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
+			if strings.EqualFold(name, entryPath) {
+				return file
+			}
+		}
+		for _, file := range reader.File {
+			name := filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(file.Name), "./"))
+			if strings.EqualFold(filepath.Base(name), expectedBaseName) {
+				return file
+			}
+		}
+		return nil
+	}
+
+	entry := findEntry()
+	if entry == nil {
+		return "", "", fmt.Errorf("驱动总包内未找到 %s（期望路径 %s）", displayName, entryPath)
+	}
+	if a != nil {
+		a.emitDriverDownloadProgress(driverType, "downloading", 84, 100, fmt.Sprintf("解压 %s 驱动代理", displayName))
+	}
+
+	src, err := entry.Open()
+	if err != nil {
+		return "", "", fmt.Errorf("读取驱动总包条目失败：%w", err)
+	}
+	defer src.Close()
+
+	tempPath := executablePath + ".tmp"
+	_ = os.Remove(tempPath)
+	dst, err := os.Create(tempPath)
+	if err != nil {
+		return "", "", fmt.Errorf("创建驱动代理临时文件失败：%w", err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		_ = os.Remove(tempPath)
+		return "", "", fmt.Errorf("写入驱动代理失败：%w", err)
+	}
+	if err := dst.Sync(); err != nil {
+		dst.Close()
+		_ = os.Remove(tempPath)
+		return "", "", fmt.Errorf("落盘驱动代理失败：%w", err)
+	}
+	if err := dst.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return "", "", fmt.Errorf("关闭驱动代理文件失败：%w", err)
+	}
+	if chmodErr := os.Chmod(tempPath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
+		_ = os.Remove(tempPath)
+		return "", "", fmt.Errorf("设置驱动代理权限失败：%w", chmodErr)
+	}
+	if err := os.Rename(tempPath, executablePath); err != nil {
+		_ = os.Remove(tempPath)
+		return "", "", fmt.Errorf("替换驱动代理失败：%w", err)
+	}
+	if chmodErr := os.Chmod(executablePath, 0o755); chmodErr != nil && stdRuntime.GOOS != "windows" {
+		return "", "", fmt.Errorf("设置驱动代理权限失败：%w", chmodErr)
+	}
+	hash, err := hashFileSHA256(executablePath)
+	if err != nil {
+		return "", "", fmt.Errorf("计算驱动代理摘要失败：%w", err)
+	}
+	source := fmt.Sprintf("%s#%s", trimmedURL, filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(entry.Name), "./")))
+	return source, hash, nil
 }
 
 func buildOptionalDriverAgentFromSource(definition driverDefinition, executablePath string) (string, error) {
@@ -1280,6 +1407,46 @@ func optionalDriverReleaseAssetName(driverType string) string {
 		return name + ".exe"
 	}
 	return name
+}
+
+func optionalDriverBundlePlatformDir(goos string) string {
+	switch strings.ToLower(strings.TrimSpace(goos)) {
+	case "windows":
+		return "Windows"
+	case "darwin":
+		return "MacOS"
+	case "linux":
+		return "Linux"
+	default:
+		return "Unknown"
+	}
+}
+
+func optionalDriverBundleEntryPath(driverType string) string {
+	return filepath.ToSlash(filepath.Join(optionalDriverBundlePlatformDir(stdRuntime.GOOS), optionalDriverReleaseAssetName(driverType)))
+}
+
+func resolveOptionalDriverBundleDownloadURLs() []string {
+	candidates := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+	appendURL := func(value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		candidates = append(candidates, trimmed)
+	}
+
+	currentVersion := normalizeVersion(getCurrentVersion())
+	if currentVersion != "" && currentVersion != "0.0.0" {
+		appendURL(fmt.Sprintf("https://github.com/Syngnat/GoNavi/releases/download/v%s/%s", currentVersion, optionalDriverBundleAssetName))
+	}
+	appendURL(fmt.Sprintf("https://github.com/Syngnat/GoNavi/releases/latest/download/%s", optionalDriverBundleAssetName))
+	return candidates
 }
 
 func resolveOptionalDriverAgentDownloadURLs(definition driverDefinition, rawURL string) []string {
@@ -1541,6 +1708,15 @@ func loadReleaseAssetSizesCached(cacheKey string, fetch func() (*githubRelease, 
 		entry.Err = err.Error()
 	} else {
 		entry.SizeByKey = buildReleaseAssetSizeMap(release)
+		if indexSizes, indexErr := fetchDriverBundleAssetSizeIndex(release); indexErr == nil {
+			for name, size := range indexSizes {
+				trimmedName := strings.TrimSpace(name)
+				if trimmedName == "" || size <= 0 {
+					continue
+				}
+				entry.SizeByKey[trimmedName] = size
+			}
+		}
 	}
 
 	driverReleaseSizeMu.Lock()
@@ -1566,6 +1742,50 @@ func buildReleaseAssetSizeMap(release *githubRelease) map[string]int64 {
 		sizes[name] = asset.Size
 	}
 	return sizes
+}
+
+func fetchDriverBundleAssetSizeIndex(release *githubRelease) (map[string]int64, error) {
+	if release == nil {
+		return nil, fmt.Errorf("release 为空")
+	}
+	indexURL := ""
+	for _, asset := range release.Assets {
+		if strings.EqualFold(strings.TrimSpace(asset.Name), optionalDriverBundleIndexAssetName) {
+			indexURL = strings.TrimSpace(asset.BrowserDownloadURL)
+			break
+		}
+	}
+	if indexURL == "" {
+		return nil, fmt.Errorf("未找到驱动总包索引资产")
+	}
+
+	client := &http.Client{Timeout: driverReleaseAssetSizeProbeTimeout}
+	req, err := http.NewRequest(http.MethodGet, indexURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "GoNavi-DriverManager")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("拉取驱动总包索引失败：HTTP %d", resp.StatusCode)
+	}
+
+	limited := io.LimitReader(resp.Body, driverBundleIndexMaxSize)
+	decoder := json.NewDecoder(limited)
+	var index driverBundleAssetIndex
+	if err := decoder.Decode(&index); err != nil {
+		return nil, fmt.Errorf("解析驱动总包索引失败：%w", err)
+	}
+	if len(index.Assets) == 0 {
+		return nil, fmt.Errorf("驱动总包索引为空")
+	}
+	return index.Assets, nil
 }
 
 func fetchLatestReleaseForDriverAssets() (*githubRelease, error) {
