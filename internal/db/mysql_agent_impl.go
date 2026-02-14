@@ -72,6 +72,7 @@ func newMySQLAgentClient(executablePath string) (*mysqlAgentClient, error) {
 	}
 
 	cmd := exec.Command(pathText)
+	configureAgentProcess(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("创建 MySQL 驱动代理 stdin 失败：%w", err)

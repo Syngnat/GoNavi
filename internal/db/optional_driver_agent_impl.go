@@ -73,6 +73,7 @@ func newOptionalDriverAgentClient(driverType string, executablePath string) (*op
 	}
 
 	cmd := exec.Command(pathText)
+	configureAgentProcess(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("创建 %s 驱动代理 stdin 失败：%w", driverDisplayName(driverType), err)
