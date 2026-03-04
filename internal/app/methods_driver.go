@@ -304,13 +304,33 @@ var driverGoModulePathMap = map[string]string{
 	"clickhouse": "github.com/ClickHouse/clickhouse-go/v2",
 }
 
+var driverGoModuleAliasPathMap = map[string][]string{
+	"mongodb": {
+		"go.mongodb.org/mongo-driver",
+	},
+}
+
+var driverExtraHistoryLimitMap = map[string]int{
+	"mongodb": 10,
+}
+
 var fallbackRecentDriverVersionsMap = map[string][]goModuleVersionMeta{
 	"mongodb": {
 		{Version: "2.5.0"},
+		{Version: "2.4.2"},
+		{Version: "2.4.1"},
 		{Version: "2.4.0"},
 		{Version: "2.3.1"},
-		{Version: "2.3.0"},
-		{Version: "2.2.3"},
+		{Version: "1.17.9"},
+		{Version: "1.17.8"},
+		{Version: "1.17.7"},
+		{Version: "1.17.6"},
+		{Version: "1.17.4"},
+		{Version: "1.17.3"},
+		{Version: "1.17.2"},
+		{Version: "1.17.1"},
+		{Version: "1.17.0"},
+		{Version: "1.16.1"},
 	},
 }
 
@@ -696,11 +716,11 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 	}
 
 	data := map[string]interface{}{
-		"reachable":        allReachable,
-		"summary":          summary,
-		"recommendedProxy": !allReachable,
-		"proxyConfigured":  proxyConfigured,
-		"proxyEnv":         proxyEnv,
+		"reachable":              allReachable,
+		"summary":                summary,
+		"recommendedProxy":       !allReachable,
+		"proxyConfigured":        proxyConfigured,
+		"proxyEnv":               proxyEnv,
 		"downloadChainReachable": downloadChainReachable,
 		"downloadRequiredHosts": []string{
 			"github.com",
@@ -709,8 +729,8 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 			"objects.githubusercontent.com",
 			"raw.githubusercontent.com",
 		},
-		"checkedAt":        time.Now().Format(time.RFC3339),
-		"checks":           checks,
+		"checkedAt": time.Now().Format(time.RFC3339),
+		"checks":    checks,
 	}
 	if logPath := strings.TrimSpace(logger.Path()); logPath != "" {
 		data["logPath"] = logPath
@@ -1600,17 +1620,57 @@ func resolveRecentDriverVersionMetas(driverType string, limit int) []goModuleVer
 	if normalized == "" {
 		return nil
 	}
-	if modulePath := strings.TrimSpace(driverGoModulePathMap[normalized]); modulePath != "" {
-		if metas := fetchGoModuleVersionMetasCached(modulePath); len(metas) > 0 {
-			if len(metas) > limit {
-				return append([]goModuleVersionMeta(nil), metas[:limit]...)
+	modulePaths := resolveDriverGoModulePaths(normalized)
+	if len(modulePaths) > 0 {
+		result := make([]goModuleVersionMeta, 0, limit)
+		seen := make(map[string]struct{}, limit)
+		appendUnique := func(values []goModuleVersionMeta, maxAppend int) {
+			if maxAppend <= 0 {
+				return
 			}
-			return append([]goModuleVersionMeta(nil), metas...)
+			appended := 0
+			for _, meta := range values {
+				version := normalizeVersion(strings.TrimSpace(meta.Version))
+				if version == "" {
+					continue
+				}
+				key := strings.ToLower(version)
+				if _, ok := seen[key]; ok {
+					continue
+				}
+				meta.Version = version
+				result = append(result, meta)
+				seen[key] = struct{}{}
+				appended++
+				if appended >= maxAppend {
+					return
+				}
+			}
+		}
+
+		appendUnique(fetchGoModuleVersionMetasCached(modulePaths[0]), limit)
+
+		extraLimit := resolveDriverExtraHistoryLimit(normalized)
+		for _, modulePath := range modulePaths[1:] {
+			if extraLimit <= 0 {
+				break
+			}
+			before := len(result)
+			appendUnique(fetchGoModuleVersionMetasCached(modulePath), extraLimit)
+			extraLimit -= len(result) - before
+		}
+		if len(result) > 0 {
+			return result
 		}
 	}
+
+	fallbackLimit := limit + resolveDriverExtraHistoryLimit(normalized)
+	if fallbackLimit <= 0 {
+		fallbackLimit = limit
+	}
 	if fallback := fallbackRecentDriverVersionsMap[normalized]; len(fallback) > 0 {
-		if len(fallback) > limit {
-			return append([]goModuleVersionMeta(nil), fallback[:limit]...)
+		if len(fallback) > fallbackLimit {
+			return append([]goModuleVersionMeta(nil), fallback[:fallbackLimit]...)
 		}
 		return append([]goModuleVersionMeta(nil), fallback...)
 	}
@@ -1635,15 +1695,13 @@ func triggerDriverVersionMetadataWarmup(definitions []driverDefinition) {
 		if driverType == "" || !db.IsOptionalGoDriver(driverType) {
 			continue
 		}
-		modulePath := strings.TrimSpace(driverGoModulePathMap[driverType])
-		if modulePath == "" {
-			continue
+		for _, modulePath := range resolveDriverGoModulePaths(driverType) {
+			if _, ok := seenModule[modulePath]; ok {
+				continue
+			}
+			seenModule[modulePath] = struct{}{}
+			modulePaths = append(modulePaths, modulePath)
 		}
-		if _, ok := seenModule[modulePath]; ok {
-			continue
-		}
-		seenModule[modulePath] = struct{}{}
-		modulePaths = append(modulePaths, modulePath)
 	}
 
 	if len(modulePaths) == 0 {
@@ -1661,6 +1719,40 @@ func triggerDriverVersionMetadataWarmup(definitions []driverDefinition) {
 			_ = fetchGoModuleVersionMetasCached(modulePath)
 		}
 	}(append([]string(nil), modulePaths...))
+}
+
+func resolveDriverGoModulePaths(driverType string) []string {
+	normalized := normalizeDriverType(driverType)
+	if normalized == "" {
+		return nil
+	}
+	paths := make([]string, 0, 3)
+	seen := make(map[string]struct{}, 3)
+	appendPath := func(path string) {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		paths = append(paths, trimmed)
+	}
+
+	appendPath(driverGoModulePathMap[normalized])
+	for _, alias := range driverGoModuleAliasPathMap[normalized] {
+		appendPath(alias)
+	}
+	return paths
+}
+
+func resolveDriverExtraHistoryLimit(driverType string) int {
+	limit := driverExtraHistoryLimitMap[normalizeDriverType(driverType)]
+	if limit < 0 {
+		return 0
+	}
+	return limit
 }
 
 func tryStartDriverVersionMetadataWarmup(now time.Time) bool {
@@ -2356,16 +2448,23 @@ func hashFileSHA256(filePath string) (string, error) {
 
 func installOptionalDriverAgentPackage(a *App, definition driverDefinition, selectedVersion string, resolvedDir string, downloadURL string) (installedDriverPackage, error) {
 	driverType := normalizeDriverType(definition.Type)
-	executablePath, err := db.ResolveOptionalDriverAgentExecutablePath(resolvedDir, driverType)
+	installPath, err := db.ResolveOptionalDriverAgentExecutablePathForVersion(resolvedDir, driverType, selectedVersion)
 	if err != nil {
 		return installedDriverPackage{}, err
 	}
-	downloadSource, hash, err := ensureOptionalDriverAgentBinary(a, definition, executablePath, downloadURL)
+	runtimePath, err := db.ResolveOptionalDriverAgentExecutablePath(resolvedDir, driverType)
 	if err != nil {
 		return installedDriverPackage{}, err
+	}
+	downloadSource, hash, err := ensureOptionalDriverAgentBinary(a, definition, installPath, downloadURL, selectedVersion)
+	if err != nil {
+		return installedDriverPackage{}, err
+	}
+	if activateErr := activateOptionalDriverAgentBinary(installPath, runtimePath); activateErr != nil {
+		return installedDriverPackage{}, fmt.Errorf("activate %s driver agent failed: %w", resolveDriverDisplayName(definition), activateErr)
 	}
 	if strings.TrimSpace(hash) == "" {
-		hash, err = hashFileSHA256(executablePath)
+		hash, err = hashFileSHA256(installPath)
 		if err != nil {
 			return installedDriverPackage{}, fmt.Errorf("计算 %s 驱动代理摘要失败：%w", resolveDriverDisplayName(definition), err)
 		}
@@ -2376,9 +2475,9 @@ func installOptionalDriverAgentPackage(a *App, definition driverDefinition, sele
 	return installedDriverPackage{
 		DriverType:     driverType,
 		Version:        strings.TrimSpace(selectedVersion),
-		FilePath:       executablePath,
-		FileName:       filepath.Base(executablePath),
-		ExecutablePath: executablePath,
+		FilePath:       installPath,
+		FileName:       filepath.Base(installPath),
+		ExecutablePath: runtimePath,
 		DownloadURL:    strings.TrimSpace(downloadSource),
 		SHA256:         hash,
 		DownloadedAt:   time.Now().Format(time.RFC3339),
@@ -2686,9 +2785,11 @@ func installOptionalDriverAgentFromLocalZip(zipPath string, definition driverDef
 	return filepath.ToSlash(strings.TrimPrefix(strings.TrimSpace(entry.Name), "./")), nil
 }
 
-func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, executablePath string, downloadURL string) (string, string, error) {
+func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, executablePath string, downloadURL string, selectedVersion string) (string, string, error) {
 	driverType := normalizeDriverType(definition.Type)
 	displayName := resolveDriverDisplayName(definition)
+	forceSourceBuild := shouldForceSourceBuildForVersion(driverType, selectedVersion)
+	skipReuseCandidate := shouldSkipReusableAgentCandidate(driverType, selectedVersion)
 
 	info, err := os.Stat(executablePath)
 	if err == nil && !info.IsDir() {
@@ -2708,49 +2809,53 @@ func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, execut
 	if a != nil {
 		a.emitDriverDownloadProgress(driverType, "downloading", 10, 100, "检查本地驱动代理缓存")
 	}
-	if sourcePath, ok := findExistingOptionalDriverAgentCandidate(definition, executablePath); ok {
-		if copyErr := copyAgentBinary(sourcePath, executablePath); copyErr != nil {
-			return "", "", fmt.Errorf("复制预置 %s 驱动代理失败：%w", displayName, copyErr)
+	if !skipReuseCandidate {
+		if sourcePath, ok := findExistingOptionalDriverAgentCandidate(definition, executablePath); ok {
+			if copyErr := copyAgentBinary(sourcePath, executablePath); copyErr != nil {
+				return "", "", fmt.Errorf("复制预置 %s 驱动代理失败：%w", displayName, copyErr)
+			}
+			hash, hashErr := hashFileSHA256(executablePath)
+			if hashErr != nil {
+				return "", "", fmt.Errorf("计算预置 %s 驱动代理摘要失败：%w", displayName, hashErr)
+			}
+			return "file://" + sourcePath, hash, nil
 		}
-		hash, hashErr := hashFileSHA256(executablePath)
-		if hashErr != nil {
-			return "", "", fmt.Errorf("计算预置 %s 驱动代理摘要失败：%w", displayName, hashErr)
-		}
-		return "file://" + sourcePath, hash, nil
 	}
 
-	downloadURLs := resolveOptionalDriverAgentDownloadURLs(definition, downloadURL)
 	var downloadErrs []string
-	if len(downloadURLs) > 0 {
-		for _, candidateURL := range downloadURLs {
-			if a != nil {
-				a.emitDriverDownloadProgress(driverType, "downloading", 20, 100, fmt.Sprintf("下载预编译 %s 驱动代理", displayName))
+	if !forceSourceBuild {
+		downloadURLs := resolveOptionalDriverAgentDownloadURLs(definition, downloadURL)
+		if len(downloadURLs) > 0 {
+			for _, candidateURL := range downloadURLs {
+				if a != nil {
+					a.emitDriverDownloadProgress(driverType, "downloading", 20, 100, fmt.Sprintf("下载预编译 %s 驱动代理", displayName))
+				}
+				hash, dlErr := downloadOptionalDriverAgentBinary(a, definition, candidateURL, executablePath)
+				if dlErr == nil {
+					return candidateURL, hash, nil
+				}
+				downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %s", candidateURL, strings.TrimSpace(dlErr.Error())))
 			}
-			hash, dlErr := downloadOptionalDriverAgentBinary(a, definition, candidateURL, executablePath)
-			if dlErr == nil {
-				return candidateURL, hash, nil
-			}
-			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %s", candidateURL, strings.TrimSpace(dlErr.Error())))
 		}
-	}
-	bundleURLs := resolveOptionalDriverBundleDownloadURLs()
-	if len(bundleURLs) > 0 {
-		for _, bundleURL := range bundleURLs {
-			if a != nil {
-				a.emitDriverDownloadProgress(driverType, "downloading", 20, 100, fmt.Sprintf("从驱动总包提取 %s 代理", displayName))
+		bundleURLs := resolveOptionalDriverBundleDownloadURLs()
+		if len(bundleURLs) > 0 {
+			for _, bundleURL := range bundleURLs {
+				if a != nil {
+					a.emitDriverDownloadProgress(driverType, "downloading", 20, 100, fmt.Sprintf("从驱动总包提取 %s 代理", displayName))
+				}
+				source, hash, bundleErr := downloadOptionalDriverAgentFromBundle(a, definition, bundleURL, executablePath)
+				if bundleErr == nil {
+					return source, hash, nil
+				}
+				downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %s", bundleURL, strings.TrimSpace(bundleErr.Error())))
 			}
-			source, hash, bundleErr := downloadOptionalDriverAgentFromBundle(a, definition, bundleURL, executablePath)
-			if bundleErr == nil {
-				return source, hash, nil
-			}
-			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %s", bundleURL, strings.TrimSpace(bundleErr.Error())))
 		}
 	}
 	if a != nil {
 		a.emitDriverDownloadProgress(driverType, "downloading", 92, 100, "未命中预编译包，尝试开发态本地构建")
 	}
 
-	hash, buildErr := buildOptionalDriverAgentFromSource(definition, executablePath)
+	hash, buildErr := buildOptionalDriverAgentFromSource(definition, executablePath, selectedVersion)
 	if buildErr == nil {
 		return fmt.Sprintf("local://go-build/%s-driver-agent", driverType), hash, nil
 	}
@@ -2912,7 +3017,7 @@ func downloadOptionalDriverAgentFromBundle(a *App, definition driverDefinition, 
 	return source, hash, nil
 }
 
-func buildOptionalDriverAgentFromSource(definition driverDefinition, executablePath string) (string, error) {
+func buildOptionalDriverAgentFromSource(definition driverDefinition, executablePath string, selectedVersion string) (string, error) {
 	driverType := normalizeDriverType(definition.Type)
 	displayName := resolveDriverDisplayName(definition)
 	goPath, lookErr := exec.LookPath("go")
@@ -2920,7 +3025,7 @@ func buildOptionalDriverAgentFromSource(definition driverDefinition, executableP
 		return "", fmt.Errorf("当前环境未安装 Go，且未找到可用的 %s 预编译代理包", displayName)
 	}
 
-	tagName, tagErr := optionalDriverBuildTag(driverType)
+	tagName, tagErr := optionalDriverBuildTag(driverType, selectedVersion)
 	if tagErr != nil {
 		return "", tagErr
 	}
@@ -2931,6 +3036,7 @@ func buildOptionalDriverAgentFromSource(definition driverDefinition, executableP
 	}
 	cmd := exec.Command(goPath, "build", "-tags", tagName, "-trimpath", "-ldflags", "-s -w", "-o", executablePath, "./cmd/optional-driver-agent")
 	cmd.Dir = projectRoot
+	cmd.Env = append(os.Environ(), "GOTOOLCHAIN=auto")
 	output, buildErr := cmd.CombinedOutput()
 	if buildErr != nil {
 		return "", fmt.Errorf("构建 %s 驱动代理失败：%v，输出：%s", displayName, buildErr, strings.TrimSpace(string(output)))
@@ -2945,7 +3051,31 @@ func buildOptionalDriverAgentFromSource(definition driverDefinition, executableP
 	return hash, nil
 }
 
-func optionalDriverBuildTag(driverType string) (string, error) {
+func resolveMongoDriverMajorFromVersion(version string) int {
+	trimmed := strings.TrimSpace(version)
+	trimmed = strings.TrimPrefix(trimmed, "v")
+	if strings.HasPrefix(trimmed, "1.") || trimmed == "1" {
+		return 1
+	}
+	return 2
+}
+
+func shouldForceSourceBuildForVersion(driverType string, selectedVersion string) bool {
+	if normalizeDriverType(driverType) != "mongodb" {
+		return false
+	}
+	return resolveMongoDriverMajorFromVersion(selectedVersion) == 1
+}
+
+func shouldSkipReusableAgentCandidate(driverType string, selectedVersion string) bool {
+	if normalizeDriverType(driverType) != "mongodb" {
+		return false
+	}
+	_ = selectedVersion
+	return true
+}
+
+func optionalDriverBuildTag(driverType string, selectedVersion string) (string, error) {
 	switch normalizeDriverType(driverType) {
 	case "mysql":
 		return "gonavi_mysql_driver", nil
@@ -2970,6 +3100,9 @@ func optionalDriverBuildTag(driverType string) (string, error) {
 	case "vastbase":
 		return "gonavi_vastbase_driver", nil
 	case "mongodb":
+		if resolveMongoDriverMajorFromVersion(selectedVersion) == 1 {
+			return "gonavi_mongodb_driver_v1", nil
+		}
 		return "gonavi_mongodb_driver", nil
 	case "tdengine":
 		return "gonavi_tdengine_driver", nil
@@ -3308,6 +3441,30 @@ func resolveDriverDisplayName(definition driverDefinition) string {
 		return strings.TrimSpace(definition.Type)
 	}
 	return "未知"
+}
+
+func activateOptionalDriverAgentBinary(installPath string, runtimePath string) error {
+	source := strings.TrimSpace(installPath)
+	target := strings.TrimSpace(runtimePath)
+	if source == "" || target == "" {
+		return fmt.Errorf("agent path is empty")
+	}
+	if source == target {
+		return nil
+	}
+
+	absSource := source
+	absTarget := target
+	if value, err := filepath.Abs(source); err == nil && strings.TrimSpace(value) != "" {
+		absSource = value
+	}
+	if value, err := filepath.Abs(target); err == nil && strings.TrimSpace(value) != "" {
+		absTarget = value
+	}
+	if strings.EqualFold(absSource, absTarget) {
+		return nil
+	}
+	return copyAgentBinary(source, target)
 }
 
 func copyAgentBinary(sourcePath, targetPath string) error {

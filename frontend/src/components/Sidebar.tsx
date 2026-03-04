@@ -61,6 +61,7 @@ interface BatchObjectItem {
 const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> = ({ onEditConnection }) => {
   const connections = useStore(state => state.connections);
   const savedQueries = useStore(state => state.savedQueries);
+  const addConnection = useStore(state => state.addConnection);
   const addTab = useStore(state => state.addTab);
   const setActiveContext = useStore(state => state.setActiveContext);
   const removeConnection = useStore(state => state.removeConnection);
@@ -227,6 +228,118 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
     });
   }, [connections]);
 
+  const buildDuplicateConnectionName = (rawName: string): string => {
+    const baseName = String(rawName || '').trim() || '连接';
+    const suffix = ' - 副本';
+    const usedNames = new Set(connections.map(conn => String(conn.name || '').trim()));
+    let candidate = `${baseName}${suffix}`;
+    let counter = 2;
+    while (usedNames.has(candidate)) {
+      candidate = `${baseName}${suffix} ${counter}`;
+      counter += 1;
+    }
+    return candidate;
+  };
+
+  const cloneConnectionConfig = (config: SavedConnection['config']): SavedConnection['config'] => {
+    const raw: any = config || {};
+    let cloned: any = {};
+    try {
+      cloned = typeof structuredClone === 'function'
+        ? structuredClone(raw)
+        : JSON.parse(JSON.stringify(raw));
+    } catch {
+      cloned = { ...raw };
+    }
+
+    const readString = (...values: unknown[]): string => {
+      for (const value of values) {
+        if (typeof value === 'string') {
+          return value;
+        }
+      }
+      return '';
+    };
+
+    const readBool = (fallback: boolean, ...values: unknown[]): boolean => {
+      for (const value of values) {
+        if (typeof value === 'boolean') {
+          return value;
+        }
+      }
+      return fallback;
+    };
+
+    const readNumber = (fallback: number, ...values: unknown[]): number => {
+      for (const value of values) {
+        const num = Number(value);
+        if (Number.isFinite(num)) {
+          return num;
+        }
+      }
+      return fallback;
+    };
+
+    const rawSSH = (cloned.ssh ?? cloned.SSH ?? {}) as Record<string, unknown>;
+    const normalizedSSH = {
+      host: readString(rawSSH.host, rawSSH.Host, cloned.sshHost, cloned.SSHHost),
+      port: readNumber(22, rawSSH.port, rawSSH.Port, cloned.sshPort, cloned.SSHPort),
+      user: readString(rawSSH.user, rawSSH.User, cloned.sshUser, cloned.SSHUser),
+      password: readString(rawSSH.password, rawSSH.Password, cloned.sshPassword, cloned.SSHPassword),
+      keyPath: readString(rawSSH.keyPath, rawSSH.KeyPath, cloned.sshKeyPath, cloned.SSHKeyPath),
+    };
+    const hasSSHDetail = Boolean(
+      normalizedSSH.host
+      || normalizedSSH.user
+      || normalizedSSH.password
+      || normalizedSSH.keyPath
+    );
+
+    const rawProxy = (cloned.proxy ?? cloned.Proxy ?? {}) as Record<string, unknown>;
+    const proxyTypeRaw = readString(rawProxy.type, rawProxy.Type, cloned.proxyType, cloned.ProxyType).toLowerCase();
+    const proxyType: 'socks5' | 'http' = proxyTypeRaw === 'http' ? 'http' : 'socks5';
+    const normalizedProxy = {
+      type: proxyType,
+      host: readString(rawProxy.host, rawProxy.Host, cloned.proxyHost, cloned.ProxyHost),
+      port: readNumber(proxyType === 'http' ? 8080 : 1080, rawProxy.port, rawProxy.Port, cloned.proxyPort, cloned.ProxyPort),
+      user: readString(rawProxy.user, rawProxy.User, cloned.proxyUser, cloned.ProxyUser),
+      password: readString(rawProxy.password, rawProxy.Password, cloned.proxyPassword, cloned.ProxyPassword),
+    };
+    const hasProxyDetail = Boolean(normalizedProxy.host || normalizedProxy.user || normalizedProxy.password);
+
+    const rawHosts = Array.isArray(cloned.hosts)
+      ? cloned.hosts
+      : (Array.isArray(cloned.Hosts) ? cloned.Hosts : []);
+    const normalizedHosts = rawHosts
+      .map((entry: unknown) => String(entry || '').trim())
+      .filter((entry: string) => !!entry);
+
+    return {
+      ...(cloned as SavedConnection['config']),
+      useSSH: readBool(hasSSHDetail, cloned.useSSH, cloned.UseSSH),
+      ssh: normalizedSSH,
+      useProxy: readBool(hasProxyDetail, cloned.useProxy, cloned.UseProxy),
+      proxy: normalizedProxy,
+      hosts: normalizedHosts,
+      timeout: readNumber(30, cloned.timeout, cloned.Timeout),
+    };
+  };
+
+  const handleDuplicateConnection = (conn: SavedConnection) => {
+    if (!conn) return;
+
+    const duplicatedConnection: SavedConnection = {
+      ...conn,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: buildDuplicateConnectionName(conn.name),
+      config: cloneConnectionConfig(conn.config),
+      includeDatabases: conn.includeDatabases ? [...conn.includeDatabases] : undefined,
+      includeRedisDatabases: conn.includeRedisDatabases ? [...conn.includeRedisDatabases] : undefined,
+    };
+
+    addConnection(duplicatedConnection);
+    message.success(`已复制连接: ${duplicatedConnection.name}`);
+  };
   const updateTreeData = (list: TreeNode[], key: React.Key, children: TreeNode[] | undefined): TreeNode[] => {
     return list.map(node => {
       if (node.key === key) {
@@ -2319,6 +2432,12 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                     }
                 },
                 {
+                    key: 'copy-connection',
+                    label: '复制连接',
+                    icon: <CopyOutlined />,
+                    onClick: () => handleDuplicateConnection(node.dataRef as SavedConnection)
+                },
+                {
                     key: 'disconnect',
                     label: '断开连接',
                     icon: <DisconnectOutlined />,
@@ -2392,39 +2511,45 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                }
              },
              { type: 'divider' },
-             {
-                 key: 'edit',
-                 label: '编辑连接',
-                 icon: <EditOutlined />,
-                 onClick: () => {
-                     if (onEditConnection) onEditConnection(node.dataRef);
-                 }
-             },
-             {
-                 key: 'disconnect',
-                 label: '断开连接',
-                 icon: <DisconnectOutlined />,
-                 onClick: () => {
-                     // Reset status recursively
-                     setConnectionStates(prev => {
-                         const next = { ...prev };
-                         Object.keys(next).forEach(k => {
-                             if (k === node.key || k.startsWith(`${node.key}-`)) {
-                                 delete next[k];
-                             }
-                         });
-                         return next;
-                     });
-                     // Collapse node and children
-                     setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
-                     // Reset loaded state recursively
-                     setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
-                     // Clear children (undefined to trigger reload)
-                     setTreeData(origin => updateTreeData(origin, node.key, undefined));
-                     closeTabsByConnection(String(node.key));
-                     message.success("已断开连接");
-                 }
-             },
+              {
+                  key: 'edit',
+                  label: '编辑连接',
+                  icon: <EditOutlined />,
+                  onClick: () => {
+                      if (onEditConnection) onEditConnection(node.dataRef);
+                  }
+              },
+              {
+                  key: 'copy-connection',
+                  label: '复制连接',
+                  icon: <CopyOutlined />,
+                  onClick: () => handleDuplicateConnection(node.dataRef as SavedConnection)
+              },
+              {
+                  key: 'disconnect',
+                  label: '断开连接',
+                  icon: <DisconnectOutlined />,
+                  onClick: () => {
+                      // Reset status recursively
+                      setConnectionStates(prev => {
+                          const next = { ...prev };
+                          Object.keys(next).forEach(k => {
+                              if (k === node.key || k.startsWith(`${node.key}-`)) {
+                                  delete next[k];
+                              }
+                          });
+                          return next;
+                      });
+                      // Collapse node and children
+                      setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                      // Reset loaded state recursively
+                      setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                      // Clear children (undefined to trigger reload)
+                      setTreeData(origin => updateTreeData(origin, node.key, undefined));
+                      closeTabsByConnection(String(node.key));
+                      message.success("已断开连接");
+                  }
+              },
              {
                  key: 'delete',
                  label: '删除连接',
