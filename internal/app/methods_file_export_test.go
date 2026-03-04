@@ -203,3 +203,73 @@ func TestGetExportQueryTimeout_CustomClickHouseUsesLongerMinimum(t *testing.T) {
 		t.Fatalf("custom clickhouse 导出超时下限异常，want=%s got=%s", minClickHouseExportQueryTimeout, timeout)
 	}
 }
+
+func TestWriteRowsToFile_HTML_EscapeAndStyle(t *testing.T) {
+	f, err := os.CreateTemp("", "gonavi-export-*.html")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	data := []map[string]interface{}{
+		{
+			"name":     "<script>alert(1)</script>",
+			"note":     "line1\nline2",
+			"nullable": nil,
+		},
+	}
+	columns := []string{"name", "note", "nullable"}
+
+	if err := writeRowsToFile(f, data, columns, "html"); err != nil {
+		t.Fatalf("写入 html 失败: %v", err)
+	}
+
+	contentBytes, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatalf("读取 html 失败: %v", err)
+	}
+	content := string(contentBytes)
+
+	if !strings.Contains(content, "<!DOCTYPE html>") {
+		t.Fatalf("html 导出缺少 doctype: %s", content)
+	}
+	if !strings.Contains(content, "position: sticky") {
+		t.Fatalf("html 导出缺少表头吸顶样式: %s", content)
+	}
+	if !strings.Contains(content, "tbody tr:nth-child(even)") {
+		t.Fatalf("html 导出缺少斑马纹样式: %s", content)
+	}
+	if !strings.Contains(content, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatalf("html 导出未进行 XSS 转义: %s", content)
+	}
+	if strings.Contains(content, "<script>alert(1)</script>") {
+		t.Fatalf("html 导出包含未转义脚本: %s", content)
+	}
+	if !strings.Contains(content, "line1<br>line2") {
+		t.Fatalf("html 导出换行未转为 <br>: %s", content)
+	}
+	if !strings.Contains(content, "<td>NULL</td>") {
+		t.Fatalf("html 导出空值显示异常: %s", content)
+	}
+}
+
+func TestWriteRowsToFile_HTML_EscapeHeader(t *testing.T) {
+	f, err := os.CreateTemp("", "gonavi-export-*.html")
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+
+	columnName := "<b>name</b>"
+	data := []map[string]interface{}{{columnName: "ok"}}
+	if err := writeRowsToFile(f, data, []string{columnName}, "html"); err != nil {
+		t.Fatalf("写入 html 失败: %v", err)
+	}
+	contentBytes, _ := os.ReadFile(f.Name())
+	content := string(contentBytes)
+	if !strings.Contains(content, "<th>&lt;b&gt;name&lt;/b&gt;</th>") || strings.Contains(content, "<th><b>name</b></th>") {
+		t.Fatalf("html 表头未正确转义: %s", content)
+	}
+}

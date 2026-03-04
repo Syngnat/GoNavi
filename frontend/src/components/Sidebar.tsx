@@ -2806,6 +2806,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                     { key: 'export-xlsx', label: '导出 Excel (XLSX)', onClick: () => handleExport(node, 'xlsx') },
                     { key: 'export-json', label: '导出 JSON', onClick: () => handleExport(node, 'json') },
                     { key: 'export-md', label: '导出 Markdown', onClick: () => handleExport(node, 'md') },
+                    { key: 'export-html', label: '导出 HTML', onClick: () => handleExport(node, 'html') },
                 ]
             }
         ];
