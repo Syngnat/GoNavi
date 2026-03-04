@@ -537,6 +537,7 @@ const ContextMenuRow = React.memo(({ children, record, ...props }: any) => {
                 { key: 'exp-xlsx', label: 'Excel', onClick: () => handleExportSelected('xlsx', record) },
                 { key: 'exp-json', label: 'JSON', onClick: () => handleExportSelected('json', record) },
                 { key: 'exp-md', label: 'Markdown', onClick: () => handleExportSelected('md', record) },
+                { key: 'exp-html', label: 'HTML', onClick: () => handleExportSelected('html', record) },
             ]
         }
     ];
@@ -2588,6 +2589,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           { key: 'filtered-xlsx', label: 'Excel (XLSX)', onClick: () => handleExportFilteredAll('xlsx') },
           { key: 'filtered-json', label: 'JSON', onClick: () => handleExportFilteredAll('json') },
           { key: 'filtered-md', label: 'Markdown', onClick: () => handleExportFilteredAll('md') },
+          { key: 'filtered-html', label: 'HTML', onClick: () => handleExportFilteredAll('html') },
       ]},
       { type: 'divider' },
       { type: 'group', label: '全表', children: [
@@ -2595,12 +2597,14 @@ const DataGrid: React.FC<DataGridProps> = ({
           { key: 'table-xlsx', label: 'Excel (XLSX)', onClick: () => handleExport('xlsx') },
           { key: 'table-json', label: 'JSON', onClick: () => handleExport('json') },
           { key: 'table-md', label: 'Markdown', onClick: () => handleExport('md') },
+          { key: 'table-html', label: 'HTML', onClick: () => handleExport('html') },
       ]},
   ] : [
       { key: 'csv', label: 'CSV', onClick: () => handleExport('csv') },
       { key: 'xlsx', label: 'Excel (XLSX)', onClick: () => handleExport('xlsx') },
       { key: 'json', label: 'JSON', onClick: () => handleExport('json') },
       { key: 'md', label: 'Markdown', onClick: () => handleExport('md') },
+      { key: 'html', label: 'HTML', onClick: () => handleExport('html') },
   ];
 
   const columnInfoSettingContent = (
@@ -3571,6 +3575,21 @@ const DataGrid: React.FC<DataGridProps> = ({
                     }}
                 >
                     导出为 JSON
+                </div>
+                <div
+                    style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        transition: 'background 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = darkMode ? '#303030' : '#f5f5f5'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                    onClick={() => {
+                        if (cellContextMenu.record) handleExportSelected('html', cellContextMenu.record);
+                        setCellContextMenu(prev => ({ ...prev, visible: false }));
+                    }}
+                >
+                    导出为 HTML
                 </div>
             </div>,
             document.body

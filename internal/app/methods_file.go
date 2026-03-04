@@ -6,6 +6,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"html"
 	"math"
 	"os"
 	"path/filepath"
@@ -1595,6 +1596,11 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 		return writeRowsToXlsx(f.Name(), data, columns)
 	}
 
+	// html 使用内嵌 CSS 输出可直接浏览器预览的独立页面
+	if format == "html" {
+		return writeRowsToHTML(f, data, columns)
+	}
+
 	var csvWriter *csv.Writer
 	var jsonEncoder *json.Encoder
 	isJsonFirstRow := true
@@ -1686,6 +1692,188 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 	}
 
 	return nil
+}
+
+func formatExportHTMLCell(val interface{}) string {
+	text := formatExportCellText(val)
+	escaped := html.EscapeString(text)
+	escaped = strings.ReplaceAll(escaped, "\r\n", "\n")
+	escaped = strings.ReplaceAll(escaped, "\r", "\n")
+	return strings.ReplaceAll(escaped, "\n", "<br>")
+}
+
+func writeRowsToHTML(f *os.File, data []map[string]interface{}, columns []string) error {
+	w := bufio.NewWriterSize(f, 1024*256)
+
+	if _, err := w.WriteString(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoNavi Export</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f8f9fa;
+      --card: #ffffff;
+      --line: #dee2e6;
+      --text: #212529;
+      --muted: #6c757d;
+      --hover: #f1f3f5;
+      --zebra: #f8f9fa;
+      --head: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      line-height: 1.6;
+    }
+    .export-wrap {
+      max-width: 100%;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .export-head {
+      padding: 16px 20px;
+      background: var(--head);
+      border-bottom: 2px solid var(--line);
+    }
+    .export-head h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .export-meta {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .table-wrap {
+      width: 100%;
+      overflow: auto;
+      padding: 16px;
+    }
+    table {
+      border-collapse: collapse;
+      width: auto;
+      font-size: 13px;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--head);
+      text-align: left;
+      font-weight: 600;
+      white-space: nowrap;
+      border-bottom: 2px solid var(--line);
+      color: var(--text);
+      padding: 12px 16px;
+    }
+    td {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      max-width: 500px;
+      color: var(--text);
+    }
+    tbody tr:nth-child(even) {
+      background: var(--zebra);
+    }
+    tbody tr:hover {
+      background: var(--hover);
+    }
+    td.empty {
+      text-align: center;
+      color: var(--muted);
+      font-style: italic;
+    }
+    @media (max-width: 768px) {
+      body { padding: 16px; }
+      .export-head { padding: 12px 16px; }
+      .table-wrap { padding: 12px; }
+      th, td { padding: 8px 12px; font-size: 12px; }
+    }
+    @media print {
+      body { background: white; padding: 0; }
+      .export-wrap { border: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="export-wrap">
+    <div class="export-head">
+      <h1>GoNavi Data Export</h1>
+      <div class="export-meta">`); err != nil {
+		return err
+	}
+
+	if _, err := fmt.Fprintf(w, "Rows: %d · Columns: %d · Generated: %s", len(data), len(columns), time.Now().Format("2006-01-02 15:04:05")); err != nil {
+		return err
+	}
+
+	if _, err := w.WriteString(`</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>`); err != nil {
+		return err
+	}
+
+	for _, col := range columns {
+		if _, err := fmt.Fprintf(w, "<th>%s</th>", html.EscapeString(col)); err != nil {
+			return err
+		}
+	}
+
+	if _, err := w.WriteString(`</tr></thead><tbody>`); err != nil {
+		return err
+	}
+
+	if len(data) == 0 {
+		colspan := len(columns)
+		if colspan <= 0 {
+			colspan = 1
+		}
+		if _, err := fmt.Fprintf(w, `<tr><td class="empty" colspan="%d">(0 rows)</td></tr>`, colspan); err != nil {
+			return err
+		}
+	} else {
+		for _, rowMap := range data {
+			if _, err := w.WriteString("<tr>"); err != nil {
+				return err
+			}
+			for _, col := range columns {
+				if _, err := fmt.Fprintf(w, "<td>%s</td>", formatExportHTMLCell(rowMap[col])); err != nil {
+					return err
+				}
+			}
+			if _, err := w.WriteString("</tr>"); err != nil {
+				return err
+			}
+		}
+	}
+
+	if _, err := w.WriteString(`</tbody></table>
+    </div>
+  </div>
+</body>
+</html>`); err != nil {
+		return err
+	}
+
+	return w.Flush()
 }
 
 func formatExportCellText(val interface{}) string {
