@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { DBQuery, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
 import { buildOrderBySQL, buildWhereSQL, quoteIdentPart, quoteQualifiedIdent, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
+import { buildMongoCountCommand, buildMongoFilter, buildMongoFindCommand, buildMongoSort } from '../utils/mongodb';
 import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 
 type ViewerPaginationState = {
@@ -315,42 +316,67 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
 
     const dbName = tab.dbName || '';
     const tableName = tab.tableName || '';
+    const isMongoDB = dbTypeLower === 'mongodb';
+    let mongoFilter: Record<string, unknown> | undefined;
+    if (isMongoDB) {
+        try {
+            mongoFilter = buildMongoFilter(filterConditions);
+        } catch (e: any) {
+            message.error(`Mongo 筛选条件无效：${String(e?.message || e || '解析失败')}`);
+            if (fetchSeqRef.current === seq) setLoading(false);
+            return;
+        }
+    }
 
-    const whereSQL = buildWhereSQL(dbType, filterConditions);
-
-    const countSql = `SELECT COUNT(*) as total FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
-    
-    const baseSql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
-    const orderBySQL = buildOrderBySQL(dbType, sortInfo, pkColumns);
-    let sql = `${baseSql}${orderBySQL}`;
+    const whereSQL = isMongoDB
+      ? JSON.stringify(mongoFilter || {})
+      : buildWhereSQL(dbType, filterConditions);
+    const countSql = isMongoDB
+      ? buildMongoCountCommand(tableName, mongoFilter || {})
+      : `SELECT COUNT(*) as total FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
+    const orderBySQL = isMongoDB ? '' : buildOrderBySQL(dbType, sortInfo, pkColumns);
     const totalRows = Number(pagination.total);
     const hasFiniteTotal = Number.isFinite(totalRows) && totalRows >= 0;
     const totalKnown = pagination.totalKnown && hasFiniteTotal;
     const totalPages = hasFiniteTotal ? Math.max(1, Math.ceil(totalRows / size)) : 0;
     const currentPage = totalPages > 0 ? Math.min(Math.max(1, page), totalPages) : Math.max(1, page);
     const offset = (currentPage - 1) * size;
-    const isClickHouse = dbTypeLower === 'clickhouse';
+    const isClickHouse = !isMongoDB && dbTypeLower === 'clickhouse';
     const reverseOrderSQL = isClickHouse ? reverseOrderBySQL(orderBySQL) : '';
     let useClickHouseReversePagination = false;
     let clickHouseReverseLimit = 0;
     let clickHouseReverseHasMore = false;
-    // ClickHouse 深分页在超大 OFFSET 下容易超时。对于总数已知且存在 ORDER BY 的场景，
-    // 当“尾部偏移”小于“头部偏移”时，改为反向 ORDER BY + 小 OFFSET，并在前端翻转结果。
-    if (isClickHouse && totalKnown && offset > 0 && reverseOrderSQL) {
-        const pageRowCount = Math.max(0, Math.min(size, totalRows - offset));
-        if (pageRowCount > 0) {
-            const tailOffset = Math.max(0, totalRows - (offset + pageRowCount));
-            if (tailOffset < offset) {
-                sql = `${baseSql}${reverseOrderSQL} LIMIT ${pageRowCount} OFFSET ${tailOffset}`;
-                useClickHouseReversePagination = true;
-                clickHouseReverseLimit = pageRowCount;
-                clickHouseReverseHasMore = currentPage < totalPages;
+    let sql = '';
+    if (isMongoDB) {
+        const mongoSort = buildMongoSort(sortInfo, pkColumns);
+        sql = buildMongoFindCommand({
+            collection: tableName,
+            filter: mongoFilter || {},
+            sort: mongoSort,
+            limit: size + 1,
+            skip: offset,
+        });
+    } else {
+        const baseSql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
+        sql = `${baseSql}${orderBySQL}`;
+        // ClickHouse 深分页在超大 OFFSET 下容易超时。对于总数已知且存在 ORDER BY 的场景，
+        // 当“尾部偏移”小于“头部偏移”时，改为反向 ORDER BY + 小 OFFSET，并在前端翻转结果。
+        if (isClickHouse && totalKnown && offset > 0 && reverseOrderSQL) {
+            const pageRowCount = Math.max(0, Math.min(size, totalRows - offset));
+            if (pageRowCount > 0) {
+                const tailOffset = Math.max(0, totalRows - (offset + pageRowCount));
+                if (tailOffset < offset) {
+                    sql = `${baseSql}${reverseOrderSQL} LIMIT ${pageRowCount} OFFSET ${tailOffset}`;
+                    useClickHouseReversePagination = true;
+                    clickHouseReverseLimit = pageRowCount;
+                    clickHouseReverseHasMore = currentPage < totalPages;
+                }
             }
         }
-    }
-    if (!useClickHouseReversePagination) {
-        // 大表性能：打开表不阻塞在 COUNT(*)，先通过多取 1 条判断是否还有下一页；总数在后台统计并异步回填。
-        sql += ` LIMIT ${size + 1} OFFSET ${offset}`;
+        if (!useClickHouseReversePagination) {
+            // 大表性能：打开表不阻塞在 COUNT(*)，先通过多取 1 条判断是否还有下一页；总数在后台统计并异步回填。
+            sql += ` LIMIT ${size + 1} OFFSET ${offset}`;
+        }
     }
 
     const requestStartTime = Date.now();

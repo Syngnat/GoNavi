@@ -8,6 +8,7 @@ import { useStore } from '../store';
 import { DBQuery, DBGetTables, DBGetAllColumns, DBGetDatabases, DBGetColumns } from '../../wailsjs/go/app/App';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
 import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
+import { convertMongoShellToJsonCommand } from '../utils/mongodb';
 
 const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [query, setQuery] = useState(tab.query || 'SELECT * FROM ');
@@ -1011,7 +1012,15 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
     try {
         const rawSQL = getSelectedSQL() || query;
-        const statements = splitSQLStatements(rawSQL);
+        const dbType = String((config as any).type || 'mysql');
+        const normalizedDbType = dbType.trim().toLowerCase();
+        const normalizedRawSQL = String(rawSQL || '').replace(/；/g, ';');
+        const splitInput = normalizedDbType === 'mongodb'
+            ? normalizedRawSQL
+                .replace(/^\s*\/\/.*$/gm, '')
+                .replace(/^\s*#.*$/gm, '')
+            : normalizedRawSQL;
+        const statements = splitSQLStatements(splitInput);
         if (statements.length === 0) {
             message.info('没有可执行的 SQL。');
             setResultSets([]);
@@ -1021,7 +1030,6 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
         const nextResultSets: ResultSet[] = [];
         const maxRows = Number(queryOptions?.maxRows) || 0;
-        const dbType = String((config as any).type || 'mysql');
         const forceReadOnlyResult = connCaps.forceReadOnlyQueryResult;
         const wantsLimitProbe = Number.isFinite(maxRows) && maxRows > 0;
         const probeLimit = wantsLimitProbe ? (maxRows + 1) : 0;
@@ -1035,7 +1043,22 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
 
             const limitApplied = shouldAutoLimit && wantsLimitProbe;
             const limited = limitApplied ? applyAutoLimit(rawStatement, dbType, probeLimit) : { sql: rawStatement, applied: false, maxRows: probeLimit };
-            const executedSql = limited.sql;
+            let executedSql = limited.sql;
+            if (String(dbType || '').trim().toLowerCase() === 'mongodb') {
+                const shellConvert = convertMongoShellToJsonCommand(executedSql);
+                if (shellConvert.recognized) {
+                    if (shellConvert.error) {
+                        const prefix = statements.length > 1 ? `第 ${idx + 1} 条语句执行失败：` : '';
+                        message.error(prefix + shellConvert.error);
+                        setResultSets([]);
+                        setActiveResultKey('');
+                        return;
+                    }
+                    if (shellConvert.command) {
+                        executedSql = shellConvert.command;
+                    }
+                }
+            }
             const startTime = Date.now();
             const res = await DBQuery(config as any, currentDb, executedSql);
             const duration = Date.now() - startTime;
