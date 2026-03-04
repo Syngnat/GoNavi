@@ -6,6 +6,7 @@ import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, 
 	  EyeOutlined,
 	  ConsoleSqlOutlined,
   HddOutlined,
+  FolderOutlined,
   FolderOpenOutlined,
   FileTextOutlined,
   CopyOutlined,
@@ -42,7 +43,7 @@ interface TreeNode {
   children?: TreeNode[];
   icon?: React.ReactNode;
   dataRef?: any;
-  type?: 'connection' | 'database' | 'table' | 'view' | 'db-trigger' | 'routine' | 'object-group' | 'queries-folder' | 'saved-query' | 'folder-columns' | 'folder-indexes' | 'folder-fks' | 'folder-triggers' | 'redis-db';
+  type?: 'connection' | 'database' | 'table' | 'view' | 'db-trigger' | 'routine' | 'object-group' | 'queries-folder' | 'saved-query' | 'folder-columns' | 'folder-indexes' | 'folder-fks' | 'folder-triggers' | 'redis-db' | 'tag';
 }
 
 type BatchTableExportMode = 'schema' | 'backup' | 'dataOnly';
@@ -65,6 +66,12 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const addTab = useStore(state => state.addTab);
   const setActiveContext = useStore(state => state.setActiveContext);
   const removeConnection = useStore(state => state.removeConnection);
+  const connectionTags = useStore(state => state.connectionTags);
+  const addConnectionTag = useStore(state => state.addConnectionTag);
+  const updateConnectionTag = useStore(state => state.updateConnectionTag);
+  const removeConnectionTag = useStore(state => state.removeConnectionTag);
+  const moveConnectionToTag = useStore(state => state.moveConnectionToTag);
+  const reorderTags = useStore(state => state.reorderTags);
   const closeTabsByConnection = useStore(state => state.closeTabsByConnection);
   const closeTabsByDatabase = useStore(state => state.closeTabsByDatabase);
   const theme = useStore(state => state.theme);
@@ -127,6 +134,10 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   const [isRenameViewModalOpen, setIsRenameViewModalOpen] = useState(false);
   const [renameViewForm] = Form.useForm();
   const [renameViewTarget, setRenameViewTarget] = useState<any>(null);
+
+  // Connection Tag Modals
+  const [isCreateTagModalOpen, setIsCreateTagModalOpen] = useState(false);
+  const [createTagForm] = Form.useForm();
 
   // Batch Operations Modal
   const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
@@ -209,11 +220,21 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   useEffect(() => {
     setTreeData((prev) => {
       const prevMap = new Map<string, TreeNode>();
-      prev.forEach((node) => {
-        prevMap.set(String(node.key), node);
-      });
 
-      return connections.map((conn) => {
+      // We need to recursively extract connections from old tag structures
+      // so if a user expands a connection that was tagged, the state remains
+      const recurseCollect = (nodes: TreeNode[]) => {
+          nodes.forEach((node) => {
+            if (node.type === 'tag') {
+               if (node.children) recurseCollect(node.children);
+            } else if (node.type === 'connection') {
+               prevMap.set(String(node.key), node);
+            }
+          });
+      };
+      recurseCollect(prev);
+
+      const buildConnectionNode = (conn: SavedConnection): TreeNode => {
         const existing = prevMap.get(conn.id);
         return {
           title: conn.name,
@@ -224,9 +245,32 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           isLeaf: false,
           children: existing?.children,
         } as TreeNode;
+      };
+
+      const taggedConnIds = new Set<string>();
+      const tagNodes: TreeNode[] = connectionTags.map((tag) => {
+        tag.connectionIds.forEach(id => taggedConnIds.add(id));
+        return {
+          title: tag.name,
+          key: `tag-${tag.id}`,
+          icon: <FolderOutlined style={{ color: '#faad14' }} />,
+          type: 'tag',
+          dataRef: tag,
+          isLeaf: false,
+          children: tag.connectionIds
+            .map(cid => connections.find(c => c.id === cid))
+            .filter(Boolean)
+            .map(conn => buildConnectionNode(conn!)),
+        } as TreeNode;
       });
+
+      const ungroupedNodes: TreeNode[] = connections
+        .filter(c => !taggedConnIds.has(c.id))
+        .map(conn => buildConnectionNode(conn));
+
+      return [...tagNodes, ...ungroupedNodes];
     });
-  }, [connections]);
+  }, [connections, connectionTags]);
 
   const buildDuplicateConnectionName = (rawName: string): string => {
     const baseName = String(rawName || '').trim() || '连接';
@@ -1155,6 +1199,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   };
 
   const onLoadData = async ({ key, children, dataRef, type }: any) => {
+    if (type === 'tag') return;
     if (children) return;
 
     if (type === 'connection') {
@@ -2397,6 +2442,38 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         return routineMenu;
     }
 
+    // Connection Tag Menu — must be BEFORE the connection check
+    if (node.type === 'tag') {
+        return [
+            {
+                key: 'edit-tag',
+                label: '编辑标签',
+                icon: <EditOutlined />,
+                onClick: () => {
+                    createTagForm.setFieldsValue({ name: node.title, connectionIds: node.dataRef.connectionIds });
+                    setRenameViewTarget(node);
+                    setIsCreateTagModalOpen(true);
+                }
+            },
+            { type: 'divider' },
+            {
+                key: 'delete-tag',
+                label: '删除标签',
+                icon: <DeleteOutlined />,
+                danger: true,
+                onClick: () => {
+                    Modal.confirm({
+                        title: '确认删除',
+                        content: `确定要删除标签 "${node.title}" 吗？这不会删除里面的连接。`,
+                        onOk: () => {
+                            removeConnectionTag(node.dataRef.id);
+                        }
+                    });
+                }
+            }
+        ];
+    }
+
     if (node.type === 'connection') {
         // Redis connection menu
         if (isRedis) {
@@ -2477,6 +2554,22 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
             ];
         }
 
+        // Tag submenu for connection
+        const tagSubMenuItems: MenuProps['items'] = connectionTags.map(tag => ({
+            key: `move-to-tag-${tag.id}`,
+            label: tag.name,
+            icon: <FolderOutlined />,
+            onClick: () => moveConnectionToTag(node.key, tag.id)
+        }));
+        if (connectionTags.length > 0) {
+            tagSubMenuItems.push({ type: 'divider' });
+        }
+        tagSubMenuItems.push({
+            key: 'move-to-ungrouped',
+            label: '移出标签',
+            onClick: () => moveConnectionToTag(node.key, null)
+        });
+
         // Regular database connection menu
         return [
             {
@@ -2511,45 +2604,51 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                }
              },
              { type: 'divider' },
-              {
-                  key: 'edit',
-                  label: '编辑连接',
-                  icon: <EditOutlined />,
-                  onClick: () => {
-                      if (onEditConnection) onEditConnection(node.dataRef);
-                  }
-              },
-              {
-                  key: 'copy-connection',
-                  label: '复制连接',
-                  icon: <CopyOutlined />,
-                  onClick: () => handleDuplicateConnection(node.dataRef as SavedConnection)
-              },
-              {
-                  key: 'disconnect',
-                  label: '断开连接',
-                  icon: <DisconnectOutlined />,
-                  onClick: () => {
-                      // Reset status recursively
-                      setConnectionStates(prev => {
-                          const next = { ...prev };
-                          Object.keys(next).forEach(k => {
-                              if (k === node.key || k.startsWith(`${node.key}-`)) {
-                                  delete next[k];
-                              }
-                          });
-                          return next;
-                      });
-                      // Collapse node and children
-                      setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
-                      // Reset loaded state recursively
-                      setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
-                      // Clear children (undefined to trigger reload)
-                      setTreeData(origin => updateTreeData(origin, node.key, undefined));
-                      closeTabsByConnection(String(node.key));
-                      message.success("已断开连接");
-                  }
-              },
+             {
+                 key: 'edit',
+                 label: '编辑连接',
+                 icon: <EditOutlined />,
+                 onClick: () => {
+                     if (onEditConnection) onEditConnection(node.dataRef);
+                 }
+             },
+             {
+                 key: 'copy-connection',
+                 label: '复制连接',
+                 icon: <CopyOutlined />,
+                 onClick: () => handleDuplicateConnection(node.dataRef as SavedConnection)
+             },
+             {
+                 key: 'move-to-tag',
+                 label: '移至标签',
+                 icon: <FolderOpenOutlined />,
+                 children: tagSubMenuItems
+             },
+             {
+                 key: 'disconnect',
+                 label: '断开连接',
+                 icon: <DisconnectOutlined />,
+                 onClick: () => {
+                     // Reset status recursively
+                     setConnectionStates(prev => {
+                         const next = { ...prev };
+                         Object.keys(next).forEach(k => {
+                             if (k === node.key || k.startsWith(`${node.key}-`)) {
+                                 delete next[k];
+                             }
+                         });
+                         return next;
+                     });
+                     // Collapse node and children
+                     setExpandedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                     // Reset loaded state recursively
+                     setLoadedKeys(prev => prev.filter(k => k !== node.key && !k.toString().startsWith(`${node.key}-`)));
+                     // Clear children (undefined to trigger reload)
+                     setTreeData(origin => updateTreeData(origin, node.key, undefined));
+                     closeTabsByConnection(String(node.key));
+                     message.success("已断开连接");
+                 }
+             },
              {
                  key: 'delete',
                  label: '删除连接',
@@ -2866,6 +2965,72 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
     return <span title={hoverTitle}>{statusBadge}{displayTitle}</span>;
   };
 
+  const handleDrop = (info: any) => {
+      const dropKey = info.node.key;
+      const dragKey = info.dragNode.key;
+      const dropPos = info.node.pos.split('-');
+      const dropPosition = info.dropPosition - Number(dropPos[dropPos.length - 1]);
+
+      const dragNode = info.dragNode;
+      const dropNode = info.node;
+
+      // Tag to Tag reordering
+      if (dragNode.type === 'tag') {
+          // You can only drop tags onto the root level (before/after other tags or connections at root)
+          if (dropNode.type === 'tag' || dropNode.type === 'connection') {
+              // Get current order
+              const currentTagOrder = connectionTags.map(t => t.id);
+              const dragTagId = dragNode.dataRef.id;
+
+              // Filter out the dragging tag
+              const newOrder = currentTagOrder.filter(id => id !== dragTagId);
+
+              let insertIndex = newOrder.length;
+              if (dropNode.type === 'tag') {
+                  const dropTagId = dropNode.dataRef.id;
+                  const dropIndex = newOrder.indexOf(dropTagId);
+
+                  if (dropPosition === -1) {
+                      insertIndex = dropIndex;
+                  } else {
+                      insertIndex = dropIndex + 1;
+                  }
+              } else {
+                  // Dropped onto a root connection, usually meaning moving to the end of tags
+                  // Since tags are always displayed before ungrouped connections, just put it at the end
+                  insertIndex = newOrder.length;
+              }
+
+              newOrder.splice(insertIndex, 0, dragTagId);
+              reorderTags(newOrder);
+          }
+          return;
+      }
+
+      // Connection moving to tag (any drop position on a tag node counts as "into")
+      if (dragNode.type === 'connection' && dropNode.type === 'tag') {
+          moveConnectionToTag(dragNode.key, dropNode.dataRef.id);
+          return;
+      }
+
+      // Connection moving to another connection inside a tag
+      if (dragNode.type === 'connection' && dropNode.type === 'connection') {
+          // Find if drop target is under a tag
+          const targetTag = connectionTags.find(t => t.connectionIds.includes(dropNode.key));
+          if (targetTag) {
+              moveConnectionToTag(dragNode.key, targetTag.id);
+              return;
+          }
+
+          // Drop target is NOT under a tag (ungrouped) -> move OUT of tag
+          const sourceTag = connectionTags.find(t => t.connectionIds.includes(dragNode.key));
+          if (sourceTag) {
+              moveConnectionToTag(dragNode.key, null);
+              return;
+          }
+      }
+  };
+
   const onRightClick = ({ event, node }: any) => {
       const items = getNodeMenuItems(node);
       if (items && items.length > 0) {
@@ -2883,13 +3048,25 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
             <Search placeholder="搜索..." onChange={onSearch} size="small" />
         </div>
 
-        {/* Toolbar for batch operations - always visible */}
-        <div style={{ padding: '4px 8px', borderBottom: 'none', display: 'flex', gap: 4 }}>
+        {/* Toolbar */}
+        <div style={{ padding: '4px 8px', borderBottom: 'none', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            <Button
+                size="small"
+                icon={<FolderOpenOutlined />}
+                onClick={() => {
+                    setRenameViewTarget(null); // Create mode
+                    createTagForm.resetFields();
+                    setIsCreateTagModalOpen(true);
+                }}
+                style={{ flex: '1 1 auto' }}
+            >
+                新建组
+            </Button>
             <Button
                 size="small"
                 icon={<CheckSquareOutlined />}
                 onClick={() => openBatchOperationModal()}
-                style={{ flex: 1 }}
+                style={{ flex: '1 1 auto' }}
             >
                 批量操作表
             </Button>
@@ -2897,7 +3074,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 size="small"
                 icon={<CheckSquareOutlined />}
                 onClick={() => openBatchDatabaseModal()}
-                style={{ flex: 1 }}
+                style={{ flex: '1 1 auto' }}
             >
                 批量操作库
             </Button>
@@ -2906,6 +3083,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
         <div ref={treeContainerRef} style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
             <Tree
                 showIcon
+                draggable={{
+                    icon: false,
+                    nodeDraggable: (node: any) => node.type === 'connection' || node.type === 'tag'
+                }}
+                onDrop={handleDrop}
                 loadData={onLoadData}
                 treeData={displayTreeData}
                 onDoubleClick={onDoubleClick}
@@ -2933,6 +3115,60 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 <div style={{ position: 'fixed', left: contextMenu.x, top: contextMenu.y, width: 1, height: 1 }} />
             </Dropdown>
         )}
+
+        <Modal
+            title={renameViewTarget?.type === 'tag' ? "编辑标签" : "新建组"}
+            open={isCreateTagModalOpen}
+            onOk={() => {
+                createTagForm.validateFields().then(values => {
+                    if (renameViewTarget?.type === 'tag') {
+                        // Rename
+                        updateConnectionTag({
+                            ...renameViewTarget.dataRef,
+                            name: values.name,
+                            connectionIds: values.connectionIds || []
+                        });
+                        // update cross-connections
+                        const allOtherTagsIds = connectionTags.filter(t => t.id !== renameViewTarget.dataRef.id).flatMap(t => t.connectionIds);
+                        (values.connectionIds || []).forEach((cid: string) => {
+                           if (allOtherTagsIds.includes(cid)) {
+                               moveConnectionToTag(cid, renameViewTarget.dataRef.id);
+                           }
+                        });
+                    } else {
+                        // Create
+                        const tagId = Date.now().toString();
+                        addConnectionTag({
+                            id: tagId,
+                            name: values.name,
+                            connectionIds: values.connectionIds || []
+                        });
+                        (values.connectionIds || []).forEach((cid: string) => {
+                            moveConnectionToTag(cid, tagId);
+                        });
+                    }
+                    setIsCreateTagModalOpen(false);
+                });
+            }}
+            onCancel={() => setIsCreateTagModalOpen(false)}
+        >
+            <Form form={createTagForm} layout="vertical">
+                <Form.Item name="name" label="标签名称" rules={[{ required: true, message: '请输入标签名称' }]}>
+                    <Input />
+                </Form.Item>
+                <Form.Item name="connectionIds" label="选择连接">
+                    <Checkbox.Group style={{ width: '100%' }}>
+                        <Space direction="vertical" style={{ width: '100%', maxHeight: '400px', overflowY: 'auto' }}>
+                            {connections.map(conn => (
+                                <Checkbox key={conn.id} value={conn.id}>
+                                    {conn.name} {conn.config.host ? `(${conn.config.host})` : ''}
+                                </Checkbox>
+                            ))}
+                        </Space>
+                    </Checkbox.Group>
+                </Form.Item>
+            </Form>
+        </Modal>
 
         <Modal
             title="新建数据库"

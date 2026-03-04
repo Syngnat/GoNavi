@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { ConnectionConfig, ProxyConfig, SavedConnection, TabData, SavedQuery } from './types';
+import { ConnectionConfig, ProxyConfig, SavedConnection, TabData, SavedQuery, ConnectionTag } from './types';
 
 const DEFAULT_APPEARANCE = { opacity: 1.0, blur: 0 };
 const DEFAULT_UI_SCALE = 1.0;
@@ -17,7 +17,7 @@ const MAX_HOST_ENTRY_LENGTH = 512;
 const MAX_HOST_ENTRIES = 64;
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const MAX_TIMEOUT_SECONDS = 3600;
-const PERSIST_VERSION = 4;
+const PERSIST_VERSION = 5;
 const DEFAULT_CONNECTION_TYPE = 'mysql';
 const DEFAULT_GLOBAL_PROXY: GlobalProxyConfig = {
   enabled: false,
@@ -293,6 +293,27 @@ const sanitizeConnections = (value: unknown): SavedConnection[] => {
   return result;
 };
 
+const sanitizeConnectionTags = (value: unknown): ConnectionTag[] => {
+  if (!Array.isArray(value)) return [];
+  const result: ConnectionTag[] = [];
+  const idSet = new Set<string>();
+
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') return;
+    const raw = entry as Record<string, unknown>;
+    const id = toTrimmedString(raw.id, `tag-${index + 1}`) || `tag-${index + 1}`;
+    if (idSet.has(id)) return;
+    idSet.add(id);
+    
+    const name = toTrimmedString(raw.name, `标签-${index + 1}`) || `标签-${index + 1}`;
+    const connectionIds = sanitizeStringArray(raw.connectionIds, 256);
+    
+    result.push({ id, name, connectionIds });
+  });
+
+  return result;
+};
+
 const isLegacyDefaultAppearance = (appearance: Partial<{ opacity: number; blur: number }> | undefined): boolean => {
   if (!appearance) {
     return true;
@@ -325,6 +346,7 @@ export interface GlobalProxyConfig extends ProxyConfig {
 
 interface AppState {
   connections: SavedConnection[];
+  connectionTags: ConnectionTag[];
   tabs: TabData[];
   activeTabId: string | null;
   activeContext: { connectionId: string; dbName: string } | null;
@@ -344,6 +366,12 @@ interface AppState {
   addConnection: (conn: SavedConnection) => void;
   updateConnection: (conn: SavedConnection) => void;
   removeConnection: (id: string) => void;
+
+  addConnectionTag: (tag: ConnectionTag) => void;
+  updateConnectionTag: (tag: ConnectionTag) => void;
+  removeConnectionTag: (id: string) => void;
+  moveConnectionToTag: (connectionId: string, targetTagId: string | null) => void;
+  reorderTags: (tagIds: string[]) => void;
 
   addTab: (tab: TabData) => void;
   closeTab: (id: string) => void;
@@ -496,6 +524,7 @@ export const useStore = create<AppState>()(
   persist(
     (set) => ({
       connections: [],
+      connectionTags: [],
       tabs: [],
       activeTabId: null,
       activeContext: null,
@@ -516,7 +545,46 @@ export const useStore = create<AppState>()(
       updateConnection: (conn) => set((state) => ({
           connections: state.connections.map(c => c.id === conn.id ? conn : c)
       })),
-      removeConnection: (id) => set((state) => ({ connections: state.connections.filter(c => c.id !== id) })),
+      removeConnection: (id) => set((state) => ({ 
+          connections: state.connections.filter(c => c.id !== id),
+          connectionTags: state.connectionTags.map(tag => ({
+            ...tag,
+            connectionIds: tag.connectionIds.filter(cid => cid !== id)
+          }))
+      })),
+
+      addConnectionTag: (tag) => set((state) => ({ connectionTags: [...state.connectionTags, tag] })),
+      updateConnectionTag: (tag) => set((state) => ({
+          connectionTags: state.connectionTags.map(t => t.id === tag.id ? tag : t)
+      })),
+      removeConnectionTag: (id) => set((state) => ({ 
+          connectionTags: state.connectionTags.filter(t => t.id !== id) 
+      })),
+      moveConnectionToTag: (connectionId, targetTagId) => set((state) => {
+          const newTags = state.connectionTags.map(tag => {
+              //先从所有tag中移除该connection
+              const filteredIds = tag.connectionIds.filter(id => id !== connectionId);
+              if (tag.id === targetTagId) {
+                  return { ...tag, connectionIds: [...filteredIds, connectionId] };
+              }
+              return { ...tag, connectionIds: filteredIds };
+          });
+          return { connectionTags: newTags };
+      }),
+      reorderTags: (tagIds) => set((state) => {
+          const tagMap = new Map(state.connectionTags.map(t => [t.id, t]));
+          const newTags: ConnectionTag[] = [];
+          tagIds.forEach(id => {
+              const tag = tagMap.get(id);
+              if (tag) {
+                  newTags.push(tag);
+                  tagMap.delete(id);
+              }
+          });
+          // 追加未指定的tag（如果有的话）
+          newTags.push(...Array.from(tagMap.values()));
+          return { connectionTags: newTags };
+      }),
 
       addTab: (tab) => set((state) => {
         const index = state.tabs.findIndex(t => t.id === tab.id);
@@ -672,6 +740,11 @@ export const useStore = create<AppState>()(
         const state = unwrapPersistedAppState(persistedState) as Partial<AppState>;
         const nextState: Partial<AppState> = { ...state };
         nextState.connections = sanitizeConnections(state.connections);
+        if (version < 5) {
+          nextState.connectionTags = sanitizeConnectionTags(state.connectionTags);
+        } else {
+          nextState.connectionTags = sanitizeConnectionTags(state.connectionTags);
+        }
         nextState.savedQueries = sanitizeSavedQueries(state.savedQueries);
         nextState.theme = sanitizeTheme(state.theme);
         nextState.appearance = sanitizeAppearance(state.appearance, version);
@@ -691,6 +764,7 @@ export const useStore = create<AppState>()(
           ...currentState,
           ...state,
           connections: sanitizeConnections(state.connections),
+          connectionTags: sanitizeConnectionTags(state.connectionTags),
           savedQueries: sanitizeSavedQueries(state.savedQueries),
           theme: sanitizeTheme(state.theme),
           appearance: sanitizeAppearance(state.appearance, PERSIST_VERSION),
@@ -706,6 +780,7 @@ export const useStore = create<AppState>()(
       },
       partialize: (state) => ({
         connections: state.connections,
+        connectionTags: state.connectionTags,
         savedQueries: state.savedQueries,
         theme: state.theme,
         appearance: state.appearance,

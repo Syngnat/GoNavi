@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Progress, Switch, Input, InputNumber, Select } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { PlusOutlined, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons';
+import { PlusOutlined, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined } from '@ant-design/icons';
 import { BrowserOpenURL, Environment, EventsOn, Quit, WindowFullscreen, WindowIsFullscreen, WindowIsMaximised, WindowMaximise, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
@@ -299,7 +299,7 @@ function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const isAboutOpenRef = React.useRef(false);
   const [aboutLoading, setAboutLoading] = useState(false);
-  const [aboutInfo, setAboutInfo] = useState<{ version: string; author: string; buildTime?: string; repoUrl?: string; issueUrl?: string; releaseUrl?: string } | null>(null);
+  const [aboutInfo, setAboutInfo] = useState<{ version: string; author: string; buildTime?: string; repoUrl?: string; issueUrl?: string; releaseUrl?: string; communityUrl?: string } | null>(null);
   const [aboutUpdateStatus, setAboutUpdateStatus] = useState<string>('');
   const [lastUpdateInfo, setLastUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateDownloadProgress, setUpdateDownloadProgress] = useState<{
@@ -803,7 +803,7 @@ function App() {
   };
   
   // Sidebar Resizing
-  const [sidebarWidth, setSidebarWidth] = useState(300);
+  const [sidebarWidth, setSidebarWidth] = useState(330);
   const sidebarDragRef = React.useRef<{ startX: number, startWidth: number } | null>(null);
   const rafRef = React.useRef<number | null>(null);
   const ghostRef = React.useRef<HTMLDivElement>(null);
@@ -1221,6 +1221,9 @@ function App() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div>版本：{aboutInfo?.version || '未知'}</div>
                     <div>作者：{aboutInfo?.author || '未知'}</div>
+                    {aboutInfo?.communityUrl ? (
+                        <div>技术圈：<a onClick={(e) => { e.preventDefault(); if (aboutInfo?.communityUrl) BrowserOpenURL(aboutInfo.communityUrl); }} href={aboutInfo.communityUrl}>AI全书</a></div>
+                    ) : null}
                     <div>更新状态：{aboutUpdateStatus || '未检查'}</div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <GithubOutlined />

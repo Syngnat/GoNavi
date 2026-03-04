@@ -51,12 +51,13 @@ type UpdateInfo struct {
 }
 
 type AppInfo struct {
-	Version    string `json:"version"`
-	Author     string `json:"author"`
-	RepoURL    string `json:"repoUrl,omitempty"`
-	IssueURL   string `json:"issueUrl,omitempty"`
-	ReleaseURL string `json:"releaseUrl,omitempty"`
-	BuildTime  string `json:"buildTime,omitempty"`
+	Version      string `json:"version"`
+	Author       string `json:"author"`
+	RepoURL      string `json:"repoUrl,omitempty"`
+	IssueURL     string `json:"issueUrl,omitempty"`
+	ReleaseURL   string `json:"releaseUrl,omitempty"`
+	CommunityURL string `json:"communityUrl,omitempty"`
+	BuildTime    string `json:"buildTime,omitempty"`
 }
 
 type updateDownloadResult struct {
@@ -137,12 +138,13 @@ func (a *App) CheckForUpdates() connection.QueryResult {
 
 func (a *App) GetAppInfo() connection.QueryResult {
 	info := AppInfo{
-		Version:    getCurrentVersion(),
-		Author:     getCurrentAuthor(),
-		RepoURL:    "https://github.com/" + updateRepo,
-		IssueURL:   "https://github.com/" + updateRepo + "/issues",
-		ReleaseURL: "https://github.com/" + updateRepo + "/releases",
-		BuildTime:  strings.TrimSpace(AppBuildTime),
+		Version:      getCurrentVersion(),
+		Author:       getCurrentAuthor(),
+		RepoURL:      "https://github.com/" + updateRepo,
+		IssueURL:     "https://github.com/" + updateRepo + "/issues",
+		ReleaseURL:   "https://github.com/" + updateRepo + "/releases",
+		CommunityURL: "https://aibook.ren",
+		BuildTime:    strings.TrimSpace(AppBuildTime),
 	}
 	return connection.QueryResult{Success: true, Message: "OK", Data: info}
 }

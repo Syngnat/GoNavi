@@ -61,6 +61,12 @@ export interface SavedConnection {
   includeRedisDatabases?: number[]; // Redis databases to show (0-15)
 }
 
+export interface ConnectionTag {
+  id: string;
+  name: string;
+  connectionIds: string[];
+}
+
 export interface ColumnDefinition {
   name: string;
   type: string;
