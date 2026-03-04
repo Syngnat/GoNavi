@@ -577,6 +577,7 @@ interface DataGridProps {
     // Filtering
     showFilter?: boolean;
     onToggleFilter?: () => void;
+    exportSqlWithFilter?: string;
     onApplyFilter?: (conditions: GridFilterCondition[]) => void;
 }
 
@@ -595,9 +596,9 @@ type ColumnMeta = {
     comment: string;
 };
 
-const DataGrid: React.FC<DataGridProps> = ({ 
+const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, exportScope = 'table', resultSql, dbName, connectionId, pkColumns = [], readOnly = false,
-    onReload, onSort, onPageChange, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, onApplyFilter
+    onReload, onSort, onPageChange, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, exportSqlWithFilter, onApplyFilter
 }) => {
   const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
@@ -620,6 +621,8 @@ const DataGrid: React.FC<DataGridProps> = ({
   const isQueryResultExport = exportScope === 'queryResult';
   const canImport = exportScope === 'table' && !!tableName;
   const canExport = !!connectionId && (isQueryResultExport || !!tableName);
+  const filteredExportSql = useMemo(() => String(exportSqlWithFilter || '').trim(), [exportSqlWithFilter]);
+  const hasFilteredExportSql = exportScope === 'table' && filteredExportSql.length > 0;
 
   // Background Helper
   const getBg = (darkHex: string) => {
@@ -2481,6 +2484,23 @@ const DataGrid: React.FC<DataGridProps> = ({
       });
   };
 
+  const handleExportFilteredAll = async (format: string) => {
+      if (!connectionId || !tableName) return;
+      if (!filteredExportSql) {
+          message.warning('当前未应用筛选条件');
+          return;
+      }
+      if (!supportsSqlQueryExport) {
+          message.error('当前数据源不支持按筛选结果导出');
+          return;
+      }
+      if (hasChanges) {
+          message.warning("当前存在未提交修改，筛选结果导出基于数据库已提交数据。");
+      }
+
+      await exportByQuery(filteredExportSql, format, `${tableName || 'export'}_filtered`);
+  };
+
   const handleImport = async () => {
       if (!connectionId || !tableName) return;
       const config = buildConnConfig();
@@ -2562,7 +2582,21 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (onApplyFilter) onApplyFilter(filterConditions);
   };
 
-  const exportMenu: MenuProps['items'] = [
+  const exportMenu: MenuProps['items'] = hasFilteredExportSql ? [
+      { type: 'group', label: '筛选结果', children: [
+          { key: 'filtered-csv', label: 'CSV', onClick: () => handleExportFilteredAll('csv') },
+          { key: 'filtered-xlsx', label: 'Excel (XLSX)', onClick: () => handleExportFilteredAll('xlsx') },
+          { key: 'filtered-json', label: 'JSON', onClick: () => handleExportFilteredAll('json') },
+          { key: 'filtered-md', label: 'Markdown', onClick: () => handleExportFilteredAll('md') },
+      ]},
+      { type: 'divider' },
+      { type: 'group', label: '全表', children: [
+          { key: 'table-csv', label: 'CSV', onClick: () => handleExport('csv') },
+          { key: 'table-xlsx', label: 'Excel (XLSX)', onClick: () => handleExport('xlsx') },
+          { key: 'table-json', label: 'JSON', onClick: () => handleExport('json') },
+          { key: 'table-md', label: 'Markdown', onClick: () => handleExport('md') },
+      ]},
+  ] : [
       { key: 'csv', label: 'CSV', onClick: () => handleExport('csv') },
       { key: 'xlsx', label: 'Excel (XLSX)', onClick: () => handleExport('xlsx') },
       { key: 'json', label: 'JSON', onClick: () => handleExport('json') },

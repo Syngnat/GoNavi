@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { message } from 'antd';
 import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
@@ -676,6 +676,24 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const handleToggleFilter = useCallback(() => setShowFilter(prev => !prev), []);
   const handleApplyFilter = useCallback((conditions: FilterCondition[]) => setFilterConditions(conditions), []);
 
+  const exportSqlWithFilter = useMemo(() => {
+    const tableName = String(tab.tableName || '').trim();
+    const dbType = String(currentConnConfig?.type || '').trim();
+    if (!tableName || !dbType) return '';
+
+    const whereSQL = buildWhereSQL(dbType, filterConditions);
+    if (!whereSQL) return '';
+
+    let sql = `SELECT * FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
+    sql += buildOrderBySQL(dbType, sortInfo, pkColumns);
+    const normalizedType = dbType.toLowerCase();
+    const hasExplicitSort = !!sortInfo?.columnKey && (sortInfo?.order === 'ascend' || sortInfo?.order === 'descend');
+    if (hasExplicitSort && (normalizedType === 'mysql' || normalizedType === 'mariadb')) {
+      sql = withSortBufferTuningSQL(normalizedType, sql, 32 * 1024 * 1024);
+    }
+    return sql;
+  }, [tab.tableName, currentConnConfig?.type, filterConditions, sortInfo, pkColumns]);
+
   useEffect(() => {
     fetchData(1, pagination.pageSize); 
   }, [tab, sortInfo, filterConditions]); // Initial load and re-load on sort/filter
@@ -702,6 +720,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
           onApplyFilter={handleApplyFilter}
           readOnly={forceReadOnly}
           sortInfoExternal={sortInfo}
+          exportSqlWithFilter={exportSqlWithFilter || undefined}
       />
     </div>
   );
