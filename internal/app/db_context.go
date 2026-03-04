@@ -36,6 +36,17 @@ func normalizeSchemaAndTable(config connection.ConnectionConfig, dbName string, 
 		return rawDB, rawTable
 	}
 
+	dbType := strings.ToLower(strings.TrimSpace(config.Type))
+	if dbType == "sqlserver" {
+		// SQL Server 的 DB 接口约定：第一个参数是数据库名，schema 由 tableName(如 dbo.users) 自行解析。
+		// 不能把 schema(dbo) 传到第一个参数，否则会拼出 dbo.sys.columns 等无效对象名。
+		targetDB := rawDB
+		if targetDB == "" {
+			targetDB = strings.TrimSpace(config.Database)
+		}
+		return targetDB, rawTable
+	}
+
 	if parts := strings.SplitN(rawTable, ".", 2); len(parts) == 2 {
 		schema := strings.TrimSpace(parts[0])
 		table := strings.TrimSpace(parts[1])
@@ -44,13 +55,10 @@ func normalizeSchemaAndTable(config connection.ConnectionConfig, dbName string, 
 		}
 	}
 
-	switch strings.ToLower(strings.TrimSpace(config.Type)) {
+	switch dbType {
 	case "postgres", "kingbase", "highgo", "vastbase":
 		// PG/金仓/瀚高/海量：dbName 在 UI 里是"数据库"，schema 需从 tableName 或使用默认 public。
 		return "public", rawTable
-	case "sqlserver":
-		// SQL Server：dbName 表示数据库，schema 默认 dbo
-		return "dbo", rawTable
 	default:
 		// MySQL：dbName 表示数据库；Oracle/达梦：dbName 表示 schema/owner。
 		return rawDB, rawTable
