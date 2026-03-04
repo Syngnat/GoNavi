@@ -95,6 +95,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   };
   const bgMain = getBg('#141414');
   const [searchValue, setSearchValue] = useState('');
+  const searchInputRef = useRef<any>(null);
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [autoExpandParent, setAutoExpandParent] = useState(true);
   const [loadedKeys, setLoadedKeys] = useState<React.Key[]>([]);
@@ -116,6 +117,21 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       });
       resizeObserver.observe(treeContainerRef.current);
       return () => resizeObserver.disconnect();
+  }, []);
+
+  useEffect(() => {
+      const handleFocusSidebarSearch = () => {
+          const inputEl = searchInputRef.current?.input as HTMLInputElement | undefined;
+          if (!inputEl) {
+              return;
+          }
+          inputEl.focus();
+          inputEl.select();
+      };
+      window.addEventListener('gonavi:focus-sidebar-search', handleFocusSidebarSearch as EventListener);
+      return () => {
+          window.removeEventListener('gonavi:focus-sidebar-search', handleFocusSidebarSearch as EventListener);
+      };
   }, []);
   
   // Connection Status State: key -> 'success' | 'error'
@@ -3045,7 +3061,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ padding: '4px 8px' }}>
-            <Search placeholder="搜索..." onChange={onSearch} size="small" />
+            <Search ref={searchInputRef} placeholder="搜索..." onChange={onSearch} size="small" />
         </div>
 
         {/* Toolbar */}

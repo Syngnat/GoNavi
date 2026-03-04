@@ -9,6 +9,7 @@ import { DBQuery, DBGetTables, DBGetAllColumns, DBGetDatabases, DBGetColumns } f
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
 import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 import { convertMongoShellToJsonCommand } from '../utils/mongodb';
+import { getShortcutDisplay, isEditableElement, isShortcutMatch } from '../utils/shortcuts';
 
 const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [query, setQuery] = useState(tab.query || 'SELECT * FROM ');
@@ -66,6 +67,8 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const setSqlFormatOptions = useStore(state => state.setSqlFormatOptions);
   const queryOptions = useStore(state => state.queryOptions);
   const setQueryOptions = useStore(state => state.setQueryOptions);
+  const shortcutOptions = useStore(state => state.shortcutOptions);
+  const activeTabId = useStore(state => state.activeTabId);
 
   useEffect(() => {
       currentConnectionIdRef.current = currentConnectionId;
@@ -559,6 +562,12 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
           label: '关键字小写', 
           icon: sqlFormatOptions.keywordCase === 'lower' ? '✓' : undefined,
           onClick: () => setSqlFormatOptions({ keywordCase: 'lower' }) 
+      },
+      { type: 'divider' },
+      {
+          key: 'shortcut-settings',
+          label: '快捷键管理...',
+          onClick: () => window.dispatchEvent(new CustomEvent('gonavi:open-shortcut-settings')),
       },
   ];
 
@@ -1225,6 +1234,48 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
     }
   };
 
+  useEffect(() => {
+      const binding = shortcutOptions.runQuery;
+      if (!binding?.enabled || !binding.combo) {
+          return;
+      }
+
+      const handleRunShortcut = (event: KeyboardEvent) => {
+          if (activeTabId !== tab.id) {
+              return;
+          }
+          if (!isShortcutMatch(event, binding.combo)) {
+              return;
+          }
+          const editorHasFocus = !!editorRef.current?.hasTextFocus?.();
+          if (!editorHasFocus && !isEditableElement(event.target)) {
+              return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          void handleRun();
+      };
+
+      window.addEventListener('keydown', handleRunShortcut);
+      return () => {
+          window.removeEventListener('keydown', handleRunShortcut);
+      };
+  }, [activeTabId, tab.id, shortcutOptions.runQuery, handleRun]);
+
+  useEffect(() => {
+      const handleRunActiveQuery = () => {
+          if (activeTabId !== tab.id) {
+              return;
+          }
+          void handleRun();
+      };
+
+      window.addEventListener('gonavi:run-active-query', handleRunActiveQuery as EventListener);
+      return () => {
+          window.removeEventListener('gonavi:run-active-query', handleRunActiveQuery as EventListener);
+      };
+  }, [activeTabId, tab.id, handleRun]);
+
   const handleSave = async () => {
       try {
           const values = await saveForm.validateFields();
@@ -1336,9 +1387,17 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                 ]}
             />
         </Tooltip>
-        <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
-          运行
-        </Button>
+        <Tooltip
+            title={
+                shortcutOptions.runQuery?.enabled && shortcutOptions.runQuery?.combo
+                    ? `运行（${getShortcutDisplay(shortcutOptions.runQuery.combo)}）`
+                    : '运行'
+            }
+        >
+            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
+              运行
+            </Button>
+        </Tooltip>
         <Button icon={<SaveOutlined />} onClick={() => {
             saveForm.setFieldsValue({ name: tab.title.replace('Query (', '').replace(')', '') });
             setIsSaveModalOpen(true);

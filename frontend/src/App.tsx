@@ -12,6 +12,17 @@ import LogPanel from './components/LogPanel';
 import { useStore } from './store';
 import { SavedConnection } from './types';
 import { blurToFilter, normalizeBlurForPlatform, normalizeOpacityForPlatform, isWindowsPlatform } from './utils/appearance';
+import {
+  SHORTCUT_ACTION_META,
+  SHORTCUT_ACTION_ORDER,
+  ShortcutAction,
+  eventToShortcut,
+  getShortcutDisplay,
+  hasModifierKey,
+  isEditableElement,
+  isShortcutMatch,
+  normalizeShortcutCombo,
+} from './utils/shortcuts';
 import { ConfigureGlobalProxy, SetWindowTranslucency } from '../wailsjs/go/app/App';
 import './App.css';
 
@@ -53,6 +64,9 @@ function App() {
   const setStartupFullscreen = useStore(state => state.setStartupFullscreen);
   const globalProxy = useStore(state => state.globalProxy);
   const setGlobalProxy = useStore(state => state.setGlobalProxy);
+  const shortcutOptions = useStore(state => state.shortcutOptions);
+  const updateShortcut = useStore(state => state.updateShortcut);
+  const resetShortcutOptions = useStore(state => state.resetShortcutOptions);
   const darkMode = themeMode === 'dark';
   const effectiveUiScale = Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, Number(uiScale) || DEFAULT_UI_SCALE));
   const effectiveFontSize = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(Number(fontSize) || DEFAULT_FONT_SIZE)));
@@ -720,10 +734,18 @@ function App() {
           label: '外观设置...',
           icon: <SettingOutlined />,
           onClick: () => setIsAppearanceModalOpen(true)
+      },
+      {
+          key: 'shortcut-settings',
+          label: '快捷键管理...',
+          icon: <LinkOutlined />,
+          onClick: () => setIsShortcutModalOpen(true)
       }
   ];
 
   const [isAppearanceModalOpen, setIsAppearanceModalOpen] = useState(false);
+  const [isShortcutModalOpen, setIsShortcutModalOpen] = useState(false);
+  const [capturingShortcutAction, setCapturingShortcutAction] = useState<ShortcutAction | null>(null);
   const [isProxyModalOpen, setIsProxyModalOpen] = useState(false);
 
 
@@ -934,6 +956,113 @@ function App() {
           offDownloadProgress();
       };
   }, []);
+
+  useEffect(() => {
+      const handleOpenShortcutSettingsEvent = () => {
+          setIsShortcutModalOpen(true);
+      };
+      window.addEventListener('gonavi:open-shortcut-settings', handleOpenShortcutSettingsEvent as EventListener);
+      return () => {
+          window.removeEventListener('gonavi:open-shortcut-settings', handleOpenShortcutSettingsEvent as EventListener);
+      };
+  }, []);
+
+  useEffect(() => {
+      const handleGlobalShortcut = (event: KeyboardEvent) => {
+          const matchedAction = SHORTCUT_ACTION_ORDER.find((action) => {
+              const binding = shortcutOptions[action];
+              if (!binding?.enabled) {
+                  return false;
+              }
+              if (isEditableElement(event.target) && !SHORTCUT_ACTION_META[action].allowInEditable) {
+                  return false;
+              }
+              return isShortcutMatch(event, binding.combo);
+          });
+
+          if (!matchedAction) {
+              return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+
+          switch (matchedAction) {
+              case 'runQuery':
+                  window.dispatchEvent(new CustomEvent('gonavi:run-active-query'));
+                  break;
+              case 'focusSidebarSearch':
+                  window.dispatchEvent(new CustomEvent('gonavi:focus-sidebar-search'));
+                  break;
+              case 'newQueryTab':
+                  handleNewQuery();
+                  break;
+              case 'toggleLogPanel':
+                  setIsLogPanelOpen((prev) => !prev);
+                  break;
+              case 'toggleTheme':
+                  setTheme(themeMode === 'dark' ? 'light' : 'dark');
+                  break;
+              case 'openShortcutManager':
+                  setIsShortcutModalOpen(true);
+                  break;
+          }
+      };
+
+      window.addEventListener('keydown', handleGlobalShortcut);
+      return () => {
+          window.removeEventListener('keydown', handleGlobalShortcut);
+      };
+  }, [handleNewQuery, shortcutOptions, themeMode, setTheme]);
+
+  useEffect(() => {
+      if (!capturingShortcutAction) {
+          return;
+      }
+
+      const handleShortcutCapture = (event: KeyboardEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          if (event.key === 'Escape') {
+              setCapturingShortcutAction(null);
+              return;
+          }
+
+          const combo = eventToShortcut(event);
+          if (!combo) {
+              return;
+          }
+          if (!hasModifierKey(combo)) {
+              void message.warning('快捷键至少包含 Ctrl / Alt / Shift / Meta 之一');
+              return;
+          }
+
+          const normalizedCombo = normalizeShortcutCombo(combo);
+          const conflictAction = SHORTCUT_ACTION_ORDER.find((action) => {
+              if (action === capturingShortcutAction) {
+                  return false;
+              }
+              const binding = shortcutOptions[action];
+              if (!binding?.enabled) {
+                  return false;
+              }
+              return normalizeShortcutCombo(binding.combo) === normalizedCombo;
+          });
+          if (conflictAction) {
+              void message.warning(`与「${SHORTCUT_ACTION_META[conflictAction].label}」冲突，请换一个快捷键`);
+              return;
+          }
+
+          updateShortcut(capturingShortcutAction, { combo: normalizedCombo, enabled: true });
+          setCapturingShortcutAction(null);
+      };
+
+      window.addEventListener('keydown', handleShortcutCapture, true);
+      return () => {
+          window.removeEventListener('keydown', handleShortcutCapture, true);
+      };
+  }, [capturingShortcutAction, shortcutOptions, updateShortcut]);
 
   const linuxResizeHandleStyleBase = {
       position: 'fixed',
@@ -1354,6 +1483,84 @@ function App() {
               </div>
           </Modal>
 
+          <Modal
+              title="快捷键管理"
+              open={isShortcutModalOpen}
+              onCancel={() => {
+                  setIsShortcutModalOpen(false);
+                  setCapturingShortcutAction(null);
+              }}
+              width={720}
+              footer={[
+                  <Button
+                      key="reset"
+                      onClick={() => {
+                          resetShortcutOptions();
+                          setCapturingShortcutAction(null);
+                          void message.success('已恢复默认快捷键');
+                      }}
+                  >
+                      恢复默认
+                  </Button>,
+                  <Button
+                      key="close"
+                      type="primary"
+                      onClick={() => {
+                          setIsShortcutModalOpen(false);
+                          setCapturingShortcutAction(null);
+                      }}
+                  >
+                      关闭
+                  </Button>,
+              ]}
+          >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+                  <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                      点击“录制”后按下快捷键。按 Esc 可取消录制。建议至少包含一个修饰键（Ctrl/Alt/Shift/Meta）。
+                  </div>
+                  {SHORTCUT_ACTION_ORDER.map((action) => {
+                      const meta = SHORTCUT_ACTION_META[action];
+                      const binding = shortcutOptions[action] ?? { combo: '', enabled: false };
+                      const isCapturing = capturingShortcutAction === action;
+                      return (
+                          <div
+                              key={action}
+                              style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: '1fr auto',
+                                  gap: 12,
+                                  alignItems: 'center',
+                                  padding: '10px 12px',
+                                  border: '1px solid rgba(128, 128, 128, 0.2)',
+                                  borderRadius: 8,
+                              }}
+                          >
+                              <div>
+                                  <div style={{ fontWeight: 500 }}>{meta.label}</div>
+                                  <div style={{ fontSize: 12, color: '#8c8c8c' }}>{meta.description}</div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <Input
+                                      readOnly
+                                      value={isCapturing ? '请按下快捷键...' : getShortcutDisplay(binding.combo)}
+                                      style={{ width: 180, fontFamily: 'Consolas, Menlo, Monaco, monospace' }}
+                                  />
+                                  <Button
+                                      size="small"
+                                      onClick={() => setCapturingShortcutAction((prev) => (prev === action ? null : action))}
+                                  >
+                                      {isCapturing ? '取消' : '录制'}
+                                  </Button>
+                                  <Switch
+                                      checked={binding.enabled}
+                                      onChange={(checked) => updateShortcut(action, { enabled: checked })}
+                                  />
+                              </div>
+                          </div>
+                      );
+                  })}
+              </div>
+          </Modal>
           <Modal
               title="全局代理设置"
               open={isProxyModalOpen}
