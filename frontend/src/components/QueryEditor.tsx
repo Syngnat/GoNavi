@@ -255,6 +255,19 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                   return parts[parts.length - 1] || raw;
               };
 
+              const splitSchemaAndTable = (qualified: string): { schema: string; table: string } => {
+                  const raw = normalizeQualifiedName(qualified);
+                  if (!raw) return { schema: '', table: '' };
+                  const parts = raw.split('.').filter(Boolean);
+                  if (parts.length >= 2) {
+                      return {
+                          schema: parts[parts.length - 2] || '',
+                          table: parts[parts.length - 1] || '',
+                      };
+                  }
+                  return { schema: '', table: parts[0] || '' };
+              };
+
               const buildConnConfig = () => {
                   const connId = currentConnectionIdRef.current;
                   const conn = connectionsRef.current.find(c => c.id === connId);
@@ -327,13 +340,14 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
               if (qualifierMatch) {
                   const qualifier = stripQuotes(qualifierMatch[1]);
                   const prefix = (qualifierMatch[2] || '').toLowerCase();
+                  const qualifierLower = qualifier.toLowerCase();
 
                   // 首先检查 qualifier 是否是数据库名（跨库表提示）
                   const visibleDbs = visibleDbsRef.current;
-                  if (visibleDbs.some(db => db.toLowerCase() === qualifier.toLowerCase())) {
+                  if (visibleDbs.some(db => db.toLowerCase() === qualifierLower)) {
                       // qualifier 是数据库名，提示该库的表
                       const tables = tablesRef.current.filter(t =>
-                          (t.dbName || '').toLowerCase() === qualifier.toLowerCase()
+                          (t.dbName || '').toLowerCase() === qualifierLower
                       );
                       const filtered = prefix
                           ? tables.filter(t => (t.tableName || '').toLowerCase().startsWith(prefix))
@@ -346,6 +360,34 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                           detail: `Table (${t.dbName})`,
                           range,
                           sortText: '0' + t.tableName
+                      }));
+                      return { suggestions };
+                  }
+
+                  // qualifier 是 schema（如 dbo/public）时，仅补全表名，避免输入 dbo. 后再补成 dbo.dbo.table
+                  const schemaTables = tablesRef.current
+                      .map(t => {
+                          const parsed = splitSchemaAndTable(t.tableName || '');
+                          return {
+                              dbName: t.dbName || '',
+                              schema: parsed.schema,
+                              table: parsed.table,
+                          };
+                      })
+                      .filter(t => t.schema.toLowerCase() === qualifierLower && !!t.table);
+
+                  if (schemaTables.length > 0) {
+                      const filtered = prefix
+                          ? schemaTables.filter(t => t.table.toLowerCase().startsWith(prefix))
+                          : schemaTables;
+
+                      const suggestions = filtered.map(t => ({
+                          label: t.table,
+                          kind: monaco.languages.CompletionItemKind.Class,
+                          insertText: t.table,
+                          detail: `Table (${t.dbName}${t.schema ? '.' + t.schema : ''})`,
+                          range,
+                          sortText: '0' + t.table
                       }));
                       return { suggestions };
                   }
