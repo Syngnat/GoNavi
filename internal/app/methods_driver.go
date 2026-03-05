@@ -696,11 +696,11 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 	}
 
 	data := map[string]interface{}{
-		"reachable":        allReachable,
-		"summary":          summary,
-		"recommendedProxy": !allReachable,
-		"proxyConfigured":  proxyConfigured,
-		"proxyEnv":         proxyEnv,
+		"reachable":              allReachable,
+		"summary":                summary,
+		"recommendedProxy":       !allReachable,
+		"proxyConfigured":        proxyConfigured,
+		"proxyEnv":               proxyEnv,
 		"downloadChainReachable": downloadChainReachable,
 		"downloadRequiredHosts": []string{
 			"github.com",
@@ -709,8 +709,8 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 			"objects.githubusercontent.com",
 			"raw.githubusercontent.com",
 		},
-		"checkedAt":        time.Now().Format(time.RFC3339),
-		"checks":           checks,
+		"checkedAt": time.Now().Format(time.RFC3339),
+		"checks":    checks,
 	}
 	if logPath := strings.TrimSpace(logger.Path()); logPath != "" {
 		data["logPath"] = logPath

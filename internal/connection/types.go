@@ -55,6 +55,7 @@ type QueryResult struct {
 	Message string      `json:"message"`
 	Data    interface{} `json:"data"`
 	Fields  []string    `json:"fields,omitempty"`
+	QueryID string      `json:"queryId,omitempty"` // Unique ID for query cancellation
 }
 
 // ColumnDefinition represents a table column

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import Editor, { OnMount } from '@monaco-editor/react';
 import { Button, message, Modal, Input, Form, Dropdown, MenuProps, Tooltip, Select, Tabs } from 'antd';
-import { PlayCircleOutlined, SaveOutlined, FormatPainterOutlined, SettingOutlined, CloseOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, SaveOutlined, FormatPainterOutlined, SettingOutlined, CloseOutlined, StopOutlined } from '@ant-design/icons';
 import { format } from 'sql-formatter';
+import { v4 as uuidv4 } from 'uuid';
 import { TabData, ColumnDefinition } from '../types';
 import { useStore } from '../store';
-import { DBQuery, DBGetTables, DBGetAllColumns, DBGetDatabases, DBGetColumns } from '../../wailsjs/go/app/App';
+import { DBQuery, DBQueryWithCancel, DBGetTables, DBGetAllColumns, DBGetDatabases, DBGetColumns, CancelQuery, GenerateQueryID } from '../../wailsjs/go/app/App';
 import DataGrid, { GONAVI_ROW_KEY } from './DataGrid';
 import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 
@@ -30,7 +31,9 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [activeResultKey, setActiveResultKey] = useState<string>('');
   
   const [loading, setLoading] = useState(false);
+  const [currentQueryId, setCurrentQueryId] = useState<string>('');
   const runSeqRef = useRef(0);
+  const currentQueryIdRef = useRef('');
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [saveForm] = Form.useForm();
   
@@ -185,6 +188,17 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
       };
       fetchMetadata();
   }, [currentConnectionId, connections, dbList]); // dbList 变化时触发重新加载
+
+  // Query ID management helpers
+  const setQueryId = (id: string) => {
+      currentQueryIdRef.current = id;
+      setCurrentQueryId(id);
+  };
+
+  const clearQueryId = () => {
+      currentQueryIdRef.current = '';
+      setCurrentQueryId('');
+  };
 
   // Handle Resizing
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -984,6 +998,16 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
         message.error("请先选择数据库");
         return;
     }
+    // 如果已有查询在运行，先取消它
+    if (currentQueryIdRef.current) {
+        try {
+            await CancelQuery(currentQueryIdRef.current);
+        } catch (error) {
+            // 忽略取消错误，可能查询已完成
+        }
+        // 清除旧查询ID
+        clearQueryId();
+    }
     const runSeq = ++runSeqRef.current;
     setLoading(true);
     const runStartTime = Date.now();
@@ -1037,7 +1061,18 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
             const limited = limitApplied ? applyAutoLimit(rawStatement, dbType, probeLimit) : { sql: rawStatement, applied: false, maxRows: probeLimit };
             const executedSql = limited.sql;
             const startTime = Date.now();
-            const res = await DBQuery(config as any, currentDb, executedSql);
+            
+            // Generate query ID for cancellation using backend UUID with fallback
+            let queryId: string;
+            try {
+                queryId = await GenerateQueryID();
+            } catch (error) {
+                console.warn('GenerateQueryID failed, using local UUID fallback:', error);
+                queryId = 'query-' + uuidv4();
+            }
+            setQueryId(queryId);
+            
+            const res = await DBQueryWithCancel(config as any, currentDb, executedSql, queryId);
             const duration = Date.now() - startTime;
 
             addSqlLog({
@@ -1052,6 +1087,32 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
             });
 
             if (!res.success) {
+                // 检查是否为查询取消错误
+                const errorMsg = res.message.toLowerCase();
+                const isCancelledError = errorMsg.includes('context canceled') || 
+                                         errorMsg.includes('查询已取消') ||
+                                         errorMsg.includes('canceled') ||
+                                         errorMsg.includes('cancelled') ||
+                                         errorMsg.includes('statement canceled') ||
+                                         errorMsg.includes('sql: statement canceled');
+                
+                // 确保不是超时错误
+                const isTimeoutError = errorMsg.includes('context deadline exceeded') ||
+                                       errorMsg.includes('timeout') ||
+                                       errorMsg.includes('超时') ||
+                                       errorMsg.includes('deadline exceeded');
+                
+                if (isCancelledError && !isTimeoutError) {
+                    // 查询已被用户取消，不显示错误消息，清理状态
+                    setResultSets([]);
+                    setActiveResultKey('');
+                    // 清除查询ID，与handleCancel保持一致
+                    if (currentQueryIdRef.current) {
+                        clearQueryId();
+                    }
+                    return;
+                }
+                
                 const prefix = statements.length > 1 ? `第 ${idx + 1} 条语句执行失败：` : '';
                 message.error(prefix + res.message);
                 setResultSets([]);
@@ -1157,6 +1218,30 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
         setActiveResultKey('');
     } finally {
         if (runSeqRef.current === runSeq) setLoading(false);
+        // Clear query ID after execution completes
+        clearQueryId();
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!currentQueryIdRef.current) {
+      message.warning('没有正在运行的查询可取消');
+      return;
+    }
+    const queryIdToCancel = currentQueryIdRef.current;
+    try {
+      const res = await CancelQuery(queryIdToCancel);
+      if (res.success) {
+        message.success('查询已取消');
+        // Clear query ID after successful cancellation
+        if (currentQueryIdRef.current === queryIdToCancel) {
+          clearQueryId()
+        }
+      } else {
+        message.warning(res.message);
+      }
+    } catch (error: any) {
+      message.error('取消查询失败: ' + error.message);
     }
   };
 
@@ -1271,9 +1356,16 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                 ]}
             />
         </Tooltip>
-        <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
-          运行
-        </Button>
+        <Button.Group>
+          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
+            运行
+          </Button>
+          {loading && (
+            <Button type="primary" danger icon={<StopOutlined />} onClick={handleCancel}>
+              停止
+            </Button>
+          )}
+        </Button.Group>
         <Button icon={<SaveOutlined />} onClick={() => {
             saveForm.setFieldsValue({ name: tab.title.replace('Query (', '').replace(')', '') });
             setIsSaveModalOpen(true);

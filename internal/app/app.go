@@ -16,6 +16,7 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 	proxytunnel "GoNavi-Wails/internal/proxy"
+	"github.com/google/uuid"
 )
 
 const dbCachePingInterval = 30 * time.Second
@@ -25,19 +26,27 @@ type cachedDatabase struct {
 	lastPing time.Time
 }
 
+type queryContext struct {
+	cancel  context.CancelFunc
+	started time.Time
+}
+
 // App struct
 type App struct {
-	ctx         context.Context
-	dbCache     map[string]cachedDatabase // Cache for DB connections
-	mu          sync.RWMutex              // Mutex for cache access
-	updateMu    sync.Mutex
-	updateState updateState
+	ctx            context.Context
+	dbCache        map[string]cachedDatabase // Cache for DB connections
+	mu             sync.RWMutex              // Mutex for cache access
+	updateMu       sync.Mutex
+	updateState    updateState
+	queryMu        sync.RWMutex
+	runningQueries map[string]queryContext // queryID -> cancelFunc and start time
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		dbCache: make(map[string]cachedDatabase),
+		dbCache:        make(map[string]cachedDatabase),
+		runningQueries: make(map[string]queryContext),
 	}
 }
 
@@ -407,4 +416,44 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 
 	logger.Infof("数据库连接成功并写入缓存：%s 缓存Key=%s", formatConnSummary(effectiveConfig), shortKey)
 	return dbInst, nil
+}
+
+// generateQueryID generates a unique ID for a query using UUID v4
+func generateQueryID() string {
+	return "query-" + uuid.New().String()
+}
+
+// CancelQuery cancels a running query by its ID
+func (a *App) CancelQuery(queryID string) connection.QueryResult {
+	a.queryMu.Lock()
+	defer a.queryMu.Unlock()
+
+	if ctx, exists := a.runningQueries[queryID]; exists {
+		ctx.cancel()
+		delete(a.runningQueries, queryID)
+		logger.Infof("查询已取消：queryID=%s", queryID)
+		return connection.QueryResult{Success: true, Message: "查询已取消"}
+	}
+	logger.Warnf("取消查询失败：queryID=%s 不存在或已完成", queryID)
+	return connection.QueryResult{Success: false, Message: "查询不存在或已完成"}
+}
+
+// CleanupStaleQueries removes queries older than maxAge
+func (a *App) CleanupStaleQueries(maxAge time.Duration) {
+	a.queryMu.Lock()
+	defer a.queryMu.Unlock()
+
+	now := time.Now()
+	for id, ctx := range a.runningQueries {
+		if now.Sub(ctx.started) > maxAge {
+			// Query likely finished or stuck, remove from tracking
+			delete(a.runningQueries, id)
+			// Query expired, silently remove
+		}
+	}
+}
+
+// GenerateQueryID generates a unique query ID for cancellation tracking
+func (a *App) GenerateQueryID() string {
+	return generateQueryID()
 }

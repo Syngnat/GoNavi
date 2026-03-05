@@ -376,12 +376,21 @@ func (a *App) MySQLShowCreateTable(config connection.ConnectionConfig, dbName st
 }
 
 func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
+	return a.DBQueryWithCancel(config, dbName, query, "")
+}
+
+func (a *App) DBQueryWithCancel(config connection.ConnectionConfig, dbName string, query string, queryID string) connection.QueryResult {
 	runConfig := normalizeRunConfig(config, dbName)
+
+	// Generate query ID if not provided
+	if queryID == "" {
+		queryID = generateQueryID()
+	}
 
 	dbInst, err := a.getDatabase(runConfig)
 	if err != nil {
 		logger.Error(err, "DBQuery 获取连接失败：%s", formatConnSummary(runConfig))
-		return connection.QueryResult{Success: false, Message: err.Error()}
+		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 	}
 
 	query = sanitizeSQLForPgLike(runConfig.Type, query)
@@ -391,6 +400,21 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 	}
 	ctx, cancel := utils.ContextWithTimeout(time.Duration(timeoutSeconds) * time.Second)
 	defer cancel()
+
+	// Store cancel function for potential manual cancellation
+	a.queryMu.Lock()
+	a.runningQueries[queryID] = queryContext{
+		cancel:  cancel,
+		started: time.Now(),
+	}
+	a.queryMu.Unlock()
+
+	// Ensure query is removed from tracking when done
+	defer func() {
+		a.queryMu.Lock()
+		delete(a.runningQueries, queryID)
+		a.queryMu.Unlock()
+	}()
 
 	lowerQuery := strings.TrimSpace(strings.ToLower(query))
 	isReadQuery := strings.HasPrefix(lowerQuery, "select") || strings.HasPrefix(lowerQuery, "show") || strings.HasPrefix(lowerQuery, "describe") || strings.HasPrefix(lowerQuery, "explain")
@@ -410,9 +434,9 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 		}
 		if err != nil {
 			logger.Error(err, "DBQuery 查询失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
-			return connection.QueryResult{Success: false, Message: err.Error()}
+			return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 		}
-		return connection.QueryResult{Success: true, Data: data, Fields: columns}
+		return connection.QueryResult{Success: true, Data: data, Fields: columns, QueryID: queryID}
 	} else {
 		var affected int64
 		if e, ok := dbInst.(interface {
@@ -424,9 +448,9 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 		}
 		if err != nil {
 			logger.Error(err, "DBQuery 执行失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
-			return connection.QueryResult{Success: false, Message: err.Error()}
+			return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 		}
-		return connection.QueryResult{Success: true, Data: map[string]int64{"affectedRows": affected}}
+		return connection.QueryResult{Success: true, Data: map[string]int64{"affectedRows": affected}, QueryID: queryID}
 	}
 }
 
