@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, Checkbox, Space, Select } from 'antd';
+import { Tree, message, Dropdown, MenuProps, Input, Button, Modal, Form, Badge, Checkbox, Space, Select, Popover, Tooltip } from 'antd';
 	import {
 	  DatabaseOutlined,
 	  TableOutlined,
@@ -50,6 +50,7 @@ type BatchTableExportMode = 'schema' | 'backup' | 'dataOnly';
 type BatchObjectType = 'table' | 'view';
 type BatchObjectFilterType = 'all' | BatchObjectType;
 type BatchSelectionScope = 'filtered' | 'all';
+type SearchScope = 'smart' | 'object' | 'database' | 'host' | 'tag';
 
 interface BatchObjectItem {
   title: string;
@@ -58,6 +59,19 @@ interface BatchObjectItem {
   objectType: BatchObjectType;
   dataRef: any;
 }
+
+const SEARCH_SCOPE_OPTIONS: Array<{ value: SearchScope; label: string }> = [
+  { value: 'smart', label: '智能' },
+  { value: 'object', label: '表对象' },
+  { value: 'database', label: '库' },
+  { value: 'host', label: 'Host' },
+  { value: 'tag', label: '标签' },
+];
+
+const SEARCH_SCOPE_LABEL_MAP: Record<SearchScope, string> = SEARCH_SCOPE_OPTIONS.reduce((acc, option) => {
+  acc[option.value] = option.label;
+  return acc;
+}, {} as Record<SearchScope, string>);
 
 const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> = ({ onEditConnection }) => {
   const connections = useStore(state => state.connections);
@@ -95,6 +109,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   };
   const bgMain = getBg('#141414');
   const [searchValue, setSearchValue] = useState('');
+  const [searchScopes, setSearchScopes] = useState<SearchScope[]>(['smart']);
+  const [isSearchScopePopoverOpen, setIsSearchScopePopoverOpen] = useState(false);
   const searchInputRef = useRef<any>(null);
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [autoExpandParent, setAutoExpandParent] = useState(true);
@@ -2361,28 +2377,205 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
     setSearchValue(value);
   };
 
-  const loop = (data: TreeNode[]): TreeNode[] => {
-      const result: TreeNode[] = [];
-      data.forEach(item => {
-          const match = item.title.toLowerCase().indexOf(searchValue.toLowerCase()) > -1;
-          if (item.children) {
-              const filteredChildren = loop(item.children);
-              if (filteredChildren.length > 0 || match) {
-                  result.push({ ...item, children: filteredChildren });
-              }
+  const toggleSearchScope = (scope: SearchScope) => {
+      setSearchScopes((prev) => {
+          if (scope === 'smart') {
+              return ['smart'];
+          }
+          const withoutSmart = prev.filter((item) => item !== 'smart');
+          if (withoutSmart.includes(scope)) {
+              const next = withoutSmart.filter((item) => item !== scope);
+              return next.length > 0 ? next : ['smart'];
+          }
+          return [...withoutSmart, scope];
+      });
+  };
+
+  const setSearchScopeChecked = (scope: SearchScope, checked: boolean) => {
+      if (scope === 'smart') {
+          if (checked) {
+              setSearchScopes(['smart']);
+          } else if (searchScopes.length === 1 && searchScopes[0] === 'smart') {
+              setSearchScopes(['smart']);
           } else {
-              if (match) {
+              setSearchScopes((prev) => {
+                  const next = prev.filter((item) => item !== 'smart');
+                  return next.length > 0 ? next : ['smart'];
+              });
+          }
+          return;
+      }
+
+      if (checked) {
+          setSearchScopes((prev) => {
+              const withoutSmart = prev.filter((item) => item !== 'smart');
+              if (withoutSmart.includes(scope)) {
+                  return withoutSmart;
+              }
+              return [...withoutSmart, scope];
+          });
+      } else {
+          setSearchScopes((prev) => {
+              const next = prev.filter((item) => item !== scope && item !== 'smart');
+              return next.length > 0 ? next : ['smart'];
+          });
+      }
+  };
+
+  const searchScopeSummary = useMemo(() => {
+      if (searchScopes.includes('smart')) {
+          return '智能';
+      }
+      return searchScopes.map((scope) => SEARCH_SCOPE_LABEL_MAP[scope]).join(' + ');
+  }, [searchScopes]);
+
+  const searchScopePopoverContent = useMemo(() => {
+      const smartSelected = searchScopes.includes('smart');
+      const scopedOptions = SEARCH_SCOPE_OPTIONS.filter((option) => option.value !== 'smart');
+      return (
+          <div style={{ minWidth: 220, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 12, color: '#8c8c8c' }}>搜索范围</div>
+              <Checkbox
+                  checked={smartSelected}
+                  onChange={(e) => setSearchScopeChecked('smart', e.target.checked)}
+              >
+                  智能（推荐）
+              </Checkbox>
+              <div style={{ paddingLeft: 12, display: 'grid', gap: 6 }}>
+                  {scopedOptions.map((option) => (
+                      <Checkbox
+                          key={option.value}
+                          checked={searchScopes.includes(option.value)}
+                          onChange={(e) => setSearchScopeChecked(option.value, e.target.checked)}
+                      >
+                          {option.label}
+                      </Checkbox>
+                  ))}
+              </div>
+              <div style={{ fontSize: 12, color: '#8c8c8c' }}>
+                  智能与其他项互斥；其他项支持多选。
+              </div>
+          </div>
+      );
+  }, [searchScopes]);
+
+  const parseHostOnlyToken = (value: unknown): string[] => {
+      const raw = String(value || '').trim();
+      if (!raw) {
+          return [];
+      }
+      let text = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+      if (text.includes('/')) {
+          text = text.split('/')[0];
+      }
+      if (text.includes('?')) {
+          text = text.split('?')[0];
+      }
+      if (text.includes('@')) {
+          text = text.split('@').pop() || '';
+      }
+      return text
+          .split(',')
+          .map((entry) => {
+              const token = entry.trim();
+              if (!token) return '';
+              if (token.startsWith('[')) {
+                  const rightBracketIndex = token.indexOf(']');
+                  if (rightBracketIndex > 0) {
+                      return token.slice(0, rightBracketIndex + 1).toLowerCase();
+                  }
+              }
+              const colonIndex = token.lastIndexOf(':');
+              if (colonIndex > 0) {
+                  return token.slice(0, colonIndex).toLowerCase();
+              }
+              return token.toLowerCase();
+          })
+          .filter(Boolean);
+  };
+
+  const getConnectionHostSearchText = (node: TreeNode): string => {
+      if (node.type !== 'connection') return '';
+      const config = node.dataRef?.config || {};
+      const hostTokens = [
+          ...parseHostOnlyToken(config.host),
+          ...(Array.isArray(config.hosts) ? config.hosts.flatMap((entry: string) => parseHostOnlyToken(entry)) : []),
+          ...parseHostOnlyToken(config.uri),
+      ];
+      const uniqueHosts = Array.from(new Set(hostTokens));
+      return uniqueHosts.join(' ');
+  };
+
+  const getConnectionNameSearchText = (node: TreeNode): string => {
+      if (node.type !== 'connection') return '';
+      const name = node.dataRef?.name ?? node.title;
+      return String(name || '').toLowerCase();
+  };
+
+  const isObjectNode = (node: TreeNode): boolean => {
+      return node.type === 'table'
+          || node.type === 'view'
+          || node.type === 'db-trigger'
+          || node.type === 'routine'
+          || node.type === 'object-group';
+  };
+
+  const matchByScopes = (node: TreeNode, keyword: string, scopes: SearchScope[]): boolean => {
+      const title = String(node.title || '').toLowerCase();
+      if (scopes.includes('database') && node.type === 'database' && title.includes(keyword)) {
+          return true;
+      }
+      if (scopes.includes('tag') && node.type === 'tag' && title.includes(keyword)) {
+          return true;
+      }
+      if (scopes.includes('host') && node.type === 'connection' && getConnectionHostSearchText(node).includes(keyword)) {
+          return true;
+      }
+      if (scopes.includes('object') && isObjectNode(node) && title.includes(keyword)) {
+          return true;
+      }
+      return false;
+  };
+
+  const loop = (data: TreeNode[], keyword: string): TreeNode[] => {
+      const isSmartMode = searchScopes.includes('smart');
+      const result: TreeNode[] = [];
+      data.forEach((item) => {
+          const titleMatch = String(item.title || '').toLowerCase().includes(keyword);
+          const smartMatch = item.type === 'connection'
+              ? getConnectionNameSearchText(item).includes(keyword) || getConnectionHostSearchText(item).includes(keyword)
+              : titleMatch;
+          const scopedMatch = matchByScopes(item, keyword, searchScopes);
+          const selfMatch = isSmartMode ? smartMatch : scopedMatch;
+          const filteredChildren = item.children ? loop(item.children, keyword) : [];
+
+          if (selfMatch) {
+              const shouldKeepFullSubtree = isSmartMode
+                  || item.type === 'connection'
+                  || item.type === 'database'
+                  || item.type === 'tag';
+              if (item.children && shouldKeepFullSubtree) {
+                  result.push(item);
+              } else if (item.children && filteredChildren.length > 0) {
+                  result.push({ ...item, children: filteredChildren });
+              } else {
                   result.push(item);
               }
+              return;
+          }
+
+          if (filteredChildren.length > 0) {
+              result.push({ ...item, children: filteredChildren });
           }
       });
       return result;
   };
 
   const displayTreeData = useMemo(() => {
-      if (!searchValue) return treeData;
-      return loop(treeData);
-  }, [searchValue, treeData]);
+      const keyword = searchValue.trim().toLowerCase();
+      if (!keyword) return treeData;
+      return loop(treeData, keyword);
+  }, [searchValue, searchScopes, treeData]);
 
   const getNodeMenuItems = (node: any): MenuProps['items'] => {
     const conn = node.dataRef as SavedConnection;
@@ -3061,7 +3254,28 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <div style={{ padding: '4px 8px' }}>
-            <Search ref={searchInputRef} placeholder="搜索..." onChange={onSearch} size="small" />
+            <Space.Compact block size="small">
+                <Search
+                    ref={searchInputRef}
+                    placeholder="搜索..."
+                    onChange={onSearch}
+                    size="small"
+                    style={{ width: '100%' }}
+                />
+                <Popover
+                    content={searchScopePopoverContent}
+                    trigger="click"
+                    placement="bottomRight"
+                    open={isSearchScopePopoverOpen}
+                    onOpenChange={setIsSearchScopePopoverOpen}
+                >
+                    <Tooltip title={`搜索范围：${searchScopeSummary}`}>
+                        <Button size="small" icon={<DownOutlined />} style={{ width: 86 }}>
+                            范围{searchScopes.includes('smart') ? '(智)' : `(${searchScopes.length})`}
+                        </Button>
+                    </Tooltip>
+                </Popover>
+            </Space.Compact>
         </div>
 
         {/* Toolbar */}
