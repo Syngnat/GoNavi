@@ -6,12 +6,20 @@ export function ApplyChanges(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ApplyChanges'](arg1, arg2, arg3, arg4);
 }
 
+export function CancelQuery(arg1) {
+  return window['go']['app']['App']['CancelQuery'](arg1);
+}
+
 export function CheckDriverNetworkStatus() {
   return window['go']['app']['App']['CheckDriverNetworkStatus']();
 }
 
 export function CheckForUpdates() {
   return window['go']['app']['App']['CheckForUpdates']();
+}
+
+export function CleanupStaleQueries(arg1) {
+  return window['go']['app']['App']['CleanupStaleQueries'](arg1);
 }
 
 export function ConfigureDriverRuntimeDirectory(arg1) {
@@ -64,6 +72,10 @@ export function DBQuery(arg1, arg2, arg3) {
 
 export function DBQueryIsolated(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBQueryIsolated'](arg1, arg2, arg3);
+}
+
+export function DBQueryWithCancel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBQueryWithCancel'](arg1, arg2, arg3, arg4);
 }
 
 export function DBShowCreateTable(arg1, arg2, arg3) {
@@ -128,6 +140,10 @@ export function ExportTablesDataSQL(arg1, arg2, arg3) {
 
 export function ExportTablesSQL(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ExportTablesSQL'](arg1, arg2, arg3, arg4);
+}
+
+export function GenerateQueryID() {
+  return window['go']['app']['App']['GenerateQueryID']();
 }
 
 export function GetAppInfo() {

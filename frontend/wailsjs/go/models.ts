@@ -184,6 +184,7 @@ export namespace connection {
 	    message: string;
 	    data: any;
 	    fields?: string[];
+	    queryId?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new QueryResult(source);
@@ -195,6 +196,7 @@ export namespace connection {
 	        this.message = source["message"];
 	        this.data = source["data"];
 	        this.fields = source["fields"];
+	        this.queryId = source["queryId"];
 	    }
 	}
 	
