@@ -666,7 +666,7 @@ function App() {
           void message.warning("没有连接可导出");
           return;
       }
-      const res = await (window as any).go.app.App.ExportData(connections, [], "connections", "json");
+      const res = await (window as any).go.app.App.ExportData(connections, ['id','name','config','includeDatabases','includeRedisDatabases'], "connections", "json");
       if (res.success) {
           void message.success("导出成功");
       } else if (res.message !== "Cancelled") {

@@ -1601,6 +1601,21 @@ func writeRowsToFile(f *os.File, data []map[string]interface{}, columns []string
 		return writeRowsToHTML(f, data, columns)
 	}
 
+	// 如果列名为空但数据不为空，从所有数据行提取所有键
+	if len(columns) == 0 && len(data) > 0 {
+		keySet := make(map[string]bool)
+		for _, row := range data {
+			for key := range row {
+				keySet[key] = true
+			}
+		}
+		// 排序以确保输出一致
+		for key := range keySet {
+			columns = append(columns, key)
+		}
+		sort.Strings(columns)
+	}
+
 	var csvWriter *csv.Writer
 	var jsonEncoder *json.Encoder
 	isJsonFirstRow := true
