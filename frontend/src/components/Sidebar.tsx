@@ -894,7 +894,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                   const res = await (window as any).go.app.App.RedisGetDatabases(config);
                   if (res.success) {
                       setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
-                      let dbs = (res.data as any[]).map((db: any) => ({
+                      const redisRows: any[] = Array.isArray(res.data) ? res.data : [];
+                      let dbs = redisRows.map((db: any) => ({
                           title: `db${db.index}${db.keys > 0 ? ` (${db.keys})` : ''}`,
                           key: `${conn.id}-db${db.index}`,
                           icon: <DatabaseOutlined style={{ color: '#DC382D' }} />,
@@ -925,7 +926,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	          const res = await DBGetDatabases(config as any);
 	          if (res.success) {
 	            setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
-	            let dbs = (res.data as any[]).map((row: any) => ({
+                const dbRows: any[] = Array.isArray(res.data) ? res.data : [];
+	            let dbs = dbRows.map((row: any) => ({
 	              title: row.Database || row.database,
               key: `${conn.id}-${row.Database || row.database}`,
               icon: <DatabaseOutlined />,
@@ -991,7 +993,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	          if (res.success) {
 	            setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
 
-	            const tableEntries = (res.data as any[]).map((row: any) => {
+                const tableRows: any[] = Array.isArray(res.data) ? res.data : [];
+	            const tableEntries = tableRows.map((row: any) => {
 	                const tableName = Object.values(row)[0] as string;
 	                const parsed = splitQualifiedName(tableName);
 	                return {
@@ -1007,7 +1010,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 loadFunctions(conn, conn.dbName),
             ]);
 
-            const viewEntries = viewsResult.views.map((viewName) => {
+            const viewRows: string[] = Array.isArray(viewsResult.views) ? viewsResult.views : [];
+            const triggerRows: any[] = Array.isArray(triggersResult.triggers) ? triggersResult.triggers : [];
+            const routineRows: any[] = Array.isArray(routinesResult.routines) ? routinesResult.routines : [];
+
+            const viewEntries = viewRows.map((viewName: string) => {
                 const parsed = splitQualifiedName(viewName);
                 return {
                     viewName,
@@ -1021,7 +1028,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 const triggerSeen = new Set<string>();
                 const metadataDialect = getMetadataDialect(conn as SavedConnection);
 
-                triggersResult.triggers.forEach((trigger) => {
+                triggerRows.forEach((trigger: any) => {
                     const triggerParsed = splitQualifiedName(trigger.triggerName);
                     const tableParsed = splitQualifiedName(trigger.tableName);
                     const schemaName = tableParsed.schemaName || triggerParsed.schemaName || String(conn.dbName || '').trim();
@@ -1046,7 +1053,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                 return deduped;
             })();
 
-            const routineEntries = routinesResult.routines.map((routine) => {
+            const routineEntries = routineRows.map((routine: any) => {
                 const parsed = splitQualifiedName(routine.routineName);
                 const typeLabel = routine.routineType === 'PROCEDURE' ? 'P' : 'F';
                 return {
@@ -1576,7 +1583,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
       const res = await DBGetDatabases(config as any);
       if (res.success) {
-          let dbs = (res.data as any[]).map((row: any) => {
+          const dbRows: any[] = Array.isArray(res.data) ? res.data : [];
+          let dbs = dbRows.map((row: any) => {
               const dbName = row.Database || row.database;
               return {
                   title: dbName,
@@ -1617,9 +1625,11 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           return;
       }
 
-      const viewSet = new Set(viewResult.views.map(view => view.toLowerCase()));
+      const tableRows: any[] = Array.isArray(res.data) ? res.data : [];
+      const viewRows: string[] = Array.isArray(viewResult.views) ? viewResult.views : [];
+      const viewSet = new Set(viewRows.map((view: string) => view.toLowerCase()));
 
-      const tableObjects: BatchObjectItem[] = (res.data as any[])
+      const tableObjects: BatchObjectItem[] = tableRows
           .map((row: any) => Object.values(row)[0] as string)
           .filter((tableName: string) => !viewSet.has(tableName.toLowerCase()))
           .map((tableName: string) => ({
@@ -1630,7 +1640,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               dataRef: { ...conn, tableName, dbName, objectType: 'table' },
           }));
 
-      const viewObjects: BatchObjectItem[] = viewResult.views.map((viewName: string) => ({
+      const viewObjects: BatchObjectItem[] = viewRows.map((viewName: string) => ({
           title: getSidebarTableDisplayName(conn, viewName),
           key: `${conn.id}-${dbName}-view-${viewName}`,
           objectName: viewName,
@@ -1796,7 +1806,8 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 
       const res = await DBGetDatabases(config as any);
       if (res.success) {
-          let dbs = (res.data as any[]).map((row: any) => {
+          const dbRows: any[] = Array.isArray(res.data) ? res.data : [];
+          let dbs = dbRows.map((row: any) => {
               const dbName = row.Database || row.database;
               return {
                   title: dbName,
