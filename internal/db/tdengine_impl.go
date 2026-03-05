@@ -40,11 +40,12 @@ func (t *TDengineDB) getDSN(config connection.ConnectionConfig) string {
 		path = "/" + dbName
 	}
 
-	return fmt.Sprintf("%s:%s@ws(%s)%s", user, pass, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), path)
+	netType := resolveTDengineNet(config)
+	return fmt.Sprintf("%s:%s@%s(%s)%s", user, pass, netType, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), path)
 }
 
 func (t *TDengineDB) Connect(config connection.ConnectionConfig) error {
-	var dsn string
+	runConfig := config
 
 	if config.UseSSH {
 		logger.Infof("TDengine 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
@@ -68,23 +69,38 @@ func (t *TDengineDB) Connect(config connection.ConnectionConfig) error {
 		localConfig.Host = host
 		localConfig.Port = port
 		localConfig.UseSSH = false
-		dsn = t.getDSN(localConfig)
+		runConfig = localConfig
 		logger.Infof("TDengine 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		dsn = t.getDSN(config)
 	}
 
-	db, err := sql.Open("taosWS", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
+	attempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		attempts = append(attempts, withSSLDisabled(runConfig))
 	}
-	t.conn = db
-	t.pingTimeout = getConnectTimeout(config)
 
-	if err := t.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+	var failures []string
+	for idx, attempt := range attempts {
+		dsn := t.getDSN(attempt)
+		db, err := sql.Open("taosWS", dsn)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
+			continue
+		}
+		t.conn = db
+		t.pingTimeout = getConnectTimeout(attempt)
+
+		if err := t.Ping(); err != nil {
+			_ = db.Close()
+			t.conn = nil
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
+			continue
+		}
+		if idx > 0 {
+			logger.Warnf("TDengine SSL 优先连接失败，已回退至明文连接")
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (t *TDengineDB) Close() error {

@@ -107,7 +107,7 @@ func (c *ClickHouseDB) buildClickHouseOptions(config connection.ConnectionConfig
 	if readTimeout < minClickHouseReadTimeout {
 		readTimeout = minClickHouseReadTimeout
 	}
-	return &clickhouse.Options{
+	opts := &clickhouse.Options{
 		Addr: []string{
 			net.JoinHostPort(config.Host, strconv.Itoa(config.Port)),
 		},
@@ -119,6 +119,10 @@ func (c *ClickHouseDB) buildClickHouseOptions(config connection.ConnectionConfig
 		DialTimeout: connectTimeout,
 		ReadTimeout: readTimeout,
 	}
+	if tlsConfig := resolveGenericTLSConfig(config); tlsConfig != nil {
+		opts.TLS = tlsConfig
+	}
+	return opts
 }
 
 func (c *ClickHouseDB) Connect(config connection.ConnectionConfig) error {
@@ -165,13 +169,30 @@ func (c *ClickHouseDB) Connect(config connection.ConnectionConfig) error {
 		logger.Infof("ClickHouse 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
 	}
 
-	c.conn = clickhouse.OpenDB(c.buildClickHouseOptions(runConfig))
-
-	if err := c.Ping(); err != nil {
-		_ = c.Close()
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+	attempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		attempts = append(attempts, withSSLDisabled(runConfig))
 	}
-	return nil
+
+	var failures []string
+	for idx, attempt := range attempts {
+		c.conn = clickhouse.OpenDB(c.buildClickHouseOptions(attempt))
+		if err := c.Ping(); err != nil {
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
+			if c.conn != nil {
+				_ = c.conn.Close()
+				c.conn = nil
+			}
+			continue
+		}
+		if idx > 0 {
+			logger.Warnf("ClickHouse SSL 优先连接失败，已回退至明文连接")
+		}
+		return nil
+	}
+
+	_ = c.Close()
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (c *ClickHouseDB) Close() error {

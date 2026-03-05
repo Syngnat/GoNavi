@@ -65,12 +65,13 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 	port := config.Port
 
 	// Construct DSN
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable connect_timeout=%d",
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
 		quoteConnValue(address),
 		port,
 		quoteConnValue(config.User),
 		quoteConnValue(config.Password),
 		quoteConnValue(config.Database),
+		quoteConnValue(resolvePostgresSSLMode(config)),
 		getConnectTimeoutSeconds(config),
 	)
 
@@ -78,8 +79,7 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (k *KingbaseDB) Connect(config connection.ConnectionConfig) error {
-	var dsn string
-	var err error
+	runConfig := config
 
 	if config.UseSSH {
 		// Create SSH tunnel with local port forwarding
@@ -108,23 +108,37 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) error {
 		localConfig.Port = port
 		localConfig.UseSSH = false
 
-		dsn = k.getDSN(localConfig)
+		runConfig = localConfig
 		logger.Infof("人大金仓通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		dsn = k.getDSN(config)
 	}
 
-	// Open using "kingbase" driver
-	db, err := sql.Open("kingbase", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
+	attempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		attempts = append(attempts, withSSLDisabled(runConfig))
 	}
-	k.conn = db
-	k.pingTimeout = getConnectTimeout(config)
-	if err := k.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+
+	var failures []string
+	for idx, attempt := range attempts {
+		dsn := k.getDSN(attempt)
+		db, err := sql.Open("kingbase", dsn)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
+			continue
+		}
+		k.conn = db
+		k.pingTimeout = getConnectTimeout(attempt)
+		if err := k.Ping(); err != nil {
+			_ = db.Close()
+			k.conn = nil
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
+			continue
+		}
+		if idx > 0 {
+			logger.Warnf("人大金仓 SSL 优先连接失败，已回退至明文连接")
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (k *KingbaseDB) Close() error {

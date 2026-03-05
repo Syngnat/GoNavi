@@ -4,6 +4,7 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/url"
@@ -328,37 +329,62 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) error {
 		m.database = "admin"
 	}
 
-	attemptConfigs := buildMongoAuthAttempts(connectConfig)
+	sslAttempts := []connection.ConnectionConfig{connectConfig}
+	if shouldTrySSLPreferredFallback(connectConfig) {
+		sslAttempts = append(sslAttempts, withSSLDisabled(connectConfig))
+	}
+
 	var errorDetails []string
-	for index, attemptConfig := range attemptConfigs {
-		authLabel := "主库凭据"
-		if index > 0 {
-			authLabel = "从库凭据"
+	for sslIndex, sslConfig := range sslAttempts {
+		sslLabel := "SSL"
+		if sslIndex > 0 {
+			sslLabel = "明文回退"
 		}
 
-		uri := m.getURI(attemptConfig)
-		clientOpts := options.Client().ApplyURI(uri)
-		if attemptConfig.UseProxy {
-			clientOpts.SetDialer(&mongoProxyDialer{proxyConfig: attemptConfig.Proxy})
-		}
-		connectCtx, connectCancel := context.WithTimeout(context.Background(), m.pingTimeout)
-		client, err := mongo.Connect(connectCtx, clientOpts)
-		connectCancel()
-		if err != nil {
-			errorDetails = append(errorDetails, fmt.Sprintf("%s连接失败: %v", authLabel, err))
-			continue
-		}
+		attemptConfigs := buildMongoAuthAttempts(sslConfig)
+		for index, attemptConfig := range attemptConfigs {
+			authLabel := "主库凭据"
+			if index > 0 {
+				authLabel = "从库凭据"
+			}
 
-		m.client = client
-		if err := m.Ping(); err != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			_ = client.Disconnect(ctx)
-			cancel()
-			m.client = nil
-			errorDetails = append(errorDetails, fmt.Sprintf("%s验证失败: %v", authLabel, err))
-			continue
+			if sslIndex > 0 {
+				attemptConfig.URI = ""
+			}
+			uri := m.getURI(attemptConfig)
+			clientOpts := options.Client().ApplyURI(uri)
+			tlsEnabled, tlsInsecure := resolveMongoTLSSettings(attemptConfig)
+			if tlsEnabled {
+				clientOpts.SetTLSConfig(&tls.Config{
+					MinVersion:         tls.VersionTLS12,
+					InsecureSkipVerify: tlsInsecure,
+				})
+			}
+			if attemptConfig.UseProxy {
+				clientOpts.SetDialer(&mongoProxyDialer{proxyConfig: attemptConfig.Proxy})
+			}
+			connectCtx, connectCancel := context.WithTimeout(context.Background(), m.pingTimeout)
+			client, err := mongo.Connect(connectCtx, clientOpts)
+			connectCancel()
+			if err != nil {
+				errorDetails = append(errorDetails, fmt.Sprintf("%s %s连接失败: %v", sslLabel, authLabel, err))
+				continue
+			}
+
+			m.client = client
+			if err := m.Ping(); err != nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				_ = client.Disconnect(ctx)
+				cancel()
+				m.client = nil
+				errorDetails = append(errorDetails, fmt.Sprintf("%s %s验证失败: %v", sslLabel, authLabel, err))
+				continue
+			}
+			if sslIndex > 0 {
+				logger.Warnf("MongoDB(v1) SSL 优先连接失败，已回退至明文连接")
+			}
+			return nil
 		}
-		return nil
 	}
 
 	if len(errorDetails) > 0 {

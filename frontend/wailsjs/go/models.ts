@@ -96,6 +96,10 @@ export namespace connection {
 	    password: string;
 	    savePassword?: boolean;
 	    database: string;
+	    useSSL?: boolean;
+	    sslMode?: string;
+	    sslCertPath?: string;
+	    sslKeyPath?: string;
 	    useSSH: boolean;
 	    ssh: SSHConfig;
 	    useProxy?: boolean;
@@ -130,6 +134,10 @@ export namespace connection {
 	        this.password = source["password"];
 	        this.savePassword = source["savePassword"];
 	        this.database = source["database"];
+	        this.useSSL = source["useSSL"];
+	        this.sslMode = source["sslMode"];
+	        this.sslCertPath = source["sslCertPath"];
+	        this.sslKeyPath = source["sslKeyPath"];
 	        this.useSSH = source["useSSH"];
 	        this.ssh = this.convertValues(source["ssh"], SSHConfig);
 	        this.useProxy = source["useProxy"];

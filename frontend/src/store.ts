@@ -56,6 +56,23 @@ const SUPPORTED_CONNECTION_TYPES = new Set([
   'duckdb',
   'custom',
 ]);
+const SSL_SUPPORTED_CONNECTION_TYPES = new Set([
+  'mysql',
+  'mariadb',
+  'diros',
+  'sphinx',
+  'dameng',
+  'clickhouse',
+  'postgres',
+  'sqlserver',
+  'oracle',
+  'kingbase',
+  'highgo',
+  'vastbase',
+  'mongodb',
+  'redis',
+  'tdengine',
+]);
 
 const getDefaultPortByType = (type: string): number => {
   switch (type) {
@@ -185,6 +202,16 @@ const sanitizeConnectionConfig = (value: unknown): ConnectionConfig => {
   const defaultPort = getDefaultPortByType(type);
   const savePassword = typeof raw.savePassword === 'boolean' ? raw.savePassword : true;
   const mongoSrv = !!raw.mongoSrv;
+  const sslCapable = SSL_SUPPORTED_CONNECTION_TYPES.has(type);
+  const sslModeRaw = toTrimmedString(raw.sslMode, 'preferred').toLowerCase();
+  const sslMode: 'preferred' | 'required' | 'skip-verify' | 'disable' =
+    sslModeRaw === 'required'
+      ? 'required'
+      : sslModeRaw === 'skip-verify'
+        ? 'skip-verify'
+        : sslModeRaw === 'disable'
+          ? 'disable'
+          : 'preferred';
 
   const sshRaw = (raw.ssh && typeof raw.ssh === 'object') ? raw.ssh as Record<string, unknown> : {};
   const ssh = {
@@ -214,6 +241,10 @@ const sanitizeConnectionConfig = (value: unknown): ConnectionConfig => {
     password: savePassword ? toTrimmedString(raw.password) : '',
     savePassword,
     database: toTrimmedString(raw.database),
+    useSSL: sslCapable ? !!raw.useSSL : false,
+    sslMode: sslCapable ? sslMode : 'disable',
+    sslCertPath: sslCapable ? toTrimmedString(raw.sslCertPath) : '',
+    sslKeyPath: sslCapable ? toTrimmedString(raw.sslKeyPath) : '',
     useSSH: !!raw.useSSH,
     ssh,
     useProxy: !!raw.useProxy,

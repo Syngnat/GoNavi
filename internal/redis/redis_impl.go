@@ -2,6 +2,7 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strconv"
@@ -201,25 +202,48 @@ func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) error {
 
 	timeout := normalizeRedisTimeout(config.Timeout)
 	if r.isCluster {
-		opts := &redis.ClusterOptions{
-			Addrs:        seedAddrs,
-			Username:     strings.TrimSpace(config.User),
-			Password:     config.Password,
-			DialTimeout:  timeout,
-			ReadTimeout:  timeout,
-			WriteTimeout: timeout,
+		attempts := []connection.ConnectionConfig{config}
+		if shouldTryRedisSSLPreferredFallback(config) {
+			attempts = append(attempts, withRedisSSLDisabled(config))
 		}
-		clusterClient := redis.NewClusterClient(opts)
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		if err := clusterClient.Ping(ctx).Err(); err != nil {
-			clusterClient.Close()
-			return fmt.Errorf("Redis 集群连接失败: %w", err)
+
+		var failures []string
+		for idx, attempt := range attempts {
+			var tlsConfig *tls.Config
+			if cfg := resolveRedisTLSConfig(attempt); cfg != nil {
+				if host, _, err := net.SplitHostPort(seedAddrs[0]); err == nil && host != "" {
+					cfg.ServerName = host
+				}
+				tlsConfig = cfg
+			}
+			opts := &redis.ClusterOptions{
+				Addrs:        seedAddrs,
+				Username:     strings.TrimSpace(attempt.User),
+				Password:     attempt.Password,
+				DialTimeout:  timeout,
+				ReadTimeout:  timeout,
+				WriteTimeout: timeout,
+				TLSConfig:    tlsConfig,
+			}
+			clusterClient := redis.NewClusterClient(opts)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			pingErr := clusterClient.Ping(ctx).Err()
+			cancel()
+			if pingErr != nil {
+				clusterClient.Close()
+				failures = append(failures, fmt.Sprintf("第%d次连接失败: %v", idx+1, pingErr))
+				continue
+			}
+			r.client = clusterClient
+			r.clusterClient = clusterClient
+			r.config = attempt
+			if idx > 0 {
+				logger.Warnf("Redis 集群 SSL 优先连接失败，已回退至明文连接")
+			}
+			logger.Infof("Redis 集群连接成功: seeds=%s 逻辑库=db%d", strings.Join(seedAddrs, ","), r.currentDB)
+			return nil
 		}
-		r.client = clusterClient
-		r.clusterClient = clusterClient
-		logger.Infof("Redis 集群连接成功: seeds=%s 逻辑库=db%d", strings.Join(seedAddrs, ","), r.currentDB)
-		return nil
+		return fmt.Errorf("Redis 集群连接失败: %s", strings.Join(failures, "；"))
 	}
 
 	addr := seedAddrs[0]
@@ -233,29 +257,53 @@ func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) error {
 		logger.Infof("Redis 通过 SSH 隧道连接: %s -> %s:%d", addr, config.Host, config.Port)
 	}
 
-	opts := &redis.Options{
-		Addr:         addr,
-		Username:     strings.TrimSpace(config.User),
-		Password:     config.Password,
-		DB:           r.currentDB,
-		DialTimeout:  timeout,
-		ReadTimeout:  timeout,
-		WriteTimeout: timeout,
+	attempts := []connection.ConnectionConfig{config}
+	if shouldTryRedisSSLPreferredFallback(config) {
+		attempts = append(attempts, withRedisSSLDisabled(config))
 	}
 
-	singleClient := redis.NewClient(opts)
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	var failures []string
+	for idx, attempt := range attempts {
+		var tlsConfig *tls.Config
+		if cfg := resolveRedisTLSConfig(attempt); cfg != nil {
+			if host, _, err := net.SplitHostPort(addr); err == nil && host != "" {
+				cfg.ServerName = host
+			}
+			tlsConfig = cfg
+		}
 
-	if err := singleClient.Ping(ctx).Err(); err != nil {
-		singleClient.Close()
-		return fmt.Errorf("Redis 连接失败: %w", err)
+		opts := &redis.Options{
+			Addr:         addr,
+			Username:     strings.TrimSpace(attempt.User),
+			Password:     attempt.Password,
+			DB:           r.currentDB,
+			DialTimeout:  timeout,
+			ReadTimeout:  timeout,
+			WriteTimeout: timeout,
+			TLSConfig:    tlsConfig,
+		}
+
+		singleClient := redis.NewClient(opts)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		pingErr := singleClient.Ping(ctx).Err()
+		cancel()
+		if pingErr != nil {
+			singleClient.Close()
+			failures = append(failures, fmt.Sprintf("第%d次连接失败: %v", idx+1, pingErr))
+			continue
+		}
+
+		r.client = singleClient
+		r.singleClient = singleClient
+		r.config = attempt
+		if idx > 0 {
+			logger.Warnf("Redis SSL 优先连接失败，已回退至明文连接")
+		}
+		logger.Infof("Redis 连接成功: %s DB=%d", addr, r.currentDB)
+		return nil
 	}
 
-	r.client = singleClient
-	r.singleClient = singleClient
-	logger.Infof("Redis 连接成功: %s DB=%d", addr, r.currentDB)
-	return nil
+	return fmt.Errorf("Redis 连接失败: %s", strings.Join(failures, "；"))
 }
 
 // Close closes the Redis connection

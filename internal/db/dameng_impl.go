@@ -36,6 +36,14 @@ func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 	if config.Database != "" {
 		q.Set("schema", config.Database)
 	}
+	if config.UseSSL {
+		if certPath := strings.TrimSpace(config.SSLCertPath); certPath != "" {
+			q.Set("SSL_CERT_PATH", certPath)
+		}
+		if keyPath := strings.TrimSpace(config.SSLKeyPath); keyPath != "" {
+			q.Set("SSL_KEY_PATH", keyPath)
+		}
+	}
 	if escapedPassword != config.Password {
 		// 达梦驱动要求：密码包含特殊字符时，password 需 PathEscape，并添加 escapeProcess=true 让驱动解码。
 		q.Set("escapeProcess", "true")
@@ -50,8 +58,12 @@ func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
-	var dsn string
-	var err error
+	runConfig := config
+	if runConfig.UseSSL {
+		if strings.TrimSpace(runConfig.SSLCertPath) == "" || strings.TrimSpace(runConfig.SSLKeyPath) == "" {
+			return fmt.Errorf("达梦启用 SSL 需要同时配置证书路径(sslCertPath)与私钥路径(sslKeyPath)")
+		}
+	}
 
 	if config.UseSSH {
 		// Create SSH tunnel with local port forwarding
@@ -80,22 +92,37 @@ func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
 		localConfig.Port = port
 		localConfig.UseSSH = false
 
-		dsn = d.getDSN(localConfig)
+		runConfig = localConfig
 		logger.Infof("达梦数据库通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		dsn = d.getDSN(config)
 	}
 
-	db, err := sql.Open("dm", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
+	attempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		attempts = append(attempts, withSSLDisabled(runConfig))
 	}
-	d.conn = db
-	d.pingTimeout = getConnectTimeout(config)
-	if err := d.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+
+	var failures []string
+	for idx, attempt := range attempts {
+		dsn := d.getDSN(attempt)
+		db, err := sql.Open("dm", dsn)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
+			continue
+		}
+		d.conn = db
+		d.pingTimeout = getConnectTimeout(attempt)
+		if err := d.Ping(); err != nil {
+			_ = db.Close()
+			d.conn = nil
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
+			continue
+		}
+		if idx > 0 {
+			logger.Warnf("达梦 SSL 优先连接失败，已回退至明文连接")
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (d *DamengDB) Close() error {

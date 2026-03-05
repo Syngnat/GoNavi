@@ -184,9 +184,10 @@ func (m *MySQLDB) getDSN(config connection.ConnectionConfig) string {
 	}
 
 	timeout := getConnectTimeoutSeconds(config)
+	tlsMode := resolveMySQLTLSMode(config)
 
-	return fmt.Sprintf("%s:%s@%s(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=%ds",
-		config.User, config.Password, protocol, address, database, timeout)
+	return fmt.Sprintf("%s:%s@%s(%s)/%s?charset=utf8mb4&parseTime=True&loc=Local&timeout=%ds&tls=%s",
+		config.User, config.Password, protocol, address, database, timeout, url.QueryEscape(tlsMode))
 }
 
 func resolveMySQLCredential(config connection.ConnectionConfig, addressIndex int) (string, string) {

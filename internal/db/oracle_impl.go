@@ -35,12 +35,23 @@ func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
 	}
 	u.User = url.UserPassword(config.User, config.Password)
 	u.RawPath = "/" + url.PathEscape(database)
+	q := url.Values{}
+	switch normalizedSSLMode(config) {
+	case sslModeRequired:
+		q.Set("SSL", "TRUE")
+		q.Set("SSL VERIFY", "TRUE")
+	case sslModeSkipVerify, sslModePreferred:
+		q.Set("SSL", "TRUE")
+		q.Set("SSL VERIFY", "FALSE")
+	}
+	if encoded := q.Encode(); encoded != "" {
+		u.RawQuery = encoded
+	}
 	return u.String()
 }
 
 func (o *OracleDB) Connect(config connection.ConnectionConfig) error {
-	var dsn string
-	var err error
+	runConfig := config
 	serviceName := strings.TrimSpace(config.Database)
 	if serviceName == "" {
 		return fmt.Errorf("Oracle 连接缺少服务名（Service Name），请在连接配置中填写，例如 ORCLPDB1")
@@ -73,22 +84,37 @@ func (o *OracleDB) Connect(config connection.ConnectionConfig) error {
 		localConfig.Port = port
 		localConfig.UseSSH = false
 
-		dsn = o.getDSN(localConfig)
+		runConfig = localConfig
 		logger.Infof("Oracle 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		dsn = o.getDSN(config)
 	}
 
-	db, err := sql.Open("oracle", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
+	attempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		attempts = append(attempts, withSSLDisabled(runConfig))
 	}
-	o.conn = db
-	o.pingTimeout = getConnectTimeout(config)
-	if err := o.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+
+	var failures []string
+	for idx, attempt := range attempts {
+		dsn := o.getDSN(attempt)
+		db, err := sql.Open("oracle", dsn)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
+			continue
+		}
+		o.conn = db
+		o.pingTimeout = getConnectTimeout(attempt)
+		if err := o.Ping(); err != nil {
+			_ = db.Close()
+			o.conn = nil
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
+			continue
+		}
+		if idx > 0 {
+			logger.Warnf("Oracle SSL 优先连接失败，已回退至明文连接")
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (o *OracleDB) Close() error {

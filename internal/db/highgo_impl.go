@@ -42,7 +42,7 @@ func (h *HighGoDB) getDSN(config connection.ConnectionConfig) string {
 	}
 	u.User = url.UserPassword(config.User, config.Password)
 	q := url.Values{}
-	q.Set("sslmode", "disable")
+	q.Set("sslmode", resolvePostgresSSLMode(config))
 	q.Set("connect_timeout", strconv.Itoa(getConnectTimeoutSeconds(config)))
 	u.RawQuery = q.Encode()
 
@@ -50,7 +50,7 @@ func (h *HighGoDB) getDSN(config connection.ConnectionConfig) string {
 }
 
 func (h *HighGoDB) Connect(config connection.ConnectionConfig) error {
-	var dsn string
+	runConfig := config
 
 	if config.UseSSH {
 		logger.Infof("HighGo 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
@@ -76,23 +76,37 @@ func (h *HighGoDB) Connect(config connection.ConnectionConfig) error {
 		localConfig.Port = port
 		localConfig.UseSSH = false
 
-		dsn = h.getDSN(localConfig)
+		runConfig = localConfig
 		logger.Infof("HighGo 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
-	} else {
-		dsn = h.getDSN(config)
 	}
 
-	db, err := sql.Open("highgo", dsn)
-	if err != nil {
-		return fmt.Errorf("打开数据库连接失败：%w", err)
+	attempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		attempts = append(attempts, withSSLDisabled(runConfig))
 	}
-	h.conn = db
-	h.pingTimeout = getConnectTimeout(config)
 
-	if err := h.Ping(); err != nil {
-		return fmt.Errorf("连接建立后验证失败：%w", err)
+	var failures []string
+	for idx, attempt := range attempts {
+		dsn := h.getDSN(attempt)
+		db, err := sql.Open("highgo", dsn)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
+			continue
+		}
+		h.conn = db
+		h.pingTimeout = getConnectTimeout(attempt)
+		if err := h.Ping(); err != nil {
+			_ = db.Close()
+			h.conn = nil
+			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
+			continue
+		}
+		if idx > 0 {
+			logger.Warnf("HighGo SSL 优先连接失败，已回退至明文连接")
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
 func (h *HighGoDB) Close() error {

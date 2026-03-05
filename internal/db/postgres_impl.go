@@ -62,7 +62,7 @@ func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 	}
 	u.User = url.UserPassword(config.User, config.Password)
 	q := url.Values{}
-	q.Set("sslmode", "disable")
+	q.Set("sslmode", resolvePostgresSSLMode(config))
 	q.Set("connect_timeout", strconv.Itoa(getConnectTimeoutSeconds(config)))
 	u.RawQuery = q.Encode()
 
@@ -126,34 +126,49 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 		logger.Infof("PostgreSQL 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
 	}
 
-	attemptDBs := resolvePostgresConnectDatabases(runConfig)
+	sslAttempts := []connection.ConnectionConfig{runConfig}
+	if shouldTrySSLPreferredFallback(runConfig) {
+		sslAttempts = append(sslAttempts, withSSLDisabled(runConfig))
+	}
+
 	var failures []string
-	for _, dbName := range attemptDBs {
-		attemptConfig := runConfig
-		attemptConfig.Database = dbName
-		dsn := p.getDSN(attemptConfig)
-
-		dbConn, err := sql.Open("postgres", dsn)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("数据库=%s 打开连接失败: %v", dbName, err))
-			continue
-		}
-		p.conn = dbConn
-
-		// Force verification
-		if err := p.Ping(); err != nil {
-			failures = append(failures, fmt.Sprintf("数据库=%s 验证失败: %v", dbName, err))
-			_ = dbConn.Close()
-			p.conn = nil
-			continue
+	for sslIndex, sslConfig := range sslAttempts {
+		sslLabel := "SSL"
+		if sslIndex > 0 {
+			sslLabel = "明文回退"
 		}
 
-		if strings.TrimSpace(config.Database) == "" && !strings.EqualFold(dbName, "postgres") {
-			logger.Infof("PostgreSQL 自动选择连接数据库：%s", dbName)
-		}
+		attemptDBs := resolvePostgresConnectDatabases(sslConfig)
+		for _, dbName := range attemptDBs {
+			attemptConfig := sslConfig
+			attemptConfig.Database = dbName
+			dsn := p.getDSN(attemptConfig)
 
-		cleanupOnFailure = false
-		return nil
+			dbConn, err := sql.Open("postgres", dsn)
+			if err != nil {
+				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
+				continue
+			}
+			p.conn = dbConn
+
+			// Force verification
+			if err := p.Ping(); err != nil {
+				failures = append(failures, fmt.Sprintf("%s 数据库=%s 验证失败: %v", sslLabel, dbName, err))
+				_ = dbConn.Close()
+				p.conn = nil
+				continue
+			}
+
+			if sslIndex > 0 {
+				logger.Warnf("PostgreSQL SSL 优先连接失败，已回退至明文连接")
+			}
+			if strings.TrimSpace(config.Database) == "" && !strings.EqualFold(dbName, "postgres") {
+				logger.Infof("PostgreSQL 自动选择连接数据库：%s", dbName)
+			}
+
+			cleanupOnFailure = false
+			return nil
+		}
 	}
 
 	if len(failures) == 0 {

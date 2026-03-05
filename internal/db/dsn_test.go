@@ -33,6 +33,44 @@ func TestPostgresDSN_EscapesPassword(t *testing.T) {
 	}
 }
 
+func TestPostgresDSN_SSLModeRequireWhenEnabled(t *testing.T) {
+	p := &PostgresDB{}
+	cfg := connection.ConnectionConfig{
+		Type:     "postgres",
+		Host:     "127.0.0.1",
+		Port:     5432,
+		User:     "user",
+		Password: "pass",
+		Database: "db",
+		UseSSL:   true,
+		SSLMode:  "required",
+	}
+
+	dsn := p.getDSN(cfg)
+	if !strings.Contains(dsn, "sslmode=require") {
+		t.Fatalf("dsn 缺少 sslmode=require 参数：%s", dsn)
+	}
+}
+
+func TestMySQLDSN_UsesTLSParamWhenSSLEnabled(t *testing.T) {
+	m := &MySQLDB{}
+	cfg := connection.ConnectionConfig{
+		Type:     "mysql",
+		Host:     "127.0.0.1",
+		Port:     3306,
+		User:     "root",
+		Password: "pass",
+		Database: "db",
+		UseSSL:   true,
+		SSLMode:  "required",
+	}
+
+	dsn := m.getDSN(cfg)
+	if !strings.Contains(dsn, "tls=true") {
+		t.Fatalf("dsn 缺少 tls=true 参数：%s", dsn)
+	}
+}
+
 func TestOracleDSN_EscapesUserAndPassword(t *testing.T) {
 	o := &OracleDB{}
 	cfg := connection.ConnectionConfig{
@@ -82,6 +120,30 @@ func TestDamengDSN_EscapesPasswordAndEnablesEscapeProcess(t *testing.T) {
 	}
 }
 
+func TestDamengDSN_AppendsSSLCertAndKeyParams(t *testing.T) {
+	d := &DamengDB{}
+	cfg := connection.ConnectionConfig{
+		Type:        "dameng",
+		Host:        "127.0.0.1",
+		Port:        5236,
+		User:        "SYSDBA",
+		Password:    "pass",
+		Database:    "DBName",
+		UseSSL:      true,
+		SSLMode:     "required",
+		SSLCertPath: "C:\\certs\\client-cert.pem",
+		SSLKeyPath:  "C:\\certs\\client-key.pem",
+	}
+
+	dsn := d.getDSN(cfg)
+	if !strings.Contains(dsn, "SSL_CERT_PATH=") {
+		t.Fatalf("dsn 缺少 SSL_CERT_PATH 参数：%s", dsn)
+	}
+	if !strings.Contains(dsn, "SSL_KEY_PATH=") {
+		t.Fatalf("dsn 缺少 SSL_KEY_PATH 参数：%s", dsn)
+	}
+}
+
 func TestKingbaseDSN_QuotesPasswordWithSpaces(t *testing.T) {
 	k := &KingbaseDB{}
 	cfg := connection.ConnectionConfig{
@@ -113,6 +175,47 @@ func TestTDengineDSN_UsesWebSocketFormat(t *testing.T) {
 	dsn := td.getDSN(cfg)
 	if !strings.HasPrefix(dsn, "root:taosdata@ws(127.0.0.1:6041)/power") {
 		t.Fatalf("tdengine dsn 格式不正确：%s", dsn)
+	}
+}
+
+func TestTDengineDSN_UsesSecureWebSocketWhenSSLEnabled(t *testing.T) {
+	td := &TDengineDB{}
+	cfg := connection.ConnectionConfig{
+		Type:     "tdengine",
+		Host:     "127.0.0.1",
+		Port:     6041,
+		User:     "root",
+		Password: "taosdata",
+		Database: "power",
+		UseSSL:   true,
+		SSLMode:  "required",
+	}
+
+	dsn := td.getDSN(cfg)
+	if !strings.HasPrefix(dsn, "root:taosdata@wss(127.0.0.1:6041)/power") {
+		t.Fatalf("tdengine ssl dsn 格式不正确：%s", dsn)
+	}
+}
+
+func TestSQLServerDSN_EncryptMapping(t *testing.T) {
+	s := &SqlServerDB{}
+	cfg := connection.ConnectionConfig{
+		Type:     "sqlserver",
+		Host:     "127.0.0.1",
+		Port:     1433,
+		User:     "sa",
+		Password: "pass",
+		Database: "master",
+		UseSSL:   true,
+		SSLMode:  "required",
+	}
+
+	dsn := s.getDSN(cfg)
+	if !strings.Contains(strings.ToLower(dsn), "encrypt=true") {
+		t.Fatalf("sqlserver dsn 缺少 encrypt=true：%s", dsn)
+	}
+	if !strings.Contains(strings.ToLower(dsn), "trustservercertificate=false") {
+		t.Fatalf("sqlserver dsn 缺少 TrustServerCertificate=false：%s", dsn)
 	}
 }
 

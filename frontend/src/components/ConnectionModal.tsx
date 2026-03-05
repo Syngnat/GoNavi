@@ -54,6 +54,26 @@ const singleHostUriSchemesByType: Record<string, string[]> = {
   vastbase: ['vastbase'],
 };
 
+const sslSupportedTypes = new Set([
+    'mysql',
+    'mariadb',
+    'diros',
+    'sphinx',
+    'dameng',
+    'clickhouse',
+    'postgres',
+    'sqlserver',
+    'oracle',
+    'kingbase',
+    'highgo',
+    'vastbase',
+    'mongodb',
+    'redis',
+    'tdengine',
+]);
+
+const supportsSSLForType = (type: string) => sslSupportedTypes.has(String(type || '').trim().toLowerCase());
+
 const isFileDatabaseType = (type: string) => type === 'sqlite' || type === 'duckdb';
 
 type DriverStatusSnapshot = {
@@ -78,6 +98,7 @@ const ConnectionModal: React.FC<{
 }> = ({ open, onClose, initialValues, onOpenDriverManager }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const [useSSL, setUseSSL] = useState(false);
   const [useSSH, setUseSSH] = useState(false);
   const [useProxy, setUseProxy] = useState(false);
   const [dbType, setDbType] = useState('mysql');
@@ -107,6 +128,17 @@ const ConnectionModal: React.FC<{
   const mongoTopology = Form.useWatch('mongoTopology', form) || 'single';
   const mongoSrv = Form.useWatch('mongoSrv', form) || false;
   const redisTopology = Form.useWatch('redisTopology', form) || 'single';
+  const isMySQLLike = dbType === 'mysql' || dbType === 'mariadb' || dbType === 'diros' || dbType === 'sphinx';
+  const isSSLType = supportsSSLForType(dbType);
+  const sslHintText = isMySQLLike
+      ? '当 MySQL/MariaDB/Doris/Sphinx 开启安全传输策略时，请启用 SSL；本地自签证书场景可先用 Preferred 或 Skip Verify。'
+      : dbType === 'dameng'
+          ? '达梦驱动启用 SSL 需要客户端证书与私钥路径（sslCertPath / sslKeyPath）。'
+      : dbType === 'sqlserver'
+          ? 'SQL Server 推荐在生产环境使用 Required，并关闭 TrustServerCertificate。'
+          : dbType === 'mongodb'
+              ? 'MongoDB 可通过 TLS 保护连接，证书校验异常时可先用 Skip Verify 验证连通性。'
+              : '建议优先使用 Required；仅在测试环境或自签证书场景使用 Skip Verify。';
 
   const getSectionBg = (darkHex: string) => {
       if (!darkMode) {
@@ -364,7 +396,7 @@ const ConnectionModal: React.FC<{
       uriText: string,
       expectedSchemes: string[],
       defaultPort: number,
-  ): { host: string; port: number; username: string; password: string; database: string } | null => {
+  ): { host: string; port: number; username: string; password: string; database: string; params: URLSearchParams } | null => {
       let parsed: ReturnType<typeof parseMultiHostUri> | null = null;
       for (const scheme of expectedSchemes) {
           parsed = parseMultiHostUri(uriText, scheme);
@@ -392,6 +424,7 @@ const ConnectionModal: React.FC<{
           username: parsed.username,
           password: parsed.password,
           database: parsed.database || '',
+          params: parsed.params,
       };
   };
 
@@ -425,12 +458,22 @@ const ConnectionModal: React.FC<{
           const primary = parseHostPort(hostList[0] || `localhost:${mysqlDefaultPort}`, mysqlDefaultPort);
           const timeoutValue = Number(parsed.params.get('timeout'));
           const topology = String(parsed.params.get('topology') || '').toLowerCase();
+          const tlsValue = String(parsed.params.get('tls') || '').trim().toLowerCase();
+          const sslMode = tlsValue === 'true'
+              ? 'required'
+              : tlsValue === 'skip-verify'
+                  ? 'skip-verify'
+                  : tlsValue === 'preferred'
+                      ? 'preferred'
+                      : 'disable';
           return {
               host: primary?.host || 'localhost',
               port: primary?.port || mysqlDefaultPort,
               user: parsed.username,
               password: parsed.password,
               database: parsed.database || '',
+              useSSL: sslMode !== 'disable',
+              sslMode,
               mysqlTopology: hostList.length > 1 || topology === 'replica' ? 'replica' : 'single',
               mysqlReplicaHosts: hostList.slice(1),
               timeout: Number.isFinite(timeoutValue) && timeoutValue > 0
@@ -451,7 +494,7 @@ const ConnectionModal: React.FC<{
       }
 
       if (type === 'redis') {
-          const parsed = parseMultiHostUri(trimmedUri, 'redis');
+          const parsed = parseMultiHostUri(trimmedUri, 'redis') || parseMultiHostUri(trimmedUri, 'rediss');
           if (!parsed) {
               return null;
           }
@@ -469,10 +512,15 @@ const ConnectionModal: React.FC<{
           const topologyParam = String(parsed.params.get('topology') || '').toLowerCase();
           const dbText = String(parsed.database || '').trim().replace(/^\//, '');
           const dbIndex = Number(dbText);
+          const isRediss = trimmedUri.toLowerCase().startsWith('rediss://');
+          const skipVerifyText = String(parsed.params.get('skip_verify') || '').trim().toLowerCase();
+          const skipVerify = skipVerifyText === '1' || skipVerifyText === 'true' || skipVerifyText === 'yes' || skipVerifyText === 'on';
           return {
               host: primary?.host || 'localhost',
               port: primary?.port || 6379,
               password: parsed.password || '',
+              useSSL: isRediss,
+              sslMode: isRediss ? (skipVerify ? 'skip-verify' : 'required') : 'disable',
               redisTopology: hostList.length > 1 || topologyParam === 'cluster' ? 'cluster' : 'single',
               redisHosts: hostList.slice(1),
               redisDB: Number.isFinite(dbIndex) && dbIndex >= 0 && dbIndex <= 15 ? Math.trunc(dbIndex) : 0,
@@ -501,12 +549,18 @@ const ConnectionModal: React.FC<{
               ? { host: hostList[0] || 'localhost', port: 27017 }
               : parseHostPort(hostList[0] || 'localhost:27017', 27017);
           const timeoutMs = Number(parsed.params.get('connectTimeoutMS') || parsed.params.get('serverSelectionTimeoutMS'));
+          const tlsText = String(parsed.params.get('tls') || parsed.params.get('ssl') || '').trim().toLowerCase();
+          const tlsInsecureText = String(parsed.params.get('tlsInsecure') || parsed.params.get('sslInsecure') || '').trim().toLowerCase();
+          const tlsEnabled = tlsText === '1' || tlsText === 'true' || tlsText === 'yes' || tlsText === 'on';
+          const tlsInsecure = tlsInsecureText === '1' || tlsInsecureText === 'true' || tlsInsecureText === 'yes' || tlsInsecureText === 'on';
           return {
               host: primary?.host || 'localhost',
               port: primary?.port || 27017,
               user: parsed.username,
               password: parsed.password,
               database: parsed.database || '',
+              useSSL: tlsEnabled,
+              sslMode: tlsEnabled ? (tlsInsecure ? 'skip-verify' : 'required') : 'disable',
               mongoTopology: hostList.length > 1 || !!parsed.params.get('replicaSet') ? 'replica' : 'single',
               mongoHosts: hostList.slice(1),
               mongoSrv: isSrv,
@@ -531,13 +585,94 @@ const ConnectionModal: React.FC<{
               // Oracle 需要显式 service name，避免 URI 解析后放过必填校验。
               return null;
           }
-          return {
+          const parsedValues: Record<string, any> = {
               host: parsed.host,
               port: parsed.port,
               user: parsed.username,
               password: parsed.password,
               database: parsed.database,
           };
+
+          if (supportsSSLForType(type)) {
+              const normalizeBool = (raw: unknown) => {
+                  const text = String(raw ?? '').trim().toLowerCase();
+                  return text === '1' || text === 'true' || text === 'yes' || text === 'on';
+              };
+              if (type === 'postgres' || type === 'kingbase' || type === 'highgo' || type === 'vastbase') {
+                  const sslMode = String(parsed.params.get('sslmode') || '').trim().toLowerCase();
+                  if (sslMode) {
+                      parsedValues.useSSL = sslMode !== 'disable' && sslMode !== 'false';
+                      parsedValues.sslMode = sslMode === 'disable' || sslMode === 'false'
+                          ? 'disable'
+                          : 'required';
+                  }
+              } else if (type === 'sqlserver') {
+                  const encrypt = String(parsed.params.get('encrypt') || '').trim().toLowerCase();
+                  const trust = String(parsed.params.get('TrustServerCertificate') || parsed.params.get('trustservercertificate') || '').trim().toLowerCase();
+                  const encrypted = encrypt === 'true' || encrypt === 'mandatory' || encrypt === 'yes' || encrypt === '1' || encrypt === 'strict';
+                  if (encrypted) {
+                      parsedValues.useSSL = true;
+                      parsedValues.sslMode = trust === 'true' || trust === '1' || trust === 'yes' ? 'skip-verify' : 'required';
+                  } else if (encrypt) {
+                      parsedValues.useSSL = false;
+                      parsedValues.sslMode = 'disable';
+                  }
+              } else if (type === 'clickhouse') {
+                  const secure = String(parsed.params.get('secure') || parsed.params.get('tls') || '').trim().toLowerCase();
+                  const skipVerify = normalizeBool(parsed.params.get('skip_verify'));
+                  if (secure) {
+                      parsedValues.useSSL = normalizeBool(secure);
+                      parsedValues.sslMode = skipVerify ? 'skip-verify' : (parsedValues.useSSL ? 'required' : 'disable');
+                  }
+              } else if (type === 'dameng') {
+                  const certPath = String(
+                      parsed.params.get('SSL_CERT_PATH')
+                      || parsed.params.get('ssl_cert_path')
+                      || parsed.params.get('sslCertPath')
+                      || ''
+                  ).trim();
+                  const keyPath = String(
+                      parsed.params.get('SSL_KEY_PATH')
+                      || parsed.params.get('ssl_key_path')
+                      || parsed.params.get('sslKeyPath')
+                      || ''
+                  ).trim();
+                  parsedValues.sslCertPath = certPath;
+                  parsedValues.sslKeyPath = keyPath;
+                  if (certPath || keyPath) {
+                      parsedValues.useSSL = true;
+                      parsedValues.sslMode = 'required';
+                  }
+              } else if (type === 'oracle') {
+                  const ssl = String(parsed.params.get('SSL') || parsed.params.get('ssl') || '').trim().toLowerCase();
+                  const sslVerify = String(
+                      parsed.params.get('SSL VERIFY')
+                      || parsed.params.get('ssl verify')
+                      || parsed.params.get('SSL_VERIFY')
+                      || parsed.params.get('ssl_verify')
+                      || ''
+                  ).trim().toLowerCase();
+                  if (ssl) {
+                      parsedValues.useSSL = normalizeBool(ssl);
+                      if (!parsedValues.useSSL) {
+                          parsedValues.sslMode = 'disable';
+                      } else {
+                          parsedValues.sslMode = normalizeBool(sslVerify || 'true') ? 'required' : 'skip-verify';
+                      }
+                  }
+              } else if (type === 'tdengine') {
+                  const protocol = String(parsed.params.get('protocol') || '').trim().toLowerCase();
+                  const skipVerify = normalizeBool(parsed.params.get('skip_verify'));
+                  if (protocol === 'wss') {
+                      parsedValues.useSSL = true;
+                      parsedValues.sslMode = skipVerify ? 'skip-verify' : 'required';
+                  } else if (protocol === 'ws') {
+                      parsedValues.useSSL = false;
+                      parsedValues.sslMode = 'disable';
+                  }
+              }
+          };
+          return parsedValues;
       }
 
       return null;
@@ -609,6 +744,16 @@ const ConnectionModal: React.FC<{
           if (hosts.length > 1 || values.mysqlTopology === 'replica') {
               params.set('topology', 'replica');
           }
+          if (values.useSSL) {
+              const mode = String(values.sslMode || 'preferred').trim().toLowerCase();
+              if (mode === 'required') {
+                  params.set('tls', 'true');
+              } else if (mode === 'skip-verify') {
+                  params.set('tls', 'skip-verify');
+              } else {
+                  params.set('tls', 'preferred');
+              }
+          }
           if (Number.isFinite(timeout) && timeout > 0) {
               params.set('timeout', String(timeout));
           }
@@ -634,8 +779,15 @@ const ConnectionModal: React.FC<{
               ? Math.max(0, Math.min(15, Math.trunc(Number(values.redisDB))))
               : 0;
           const dbPath = `/${redisDB}`;
+          if (values.useSSL) {
+              const mode = String(values.sslMode || 'preferred').trim().toLowerCase();
+              if (mode === 'skip-verify' || mode === 'preferred') {
+                  params.set('skip_verify', 'true');
+              }
+          }
           const query = params.toString();
-          return `redis://${redisAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
+          const scheme = values.useSSL ? 'rediss' : 'redis';
+          return `${scheme}://${redisAuth}${hosts.join(',')}${dbPath}${query ? `?${query}` : ''}`;
       }
 
       if (isFileDatabaseType(type)) {
@@ -675,6 +827,15 @@ const ConnectionModal: React.FC<{
           if (authMechanism) {
               params.set('authMechanism', authMechanism);
           }
+          if (values.useSSL) {
+              const mode = String(values.sslMode || 'preferred').trim().toLowerCase();
+              params.set('tls', 'true');
+              if (mode === 'skip-verify' || mode === 'preferred') {
+                  params.set('tlsInsecure', 'true');
+              } else {
+                  params.delete('tlsInsecure');
+              }
+          }
           if (Number.isFinite(timeout) && timeout > 0) {
               params.set('connectTimeoutMS', String(timeout * 1000));
               params.set('serverSelectionTimeoutMS', String(timeout * 1000));
@@ -686,7 +847,45 @@ const ConnectionModal: React.FC<{
 
       const scheme = type === 'postgres' ? 'postgresql' : type;
       const dbPath = database ? `/${encodeURIComponent(database)}` : '';
-      return `${scheme}://${encodedAuth}${toAddress(host, port, defaultPort)}${dbPath}`;
+      const params = new URLSearchParams();
+      if (supportsSSLForType(type) && values.useSSL) {
+          const mode = String(values.sslMode || 'preferred').trim().toLowerCase();
+          if (type === 'postgres' || type === 'kingbase' || type === 'highgo' || type === 'vastbase') {
+              params.set('sslmode', 'require');
+          } else if (type === 'sqlserver') {
+              params.set('encrypt', 'true');
+              params.set('TrustServerCertificate', mode === 'skip-verify' || mode === 'preferred' ? 'true' : 'false');
+          } else if (type === 'clickhouse') {
+              params.set('secure', 'true');
+              if (mode === 'skip-verify' || mode === 'preferred') {
+                  params.set('skip_verify', 'true');
+              }
+          } else if (type === 'dameng') {
+              const certPath = String(values.sslCertPath || '').trim();
+              const keyPath = String(values.sslKeyPath || '').trim();
+              if (certPath) params.set('SSL_CERT_PATH', certPath);
+              if (keyPath) params.set('SSL_KEY_PATH', keyPath);
+          } else if (type === 'oracle') {
+              params.set('SSL', 'TRUE');
+              params.set('SSL VERIFY', mode === 'required' ? 'TRUE' : 'FALSE');
+          } else if (type === 'tdengine') {
+              params.set('protocol', 'wss');
+              if (mode === 'skip-verify' || mode === 'preferred') {
+                  params.set('skip_verify', 'true');
+              }
+          }
+      } else if (supportsSSLForType(type)) {
+          if (type === 'postgres' || type === 'kingbase' || type === 'highgo' || type === 'vastbase') {
+              params.set('sslmode', 'disable');
+          } else if (type === 'sqlserver') {
+              params.set('encrypt', 'disable');
+              params.set('TrustServerCertificate', 'true');
+          } else if (type === 'tdengine') {
+              params.set('protocol', 'ws');
+          }
+      }
+      const query = params.toString();
+      return `${scheme}://${encodedAuth}${toAddress(host, port, defaultPort)}${dbPath}${query ? `?${query}` : ''}`;
   };
 
   const handleGenerateURI = () => {
@@ -838,6 +1037,10 @@ const ConnectionModal: React.FC<{
                   uri: config.uri || '',
                   includeDatabases: initialValues.includeDatabases,
                   includeRedisDatabases: initialValues.includeRedisDatabases,
+                  useSSL: !!config.useSSL,
+                  sslMode: config.sslMode || 'preferred',
+                  sslCertPath: config.sslCertPath || '',
+                  sslKeyPath: config.sslKeyPath || '',
                   useSSH: config.useSSH,
                   sshHost: config.ssh?.host,
                   sshPort: config.ssh?.port,
@@ -871,6 +1074,7 @@ const ConnectionModal: React.FC<{
                   mongoReplicaUser: config.mongoReplicaUser || '',
                   mongoReplicaPassword: config.mongoReplicaPassword || ''
               });
+              setUseSSL(!!config.useSSL);
               setUseSSH(config.useSSH || false);
               setUseProxy(config.useProxy || false);
               setDbType(configType);
@@ -882,6 +1086,7 @@ const ConnectionModal: React.FC<{
               // Create mode: Start at step 1
               setStep(1);
               form.resetFields();
+              setUseSSL(false);
               setUseSSH(false);
               setUseProxy(false);
               setDbType('mysql');
@@ -932,6 +1137,7 @@ const ConnectionModal: React.FC<{
 
       setLoading(false);
       form.resetFields();
+      setUseSSL(false);
       setUseSSH(false);
       setUseProxy(false);
       setDbType('mysql');
@@ -1073,6 +1279,21 @@ const ConnectionModal: React.FC<{
       const type = String(mergedValues.type || '').toLowerCase();
       const defaultPort = getDefaultPortByType(type);
       const isFileDbType = isFileDatabaseType(type);
+      const sslCapableType = supportsSSLForType(type);
+      const sslModeRaw = String(mergedValues.sslMode || 'preferred').trim().toLowerCase();
+      const sslMode: 'preferred' | 'required' | 'skip-verify' | 'disable' = sslModeRaw === 'required'
+          ? 'required'
+          : sslModeRaw === 'skip-verify'
+              ? 'skip-verify'
+              : sslModeRaw === 'disable'
+                  ? 'disable'
+                  : 'preferred';
+      const effectiveUseSSL = sslCapableType && !!mergedValues.useSSL;
+      const sslCertPath = sslCapableType ? String(mergedValues.sslCertPath || '').trim() : '';
+      const sslKeyPath = sslCapableType ? String(mergedValues.sslKeyPath || '').trim() : '';
+      if (type === 'dameng' && effectiveUseSSL && (!sslCertPath || !sslKeyPath)) {
+          throw new Error('达梦启用 SSL 时必须填写证书路径与私钥路径');
+      }
 
       let primaryHost = 'localhost';
       let primaryPort = defaultPort;
@@ -1194,6 +1415,10 @@ const ConnectionModal: React.FC<{
           password: keepPassword ? (mergedValues.password || "") : "",
           savePassword: savePassword,
           database: mergedValues.database || "",
+          useSSL: effectiveUseSSL,
+          sslMode: effectiveUseSSL ? sslMode : 'disable',
+          sslCertPath: sslCertPath,
+          sslKeyPath: sslKeyPath,
           useSSH: !!mergedValues.useSSH,
           ssh: sshConfig,
           useProxy: effectiveUseProxy,
@@ -1233,6 +1458,7 @@ const ConnectionModal: React.FC<{
 
       const defaultPort = getDefaultPortByType(type);
       if (isFileDatabaseType(type)) {
+          setUseSSL(false);
           setUseSSH(false);
           setUseProxy(false);
           form.setFieldsValue({
@@ -1241,6 +1467,10 @@ const ConnectionModal: React.FC<{
               user: '',
               password: '',
               database: '',
+              useSSL: false,
+              sslMode: 'preferred',
+              sslCertPath: '',
+              sslKeyPath: '',
               useSSH: false,
               sshHost: '',
               sshPort: 22,
@@ -1273,10 +1503,16 @@ const ConnectionModal: React.FC<{
           });
       } else if (type !== 'custom') {
           const defaultUser = type === 'clickhouse' ? 'default' : 'root';
+          const sslCapableType = supportsSSLForType(type);
+          setUseSSL(false);
           form.setFieldsValue({
               user: defaultUser,
               database: '',
               port: defaultPort,
+              useSSL: sslCapableType ? false : undefined,
+              sslMode: sslCapableType ? 'preferred' : undefined,
+              sslCertPath: sslCapableType ? '' : undefined,
+              sslKeyPath: sslCapableType ? '' : undefined,
               mysqlTopology: 'single',
               redisTopology: 'single',
               mongoTopology: 'single',
@@ -1420,6 +1656,10 @@ const ConnectionModal: React.FC<{
             port: 3306,
             database: '',
             user: 'root',
+            useSSL: false,
+            sslMode: 'preferred',
+            sslCertPath: '',
+            sslKeyPath: '',
             useSSH: false,
             sshPort: 22,
             useProxy: false,
@@ -1451,6 +1691,7 @@ const ConnectionModal: React.FC<{
             if (changed.uri !== undefined || changed.type !== undefined) {
                 setUriFeedback(null);
             }
+            if (changed.useSSL !== undefined) setUseSSL(changed.useSSL);
             if (changed.useSSH !== undefined) setUseSSH(changed.useSSH);
             if (changed.useProxy !== undefined) setUseProxy(changed.useProxy);
             if (changed.proxyType !== undefined) {
@@ -1835,6 +2076,56 @@ const ConnectionModal: React.FC<{
 
         {!isFileDb && (
         <>
+            {isSSLType && (
+                <>
+                    <Divider style={{ margin: '12px 0' }} />
+                    <Form.Item name="useSSL" valuePropName="checked" style={{ marginBottom: 0 }}>
+                        <Checkbox>使用 SSL/TLS</Checkbox>
+                    </Form.Item>
+                    {useSSL && (
+                        <div style={tunnelSectionStyle}>
+                            <Form.Item
+                                name="sslMode"
+                                label="SSL 模式"
+                                rules={[{ required: true, message: '请选择 SSL 模式' }]}
+                                style={{ marginBottom: 8 }}
+                            >
+                                <Select
+                                    options={[
+                                        { value: 'preferred', label: 'Preferred（优先 SSL，推荐）' },
+                                        { value: 'required', label: 'Required（必须 SSL，校验证书）' },
+                                        { value: 'skip-verify', label: 'Skip Verify（必须 SSL，跳过证书校验）' },
+                                    ]}
+                                />
+                            </Form.Item>
+                            {dbType === 'dameng' && (
+                                <>
+                                    <Form.Item
+                                        name="sslCertPath"
+                                        label="客户端证书路径 (SSL_CERT_PATH)"
+                                        rules={[{ required: true, message: '达梦 SSL 需要证书路径' }]}
+                                        style={{ marginBottom: 8 }}
+                                    >
+                                        <Input placeholder="例如: C:\\certs\\client-cert.pem" />
+                                    </Form.Item>
+                                    <Form.Item
+                                        name="sslKeyPath"
+                                        label="客户端私钥路径 (SSL_KEY_PATH)"
+                                        rules={[{ required: true, message: '达梦 SSL 需要私钥路径' }]}
+                                        style={{ marginBottom: 8 }}
+                                    >
+                                        <Input placeholder="例如: C:\\certs\\client-key.pem" />
+                                    </Form.Item>
+                                </>
+                            )}
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                {sslHintText}
+                            </Text>
+                        </div>
+                    )}
+                </>
+            )}
+
             <Divider style={{ margin: '12px 0' }} />
             <Form.Item name="useSSH" valuePropName="checked" style={{ marginBottom: 0 }}>
                 <Checkbox>使用 SSH 隧道 (SSH Tunnel)</Checkbox>
