@@ -579,6 +579,7 @@ interface DataGridProps {
     onToggleFilter?: () => void;
     exportSqlWithFilter?: string;
     onApplyFilter?: (conditions: GridFilterCondition[]) => void;
+    appliedFilterConditions?: FilterCondition[];
 }
 
 type GridFilterCondition = FilterCondition & {
@@ -598,7 +599,7 @@ type ColumnMeta = {
 
 const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, exportScope = 'table', resultSql, dbName, connectionId, pkColumns = [], readOnly = false,
-    onReload, onSort, onPageChange, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, exportSqlWithFilter, onApplyFilter
+    onReload, onSort, onPageChange, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, exportSqlWithFilter, onApplyFilter, appliedFilterConditions
 }) => {
   const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
@@ -1063,9 +1064,39 @@ const DataGrid: React.FC<DataGridProps> = ({
   const [modifiedRows, setModifiedRows] = useState<Record<string, any>>({});
   const [deletedRowKeys, setDeletedRowKeys] = useState<Set<string>>(new Set());
 
+  const normalizeFilterLogic = useCallback((logic: unknown): 'AND' | 'OR' => {
+      return String(logic || '').trim().toUpperCase() === 'OR' ? 'OR' : 'AND';
+  }, []);
+
+  const normalizeGridFilterConditions = useCallback((conditions?: FilterCondition[]): GridFilterCondition[] => {
+      if (!Array.isArray(conditions)) return [];
+      return conditions.map((cond, index) => {
+          const fallbackId = index + 1;
+          const nextId = Number.isFinite(Number(cond?.id)) ? Number(cond?.id) : fallbackId;
+          const op = String(cond?.op || '=');
+          const rawColumn = String(cond?.column || '');
+          return {
+              id: nextId,
+              enabled: cond?.enabled !== false,
+              logic: normalizeFilterLogic(cond?.logic),
+              column: rawColumn || (op === 'CUSTOM' ? '' : String(columnNames[0] || '')),
+              op,
+              value: String(cond?.value ?? ''),
+              value2: String(cond?.value2 ?? ''),
+          };
+      });
+  }, [columnNames, normalizeFilterLogic]);
+
   // Filter State
   const [filterConditions, setFilterConditions] = useState<GridFilterCondition[]>([]);
   const [nextFilterId, setNextFilterId] = useState(1);
+
+  useEffect(() => {
+      const nextConditions = normalizeGridFilterConditions(appliedFilterConditions);
+      setFilterConditions(nextConditions);
+      const maxId = nextConditions.reduce((max, cond) => (cond.id > max ? cond.id : max), 0);
+      setNextFilterId(Math.max(1, maxId + 1));
+  }, [appliedFilterConditions, normalizeGridFilterConditions]);
 
   const selectedRowKeysRef = useRef(selectedRowKeys);
   const displayDataRef = useRef<any[]>([]);
@@ -2546,6 +2577,10 @@ const DataGrid: React.FC<DataGridProps> = ({
       { value: 'NOT_IN', label: '不在列表' },
       { value: 'CUSTOM', label: '[自定义]' },
   ]), []);
+  const filterLogicOptions = useMemo(() => ([
+      { value: 'AND', label: '且 (AND)' },
+      { value: 'OR', label: '或 (OR)' },
+  ]), []);
 
   const isNoValueOp = useCallback((op: string) => (
       op === 'IS_NULL' || op === 'IS_NOT_NULL' || op === 'IS_EMPTY' || op === 'IS_NOT_EMPTY'
@@ -2554,7 +2589,18 @@ const DataGrid: React.FC<DataGridProps> = ({
   const isListOp = useCallback((op: string) => op === 'IN' || op === 'NOT_IN', []);
 
   const addFilter = () => {
-      setFilterConditions([...filterConditions, { id: nextFilterId, enabled: true, column: columnNames[0] || '', op: '=', value: '', value2: '' }]);
+      setFilterConditions([
+          ...filterConditions,
+          {
+              id: nextFilterId,
+              enabled: true,
+              logic: 'AND',
+              column: columnNames[0] || '',
+              op: '=',
+              value: '',
+              value2: '',
+          }
+      ]);
       setNextFilterId(nextFilterId + 1);
   };
   const updateFilter = (id: number, field: keyof GridFilterCondition, val: string | boolean) => {
@@ -3062,7 +3108,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                background: 'transparent',
                boxSizing: 'border-box',
            }}>
-               {filterConditions.map(cond => (
+               {filterConditions.map((cond, condIndex) => (
                    <div key={cond.id} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'flex-start', opacity: cond.enabled === false ? 0.58 : 1 }}>
                        <Checkbox
                            checked={cond.enabled !== false}
@@ -3071,6 +3117,18 @@ const DataGrid: React.FC<DataGridProps> = ({
                        >
                            启用
                        </Checkbox>
+                       {condIndex === 0 ? (
+                           <div style={{ width: 96, marginTop: 7, textAlign: 'center', fontSize: 12, color: '#8c8c8c' }}>
+                               首条
+                           </div>
+                       ) : (
+                           <Select
+                               style={{ width: 96 }}
+                               value={cond.logic === 'OR' ? 'OR' : 'AND'}
+                               onChange={v => updateFilter(cond.id, 'logic', v)}
+                               options={filterLogicOptions as any}
+                           />
+                       )}
                        <Select
                            style={{ width: 180 }}
                            value={cond.column}

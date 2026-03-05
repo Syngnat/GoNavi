@@ -447,8 +447,23 @@ const isNoopMongoChainMethod = (method: string): boolean => {
   return method === 'toarray' || method === 'pretty';
 };
 
+const normalizeConditionLogic = (logic: unknown): 'AND' | 'OR' => {
+  return String(logic || '').trim().toUpperCase() === 'OR' ? 'OR' : 'AND';
+};
+
+const combineMongoParts = (
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+  logic: 'AND' | 'OR',
+): Record<string, unknown> => {
+  if (logic === 'OR') {
+    return { $or: [left, right] };
+  }
+  return { $and: [left, right] };
+};
+
 export const buildMongoFilter = (conditions: FilterCondition[]): Record<string, unknown> => {
-  const parts: Array<Record<string, unknown>> = [];
+  const parts: Array<{ expr: Record<string, unknown>; logic: 'AND' | 'OR' }> = [];
 
   (conditions || []).forEach((cond) => {
     if (cond?.enabled === false) return;
@@ -457,7 +472,13 @@ export const buildMongoFilter = (conditions: FilterCondition[]): Record<string, 
     const column = String(cond?.column || '').trim();
     const value = String(cond?.value ?? '');
     const value2 = String(cond?.value2 ?? '');
+    const logic = normalizeConditionLogic(cond?.logic);
     if (!op) return;
+
+    const appendPart = (expr: Record<string, unknown>) => {
+      if (!expr || typeof expr !== 'object' || Array.isArray(expr)) return;
+      parts.push({ expr, logic });
+    };
 
     if (op === 'CUSTOM') {
       const expr = value.trim();
@@ -466,7 +487,7 @@ export const buildMongoFilter = (conditions: FilterCondition[]): Record<string, 
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error('Mongo custom filter must be a JSON object');
       }
-      parts.push(parsed as Record<string, unknown>);
+      appendPart(parsed as Record<string, unknown>);
       return;
     }
 
@@ -477,96 +498,96 @@ export const buildMongoFilter = (conditions: FilterCondition[]): Record<string, 
 
     switch (op) {
       case 'IS_NULL':
-        parts.push({ [column]: null });
+        appendPart({ [column]: null });
         return;
       case 'IS_NOT_NULL':
-        parts.push({ [column]: { $ne: null } });
+        appendPart({ [column]: { $ne: null } });
         return;
       case 'IS_EMPTY':
-        parts.push({ $or: [{ [column]: null }, { [column]: '' }] });
+        appendPart({ $or: [{ [column]: null }, { [column]: '' }] });
         return;
       case 'IS_NOT_EMPTY':
-        parts.push({ $and: [{ [column]: { $ne: null } }, { [column]: { $ne: '' } }] });
+        appendPart({ $and: [{ [column]: { $ne: null } }, { [column]: { $ne: '' } }] });
         return;
       case 'BETWEEN':
         if (!value.trim() || !value2.trim()) return;
-        parts.push({ [column]: { $gte: scalar, $lte: scalar2 } });
+        appendPart({ [column]: { $gte: scalar, $lte: scalar2 } });
         return;
       case 'NOT_BETWEEN':
         if (!value.trim() || !value2.trim()) return;
-        parts.push({ $or: [{ [column]: { $lt: scalar } }, { [column]: { $gt: scalar2 } }] });
+        appendPart({ $or: [{ [column]: { $lt: scalar } }, { [column]: { $gt: scalar2 } }] });
         return;
       case 'IN': {
         const items = parseListValues(value).map((item) => parseMongoScalar(column, item));
         if (items.length === 0) return;
-        parts.push({ [column]: { $in: items } });
+        appendPart({ [column]: { $in: items } });
         return;
       }
       case 'NOT_IN': {
         const items = parseListValues(value).map((item) => parseMongoScalar(column, item));
         if (items.length === 0) return;
-        parts.push({ [column]: { $nin: items } });
+        appendPart({ [column]: { $nin: items } });
         return;
       }
       case 'CONTAINS': {
         const v = value.trim();
         if (!v) return;
-        parts.push({ [column]: { $regex: escapeRegex(v) } });
+        appendPart({ [column]: { $regex: escapeRegex(v) } });
         return;
       }
       case 'NOT_CONTAINS': {
         const v = value.trim();
         if (!v) return;
-        parts.push({ [column]: { $not: { $regex: escapeRegex(v) } } });
+        appendPart({ [column]: { $not: { $regex: escapeRegex(v) } } });
         return;
       }
       case 'STARTS_WITH': {
         const v = value.trim();
         if (!v) return;
-        parts.push({ [column]: { $regex: `^${escapeRegex(v)}` } });
+        appendPart({ [column]: { $regex: `^${escapeRegex(v)}` } });
         return;
       }
       case 'NOT_STARTS_WITH': {
         const v = value.trim();
         if (!v) return;
-        parts.push({ [column]: { $not: { $regex: `^${escapeRegex(v)}` } } });
+        appendPart({ [column]: { $not: { $regex: `^${escapeRegex(v)}` } } });
         return;
       }
       case 'ENDS_WITH': {
         const v = value.trim();
         if (!v) return;
-        parts.push({ [column]: { $regex: `${escapeRegex(v)}$` } });
+        appendPart({ [column]: { $regex: `${escapeRegex(v)}$` } });
         return;
       }
       case 'NOT_ENDS_WITH': {
         const v = value.trim();
         if (!v) return;
-        parts.push({ [column]: { $not: { $regex: `${escapeRegex(v)}$` } } });
+        appendPart({ [column]: { $not: { $regex: `${escapeRegex(v)}$` } } });
         return;
       }
       case '=':
         if (!value.trim()) return;
-        parts.push({ [column]: scalar });
+        appendPart({ [column]: scalar });
         return;
       case '!=':
         if (!value.trim()) return;
-        parts.push({ [column]: { $ne: scalar } });
+        appendPart({ [column]: { $ne: scalar } });
         return;
       case '<':
         if (!value.trim()) return;
-        parts.push({ [column]: { $lt: scalar } });
+        appendPart({ [column]: { $lt: scalar } });
         return;
       case '<=':
         if (!value.trim()) return;
-        parts.push({ [column]: { $lte: scalar } });
+        appendPart({ [column]: { $lte: scalar } });
         return;
       case '>':
         if (!value.trim()) return;
-        parts.push({ [column]: { $gt: scalar } });
+        appendPart({ [column]: { $gt: scalar } });
         return;
       case '>=':
         if (!value.trim()) return;
-        parts.push({ [column]: { $gte: scalar } });
+        appendPart({ [column]: { $gte: scalar } });
         return;
       default:
         return;
@@ -574,8 +595,12 @@ export const buildMongoFilter = (conditions: FilterCondition[]): Record<string, 
   });
 
   if (parts.length === 0) return {};
-  if (parts.length === 1) return parts[0];
-  return { $and: parts };
+
+  let merged = parts[0].expr;
+  for (let i = 1; i < parts.length; i++) {
+    merged = combineMongoParts(merged, parts[i].expr, parts[i].logic);
+  }
+  return merged;
 };
 
 export const buildMongoSort = (

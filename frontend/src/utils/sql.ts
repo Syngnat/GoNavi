@@ -1,6 +1,7 @@
 export type FilterCondition = {
   id?: number;
   enabled?: boolean;
+  logic?: 'AND' | 'OR';
   column?: string;
   op?: string;
   value?: string;
@@ -142,8 +143,12 @@ export const parseListValues = (val: string) => {
     .filter(Boolean);
 };
 
+const normalizeConditionLogic = (logic: unknown): 'AND' | 'OR' => {
+  return String(logic || '').trim().toUpperCase() === 'OR' ? 'OR' : 'AND';
+};
+
 export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => {
-  const whereParts: string[] = [];
+  const whereParts: Array<{ expr: string; logic: 'AND' | 'OR' }> = [];
 
   (conditions || []).forEach((cond) => {
     if (cond?.enabled === false) return;
@@ -152,10 +157,17 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
     const column = (cond?.column || '').trim();
     const value = (cond?.value ?? '').toString();
     const value2 = (cond?.value2 ?? '').toString();
+    const logic = normalizeConditionLogic(cond?.logic);
+
+    const appendWherePart = (expr: string) => {
+      const normalizedExpr = String(expr || '').trim();
+      if (!normalizedExpr) return;
+      whereParts.push({ expr: normalizedExpr, logic });
+    };
 
     if (op === 'CUSTOM') {
       const expr = value.trim();
-      if (expr) whereParts.push(`(${expr})`);
+      if (expr) appendWherePart(`(${expr})`);
       return;
     }
 
@@ -165,80 +177,80 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
 
     switch (op) {
       case 'IS_NULL':
-        whereParts.push(`${col} IS NULL`);
+        appendWherePart(`${col} IS NULL`);
         return;
       case 'IS_NOT_NULL':
-        whereParts.push(`${col} IS NOT NULL`);
+        appendWherePart(`${col} IS NOT NULL`);
         return;
       case 'IS_EMPTY':
         // 兼容：空值通常理解为 NULL 或空字符串
-        whereParts.push(`(${col} IS NULL OR ${col} = '')`);
+        appendWherePart(`(${col} IS NULL OR ${col} = '')`);
         return;
       case 'IS_NOT_EMPTY':
-        whereParts.push(`(${col} IS NOT NULL AND ${col} <> '')`);
+        appendWherePart(`(${col} IS NOT NULL AND ${col} <> '')`);
         return;
       case 'BETWEEN': {
         const v1 = value.trim();
         const v2 = value2.trim();
         if (!v1 || !v2) return;
-        whereParts.push(`${col} BETWEEN '${escapeLiteral(v1)}' AND '${escapeLiteral(v2)}'`);
+        appendWherePart(`${col} BETWEEN '${escapeLiteral(v1)}' AND '${escapeLiteral(v2)}'`);
         return;
       }
       case 'NOT_BETWEEN': {
         const v1 = value.trim();
         const v2 = value2.trim();
         if (!v1 || !v2) return;
-        whereParts.push(`${col} NOT BETWEEN '${escapeLiteral(v1)}' AND '${escapeLiteral(v2)}'`);
+        appendWherePart(`${col} NOT BETWEEN '${escapeLiteral(v1)}' AND '${escapeLiteral(v2)}'`);
         return;
       }
       case 'IN': {
         const items = parseListValues(value);
         if (items.length === 0) return;
         const list = items.map(v => `'${escapeLiteral(v)}'`).join(', ');
-        whereParts.push(`${col} IN (${list})`);
+        appendWherePart(`${col} IN (${list})`);
         return;
       }
       case 'NOT_IN': {
         const items = parseListValues(value);
         if (items.length === 0) return;
         const list = items.map(v => `'${escapeLiteral(v)}'`).join(', ');
-        whereParts.push(`${col} NOT IN (${list})`);
+        appendWherePart(`${col} NOT IN (${list})`);
         return;
       }
       case 'CONTAINS': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} LIKE '%${escapeLiteral(v)}%'`);
+        appendWherePart(`${col} LIKE '%${escapeLiteral(v)}%'`);
         return;
       }
       case 'NOT_CONTAINS': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} NOT LIKE '%${escapeLiteral(v)}%'`);
+        appendWherePart(`${col} NOT LIKE '%${escapeLiteral(v)}%'`);
         return;
       }
       case 'STARTS_WITH': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} LIKE '${escapeLiteral(v)}%'`);
+        appendWherePart(`${col} LIKE '${escapeLiteral(v)}%'`);
         return;
       }
       case 'NOT_STARTS_WITH': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} NOT LIKE '${escapeLiteral(v)}%'`);
+        appendWherePart(`${col} NOT LIKE '${escapeLiteral(v)}%'`);
         return;
       }
       case 'ENDS_WITH': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} LIKE '%${escapeLiteral(v)}'`);
+        appendWherePart(`${col} LIKE '%${escapeLiteral(v)}'`);
         return;
       }
       case 'NOT_ENDS_WITH': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} NOT LIKE '%${escapeLiteral(v)}'`);
+        appendWherePart(`${col} NOT LIKE '%${escapeLiteral(v)}'`);
         return;
       }
       case '=':
@@ -249,7 +261,7 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
       case '>=': {
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} ${op} '${escapeLiteral(v)}'`);
+        appendWherePart(`${col} ${op} '${escapeLiteral(v)}'`);
         return;
       }
       default: {
@@ -257,16 +269,23 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
         if (op.toUpperCase() === 'LIKE') {
           const v = value.trim();
           if (!v) return;
-          whereParts.push(`${col} LIKE '%${escapeLiteral(v)}%'`);
+          appendWherePart(`${col} LIKE '%${escapeLiteral(v)}%'`);
           return;
         }
 
         const v = value.trim();
         if (!v) return;
-        whereParts.push(`${col} ${op} '${escapeLiteral(v)}'`);
+        appendWherePart(`${col} ${op} '${escapeLiteral(v)}'`);
       }
     }
   });
 
-  return whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+  if (whereParts.length === 0) return '';
+
+  let whereExpr = `(${whereParts[0].expr})`;
+  for (let i = 1; i < whereParts.length; i++) {
+    const part = whereParts[i];
+    whereExpr = `(${whereExpr} ${part.logic} (${part.expr}))`;
+  }
+  return `WHERE ${whereExpr}`;
 };

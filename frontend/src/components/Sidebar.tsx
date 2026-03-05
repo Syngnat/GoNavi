@@ -940,10 +940,13 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
             }
 
             setTreeData(origin => updateTreeData(origin, node.key, dbs));
-          } else {
-            setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
-            message.error({ content: res.message, key: `conn-${conn.id}-dbs` });
-          }
+	          } else {
+	            setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
+	            message.error({ content: res.message, key: `conn-${conn.id}-dbs` });
+	          }
+	      } catch (e: any) {
+	          setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
+	          message.error({ content: '连接失败: ' + (e?.message || String(e)), key: `conn-${conn.id}-dbs` });
 	      } finally {
 	          loadingNodesRef.current.delete(loadKey);
 	      }
@@ -1225,6 +1228,9 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
 	            setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
 	            message.error({ content: res.message, key: `db-${key}-tables` });
           }
+	      } catch (e: any) {
+	          setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
+	          message.error({ content: '加载表失败: ' + (e?.message || String(e)), key: `db-${key}-tables` });
 	      } finally {
 	          loadingNodesRef.current.delete(loadKey);
 	      }
@@ -2838,6 +2844,13 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                  label: '断开连接',
                  icon: <DisconnectOutlined />,
                  onClick: () => {
+                     const connId = String(node.key || '');
+                     // 强制清理该连接相关的 loading 标记，避免网络卡住后重连仍被短路。
+                     Array.from(loadingNodesRef.current).forEach((loadingKey) => {
+                         if (loadingKey === `dbs-${connId}` || loadingKey.startsWith(`tables-${connId}-`)) {
+                             loadingNodesRef.current.delete(loadingKey);
+                         }
+                     });
                      // Reset status recursively
                      setConnectionStates(prev => {
                          const next = { ...prev };
@@ -2959,6 +2972,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                onClick: () => {
                    const dbConnId = String(node.dataRef?.id || '');
                    const dbName = String(node.dataRef?.dbName || node.title || '').trim();
+                   loadingNodesRef.current.delete(`tables-${dbConnId}-${dbName}`);
                    setConnectionStates(prev => {
                        const next = { ...prev };
                        delete next[node.key];

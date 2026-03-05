@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Layout, Button, ConfigProvider, theme, Dropdown, MenuProps, message, Modal, Spin, Slider, Progress, Switch, Input, InputNumber, Select } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { PlusOutlined, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, ToolOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined } from '@ant-design/icons';
-import { BrowserOpenURL, Environment, EventsOn, Quit, WindowFullscreen, WindowIsFullscreen, WindowIsMaximised, WindowMaximise, WindowMinimise, WindowToggleMaximise } from '../wailsjs/runtime';
+import { BrowserOpenURL, Environment, EventsOn, Quit, WindowFullscreen, WindowGetSize, WindowIsFullscreen, WindowIsMaximised, WindowMaximise, WindowMinimise, WindowSetSize, WindowToggleMaximise } from '../wailsjs/runtime';
 import Sidebar from './components/Sidebar';
 import TabManager from './components/TabManager';
 import ConnectionModal from './components/ConnectionModal';
@@ -271,6 +271,80 @@ function App() {
               window.clearTimeout(startupWindowTimer);
           }
           unsubscribeHydration();
+      };
+  }, []);
+
+  useEffect(() => {
+      if (!isWindowsPlatform()) {
+          return;
+      }
+
+      let cancelled = false;
+      let inFlight = false;
+      let lastRatio = Number(window.devicePixelRatio) || 1;
+      let lastFixAt = 0;
+
+      const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+      const fixWindowScaleIfNeeded = async () => {
+          if (cancelled || inFlight) return;
+          const now = Date.now();
+          if (now - lastFixAt < 700) return;
+          inFlight = true;
+          try {
+              const [isFullscreen, isMaximised] = await Promise.all([
+                  WindowIsFullscreen().catch(() => false),
+                  WindowIsMaximised().catch(() => false),
+              ]);
+
+              // 避免在全屏/最大化状态下强制改尺寸；这两种状态通常能自行保持 DPI 同步。
+              if (isFullscreen || isMaximised) {
+                  window.dispatchEvent(new Event('resize'));
+                  lastFixAt = Date.now();
+                  return;
+              }
+
+              const size = await WindowGetSize().catch(() => null);
+              const width = Math.trunc(Number(size?.w || 0));
+              const height = Math.trunc(Number(size?.h || 0));
+              if (width <= 0 || height <= 0) {
+                  window.dispatchEvent(new Event('resize'));
+                  lastFixAt = Date.now();
+                  return;
+              }
+
+              const nudgedWidth = width > 480 ? width - 1 : width + 1;
+              WindowSetSize(nudgedWidth, height);
+              await wait(28);
+              WindowSetSize(width, height);
+              window.dispatchEvent(new Event('resize'));
+              lastFixAt = Date.now();
+          } finally {
+              inFlight = false;
+          }
+      };
+
+      const checkDevicePixelRatio = () => {
+          if (cancelled) return;
+          const currentRatio = Number(window.devicePixelRatio) || 1;
+          if (Math.abs(currentRatio - lastRatio) < 0.02) {
+              return;
+          }
+          lastRatio = currentRatio;
+          void fixWindowScaleIfNeeded();
+      };
+
+      const pollTimer = window.setInterval(checkDevicePixelRatio, 900);
+      window.addEventListener('resize', checkDevicePixelRatio);
+      window.addEventListener('focus', checkDevicePixelRatio);
+      document.addEventListener('visibilitychange', checkDevicePixelRatio);
+
+      return () => {
+          cancelled = true;
+          window.clearInterval(pollTimer);
+          window.removeEventListener('resize', checkDevicePixelRatio);
+          window.removeEventListener('focus', checkDevicePixelRatio);
+          document.removeEventListener('visibilitychange', checkDevicePixelRatio);
       };
   }, []);
 

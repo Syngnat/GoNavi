@@ -152,6 +152,37 @@ const reverseOrderBySQL = (orderBySQL: string): string => {
   return ` ORDER BY ${parts.join(', ')}`;
 };
 
+type ViewerFilterSnapshot = {
+  showFilter: boolean;
+  conditions: FilterCondition[];
+};
+
+const viewerFilterSnapshotsByTab = new Map<string, ViewerFilterSnapshot>();
+
+const normalizeViewerFilterConditions = (conditions: FilterCondition[] | undefined): FilterCondition[] => {
+  if (!Array.isArray(conditions)) return [];
+  return conditions.map((cond) => ({
+    id: Number.isFinite(Number(cond?.id)) ? Number(cond?.id) : undefined,
+    enabled: cond?.enabled !== false,
+    logic: String(cond?.logic || '').trim().toUpperCase() === 'OR' ? 'OR' : 'AND',
+    column: String(cond?.column || ''),
+    op: String(cond?.op || '='),
+    value: String(cond?.value ?? ''),
+    value2: String(cond?.value2 ?? ''),
+  }));
+};
+
+const getViewerFilterSnapshot = (tabId: string): ViewerFilterSnapshot => {
+  const cached = viewerFilterSnapshotsByTab.get(String(tabId || '').trim());
+  if (!cached) {
+    return { showFilter: false, conditions: [] };
+  }
+  return {
+    showFilter: cached.showFilter === true,
+    conditions: normalizeViewerFilterConditions(cached.conditions),
+  };
+};
+
 const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [data, setData] = useState<any[]>([]);
   const [columnNames, setColumnNames] = useState<string[]>([]);
@@ -186,13 +217,26 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
 
   const [sortInfo, setSortInfo] = useState<{ columnKey: string, order: string } | null>(null);
   
-  const [showFilter, setShowFilter] = useState(false);
-  const [filterConditions, setFilterConditions] = useState<FilterCondition[]>([]);
+  const [showFilter, setShowFilter] = useState<boolean>(() => getViewerFilterSnapshot(tab.id).showFilter);
+  const [filterConditions, setFilterConditions] = useState<FilterCondition[]>(() => getViewerFilterSnapshot(tab.id).conditions);
   const duckdbSafeSelectCacheRef = useRef<Record<string, string>>({});
   const currentConnConfig = connections.find(c => c.id === tab.connectionId)?.config;
   const currentConnCaps = getDataSourceCapabilities(currentConnConfig);
   const currentConnType = currentConnCaps.type;
   const forceReadOnly = currentConnCaps.forceReadOnlyQueryResult;
+
+  useEffect(() => {
+    const snapshot = getViewerFilterSnapshot(tab.id);
+    setShowFilter(snapshot.showFilter);
+    setFilterConditions(snapshot.conditions);
+  }, [tab.id]);
+
+  useEffect(() => {
+    viewerFilterSnapshotsByTab.set(tab.id, {
+      showFilter,
+      conditions: normalizeViewerFilterConditions(filterConditions),
+    });
+  }, [tab.id, showFilter, filterConditions]);
 
   useEffect(() => {
     setPkColumns([]);
@@ -744,6 +788,7 @@ const DataViewer: React.FC<{ tab: TabData }> = ({ tab }) => {
           showFilter={showFilter}
           onToggleFilter={handleToggleFilter}
           onApplyFilter={handleApplyFilter}
+          appliedFilterConditions={filterConditions}
           readOnly={forceReadOnly}
           sortInfoExternal={sortInfo}
           exportSqlWithFilter={exportSqlWithFilter || undefined}

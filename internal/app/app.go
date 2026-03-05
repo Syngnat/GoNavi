@@ -139,6 +139,67 @@ func getCacheKey(config connection.ConnectionConfig) string {
 	return hex.EncodeToString(sum[:])
 }
 
+func shortCacheKey(cacheKey string) string {
+	shortKey := cacheKey
+	if len(shortKey) > 12 {
+		shortKey = shortKey[:12]
+	}
+	return shortKey
+}
+
+func shouldRefreshCachedConnection(err error) bool {
+	if err == nil {
+		return false
+	}
+	normalized := strings.ToLower(normalizeErrorMessage(err))
+	if normalized == "" {
+		return false
+	}
+
+	patterns := []string{
+		"invalid connection",
+		"bad connection",
+		"database is closed",
+		"connection is already closed",
+		"use of closed network connection",
+		"broken pipe",
+		"connection reset by peer",
+		"server has gone away",
+		"eof",
+	}
+	for _, pattern := range patterns {
+		if strings.Contains(normalized, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) invalidateCachedDatabase(config connection.ConnectionConfig, reason error) bool {
+	effectiveConfig := applyGlobalProxyToConnection(config)
+	key := getCacheKey(effectiveConfig)
+	shortKey := shortCacheKey(key)
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	entry, exists := a.dbCache[key]
+	if !exists || entry.inst == nil {
+		return false
+	}
+
+	if closeErr := entry.inst.Close(); closeErr != nil {
+		logger.Error(closeErr, "关闭失效缓存连接失败：缓存Key=%s", shortKey)
+	}
+	delete(a.dbCache, key)
+	if reason != nil {
+		logger.Errorf("检测到连接失效，已清理缓存连接：%s 缓存Key=%s 原因=%s", formatConnSummary(effectiveConfig), shortKey, normalizeErrorMessage(reason))
+	} else {
+		logger.Infof("已清理缓存连接：%s 缓存Key=%s", formatConnSummary(effectiveConfig), shortKey)
+	}
+	return true
+}
+
 func wrapConnectError(config connection.ConnectionConfig, err error) error {
 	if err == nil {
 		return nil
