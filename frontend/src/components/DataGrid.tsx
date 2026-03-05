@@ -3133,13 +3133,21 @@ const DataGrid: React.FC<DataGridProps> = ({
                                options={filterLogicOptions as any}
                            />
                        )}
-                       <Select
-                           style={{ width: 180 }}
-                           value={cond.column}
-                           onChange={v => updateFilter(cond.id, 'column', v)}
-                           options={columnNames.map(c => ({ value: c, label: c }))}
-                           disabled={cond.op === 'CUSTOM'}
-                       />
+                        <Select
+                            style={{ width: 180 }}
+                            value={cond.column}
+                            onChange={v => updateFilter(cond.id, 'column', v)}
+                            options={columnNames.map(c => ({ value: c, label: c }))}
+                            showSearch
+                            optionFilterProp="label"
+                            filterOption={(input, option) =>
+                                String(option?.label ?? '')
+                                    .toLowerCase()
+                                    .includes(String(input || '').trim().toLowerCase())
+                            }
+                            placeholder="搜索字段名"
+                            disabled={cond.op === 'CUSTOM'}
+                        />
                        <Select
                            style={{ width: 140 }}
                            value={cond.op}
