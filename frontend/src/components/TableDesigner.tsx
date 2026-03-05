@@ -261,9 +261,18 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   const darkMode = theme === 'dark';
   const resizeGuideColor = darkMode ? '#f6c453' : '#1890ff';
   const readOnly = !!tab.readOnly;
+  const panelRadius = 10;
+  const panelFrameColor = darkMode ? 'rgba(0, 0, 0, 0.18)' : 'rgba(0, 0, 0, 0.12)';
+  const panelToolbarBorder = darkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.10)';
+  const panelToolbarBg = darkMode ? 'rgba(20, 20, 20, 0.35)' : 'rgba(255, 255, 255, 0.72)';
+  const panelBodyBg = darkMode ? 'rgba(0, 0, 0, 0.24)' : 'rgba(255, 255, 255, 0.82)';
+  const focusRowBg = darkMode ? 'rgba(246, 196, 83, 0.22)' : 'rgba(24, 144, 255, 0.12)';
 
   const [tableHeight, setTableHeight] = useState(500);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pendingFocusColumnKeyRef = useRef<string | null>(null);
+  const focusHighlightTimerRef = useRef<number | null>(null);
+  const [focusColumnKey, setFocusColumnKey] = useState('');
 
   const openCommentEditor = useCallback((record: EditableColumn) => {
       if (!record?._key) return;
@@ -345,6 +354,61 @@ const TableDesigner: React.FC<{ tab: TabData }> = ({ tab }) => {
   useEffect(() => {
       setSelectedColumnRowKeys(prev => prev.filter(key => columns.some(c => c._key === key)));
   }, [columns]);
+
+  useEffect(() => {
+      return () => {
+          if (focusHighlightTimerRef.current !== null) {
+              window.clearTimeout(focusHighlightTimerRef.current);
+          }
+      };
+  }, []);
+
+  const focusColumnRow = useCallback((targetKey: string): boolean => {
+      if (activeKey !== 'columns') return false;
+      const tableBody = containerRef.current?.querySelector('.ant-table-body') as HTMLElement | null;
+      if (!tableBody) return false;
+      const row = tableBody.querySelector(`tr[data-row-key="${targetKey}"]`) as HTMLTableRowElement | null;
+      if (!row) return false;
+
+      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      setFocusColumnKey(targetKey);
+      if (focusHighlightTimerRef.current !== null) {
+          window.clearTimeout(focusHighlightTimerRef.current);
+      }
+      focusHighlightTimerRef.current = window.setTimeout(() => {
+          setFocusColumnKey(prev => (prev === targetKey ? '' : prev));
+      }, 1600);
+
+      if (!readOnly) {
+          const firstInput = row.querySelector('input') as HTMLInputElement | null;
+          if (firstInput) {
+              firstInput.focus();
+              firstInput.select();
+          }
+      }
+      return true;
+  }, [activeKey, readOnly]);
+
+  useEffect(() => {
+      const pendingKey = pendingFocusColumnKeyRef.current;
+      if (!pendingKey || activeKey !== 'columns') return;
+
+      let cancelled = false;
+      const tryFocus = () => {
+          if (cancelled) return;
+          if (focusColumnRow(pendingKey)) {
+              pendingFocusColumnKeyRef.current = null;
+          }
+      };
+
+      const timerA = window.setTimeout(tryFocus, 0);
+      const timerB = window.setTimeout(tryFocus, 96);
+      return () => {
+          cancelled = true;
+          window.clearTimeout(timerA);
+          window.clearTimeout(timerB);
+      };
+  }, [activeKey, columns, focusColumnRow]);
 
   // Initial Columns Definition
   useEffect(() => {
@@ -886,21 +950,46 @@ ${selectedTrigger.statement}`;
       }));
   };
 
-  const handleAddColumn = () => {
-      const newCol: EditableColumn = {
-          name: isNewTable ? 'new_column' : `new_col_${columns.length + 1}`,
-          type: 'varchar(255)',
-          nullable: 'YES',
-          key: '',
-          extra: '',
-          comment: '',
-          default: '',
-          _key: `new-${Date.now()}`,
-          isNew: true,
-          isAutoIncrement: false
-      };
-      setColumns([...columns, newCol]);
-  };
+  const createNewColumn = useCallback((indexHint: number): EditableColumn => ({
+      name: isNewTable ? 'new_column' : `new_col_${indexHint}`,
+      type: 'varchar(255)',
+      nullable: 'YES',
+      key: '',
+      extra: '',
+      comment: '',
+      default: '',
+      _key: `new-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      isNew: true,
+      isAutoIncrement: false
+  }), [isNewTable]);
+
+  const handleAddColumn = useCallback((insertAfterKey?: string) => {
+      const newCol = createNewColumn(columns.length + 1);
+      setColumns(prev => {
+          const next = [...prev];
+          if (insertAfterKey) {
+              const insertIndex = next.findIndex(col => col._key === insertAfterKey);
+              if (insertIndex >= 0) {
+                  next.splice(insertIndex + 1, 0, newCol);
+                  return next;
+              }
+          }
+          next.push(newCol);
+          return next;
+      });
+      setSelectedColumnRowKeys([newCol._key]);
+      pendingFocusColumnKeyRef.current = newCol._key;
+  }, [columns.length, createNewColumn]);
+
+  const handleAddColumnAfterSelected = useCallback(() => {
+      const selectedSet = new Set(selectedColumnRowKeys);
+      const anchor = columns.find(col => selectedSet.has(col._key));
+      if (!anchor) {
+          message.warning('请先选择一个字段，再执行插入。');
+          return;
+      }
+      handleAddColumn(anchor._key);
+  }, [columns, handleAddColumn, selectedColumnRowKeys]);
 
   const handleDeleteColumn = (key: string) => {
       setColumns(prev => prev.filter(c => c._key !== key));
@@ -1920,22 +2009,35 @@ END;`;
   }));
 
   const columnsTabContent = (
-      <div ref={containerRef} className="table-designer-wrapper" style={{ height: '100%', overflow: 'hidden', position: 'relative' }}>
+      <div
+          ref={containerRef}
+          className="table-designer-wrapper"
+          style={{
+              height: '100%',
+              overflow: 'hidden',
+              position: 'relative',
+              background: panelBodyBg
+          }}
+      >
         <style>{`
            .table-designer-wrapper .ant-table-body {
                max-height: ${tableHeight}px !important;
-           }
+            }
+            .table-designer-wrapper .table-designer-focus-row > .ant-table-cell {
+                background: ${focusRowBg} !important;
+            }
         `}</style>
         {readOnly ? (
         <Table 
             dataSource={columns} 
             columns={resizableColumns} 
             rowKey="_key" 
+            rowClassName={(record: EditableColumn) => record._key === focusColumnKey ? 'table-designer-focus-row' : ''}
             size="small" 
             pagination={false} 
             loading={loading}
             scroll={{ y: tableHeight }}
-            bordered
+            bordered={false}
             components={{
               header: {
                 cell: ResizableTitle,
@@ -1953,11 +2055,12 @@ END;`;
                     onChange: (nextSelectedRowKeys) => setSelectedColumnRowKeys(nextSelectedRowKeys as string[]),
                 }}
                 rowKey="_key" 
+                rowClassName={(record: EditableColumn) => record._key === focusColumnKey ? 'table-designer-focus-row' : ''}
                 size="small" 
                 pagination={false} 
                 loading={loading}
                 scroll={{ y: tableHeight }}
-                bordered
+                bordered={false}
                 components={{
                     body: { row: SortableRow },
                     header: { cell: ResizableTitle }
@@ -1985,8 +2088,63 @@ END;`;
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-        <div style={{ padding: '8px', borderBottom: '1px solid #eee', display: 'flex', gap: '8px', alignItems: 'center' }}>
+    <div className="table-designer-shell" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, padding: '6px 0' }}>
+        <style>{`
+            .table-designer-shell .ant-table,
+            .table-designer-shell .ant-table-wrapper,
+            .table-designer-shell .ant-table-container {
+                background: transparent !important;
+            }
+            .table-designer-shell .ant-table-wrapper,
+            .table-designer-shell .ant-table-container {
+                border: none !important;
+                overflow: hidden !important;
+            }
+            .table-designer-shell .ant-table-thead > tr > th {
+                background: transparent !important;
+                border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'} !important;
+                border-inline-end: 1px solid transparent !important;
+            }
+            .table-designer-shell .ant-table-tbody > tr > td,
+            .table-designer-shell .ant-table-tbody .ant-table-row > .ant-table-cell {
+                background: transparent !important;
+                border-bottom: 1px solid ${darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'} !important;
+                border-inline-end: 1px solid transparent !important;
+            }
+            .table-designer-shell .ant-table-thead > tr > th::before {
+                display: none !important;
+            }
+            .table-designer-shell .ant-table-tbody > tr:hover > td,
+            .table-designer-shell .ant-table-tbody .ant-table-row:hover > .ant-table-cell {
+                background: ${darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.02)'} !important;
+            }
+            .table-designer-shell .ant-tabs-nav {
+                margin-bottom: 8px !important;
+            }
+            .table-designer-shell .ant-tabs-nav::before {
+                border-bottom-color: ${darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'} !important;
+            }
+            .table-designer-shell .ant-tabs-content-holder,
+            .table-designer-shell .ant-tabs-content,
+            .table-designer-shell .ant-tabs-tabpane {
+                height: 100%;
+            }
+        `}</style>
+        <div
+            style={{
+                padding: '10px 12px 8px 12px',
+                borderBottom: `1px solid ${panelToolbarBorder}`,
+                borderTopLeftRadius: panelRadius,
+                borderTopRightRadius: panelRadius,
+                borderLeft: `1px solid ${panelFrameColor}`,
+                borderRight: `1px solid ${panelFrameColor}`,
+                borderTop: `1px solid ${panelFrameColor}`,
+                background: panelToolbarBg,
+                display: 'flex',
+                gap: '8px',
+                alignItems: 'center'
+            }}
+        >
             {isNewTable && (
                 <>
                     <Input 
@@ -2014,14 +2172,25 @@ END;`;
                     />
                 </>
             )}
-            {!readOnly && <Button icon={<SaveOutlined />} type="primary" onClick={generateDDL}>保存</Button>}
-            {!isNewTable && <Button icon={<ReloadOutlined />} onClick={fetchData}>刷新</Button>}
+            {!readOnly && <Button size="small" icon={<SaveOutlined />} type="primary" onClick={generateDDL}>保存</Button>}
+            {!isNewTable && <Button size="small" icon={<ReloadOutlined />} onClick={fetchData}>刷新</Button>}
             {!isNewTable && !readOnly && supportsTableCommentOps() && (
-                <Button icon={<EditOutlined />} onClick={openTableCommentModal}>表备注</Button>
+                <Button size="small" icon={<EditOutlined />} onClick={openTableCommentModal}>表备注</Button>
             )}
-            {!readOnly && <Button icon={<PlusOutlined />} onClick={handleAddColumn}>添加字段</Button>}
+            {!readOnly && <Button size="small" icon={<PlusOutlined />} onClick={() => handleAddColumn()}>添加字段</Button>}
             {!readOnly && (
                 <Button
+                    size="small"
+                    icon={<PlusOutlined />}
+                    onClick={handleAddColumnAfterSelected}
+                    disabled={selectedColumnRowKeys.length === 0}
+                >
+                    在选中字段后添加
+                </Button>
+            )}
+            {!readOnly && (
+                <Button
+                    size="small"
                     icon={<CopyOutlined />}
                     onClick={openCopySelectedColumnsModal}
                     disabled={selectedColumns.length === 0}
@@ -2034,7 +2203,17 @@ END;`;
         <Tabs 
             activeKey={activeKey}
             onChange={setActiveKey}
-            style={{ flex: 1, padding: '0 10px' }}
+            style={{
+                flex: 1,
+                minHeight: 0,
+                padding: '8px 10px 10px 10px',
+                borderBottomLeftRadius: panelRadius,
+                borderBottomRightRadius: panelRadius,
+                borderLeft: `1px solid ${panelFrameColor}`,
+                borderRight: `1px solid ${panelFrameColor}`,
+                borderBottom: `1px solid ${panelFrameColor}`,
+                background: panelBodyBg
+            }}
             items={[
                 {
                     key: 'columns',
@@ -2276,7 +2455,7 @@ END;`;
                     label: 'DDL',
                     icon: <FileTextOutlined />,
                     children: (
-                        <div style={{ height: 'calc(100vh - 200px)', border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', borderRadius: 4 }}>
+                        <div style={{ height: 'calc(100vh - 200px)', border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
                             <Editor
                                 height="100%"
                                 language="sql"
@@ -2517,7 +2696,7 @@ END;`;
                         <span><strong>时机:</strong> {selectedTrigger.timing}</span>
                         <span><strong>事件:</strong> {selectedTrigger.event}</span>
                     </div>
-                    <div style={{ border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', borderRadius: 4 }}>
+                    <div style={{ border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
                         <Editor
                             height="350px"
                             language="sql"
@@ -2553,7 +2732,7 @@ END;`;
                     <span>修改触发器时会先删除原触发器，再创建新触发器。</span>
                 )}
             </div>
-            <div style={{ border: darkMode ? '1px solid #303030' : '1px solid #d9d9d9', borderRadius: 4 }}>
+            <div style={{ border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
                 <Editor
                     height="350px"
                     language="sql"
