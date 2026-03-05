@@ -1472,21 +1472,18 @@ const QueryEditor: React.FC<{ tab: TabData }> = ({ tab }) => {
                 ]}
             />
         </Tooltip>
-        <Tooltip
-            title={
-                shortcutOptions.runQuery?.enabled && shortcutOptions.runQuery?.combo
-                    ? `运行（${getShortcutDisplay(shortcutOptions.runQuery.combo)}）`
-                    : '运行'
-            }
-        >
-            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
-              运行
-            </Button>
-        </Tooltip>
         <Button.Group>
-          <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
-            运行
-          </Button>
+          <Tooltip
+              title={
+                  shortcutOptions.runQuery?.enabled && shortcutOptions.runQuery?.combo
+                      ? `运行（${getShortcutDisplay(shortcutOptions.runQuery.combo)}）`
+                      : '运行'
+              }
+          >
+              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
+                运行
+              </Button>
+          </Tooltip>
           {loading && (
             <Button type="primary" danger icon={<StopOutlined />} onClick={handleCancel}>
               停止
