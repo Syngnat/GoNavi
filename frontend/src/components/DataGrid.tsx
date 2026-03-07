@@ -3384,22 +3384,17 @@ const DataGrid: React.FC<DataGridProps> = ({
                        <Checkbox
                            checked={cond.enabled !== false}
                            onChange={e => updateFilter(cond.id, 'enabled', e.target.checked)}
-                           style={{ marginTop: 6 }}
+                            style={{ marginTop: 6, flex: '0 0 auto', whiteSpace: 'nowrap' }}
                        >
                            启用
                        </Checkbox>
-                       {condIndex === 0 ? (
-                           <div style={{ width: 96, marginTop: 7, textAlign: 'center', fontSize: 12, color: '#8c8c8c' }}>
-                               首条
-                           </div>
-                       ) : (
-                           <Select
-                               style={{ width: 96 }}
-                               value={cond.logic === 'OR' ? 'OR' : 'AND'}
-                               onChange={v => updateFilter(cond.id, 'logic', v)}
-                               options={filterLogicOptions as any}
-                           />
-                       )}
+                        <Select
+                            style={{ width: 96, minWidth: 96, maxWidth: 96, flex: '0 0 96px' }}
+                            value={condIndex === 0 ? '__FIRST__' : (cond.logic === 'OR' ? 'OR' : 'AND')}
+                            onChange={v => updateFilter(cond.id, 'logic', v)}
+                            options={condIndex === 0 ? [{ value: '__FIRST__', label: '首条' }] : (filterLogicOptions as any)}
+                            disabled={condIndex === 0}
+                        />
                         <Select
                             style={{ width: 180 }}
                             value={cond.column}
