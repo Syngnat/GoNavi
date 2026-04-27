@@ -318,6 +318,74 @@ func TestBuildPGLikeToPGLikePlan_AutoCreateWhenTargetMissing(t *testing.T) {
 	}
 }
 
+func TestBuildPGLikeToPGLikePlan_SkipsPrimaryKeyIndexCreation(t *testing.T) {
+	t.Parallel()
+
+	sourceDB := &fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{
+			"public.orders": {
+				{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+				{Name: "created_at", Type: "timestamp without time zone", Nullable: "NO"},
+			},
+		},
+		indexes: map[string][]connection.IndexDefinition{
+			"public.orders": {
+				{Name: "orders_pkey", ColumnName: "id", NonUnique: 0, SeqInIndex: 1, IndexType: "BTREE"},
+				{Name: "idx_orders_created_at", ColumnName: "created_at", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE"},
+			},
+		},
+	}
+	targetDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{}}
+	cfg := SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "postgres", Database: "public"},
+		TargetConfig:        connection.ConnectionConfig{Type: "postgres", Database: "public"},
+		TargetTableStrategy: "smart",
+		CreateIndexes:       true,
+	}
+
+	plan, _, _, err := buildPGLikeToPGLikePlan(cfg, "orders", sourceDB, targetDB)
+	if err != nil {
+		t.Fatalf("buildPGLikeToPGLikePlan returned error: %v", err)
+	}
+	if len(plan.PostDataSQL) != 1 {
+		t.Fatalf("expected one non-primary index create SQL, got: %v", plan.PostDataSQL)
+	}
+	if strings.Contains(plan.PostDataSQL[0], "orders_pkey") {
+		t.Fatalf("primary key index should not be recreated: %v", plan.PostDataSQL)
+	}
+}
+
+func TestBuildPGLikeToPGLikePlan_DegradesCustomTypeToText(t *testing.T) {
+	t.Parallel()
+
+	sourceDB := &fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{
+			"public.interruptrecord": {
+				{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+				{Name: "status", Type: "interruptstatus", Nullable: "NO"},
+			},
+		},
+	}
+	targetDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{}}
+	cfg := SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "postgres", Database: "public"},
+		TargetConfig:        connection.ConnectionConfig{Type: "postgres", Database: "public"},
+		TargetTableStrategy: "smart",
+		CreateIndexes:       false,
+	}
+
+	plan, _, _, err := buildPGLikeToPGLikePlan(cfg, "interruptrecord", sourceDB, targetDB)
+	if err != nil {
+		t.Fatalf("buildPGLikeToPGLikePlan returned error: %v", err)
+	}
+	if !strings.Contains(plan.CreateTableSQL, `"status" text NOT NULL`) {
+		t.Fatalf("expected custom type to degrade to text, got: %s", plan.CreateTableSQL)
+	}
+	if len(plan.Warnings) == 0 {
+		t.Fatalf("expected warning for custom type downgrade")
+	}
+}
+
 func TestBuildSchemaMigrationPlan_MySQLToMySQLAddsMissingColumnsForExistingTarget(t *testing.T) {
 	t.Parallel()
 

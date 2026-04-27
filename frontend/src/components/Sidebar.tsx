@@ -309,6 +309,18 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
       () => (batchSelectionScope === 'filtered' ? filteredBatchObjectKeys : allBatchObjectKeysByType),
       [allBatchObjectKeysByType, batchSelectionScope, filteredBatchObjectKeys]
   );
+  const selectedBatchObjects = useMemo(
+      () => batchTables.filter((item) => checkedTableKeys.includes(item.key)),
+      [batchTables, checkedTableKeys]
+  );
+  const selectedBatchTableNames = useMemo(
+      () => selectedBatchObjects.filter((item) => item.objectType === 'table').map((item) => item.objectName),
+      [selectedBatchObjects]
+  );
+  const selectedBatchViewCount = useMemo(
+      () => selectedBatchObjects.filter((item) => item.objectType === 'view').length,
+      [selectedBatchObjects]
+  );
   useEffect(() => {
       if (batchFilterType === 'all') {
           return;
@@ -1997,19 +2009,23 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
   };
 
   const handleBatchClear = async () => {
-      const selectedObjects = batchTables.filter(t => checkedTableKeys.includes(t.key));
-      if (selectedObjects.length === 0) {
+      if (selectedBatchObjects.length === 0) {
           message.warning('请至少选择一个对象');
+          return;
+      }
+      if (selectedBatchTableNames.length === 0) {
+          message.warning('批量清空仅支持表，请至少选择一个表');
           return;
       }
 
       const { conn, dbName } = batchDbContext;
-      const objectNames = selectedObjects.map(t => t.objectName);
+      const objectNames = selectedBatchTableNames;
+      const selectedViewWarning = selectedBatchViewCount > 0 ? `\r\n\r\n已自动忽略 ${selectedBatchViewCount} 个视图。` : '';
 
       const ok = await new Promise<boolean>((resolve) => {
           Modal.confirm({
               title: '确认清空选中表',
-              content: `清空选中表会永久删除表中所有数据，操作不可逆，是否继续？\r\n\r\n连接: ${conn.name}\n数据库: ${dbName}`,
+              content: `清空选中表会永久删除表中所有数据，操作不可逆，是否继续？\r\n\r\n连接: ${conn.name}\n数据库: ${dbName}${selectedViewWarning}`,
               okText: '继续',
               cancelText: '取消',
               onOk: () => resolve(true),
@@ -2027,7 +2043,7 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
           hide();
           const duration = Date.now() - startTime;
           if (res.success) {
-              message.success('清空成功');
+              message.success(selectedBatchViewCount > 0 ? `清空成功（已忽略 ${selectedBatchViewCount} 个视图）` : '清空成功');
               // 构造 SQL 日志
               let logSql = `/* Clear Tables (${objectNames.length} tables) */\n`;
               if (res.data && res.data.executedSQLs && Array.isArray(res.data.executedSQLs)) {
@@ -2081,6 +2097,88 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
               message: errMsg,
               dbName
           });
+      }
+  };
+
+  const handleBatchDelete = async () => {
+      if (selectedBatchObjects.length === 0) {
+          message.warning('请至少选择一个对象');
+          return;
+      }
+      if (selectedBatchTableNames.length === 0) {
+          message.warning('批量删除仅支持表，请至少选择一个表');
+          return;
+      }
+
+      const { conn, dbName } = batchDbContext;
+      const selectedViewWarning = selectedBatchViewCount > 0 ? `\r\n\r\n已自动忽略 ${selectedBatchViewCount} 个视图。` : '';
+      const ok = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+              title: '确认删除选中表',
+              content: `删除选中表会直接删除表结构和数据，操作不可恢复，是否继续？\r\n\r\n连接: ${conn.name}\n数据库: ${dbName}\n表数量: ${selectedBatchTableNames.length}${selectedViewWarning}`,
+              okText: '删除',
+              cancelText: '取消',
+              okButtonProps: { danger: true },
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+          });
+      });
+      if (!ok) return;
+
+      setIsBatchModalOpen(false);
+      const hide = message.loading(`正在删除选中表 (${selectedBatchTableNames.length})...`, 0);
+      const startTime = Date.now();
+      try {
+          const app = (window as any).go.app.App;
+          const res = await app.DropTables(normalizeConnConfig(conn.config), dbName, selectedBatchTableNames);
+          hide();
+          const duration = Date.now() - startTime;
+          const executedSQLs = Array.isArray(res.data?.executedSQLs) ? res.data.executedSQLs : [];
+          const logSql = executedSQLs.length > 0
+              ? executedSQLs.join(';\n') + ';'
+              : selectedBatchTableNames.map((name) => `DROP TABLE ${name}`).join(';\n') + ';';
+
+          if (res.success) {
+              message.success(selectedBatchViewCount > 0 ? `删除成功（已忽略 ${selectedBatchViewCount} 个视图）` : '删除成功');
+              addSqlLog({
+                  id: Date.now().toString(),
+                  timestamp: Date.now(),
+                  sql: logSql,
+                  status: 'success',
+                  duration,
+                  message: res.message,
+                  dbName,
+                  affectedRows: res.data?.count || selectedBatchTableNames.length,
+              });
+              await loadTables(getDatabaseNodeRef(conn, dbName));
+              await loadTablesForBatch(conn, dbName);
+              return;
+          }
+
+          addSqlLog({
+              id: Date.now().toString(),
+              timestamp: Date.now(),
+              sql: logSql,
+              status: 'error',
+              duration,
+              message: res.message,
+              dbName,
+          });
+          message.error('删除失败: ' + res.message);
+      } catch (e: any) {
+          const duration = Date.now() - startTime;
+          hide();
+          const errMsg = e?.message || String(e);
+          addSqlLog({
+              id: Date.now().toString(),
+              timestamp: Date.now(),
+              sql: selectedBatchTableNames.map((name) => `DROP TABLE ${name}`).join(';\n') + ';',
+              status: 'error',
+              duration,
+              message: errMsg,
+              dbName,
+          });
+          message.error('删除失败: ' + errMsg);
       }
   };
 
@@ -4569,13 +4667,22 @@ const Sidebar: React.FC<{ onEditConnection?: (conn: SavedConnection) => void }> 
                     </Button>
                     <Space size={8} wrap style={{ marginLeft: 'auto' }}>
                         <Button
+                            key="drop-table"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleBatchDelete()}
+                            disabled={selectedBatchTableNames.length === 0}
+                        >
+                            删除表
+                        </Button>
+                        <Button
                             key="clear"
                             danger
                             icon={<DeleteOutlined />}
                             onClick={() => handleBatchClear()}
-                            disabled={checkedTableKeys.length === 0}
+                            disabled={selectedBatchTableNames.length === 0}
                         >
-                            清空表
+                            清空数据
                         </Button>
                         <Button
                             key="export-schema"

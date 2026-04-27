@@ -138,6 +138,10 @@ export function DropTable(arg1, arg2, arg3) {
   return window['go']['app']['App']['DropTable'](arg1, arg2, arg3);
 }
 
+export function DropTables(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DropTables'](arg1, arg2, arg3);
+}
+
 export function DropView(arg1, arg2, arg3) {
   return window['go']['app']['App']['DropView'](arg1, arg2, arg3);
 }

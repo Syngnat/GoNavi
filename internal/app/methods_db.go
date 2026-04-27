@@ -366,6 +366,81 @@ func (a *App) DropTable(config connection.ConnectionConfig, dbName string, table
 	return connection.QueryResult{Success: true, Message: "表删除成功"}
 }
 
+func (a *App) DropTables(config connection.ConnectionConfig, dbName string, tableNames []string) connection.QueryResult {
+	if len(tableNames) == 0 {
+		return connection.QueryResult{Success: false, Message: "请至少选择一个表"}
+	}
+
+	dbType := resolveDDLDBType(config)
+	switch dbType {
+	case "mysql", "mariadb", "diros", "sphinx", "postgres", "kingbase", "sqlite", "duckdb", "oracle", "dameng", "highgo", "vastbase", "sqlserver", "tdengine", "clickhouse":
+	default:
+		return connection.QueryResult{Success: false, Message: fmt.Sprintf("当前数据源(%s)暂不支持批量删除表", dbType)}
+	}
+
+	runConfig := buildRunConfigForDDL(config, dbType, dbName)
+	dbInst, err := a.getDatabase(runConfig)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	executedSQLs := make([]string, 0, len(tableNames))
+	for i, rawTableName := range tableNames {
+		tableName := strings.TrimSpace(rawTableName)
+		if tableName == "" {
+			return connection.QueryResult{
+				Success: false,
+				Message: "表名不能为空",
+				Data: map[string]interface{}{
+					"executedSQLs": executedSQLs,
+					"count":        len(executedSQLs),
+				},
+			}
+		}
+
+		schemaName, pureTableName := normalizeSchemaAndTableByType(dbType, dbName, tableName)
+		if pureTableName == "" {
+			return connection.QueryResult{
+				Success: false,
+				Message: "表名不能为空",
+				Data: map[string]interface{}{
+					"executedSQLs": executedSQLs,
+					"count":        len(executedSQLs),
+				},
+			}
+		}
+
+		qualifiedTable := quoteTableIdentByType(dbType, schemaName, pureTableName)
+		sql := fmt.Sprintf("DROP TABLE %s", qualifiedTable)
+		if _, err := dbInst.Exec(sql); err != nil {
+			logger.Warnf("DropTables 第 %d/%d 张表失败：%s table=%s err=%v（已成功删除 %d 张）", i+1, len(tableNames), formatConnSummary(runConfig), tableName, err, len(executedSQLs))
+			errMsg := fmt.Sprintf("删除表 %s 失败: %v", tableName, err)
+			if len(executedSQLs) > 0 {
+				errMsg += fmt.Sprintf("（注意：前 %d 张表已删除且无法恢复）", len(executedSQLs))
+			}
+			return connection.QueryResult{
+				Success: false,
+				Message: errMsg,
+				Data: map[string]interface{}{
+					"executedSQLs": executedSQLs,
+					"count":        len(executedSQLs),
+				},
+			}
+		}
+		executedSQLs = append(executedSQLs, sql)
+	}
+
+	logger.Warnf("DropTables 完成：%s db=%s 共删除 %d 张表", formatConnSummary(runConfig), dbName, len(executedSQLs))
+	return connection.QueryResult{
+		Success: true,
+		Message: "批量删除表成功",
+		Data: map[string]interface{}{
+			"executedSQLs": executedSQLs,
+			"count":        len(executedSQLs),
+		},
+	}
+}
+
 func (a *App) MySQLConnect(config connection.ConnectionConfig) connection.QueryResult {
 	config.Type = "mysql"
 	return a.DBConnect(config)

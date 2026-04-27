@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue } from 'react';
-import { Input, Spin, Empty, Dropdown, message, Tooltip, Modal, Button } from 'antd';
+import { Input, Spin, Empty, Dropdown, message, Tooltip, Modal, Button, Checkbox } from 'antd';
 import { TableOutlined, SearchOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined, ConsoleSqlOutlined, EditOutlined, CopyOutlined, SaveOutlined, DeleteOutlined, ExportOutlined, AppstoreOutlined, UnorderedListOutlined, WarningOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { DBQuery, DBShowCreateTable, ExportTable, DropTable, RenameTable } from '../../wailsjs/go/app/App';
@@ -175,6 +175,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
     const [viewMode, setViewMode] = useState<ViewMode>('list');
     const [visibleTableLimit, setVisibleTableLimit] = useState(TABLE_OVERVIEW_RENDER_BATCH_SIZE);
+    const [selectedTableNames, setSelectedTableNames] = useState<string[]>([]);
     const deferredSearchText = useDeferredValue(searchText);
     const isSearchPending = searchText !== deferredSearchText;
 
@@ -228,11 +229,22 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         setVisibleTableLimit(TABLE_OVERVIEW_RENDER_BATCH_SIZE);
     }, [deferredSearchText, sortField, sortOrder, viewMode, tables]);
 
+    useEffect(() => {
+        const available = new Set(tables.map((item) => item.name));
+        setSelectedTableNames((prev) => prev.filter((name) => available.has(name)));
+    }, [tables]);
+
     const visibleOverview = useMemo(() => (
         resolveTableOverviewVisibleRows(sortedFiltered, visibleTableLimit)
     ), [sortedFiltered, visibleTableLimit]);
 
     const visibleTables = visibleOverview.visibleRows;
+    const selectedTableNameSet = useMemo(() => new Set(selectedTableNames), [selectedTableNames]);
+    const visibleTableNames = useMemo(() => visibleTables.map((item) => item.name), [visibleTables]);
+    const selectedVisibleCount = useMemo(
+        () => visibleTableNames.filter((name) => selectedTableNameSet.has(name)).length,
+        [selectedTableNameSet, visibleTableNames]
+    );
 
     const openTable = useCallback((tableName: string) => {
         if (!connection) return;
@@ -317,6 +329,67 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             },
         });
     }, [buildConfig, tab.dbName, loadData]);
+
+    const toggleTableSelection = useCallback((tableName: string, checked: boolean) => {
+        setSelectedTableNames((prev) => {
+            if (checked) {
+                if (prev.includes(tableName)) {
+                    return prev;
+                }
+                return [...prev, tableName];
+            }
+            return prev.filter((name) => name !== tableName);
+        });
+    }, []);
+
+    const handleSelectVisibleTables = useCallback(() => {
+        if (visibleTableNames.length === 0) {
+            return;
+        }
+        setSelectedTableNames((prev) => {
+            const next = new Set(prev);
+            visibleTableNames.forEach((name) => next.add(name));
+            return tables.map((item) => item.name).filter((name) => next.has(name));
+        });
+    }, [tables, visibleTableNames]);
+
+    const handleClearSelection = useCallback(() => {
+        setSelectedTableNames([]);
+    }, []);
+
+    const handleBatchDeleteTables = useCallback(() => {
+        const config = buildConfig();
+        if (!config) return;
+        if (selectedTableNames.length === 0) {
+            message.warning('请至少选择一个表');
+            return;
+        }
+
+        Modal.confirm({
+            title: '确认批量删除表',
+            content: `确定删除已选 ${selectedTableNames.length} 张表吗？该操作不可恢复。`,
+            okText: '删除',
+            cancelText: '取消',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                const hide = message.loading(`正在删除 ${selectedTableNames.length} 张表...`, 0);
+                try {
+                    const res = await (window as any).go.app.App.DropTables(buildRpcConnectionConfig(config) as any, tab.dbName || '', selectedTableNames);
+                    hide();
+                    if (res.success) {
+                        message.success(`已删除 ${selectedTableNames.length} 张表`);
+                        setSelectedTableNames([]);
+                        loadData();
+                    } else {
+                        message.error('批量删除失败: ' + res.message);
+                    }
+                } catch (e: any) {
+                    hide();
+                    message.error('批量删除失败: ' + (e?.message || String(e)));
+                }
+            },
+        });
+    }, [buildConfig, loadData, selectedTableNames, tab.dbName]);
 
     const handleTableDataDangerAction = useCallback((tableName: string, action: TableDataDangerActionKind) => {
         const config = buildConfig();
@@ -426,12 +499,17 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: containerBg, overflow: 'hidden' }}>
             {/* Toolbar */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexShrink: 0, flexWrap: 'wrap' }}>
                 <DatabaseOutlined style={{ fontSize: 16, color: accentColor }} />
                 <span style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>{tab.dbName}</span>
                 <span style={{ fontSize: 12, color: textMuted }}>
                     {tables.length} 张表 · {formatRows(totalRows)} 行 · {formatSize(totalSize)}
                 </span>
+                {selectedTableNames.length > 0 && (
+                    <span style={{ fontSize: 12, color: accentColor }}>
+                        选中 {selectedTableNames.length} 张表
+                    </span>
+                )}
                 <div style={{ flex: 1 }} />
                 <Input
                     {...noAutoCapInputProps}
@@ -474,6 +552,15 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                         </div>
                     </Tooltip>
                 </div>
+                <Button size="small" onClick={handleSelectVisibleTables} disabled={visibleTableNames.length === 0 || selectedVisibleCount === visibleTableNames.length}>
+                    全选当前
+                </Button>
+                <Button size="small" onClick={handleClearSelection} disabled={selectedTableNames.length === 0}>
+                    清空选择
+                </Button>
+                <Button size="small" danger icon={<DeleteOutlined />} onClick={handleBatchDeleteTables} disabled={selectedTableNames.length === 0}>
+                    批量删除
+                </Button>
                 <Tooltip title="刷新"><ReloadOutlined onClick={loadData} style={{ fontSize: 16, color: textSecondary, cursor: 'pointer' }} /></Tooltip>
             </div>
 
@@ -566,6 +653,11 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                     onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = cardBg; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder; }}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                        <Checkbox
+                                            checked={selectedTableNameSet.has(t.name)}
+                                            onClick={(e) => e.stopPropagation()}
+                                            onChange={(e) => toggleTableSelection(t.name, e.target.checked)}
+                                        />
                                         <TableOutlined style={{ fontSize: 14, color: accentColor }} />
                                         <Tooltip title={t.name} mouseEnterDelay={0.4}>
                                             <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'block' }}>
@@ -677,6 +769,11 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                         >
                                             <div style={{ minWidth: 0, flex: '1 1 320px' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                                                    <Checkbox
+                                                        checked={selectedTableNameSet.has(t.name)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onChange={(e) => toggleTableSelection(t.name, e.target.checked)}
+                                                    />
                                                     <TableOutlined style={{ fontSize: 13, color: accentColor, flexShrink: 0 }} />
                                                     <Tooltip title={t.name} mouseEnterDelay={0.4}>
                                                         <span style={{ color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

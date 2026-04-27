@@ -74,6 +74,8 @@ export function DropFunction(arg1:connection.ConnectionConfig,arg2:string,arg3:s
 
 export function DropTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function DropTables(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<string>):Promise<connection.QueryResult>;
+
 export function DropView(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
 export function DuplicateConnection(arg1:string):Promise<connection.SavedConnectionView>;

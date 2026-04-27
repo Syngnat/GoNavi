@@ -17,66 +17,8 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            platform: darwin/amd64
-            os_name: MacOS
-            arch_name: Amd64
-            build_name: gonavi-build-darwin-amd64
-            wails_tags: ""
-            artifact_suffix: ""
-            build_optional_agents: true
-            linux_webkit: ""
-          - os: macos-latest
-            platform: darwin/arm64
-            os_name: MacOS
-            arch_name: Arm64
-            build_name: gonavi-build-darwin-arm64
-            wails_tags: ""
-            artifact_suffix: ""
-            build_optional_agents: true
-            linux_webkit: ""
-          - os: windows-latest
-            platform: windows/amd64
-            os_name: Windows
-            arch_name: Amd64
-            build_name: gonavi-build-windows-amd64
-            wails_tags: ""
-            artifact_suffix: ""
-            build_optional_agents: true
-            linux_webkit: ""
-          - os: windows-latest
-            platform: windows/arm64
-            os_name: Windows
-            arch_name: Arm64
-            build_name: gonavi-build-windows-arm64
-            wails_tags: ""
-            artifact_suffix: ""
-            build_optional_agents: true
-            linux_webkit: ""
-          - os: ubuntu-22.04
-            platform: linux/amd64
-            os_name: Linux
-            arch_name: Amd64
-            build_name: gonavi-build-linux-amd64
-            wails_tags: ""
-            artifact_suffix: ""
-            build_optional_agents: true
-            linux_webkit: "4.0"
-          - os: ubuntu-24.04
-            platform: linux/amd64
-            os_name: Linux
-            arch_name: Amd64
-            build_name: gonavi-build-linux-amd64-webkit41
-            wails_tags: "webkit2_41"
-            artifact_suffix: "-WebKit41"
-            build_optional_agents: false
-            linux_webkit: "4.1"
+    name: Build windows/amd64
+    runs-on: windows-latest
 
     steps:
       - name: Checkout code
@@ -85,79 +27,37 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.24"
           check-latest: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
-      - name: Install UPX (Windows)
-        if: contains(matrix.platform, 'windows')
+      - name: Install UPX
         shell: pwsh
         run: |
           $UPX_VERSION = "4.2.4"
           $url = "https://github.com/upx/upx/releases/download/v${UPX_VERSION}/upx-${UPX_VERSION}-win64.zip"
           $zipPath = "$env:RUNNER_TEMP\upx.zip"
           $extractPath = "$env:RUNNER_TEMP\upx"
-          Write-Host "📥 从 GitHub Releases 下载 UPX v${UPX_VERSION} ..."
           Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
           Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
           $upxDir = Get-ChildItem -Path $extractPath -Directory | Select-Object -First 1
           "$($upxDir.FullName)" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           $upxCmd = Join-Path $upxDir.FullName "upx.exe"
           if (!(Test-Path $upxCmd)) {
-            Write-Error "❌ 未检测到 upx，无法保证 Windows 产物经过压缩"
+            Write-Error "UPX not found"
             exit 1
           }
           & $upxCmd --version
 
-      - name: Install Linux Dependencies
-        if: contains(matrix.platform, 'linux')
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev
-
-          if [ "${{ matrix.linux_webkit }}" = "4.1" ]; then
-            sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev
-          else
-            sudo apt-get install -y libwebkit2gtk-4.0-dev
-          fi
-
-          sudo apt-get install -y upx-ucl || sudo apt-get install -y upx
-          upx --version
-
-          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
-
-          LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
-          PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-gtk/releases/download/continuous/linuxdeploy-plugin-gtk-x86_64.AppImage"
-
-          echo "📥 下载 linuxdeploy..."
-          wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 --tries=3 \
-            -O /tmp/linuxdeploy "$LINUXDEPLOY_URL" || {
-            echo "⚠️ linuxdeploy 下载失败，AppImage 打包将跳过"
-            touch /tmp/skip-appimage
-          }
-
-          echo "📥 下载 linuxdeploy-plugin-gtk..."
-          wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 --tries=3 \
-            -O /tmp/linuxdeploy-plugin-gtk "$PLUGIN_URL" || {
-            echo "⚠️ linuxdeploy-plugin-gtk 下载失败，AppImage 打包将跳过"
-            touch /tmp/skip-appimage
-          }
-
-          if [ ! -f /tmp/skip-appimage ]; then
-            chmod +x /tmp/linuxdeploy /tmp/linuxdeploy-plugin-gtk
-            echo "✅ AppImage 工具准备完成"
-          fi
-
       - name: Install Wails
         run: go install -v github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      - name: Setup MSYS2 Toolchain For DuckDB (Windows AMD64)
+      - name: Setup MSYS2 Toolchain For DuckDB
         id: msys2_duckdb
-        if: ${{ matrix.build_optional_agents && matrix.platform == 'windows/amd64' }}
         continue-on-error: true
         uses: msys2/setup-msys2@v2
         with:
@@ -166,8 +66,7 @@ jobs:
           install: >-
             mingw-w64-ucrt-x86_64-gcc
 
-      - name: Configure DuckDB CGO Toolchain (Windows AMD64)
-        if: ${{ matrix.build_optional_agents && matrix.platform == 'windows/amd64' }}
+      - name: Configure DuckDB CGO Toolchain
         shell: pwsh
         run: |
           function Find-MingwBin([string[]]$candidates) {
@@ -199,39 +98,36 @@ jobs:
           $mingwBin = Find-MingwBin $candidateBins
           if (-not $mingwBin) {
             if ($msys2Outcome -ne 'success') {
-              Write-Warning "⚠️ MSYS2 安装步骤结果为 $msys2Outcome，回退到 UCRT64 本机路径探测"
+              Write-Warning "MSYS2 setup did not complete successfully, falling back to local path probing"
             } else {
-              Write-Warning "⚠️ MSYS2 已执行，但未找到 UCRT64 gcc/g++，回退到本机路径探测"
+              Write-Warning "MSYS2 finished but UCRT64 gcc/g++ was not found, falling back to local path probing"
             }
             $mingwBin = Find-MingwBin $candidateBins
           }
 
           if (-not $mingwBin) {
-            Write-Error "❌ 未找到可用的 DuckDB UCRT64 编译器。已检查：$($candidateBins -join ', ')"
+            Write-Error "DuckDB UCRT64 toolchain not found. Checked: $($candidateBins -join ', ')"
             exit 1
           }
 
-          $gcc = (Join-Path $mingwBin 'gcc.exe')
-          $gxx = (Join-Path $mingwBin 'g++.exe')
+          $gcc = Join-Path $mingwBin 'gcc.exe'
+          $gxx = Join-Path $mingwBin 'g++.exe'
 
           if (!(Test-Path $gcc) -or !(Test-Path $gxx)) {
-            Write-Error "❌ DuckDB 编译器缺失：gcc=$gcc g++=$gxx"
+            Write-Error "DuckDB toolchain incomplete: gcc=$gcc g++=$gxx"
             exit 1
           }
 
           "$mingwBin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
           "CC=$gcc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "CXX=$gxx" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "✅ 已配置 DuckDB cgo 编译器: gcc=$gcc g++=$gxx"
 
-      - name: Verify DuckDB CGO Toolchain (Windows AMD64)
-        if: ${{ matrix.build_optional_agents && matrix.platform == 'windows/amd64' }}
+      - name: Verify DuckDB CGO Toolchain
         shell: pwsh
         run: |
           & "$env:CC" --version
           & "$env:CXX" --version
 
-      # ---- 生成 dev 版本号 ----
       - name: Generate Dev Version
         id: version
         shell: bash
@@ -239,29 +135,23 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           DEV_VERSION="dev-${SHORT_SHA}"
           echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "📌 Dev 版本号: ${DEV_VERSION}"
+          echo "Dev version: ${DEV_VERSION}"
 
       - name: Build
         shell: bash
         run: |
           set -euo pipefail
           DEV_VERSION="${{ steps.version.outputs.version }}"
-          if [ -n "${{ matrix.wails_tags }}" ]; then
-            wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -tags "${{ matrix.wails_tags }}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${DEV_VERSION}"
-          else
-            wails build -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${DEV_VERSION}"
-          fi
+          wails build -platform windows/amd64 -clean -o gonavi-build-windows-amd64 -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${DEV_VERSION}"
 
       - name: Build Optional Driver Agents
-        if: ${{ matrix.build_optional_agents }}
         shell: bash
         run: |
           set -euo pipefail
-          TARGET_PLATFORM="${{ matrix.platform }}"
-          GOOS="${TARGET_PLATFORM%%/*}"
-          GOARCH="${TARGET_PLATFORM##*/}"
+          GOOS="windows"
+          GOARCH="amd64"
           DRIVERS=(mariadb doris sphinx sqlserver sqlite duckdb dameng kingbase highgo vastbase mongodb tdengine clickhouse)
-          OUTDIR="drivers/${{ matrix.os_name }}"
+          OUTDIR="drivers/Windows"
           mkdir -p "$OUTDIR"
 
           for DRIVER in "${DRIVERS[@]}"; do
@@ -269,17 +159,12 @@ jobs:
             if [ "$DRIVER" = "doris" ]; then
               BUILD_DRIVER="diros"
             fi
-            if [ "$DRIVER" = "duckdb" ] && [ "$GOOS" = "windows" ] && [ "$GOARCH" != "amd64" ]; then
-              echo "⚠️ 跳过 DuckDB driver（当前平台 ${GOOS}/${GOARCH} 不受支持，仅支持 windows/amd64）"
-              continue
-            fi
+
             TAG="gonavi_${BUILD_DRIVER}_driver"
-            OUTPUT="${DRIVER}-driver-agent-${GOOS}-${GOARCH}"
-            if [ "$GOOS" = "windows" ]; then
-              OUTPUT="${OUTPUT}.exe"
-            fi
+            OUTPUT="${DRIVER}-driver-agent-${GOOS}-${GOARCH}.exe"
             OUTPUT_PATH="${OUTDIR}/${OUTPUT}"
-            echo "🔧 构建 ${OUTPUT_PATH} (tag=${TAG})"
+            echo "Building ${OUTPUT_PATH} (tag=${TAG})"
+
             if [ "$DRIVER" = "duckdb" ]; then
               CGO_ENABLED=1 GOOS="$GOOS" GOARCH="$GOARCH" go build \
                 -tags "${TAG}" \
@@ -297,211 +182,53 @@ jobs:
             fi
           done
 
-      # macOS Packaging
-      - name: Package macOS DMG
-        if: contains(matrix.platform, 'darwin')
-        run: |
-          brew install create-dmg
-          VERSION="${{ steps.version.outputs.version }}"
-          cd build/bin
-          
-          APP_PATH=$(find . -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ 未找到 .app 应用包!"
-            exit 1
-          fi
-          APP_NAME=$(basename "$APP_PATH")
-
-          APP_BIN=$(find "$APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
-          if [ -z "$APP_BIN" ]; then
-            echo "❌ 未找到 macOS 应用主程序!"
-            exit 1
-          fi
-          echo "ℹ️ macOS 产物不执行 UPX 压缩，保留原始主程序。"
-          
-          echo "🔏 正在进行 Ad-hoc 签名..."
-          if command -v xattr >/dev/null 2>&1; then
-            xattr -cr "$APP_NAME" || true
-          fi
-          codesign --force --deep --sign - "$APP_NAME"
-          
-          DMG_NAME="${{ matrix.build_name }}.dmg"
-          FINAL_NAME="GoNavi-${VERSION}-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.dmg"
-          echo "📦 正在生成 DMG: $DMG_NAME..."
-          
-          create-dmg \
-            --volname "GoNavi Dev Build" \
-            --window-pos 200 120 \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --icon "$APP_NAME" 200 190 \
-            --hide-extension "$APP_NAME" \
-            --app-drop-link 600 185 \
-            "$DMG_NAME" \
-            "$APP_NAME"
-
-          VERIFY_MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gonavi-dev-verify.XXXXXX")
-          hdiutil attach -nobrowse -readonly -mountpoint "$VERIFY_MOUNT_DIR" "$DMG_NAME" >/dev/null
-          PACKAGED_APP=$(find "$VERIFY_MOUNT_DIR" -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$PACKAGED_APP" ]; then
-            echo "❌ DMG 内未找到 .app 应用包!"
-            hdiutil detach "$VERIFY_MOUNT_DIR" -quiet >/dev/null 2>&1 || true
-            exit 1
-          fi
-          codesign --verify --deep --strict --verbose=4 "$PACKAGED_APP"
-          hdiutil detach "$VERIFY_MOUNT_DIR" -quiet >/dev/null 2>&1 || true
-            
-          mv "$DMG_NAME" "../../$FINAL_NAME"
-
-      # Windows Packaging
       - name: Package Windows EXE
-        if: contains(matrix.platform, 'windows')
         shell: pwsh
         run: |
           Set-Location build/bin
           $version = "${{ steps.version.outputs.version }}"
-          $target = "${{ matrix.build_name }}"
-          $finalExeName = "GoNavi-$version-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.exe"
+          $target = "gonavi-build-windows-amd64"
+          $finalExeName = "GoNavi-$version-Windows-Amd64.exe"
 
           if (Test-Path "$target.exe") {
-              $finalExe = "$target.exe"
+            $finalExe = "$target.exe"
           } elseif (Test-Path "$target") {
-              Rename-Item -Path "$target" -NewName "$target.exe"
-              $finalExe = "$target.exe"
+            Rename-Item -Path "$target" -NewName "$target.exe"
+            $finalExe = "$target.exe"
           } else {
-              Write-Error "❌ 未找到构建产物 '$target'!"
-              exit 1
+            Write-Error "Build output '$target' not found"
+            exit 1
           }
 
-          $isArm64Target = "${{ matrix.arch_name }}".ToLowerInvariant() -eq "arm64"
-          if ($isArm64Target) {
-              Write-Warning "⚠️ UPX 当前不支持 win64/arm64，跳过压缩并保留原始 EXE。"
-              $LASTEXITCODE = 0
-          } else {
-              $upxCmd = Get-Command upx -ErrorAction SilentlyContinue
-              if ($null -eq $upxCmd) {
-                  Write-Error "❌ 未找到 upx，无法保证 Windows 产物经过压缩"
-                  exit 1
-              }
-              $beforeBytes = (Get-Item -LiteralPath $finalExe).Length
-              Write-Host "🗜️ 使用 UPX 压缩 $finalExe ..."
-              & upx --best --lzma --force $finalExe | Out-Host
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Error "❌ UPX 压缩失败（$LASTEXITCODE）"
-                  exit 1
-              }
-              & upx -t $finalExe | Out-Host
-              if ($LASTEXITCODE -ne 0) {
-                  Write-Error "❌ UPX 校验失败（$LASTEXITCODE）"
-                  exit 1
-              }
-              $afterBytes = (Get-Item -LiteralPath $finalExe).Length
-              if ($afterBytes -lt $beforeBytes) {
-                  $savedBytes = $beforeBytes - $afterBytes
-                  Write-Host ("✅ UPX 压缩完成：{0:N2}MB -> {1:N2}MB，减少 {2:N2}MB" -f ($beforeBytes / 1MB), ($afterBytes / 1MB), ($savedBytes / 1MB))
-              } else {
-                  Write-Host ("ℹ️ UPX 压缩完成：{0:N2}MB -> {1:N2}MB" -f ($beforeBytes / 1MB), ($afterBytes / 1MB))
-              }
+          $upxCmd = Get-Command upx -ErrorAction SilentlyContinue
+          if ($null -eq $upxCmd) {
+            Write-Error "UPX not found"
+            exit 1
           }
 
-          Write-Host "📦 输出 Windows 可执行文件 $finalExeName..."
+          & upx --best --lzma --force $finalExe | Out-Host
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "UPX compression failed"
+            exit 1
+          }
+
+          & upx -t $finalExe | Out-Host
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "UPX verification failed"
+            exit 1
+          }
+
           Copy-Item -LiteralPath $finalExe -Destination "..\\..\\$finalExeName" -Force
-
-      # Linux Packaging
-      - name: Package Linux
-        if: contains(matrix.platform, 'linux')
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          cd build/bin
-          TARGET="${{ matrix.build_name }}"
-          TAR_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.tar.gz"
-          APPIMAGE_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.AppImage"
-
-          if [ ! -f "$TARGET" ]; then
-              echo "❌ 未找到构建产物 '$TARGET'!"
-              exit 1
-          fi
-
-          chmod +x "$TARGET"
-          BEFORE_BYTES=$(wc -c <"$TARGET" | tr -d '[:space:]')
-          echo "🗜️ 正在使用 UPX 压缩 Linux 可执行文件: $TARGET ..."
-          upx --best --lzma --force "$TARGET"
-          upx -t "$TARGET"
-          AFTER_BYTES=$(wc -c <"$TARGET" | tr -d '[:space:]')
-          if [ "$AFTER_BYTES" -lt "$BEFORE_BYTES" ]; then
-              SAVED_BYTES=$((BEFORE_BYTES - AFTER_BYTES))
-              awk -v b="$BEFORE_BYTES" -v a="$AFTER_BYTES" -v s="$SAVED_BYTES" 'BEGIN { printf "✅ Linux UPX 压缩完成：%.2fMB -> %.2fMB，减少 %.2fMB\n", b/1024/1024, a/1024/1024, s/1024/1024 }'
-          else
-              awk -v b="$BEFORE_BYTES" -v a="$AFTER_BYTES" 'BEGIN { printf "ℹ️ Linux UPX 压缩完成：%.2fMB -> %.2fMB\n", b/1024/1024, a/1024/1024 }'
-          fi
-
-          echo "📦 正在打包 $TAR_NAME..."
-          tar -czvf "$TAR_NAME" "$TARGET"
-          mv "$TAR_NAME" ../../
-
-          if [ -f /tmp/skip-appimage ]; then
-              echo "⚠️ 跳过 AppImage 打包"
-              exit 0
-          fi
-
-          echo "📦 正在生成 AppImage..."
-          mkdir -p AppDir/usr/bin
-          mkdir -p AppDir/usr/share/applications
-          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
-
-          cp "$TARGET" AppDir/usr/bin/gonavi
-
-          printf '%s\n' \
-            '[Desktop Entry]' \
-            'Name=GoNavi' \
-            'Exec=gonavi' \
-            'Icon=gonavi' \
-            'Type=Application' \
-            'Categories=Development;Database;' \
-            'Comment=Database Management Tool' \
-            > AppDir/usr/share/applications/gonavi.desktop
-
-          cp AppDir/usr/share/applications/gonavi.desktop AppDir/gonavi.desktop
-
-          if [ -f "../../build/appicon.png" ]; then
-              cp "../../build/appicon.png" AppDir/usr/share/icons/hicolor/256x256/apps/gonavi.png
-              cp "../../build/appicon.png" AppDir/gonavi.png
-          else
-              convert -size 256x256 xc:#336791 -fill white -gravity center -pointsize 48 -annotate 0 "GoNavi" AppDir/gonavi.png || \
-              wget -q "https://via.placeholder.com/256/336791/FFFFFF?text=GoNavi" -O AppDir/gonavi.png || \
-              touch AppDir/gonavi.png
-              cp AppDir/gonavi.png AppDir/usr/share/icons/hicolor/256x256/apps/gonavi.png
-          fi
-
-          export DEPLOY_GTK_VERSION=3
-          /tmp/linuxdeploy --appdir AppDir --plugin gtk --output appimage || {
-              echo "⚠️ AppImage 生成失败，但 tar.gz 已成功生成"
-              exit 0
-          }
-
-          mv GoNavi*.AppImage "$APPIMAGE_NAME" 2>/dev/null || {
-              echo "⚠️ AppImage 重命名失败"
-              exit 0
-          }
-
-          if [ -f "$APPIMAGE_NAME" ]; then
-              mv "$APPIMAGE_NAME" ../../
-              echo "✅ AppImage 生成成功"
-          fi
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: dev-build-artifacts-${{ strategy.job-index }}
+          name: dev-build-artifacts-windows-amd64
           path: |
-            GoNavi-*.dmg
             GoNavi-*.exe
-            GoNavi-*.tar.gz
-            GoNavi-*.AppImage
             drivers/**
           retention-days: 7
 
-  # 汇总所有产物并发布为 Pre-release
   release:
     name: Publish Dev Pre-release
     needs: build
@@ -523,19 +250,17 @@ jobs:
           set -euo pipefail
           cd release-assets
           if [ ! -d drivers ]; then
-            echo "⚠️ 未找到 drivers 目录，跳过驱动总包打包"
+            echo "No drivers directory found, skipping bundle"
             exit 0
           fi
           if [ -z "$(find drivers -type f 2>/dev/null | head -n 1)" ]; then
-            echo "⚠️ drivers 目录为空，跳过驱动总包打包"
+            echo "Drivers directory is empty, skipping bundle"
             rm -rf drivers
             exit 0
           fi
 
-          echo "📦 打包驱动总包：GoNavi-DriverAgents.zip"
           python3 - <<'PY'
           import json
-          import os
           import zipfile
           from pathlib import Path
 
@@ -562,9 +287,6 @@ jobs:
               json.dumps({"assets": size_index}, ensure_ascii=False, indent=2),
               encoding="utf-8",
           )
-
-          print(f"created {out_name} size={out_path.stat().st_size} bytes")
-          print(f"created {index_name} entries={len(size_index)}")
           PY
 
           rm -rf drivers
@@ -580,7 +302,6 @@ jobs:
             fi
           done < <(find . -maxdepth 1 -type f ! -name SHA256SUMS -exec basename {} \; | sort)
           if [ ${#FILES[@]} -eq 0 ]; then
-            echo "⚠️ 未找到可签名资产，生成空 SHA256SUMS"
             : > SHA256SUMS
           else
             sha256sum "${FILES[@]}" > SHA256SUMS
@@ -607,7 +328,6 @@ jobs:
           print(f"display={formatted}")
           PY
 
-      # 删除旧的 dev pre-release（保持只有最新一个）
       - name: Reset Previous Dev Release
         uses: actions/github-script@v7
         with:
@@ -623,17 +343,12 @@ jobs:
             });
 
             const matchedReleases = releases.filter((release) => release.tag_name === tag);
-            if (matchedReleases.length === 0) {
-              core.info(`No existing releases found for tag ${tag}`);
-            } else {
-              for (const release of matchedReleases) {
-                core.info(`Deleting release ${release.id} (${release.name || 'unnamed'}) for tag ${tag}`);
-                await github.rest.repos.deleteRelease({
-                  owner,
-                  repo,
-                  release_id: release.id,
-                });
-              }
+            for (const release of matchedReleases) {
+              await github.rest.repos.deleteRelease({
+                owner,
+                repo,
+                release_id: release.id,
+              });
             }
 
             try {
@@ -642,11 +357,8 @@ jobs:
                 repo,
                 ref,
               });
-              core.info(`Deleted ref ${ref}`);
             } catch (error) {
-              if (error.status === 404) {
-                core.info(`No existing ref found for ${ref}`);
-              } else {
+              if (error.status !== 404) {
                 throw error;
               }
             }
@@ -655,20 +367,19 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: dev-latest
-          name: "🧪 Dev Build (${{ steps.version.outputs.version }})"
+          name: "Dev Build (${{ steps.version.outputs.version }})"
           target_commitish: ${{ github.sha }}
           files: release-assets/*
           prerelease: true
           draft: false
           body: |
-            ## 🧪 测试版本 (Dev Build)
+            ## Dev Build
 
-            **版本**: `${{ steps.version.outputs.version }}`
-            **分支**: `dev`
-            **提交**: [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
-            **构建时间**: ${{ steps.build_time.outputs.display }}
+            **Version**: `${{ steps.version.outputs.version }}`
+            **Branch**: `dev`
+            **Commit**: [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+            **Build Time**: ${{ steps.build_time.outputs.display }}
 
-            > ⚠️ 这是开发测试版本，仅供内部测试使用，不建议用于生产环境。
-            > 每次 push 到 `dev` 分支会自动覆盖此 release。
+            This is a development pre-release for packaging verification on `dev`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -321,7 +321,7 @@ func buildMySQLToKingbaseCreateTablePlan(config SyncConfig, targetQueryTable str
 	skipped := 0
 	for _, idx := range grouped {
 		name := strings.TrimSpace(idx.Name)
-		if name == "" || strings.EqualFold(name, "primary") {
+		if name == "" || strings.EqualFold(name, "primary") || strings.HasSuffix(strings.ToLower(name), "_pkey") {
 			continue
 		}
 		if len(idx.Columns) == 0 {
@@ -716,7 +716,7 @@ func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, ta
 	skipped := 0
 	for _, idx := range grouped {
 		name := strings.TrimSpace(idx.Name)
-		if name == "" || strings.EqualFold(name, "primary") {
+		if name == "" || strings.EqualFold(name, "primary") || strings.HasSuffix(strings.ToLower(name), "_pkey") {
 			continue
 		}
 		if len(idx.Columns) == 0 {
@@ -770,6 +770,9 @@ func mapPGLikeColumnToPGLike(col connection.ColumnDefinition) (string, []string)
 	if colType == "" {
 		return "text", []string{fmt.Sprintf("字段 %s 类型为空，已降级为 text", col.Name)}
 	}
+	if isLikelyPGLikeCustomTypeName(colType) {
+		return "text", []string{fmt.Sprintf("字段 %s 类型 %s 为自定义类型，当前自动建表暂降级为 text", col.Name, col.Type)}
+	}
 	return colType, nil
 }
 
@@ -785,6 +788,49 @@ func mapPGLikeDefaultToPGLike(col connection.ColumnDefinition) (string, bool, st
 		return "", false, ""
 	}
 	return raw, true, ""
+}
+
+func isLikelyPGLikeCustomTypeName(colType string) bool {
+	raw := strings.ToLower(strings.TrimSpace(colType))
+	if raw == "" {
+		return false
+	}
+	if strings.ContainsAny(raw, `()" `) {
+		return false
+	}
+	if strings.Contains(raw, ".") {
+		raw = raw[strings.LastIndex(raw, ".")+1:]
+	}
+	switch raw {
+	case
+		"smallint", "int2",
+		"integer", "int", "int4",
+		"bigint", "int8",
+		"numeric", "decimal",
+		"real", "float4",
+		"double", "float8",
+		"boolean", "bool",
+		"text",
+		"json", "jsonb",
+		"bytea",
+		"date",
+		"time",
+		"timetz",
+		"timestamp",
+		"timestamptz",
+		"interval",
+		"uuid",
+		"xml",
+		"inet",
+		"cidr",
+		"macaddr",
+		"money",
+		"serial", "serial2", "serial4", "serial8",
+		"bigserial", "smallserial":
+		return false
+	default:
+		return true
+	}
 }
 
 func stripIdentityAndNotNullForAddColumn(def string) string {
