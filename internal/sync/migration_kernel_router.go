@@ -11,6 +11,8 @@ type genericLegacyPlanner struct{}
 
 type mysqlToPGLikePlanner struct{}
 
+type pgLikeToPGLikePlanner struct{}
+
 type mysqlToClickHousePlanner struct{}
 
 type pgLikeToClickHousePlanner struct{}
@@ -56,6 +58,7 @@ func buildSchemaMigrationPlan(config SyncConfig, tableName string, sourceDB db.D
 func resolveMigrationPlanner(ctx MigrationBuildContext) MigrationPlanner {
 	planners := []MigrationPlanner{
 		mysqlToPGLikePlanner{},
+		pgLikeToPGLikePlanner{},
 		mySQLLikeToTDenginePlanner{},
 		pgLikeToTDenginePlanner{},
 		clickHouseToTDenginePlanner{},
@@ -146,6 +149,21 @@ func (mysqlToPGLikePlanner) SupportLevel(ctx MigrationBuildContext) MigrationSup
 
 func (mysqlToPGLikePlanner) BuildPlan(ctx MigrationBuildContext) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
 	return buildMySQLToPGLikePlan(ctx.Config, ctx.TableName, ctx.SourceDB, ctx.TargetDB)
+}
+
+func (pgLikeToPGLikePlanner) Name() string { return "pglike-pglike-planner" }
+
+func (pgLikeToPGLikePlanner) SupportLevel(ctx MigrationBuildContext) MigrationSupportLevel {
+	sourceType := resolveMigrationDBType(ctx.Config.SourceConfig)
+	targetType := resolveMigrationDBType(ctx.Config.TargetConfig)
+	if isDirectPGLikeSource(sourceType) && isDirectPGLikeTarget(targetType) {
+		return MigrationSupportLevelFull
+	}
+	return MigrationSupportLevelUnsupported
+}
+
+func (pgLikeToPGLikePlanner) BuildPlan(ctx MigrationBuildContext) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
+	return buildPGLikeToPGLikePlan(ctx.Config, ctx.TableName, ctx.SourceDB, ctx.TargetDB)
 }
 
 func (tdengineToMySQLPlanner) Name() string { return "tdengine-mysql-planner" }

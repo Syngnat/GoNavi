@@ -58,6 +58,26 @@ body, #root {
 .sidebar-tree-scroll-shell .ant-tree .ant-tree-treenode {
   width: auto;
   min-width: 100%;
+  align-items: center;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-switcher {
+  flex: 0 0 24px;
+  width: 24px !important;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-tree-scroll-shell .ant-tree .ant-tree-iconEle {
+  flex: 0 0 26px;
+  width: 26px !important;
+  min-width: 26px;
+  margin-inline-end: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .sidebar-tree-scroll-shell .ant-tree .ant-tree-node-content-wrapper {

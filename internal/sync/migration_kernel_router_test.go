@@ -118,6 +118,23 @@ func TestResolveMigrationPlanner_UsesMySQLPGLikePlannerForMySQLToPostgres(t *tes
 	}
 }
 
+func TestResolveMigrationPlanner_UsesPGLikePGLikePlannerForPostgresToPostgres(t *testing.T) {
+	t.Parallel()
+
+	planner := resolveMigrationPlanner(MigrationBuildContext{
+		Config: SyncConfig{
+			SourceConfig: connection.ConnectionConfig{Type: "postgres"},
+			TargetConfig: connection.ConnectionConfig{Type: "postgres"},
+		},
+	})
+	if planner == nil {
+		t.Fatalf("expected planner")
+	}
+	if planner.Name() != "pglike-pglike-planner" {
+		t.Fatalf("unexpected planner: %s", planner.Name())
+	}
+}
+
 func TestResolveMigrationPlanner_UsesMySQLClickHousePlanner(t *testing.T) {
 	t.Parallel()
 

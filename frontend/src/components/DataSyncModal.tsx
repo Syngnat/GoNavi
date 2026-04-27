@@ -987,7 +987,7 @@ const DataSyncModal: React.FC<{ open: boolean; onClose: () => void }> = ({ open,
                           <Alert
                               type="info"
                               showIcon
-                              message="自动建表模式首期仅支持 MySQL → Kingbase；将迁移字段、主键、普通/唯一/联合索引，并显式跳过全文、空间、前缀、函数类索引。"
+                              message="自动建表模式现已支持 MySQL → PostgreSQL 系列，以及 PostgreSQL 系列之间互转；将迁移字段、主键、普通/唯一/联合索引，并显式跳过全文、空间、前缀、函数类索引。"
                               style={{ marginBottom: 12 }}
                           />
                       )}

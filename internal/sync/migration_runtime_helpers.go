@@ -12,6 +12,9 @@ func supportsAutoAddColumnsForPair(sourceType string, targetType string) bool {
 	if isMySQLLikeWritableTargetType(target) {
 		return isMySQLCoreType(source)
 	}
+	if isDirectPGLikeTarget(target) {
+		return isDirectPGLikeSource(source) || isMySQLLikeSourceType(source)
+	}
 	if isPGLikeTarget(target) {
 		return isMySQLLikeSourceType(source)
 	}
@@ -30,14 +33,19 @@ func buildAddColumnSQLForPair(sourceType string, targetType string, targetQueryT
 			colType,
 		), nil
 	case isMySQLLikeSourceType(source) && isPGLikeTarget(target):
-		colType, _, warnings := mapMySQLColumnToKingbase(sourceCol)
-		if len(warnings) > 0 && strings.Contains(strings.Join(warnings, " "), "identity") {
-			// 对已有目标表补字段时保守处理，不补建自增语义。
-		}
+		colType, _, _ := mapMySQLColumnToKingbase(sourceCol)
 		return fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s NULL",
 			quoteQualifiedIdentByType(target, targetQueryTable),
 			quoteIdentByType(target, sourceCol.Name),
 			colType,
+		), nil
+	case isDirectPGLikeSource(source) && isDirectPGLikeTarget(target):
+		def, _ := buildPGLikeToPGLikeColumnDefinition(sourceCol)
+		def = stripIdentityAndNotNullForAddColumn(def)
+		return fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s NULL",
+			quoteQualifiedIdentByType(target, targetQueryTable),
+			quoteIdentByType(target, sourceCol.Name),
+			def,
 		), nil
 	default:
 		return "", fmt.Errorf("当前不支持 source=%s target=%s 的自动补字段", sourceType, targetType)

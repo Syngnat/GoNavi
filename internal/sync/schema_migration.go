@@ -125,7 +125,7 @@ func buildSchemaMigrationPlanLegacy(config SyncConfig, tableName string, sourceD
 	if targetExists {
 		missing := diffMissingColumnNames(sourceCols, targetCols)
 		if len(missing) > 0 {
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺失字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺少字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
 		}
 		if len(missing) == 0 {
 			plan.PlannedAction = "表结构已一致"
@@ -156,17 +156,17 @@ func buildSchemaMigrationPlanLegacy(config SyncConfig, tableName string, sourceD
 			if len(plan.PreDataSQL) > 0 {
 				plan.PlannedAction = fmt.Sprintf("补齐缺失字段(%d)后导入", len(plan.PreDataSQL))
 			} else {
-				plan.PlannedAction = fmt.Sprintf("目标表缺失字段(%d)，但未生成可执行补齐 SQL", len(missing))
+				plan.PlannedAction = fmt.Sprintf("目标表缺少字段(%d)，但未生成可执行补齐 SQL", len(missing))
 			}
 		} else {
 			if config.AutoAddColumns {
-				plan.PlannedAction = fmt.Sprintf("目标表缺失字段(%d)，当前库对暂不支持自动补齐", len(missing))
+				plan.PlannedAction = fmt.Sprintf("目标表缺少字段(%d)，当前库对暂不支持自动补齐", len(missing))
 			} else {
-				plan.PlannedAction = fmt.Sprintf("目标表缺失字段(%d)，未开启自动补齐", len(missing))
+				plan.PlannedAction = fmt.Sprintf("目标表缺少字段(%d)，未开启自动补齐", len(missing))
 			}
 		}
 		if strategy != "existing_only" {
-			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引/约束")
+			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引、约束")
 		}
 		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
 	}
@@ -179,7 +179,7 @@ func buildSchemaMigrationPlanLegacy(config SyncConfig, tableName string, sourceD
 	case "smart", "auto_create_if_missing":
 		if !supportsAutoCreateMigration(config.SourceConfig.Type, config.TargetConfig.Type) {
 			plan.PlannedAction = "当前库对暂不支持自动建表"
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("当前仅支持 MySQL -> Kingbase 自动建表，当前组合=%s -> %s", config.SourceConfig.Type, config.TargetConfig.Type))
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("当前库对暂不支持自动建表，当前组合：%s -> %s", config.SourceConfig.Type, config.TargetConfig.Type))
 			return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
 		}
 		plan.AutoCreate = true
@@ -568,6 +568,232 @@ func isPGLikeSource(dbType string) bool {
 	}
 }
 
+func isDirectPGLikeSource(dbType string) bool {
+	switch normalizeMigrationDBType(dbType) {
+	case "postgres", "kingbase", "highgo", "vastbase":
+		return true
+	default:
+		return false
+	}
+}
+
+func isDirectPGLikeTarget(dbType string) bool {
+	return isDirectPGLikeSource(dbType)
+}
+
+func buildPGLikeToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
+	plan := SchemaMigrationPlan{}
+	sourceType := resolveMigrationDBType(config.SourceConfig)
+	targetType := resolveMigrationDBType(config.TargetConfig)
+	plan.SourceSchema, plan.SourceTable = normalizeSchemaAndTable(sourceType, config.SourceConfig.Database, tableName)
+	plan.TargetSchema, plan.TargetTable = normalizeSchemaAndTable(targetType, config.TargetConfig.Database, tableName)
+	plan.SourceQueryTable = qualifiedNameForQuery(sourceType, plan.SourceSchema, plan.SourceTable, tableName)
+	plan.TargetQueryTable = qualifiedNameForQuery(targetType, plan.TargetSchema, plan.TargetTable, tableName)
+	plan.PlannedAction = "使用已有目标表导入"
+
+	sourceCols, sourceExists, err := inspectTableColumns(sourceDB, plan.SourceSchema, plan.SourceTable)
+	if err != nil {
+		return plan, nil, nil, fmt.Errorf("获取源表字段失败: %w", err)
+	}
+	if !sourceExists {
+		return plan, nil, nil, fmt.Errorf("源表不存在或无列定义: %s", tableName)
+	}
+
+	targetCols, targetExists, err := inspectTableColumns(targetDB, plan.TargetSchema, plan.TargetTable)
+	if err != nil {
+		return plan, sourceCols, nil, fmt.Errorf("获取目标表字段失败: %w", err)
+	}
+	plan.TargetTableExists = targetExists
+
+	strategy := normalizeTargetTableStrategy(config.TargetTableStrategy)
+	if targetExists {
+		missing := diffMissingColumnNames(sourceCols, targetCols)
+		if len(missing) > 0 {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺少字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
+		}
+		if config.AutoAddColumns {
+			addSQL, addWarnings := buildPGLikeToPGLikeAddColumnSQL(targetType, plan.TargetQueryTable, sourceCols, targetCols)
+			plan.PreDataSQL = append(plan.PreDataSQL, addSQL...)
+			plan.Warnings = append(plan.Warnings, addWarnings...)
+			if len(addSQL) > 0 {
+				plan.PlannedAction = fmt.Sprintf("补齐缺失字段(%d)后导入", len(addSQL))
+			}
+		}
+		if strategy != "existing_only" {
+			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引、约束")
+		}
+		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
+	}
+
+	switch strategy {
+	case "existing_only":
+		plan.PlannedAction = "目标表不存在，需先手工创建"
+		plan.Warnings = append(plan.Warnings, "当前策略要求目标表已存在，执行时不会自动建表")
+		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
+	case "smart", "auto_create_if_missing":
+		plan.AutoCreate = true
+		plan.PlannedAction = "目标表不存在，将自动建表后导入"
+		createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildPGLikeToPGLikeCreateTablePlan(targetType, config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
+		if err != nil {
+			return plan, sourceCols, targetCols, err
+		}
+		plan.CreateTableSQL = createSQL
+		plan.PostDataSQL = append(plan.PostDataSQL, postSQL...)
+		plan.Warnings = append(plan.Warnings, warnings...)
+		plan.UnsupportedObjects = append(plan.UnsupportedObjects, unsupported...)
+		plan.IndexesToCreate = idxCreate
+		plan.IndexesSkipped = idxSkip
+		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
+	default:
+		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
+	}
+}
+
+func buildPGLikeToPGLikeAddColumnSQL(targetType string, targetQueryTable string, sourceCols, targetCols []connection.ColumnDefinition) ([]string, []string) {
+	targetSet := make(map[string]struct{}, len(targetCols))
+	for _, col := range targetCols {
+		key := strings.ToLower(strings.TrimSpace(col.Name))
+		if key == "" {
+			continue
+		}
+		targetSet[key] = struct{}{}
+	}
+
+	var sqlList []string
+	var warnings []string
+	for _, col := range sourceCols {
+		key := strings.ToLower(strings.TrimSpace(col.Name))
+		if key == "" {
+			continue
+		}
+		if _, ok := targetSet[key]; ok {
+			continue
+		}
+		def, colWarnings := buildPGLikeToPGLikeColumnDefinition(col)
+		warnings = append(warnings, colWarnings...)
+		def = stripIdentityAndNotNullForAddColumn(def)
+		sqlList = append(sqlList, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s NULL",
+			quoteQualifiedIdentByType(targetType, targetQueryTable),
+			quoteIdentByType(targetType, col.Name),
+			def,
+		))
+	}
+	return sqlList, dedupeStrings(warnings)
+}
+
+func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, int, int, error) {
+	columnDefs := make([]string, 0, len(sourceCols)+1)
+	warnings := make([]string, 0)
+	unsupported := make([]string, 0)
+	pkCols := make([]string, 0, 2)
+
+	for _, col := range sourceCols {
+		def, colWarnings := buildPGLikeToPGLikeColumnDefinition(col)
+		warnings = append(warnings, colWarnings...)
+		columnDefs = append(columnDefs, fmt.Sprintf("%s %s", quoteIdentByType(targetType, col.Name), def))
+		if col.Key == "PRI" || col.Key == "PK" {
+			pkCols = append(pkCols, quoteIdentByType(targetType, col.Name))
+		}
+	}
+	if len(pkCols) > 0 {
+		columnDefs = append(columnDefs, fmt.Sprintf("PRIMARY KEY (%s)", strings.Join(pkCols, ", ")))
+	}
+
+	createSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(columnDefs, ",\n  "))
+	if !config.CreateIndexes {
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+	}
+
+	indexes, err := sourceDB.GetIndexes(sourceSchema, sourceTable)
+	if err != nil {
+		warnings = append(warnings, fmt.Sprintf("读取源表索引失败，已跳过索引迁移：%v", err))
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+	}
+
+	grouped := groupIndexDefinitions(indexes)
+	postSQL := make([]string, 0, len(grouped))
+	created := 0
+	skipped := 0
+	for _, idx := range grouped {
+		name := strings.TrimSpace(idx.Name)
+		if name == "" || strings.EqualFold(name, "primary") {
+			continue
+		}
+		if len(idx.Columns) == 0 {
+			skipped++
+			unsupported = append(unsupported, fmt.Sprintf("索引 %s 缺少列定义，已跳过", name))
+			continue
+		}
+		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
+		if idx.SubPart > 0 {
+			skipped++
+			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，当前暂不支持迁移", name))
+			continue
+		}
+		if kind != "" && kind != "btree" {
+			skipped++
+			unsupported = append(unsupported, fmt.Sprintf("索引 %s 类型=%s，当前暂不支持自动迁移", name, idx.IndexType))
+			continue
+		}
+		quotedCols := make([]string, 0, len(idx.Columns))
+		for _, col := range idx.Columns {
+			quotedCols = append(quotedCols, quoteIdentByType(targetType, col))
+		}
+		prefix := "CREATE INDEX"
+		if idx.Unique {
+			prefix = "CREATE UNIQUE INDEX"
+		}
+		postSQL = append(postSQL, fmt.Sprintf("%s %s ON %s (%s)", prefix, quoteIdentByType(targetType, name), quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(quotedCols, ", ")))
+		created++
+	}
+	return createSQL, postSQL, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
+}
+
+func buildPGLikeToPGLikeColumnDefinition(col connection.ColumnDefinition) (string, []string) {
+	colType, warnings := mapPGLikeColumnToPGLike(col)
+	parts := []string{colType}
+	if strings.Contains(strings.ToLower(strings.TrimSpace(col.Extra)), "auto_increment") {
+		parts = append(parts, "GENERATED BY DEFAULT AS IDENTITY")
+	} else if defaultSQL, ok, warningText := mapPGLikeDefaultToPGLike(col); warningText != "" {
+		warnings = append(warnings, warningText)
+	} else if ok {
+		parts = append(parts, "DEFAULT "+defaultSQL)
+	}
+	if strings.EqualFold(strings.TrimSpace(col.Nullable), "NO") {
+		parts = append(parts, "NOT NULL")
+	}
+	return strings.Join(parts, " "), dedupeStrings(warnings)
+}
+
+func mapPGLikeColumnToPGLike(col connection.ColumnDefinition) (string, []string) {
+	colType := strings.TrimSpace(col.Type)
+	if colType == "" {
+		return "text", []string{fmt.Sprintf("字段 %s 类型为空，已降级为 text", col.Name)}
+	}
+	return colType, nil
+}
+
+func mapPGLikeDefaultToPGLike(col connection.ColumnDefinition) (string, bool, string) {
+	if col.Default == nil {
+		return "", false, ""
+	}
+	raw := strings.TrimSpace(*col.Default)
+	if raw == "" || strings.EqualFold(raw, "null") {
+		return "", false, ""
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "nextval(") {
+		return "", false, ""
+	}
+	return raw, true, ""
+}
+
+func stripIdentityAndNotNullForAddColumn(def string) string {
+	out := strings.TrimSpace(def)
+	out = strings.ReplaceAll(out, " GENERATED BY DEFAULT AS IDENTITY", "")
+	out = strings.ReplaceAll(out, " NOT NULL", "")
+	return strings.TrimSpace(out)
+}
+
 func buildPGLikeToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
 	plan := SchemaMigrationPlan{}
 	sourceType := resolveMigrationDBType(config.SourceConfig)
@@ -596,7 +822,7 @@ func buildPGLikeToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Dat
 	if targetExists {
 		missing := diffMissingColumnNames(sourceCols, targetCols)
 		if len(missing) > 0 {
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺失字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺少字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
 		}
 		if config.AutoAddColumns {
 			addSQL, addWarnings := buildPGLikeToMySQLAddColumnSQL(plan.TargetQueryTable, sourceCols, targetCols)
@@ -607,7 +833,7 @@ func buildPGLikeToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Dat
 			}
 		}
 		if strategy != "existing_only" {
-			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引/约束")
+			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引、约束")
 		}
 		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
 	}
@@ -887,7 +1113,7 @@ func buildMySQLToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Dat
 	if targetExists {
 		missing := diffMissingColumnNames(sourceCols, targetCols)
 		if len(missing) > 0 {
-			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺失字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺少字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
 		}
 		if config.AutoAddColumns {
 			addSQL, addWarnings := buildMySQLToPGLikeAddColumnSQL(targetType, plan.TargetQueryTable, sourceCols, targetCols)
@@ -898,7 +1124,7 @@ func buildMySQLToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Dat
 			}
 		}
 		if strategy != "existing_only" {
-			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引/约束")
+			plan.Warnings = append(plan.Warnings, "目标表已存在，当前仅执行数据导入；不会自动重建已有索引、约束")
 		}
 		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
 	}
