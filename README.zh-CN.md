@@ -144,7 +144,7 @@ wails dev
 ```bash
 # 构建当前平台
 wails build
-
+ 
 # 清理后构建（发布前推荐）
 wails build -clean
 ```
