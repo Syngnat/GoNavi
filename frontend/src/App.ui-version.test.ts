@@ -6,11 +6,21 @@ const appSource = readFileSync(
   fileURLToPath(new globalThis.URL('./App.tsx', import.meta.url)),
   'utf8',
 );
+const appCss = readFileSync(
+  fileURLToPath(new globalThis.URL('./App.css', import.meta.url)),
+  'utf8',
+);
 
 describe('UI version switch placement', () => {
   it('loads the v2 theme stylesheet with the app shell', () => {
     expect(appSource).toContain("import './App.css';");
     expect(appSource).toContain("import './v2-theme.css';");
+  });
+
+  it('gives legacy sidebar the same resize bounds as v2', () => {
+    expect(appCss).toContain('body[data-ui-version="legacy"] .ant-layout-sider');
+    expect(appCss).toMatch(/min-width:\s*232px\s*!important/);
+    expect(appCss).toMatch(/max-width:\s*420px\s*!important/);
   });
 
   it('keeps the UI version switch in theme mode and outside macOS-only settings', () => {

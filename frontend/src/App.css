@@ -685,3 +685,9 @@ body[data-theme='dark'] .gonavi-query-editor-column-token {
 body[data-theme='dark'] .gonavi-query-editor-db-token {
   color: #c4b5fd;
 }
+
+/* Legacy sidebar resize bounds — mirror v2 .gn-v2-app-sider so Ant Design inline width locks do not collapse drag range. */
+body[data-ui-version="legacy"] .ant-layout-sider {
+  min-width: 232px !important;
+  max-width: 420px !important;
+}
