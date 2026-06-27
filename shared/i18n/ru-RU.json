@@ -7057,6 +7057,7 @@
   "sidebar.tree.default_database": "База данных по умолчанию",
   "sidebar.tree.default_schema": "Схема по умолчанию",
   "sidebar.tree.saved_queries": "Сохраненные запросы",
+  "sidebar.tree.table_comment_tooltip": "{{name}}\nКомментарий: {{comment}}",
   "sidebar.tree.unknown_connection": "Неизвестное подключение",
   "sidebar.tree.unmatched_saved_queries": "Несопоставленные",
   "sidebar.tree.untitled_query": "Запрос без имени",

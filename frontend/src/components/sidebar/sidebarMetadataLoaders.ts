@@ -252,6 +252,23 @@ const parseMetadataRowCount = (
   return Math.round(parsed);
 };
 
+const parseMetadataTableComment = (
+  row: Record<string, any>,
+): string | undefined => {
+  const rawValue = getCaseInsensitiveRawValue(row, [
+    "table_comment",
+    "TABLE_COMMENT",
+    "Comment",
+    "comment",
+    "comments",
+  ]);
+  if (rawValue === undefined || rawValue === null) {
+    return undefined;
+  }
+  const text = String(rawValue).trim();
+  return text.length > 0 ? text : undefined;
+};
+
 const buildSidebarTableStatusSQL = (
   conn: SavedConnection,
   dbName: string,
@@ -262,7 +279,7 @@ const buildSidebarTableStatusSQL = (
     case "mysql":
     case "starrocks":
       return [
-        "SELECT TABLE_NAME AS table_name, TABLE_ROWS AS table_rows",
+        "SELECT TABLE_NAME AS table_name, TABLE_ROWS AS table_rows, TABLE_COMMENT AS table_comment",
         "FROM information_schema.tables",
         `WHERE table_schema = '${safeDbName}'`,
         "AND table_type = 'BASE TABLE'",
@@ -275,7 +292,7 @@ const buildSidebarTableStatusSQL = (
     case "opengauss":
     case "gaussdb":
       return [
-        "SELECT n.nspname || '.' || c.relname AS table_name, c.reltuples::bigint AS table_rows",
+        "SELECT n.nspname || '.' || c.relname AS table_name, c.reltuples::bigint AS table_rows, obj_description(c.oid, 'pg_class') AS table_comment",
         "FROM pg_class c",
         "JOIN pg_namespace n ON n.oid = c.relnamespace",
         "WHERE c.relkind = 'r'",
@@ -297,7 +314,7 @@ const buildSidebarTableStatusSQL = (
     }
     case "clickhouse":
       return [
-        "SELECT name AS table_name, total_rows AS table_rows",
+        "SELECT name AS table_name, total_rows AS table_rows, comment AS table_comment",
         "FROM system.tables",
         `WHERE database = '${safeDbName}'`,
         "AND engine NOT IN ('View', 'MaterializedView')",
@@ -1273,6 +1290,7 @@ export {
   normalizeMetadataQuerySpecs,
   parseDuckDBParameterNames,
   parseMetadataRowCount,
+  parseMetadataTableComment,
   quoteSqlServerIdentifier,
   shouldHideSchemaPrefix,
   splitQualifiedName,

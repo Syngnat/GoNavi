@@ -7057,6 +7057,7 @@
   "sidebar.tree.default_database": "預設資料庫",
   "sidebar.tree.default_schema": "預設結構",
   "sidebar.tree.saved_queries": "已儲存查詢",
+  "sidebar.tree.table_comment_tooltip": "{{name}}\n備註：{{comment}}",
   "sidebar.tree.unknown_connection": "未知連線",
   "sidebar.tree.unmatched_saved_queries": "未匹配",
   "sidebar.tree.untitled_query": "未命名查詢",

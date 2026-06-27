@@ -7057,6 +7057,7 @@
   "sidebar.tree.default_database": "默认数据库",
   "sidebar.tree.default_schema": "默认结构",
   "sidebar.tree.saved_queries": "已存查询",
+  "sidebar.tree.table_comment_tooltip": "{{name}}\n备注：{{comment}}",
   "sidebar.tree.unknown_connection": "未知连接",
   "sidebar.tree.unmatched_saved_queries": "未匹配",
   "sidebar.tree.untitled_query": "未命名查询",

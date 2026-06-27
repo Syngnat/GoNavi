@@ -39,6 +39,7 @@ import {
   loadStarRocksMaterializedViews,
   loadViews,
   parseMetadataRowCount,
+  parseMetadataTableComment,
   shouldHideSchemaPrefix,
   splitQualifiedName,
   supportsDatabaseEvents,
@@ -486,6 +487,7 @@ export const useSidebarTreeLoaders = ({
                     ? await DBQuery(buildRpcConnectionConfig(config) as any, conn.dbName, tableStatusSql).catch(() => ({ success: false, data: [] as any[] }))
                     : { success: false, data: [] as any[] };
                 const tableRowCountMap = new Map<string, number>();
+                const tableCommentMap = new Map<string, string>();
                 if (tableStatsResult?.success && Array.isArray(tableStatsResult.data)) {
                     tableStatsResult.data.forEach((row: Record<string, any>) => {
                         const rawTableName = String(
@@ -494,6 +496,10 @@ export const useSidebarTreeLoaders = ({
                             || ''
                         ).trim();
                         if (!rawTableName) return;
+                        const tableComment = parseMetadataTableComment(row);
+                        if (tableComment) {
+                            tableCommentMap.set(rawTableName.toLowerCase(), tableComment);
+                        }
                         const rowCount = parseMetadataRowCount(row);
                         if (rowCount === undefined) return;
                         tableRowCountMap.set(rawTableName.toLowerCase(), rowCount);
@@ -507,6 +513,7 @@ export const useSidebarTreeLoaders = ({
 	                    schemaName: parsed.schemaName,
 	                    displayName: getSidebarTableDisplayName(conn, tableName),
                         rowCount: tableRowCountMap.get(String(tableName || '').trim().toLowerCase()),
+                        comment: tableCommentMap.get(String(tableName || '').trim().toLowerCase()),
 	                };
 	            });
 
@@ -660,7 +667,7 @@ export const useSidebarTreeLoaders = ({
 
 	            eventEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
-	            const buildTableNode = (entry: { tableName: string; schemaName: string; displayName: string; rowCount?: number }): TreeNode => {
+	            const buildTableNode = (entry: { tableName: string; schemaName: string; displayName: string; rowCount?: number; comment?: string }): TreeNode => {
 	                const isPinned = isV2Ui && isSidebarTablePinned(
 	                    currentPinnedSidebarTables,
 	                    conn.id,
@@ -678,6 +685,7 @@ export const useSidebarTreeLoaders = ({
 	                        tableName: entry.tableName,
 	                        schemaName: entry.schemaName,
 	                        rowCount: entry.rowCount,
+	                        comment: entry.comment,
 	                        ...(isPinned ? { pinnedSidebarTable: true } : {}),
 	                    },
 	                    isLeaf: false,

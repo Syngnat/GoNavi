@@ -15,6 +15,7 @@ import {
   splitQualifiedName,
 } from './sidebarMetadataLoaders';
 import { resolveV2ObjectGroupTitle } from './sidebarHelpers';
+import { composeSidebarTableHoverTitle } from './SidebarTreeTitle';
 
 type UseSidebarTitleRenderArgs = {
   connectionStates: Record<string, SidebarConnectionState>;
@@ -69,6 +70,10 @@ export const useSidebarTitleRender = ({
     }
   } else if (node.type === 'external-sql-directory' || node.type === 'external-sql-folder' || node.type === 'external-sql-file') {
     hoverTitle = String(node?.dataRef?.path || displayTitle);
+  }
+
+  if (node.type === 'table') {
+    hoverTitle = composeSidebarTableHoverTitle(hoverTitle, node?.dataRef?.comment);
   }
 
   if (node.type === 'jvm-mode') {

@@ -7057,6 +7057,7 @@
   "sidebar.tree.default_database": "Standarddatenbank",
   "sidebar.tree.default_schema": "Standardschema",
   "sidebar.tree.saved_queries": "Gespeicherte Abfragen",
+  "sidebar.tree.table_comment_tooltip": "{{name}}\nKommentar: {{comment}}",
   "sidebar.tree.unknown_connection": "Unbekannte Verbindung",
   "sidebar.tree.unmatched_saved_queries": "Nicht zugeordnet",
   "sidebar.tree.untitled_query": "Unbenannte Abfrage",

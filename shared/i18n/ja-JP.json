@@ -7057,6 +7057,7 @@
   "sidebar.tree.default_database": "既定データベース",
   "sidebar.tree.default_schema": "既定スキーマ",
   "sidebar.tree.saved_queries": "保存済みクエリ",
+  "sidebar.tree.table_comment_tooltip": "{{name}}\nコメント：{{comment}}",
   "sidebar.tree.unknown_connection": "不明な接続",
   "sidebar.tree.unmatched_saved_queries": "未一致",
   "sidebar.tree.untitled_query": "無題のクエリ",

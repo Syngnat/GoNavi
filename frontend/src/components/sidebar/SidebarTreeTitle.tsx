@@ -6,6 +6,21 @@ import { sanitizeRedisDbAlias } from '../../utils/redisDbAlias';
 import { resolveSidebarObjectDragText } from '../sidebarCoreUtils';
 import { resolveV2ObjectGroupTitle } from './sidebarHelpers';
 
+export const composeSidebarTableHoverTitle = (
+  name: string,
+  comment?: string | null,
+): string => {
+  const baseName = String(name ?? '');
+  const trimmedComment = String(comment ?? '').trim();
+  if (!trimmedComment) {
+    return baseName;
+  }
+  return t('sidebar.tree.table_comment_tooltip', {
+    name: baseName,
+    comment: trimmedComment,
+  });
+};
+
 type SidebarV2TreeTitleOptions = {
   node: any;
   hoverTitle: string;

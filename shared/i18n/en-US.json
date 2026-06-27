@@ -7057,6 +7057,7 @@
   "sidebar.tree.default_database": "Default database",
   "sidebar.tree.default_schema": "Default schema",
   "sidebar.tree.saved_queries": "Saved queries",
+  "sidebar.tree.table_comment_tooltip": "{{name}}\n{{comment}}",
   "sidebar.tree.unknown_connection": "Unknown connection",
   "sidebar.tree.unmatched_saved_queries": "Unmatched",
   "sidebar.tree.untitled_query": "Untitled query",
