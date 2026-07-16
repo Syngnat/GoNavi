@@ -171,12 +171,14 @@ export const buildQueryResultPageSql = (params: {
     oceanBaseProtocol: params.oceanBaseProtocol || '',
   });
   const orderBySql = buildOrderBySQL(dialect, params.sortInfo || []);
+  const isOceanBaseOracle = params.oceanBaseProtocol === 'oracle' && dialect === 'oracle';
   return buildPaginatedSelectSQL(
     dialect,
     resolveWrappedBaseSql(dialect, params.baseSql),
     orderBySql,
     limit,
     offset,
+    isOceanBaseOracle,
   );
 };
 

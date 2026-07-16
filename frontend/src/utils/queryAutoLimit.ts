@@ -357,6 +357,7 @@ export const applyQueryAutoLimit = (
   dbType: string,
   maxRows: number,
   driver = '',
+  oceanBaseOracle = false,
 ): { sql: string; applied: boolean; maxRows: number } => {
   if (!Number.isFinite(maxRows) || maxRows <= 0) return { sql, applied: false, maxRows };
   const normalizedType = String(resolveSqlDialect(dbType || 'mysql', driver)).toLowerCase();
@@ -395,6 +396,10 @@ export const applyQueryAutoLimit = (
     // Oracle-compatible databases reject NEXTVAL/CURRVAL when the ROWNUM cap
     // moves the original SELECT into a subquery.
     if (hasOracleSequencePseudoColumn(main)) return { sql, applied: false, maxRows };
+    // OceanBase Oracle 模式支持 FETCH FIRST，优化器可做谓词下推避免全表扫描
+    if (oceanBaseOracle) {
+      return { sql: `${main.trimEnd()} FETCH FIRST ${maxRows} ROWS ONLY${tail}`, applied: true, maxRows };
+    }
     return { sql: `${buildPaginatedSelectSQL(normalizedType, main, '', maxRows, 0)}${tail}`, applied: true, maxRows };
   }
 

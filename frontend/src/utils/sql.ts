@@ -299,6 +299,7 @@ export const buildPaginatedSelectSQL = (
   orderBySQL: string,
   limit: number,
   offset: number,
+  oceanBaseOracle = false,
 ) => {
   const normalizedType = String(dbType || '').trim().toLowerCase();
   const safeLimit = Math.max(0, Math.floor(Number(limit) || 0));
@@ -315,6 +316,9 @@ export const buildPaginatedSelectSQL = (
     case 'dameng': {
       const orderedSql = `${base}${orderBy}`;
       const upperBound = safeOffset + safeLimit;
+      if (oceanBaseOracle && safeOffset <= 0) {
+        return `${orderedSql} FETCH FIRST ${upperBound} ROWS ONLY`;
+      }
       if (safeOffset <= 0) {
         return `SELECT * FROM (${orderedSql}) WHERE ROWNUM <= ${upperBound}`;
       }

@@ -25,9 +25,6 @@ type MonacoWorkerFactory = () => Worker;
 interface MonacoWorkerFactories {
   editor: MonacoWorkerFactory;
   json: MonacoWorkerFactory;
-  css: MonacoWorkerFactory;
-  html: MonacoWorkerFactory;
-  typescript: MonacoWorkerFactory;
 }
 
 export const installMonacoWorkerEnvironment = (
@@ -568,17 +565,11 @@ const ensureMonacoConfigured = (): Promise<void> => {
         import('monaco-editor'),
         import('monaco-editor/esm/vs/editor/editor.worker?worker'),
         import('monaco-editor/esm/vs/language/json/json.worker?worker'),
-        import('monaco-editor/esm/vs/language/css/css.worker?worker'),
-        import('monaco-editor/esm/vs/language/html/html.worker?worker'),
-        import('monaco-editor/esm/vs/language/typescript/ts.worker?worker'),
       ]))
-      .then(([monaco, editorWorker, jsonWorker, cssWorker, htmlWorker, typescriptWorker]) => {
+      .then(([monaco, editorWorker, jsonWorker]) => {
         installMonacoWorkerEnvironment(globalThis as unknown as Record<string, any>, {
           editor: () => new editorWorker.default(),
           json: () => new jsonWorker.default(),
-          css: () => new cssWorker.default(),
-          html: () => new htmlWorker.default(),
-          typescript: () => new typescriptWorker.default(),
         });
         loader.config({ monaco });
       });

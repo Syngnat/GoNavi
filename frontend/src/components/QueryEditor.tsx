@@ -7021,7 +7021,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
             let anyLimitApplied = false;
             const executablePlans = statementPlans.map((plan) => {
                 if (!Number.isFinite(maxRowsForLimit) || maxRowsForLimit <= 0) return plan;
-                const result = applyQueryAutoLimit(plan.executedSql, normalizedDbType, maxRowsForLimit, driver);
+                const result = applyQueryAutoLimit(plan.executedSql, normalizedDbType, maxRowsForLimit, driver, oceanBaseOracleConnection);
                 if (result.applied) anyLimitApplied = true;
                 return { ...plan, executedSql: result.sql };
             });
