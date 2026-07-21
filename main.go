@@ -13,6 +13,7 @@ import (
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/mcpserver"
 	"GoNavi-Wails/internal/nativewindow"
+	"GoNavi-Wails/internal/singleinstance"
 	"GoNavi-Wails/internal/webserver"
 
 	"github.com/wailsapp/wails/v2"
@@ -27,6 +28,16 @@ import (
 
 const nativeSelectCurrentLineEvent = "gonavi:native-select-current-line"
 
+// singleInstanceName 是 GoNavi 单实例锁的稳定标识符。便携版和安装版共用
+// 同一名称，确保同一用户会话中同时只能有一个主 GoNavi 进程。
+const singleInstanceName = "gonavi"
+
+// loggerLogger 把 internal/logger 接到 singleinstance 包。
+type loggerLogger struct{}
+
+func (loggerLogger) Infof(format string, args ...any) { logger.Infof(format, args...) }
+func (loggerLogger) Warnf(format string, args ...any) { logger.Warnf(format, args...) }
+
 func main() {
 	// 大结果集导出（88W+ 行）时，JSON 编解码会产生 5-8 倍内存副本，
 	// Go 默认 GOGC=100 下堆翻倍才触发 GC，叠加 Windows MADV_FREE 不归还 RSS，
@@ -34,8 +45,52 @@ func main() {
 	// 代价是 CPU 开销略增，但导出/导入场景属 I/O 密集型，GC 开销可忽略。
 	debug.SetGCPercent(50)
 
+	// detached-window / mcp-server / web-server 等特殊模式不参与单实例判断。
 	if runSpecialMode(os.Args[1:]) {
 		return
+	}
+
+	// 单实例约束：第二个主实例启动时，通知已运行的主实例后退出。
+	singleinstance.SetLogger(loggerLogger{})
+	singleInstanceResult := singleinstance.Acquire(singleInstanceName)
+	if !singleInstanceResult.Acquired {
+		if singleInstanceResult.AcquireErr != nil {
+			logger.Errorf("GoNavi 单实例初始化失败，终止当前 GUI 启动：%v", singleInstanceResult.AcquireErr)
+		} else if singleInstanceResult.NotifyErr != nil {
+			logger.Warnf("GoNavi 单实例：通知主实例失败：%v", singleInstanceResult.NotifyErr)
+		} else {
+			logger.Infof("GoNavi 单实例：已通知运行中的主实例，当前进程退出")
+		}
+		return
+	}
+	singleInstanceHandle := singleInstanceResult.Handle
+	defer func() {
+		if singleInstanceHandle != nil {
+			_ = singleInstanceHandle.Close()
+		}
+	}()
+
+	activationState := &singleInstanceActivationState{}
+	// 主实例被再次拉起时，把窗口调到前台并取消最小化。激活是纯信号，
+	// 不携带任何参数——仅用于"第二次点击图标/命令时唤起已有窗口"。
+	activatePrimaryWindow := func(ctx context.Context) {
+		if ctx == nil {
+			return
+		}
+		wailsRuntime.WindowShow(ctx)
+		wailsRuntime.WindowUnminimise(ctx)
+	}
+	// 拿到主实例锁后立即建立 IPC，避免首窗口冷启动期间第二实例找不到 endpoint。
+	if singleInstanceHandle != nil {
+		if err := singleInstanceHandle.Listen(singleInstanceName, func() error {
+			logger.Infof("GoNavi 单实例：收到次实例激活信号")
+			if ctx := activationState.request(); ctx != nil {
+				activatePrimaryWindow(ctx)
+			}
+			return nil
+		}); err != nil {
+			logger.Warnf("启动单实例 IPC 服务失败：%v", err)
+		}
 	}
 
 	// Create an instance of the app structure
@@ -87,6 +142,10 @@ func main() {
 		Menu:             appMenu,
 		OnStartup: func(ctx context.Context) {
 			runtimeCtx = ctx
+			// 绑定 runtime context，供次实例激活时唤起前台使用。
+			if pending := activationState.start(ctx); pending {
+				activatePrimaryWindow(ctx)
+			}
 			lifecycleCtx := ctx
 			if nativeWindowManager != nil {
 				if err := nativewindow.InitializeLifecycle(nativeWindowManager, ctx); err != nil {
@@ -102,6 +161,7 @@ func main() {
 			}
 		},
 		OnShutdown: func(ctx context.Context) {
+			activationState.stop()
 			nativewindow.ShutdownLifecycle(nativeWindowManager)
 			aiService.Shutdown()
 			application.Shutdown()
