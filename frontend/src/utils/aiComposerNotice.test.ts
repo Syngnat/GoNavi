@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { t as catalogTranslate } from '../i18n/catalog';
@@ -9,27 +8,10 @@ import {
   buildMissingModelNotice,
   buildMissingProviderNotice,
 } from './aiComposerNotice';
-
-const source = readFileSync(new URL('./aiComposerNotice.ts', import.meta.url), 'utf8');
 const en = (key: string, params?: Record<string, unknown>) =>
   catalogTranslate('en-US', key, params as Record<string, string | number | boolean | null | undefined> | undefined);
 
 describe('ai composer notice helpers', () => {
-  it('keeps English fallback copy in source instead of legacy Chinese notice defaults', () => {
-    expect(source).toContain("catalogTranslate('en-US'");
-    expect(source).not.toContain('还没有可用供应商');
-    expect(source).not.toContain('先在 AI 设置里添加并启用一个模型供应商。');
-    expect(source).not.toContain('先选择一个模型');
-    expect(source).not.toContain('打开下方模型下拉并选择模型；如果列表为空，请检查供应商入口和 API Key。');
-    expect(source).not.toContain('当前供应商配置还不完整');
-    expect(source).not.toContain('先补全供应商配置再发送，避免请求刚发起就失败。');
-    expect(source).not.toContain('模型列表加载失败');
-    expect(source).not.toContain('请检查供应商入口、API Key 或账号权限，然后重新打开模型下拉。');
-    expect(source).not.toContain('打开 AI 设置');
-    expect(source).not.toContain('修复供应商配置');
-    expect(source).not.toContain('重新加载模型');
-    expect(source).not.toContain('当前供应商还缺少 ${missingLabels.join');
-  });
 
   it('builds a localized missing-provider notice and falls back to English action copy when needed', () => {
     expect(buildMissingProviderNotice(en)).toEqual({

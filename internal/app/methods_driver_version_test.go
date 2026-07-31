@@ -294,6 +294,8 @@ func TestDriverReleaseDownloadCoordinates(t *testing.T) {
 }
 
 func TestFetchDriverReleaseIndexByURLBuildsMirrorAssets(t *testing.T) {
+	disableGlobalProxyForTest(t)
+
 	for _, name := range []string{
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
 		"http_proxy", "https_proxy", "all_proxy",

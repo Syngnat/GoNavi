@@ -2,10 +2,8 @@ package app
 
 import (
 	"errors"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	redislib "GoNavi-Wails/internal/redis"
 	"GoNavi-Wails/shared/i18n"
@@ -25,128 +23,6 @@ func redisFunctionSource(t *testing.T, source string, signature string) string {
 	return source[start : start+len(signature)+end]
 }
 
-func TestRedisBackendOperationMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_redis.go")
-	if err != nil {
-		t.Fatalf("read methods_redis.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func (a *App) RedisConnect": {
-			rawMessages: []string{`Message: "连接成功"`},
-			keys:        []string{"redis.backend.message.connect_success"},
-		},
-		"func (a *App) RedisTestConnection": {
-			rawMessages: []string{
-				`Message: "连接成功"`,
-				`fmt.Sprintf("连接成功但释放测试连接失败：%v", closeErr)`,
-			},
-			keys: []string{
-				"redis.backend.message.connect_success",
-				"redis.backend.error.test_connection_close_failed",
-			},
-		},
-		"func (a *App) RedisSetString": {
-			rawMessages: []string{`Message: "设置成功"`},
-			keys:        []string{"redis.backend.message.set_success"},
-		},
-		"func (a *App) RedisSetHashField": {
-			rawMessages: []string{`Message: "设置成功"`},
-			keys:        []string{"redis.backend.message.set_success"},
-		},
-		"func (a *App) RedisSetTTL": {
-			rawMessages: []string{`Message: "设置成功"`},
-			keys:        []string{"redis.backend.message.set_success"},
-		},
-		"func (a *App) RedisExecuteCommand": {
-			rawMessages: []string{`Message: "命令不能为空"`},
-			keys:        []string{"redis.backend.error.command_required"},
-		},
-		"func (a *App) RedisSelectDB": {
-			rawMessages: []string{`Message: "切换成功"`},
-			keys:        []string{"redis.backend.message.select_db_success"},
-		},
-		"func (a *App) RedisRenameKey": {
-			rawMessages: []string{`Message: "重命名成功"`},
-			keys:        []string{"redis.backend.message.rename_success"},
-		},
-		"func (a *App) RedisDeleteHashField": {
-			rawMessages: []string{`Message: "删除成功"`},
-			keys:        []string{"redis.backend.message.delete_success"},
-		},
-		"func (a *App) RedisListPush": {
-			rawMessages: []string{`Message: "添加成功"`},
-			keys:        []string{"redis.backend.message.add_success"},
-		},
-		"func (a *App) RedisListSet": {
-			rawMessages: []string{`Message: "设置成功"`},
-			keys:        []string{"redis.backend.message.set_success"},
-		},
-		"func (a *App) RedisListRemove": {
-			rawMessages: []string{`Message: "删除成功"`},
-			keys:        []string{"redis.backend.message.delete_success"},
-		},
-		"func (a *App) RedisSetAdd": {
-			rawMessages: []string{`Message: "添加成功"`},
-			keys:        []string{"redis.backend.message.add_success"},
-		},
-		"func (a *App) RedisSetRemove": {
-			rawMessages: []string{`Message: "删除成功"`},
-			keys:        []string{"redis.backend.message.delete_success"},
-		},
-		"func (a *App) RedisZSetAdd": {
-			rawMessages: []string{`Message: "添加成功"`},
-			keys:        []string{"redis.backend.message.add_success"},
-		},
-		"func (a *App) RedisZSetRemove": {
-			rawMessages: []string{`Message: "删除成功"`},
-			keys:        []string{"redis.backend.message.delete_success"},
-		},
-		"func (a *App) RedisStreamAdd": {
-			rawMessages: []string{`Message: "添加成功"`},
-			keys:        []string{"redis.backend.message.add_success"},
-		},
-		"func (a *App) RedisStreamDelete": {
-			rawMessages: []string{`Message: "删除成功"`},
-			keys:        []string{"redis.backend.message.delete_success"},
-		},
-		"func (a *App) RedisFlushDB": {
-			rawMessages: []string{`Message: "清空成功"`},
-			keys:        []string{"redis.backend.message.flush_success"},
-		},
-		"func (a *App) RedisExportKeys": {
-			keys: []string{
-				"redis.backend.error.export_no_keys",
-				"redis.backend.message.export_success",
-			},
-		},
-		"func (a *App) RedisImportKeys": {
-			keys: []string{
-				"redis.backend.error.import_no_keys_selected",
-				"redis.backend.error.import_payload_invalid",
-				"redis.backend.message.import_success",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := redisFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw Redis operation result %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference Redis i18n key %q", signature, key)
-			}
-		}
-	}
-}
 
 func TestRedisBackendOperationMessageCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

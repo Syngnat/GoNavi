@@ -114,3 +114,16 @@ func TestParsePostgresTableNamesUsesCaseInsensitiveColumns(t *testing.T) {
 		t.Fatalf("parsed tables = %v, want %v", got, want)
 	}
 }
+
+func TestParsePostgresTableNamesPreservesDotsInsideTableIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	got := parsePostgresTableNames([]map[string]interface{}{
+		{"schemaname": "jmgc_db", "tablename": "副本.历史"},
+	})
+	want := []string{`jmgc_db."副本.历史"`}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parsed tables = %v, want %v", got, want)
+	}
+}

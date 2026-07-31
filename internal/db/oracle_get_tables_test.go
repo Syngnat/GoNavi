@@ -330,6 +330,35 @@ func TestOracleGetCreateStatementPreservesMetadataNameCase(t *testing.T) {
 	}
 }
 
+func TestOracleGetCreateStatementDoesNotTruncateCLOB(t *testing.T) {
+	t.Parallel()
+
+	dbConn, state := openOracleRecordingDB(t)
+	fullDDL := `CREATE TABLE "SYS"."BIG_TABLE" ("PAYLOAD" VARCHAR2(4000)) ` +
+		strings.Repeat("TABLESPACE USERS ", 400)
+	state.mu.Lock()
+	state.queryResults[`SELECT DBMS_METADATA.GET_DDL('TABLE', 'BIG_TABLE', 'SYS') as ddl FROM DUAL`] = oracleRecordingQueryResult{
+		columns:     []string{"DDL"},
+		columnTypes: []string{"OCICLOBLOCATOR"},
+		rows: [][]driver.Value{
+			{fullDDL},
+		},
+	}
+	state.mu.Unlock()
+
+	oracleDB := &OracleDB{conn: dbConn}
+	ddl, err := oracleDB.GetCreateStatement("SYS", "BIG_TABLE")
+	if err != nil {
+		t.Fatalf("GetCreateStatement 返回错误: %v", err)
+	}
+	if !strings.HasPrefix(ddl, strings.TrimSpace(fullDDL)) {
+		t.Fatalf("expected complete Oracle CLOB DDL, want source length=%d got length=%d prefix=%q", len(fullDDL), len(ddl), ddl[:min(len(ddl), 80)])
+	}
+	if strings.Contains(ddl, "[CLOB preview:") {
+		t.Fatalf("Oracle table DDL must not contain an interactive CLOB preview marker: %q", ddl[:80])
+	}
+}
+
 func TestOracleGetCreateStatementFallsBackToUppercaseMetadataName(t *testing.T) {
 	t.Parallel()
 

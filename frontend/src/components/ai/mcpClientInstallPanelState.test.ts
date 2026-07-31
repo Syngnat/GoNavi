@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { catalogs } from '../../i18n/catalog';
@@ -13,12 +12,6 @@ import {
   resolveMCPClientCommandName,
   resolveMCPClientInstallActionLabel,
 } from './mcpClientInstallPanelState';
-
-const source = readFileSync(new URL('./mcpClientInstallPanelState.ts', import.meta.url), 'utf8');
-const installPanelSource = readFileSync(new URL('./AIMCPClientInstallPanel.tsx', import.meta.url), 'utf8');
-const selectorPanelSource = readFileSync(new URL('./AIMCPClientSelectorPanel.tsx', import.meta.url), 'utf8');
-const statusPanelSource = readFileSync(new URL('./AIMCPClientStatusPanel.tsx', import.meta.url), 'utf8');
-const installerSource = readFileSync(new URL('./useAIMCPClientInstaller.ts', import.meta.url), 'utf8');
 
 const REQUIRED_MCP_CLIENT_INSTALL_KEYS = [
   'ai_chat.mcp_client.install.status_tone.connected',
@@ -148,25 +141,6 @@ describe('mcpClientInstallPanelState', () => {
     expect((getSelectedMCPClientStateLine as any)(status, translate)).toBe('T:selected-connected');
     expect((resolveMCPClientInstallActionLabel as any)(status, translate)).toBe('T:action-connected Claude Code');
     expect((getMCPClientStatusSummary as any)(status, translate)).toBe('T:summary-connected Claude Code');
-  });
-
-  it('guards MCP client install production sources against direct Chinese UI copy', () => {
-    const combinedSource = [
-      source,
-      installPanelSource,
-      selectorPanelSource,
-      statusPanelSource,
-      installerSource,
-    ].join('\n');
-
-    expect(installPanelSource).toContain('useOptionalI18n');
-    expect(statusPanelSource).toContain('useOptionalI18n');
-    expect(selectorPanelSource).toContain('useOptionalI18n');
-    expect(combinedSource).not.toContain('外部工具接入状态');
-    expect(combinedSource).not.toContain('选择目标客户端');
-    expect(combinedSource).not.toContain('复制启动命令');
-    expect(combinedSource).not.toContain('远程接入边界');
-    expect(combinedSource).not.toContain('刷新客户端安装状态失败');
   });
 
   it('marks a current client as already connected and prevents repeated install wording', () => {

@@ -82,6 +82,12 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 	}
 
 	normalizedType := strings.ToLower(strings.TrimSpace(config.Type))
+	if normalizedType == "nacos" {
+		// Nacos is HTTP-based and must keep its remote authority for the Host
+		// header and TLS SNI/certificate verification. Its transport dials the
+		// normalized proxy directly instead of using a local TCP forwarder.
+		return config, nil
+	}
 	if normalizedType == "sqlite" || normalizedType == "duckdb" || normalizedType == "custom" {
 		// 文件型/自定义 DSN 类型不走标准 host:port，不在此层改写。
 		return config, nil
@@ -264,6 +270,8 @@ func defaultPortByType(driverType string) int {
 		return 19530
 	case "kafka":
 		return 9092
+	case "nacos":
+		return 8848
 	default:
 		return 0
 	}

@@ -27,6 +27,7 @@ import {
   normalizeEditableJVMModes,
 } from "../../utils/jvmConnectionConfig";
 import { resolveRedisConfigDraft } from "../../utils/redisConnectionUri";
+import { setNacosConnectionScope } from "../../utils/nacosConnectionScope";
 import {
   normalizeAddressList,
   normalizeClickHouseProtocolValue,
@@ -114,6 +115,7 @@ type BuildConnectionConfigParams = {
   values: any;
   forPersist: boolean;
   initialValues?: SavedConnection | null;
+  nacosNamespaceIdTouched?: boolean;
   translate: Translate;
 };
 
@@ -347,6 +349,7 @@ export const buildConnectionConfig = async ({
   values,
   forPersist,
   initialValues,
+  nacosNamespaceIdTouched = false,
   translate: t,
 }: BuildConnectionConfigParams): Promise<ConnectionConfig> => {
   const mergedValues = { ...values };
@@ -455,6 +458,21 @@ export const buildConnectionConfig = async ({
       jvmEndpointTimeoutSeconds: resolvedJvmTimeout,
     });
   }
+  const isNacosConfig =
+    String(mergedValues.type || "").trim().toLowerCase() === "nacos";
+  const hasStoredNacosConnectionParams =
+    isNacosConfig &&
+    String(initialValues?.config?.connectionParams || "").trim() !== "";
+  const hasExplicitNacosNamespaceId =
+    isNacosConfig &&
+    Object.prototype.hasOwnProperty.call(
+      mergedValues,
+      "nacosNamespaceId",
+    ) &&
+    mergedValues.nacosNamespaceId !== undefined &&
+    (String(mergedValues.nacosNamespaceId || "").trim() !== "" ||
+      nacosNamespaceIdTouched ||
+      hasStoredNacosConnectionParams);
   const parsedUriValues = parseUriToValues(
     mergedValues.uri,
     mergedValues.type,
@@ -467,6 +485,9 @@ export const buildConnectionConfig = async ({
     (Array.isArray(value) && value.length === 0);
   if (parsedUriValues) {
     Object.entries(parsedUriValues).forEach(([key, value]) => {
+      if (key === "nacosNamespaceId" && hasExplicitNacosNamespaceId) {
+        return;
+      }
       if (
         key === "clickHouseProtocol" &&
         normalizeClickHouseProtocolValue((mergedValues as any)[key]) ===
@@ -787,6 +808,7 @@ export const buildConnectionConfig = async ({
   const keepAliveEnabled =
     !isFileDatabaseType(type) &&
     type !== "jvm" &&
+    type !== "nacos" &&
     !!mergedValues.keepAliveEnabled;
   const keepAliveIntervalMinutesRaw = Number(
     mergedValues.keepAliveIntervalMinutes,
@@ -830,7 +852,7 @@ export const buildConnectionConfig = async ({
   const keepAliveSQL = keepAliveSQLSupported
     ? keepAliveSQLInput.slice(0, MAX_CONNECTION_KEEPALIVE_SQL_LENGTH)
     : "";
-  const normalizedConnectionParams = supportsConnectionParamsForType(type)
+  let normalizedConnectionParams = supportsConnectionParamsForType(type)
     ? type === "oceanbase"
       ? normalizeOceanBaseConnectionParamsText(
           mergedValues.connectionParams,
@@ -838,6 +860,20 @@ export const buildConnectionConfig = async ({
         )
       : normalizeConnectionParamsText(mergedValues.connectionParams)
     : "";
+  if (
+    type === "nacos" &&
+    Object.prototype.hasOwnProperty.call(mergedValues, "nacosNamespaceId")
+  ) {
+    normalizedConnectionParams = setNacosConnectionScope(
+      normalizedConnectionParams,
+      mergedValues.nacosNamespaceId,
+    );
+  }
+  if (type === "nacos" && !/(?:^|[&;])contextPath=/.test(normalizedConnectionParams)) {
+    normalizedConnectionParams = normalizedConnectionParams
+      ? `${normalizedConnectionParams}&contextPath=/nacos`
+      : "contextPath=/nacos";
+  }
   const supportsProductionGuard = supportsConnectionReadOnlyMode({
     type,
     driver: mergedValues.driver,
@@ -847,7 +883,8 @@ export const buildConnectionConfig = async ({
     ? normalizeConnectionProtectionConfig({
         restrictDataEdit: mergedValues.restrictDataEdit === true,
         restrictStructureEdit: mergedValues.restrictStructureEdit === true,
-        restrictScriptExecution: mergedValues.restrictScriptExecution === true,
+        restrictScriptExecution:
+          type !== "nacos" && mergedValues.restrictScriptExecution === true,
         restrictDataImport: mergedValues.restrictDataImport === true,
       })
     : undefined;

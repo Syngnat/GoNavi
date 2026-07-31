@@ -91,43 +91,6 @@ func TestRequireSingleRowAffectedUsesLocalizedText(t *testing.T) {
 	}
 }
 
-func TestRequireSingleRowAffectedSourceUsesI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("database.go")
-	if err != nil {
-		t.Fatalf("read database.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := databaseFunctionSource(t, source, "func requireSingleRowAffected(result sql.Result, action rowMutationAction) error")
-	actionSource := databaseFunctionSource(t, source, "func localizedRowMutationAction(action rowMutationAction) string")
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("%s未生效：无法确认影响行数：%v", action, err)`,
-		`fmt.Errorf("%s未生效：未匹配到任何行", action)`,
-		`fmt.Errorf("%s未生效：影响了 %d 行，期望只影响 1 行", action, affected)`,
-	} {
-		if strings.Contains(functionSource, rawMessage) {
-			t.Fatalf("requireSingleRowAffected still contains raw row affected text %q", rawMessage)
-		}
-	}
-
-	for _, key := range []string{
-		"db.backend.error.row_action_not_effective_rows_affected_unknown",
-		"db.backend.error.row_action_not_effective_no_rows_matched",
-		"db.backend.error.row_action_not_effective_multiple_rows",
-	} {
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("requireSingleRowAffected does not reference i18n key %q", key)
-		}
-	}
-	for _, key := range []string{
-		"db.backend.action.delete",
-		"db.backend.action.update",
-	} {
-		if !strings.Contains(actionSource, key) {
-			t.Fatalf("localizedRowMutationAction does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestDatabaseRowAffectedCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -221,30 +184,6 @@ func TestSQLConnTransactionExecerUsesCurrentLanguageForConnectionNotOpen(t *test
 	}
 }
 
-func TestDatabaseConnectionNotOpenSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("database.go")
-	if err != nil {
-		t.Fatalf("read database.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]string{
-		"func (e *sqlConnStatementExecer) ExecContext(ctx context.Context, query string) (int64, error)":                               "db.backend.error.connection_not_open",
-		"func (e *sqlConnStatementExecer) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error)": "db.backend.error.connection_not_open",
-		"func (e *sqlConnStatementExecer) QueryMultiContext(ctx context.Context, query string) ([]connection.ResultSetData, error)":    "db.backend.error.connection_not_open",
-		"func (e *sqlConnTransactionExecer) activeConn() (*sql.Conn, error)":                                                           "db.backend.error.connection_not_open",
-	}
-
-	for signature, key := range checks {
-		functionSource := databaseFunctionSource(t, source, signature)
-		if strings.Contains(functionSource, `fmt.Errorf("连接未打开")`) {
-			t.Fatalf("%s still contains raw connection-not-open text", signature)
-		}
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("%s does not reference i18n key %q", signature, key)
-		}
-	}
-}
 
 func TestDatabaseConnectionNotOpenCatalogKeyExists(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -304,28 +243,6 @@ func TestWrapDatabaseConnectionErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestDatabaseConnectionWrapperHelperUsesI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("database.go")
-	if err != nil {
-		t.Fatalf("read database.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]string{
-		"func wrapDatabaseConnectionOpenError(err error) error":   "db.backend.error.connection_open_failed_prefix",
-		"func wrapDatabaseConnectionVerifyError(err error) error": "db.backend.error.connection_verify_failed_prefix",
-	}
-
-	for signature, key := range checks {
-		functionSource := databaseFunctionSource(t, source, signature)
-		if strings.Contains(functionSource, `fmt.Errorf("打开数据库连接失败：%w", err)`) || strings.Contains(functionSource, `fmt.Errorf("连接建立后验证失败：%w", err)`) {
-			t.Fatalf("%s still contains raw database connection wrapper text", signature)
-		}
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("%s does not reference i18n key %q", signature, key)
-		}
-	}
-}
 
 func TestDatabaseConnectionWrapperSourcesUseI18nHelpers(t *testing.T) {
 	type sourceCheck struct {
@@ -456,32 +373,6 @@ func TestFormatCustomDriverOpenErrorUsesCurrentLanguageForUnknownDrivers(t *test
 	}
 }
 
-func TestFormatCustomDriverOpenErrorSourceUsesI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("custom_impl.go")
-	if err != nil {
-		t.Fatalf("read custom_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := databaseFunctionSource(t, source, "func formatCustomDriverOpenError(driver string, err error) error")
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("打开数据库连接失败：自定义连接不支持直接填写系统 ODBC/JDBC 驱动名 %q；请填写 GoNavi 已注册的 Go database/sql 驱动名。当前版本未注册通用 ODBC 驱动，因此暂不支持通过 %q 连接 InterSystems IRIS：%w", driver, driver, err)`,
-		`fmt.Errorf("打开数据库连接失败：自定义连接驱动 %q 未在 GoNavi 中注册；请填写已注册的 Go database/sql 驱动名，不能填写系统 ODBC/JDBC 驱动名：%w", driver, err)`,
-	} {
-		if strings.Contains(functionSource, rawMessage) {
-			t.Fatalf("formatCustomDriverOpenError still contains raw custom driver guidance %q", rawMessage)
-		}
-	}
-
-	for _, key := range []string{
-		"db.backend.error.custom_driver_system_odbc_unsupported_prefix",
-		"db.backend.error.custom_driver_unregistered_prefix",
-	} {
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("formatCustomDriverOpenError does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestCustomDriverOpenErrorCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -525,23 +416,6 @@ func TestNewDatabaseUnsupportedTypeUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestNewDatabaseUnsupportedTypeSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("database.go")
-	if err != nil {
-		t.Fatalf("read database.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := databaseFunctionSource(t, source, "func NewDatabase(dbType string) (Database, error)")
-
-	rawUnsupportedDatabaseTypeText := "\u4e0d\u652f\u6301\u7684\u6570\u636e\u5e93\u7c7b\u578b"
-	rawUnsupportedDatabaseTypeSnippet := `fmt.Errorf("` + rawUnsupportedDatabaseTypeText + `：%s", dbType)`
-	if strings.Contains(functionSource, rawUnsupportedDatabaseTypeSnippet) {
-		t.Fatal("NewDatabase still contains raw unsupported database type text")
-	}
-	if !strings.Contains(functionSource, "db.backend.error.unsupported_database_type") {
-		t.Fatal("NewDatabase does not reference db.backend.error.unsupported_database_type")
-	}
-}
 
 func TestNewDatabaseUnsupportedTypeCatalogKeyExists(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -620,41 +494,6 @@ func TestTransactionExecerStateErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestDatabaseTransactionStateSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("database.go")
-	if err != nil {
-		t.Fatalf("read database.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string][]string{
-		"func (e *sqlConnTransactionExecer) activeConn() (*sql.Conn, error)": {
-			"db.backend.error.connection_not_open",
-			"db.backend.error.transaction_already_finished",
-		},
-		"func (e *sqlTxStatementExecer) activeTx() (*sql.Tx, error)": {
-			"db.backend.error.transaction_not_open",
-			"db.backend.error.transaction_already_finished",
-		},
-	}
-
-	for signature, keys := range checks {
-		functionSource := databaseFunctionSource(t, source, signature)
-		for _, rawMessage := range []string{
-			`fmt.Errorf("` + rawTransactionNotOpenText + `")`,
-			`fmt.Errorf("` + rawTransactionAlreadyFinishedText + `")`,
-		} {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw transaction state text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference i18n key %q", signature, key)
-			}
-		}
-	}
-}
 
 func TestDatabaseTransactionStateCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

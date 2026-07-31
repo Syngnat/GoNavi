@@ -232,6 +232,7 @@ func TestDBGetIndexesUsesSearchPathForPostgresPureTableMetadata(t *testing.T) {
 }
 
 func TestDBGetColumnsKeepsCurrentDatabaseForKingbaseQualifiedTableMetadata(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
 	t.Cleanup(func() {
@@ -270,6 +271,7 @@ func TestDBGetColumnsKeepsCurrentDatabaseForKingbaseQualifiedTableMetadata(t *te
 }
 
 func TestDBGetIndexesKeepsCurrentDatabaseForKingbaseQualifiedTableMetadata(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
 	t.Cleanup(func() {
@@ -342,6 +344,7 @@ func TestDBGetColumnsKeepsDatabaseForMySQLMetadata(t *testing.T) {
 }
 
 func TestDBGetColumnsInfersOceanBaseOracleFieldsWhenAgentMetadataIsEmpty(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
 	t.Cleanup(func() {
@@ -422,6 +425,7 @@ func TestDBGetColumnsInfersOceanBaseOracleFieldsWhenAgentMetadataIsEmpty(t *test
 }
 
 func TestDBGetColumnsFallsBackToEmptySelectWhenOceanBaseOracleDictionaryIsEmpty(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
 	t.Cleanup(func() {

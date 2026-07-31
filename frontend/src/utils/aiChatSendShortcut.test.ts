@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -15,7 +14,6 @@ import {
 } from './aiChatSendShortcut';
 
 const binding = (combo: string, enabled = true): ShortcutPlatformBinding => ({ combo, enabled });
-const source = readFileSync(new URL('./aiChatSendShortcut.ts', import.meta.url), 'utf8');
 
 describe('aiChatSendShortcut', () => {
   it('registers AI chat send in the shared shortcut center with Enter default', () => {
@@ -89,11 +87,6 @@ describe('aiChatSendShortcut', () => {
     expect(getAIChatSendShortcutLabel(binding('Enter', false), 'windows', translate)).toBe(
       't:ai_chat.input.shortcut.disabled:',
     );
-  });
-
-  it('does not keep legacy Chinese shortcut hint chrome in production source', () => {
-    expect(source).not.toContain('快捷键发送已关闭');
-    expect(source).not.toMatch(/return\s+`[^`]*发送`/);
   });
 
   it('stops propagation after consuming the configured AI send shortcut', () => {

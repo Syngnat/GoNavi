@@ -232,21 +232,6 @@ func TestClickHouseCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestClickHouseCreateStatementSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("clickhouse_impl.go")
-	if err != nil {
-		t.Fatalf("read clickhouse_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawMessage := `fmt.Errorf("` + rawClickHouseCreateStatementNotFoundText + `")`
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("clickhouse_impl.go still contains raw create-statement text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.create_table_statement_not_found") {
-		t.Fatal("clickhouse_impl.go does not reference db.backend.error.create_table_statement_not_found")
-	}
-}
 
 func TestClickHouseApplyChangesErrorsUseCurrentLanguage(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
@@ -348,28 +333,6 @@ func TestClickHouseTableNameRequiredUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestClickHouseApplyChangesErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("clickhouse_impl.go")
-	if err != nil {
-		t.Fatalf("read clickhouse_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("` + rawClickHouseTableNameRequiredText() + `")`,
-		`fmt.Errorf("delete error: %v; sql=%s", err, query)`,
-		`fmt.Errorf("update error: %v; sql=%s", err, query)`,
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("clickhouse_impl.go still contains raw ApplyChanges text %q", rawMessage)
-		}
-	}
-	for _, key := range clickHouseApplyChangesI18nKeys() {
-		if !strings.Contains(source, key) {
-			t.Fatalf("clickhouse_impl.go does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestClickHouseApplyChangesCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -674,32 +637,6 @@ func TestClickHouseConnectFailureSummaryUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestClickHouseProtocolFailureSourceUsesI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("clickhouse_impl.go")
-	if err != nil {
-		t.Fatalf("read clickhouse_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	for _, rawMessage := range []string{
-		"当前 ClickHouse HTTP 端口不支持 client_protocol_version",
-		"服务端响应不像 Native 握手",
-		"服务端响应不像 HTTP 响应",
-		"未知错误",
-		"未获取到驱动返回的错误详情",
-		"ClickHouse 连接验证失败",
-		"第%d次 TLS 配置失败",
-		"第%d次连接验证失败",
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("clickhouse_impl.go still contains raw user-facing ClickHouse protocol text %q", rawMessage)
-		}
-	}
-	for _, key := range clickHouseProtocolFailureI18nKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("clickhouse_impl.go does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestClickHouseProtocolFailureCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

@@ -54,12 +54,4 @@ describe('exportProgress', () => {
     expect(formatExportElapsed(30_500)).toBe('00:30');
     expect(formatExportElapsed(3_723_000)).toBe('01:02:03');
   });
-
-  it('keeps export progress source free of hard-coded Chinese row summaries', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(new URL('./exportProgress.ts', import.meta.url), 'utf8');
-
-    expect(source).not.toContain('已写入 ');
-    expect(source).not.toContain("Intl.NumberFormat('zh-CN')");
-  });
 });

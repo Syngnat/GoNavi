@@ -47,7 +47,7 @@ const (
 	redisScanMaxDuration              = 12 * time.Second
 	redisSearchMaxTargetCount   int64 = 1000
 	redisSearchMaxStepCount     int64 = 1000
-	redisSearchMaxRounds              = 16
+	redisSearchMaxResultCount         = 10000
 	redisSearchMaxDuration            = 3 * time.Second
 )
 
@@ -280,19 +280,20 @@ func sanitizeRedisPassword(password string) string {
 }
 
 // Connect establishes a connection to Redis
-func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) error {
+func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) (err error) {
+	_ = r.Close()
+	defer func() {
+		if err != nil {
+			_ = r.Close()
+		}
+	}()
+
 	config.Password = sanitizeRedisPassword(config.Password)
 	config.RedisSentinelPassword = sanitizeRedisPassword(config.RedisSentinelPassword)
 	r.config = config
 	if r.config.RedisDB < 0 {
 		r.config.RedisDB = 0
 	}
-	r.forwarder = nil
-	r.client = nil
-	r.singleClient = nil
-	r.clusterClient = nil
-	r.isCluster = false
-
 	seedAddrs, err := buildRedisSeedAddrs(config)
 	if err != nil {
 		return err
@@ -391,13 +392,14 @@ func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) error {
 				tlsConfig = cfg
 			}
 			opts := &redis.ClusterOptions{
-				Addrs:        seedAddrs,
-				Username:     strings.TrimSpace(attempt.User),
-				Password:     attempt.Password,
-				DialTimeout:  timeout,
-				ReadTimeout:  timeout,
-				WriteTimeout: timeout,
-				TLSConfig:    tlsConfig,
+				Addrs:                 seedAddrs,
+				Username:              strings.TrimSpace(attempt.User),
+				Password:              attempt.Password,
+				DialTimeout:           timeout,
+				ReadTimeout:           timeout,
+				WriteTimeout:          timeout,
+				ContextTimeoutEnabled: true,
+				TLSConfig:             tlsConfig,
 			}
 			clusterClient := redis.NewClusterClient(opts)
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -424,7 +426,7 @@ func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) error {
 
 	addr := seedAddrs[0]
 	if config.UseSSH {
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return localizedRedisBackendError("redis.backend.error.ssh_tunnel_create_failed", map[string]any{
 				"detail": err.Error(),
@@ -491,17 +493,22 @@ func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) error {
 
 // Close closes the Redis connection
 func (r *RedisClientImpl) Close() error {
+	var firstErr error
 	if r.client != nil {
-		err := r.client.Close()
-		r.client = nil
-		r.singleClient = nil
-		r.clusterClient = nil
-		r.isCluster = false
-		r.seedAddrs = nil
-		r.forwarder = nil
-		return err
+		firstErr = r.client.Close()
 	}
-	return nil
+	r.client = nil
+	r.singleClient = nil
+	r.clusterClient = nil
+	r.isCluster = false
+	r.seedAddrs = nil
+	if r.forwarder != nil {
+		if err := r.forwarder.Release(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		r.forwarder = nil
+	}
+	return firstErr
 }
 
 // Ping tests the connection
@@ -524,7 +531,9 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 		pattern = "*"
 	}
 	exactPhysicalKey := ""
+	isExactPattern := false
 	if literalKey, ok := redisGlobPatternLiteralKey(pattern); ok {
+		isExactPattern = true
 		exactKey, namespacePattern := redisExactSearchPattern(literalKey)
 		exactPhysicalKey = r.toPhysicalKey(exactKey)
 		if exactPhysicalKey == "" {
@@ -546,7 +555,9 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 		if scanStepCount > redisSearchMaxStepCount {
 			scanStepCount = redisSearchMaxStepCount
 		}
-		maxRounds = redisSearchMaxRounds
+		// SCAN MATCH 可能连续返回空批次，但后续 cursor 页仍然存在匹配 key。
+		// 搜索模式不使用固定轮数限制，改由 maxDuration 和 targetCount 兜底。
+		maxRounds = 0
 		maxDuration = redisSearchMaxDuration
 	}
 
@@ -555,6 +566,65 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 
 	// 集群模式：逐 master 节点 SCAN 后合并去重
 	if r.isCluster && r.clusterClient != nil {
+		if isSearchPattern && !isExactPattern {
+			searchCtx, searchCancel := context.WithTimeout(context.Background(), maxDuration)
+			defer searchCancel()
+
+			keys := make([]string, 0, int(targetCount))
+			seen := make(map[string]struct{}, int(targetCount))
+			var mu sync.Mutex
+			if exactPhysicalKey != "" {
+				exists, err := r.client.Exists(searchCtx, exactPhysicalKey).Result()
+				if err != nil {
+					return nil, fmt.Errorf("Redis 集群搜索检查精确 Key 失败: %w", err)
+				}
+				if exists > 0 {
+					keys = append(keys, exactPhysicalKey)
+					seen[exactPhysicalKey] = struct{}{}
+				}
+			}
+
+			err := r.clusterClient.ForEachMaster(searchCtx, func(nodeCtx context.Context, node *redis.Client) error {
+				var nodeCursor uint64
+				for {
+					batch, nextCursor, err := node.Scan(nodeCtx, nodeCursor, physicalPattern, scanStepCount).Result()
+					if err != nil {
+						searchCancel()
+						return err
+					}
+
+					mu.Lock()
+					for _, key := range batch {
+						if _, ok := seen[key]; ok {
+							continue
+						}
+						if len(keys) >= redisSearchMaxResultCount {
+							mu.Unlock()
+							searchCancel()
+							return fmt.Errorf("Redis 集群搜索结果超过安全上限 %d", redisSearchMaxResultCount)
+						}
+						seen[key] = struct{}{}
+						keys = append(keys, key)
+					}
+					mu.Unlock()
+
+					nodeCursor = nextCursor
+					if nodeCursor == 0 {
+						return nil
+					}
+				}
+			})
+			if err != nil {
+				return nil, fmt.Errorf("Redis 集群搜索未完成: %w", err)
+			}
+
+			keyInfos, err := r.loadRedisKeyInfosStrict(searchCtx, keys)
+			if err != nil {
+				return nil, fmt.Errorf("Redis 集群搜索读取 Key 元数据失败: %w", err)
+			}
+			return &RedisScanResult{Keys: keyInfos, Cursor: "0"}, nil
+		}
+
 		keys := make([]string, 0, int(targetCount))
 		seen := make(map[string]struct{}, int(targetCount))
 		var mu sync.Mutex
@@ -598,7 +668,7 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 
 				nodeCursor = nextCursor
 				round++
-				if nodeCursor == 0 || round >= maxRounds {
+				if nodeCursor == 0 || (maxRounds > 0 && round >= maxRounds) {
 					break
 				}
 			}
@@ -643,14 +713,11 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 			}
 			seen[key] = struct{}{}
 			keys = append(keys, key)
-			if len(keys) >= int(targetCount) {
-				break
-			}
 		}
 
 		currentCursor = nextCursor
 		round++
-		if currentCursor == 0 || round >= maxRounds {
+		if currentCursor == 0 || (maxRounds > 0 && round >= maxRounds) {
 			break
 		}
 	}
@@ -679,6 +746,45 @@ func normalizeRedisScanStepCount(targetCount int64) int64 {
 		return redisScanMaxStepCount
 	}
 	return targetCount
+}
+
+func (r *RedisClientImpl) loadRedisKeyInfosStrict(ctx context.Context, keys []string) ([]RedisKeyInfo, error) {
+	result := make([]RedisKeyInfo, 0, len(keys))
+	if len(keys) == 0 {
+		return result, nil
+	}
+
+	pipe := r.client.Pipeline()
+	typeResults := make([]*redis.StatusCmd, len(keys))
+	ttlResults := make([]*redis.DurationCmd, len(keys))
+	for i, key := range keys {
+		typeResults[i] = pipe.Type(ctx, key)
+		ttlResults[i] = pipe.TTL(ctx, key)
+	}
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	for i, key := range keys {
+		keyType, err := typeResults[i].Result()
+		if err != nil && err != redis.Nil {
+			return nil, err
+		}
+		ttlValue, err := ttlResults[i].Result()
+		if err != nil && err != redis.Nil {
+			return nil, err
+		}
+		ttlSeconds := toRedisTTLSeconds(ttlValue)
+		if isRedisKeyGone(keyType, ttlSeconds) {
+			continue
+		}
+		result = append(result, RedisKeyInfo{
+			Key:  r.toDisplayKey(key),
+			Type: keyType,
+			TTL:  ttlSeconds,
+		})
+	}
+	return result, nil
 }
 
 func (r *RedisClientImpl) loadRedisKeyInfos(ctx context.Context, keys []string) []RedisKeyInfo {

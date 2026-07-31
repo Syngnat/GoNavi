@@ -24,6 +24,8 @@ describe('redisViewerTree helpers', () => {
 
     expect(appGroup).toBeTruthy();
     expect(userGroup).toBeTruthy();
+    expect(appGroup?.groupPath).toBe('app');
+    expect(userGroup?.groupPath).toBe('app:user');
     expect(appGroup?.descendantRawKeys).toEqual(['app:order:1', 'app:user:1', 'app:user:2']);
 
     const selectedAfterGroupCheck = applyTreeNodeCheck([], appGroup!, true);

@@ -50,13 +50,20 @@ func (v *VastbaseDB) getDSN(config connection.ConnectionConfig) string {
 	return u.String()
 }
 
-func (v *VastbaseDB) Connect(config connection.ConnectionConfig) error {
+func (v *VastbaseDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = v.Close()
+	defer func() {
+		if err != nil {
+			_ = v.Close()
+		}
+	}()
+
 	runConfig := config
 
 	if config.UseSSH {
 		logger.Infof("Vastbase 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -113,7 +120,7 @@ func (v *VastbaseDB) Connect(config connection.ConnectionConfig) error {
 
 func (v *VastbaseDB) Close() error {
 	if v.forwarder != nil {
-		if err := v.forwarder.Close(); err != nil {
+		if err := v.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 Vastbase SSH 端口转发失败：%v", err)
 		}
 		v.forwarder = nil
@@ -224,25 +231,12 @@ func (v *VastbaseDB) GetDatabases() ([]string, error) {
 }
 
 func (v *VastbaseDB) GetTables(dbName string) ([]string, error) {
-	query := "SELECT schemaname, tablename FROM pg_catalog.pg_tables WHERE schemaname != 'information_schema' AND schemaname NOT LIKE 'pg|_%' ESCAPE '|' ORDER BY schemaname, tablename"
+	query := buildPostgresLegacyTablesQuery()
 	data, _, err := v.Query(query)
 	if err != nil {
 		return nil, err
 	}
-
-	var tables []string
-	for _, row := range data {
-		schema, okSchema := row["schemaname"]
-		name, okName := row["tablename"]
-		if okSchema && okName {
-			tables = append(tables, fmt.Sprintf("%v.%v", schema, name))
-			continue
-		}
-		if okName {
-			tables = append(tables, fmt.Sprintf("%v", name))
-		}
-	}
-	return tables, nil
+	return parsePostgresTableNames(data), nil
 }
 
 func (v *VastbaseDB) GetCreateStatement(dbName, tableName string) (string, error) {

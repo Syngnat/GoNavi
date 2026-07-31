@@ -491,6 +491,66 @@ func TestResolveCreateStatementWithFallback_PGLikeViewHelperBeforeColumnFallback
 	}
 }
 
+func TestTryGetViewCreateStatement_OracleUsesUnboundedStreamForCLOB(t *testing.T) {
+	t.Parallel()
+
+	fullDDL := `CREATE OR REPLACE VIEW "H2"."CV_GD_YNCRM_SALESDTLLIST" AS SELECT '` +
+		strings.Repeat("完整视图定义", 900) +
+		`' AS payload FROM DUAL`
+	dbInst := &fakeStreamExportDB{
+		fakeExportQueryDB: fakeExportQueryDB{
+			data: []map[string]interface{}{
+				{"ddl": "[CLOB preview: 4096/9362 bytes] " + fullDDL[:128]},
+			},
+			cols: []string{"ddl"},
+		},
+		streamData: []map[string]interface{}{
+			{"ddl": fullDDL},
+		},
+		streamCols: []string{"ddl"},
+	}
+
+	ddl, ok := tryGetViewCreateStatement(
+		dbInst,
+		connection.ConnectionConfig{Type: "oracle"},
+		"H2",
+		"H2",
+		"CV_GD_YNCRM_SALESDTLLIST",
+	)
+	if !ok {
+		t.Fatal("expected Oracle view DDL lookup to succeed")
+	}
+	if ddl != fullDDL+";" {
+		t.Fatalf("expected complete Oracle CLOB DDL, got length=%d prefix=%q", len(ddl), ddl[:min(len(ddl), 80)])
+	}
+	if strings.Contains(ddl, "[CLOB preview:") {
+		t.Fatalf("Oracle view DDL must not contain an interactive CLOB preview marker: %q", ddl[:80])
+	}
+	if dbInst.streamHits != 1 || dbInst.queryHits != 0 {
+		t.Fatalf("expected unbounded stream query only, streamHits=%d queryHits=%d", dbInst.streamHits, dbInst.queryHits)
+	}
+}
+
+func TestBuildViewCreateQueries_OracleFallsBackToCatalogText(t *testing.T) {
+	t.Parallel()
+
+	queries := buildViewCreateQueries(
+		connection.ConnectionConfig{Type: "oracle"},
+		"H2",
+		"H2",
+		"CV_GD_YNCRM_SALESDTLLIST",
+	)
+	if len(queries) != 2 {
+		t.Fatalf("expected DBMS_METADATA and ALL_VIEWS fallback queries, got %v", queries)
+	}
+	if !strings.Contains(queries[0], "DBMS_METADATA.GET_DDL('VIEW'") {
+		t.Fatalf("expected DBMS_METADATA query first, got %q", queries[0])
+	}
+	if !strings.Contains(queries[1], "FROM ALL_VIEWS") || !strings.Contains(queries[1], "TEXT AS ddl") {
+		t.Fatalf("expected ALL_VIEWS text fallback, got %q", queries[1])
+	}
+}
+
 func TestResolveCreateStatementWithFallback_PGLikeViewHelperKeepsQuotedDottedName(t *testing.T) {
 	t.Parallel()
 

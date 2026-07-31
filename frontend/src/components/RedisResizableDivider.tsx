@@ -4,6 +4,8 @@ type RedisResizableDividerProps = {
   onResizeEnd: (newWidth: number) => void;
   targetRef: React.RefObject<HTMLDivElement>;
   minWidth?: number;
+  maxReservedWidth?: number;
+  containerWidthCssVariable?: `--${string}`;
   title: string;
 };
 
@@ -12,6 +14,8 @@ const RedisResizableDivider: React.FC<RedisResizableDividerProps> = ({
   onResizeEnd,
   targetRef,
   minWidth = 300,
+  maxReservedWidth = 350,
+  containerWidthCssVariable,
   title,
 }) => {
   const abortInteractionRef = useRef<(() => void) | null>(null);
@@ -31,8 +35,9 @@ const RedisResizableDivider: React.FC<RedisResizableDividerProps> = ({
 
     const startX = event.clientX;
     const startWidth = target.offsetWidth;
-    const containerWidth = target.parentElement?.offsetWidth || window.innerWidth;
-    const maxWidth = containerWidth - 350;
+    const container = target.parentElement;
+    const containerWidth = container?.offsetWidth || window.innerWidth;
+    const maxWidth = containerWidth - maxReservedWidth;
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;cursor:col-resize;z-index:9999;';
     document.body.appendChild(overlay);
@@ -63,8 +68,12 @@ const RedisResizableDivider: React.FC<RedisResizableDividerProps> = ({
       moveEvent.preventDefault();
       const delta = moveEvent.clientX - startX;
       currentWidth = Math.max(minWidth, Math.min(maxWidth, startWidth + delta));
-      target.style.width = `${currentWidth}px`;
-      target.style.flexBasis = `${currentWidth}px`;
+      if (containerWidthCssVariable && container) {
+        container.style.setProperty(containerWidthCssVariable, `${currentWidth}px`);
+      } else {
+        target.style.width = `${currentWidth}px`;
+        target.style.flexBasis = `${currentWidth}px`;
+      }
     };
 
     abortInteractionRef.current = abortInteraction;
@@ -75,6 +84,7 @@ const RedisResizableDivider: React.FC<RedisResizableDividerProps> = ({
 
   return (
     <div
+      className="redis-resizable-divider"
       onMouseDown={handleMouseDown}
       style={{
         width: 5,

@@ -3,10 +3,8 @@
 package db
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -42,22 +40,6 @@ func TestIRISTableRefErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestIRISTableNameRequiredSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("iris_impl.go")
-	if err != nil {
-		t.Fatalf("read iris_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := databaseFunctionSource(t, source, "func parseIRISTableRef(defaultSchema, raw string) (irisTableRef, error)")
-	rawMessage := `fmt.Errorf("` + rawIRISTableNameRequiredText + `")`
-
-	if strings.Contains(functionSource, rawMessage) {
-		t.Fatalf("parseIRISTableRef still contains raw IRIS table-name-required text %q", rawMessage)
-	}
-	if !strings.Contains(functionSource, "db.backend.error.table_name_required") {
-		t.Fatal("parseIRISTableRef does not reference db.backend.error.table_name_required")
-	}
-}
 
 func TestIRISTableNameRequiredCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

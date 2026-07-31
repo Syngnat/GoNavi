@@ -198,6 +198,38 @@ describe('useAppUpdateManager', () => {
     expect(backendApp.CheckForUpdates).not.toHaveBeenCalled();
   });
 
+  it('exposes a loading state while checking for updates', async () => {
+    let resolveCheck: ((result: Record<string, unknown>) => void) | undefined;
+    const checkPromise = new Promise<Record<string, unknown>>((resolve) => {
+      resolveCheck = resolve;
+    });
+    backendApp.CheckForUpdates.mockReturnValue(checkPromise);
+
+    renderHook();
+
+    let pendingCheck: Promise<void> | undefined;
+    act(() => {
+      pendingCheck = hook?.checkForUpdates(false);
+    });
+
+    expect(hook?.isCheckingForUpdates).toBe(true);
+    expect(hook?.aboutUpdateStatus).toBe('app.about.update_status.checking');
+
+    await act(async () => {
+      resolveCheck?.({
+        success: true,
+        data: {
+          hasUpdate: false,
+          currentVersion: '0.8.1',
+          latestVersion: '0.8.1',
+        },
+      });
+      await pendingCheck;
+    });
+
+    expect(hook?.isCheckingForUpdates).toBe(false);
+  });
+
   it('merges complete MSI download metadata returned by the backend', async () => {
     backendApp.CheckForUpdates.mockResolvedValue({
       success: true,

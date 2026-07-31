@@ -142,12 +142,18 @@ describe("connectionModalConfig keepalive", () => {
     expect(config.keepAliveSQL).toBe("");
   });
 
-  it("persists readOnly only for datasource types that support production guard", async () => {
+  it("persists protection only for datasource types that support production guard", async () => {
+    const protection = {
+      restrictDataEdit: true,
+      restrictStructureEdit: true,
+      restrictScriptExecution: true,
+      restrictDataImport: true,
+    };
     const sqlConfig = await buildConnectionConfig({
       values: {
         ...buildBaseValues(),
         type: "postgres",
-        readOnly: true,
+        ...protection,
       },
       forPersist: true,
       translate,
@@ -157,13 +163,32 @@ describe("connectionModalConfig keepalive", () => {
         ...buildBaseValues(),
         type: "redis",
         port: 6379,
-        readOnly: true,
+        ...protection,
+      },
+      forPersist: true,
+      translate,
+    });
+    const nacosConfig = await buildConnectionConfig({
+      values: {
+        ...buildBaseValues(),
+        type: "nacos",
+        port: 8848,
+        ...protection,
       },
       forPersist: true,
       translate,
     });
 
+    expect(sqlConfig.protection).toEqual(protection);
     expect(sqlConfig.readOnly).toBe(true);
+    expect(redisConfig.protection).toBeUndefined();
     expect(redisConfig.readOnly).toBe(false);
+    expect(nacosConfig.protection).toEqual({
+      restrictDataEdit: true,
+      restrictStructureEdit: true,
+      restrictScriptExecution: false,
+      restrictDataImport: true,
+    });
+    expect(nacosConfig.readOnly).toBe(false);
   });
 });

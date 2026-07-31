@@ -55,16 +55,6 @@ describe("jvmDiagnosticPlan", () => {
 
     expect(plan?.reason).toBe("AI diagnostic plan: generic_diagnostic");
   });
-
-  it("keeps AIMessageBubble diagnostic plan parsing wired to the active translator", () => {
-    const source = fs.readFileSync(
-      new URL("../components/ai/AIMessageBubble.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("parseJVMDiagnosticPlan(displayContent, copy)");
-    expect(source).not.toContain("parseJVMDiagnosticPlan(displayContent);");
-  });
 });
 
 describe("resolveJVMDiagnosticPlanTargetTabId", () => {

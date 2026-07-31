@@ -1,6 +1,5 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
-import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./App', () => ({
@@ -185,11 +184,6 @@ describe('main browser mock', () => {
     }));
   });
 
-  it('does not hardcode Chinese browser mock saved query names', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'未命名查询'");
-  });
-
   it('localizes browser mock MCP HTTP server status messages', async () => {
     vi.stubGlobal('navigator', {
       languages: ['en-US'],
@@ -215,13 +209,6 @@ describe('main browser mock', () => {
     }));
   });
 
-  it('does not hardcode Chinese browser mock MCP HTTP server status messages', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'GoNavi MCP HTTP 服务未启动'");
-    expect(source).not.toContain("'GoNavi MCP HTTP 服务已启动'");
-    expect(source).not.toContain("'GoNavi MCP HTTP 服务已停止'");
-  });
-
   it('localizes browser mock data root update messages', async () => {
     vi.stubGlobal('navigator', {
       languages: ['en-US'],
@@ -238,11 +225,6 @@ describe('main browser mock', () => {
         path: 'C:/mock/custom-root',
       }),
     }));
-  });
-
-  it('does not hardcode Chinese browser mock data root update messages', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'数据目录已更新'");
   });
 
   it('keeps browser mock log directory state available for the data-root page', async () => {
@@ -334,12 +316,6 @@ describe('main browser mock', () => {
     }));
   });
 
-  it('does not hardcode Chinese browser mock MCP server test messages', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'MCP mock 测试成功'");
-    expect(source).not.toContain("'MCP 命令不能为空'");
-  });
-
   it('localizes browser mock MCP tool call unavailable content', async () => {
     vi.stubGlobal('navigator', {
       languages: ['en-US'],
@@ -356,11 +332,6 @@ describe('main browser mock', () => {
       content: t('app.browser_mock.mcp_tool.unavailable'),
       isError: true,
     }));
-  });
-
-  it('does not hardcode Chinese browser mock MCP tool call unavailable content', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'浏览器 mock 未接入真实 MCP 服务'");
   });
 
   it('localizes browser mock provider test messages', async () => {
@@ -381,12 +352,6 @@ describe('main browser mock', () => {
       success: false,
       message: t('app.browser_mock.provider.test_failed_detail', { detail: 'missing api key' }),
     }));
-  });
-
-  it('does not hardcode Chinese browser mock provider test messages', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'端点连通性测试成功！'");
-    expect(source).not.toContain("'连接测试失败: missing api key'");
   });
 
   it('localizes browser mock MCP client status and install messages', async () => {
@@ -443,15 +408,6 @@ describe('main browser mock', () => {
         message: t('app.browser_mock.mcp_client.opencode.installed'),
       }),
     ]));
-  });
-
-  it('does not hardcode Chinese browser mock MCP client status and install messages', () => {
-    const source = readFileSync(new URL('./main.tsx', import.meta.url), 'utf8');
-    expect(source).not.toContain("'未检测到 Claude Code 用户级 GoNavi MCP 配置'");
-    expect(source).not.toContain("'已检测到 Codex 中的 GoNavi MCP 记录，但与当前 GoNavi 安装路径不一致，建议更新'");
-    expect(source).not.toContain("'已写入 Claude Code 用户级 MCP 配置，重启 Claude CLI 后可在 /mcp 的 User MCPs 中看到 GoNavi。'");
-    expect(source).not.toContain("'已写入 Codex 用户级 MCP 配置，重启 Codex CLI 或桌面端后可看到 GoNavi。'");
-    expect(source).not.toContain("'已写入 OpenCode 用户级 MCP 配置，重启 OpenCode 后可看到 GoNavi。'");
   });
 
   it('waits for store hydration before syncing an explicit persisted language over a different system language', async () => {

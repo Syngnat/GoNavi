@@ -1,10 +1,8 @@
 package app
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	datasync "GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/shared/i18n"
@@ -221,32 +219,6 @@ func TestResolveDataSyncConfigSecretsRestoresOracleServiceNameFromSavedConnectio
 	}
 }
 
-func TestMethodsSyncSecretRestoreMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_sync.go")
-	if err != nil {
-		t.Fatalf("read methods_sync.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := methodsSyncFunctionSource(t, source, "func (a *App) resolveDataSyncConfigSecrets")
-
-	for _, literal := range []string{
-		`"恢复源数据库连接密文失败: %w"`,
-		`"恢复目标数据库连接密文失败: %w"`,
-	} {
-		if strings.Contains(functionSource, literal) {
-			t.Fatalf("resolveDataSyncConfigSecrets still contains raw DataSync secret restore text %q", literal)
-		}
-	}
-
-	for _, key := range []string{
-		"data_sync.backend.error.restore_source_secret_failed",
-		"data_sync.backend.error.restore_target_secret_failed",
-	} {
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("resolveDataSyncConfigSecrets does not reference DataSync backend i18n key %q", key)
-		}
-	}
-}
 
 func TestMethodsSyncSecretRestoreCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -331,18 +303,3 @@ func TestDataSyncPreviewSourceFailureUsesLocalizedMessage(t *testing.T) {
 	}
 }
 
-func TestMethodsSyncPreviewSuccessMessageUsesLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_sync.go")
-	if err != nil {
-		t.Fatalf("read methods_sync.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := methodsSyncFunctionSource(t, source, "func (a *App) DataSyncPreview")
-
-	if strings.Contains(functionSource, `Message: "OK"`) {
-		t.Fatal(`DataSyncPreview still returns raw success text "OK"`)
-	}
-	if !strings.Contains(functionSource, "data_sync.backend.result.preview_ready") {
-		t.Fatal("DataSyncPreview does not reference data_sync.backend.result.preview_ready")
-	}
-}

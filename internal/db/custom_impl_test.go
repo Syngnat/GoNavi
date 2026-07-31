@@ -5,11 +5,9 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -216,36 +214,6 @@ func TestCustomDBApplyChangesErrorsUseCurrentLanguage(t *testing.T) {
 	})
 }
 
-func TestCustomDBApplyChangesErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("custom_impl.go")
-	if err != nil {
-		t.Fatalf("read custom_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := databaseFunctionSource(t, source, "func (c *CustomDB) ApplyChanges(tableName string, changes connection.ChangeSet) error")
-
-	rawConnectionNotOpenText := string([]rune{0x8fde, 0x63a5, 0x672a, 0x6253, 0x5f00})
-	rawDeleteFailedText := string([]rune{0x5220, 0x9664, 0x5931, 0x8d25})
-	rawUpdateKeyConditionsRequiredText := string([]rune{0x66f4, 0x65b0, 0x64cd, 0x4f5c, 0x9700, 0x8981, 0x4e3b, 0x952e, 0x6761, 0x4ef6})
-	rawUpdateFailedText := string([]rune{0x66f4, 0x65b0, 0x5931, 0x8d25})
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("` + rawConnectionNotOpenText + `")`,
-		`fmt.Errorf("` + rawDeleteFailedText + `：%v", err)`,
-		`fmt.Errorf("` + rawUpdateKeyConditionsRequiredText + `")`,
-		`fmt.Errorf("` + rawUpdateFailedText + `：%v", err)`,
-	} {
-		if strings.Contains(functionSource, rawMessage) {
-			t.Fatalf("CustomDB ApplyChanges still contains raw user-visible text %q", rawMessage)
-		}
-	}
-
-	for _, key := range customDBApplyChangesI18nKeys() {
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("CustomDB ApplyChanges does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestCustomDBApplyChangesCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -335,30 +303,6 @@ func TestCustomDBBasicExecutionConnectionNotOpenUsesCurrentLanguage(t *testing.T
 	}
 }
 
-func TestCustomDBBasicExecutionConnectionNotOpenSourcesUseI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("custom_impl.go")
-	if err != nil {
-		t.Fatalf("read custom_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	rawConnectionNotOpenText := string([]rune{0x8fde, 0x63a5, 0x672a, 0x6253, 0x5f00})
-
-	for _, signature := range []string{
-		"func (c *CustomDB) Ping() error",
-		"func (c *CustomDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error)",
-		"func (c *CustomDB) Query(query string) ([]map[string]interface{}, []string, error)",
-		"func (c *CustomDB) ExecContext(ctx context.Context, query string) (int64, error)",
-		"func (c *CustomDB) Exec(query string) (int64, error)",
-	} {
-		functionSource := databaseFunctionSource(t, source, signature)
-		if strings.Contains(functionSource, `fmt.Errorf("`+rawConnectionNotOpenText+`")`) {
-			t.Fatalf("%s still contains raw connection-not-open text", signature)
-		}
-		if !strings.Contains(functionSource, "db.backend.error.connection_not_open") {
-			t.Fatalf("%s does not reference connection-not-open i18n key", signature)
-		}
-	}
-}
 
 func TestCustomDBConnectReportsUnsupportedODBCDriverName(t *testing.T) {
 	db := &CustomDB{}

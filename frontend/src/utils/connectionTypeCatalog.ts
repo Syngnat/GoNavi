@@ -96,6 +96,13 @@ export const CONNECTION_TYPE_GROUPS: ConnectionTypeCatalogGroup[] = [
     ],
   },
   {
+    labelKey: 'connection_modal.step1.group.config_center',
+    label: 'Config centers',
+    items: [
+      { key: 'nacos', name: 'Nacos' },
+    ],
+  },
+  {
     labelKey: 'connection_modal.step1.group.other',
     label: 'Other',
     items: [
@@ -177,6 +184,8 @@ export const getConnectionTypeDefaultPort = (type: string): number => {
       return 9092;
     case 'rabbitmq':
       return 15672;
+    case 'nacos':
+      return 8848;
     case 'highgo':
       return 5866;
     case 'mariadb':
@@ -238,6 +247,12 @@ export const getConnectionTypeHint = (
       return 'Broker / Topic / Consumer Group';
     case 'rabbitmq':
       return 'Management API / Virtual Host / Queue';
+    case 'nacos':
+      return translateCatalogCopy(
+        translate,
+        'connection_modal.step1.hint.nacos',
+        'Browse and publish configs across namespaces',
+      );
     case 'oceanbase':
       return translateCatalogCopy(translate, 'connection_modal.step1.hint.oceanBase', 'MySQL / Oracle tenant');
     case 'goldendb':

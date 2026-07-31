@@ -228,6 +228,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     onCancelTotalCount,
     onOpenErTable,
     onPageChange,
+    onLastPage,
     onReload,
     onRequestTotalCount,
     onSort,
@@ -490,6 +491,7 @@ const renderDataTableView = () => (
           manualTotalCountAvailable={prefersManualTotalCount && !!onRequestTotalCount}
           totalCountLoading={pagination?.totalCountLoading}
           onPageChange={onPageChange}
+          onLastPage={onLastPage}
           onPageSizeChange={handlePageSizeChange}
           onV2PageStep={handleV2PageStep}
           onToggleTotalCount={onRequestTotalCount ? handleToggleTotalCount : undefined}
@@ -712,7 +714,7 @@ const renderDataTableView = () => (
             onClearFiltersAndSorts={clearAllFiltersAndSorts}
         />
 
-	       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0, display: 'flex', flexDirection: 'column', background: bgContent, borderRadius: panelRadius, border: `1px solid ${panelFrameColor}`, boxSizing: 'border-box' }}>
+	       <div ref={containerRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0, display: 'flex', flexDirection: 'column', background: `var(--gn-bg-panel, ${bgContent})`, borderRadius: panelRadius, border: `1px solid ${panelFrameColor}`, boxSizing: 'border-box' }}>
 	        {contextHolder}
             {exportProgressModal}
             <DataGridModals

@@ -36,11 +36,16 @@ func (a *App) SaveConnection(input connection.SavedConnectionInput) (connection.
 	if err != nil {
 		return connection.SavedConnectionView{}, err
 	}
+	a.markCloudBackupDirty()
 	return sanitizeSavedConnectionView(view), nil
 }
 
 func (a *App) DeleteConnection(id string) error {
-	return a.savedConnectionRepository().Delete(id)
+	err := a.savedConnectionRepository().Delete(id)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return err
 }
 
 func (a *App) DuplicateConnection(id string) (connection.SavedConnectionView, error) {
@@ -52,6 +57,7 @@ func (a *App) DuplicateConnection(id string) (connection.SavedConnectionView, er
 	if err != nil {
 		return connection.SavedConnectionView{}, err
 	}
+	a.markCloudBackupDirty()
 	return sanitizeSavedConnectionView(view), nil
 }
 
@@ -74,11 +80,16 @@ func (a *App) ImportLegacyConnections(items []connection.LegacySavedConnection) 
 	if err != nil {
 		return nil, err
 	}
+	a.markCloudBackupDirty()
 	return sanitizeSavedConnectionViews(views), nil
 }
 
 func (a *App) SaveGlobalProxy(input connection.SaveGlobalProxyInput) (connection.GlobalProxyView, error) {
-	return a.saveGlobalProxy(input)
+	view, err := a.saveGlobalProxy(input)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return view, err
 }
 
 func (a *App) ImportLegacyGlobalProxy(input connection.LegacyGlobalProxyInput) (connection.GlobalProxyView, error) {

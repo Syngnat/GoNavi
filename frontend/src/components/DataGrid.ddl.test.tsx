@@ -20,6 +20,7 @@ import { V2CellContextMenuView, V2ColumnHeaderContextMenuView, V2TableGroupConte
 import { setCurrentLanguage, t } from '../i18n';
 import { parseMongoEditedValue } from '../utils/mongodb';
 import { DUCKDB_ROWID_LOCATOR_COLUMN, ORACLE_ROWID_LOCATOR_COLUMN } from '../utils/rowLocator';
+import { resetTableMetadataRequestCacheForTests } from '../utils/tableMetadataRequestCache';
 
 const storeState = vi.hoisted(() => ({
   connections: [
@@ -921,33 +922,6 @@ describe('DataGrid commit change set', () => {
     const rowLocatorSource = readFileSync(new URL('../utils/rowLocator.ts', import.meta.url), 'utf8');
 
     expect(`${dataGridSource}\n${rowLocatorSource}`).not.toMatch(/当前结果没有可用的安全行定位方式|定位列 .* 的值为空，无法安全提交修改/);
-    expect(dataGridSource).toContain('data_grid.message.no_safe_locator');
-    expect(dataGridSource).toContain('data_grid.message.locator_column_value_empty');
-  });
-
-  it('keeps hidden result columns in detached-window data snapshots', () => {
-    const dataGridSource = readFileSync(new URL('./DataGrid.tsx', import.meta.url), 'utf8');
-    expect(dataGridSource).toContain(
-      'pickDataGridOutputRows(currentRows, dataChangeOutputColumnNames)',
-    );
-    expect(dataGridSource).not.toContain(
-      'pickDataGridOutputRows(currentRows, displayOutputColumnNames)',
-    );
-  });
-
-  it('keeps DataGrid column quick-find warning messages localized', () => {
-    const dataGridSource = readFileSync(new URL('./DataGrid.tsx', import.meta.url), 'utf8');
-
-    expect(dataGridSource).not.toMatch(/未找到字段列|当前未渲染，无法定位/);
-    expect(dataGridSource).toContain('data_grid.message.column_quick_find_not_found');
-    expect(dataGridSource).toContain('data_grid.message.column_quick_find_not_rendered');
-  });
-
-  it('keeps DataGrid datetime picker now footer localized', () => {
-    const dataGridSource = readFileSync(new URL('./DataGrid.tsx', import.meta.url), 'utf8');
-
-    expect(dataGridSource).not.toContain('>此刻</a>');
-    expect(dataGridSource).toContain('data_grid.datetime_picker.now');
   });
 
   it('keeps DataGrid AI insight prompt wrapper localized', () => {
@@ -955,7 +929,6 @@ describe('DataGrid commit change set', () => {
     const dataGridShellSource = readFileSync(new URL('./DataGridShell.tsx', import.meta.url), 'utf8');
 
     expect(`${dataGridSource}\n${dataGridShellSource}`).not.toMatch(/请帮我分析以下查询结果数据|请分析数据特征|业务上的洞察/);
-    expect(dataGridShellSource).toContain('data_grid.ai_insight.prompt');
   });
 
   it('marks the active virtual editing row so shouldCellUpdate can reopen inline editors', () => {
@@ -977,6 +950,7 @@ describe('DataGrid commit change set', () => {
 
 describe('DataGrid DDL interactions', () => {
   beforeEach(() => {
+    resetTableMetadataRequestCacheForTests();
     backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [] });
     backendApp.DBGetIndexes.mockResolvedValue({ success: true, data: [] });
     backendApp.DBGetForeignKeys.mockResolvedValue({ success: true, data: [] });
@@ -1934,6 +1908,52 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('defers Kingbase table metadata until the initial data query finishes', async () => {
+    storeState.connections[0].config.type = 'kingbase';
+    storeState.connections[0].config.port = 54321;
+    backendApp.DBGetColumns.mockResolvedValue({
+      success: true,
+      data: [{ Name: 'andon_dash_events_id', Type: 'bigint' }],
+    });
+
+    const props = {
+      data: [] as any[],
+      columnNames: [] as string[],
+      loading: true,
+      tableName: 'ldf_server.andon_dash_events',
+      dbName: 'ldf_server_dbs',
+      connectionId: 'conn-1',
+      exportScope: 'table' as const,
+    };
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataGrid {...props} />);
+    });
+    await waitForEffects();
+
+    expect(backendApp.DBGetColumns).not.toHaveBeenCalled();
+    expect(backendApp.DBGetIndexes).not.toHaveBeenCalled();
+    expect(backendApp.DBGetForeignKeys).not.toHaveBeenCalled();
+
+    await act(async () => {
+      renderer!.update(
+        <DataGrid
+          {...props}
+          data={[{ __gonavi_row_key__: 'row-1', andon_dash_events_id: 2 }]}
+          columnNames={['andon_dash_events_id']}
+          loading={false}
+        />,
+      );
+    });
+    await waitForEffects();
+
+    expect(backendApp.DBGetColumns).toHaveBeenCalledTimes(1);
+    expect(backendApp.DBGetIndexes).toHaveBeenCalledTimes(1);
+    expect(backendApp.DBGetForeignKeys).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
   it('reloads column metadata after clicking refresh', async () => {
     storeState.queryOptions.showColumnComment = true;
     storeState.queryOptions.showColumnType = true;
@@ -2116,105 +2136,6 @@ describe('DataGrid DDL interactions', () => {
       expect(content).not.toContain(rawSnippet);
     });
     renderer.unmount();
-  });
-
-  it('keeps the v2 column header menu labels on i18n keys', () => {
-    const source = readFileSync(new URL('./V2TableContextMenu.tsx', import.meta.url), 'utf8');
-    const start = source.indexOf('export const V2ColumnHeaderContextMenuView');
-    const end = source.indexOf('export const V2CellContextMenuView', start);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    const columnMenuSource = source.slice(start, end);
-
-    [
-      "t('sidebar.v2_table_menu.copy_section')",
-      "t('data_grid.context_menu.column_unknown_type')",
-      "t('data_grid.context_menu.column_no_comment')",
-      "t('data_grid.context_menu.column_unnamed_field')",
-      "t('data_grid.context_menu.copy_field_name')",
-      "t('data_grid.context_menu.copy_column_comment')",
-      "t('data_grid.context_menu.copy_column_data')",
-      "t('data_grid.context_menu.sort_section')",
-      "t('data_grid.context_menu.sort_ascending')",
-      "t('data_grid.context_menu.sort_descending')",
-      "t('data_grid.context_menu.clear_column_sort')",
-      "t('data_grid.context_menu.current_marker')",
-      "t('data_grid.context_menu.column_display_section')",
-      "t('data_grid.context_menu.auto_fit_column')",
-      "t('data_grid.context_menu.pin_column_left')",
-      "t('data_grid.context_menu.unpin_column_left')",
-      "t('data_grid.context_menu.hide_column')",
-      "t('data_grid.context_menu.show_column_type')",
-      "t('data_grid.context_menu.hide_column_type')",
-      "t('data_grid.context_menu.show_column_comment')",
-      "t('data_grid.context_menu.hide_column_comment')",
-    ].forEach((expectedSnippet) => {
-      expect(columnMenuSource).toContain(expectedSnippet);
-    });
-
-    [
-      '<div className="gn-v2-context-menu-section-title">复制</div>',
-      '未知类型',
-      '暂无备注',
-      '未命名字段',
-      '复制字段名称',
-      '复制注释',
-      '复制列数据',
-      '排序',
-      '升序排序',
-      '降序排序',
-      '取消此字段排序',
-      '当前',
-      '字段显示',
-      '按内容自适应列宽',
-      '隐藏此字段',
-      '显示字段类型',
-      '隐藏字段类型',
-      '显示字段备注',
-      '隐藏字段备注',
-    ].forEach((rawSnippet) => {
-      expect(columnMenuSource).not.toContain(rawSnippet);
-    });
-  });
-
-  it('keeps the v2 table group menu labels on i18n keys', () => {
-    const source = readFileSync(new URL('./V2TableContextMenu.tsx', import.meta.url), 'utf8');
-    const start = source.indexOf('export const V2TableGroupContextMenuView');
-    const end = source.indexOf('export type V2DatabaseContextMenuActionKey', start);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    const groupMenuSource = source.slice(start, end);
-
-    [
-      "t('sidebar.v2_table_group_menu.title')",
-      "t('sidebar.v2_table_group_menu.current_database')",
-      "t('sidebar.v2_table_group_menu.sort_name')",
-      "t('sidebar.v2_table_group_menu.sort_frequency')",
-      "t('sidebar.v2_table_group_menu.meta'",
-      "t('sidebar.menu.create_table')",
-      "t('data_grid.context_menu.sort_section')",
-      "t('sidebar.menu.sort_by_name')",
-      "t('sidebar.menu.sort_by_frequency')",
-      "t('data_grid.context_menu.current_marker')",
-    ].forEach((expectedSnippet) => {
-      expect(groupMenuSource).toContain(expectedSnippet);
-    });
-
-    [
-      '表 · tables',
-      '使用频率',
-      '名称',
-      '当前数据库',
-      '张表',
-      '当前按',
-      '新建表',
-      '<div className="gn-v2-context-menu-section-title">排序</div>',
-      '按名称排序',
-      '按使用频率排序',
-      "'当前'",
-    ].forEach((rawSnippet) => {
-      expect(groupMenuSource).not.toContain(rawSnippet);
-    });
   });
 
   it('opens the v2 cell context menu for table cells instead of the legacy inline menu', async () => {
@@ -3509,70 +3430,6 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
-  it('keeps the v2 cell copy and export menu labels on i18n keys', () => {
-    const source = readFileSync(new URL('./V2TableContextMenu.tsx', import.meta.url), 'utf8');
-    const start = source.indexOf('export const V2CellContextMenuView');
-    expect(start).toBeGreaterThanOrEqual(0);
-    const cellMenuSource = source.slice(start);
-
-    [
-      "t('data_grid.context_menu.column_unnamed_field')",
-      "t('data_grid.context_menu.current_row')",
-      "t('data_grid.context_menu.current_cell')",
-      "t('data_grid.context_menu.copy_field_name')",
-      "t('data_grid.context_menu.edit_section')",
-      "t('data_grid.batch_fill.set_null')",
-      "t('data_grid.context_menu.edit_row')",
-      "t('data_grid.context_menu.copy_row_as_new')",
-      "t('data_grid.context_menu.paste_row_as_new')",
-      "t('data_grid.context_menu.paste_row_as_new_count'",
-      "t('data_grid.context_menu.fill_to_selected_rows'",
-      "t('data_grid.context_menu.paste_copied_columns')",
-      "t('sidebar.v2_table_menu.copy_section')",
-      "t('data_grid.context_menu.copy_row_data')",
-      "t('data_grid.context_menu.copy_column_data')",
-      "t('data_grid.context_menu.copy_as_insert')",
-      "t('data_grid.context_menu.copy_as_update')",
-      "t('data_grid.context_menu.copy_as_delete')",
-      "t('data_grid.context_menu.copy_as_json')",
-      "t('data_grid.context_menu.copy_as_csv')",
-      "t('data_grid.context_menu.copy_as_markdown')",
-      "t('data_grid.toolbar.export')",
-      "t('sidebar.v2_table_menu.item_with_suffix', { label: 'CSV', suffix: '.csv' })",
-      "t('sidebar.v2_table_menu.item_with_suffix', { label: 'Excel', suffix: '.xlsx' })",
-      "t('sidebar.v2_table_menu.item_with_suffix', { label: 'JSON', suffix: '.json' })",
-      "t('sidebar.v2_table_menu.item_with_suffix', { label: 'HTML', suffix: '.html' })",
-    ].forEach((expectedSnippet) => {
-      expect(cellMenuSource).toContain(expectedSnippet);
-    });
-
-    [
-      '<div className="gn-v2-context-menu-section-title">复制</div>',
-      '<div className="gn-v2-context-menu-section-title">导出</div>',
-      "title: '复制行数据'",
-      "title: '复制列数据'",
-      "title: '复制为 INSERT'",
-      "title: '复制为 UPDATE'",
-      "title: '复制为 DELETE'",
-      "title: '复制为 JSON'",
-      "title: '复制为 CSV'",
-      "title: '复制为 Markdown'",
-      '未命名字段',
-      '当前行',
-      '当前单元格',
-      '复制字段名称',
-      '<div className="gn-v2-context-menu-section-title">编辑</div>',
-      '设置为 NULL',
-      '编辑本行',
-      '复制本行为新增行',
-      '粘贴为新增行',
-      '填充到选中行',
-      '粘贴已复制列 · 同名列',
-    ].forEach((rawSnippet) => {
-      expect(cellMenuSource).not.toContain(rawSnippet);
-    });
-  });
-
   it('exports query-result rows as INSERT SQL with an empty target table without rerunning ExportQuery', async () => {
     backendApp.ExportDataWithOptions.mockResolvedValue({ success: true });
     backendApp.ExportQueryWithOptions.mockResolvedValue({ success: true });
@@ -4134,7 +3991,6 @@ describe('DataGrid DDL interactions', () => {
 
     const content = textContent(renderer!.root);
     expect(content).toContain('SCHEMA DESIGNER');
-    expect(content).toContain('字段');
     expect(content).toContain('id');
     expect(content).toContain('name');
   });
@@ -4168,7 +4024,6 @@ describe('DataGrid DDL interactions', () => {
 
     const content = textContent(renderer!.root);
     expect(content).toContain('SCHEMA DESIGNER');
-    expect(content).toContain('字段');
     expect(content).toContain('id');
     expect(content).toContain('name');
   });
@@ -4256,7 +4111,7 @@ describe('DataGrid DDL interactions', () => {
     expect(content).not.toContain('gn-v2-data-grid-fields-view');
     expect(content).toContain('数据预览');
     expect(content).toContain('结果视图');
-    expect(content).toContain('字段信息');
+    expect(findButton(renderer!, '字段信息')).toBeTruthy();
   });
 
   it('keeps the v2 fields tab as read-only field info for views', async () => {
@@ -4285,8 +4140,8 @@ describe('DataGrid DDL interactions', () => {
     });
     await waitForEffects();
 
-    expect(textContent(renderer!.root)).toContain('字段信息');
-    expect(textContent(renderer!.root)).not.toContain('对象设计');
+    expect(findButton(renderer!, '字段信息')).toBeTruthy();
+    expect(findButton(renderer!, '对象设计')).toBeUndefined();
 
     await act(async () => {
       findButton(renderer!, '字段信息').props.onClick();

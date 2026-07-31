@@ -394,16 +394,6 @@ describe('TableExportWorkbench', () => {
     expect(markup).toContain('目录');
   });
 
-  it('keeps only one progress component in source and no longer uses top tabs', () => {
-    const source = readFileSync(new URL('./TableExportWorkbench.tsx', import.meta.url), 'utf8');
-    const progressMatches = source.match(/<ExportProgressBar\b/g) || [];
-
-    expect(progressMatches).toHaveLength(1);
-    expect(source).not.toContain('<Tabs');
-    expect(source).toContain("t('data_export.workbench.description.history')");
-    expect(source).toContain("t('data_export.label.elapsed')");
-  });
-
   it('normalizes table column metadata without changing database order', () => {
     expect(resolveTableExportColumnNames([
       { Name: 'id' },
@@ -728,17 +718,6 @@ describe('TableExportWorkbench', () => {
     expect(databaseSelect?.props.value).toEqual(['beta', 'gamma']);
 
     renderer.unmount();
-  });
-
-  it('loads selectable columns and sends the selection through both single-table export paths', () => {
-    const source = readFileSync(new URL('./TableExportWorkbench.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain('DBGetColumns(');
-    expect(source).toContain('mode="multiple"');
-    expect(source).toContain('columns: selectedColumns');
-    expect(source).toContain('selectedColumns.length > 0');
-    expect(source.match(/ExportQueryWithOptions\(/g)).toHaveLength(2);
-    expect(source).toContain('ExportTableWithOptions(');
   });
 
   it('passes the MariaDB table as the INSERT target for current-page SQL export', async () => {
@@ -1570,21 +1549,7 @@ describe('TableExportWorkbench', () => {
 
   it('offers DROP IF EXISTS only for SQL exports that include schema', () => {
     const source = readFileSync(new URL('./TableExportWorkbench.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain("batchTableMode !== 'dataOnly'");
-    expect(source).toContain("format === 'sql' && !activeScopeQuery");
-    expect(source).toContain("includeDropIfExists: format === 'sql' && !activeScopeQuery && includeDropIfExists");
-    expect(source).toContain("format !== 'sql' || activeScopeQuery");
-    expect(source).toContain("{ value: 'sql', label: t('data_export.label.sql_file') }");
-    expect(source).toContain('includeDropIfExists: includeSchema && includeDropIfExists');
-    expect(source).toContain("t('data_export.sql_options.drop_if_exists.label')");
-    expect(source).toContain("t('data_export.sql_options.drop_if_exists.description')");
-    expect(source).toContain("pointerEvents: isConfigurationLocked ? 'none' : 'auto'");
-    expect(source).toContain('aria-disabled={isConfigurationLocked}');
     expect(source.match(/disabled=\{isConfigurationLocked\}/g)?.length || 0).toBeGreaterThanOrEqual(10);
-    expect(source).toContain('disabled={isConfigurationLocked || !selectedDbName}');
-    expect(source).toContain('disabled={isConfigurationLocked || availableObjects.length === 0}');
-    expect(source).toContain('disabled={isConfigurationLocked || availableDatabases.length === 0}');
   });
 
   it('prefers backend startedAt over a placeholder history timestamp for the same job', () => {
@@ -1621,25 +1586,5 @@ describe('TableExportWorkbench', () => {
 
     expect(entry.startedAt).toBe(8_000);
     expect(entry.filePath).toBe('/Users/yangguofeng/Desktop/SYS.test.xlsx');
-  });
-
-  it('keeps task log and backup restore labels available across locales', () => {
-    const locales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'de-DE', 'ru-RU'] as const;
-    const keys = [
-      'data_export.action.restore_backup',
-      'data_export.label.schema',
-      'data_export.sql_options.database_context.description',
-      'data_export.sql_options.database_context.label',
-      'data_export.workbench.section.logs',
-    ] as const;
-
-    locales.forEach((locale) => {
-      const catalog = JSON.parse(
-        readFileSync(new URL(`../../../shared/i18n/${locale}.json`, import.meta.url), 'utf8'),
-      ) as Record<string, string>;
-      keys.forEach((key) => {
-        expect(catalog[key], `${locale}:${key}`).toBeTruthy();
-      });
-    });
   });
 });

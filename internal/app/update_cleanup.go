@@ -50,6 +50,7 @@ func launchWindowsMSIUpdate(staged *stagedUpdate, targetExe string, pid int, wai
 	context := windowsMSIUpdateLaunchContext{
 		SourcePath:           staged.FilePath,
 		TargetPath:           strings.TrimSpace(targetExe),
+		UpdatesDir:           resolveUpdateCleanupDir(staged.WorkspaceDir),
 		StagedDir:            staged.StagedDir,
 		LogPath:              staged.InstallLogPath,
 		MSILogPath:           msiLogPath,
@@ -135,6 +136,7 @@ func launchWindowsUpdateWithCleanup(staged *stagedUpdate, targetExe string, pid 
 		SourcePath:           staged.FilePath,
 		TargetPath:           finalTargetExe,
 		CurrentTargetPath:    currentTargetExe,
+		UpdatesDir:           resolveUpdateCleanupDir(staged.WorkspaceDir),
 		StagedDir:            staged.StagedDir,
 		LogPath:              staged.InstallLogPath,
 		MaintenanceEventName: staged.MaintenanceEventName,

@@ -23,6 +23,21 @@ CI_BUNDLE_ASSET_NAME = "GoNavi-DriverAgents.zip"
 DUCKDB_WINDOWS_AGENT_NAME = "duckdb-driver-agent-windows-amd64.exe"
 DUCKDB_WINDOWS_LIBRARY_NAME = "duckdb.dll"
 
+# 校验失败会让 CI 判定已发布资产不可信并退化为全量驱动重建，
+# 因此网络类瞬时故障（5xx / 连接中断）需要有限退避重试。
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 3
+
+
+def _sleep_before_retry(reason, attempt):
+    wait = RETRY_BACKOFF_SECONDS * attempt
+    print(
+        f"warning: transient GitHub API failure ({reason}); "
+        f"retry {attempt}/{RETRY_ATTEMPTS - 1} in {wait}s",
+        file=sys.stderr,
+    )
+    time.sleep(wait)
+
 
 def github_headers(binary: bool = False):
     headers = {
@@ -42,9 +57,20 @@ def fetch_json(url: str):
 
 
 def download_url(url: str, destination: Path):
-    req = urllib.request.Request(url, headers=github_headers(False))
-    with urllib.request.urlopen(req, timeout=120) as resp, open(destination, "wb") as out:
-        shutil.copyfileobj(resp, out)
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            req = urllib.request.Request(url, headers=github_headers(False))
+            with urllib.request.urlopen(req, timeout=120) as resp, open(destination, "wb") as out:
+                shutil.copyfileobj(resp, out)
+            return
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == RETRY_ATTEMPTS:
+                raise
+            _sleep_before_retry(f"HTTP {exc.code}", attempt)
+        except urllib.error.URLError as exc:
+            if attempt == RETRY_ATTEMPTS:
+                raise
+            _sleep_before_retry(exc.reason, attempt)
 
 
 def load_release(repo: str, tag: str):

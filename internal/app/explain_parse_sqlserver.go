@@ -128,7 +128,6 @@ func parseSQLServerExplain(sourceSQL, raw string, format connection.ExplainForma
 		DBType:    "sqlserver",
 		SourceSQL: sourceSQL,
 	}
-	resetExplainNodeID()
 
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

@@ -47,6 +47,7 @@ export type ConnectionConfigLayoutKind =
   | 'timeseries'
   | 'custom'
   | 'jvm'
+  | 'nacos'
   | 'generic-sql';
 
 export type ConnectionConfigLayout = {
@@ -136,6 +137,8 @@ export const getConnectionConfigLayoutKindLabel = (
       return t('connection.modal.layoutKind.custom');
     case 'jvm':
       return t('connection.modal.layoutKind.jvm');
+    case 'nacos':
+      return t('connection.modal.layoutKind.nacos');
     case 'generic-sql':
     default:
       return t('connection.modal.layoutKind.genericSql');
@@ -205,6 +208,17 @@ export const resolveConnectionConfigLayout = (
         'connectionMode',
         'credentials',
         'databaseScope',
+      ],
+    };
+  }
+  if (type === 'nacos') {
+    return {
+      kind: 'nacos',
+      sections: [
+        'identity',
+        'uri',
+        'target',
+        'credentials',
       ],
     };
   }

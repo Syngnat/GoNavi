@@ -179,6 +179,16 @@ export const resolveDataGridFindNavigationIndex = (
   return currentIndex < 0 || currentIndex >= matchCount - 1 ? 0 : currentIndex + 1;
 };
 
+export const matchesDataGridColumnQuickFind = (
+  columnName: string,
+  query: string,
+): boolean => {
+  const normalizedQuery = normalizeDataGridFindQuery(query).toLocaleLowerCase();
+  if (!normalizedQuery) return false;
+
+  return normalizeDataGridFindQuery(columnName).toLocaleLowerCase().includes(normalizedQuery);
+};
+
 export const resolveDataGridColumnQuickFindTarget = (
   columnNames: string[],
   query: string,
@@ -186,12 +196,13 @@ export const resolveDataGridColumnQuickFindTarget = (
   const normalizedQuery = normalizeDataGridFindQuery(query);
   if (!normalizedQuery) return '';
 
+  const lowerQuery = normalizedQuery.toLocaleLowerCase();
   const exactMatch = columnNames.find((columnName) => (
-    normalizeDataGridFindQuery(columnName) === normalizedQuery
+    normalizeDataGridFindQuery(columnName).toLocaleLowerCase() === lowerQuery
   ));
   if (exactMatch) return exactMatch;
 
   return columnNames.find((columnName) => (
-    normalizeDataGridFindQuery(columnName).includes(normalizedQuery)
+    matchesDataGridColumnQuickFind(columnName, normalizedQuery)
   )) || '';
 };

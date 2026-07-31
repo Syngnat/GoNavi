@@ -79,7 +79,14 @@ func (p *PostgresDB) getDSN(config connection.ConnectionConfig) string {
 	return u.String()
 }
 
-func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
+func (p *PostgresDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = p.Close()
+	defer func() {
+		if err != nil {
+			_ = p.Close()
+		}
+	}()
+
 	if supported, reason := DriverRuntimeSupportStatus("postgres"); !supported {
 		if strings.TrimSpace(reason) == "" {
 			reason = localizedDriverRuntimeText("driver_manager.backend.status.optional_disabled", map[string]any{"name": "PostgreSQL"})
@@ -90,26 +97,11 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 	runConfig := config
 	p.pingTimeout = getConnectTimeout(config)
 
-	cleanupOnFailure := true
-	defer func() {
-		if !cleanupOnFailure {
-			return
-		}
-		if p.conn != nil {
-			_ = p.conn.Close()
-			p.conn = nil
-		}
-		if p.forwarder != nil {
-			_ = p.forwarder.Close()
-			p.forwarder = nil
-		}
-	}()
-
 	if config.UseSSH {
 		// Create SSH tunnel with local port forwarding
 		logger.Infof("PostgreSQL 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -180,7 +172,6 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 			// 设置 search_path，使所有用户 schema 下的表可以不带 schema 前缀访问
 			p.ensureSearchPath(dsn)
 
-			cleanupOnFailure = false
 			return nil
 		}
 	}
@@ -194,7 +185,7 @@ func (p *PostgresDB) Connect(config connection.ConnectionConfig) error {
 func (p *PostgresDB) Close() error {
 	// Close SSH forwarder first if exists
 	if p.forwarder != nil {
-		if err := p.forwarder.Close(); err != nil {
+		if err := p.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 PostgreSQL SSH 端口转发失败：%v", err)
 		}
 		p.forwarder = nil
@@ -388,9 +379,9 @@ func parsePostgresTableNames(data []map[string]interface{}) []string {
 		if name == "" {
 			continue
 		}
-		table := name
+		table := encodePGLikeQualifiedNamePart(name)
 		if schema != "" {
-			table = fmt.Sprintf("%s.%s", schema, name)
+			table = fmt.Sprintf("%s.%s", encodePGLikeQualifiedNamePart(schema), table)
 		}
 		key := strings.ToLower(table)
 		if _, exists := seen[key]; exists {
@@ -400,6 +391,13 @@ func parsePostgresTableNames(data []map[string]interface{}) []string {
 		tables = append(tables, table)
 	}
 	return tables
+}
+
+func encodePGLikeQualifiedNamePart(identifier string) string {
+	if !strings.ContainsAny(identifier, `."`) {
+		return identifier
+	}
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
 }
 
 func (p *PostgresDB) GetCreateStatement(dbName, tableName string) (string, error) {

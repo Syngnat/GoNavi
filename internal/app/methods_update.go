@@ -68,6 +68,7 @@ type updateState struct {
 	lastCheck   *UpdateInfo
 	downloading bool
 	staged      *stagedUpdate
+	revision    uint64
 }
 
 type UpdateInfo struct {
@@ -123,6 +124,7 @@ type stagedUpdate struct {
 	Channel                updateChannel
 	Version                string
 	AssetName              string
+	WorkspaceDir           string
 	FilePath               string
 	StagedDir              string
 	InstallLogPath         string
@@ -131,6 +133,22 @@ type stagedUpdate struct {
 	AutoRelaunch           bool
 	MaintenanceEventName   string
 	UpdateHandoffEventName string
+}
+
+func snapshotStagedUpdate(current *stagedUpdate) *stagedUpdate {
+	if current == nil {
+		return nil
+	}
+	snapshot := *current
+	return &snapshot
+}
+
+func snapshotUpdateInfo(current *UpdateInfo) *UpdateInfo {
+	if current == nil {
+		return nil
+	}
+	snapshot := *current
+	return &snapshot
 }
 
 type updatePathCandidate struct {
@@ -193,7 +211,12 @@ func (a *App) CheckForUpdatesSilently() connection.QueryResult {
 
 func (a *App) checkForUpdates(logFailure bool, forceNetwork bool) connection.QueryResult {
 	a.ensurePersistedGlobalProxyRuntime()
+	a.updateMu.Lock()
 	channel := a.currentUpdateChannel()
+	expectedRevision := a.updateState.revision
+	currentStaged := snapshotStagedUpdate(a.updateState.staged)
+	a.updateMu.Unlock()
+
 	info, err := fetchLatestUpdateInfoWithOptions(channel, forceNetwork)
 	if err != nil {
 		if logFailure {
@@ -201,11 +224,6 @@ func (a *App) checkForUpdates(logFailure bool, forceNetwork bool) connection.Que
 		}
 		return connection.QueryResult{Success: false, Message: a.localizedUpdateError(err)}
 	}
-
-	var currentStaged *stagedUpdate
-	a.updateMu.Lock()
-	currentStaged = a.updateState.staged
-	a.updateMu.Unlock()
 
 	if info.HasUpdate {
 		reusable := resolveReusableStagedUpdate(info, currentStaged)
@@ -220,16 +238,30 @@ func (a *App) checkForUpdates(logFailure bool, forceNetwork bool) connection.Que
 		currentStaged = nil
 	}
 
-	a.updateMu.Lock()
-	a.updateState.lastCheck = &info
-	a.updateState.staged = currentStaged
-	a.updateMu.Unlock()
+	if !a.publishUpdateCheckSnapshot(expectedRevision, info, currentStaged) {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("app.update.backend.message.check_stale", nil),
+		}
+	}
 
 	msg := a.appText("app.update.backend.message.latest", nil)
 	if info.HasUpdate {
 		msg = a.appText("app.update.backend.message.update_found", map[string]any{"version": info.LatestVersion})
 	}
 	return connection.QueryResult{Success: true, Message: msg, Data: info}
+}
+
+func (a *App) publishUpdateCheckSnapshot(expectedRevision uint64, info UpdateInfo, staged *stagedUpdate) bool {
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
+	if a.updateState.revision != expectedRevision {
+		return false
+	}
+	a.updateState.lastCheck = snapshotUpdateInfo(&info)
+	a.updateState.staged = snapshotStagedUpdate(staged)
+	a.updateState.revision++
+	return true
 }
 
 func (a *App) GetAppInfo() connection.QueryResult {
@@ -251,7 +283,7 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_in_progress", nil)}
 	}
-	info := a.updateState.lastCheck
+	info := snapshotUpdateInfo(a.updateState.lastCheck)
 	if info == nil {
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.check_first", nil)}
@@ -273,14 +305,16 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: false, Message: a.localizedUpdateError(err)}
 	}
-	staged := resolveReusableStagedUpdate(*info, a.updateState.staged)
+	staged := resolveReusableStagedUpdate(*info, snapshotStagedUpdate(a.updateState.staged))
 	if staged != nil {
 		a.updateState.staged = staged
+		a.updateState.revision++
 		a.updateMu.Unlock()
 		return connection.QueryResult{Success: true, Message: a.appText("app.update.backend.message.package_already_downloaded", nil), Data: buildUpdateDownloadResult(*info, staged)}
 	}
 	a.updateState.staged = nil
 	a.updateState.downloading = true
+	a.updateState.revision++
 	a.updateMu.Unlock()
 
 	a.emitUpdateDownloadProgress("start", 0, info.AssetSize, "")
@@ -295,13 +329,25 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 
 func (a *App) InstallUpdateAndRestart(closeAllWindowsInstancesConfirmed bool) connection.QueryResult {
 	a.updateMu.Lock()
-	staged := a.updateState.staged
-	if staged != nil && strings.TrimSpace(staged.InstallLogPath) == "" {
-		staged.InstallLogPath = buildUpdateInstallLogPath(filepath.Dir(staged.FilePath))
-	}
+	staged := snapshotStagedUpdate(a.updateState.staged)
 	a.updateMu.Unlock()
 	if staged == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.no_downloaded_package", nil)}
+	}
+	if strings.TrimSpace(staged.InstallLogPath) == "" {
+		staged.InstallLogPath = buildUpdateInstallLogPath(staged.WorkspaceDir)
+	}
+	installTarget := ""
+	if stdRuntime.GOOS == "windows" {
+		installTarget = strings.TrimSpace(updateResolveInstallTarget())
+		if installTarget == "" {
+			return connection.QueryResult{
+				Success: false,
+				Message: a.appText("app.update.backend.message.install_launch_failed", map[string]any{
+					"detail": a.appText("app.update.backend.error.install_target_unresolved", nil),
+				}),
+			}
+		}
 	}
 	if err := validateUpdatePackageForCurrentInstallMode(stdRuntime.GOOS, staged.InstallMode, staged.PackageType, staged.FilePath); err != nil {
 		return connection.QueryResult{
@@ -312,7 +358,6 @@ func (a *App) InstallUpdateAndRestart(closeAllWindowsInstancesConfirmed bool) co
 		}
 	}
 	if stdRuntime.GOOS == "windows" {
-		installTarget := updateResolveInstallTarget()
 		maintenanceLease, err := updateAcquireWindowsMaintenance(installTarget)
 		if err != nil {
 			return connection.QueryResult{
@@ -446,7 +491,7 @@ func (a *App) quitForUpdate() {
 
 func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
 	a.updateMu.Lock()
-	staged := a.updateState.staged
+	staged := snapshotStagedUpdate(a.updateState.staged)
 	a.updateMu.Unlock()
 	if staged == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.no_downloaded_package", nil)}
@@ -474,7 +519,11 @@ func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
 	default:
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.open_directory_unsupported", map[string]any{"platform": stdRuntime.GOOS})}
 	}
-	if err := cmd.Start(); err != nil {
+	if err := startBackgroundCommand(cmd, func(waitErr error) {
+		if waitErr != nil {
+			logger.Warnf("打开更新目录的后台进程退出异常：%v", waitErr)
+		}
+	}); err != nil {
 		logger.Error(err, "打开更新目录失败")
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.open_directory_failed", map[string]any{"detail": err.Error()})}
 	}
@@ -488,37 +537,15 @@ func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
 }
 
 func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
-	workspaceDir := strings.TrimSpace(resolveUpdateWorkspaceDirForInstallMode(info.LatestVersion, updateInstallMode(info.InstallMode)))
-	if workspaceDir == "" {
-		message := a.appText("app.update.backend.message.app_directory_unresolved_download", nil)
-		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, message)
-		return connection.QueryResult{Success: false, Message: message}
-	}
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
-		errMsg := a.appText("app.update.backend.message.app_directory_unavailable", map[string]any{"path": workspaceDir})
-		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, errMsg)
-		return connection.QueryResult{Success: false, Message: errMsg}
-	}
-
-	// 使用版本号命名的工作目录，便于识别和调试
-	stagedDir := resolveUpdateStagedDir(workspaceDir, info.Channel, info.LatestVersion)
-	stageBaseDir := filepath.Dir(stagedDir)
-	// 清理可能残留的旧目录（上次下载失败后未清理）
-	// Windows 上文件可能被杀毒软件/索引服务占用，需要重试
-	for retry := 0; retry < 5; retry++ {
-		err := os.RemoveAll(stagedDir)
-		if err == nil {
-			break
+	workspaceCandidates := resolveUpdateWorkspaceDirCandidatesForInstallMode(info.LatestVersion, updateInstallMode(info.InstallMode))
+	workspaceDir, stagedDir, prepareErr := prepareUpdateWorkspaceAndStagingDirs(workspaceCandidates, info.Channel, info.LatestVersion)
+	if prepareErr != nil {
+		preferredDir := strings.TrimSpace(resolveUpdateWorkspaceDirForInstallMode(info.LatestVersion, updateInstallMode(info.InstallMode)))
+		if preferredDir == "" {
+			preferredDir = os.TempDir()
 		}
-		if retry < 4 {
-			time.Sleep(time.Duration(retry+1) * 500 * time.Millisecond)
-		} else {
-			// 最后一次仍然失败，换一个带时间戳的目录名避免冲突
-			stagedDir = filepath.Join(stageBaseDir, fmt.Sprintf("%s-%d", buildUpdateStageDirName(info.Channel, info.LatestVersion), time.Now().UnixNano()))
-		}
-	}
-	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
-		errMsg := a.appText("app.update.backend.message.create_workspace_failed", map[string]any{"path": stagedDir})
+		logger.Error(prepareErr, "创建更新工作区失败")
+		errMsg := a.appText("app.update.backend.message.create_workspace_failed", map[string]any{"path": preferredDir})
 		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, errMsg)
 		return connection.QueryResult{Success: false, Message: errMsg}
 	}
@@ -563,6 +590,7 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		Channel:        updateChannel(info.Channel),
 		Version:        info.LatestVersion,
 		AssetName:      info.AssetName,
+		WorkspaceDir:   workspaceDir,
 		FilePath:       assetPath,
 		StagedDir:      stagedDir,
 		InstallLogPath: buildUpdateInstallLogPath(workspaceDir),
@@ -574,6 +602,7 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 	info.DownloadPath = assetPath
 	a.updateMu.Lock()
 	a.updateState.staged = staged
+	a.updateState.revision++
 	a.updateMu.Unlock()
 
 	a.emitUpdateDownloadProgress("done", info.AssetSize, info.AssetSize, "")
@@ -1472,14 +1501,10 @@ func sanitizeVersionForPath(version string) string {
 	}
 
 	result := strings.Trim(builder.String(), "-")
-	if result == "" {
+	if result == "" || result == "." || result == ".." {
 		return "latest"
 	}
 	return result
-}
-
-func resolveLegacyUpdateWorkspaceDir() string {
-	return filepath.Join(os.TempDir(), "gonavi-updates")
 }
 
 func resolveUpdateWorkspaceDir(version string) string {
@@ -1492,39 +1517,81 @@ func resolveUpdateWorkspaceDirForInstallMode(version string, installMode updateI
 		stdRuntime.GOOS,
 		version,
 		installMode,
-		updateResolveInstallTarget(),
+		"",
 		cacheDir,
 	)
 }
 
-func resolveUpdateWorkspaceDirForPlatform(goos string, version string, installMode updateInstallMode, installTarget string, userCacheDir string) string {
-	// macOS 更新包继续保存在桌面版本目录根级，方便用户直接处理 DMG。
-	if goos == "darwin" {
-		homeDir, err := os.UserHomeDir()
-		if err == nil && strings.TrimSpace(homeDir) != "" {
-			desktopDir := filepath.Join(homeDir, "Desktop")
-			if st, statErr := os.Stat(desktopDir); statErr == nil && st.IsDir() {
-				return filepath.Join(desktopDir, fmt.Sprintf("GoNavi-%s", sanitizeVersionForPath(version)))
+func resolveUpdateWorkspaceDirCandidatesForInstallMode(version string, installMode updateInstallMode) []string {
+	preferredDir := resolveUpdateWorkspaceDirForInstallMode(version, installMode)
+	fallbackDir := resolveUpdateWorkspaceDirForPlatform(stdRuntime.GOOS, version, installMode, "", "")
+	candidates := make([]string, 0, 2)
+	seen := make(map[string]struct{}, 2)
+	for _, candidate := range []string{preferredDir, fallbackDir} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		key := normalizeUpdatePathForPrefixCheck(candidate)
+		if stdRuntime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+func resolveUpdateWorkspaceDirForPlatform(_ string, version string, _ updateInstallMode, _ string, userCacheDir string) string {
+	baseDir := strings.TrimSpace(userCacheDir)
+	if baseDir == "" {
+		baseDir = strings.TrimSpace(os.TempDir())
+	}
+	if baseDir == "" {
+		return ""
+	}
+	return filepath.Join(baseDir, "GoNavi", "updates", sanitizeVersionForPath(version))
+}
+
+func prepareUpdateWorkspaceAndStagingDirs(workspaceCandidates []string, channel string, version string) (string, string, error) {
+	var prepareErrors []error
+	for _, candidate := range workspaceCandidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if err := os.MkdirAll(candidate, 0o755); err != nil {
+			prepareErrors = append(prepareErrors, fmt.Errorf("create %s: %w", candidate, err))
+			continue
+		}
+
+		stagedDir := resolveUpdateStagedDir(candidate, channel, version)
+		stageBaseDir := filepath.Dir(stagedDir)
+		// Windows 上文件可能被杀毒软件或索引服务短暂占用，需要重试。
+		for retry := 0; retry < 5; retry++ {
+			err := os.RemoveAll(stagedDir)
+			if err == nil {
+				break
+			}
+			if retry < 4 {
+				time.Sleep(time.Duration(retry+1) * 500 * time.Millisecond)
+			} else {
+				stagedDir = filepath.Join(stageBaseDir, fmt.Sprintf("%s-%d", buildUpdateStageDirName(channel, version), time.Now().UnixNano()))
 			}
 		}
-	}
-	if goos == "windows" && installMode == updateInstallModeMSI {
-		if strings.TrimSpace(userCacheDir) != "" {
-			return filepath.Join(userCacheDir, "GoNavi", "updates")
+		if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+			prepareErrors = append(prepareErrors, fmt.Errorf("create %s: %w", stagedDir, err))
+			continue
 		}
-		return resolveLegacyUpdateWorkspaceDir()
+		return candidate, stagedDir, nil
 	}
-
-	// Windows / Linux 更新包优先落到当前应用运行目录，方便用户直接找到下载产物。
-	targetPath := strings.TrimSpace(installTarget)
-	if targetPath != "" {
-		targetDir := strings.TrimSpace(filepath.Dir(targetPath))
-		if targetDir != "" && targetDir != "." {
-			return targetDir
-		}
+	if len(prepareErrors) == 0 {
+		return "", "", errors.New("no update workspace candidates")
 	}
-
-	return resolveLegacyUpdateWorkspaceDir()
+	return "", "", errors.Join(prepareErrors...)
 }
 
 func resolveUpdateAssetPath(workspaceDir string, stagedDir string, assetName string) string {
@@ -1550,15 +1617,10 @@ func resolveUpdateStagedDir(workspaceDir string, channel string, version string)
 
 func resolveUpdateStagedDirForPlatform(goos string, workspaceDir string, channel string, version string) string {
 	baseDir := strings.TrimSpace(workspaceDir)
-	if strings.EqualFold(strings.TrimSpace(goos), "windows") || baseDir == "" {
-		baseDir = resolveLegacyUpdateWorkspaceDir()
+	if baseDir == "" {
+		return ""
 	}
 	return filepath.Join(baseDir, buildUpdateStageDirNameForPlatform(goos, channel, version))
-}
-
-func shouldReuseUpdateAssetFromStagedDirForPlatform(goos string, assetName string) bool {
-	return !(strings.EqualFold(strings.TrimSpace(goos), "windows") &&
-		shouldWindowsUpdateLaunchDownloadedAssetDirectly(assetName))
 }
 
 func normalizeUpdatePathForPrefixCheck(path string) string {
@@ -1570,6 +1632,132 @@ func normalizeUpdatePathForPrefixCheck(path string) string {
 	return strings.TrimRight(normalized, "/")
 }
 
+func updatePathsEqualForPlatform(goos string, left string, right string) bool {
+	left = normalizeUpdatePathForPrefixCheck(left)
+	right = normalizeUpdatePathForPrefixCheck(right)
+	if left == "" || right == "" {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(goos), "windows") {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
+func absoluteUpdatePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("path is empty")
+	}
+	cleaned := filepath.Clean(path)
+	if cleaned == "." {
+		return "", errors.New("path resolves to current directory")
+	}
+	absPath, err := filepath.Abs(cleaned)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(absPath), nil
+}
+
+func isUpdatePathStrictlyInsideDir(path string, dir string) bool {
+	absPath, err := absoluteUpdatePath(path)
+	if err != nil {
+		return false
+	}
+	absDir, err := absoluteUpdatePath(dir)
+	if err != nil {
+		return false
+	}
+	relPath, err := filepath.Rel(absDir, absPath)
+	if err != nil || relPath == "." || filepath.IsAbs(relPath) {
+		return false
+	}
+	return relPath != ".." && !strings.HasPrefix(relPath, ".."+string(filepath.Separator))
+}
+
+func isDirectChildUpdatePath(path string, parentDir string) bool {
+	absPath, err := absoluteUpdatePath(path)
+	if err != nil {
+		return false
+	}
+	absParent, err := absoluteUpdatePath(parentDir)
+	if err != nil {
+		return false
+	}
+	relPath, err := filepath.Rel(absParent, absPath)
+	if err != nil || relPath == "." || relPath == ".." || filepath.IsAbs(relPath) {
+		return false
+	}
+	return filepath.Dir(relPath) == "."
+}
+
+func allowedUpdateRootDirs() []string {
+	cacheDir, _ := os.UserCacheDir()
+	baseDirs := []string{cacheDir, os.TempDir()}
+	roots := make([]string, 0, len(baseDirs))
+	seen := make(map[string]struct{}, len(baseDirs))
+	for _, baseDir := range baseDirs {
+		baseDir = strings.TrimSpace(baseDir)
+		if baseDir == "" {
+			continue
+		}
+		rootDir := filepath.Join(baseDir, "GoNavi", "updates")
+		key := normalizeUpdatePathForPrefixCheck(rootDir)
+		if stdRuntime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		roots = append(roots, rootDir)
+	}
+	return roots
+}
+
+func validateStagedUpdateWorkspace(staged *stagedUpdate) error {
+	if staged == nil {
+		return errors.New("staged update is nil")
+	}
+	workspaceDir := strings.TrimSpace(staged.WorkspaceDir)
+	version := strings.TrimSpace(staged.Version)
+	if workspaceDir == "" || version == "" {
+		return errors.New("update workspace or version is empty")
+	}
+	if filepath.Base(filepath.Clean(workspaceDir)) != sanitizeVersionForPath(version) {
+		return fmt.Errorf("update workspace does not match version %q", version)
+	}
+	allowed := false
+	for _, rootDir := range allowedUpdateRootDirs() {
+		if isDirectChildUpdatePath(workspaceDir, rootDir) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("update workspace %q is outside the cache roots", workspaceDir)
+	}
+	for label, path := range map[string]string{
+		"package": staged.FilePath,
+		"staging": staged.StagedDir,
+		"log":     staged.InstallLogPath,
+	} {
+		if !isUpdatePathStrictlyInsideDir(path, workspaceDir) {
+			return fmt.Errorf("%s path %q is outside update workspace %q", label, path, workspaceDir)
+		}
+	}
+	return nil
+}
+
+func resolveUpdateCleanupDir(workspaceDir string) string {
+	workspaceDir = strings.TrimSpace(workspaceDir)
+	if workspaceDir == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(workspaceDir))
+}
+
 func isUpdateAssetPathInsideStagedDir(filePath string, stagedDir string) bool {
 	normalizedFilePath := normalizeUpdatePathForPrefixCheck(filePath)
 	normalizedStagedDir := normalizeUpdatePathForPrefixCheck(stagedDir)
@@ -1579,20 +1767,13 @@ func isUpdateAssetPathInsideStagedDir(filePath string, stagedDir string) bool {
 	return normalizedFilePath == normalizedStagedDir || strings.HasPrefix(normalizedFilePath, normalizedStagedDir+"/")
 }
 
-func buildReusableUpdatePathCandidatesForPlatform(goos string, preferredWorkspaceDir string, legacyWorkspaceDir string, channel string, version string, assetName string) []updatePathCandidate {
+func buildReusableUpdatePathCandidatesForPlatform(goos string, preferredWorkspaceDir string, fallbackWorkspaceDir string, channel string, version string, assetName string) []updatePathCandidate {
 	preferredWorkspaceDir = strings.TrimSpace(preferredWorkspaceDir)
-	legacyWorkspaceDir = strings.TrimSpace(legacyWorkspaceDir)
+	fallbackWorkspaceDir = strings.TrimSpace(fallbackWorkspaceDir)
 	assetName = strings.TrimSpace(assetName)
-	preferredStagedDir := resolveUpdateStagedDirForPlatform(goos, preferredWorkspaceDir, channel, version)
-	stagedDirNames := []string{
-		buildUpdateStageDirNameForPlatform(goos, channel, version),
-		fmt.Sprintf(".gonavi-update-%s-%s", strings.TrimSpace(strings.ToLower(goos)), version),
-	}
-	workspaceCandidates := []string{preferredWorkspaceDir, legacyWorkspaceDir}
-	stageBaseCandidates := []string{preferredWorkspaceDir, legacyWorkspaceDir}
+	workspaceCandidates := []string{preferredWorkspaceDir, fallbackWorkspaceDir}
 	seenWorkspace := make(map[string]struct{}, len(workspaceCandidates))
-	seenStageBase := make(map[string]struct{}, len(stageBaseCandidates))
-	candidates := make([]updatePathCandidate, 0, 8)
+	candidates := make([]updatePathCandidate, 0, len(workspaceCandidates))
 
 	for _, workspaceDir := range workspaceCandidates {
 		workspaceDir = strings.TrimSpace(workspaceDir)
@@ -1606,35 +1787,11 @@ func buildReusableUpdatePathCandidatesForPlatform(goos string, preferredWorkspac
 		if shouldStoreUpdateAssetInWorkspaceRoot(goos) {
 			candidates = append(candidates, updatePathCandidate{
 				workspaceDir: workspaceDir,
-				stagedDir:    preferredStagedDir,
+				stagedDir:    resolveUpdateStagedDirForPlatform(goos, workspaceDir, channel, version),
 				assetPath:    filepath.Join(workspaceDir, assetName),
 			})
 		}
 	}
-
-	if !shouldReuseUpdateAssetFromStagedDirForPlatform(goos, assetName) {
-		return candidates
-	}
-
-	for _, stageBaseDir := range stageBaseCandidates {
-		stageBaseDir = strings.TrimSpace(stageBaseDir)
-		if stageBaseDir == "" {
-			continue
-		}
-		if _, exists := seenStageBase[stageBaseDir]; exists {
-			continue
-		}
-		seenStageBase[stageBaseDir] = struct{}{}
-		for _, stagedDirName := range stagedDirNames {
-			stagedDir := filepath.Join(stageBaseDir, stagedDirName)
-			candidates = append(candidates, updatePathCandidate{
-				workspaceDir: stageBaseDir,
-				stagedDir:    stagedDir,
-				assetPath:    filepath.Join(stagedDir, assetName),
-			})
-		}
-	}
-
 	return candidates
 }
 
@@ -1654,16 +1811,25 @@ func isExistingDownloadedAsset(filePath string, expectedSize int64) bool {
 }
 
 func resolveReusableStagedUpdate(info UpdateInfo, current *stagedUpdate) *stagedUpdate {
+	workspaceDirs := resolveUpdateWorkspaceDirCandidatesForInstallMode(strings.TrimSpace(info.LatestVersion), updateInstallMode(info.InstallMode))
+	preferredWorkspaceDir := ""
+	fallbackWorkspaceDir := ""
+	if len(workspaceDirs) > 0 {
+		preferredWorkspaceDir = workspaceDirs[0]
+	}
+	if len(workspaceDirs) > 1 {
+		fallbackWorkspaceDir = workspaceDirs[1]
+	}
 	return resolveReusableStagedUpdateForPlatform(
 		stdRuntime.GOOS,
-		resolveUpdateWorkspaceDirForInstallMode(strings.TrimSpace(info.LatestVersion), updateInstallMode(info.InstallMode)),
-		resolveLegacyUpdateWorkspaceDir(),
+		preferredWorkspaceDir,
+		fallbackWorkspaceDir,
 		info,
 		current,
 	)
 }
 
-func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir string, legacyWorkspaceDir string, info UpdateInfo, current *stagedUpdate) *stagedUpdate {
+func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir string, fallbackWorkspaceDir string, info UpdateInfo, current *stagedUpdate) *stagedUpdate {
 	channel, err := normalizeUpdateChannel(info.Channel)
 	if err != nil {
 		channel = updateChannelLatest
@@ -1673,7 +1839,14 @@ func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir s
 	if version == "" || assetName == "" {
 		return nil
 	}
-	allowStagedDirReuse := shouldReuseUpdateAssetFromStagedDirForPlatform(goos, assetName)
+	candidates := buildReusableUpdatePathCandidatesForPlatform(
+		goos,
+		preferredWorkspaceDir,
+		fallbackWorkspaceDir,
+		string(channel),
+		version,
+		assetName,
+	)
 
 	if current != nil {
 		currentChannel := current.Channel
@@ -1686,11 +1859,14 @@ func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir s
 			current.PackageType == updatePackageType(info.PackageType) {
 			currentPath := strings.TrimSpace(current.FilePath)
 			if isExistingDownloadedAsset(currentPath, info.AssetSize) {
-				if !allowStagedDirReuse && isUpdateAssetPathInsideStagedDir(currentPath, current.StagedDir) {
-					current = nil
-				} else {
-					if strings.TrimSpace(current.InstallLogPath) == "" {
-						current.InstallLogPath = buildUpdateInstallLogPath(filepath.Dir(currentPath))
+				for _, candidate := range candidates {
+					if !updatePathsEqualForPlatform(goos, currentPath, candidate.assetPath) ||
+						!isUpdatePathStrictlyInsideDir(current.StagedDir, candidate.workspaceDir) {
+						continue
+					}
+					current.WorkspaceDir = candidate.workspaceDir
+					if !isUpdatePathStrictlyInsideDir(current.InstallLogPath, candidate.workspaceDir) {
+						current.InstallLogPath = buildUpdateInstallLogPath(candidate.workspaceDir)
 					}
 					current.Channel = channel
 					current.AssetName = assetName
@@ -1703,14 +1879,6 @@ func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir s
 		}
 	}
 
-	candidates := buildReusableUpdatePathCandidatesForPlatform(
-		goos,
-		preferredWorkspaceDir,
-		legacyWorkspaceDir,
-		string(channel),
-		version,
-		assetName,
-	)
 	for _, candidate := range candidates {
 		if !isExistingDownloadedAsset(candidate.assetPath, info.AssetSize) {
 			continue
@@ -1719,6 +1887,7 @@ func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir s
 			Channel:        channel,
 			Version:        version,
 			AssetName:      assetName,
+			WorkspaceDir:   candidate.workspaceDir,
 			FilePath:       candidate.assetPath,
 			StagedDir:      candidate.stagedDir,
 			InstallLogPath: buildUpdateInstallLogPath(candidate.workspaceDir),
@@ -1732,15 +1901,34 @@ func resolveReusableStagedUpdateForPlatform(goos string, preferredWorkspaceDir s
 }
 
 func resolveUpdateInstallTarget() string {
-	exePath, err := os.Executable()
+	exePath, err := resolveExecutablePath(os.Executable, filepath.EvalSymlinks)
 	if err != nil {
 		return ""
 	}
-	exePath, _ = filepath.EvalSymlinks(exePath)
 	if stdRuntime.GOOS == "darwin" {
 		return resolveMacUpdateTarget(exePath)
 	}
 	return exePath
+}
+
+func resolveExecutablePath(
+	executable func() (string, error),
+	evalSymlinks func(string) (string, error),
+) (string, error) {
+	exePath, err := executable()
+	if err != nil {
+		return "", err
+	}
+	exePath = strings.TrimSpace(exePath)
+	if exePath == "" {
+		return "", localizedUpdateError{key: "app.update.backend.error.install_target_unresolved"}
+	}
+	if resolved, evalErr := evalSymlinks(exePath); evalErr == nil {
+		if resolved = strings.TrimSpace(resolved); resolved != "" {
+			exePath = resolved
+		}
+	}
+	return exePath, nil
 }
 
 func ensureWindowsUpdateTargetWritable(targetExe string) error {
@@ -1770,10 +1958,6 @@ func ensureWindowsUpdateTargetWritable(targetExe string) error {
 	return nil
 }
 
-func shouldWindowsUpdateLaunchDownloadedAssetDirectly(assetPath string) bool {
-	return strings.EqualFold(strings.TrimSpace(filepath.Ext(strings.TrimSpace(assetPath))), ".exe")
-}
-
 func (a *App) emitUpdateDownloadProgress(status string, downloaded, total int64, message string) {
 	if a.ctx == nil {
 		return
@@ -1795,11 +1979,19 @@ func (a *App) emitUpdateDownloadProgress(status string, downloaded, total int64,
 }
 
 func launchUpdateScript(staged *stagedUpdate) error {
-	exePath, err := os.Executable()
-	if err != nil {
-		return err
+	if staged == nil {
+		return localizedUpdateError{key: "app.update.backend.message.no_downloaded_package"}
 	}
-	exePath, _ = filepath.EvalSymlinks(exePath)
+	if strings.TrimSpace(staged.InstallLogPath) == "" {
+		staged.InstallLogPath = buildUpdateInstallLogPath(staged.WorkspaceDir)
+	}
+	if err := validateStagedUpdateWorkspace(staged); err != nil {
+		return fmt.Errorf("invalid update workspace: %w", err)
+	}
+	exePath, err := resolveExecutablePath(os.Executable, filepath.EvalSymlinks)
+	if err != nil || strings.TrimSpace(exePath) == "" {
+		return localizedUpdateError{key: "app.update.backend.error.install_target_unresolved"}
+	}
 	pid := os.Getpid()
 
 	switch stdRuntime.GOOS {
@@ -1841,12 +2033,12 @@ func launchMacUpdate(staged *stagedUpdate, targetExe string, pid int) error {
 	}
 	logPath := strings.TrimSpace(staged.InstallLogPath)
 	if logPath == "" {
-		logPath = buildUpdateInstallLogPath(filepath.Dir(staged.FilePath))
+		logPath = buildUpdateInstallLogPath(staged.WorkspaceDir)
 		staged.InstallLogPath = logPath
 	}
 
 	scriptPath := filepath.Join(staged.StagedDir, "update.sh")
-	content := buildMacScript(staged.FilePath, targetApp, staged.StagedDir, mountDir, logPath, pid)
+	content := buildMacScript(staged.FilePath, targetApp, resolveUpdateCleanupDir(staged.WorkspaceDir), staged.StagedDir, mountDir, logPath, pid)
 	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
 		return err
 	}
@@ -1868,7 +2060,7 @@ func launchMacUpdate(staged *stagedUpdate, targetExe string, pid int) error {
 
 func launchLinuxUpdate(staged *stagedUpdate, targetExe string, pid int) error {
 	scriptPath := filepath.Join(staged.StagedDir, "update.sh")
-	content := buildLinuxScript(staged.FilePath, targetExe, staged.StagedDir, pid)
+	content := buildLinuxScript(staged.FilePath, targetExe, resolveUpdateCleanupDir(staged.WorkspaceDir), staged.StagedDir, staged.InstallLogPath, pid)
 	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
 		return err
 	}
@@ -1899,6 +2091,7 @@ func buildWindowsLaunchCommand(scriptPath string, context windowsUpdateLaunchCon
 		"GONAVI_UPDATE_SOURCE="+context.SourcePath,
 		"GONAVI_UPDATE_TARGET="+context.TargetPath,
 		"GONAVI_UPDATE_CURRENT_TARGET="+context.CurrentTargetPath,
+		"GONAVI_UPDATE_ROOT_DIR="+context.UpdatesDir,
 		"GONAVI_UPDATE_STAGED_DIR="+context.StagedDir,
 		"GONAVI_UPDATE_LOG_PATH="+context.LogPath,
 		"GONAVI_UPDATE_MAINTENANCE_EVENT_NAME="+context.MaintenanceEventName,
@@ -1909,12 +2102,13 @@ func buildWindowsLaunchCommand(scriptPath string, context windowsUpdateLaunchCon
 	return cmd
 }
 
-func buildMacScript(packagePath, targetApp, stagedDir, mountDir, logPath string, pid int) string {
+func buildMacScript(packagePath, targetApp, updatesDir, stagedDir, mountDir, logPath string, pid int) string {
 	return fmt.Sprintf(`#!/bin/bash
 set -uo pipefail
 PID=%d
 PACKAGE="%s"
 TARGET_APP="%s"
+UPDATES_DIR="%s"
 STAGED="%s"
 MOUNT_DIR="%s"
 LOG_FILE="%s"
@@ -2067,7 +2261,7 @@ relaunch_app() {
   fi
   log "open failed, trying binary launch: $TARGET_APP/$APP_BIN_REL"
   if [ -x "$TARGET_APP/$APP_BIN_REL" ]; then
-    nohup "$TARGET_APP/$APP_BIN_REL" >>"$LOG_FILE" 2>&1 &
+    nohup "$TARGET_APP/$APP_BIN_REL" >/dev/null 2>&1 &
     log "relaunch via binary pid=$!"
     return 0
   fi
@@ -2128,41 +2322,68 @@ if ! relaunch_app; then
   exit 1
 fi
 
-# relaunch 已发出：再删安装包（用户已不需要 dmg/zip）
-/bin/rm -f "$PACKAGE" >>"$LOG_FILE" 2>&1 || true
-log "relaunch requested; package cleaned if possible"
-exit 0
-	`, pid, packagePath, targetApp, stagedDir, mountDir, logPath)
+# 成功日志必须先落盘；删除工作区后不再写日志。
+log "relaunch requested; removing updates directory"
+cd /
+exec /bin/rm -rf "$UPDATES_DIR"
+	`, pid, packagePath, targetApp, updatesDir, stagedDir, mountDir, logPath)
 }
 
-func buildLinuxScript(tarPath, targetExe, stagedDir string, pid int) string {
+func buildLinuxScript(tarPath, targetExe, updatesDir, stagedDir, logPath string, pid int) string {
 	return fmt.Sprintf(`#!/bin/bash
 set -e
 PID=%d
 ARCHIVE="%s"
 TARGET="%s"
+UPDATES_DIR="%s"
 STAGED="%s"
+LOG_FILE="%s"
+UPDATE_TMP_DIR=""
+
+log() {
+  echo "[$(date '+%%Y-%%m-%%d %%H:%%M:%%S')] $*" >> "$LOG_FILE" 2>/dev/null || true
+}
+
+cleanup_tmp() {
+  if [ -n "$UPDATE_TMP_DIR" ]; then
+    rm -rf "$UPDATE_TMP_DIR"
+  fi
+}
+
+trap cleanup_tmp EXIT
+log "updater started archive=$ARCHIVE target=$TARGET pid=$PID"
 while kill -0 $PID 2>/dev/null; do
   sleep 1
 done
-TMPDIR=$(mktemp -d)
-tar -xzf "$ARCHIVE" -C "$TMPDIR"
+UPDATE_TMP_DIR=$(mktemp -d)
+tar -xzf "$ARCHIVE" -C "$UPDATE_TMP_DIR"
 TARGET_NAME="$(basename "$TARGET")"
-NEWBIN="$TMPDIR/$TARGET_NAME"
+NEWBIN="$UPDATE_TMP_DIR/$TARGET_NAME"
 if [ ! -f "$NEWBIN" ]; then
-  NEWBIN=$(find "$TMPDIR" -type f -name "$TARGET_NAME" | head -n 1)
+  NEWBIN=$(find "$UPDATE_TMP_DIR" -type f -name "$TARGET_NAME" | head -n 1)
 fi
 if [ -z "$NEWBIN" ] || [ ! -f "$NEWBIN" ]; then
-  NEWBIN=$(find "$TMPDIR" -type f -name "GoNavi" | head -n 1)
+  NEWBIN=$(find "$UPDATE_TMP_DIR" -type f -name "GoNavi" | head -n 1)
 fi
 if [ -z "$NEWBIN" ] || [ ! -f "$NEWBIN" ]; then
   exit 1
 fi
 cp -f "$NEWBIN" "$TARGET"
 chmod +x "$TARGET"
-rm -rf "$TMPDIR" "$ARCHIVE" "$STAGED"
-"$TARGET" &
-`, pid, tarPath, targetExe, stagedDir)
+cleanup_tmp
+UPDATE_TMP_DIR=""
+"$TARGET" >/dev/null 2>&1 &
+NEW_PID=$!
+sleep 1
+if ! kill -0 "$NEW_PID" 2>/dev/null; then
+  log "updated application exited immediately after launch; updates directory retained"
+  exit 1
+fi
+log "updated application relaunched; removing updates directory"
+trap - EXIT
+cd /
+exec rm -rf "$UPDATES_DIR"
+	`, pid, tarPath, targetExe, updatesDir, stagedDir, logPath)
 }
 
 func detectMacAppPath(exePath string) string {

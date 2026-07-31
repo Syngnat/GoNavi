@@ -218,6 +218,28 @@ export const createCustomThemeId = (): string => {
   return `theme-${randomId.toLowerCase().replace(/[^a-z0-9_-]/g, '-')}`.slice(0, 80);
 };
 
+/**
+ * Ensure Monaco surface token exists for hand-written custom themes.
+ * Presets already define it; hand-written CSS still needs the shared theme surface default.
+ * If the theme already declares --gn-monaco-bg, leave it alone (user override wins).
+ */
+export const ensureCustomThemeMonacoSurfaceVars = (css: string): string => {
+  const source = String(css || '');
+  if (/--gn-monaco-bg\s*:/.test(source)) return source;
+  const surfaceVar = /--gn-bg-panel-2\s*:/.test(source) ? '--gn-bg-panel-2' : '--gn-bg-panel';
+  const trimmed = source.trimEnd();
+  const appendix = [
+    '',
+    `/* GoNavi: Monaco surface follows ${surfaceVar} unless the theme overrides --gn-monaco-bg */`,
+    'body[data-custom-theme],',
+    'body[data-custom-theme][data-ui-version="v2"] {',
+    `  --gn-monaco-bg: var(${surfaceVar});`,
+    '}',
+    '',
+  ].join('\n');
+  return trimmed ? `${trimmed}\n${appendix}` : appendix.trimStart();
+};
+
 export const sanitizeCustomThemeDefinition = (value: unknown): CustomThemeDefinition | null => {
   if (!value || typeof value !== 'object') return null;
   const raw = value as Record<string, unknown>;
@@ -242,7 +264,7 @@ export const sanitizeCustomThemeDefinition = (value: unknown): CustomThemeDefini
     name: sanitizeCustomThemeName(raw.name, deriveCustomThemeName(sourceFileName)),
     sourceFileName,
     baseMode: sanitizeCustomThemeBaseMode(raw.baseMode),
-    css: validation.css,
+    css: ensureCustomThemeMonacoSurfaceVars(validation.css),
     createdAt,
     updatedAt,
   };
@@ -375,6 +397,7 @@ body[data-custom-theme][data-ui-version="v2"] {
   --gn-bg-chrome: #171a23;
   --gn-bg-panel: #1d202b;
   --gn-bg-panel-2: #232733;
+  --gn-monaco-bg: var(--gn-bg-panel-2);
   --gn-bg-hover: rgba(255, 255, 255, 0.06);
   --gn-bg-active: rgba(255, 255, 255, 0.10);
   --gn-bg-selected: rgba(139, 92, 246, 0.18);

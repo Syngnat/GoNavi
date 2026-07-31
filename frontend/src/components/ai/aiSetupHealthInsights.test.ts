@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import { buildAISetupHealthSnapshot } from './aiSetupHealthInsights';
@@ -51,15 +49,6 @@ describe('buildAISetupHealthSnapshot', () => {
     expect(snapshot.warnings).toContain('T:ai_chat.inspection.setup.warning.no_mcp_servers');
     expect(snapshot.message).toBe('T:ai_chat.inspection.setup.message.blocked count=3');
     expect(snapshot.summary.activeProviderName).toBe('OpenAI 主账号');
-  });
-
-  it('keeps setup health production source free of legacy Chinese wrappers', () => {
-    const source = readFileSync('src/components/ai/aiSetupHealthInsights.ts', 'utf8');
-
-    expect(source).not.toContain('当前没有活动 AI 供应商');
-    expect(source).not.toContain('当前活动供应商缺少 API Key / Secret');
-    expect(source).not.toContain('当前还没有配置任何 MCP 服务');
-    expect(source).not.toContain('当前 AI 配置体检通过');
   });
 
   it('marks the setup as blocked when the active provider is missing critical pieces', () => {

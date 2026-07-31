@@ -321,7 +321,7 @@ const FloatingQueryResultWindows: React.FC = () => {
                   data={windowState.result.rows || []}
                   columnNames={windowState.result.columns || []}
                   loading={false}
-                  tableName={windowState.result.metadataTableName || windowState.result.tableName}
+                  tableName={windowState.result.tableName}
                   pkColumns={windowState.result.pkColumns || []}
                   editLocator={windowState.result.editLocator as any}
                   readOnly={windowState.result.readOnly !== false}

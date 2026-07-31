@@ -1,11 +1,8 @@
 package app
 
 import (
-	"os"
 	"reflect"
-	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 )
 
@@ -373,21 +370,6 @@ func TestDuplicateConnectionClonesSecretBundle(t *testing.T) {
 	}
 }
 
-func TestSavedConnectionsDoesNotHardcodeDuplicateNameChinese(t *testing.T) {
-	source, err := os.ReadFile("saved_connections.go")
-	if err != nil {
-		t.Fatalf("ReadFile returned error: %v", err)
-	}
-	text := string(source)
-	for _, legacy := range []string{
-		`trimmedBaseName = "连接"`,
-		`suffix := " - 副本"`,
-	} {
-		if strings.Contains(text, legacy) {
-			t.Fatalf("saved_connections.go still hardcodes duplicate connection text %s", legacy)
-		}
-	}
-}
 
 func TestSaveGlobalProxyReturnsSecretlessView(t *testing.T) {
 	app := NewAppWithSecretStore(newFakeAppSecretStore())

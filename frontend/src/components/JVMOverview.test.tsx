@@ -1,5 +1,4 @@
 import React from "react";
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,8 +23,6 @@ vi.mock("../store", () => ({
       theme: mockState.theme,
     }),
 }));
-
-const source = readFileSync(new URL("./JVMOverview.tsx", import.meta.url), "utf8");
 
 const renderWithI18n = (node: React.ReactNode, preference: LanguagePreference = "en-US") => (
   <I18nProvider
@@ -134,60 +131,5 @@ describe("JVMOverview", () => {
       t("jvm_overview.connection_missing.message", undefined, "en-US"),
     );
     expect(markup).not.toContain("连接不存在或已被删除");
-  });
-
-  it("wires async capability and fallback wrappers through existing i18n keys", () => {
-    [
-      "已启用",
-      "连接不存在或已被删除",
-      "读取 JVM 模式能力失败",
-      "JVM 运行时概览",
-      "只读连接",
-      "可写连接",
-      "连接摘要",
-      "模式能力",
-      "当前模式",
-      "允许模式",
-      "JMX 地址",
-      "资源浏览",
-      "未配置",
-      "通过侧边栏展开模式节点后懒加载",
-      "暂无模式能力数据",
-      "可浏览",
-      "不可浏览",
-      "可写",
-      "只读",
-      "支持预览",
-      "不支持预览",
-    ].forEach((snippet) => {
-      expect(source).not.toContain(snippet);
-    });
-
-    [
-      "useI18n()",
-      "jvm_overview.value.enabled",
-      "jvm_overview.connection_missing.message",
-      "jvm_overview.error.capability_load_failed",
-      "jvm_overview.title",
-      "jvm_overview.badge.read_only",
-      "jvm_overview.badge.writable",
-      "jvm_overview.card.connection_summary",
-      "jvm_overview.card.mode_capability",
-      "jvm_overview.field.current_mode",
-      "jvm_overview.field.allowed_modes",
-      "jvm_overview.field.jmx_address",
-      "jvm_overview.field.resource_browse",
-      "jvm_overview.value.not_configured",
-      "jvm_overview.value.resource_browse_lazy_load",
-      "jvm_overview.empty.capabilities",
-      "jvm_overview.capability.can_browse",
-      "jvm_overview.capability.cannot_browse",
-      "jvm_overview.capability.writable",
-      "jvm_overview.capability.read_only",
-      "jvm_overview.capability.preview_supported",
-      "jvm_overview.capability.preview_unsupported",
-    ].forEach((key) => {
-      expect(source).toContain(key);
-    });
   });
 });

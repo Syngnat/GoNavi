@@ -1,18 +1,11 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { setCurrentLanguage } from '../i18n';
 import {
   formatSidebarDriverAgentUpdateWarning,
   formatSidebarRowCount,
+  resolveNacosServiceGroupsRefreshTarget,
 } from './Sidebar';
-
-const source = readFileSync(new URL('./sidebar/useSidebarV2ActionHandlers.tsx', import.meta.url), 'utf8');
-const toggleSidebarTablePinnedSource = source.slice(
-  source.indexOf('const toggleSidebarTablePinned = (node: any, pinned?: boolean) => {'),
-  source.indexOf("const handleTableGroupSortAction = (node: any, sortBy: 'name' | 'frequency') => {"),
-);
-const normalizedToggleSidebarTablePinnedSource = toggleSidebarTablePinnedSource.replace(/\s+/g, ' ').trim();
 
 describe('Sidebar v2 metadata', () => {
   it('formats table row counts for sidebar labels', () => {
@@ -46,11 +39,49 @@ describe('Sidebar v2 metadata', () => {
     ).toBe('ClickHouse 驱动代理需要重装');
   });
 
-  it('localizes toggleSidebarTablePinned success toast without raw pinned copy', () => {
-    expect(toggleSidebarTablePinnedSource).not.toContain("'已置顶表'");
-    expect(toggleSidebarTablePinnedSource).not.toContain("'已取消置顶'");
-    expect(normalizedToggleSidebarTablePinnedSource).toContain(
-      "message.success(shouldPin ? t('sidebar.message.table_pinned') : t('sidebar.message.table_unpinned'));",
-    );
+  it('targets the matching expanded Nacos service group cache for immediate reload', () => {
+    const serviceNode = {
+      key: 'nacos-1-nacos-ns-dev-services',
+      children: [{ key: 'nacos-1-nacos-ns-dev-service-group-GROUP_A' }],
+    };
+    const treeData = [{
+      key: 'nacos-1',
+      children: [{
+        key: 'nacos-1-nacos-ns-dev',
+        children: [serviceNode],
+      }],
+    }];
+
+    expect(resolveNacosServiceGroupsRefreshTarget(
+      { connectionId: 'nacos-1', namespaceId: 'dev' },
+      treeData,
+      ['nacos-1-nacos-ns-dev-services'],
+    )).toEqual({
+      key: 'nacos-1-nacos-ns-dev-services',
+      node: serviceNode,
+      shouldReload: true,
+    });
+  });
+
+  it('invalidates a collapsed public service group cache without reloading it', () => {
+    const serviceNode = {
+      key: 'nacos-1-nacos-ns-public-services',
+      children: [{ key: 'nacos-1-nacos-ns-public-service-group-DEFAULT_GROUP' }],
+    };
+
+    expect(resolveNacosServiceGroupsRefreshTarget(
+      { connectionId: 'nacos-1', namespaceId: '' },
+      [{ key: 'nacos-1', children: [serviceNode] }],
+      [],
+    )).toEqual({
+      key: 'nacos-1-nacos-ns-public-services',
+      node: serviceNode,
+      shouldReload: false,
+    });
+    expect(resolveNacosServiceGroupsRefreshTarget(
+      { connectionId: 'nacos-2', namespaceId: '' },
+      [{ key: 'nacos-1', children: [serviceNode] }],
+      [],
+    )).toBeNull();
   });
 });

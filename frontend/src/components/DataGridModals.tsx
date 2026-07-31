@@ -244,6 +244,7 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
       {cellEditorOpen && (
         <Editor
           height="56vh"
+          gonaviTypography="data"
           language={cellEditorIsJson ? 'json' : 'plaintext'}
           theme={darkMode ? 'transparent-dark' : 'transparent-light'}
           value={cellEditorValue}
@@ -307,6 +308,7 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
       {jsonEditorOpen && (
         <Editor
           height="56vh"
+          gonaviTypography="data"
           language="json"
           theme={darkMode ? 'transparent-dark' : 'transparent-light'}
           value={jsonEditorValue}
@@ -342,6 +344,7 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
       {ddlModalOpen && (
         <Editor
           height="56vh"
+          gonaviTypography="sql"
           language="sql"
           theme={darkMode ? 'transparent-dark' : 'transparent-light'}
           value={ddlLoading ? translate('data_grid.ddl.loading') : ddlText}

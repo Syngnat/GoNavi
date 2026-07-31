@@ -46,7 +46,6 @@ func parsePostgresExplain(dbType, sourceSQL, raw string, format connection.Expla
 		DBType:    dbType,
 		SourceSQL: sourceSQL,
 	}
-	resetExplainNodeID()
 
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

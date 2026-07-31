@@ -405,6 +405,21 @@ func wantsHTMLResponse(r *http.Request) bool {
 	return strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/html")
 }
 
+// isSafeLocalRedirect 判断 next 是否为可安全跳转的站内路径。
+//
+// 除了 "//host"（协议相对 URL）之外还必须拒绝 "/\host"：WHATWG URL 解析器对 http/https
+// 这类 special scheme 把反斜杠等价于斜杠，因此 "/\evil.com" 会被浏览器解析成 "//evil.com"
+// 而变成跨站跳转，仅检查 "//" 前缀挡不住这个变体。
+func isSafeLocalRedirect(next string) bool {
+	if !strings.HasPrefix(next, "/") {
+		return false
+	}
+	if strings.HasPrefix(next, "//") || strings.HasPrefix(next, `/\`) {
+		return false
+	}
+	return true
+}
+
 func resolvePostAuthRedirect(r *http.Request) string {
 	if r == nil {
 		return "/"
@@ -413,7 +428,7 @@ func resolvePostAuthRedirect(r *http.Request) string {
 	if next == "" {
 		return "/"
 	}
-	if !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") {
+	if !isSafeLocalRedirect(next) {
 		return "/"
 	}
 	return next
@@ -422,7 +437,7 @@ func resolvePostAuthRedirect(r *http.Request) string {
 func buildAuthRedirectURL(target string, next string) string {
 	values := url.Values{}
 	normalizedNext := strings.TrimSpace(next)
-	if normalizedNext != "" && strings.HasPrefix(normalizedNext, "/") && !strings.HasPrefix(normalizedNext, "//") {
+	if normalizedNext != "" && isSafeLocalRedirect(normalizedNext) {
 		values.Set("next", normalizedNext)
 	}
 	if encoded := values.Encode(); encoded != "" {
@@ -917,6 +932,29 @@ func renderLoginBody(localizer *i18n.Localizer) string {
 </div>`
 }
 
+// authSafeNextTargetScript 是登录页与初始化页共用的 next 参数归一化脚本。
+//
+// 这两个页面都在客户端用 location.search 重新读取原始 next，因此服务端
+// resolvePostAuthRedirect / buildAuthRedirectURL 的过滤对它们完全无效，必须在客户端再做一次。
+// 未归一化时 ?next=javascript:... 会经 window.location.replace(nextTarget) 在页面自身源内执行
+// （HTML 规范只阻止跨源的 javascript: 导航，同文档自导航是允许的，且返回 undefined 时页面不跳转，
+// 更难察觉），进而可携带会话 Cookie 调用 /__gonavi/api/invoke 读取全部已保存连接并执行任意 SQL。
+//
+// 用 URL 解析器判定同源而非字符串前缀：javascript:/data: 这类 URL 的 origin 为 "null"，
+// 与页面 origin 不等；同时一并挡掉 //evil.com、/\evil.com、https://evil.com。
+const authSafeNextTargetScript = `
+function safeNextTarget(raw) {
+  try {
+    const parsed = new URL(String(raw || '/'), window.location.origin);
+    if (parsed.origin !== window.location.origin) {
+      return '/';
+    }
+    return parsed.pathname + parsed.search + parsed.hash;
+  } catch (err) {
+    return '/';
+  }
+}`
+
 func renderLoginScript(localizer *i18n.Localizer) string {
 	return `
 const i18n = ` + mustJSON(map[string]string{
@@ -928,7 +966,8 @@ const errorEl = document.getElementById('error');
 const formEl = document.getElementById('login-form');
 const submitEl = document.getElementById('submit');
 const codeWrapEl = document.getElementById('code-wrap');
-const nextTarget = new URLSearchParams(window.location.search).get('next') || '/';
+` + authSafeNextTargetScript + `
+const nextTarget = safeNextTarget(new URLSearchParams(window.location.search).get('next'));
 
 function showError(message) {
   errorEl.textContent = message || i18n.loginFailed;
@@ -1140,7 +1179,8 @@ const totpConfigEl = document.getElementById('totp-config');
 const totpDisabledNoteEl = document.getElementById('totp-disabled-note');
 const stepButtons = Array.from(document.querySelectorAll('[data-step-target]'));
 const stepPanels = Array.from(document.querySelectorAll('[data-step-panel]'));
-const nextTarget = new URLSearchParams(window.location.search).get('next') || '/';
+` + authSafeNextTargetScript + `
+const nextTarget = safeNextTarget(new URLSearchParams(window.location.search).get('next'));
 let bootstrapState = null;
 let currentStep = 0;
 const lastStepIndex = stepPanels.length - 1;

@@ -830,8 +830,13 @@ func isMySQLStringLikeTargetType(targetType string) bool {
 		strings.Contains(text, "set")
 }
 
+// escapeMySQLStringLiteral 转义内联进 MySQL/ClickHouse DDL 的字符串字面量
+// （列注释、DEFAULT 值）。这两个方言的字面量都以反斜杠转义，必须先翻倍反斜杠再翻倍单引号：
+// 否则以反斜杠结尾的注释会让 COMMENT '...\' 吞掉闭合引号并生成语法错误的 DDL，
+// 含 \n \t 的注释也会被静默改写。
 func escapeMySQLStringLiteral(value string) string {
-	return strings.ReplaceAll(value, "'", "''")
+	escaped := strings.ReplaceAll(value, `\`, `\\`)
+	return strings.ReplaceAll(escaped, "'", "''")
 }
 
 func buildPGLikeToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {

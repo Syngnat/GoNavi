@@ -568,6 +568,7 @@ func (o *OceanBaseDB) connectOracleViaTNS(config connection.ConnectionConfig) er
 	}
 	oracleDB := &OracleDB{scanDialect: oceanBaseOracleScanDialect}
 	if err := oracleDB.Connect(runConfig); err != nil {
+		_ = oracleDB.Close()
 		return annotateOceanBaseOracleConnectError(err)
 	}
 	o.oracle = oracleDB
@@ -587,6 +588,13 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 	var errorDetails []string
 	for index, address := range addresses {
 		candidateConfig := config
+		var forwarder *ssh.LocalForwarder
+		releaseForwarder := func() {
+			if forwarder != nil {
+				_ = forwarder.Release()
+				forwarder = nil
+			}
+		}
 		host, port, ok := parseHostPortWithDefault(address, defaultOceanBasePort)
 		if !ok {
 			continue
@@ -596,7 +604,8 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 		candidateConfig.User, candidateConfig.Password = resolveMySQLCredential(config, index)
 
 		if candidateConfig.UseSSH {
-			forwarder, err := ssh.GetOrCreateLocalForwarder(candidateConfig.SSH, host, port)
+			var err error
+			forwarder, err = ssh.AcquireLocalForwarder(candidateConfig.SSH, host, port)
 			if err != nil {
 				errorDetails = append(errorDetails, fmt.Sprintf("%s 创建 SSH 本地转发失败：%v", address, err))
 				continue
@@ -604,6 +613,7 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 			localHost, localPort, ok := parseHostPortWithDefault(forwarder.LocalAddr, defaultOceanBasePort)
 			if !ok {
 				errorDetails = append(errorDetails, fmt.Sprintf("%s 解析 SSH 本地转发地址失败：%s", address, forwarder.LocalAddr))
+				releaseForwarder()
 				continue
 			}
 			candidateConfig.Host = localHost
@@ -614,11 +624,13 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 		dsn, err := buildOceanBaseOracleOBClientDSN(candidateConfig)
 		if err != nil {
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败：%v", address, err))
+			releaseForwarder()
 			continue
 		}
 		db, err := sql.Open(oceanbaseOracleOBClientDriver, dsn)
 		if err != nil {
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 打开失败：%v", address, err))
+			releaseForwarder()
 			continue
 		}
 		configureSQLConnectionPool(db, "oceanbase")
@@ -630,10 +642,16 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 		if pingErr != nil {
 			_ = db.Close()
 			errorDetails = append(errorDetails, formatOceanBaseOBClientAttemptError(address, pingErr))
+			releaseForwarder()
 			continue
 		}
 
 		o.bindConnectedDatabase(db, timeout, oceanBaseProtocolOracle)
+		if o.oracle != nil {
+			o.oracle.forwarder = forwarder
+			forwarder = nil
+		}
+		releaseForwarder()
 		return nil
 	}
 
@@ -670,7 +688,14 @@ func (o *OceanBaseDB) bindConnectedDatabase(db *sql.DB, timeout time.Duration, p
 	o.protocol = oceanBaseProtocolMySQL
 }
 
-func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) error {
+func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = o.Close()
+	defer func() {
+		if err != nil {
+			_ = o.Close()
+		}
+	}()
+
 	o.oracle = nil
 	o.conn = nil
 	o.protocol = oceanBaseProtocolMySQL

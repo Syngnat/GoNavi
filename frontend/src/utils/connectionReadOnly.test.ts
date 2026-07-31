@@ -9,6 +9,7 @@ import {
   isSingleReadOnlyConnectionQuery,
   resolveConnectionProtectionConfig,
   supportsConnectionKeepAliveSQL,
+  supportsConnectionReadOnlyMode,
 } from './connectionReadOnly';
 
 describe('connectionReadOnly', () => {
@@ -26,6 +27,13 @@ describe('connectionReadOnly', () => {
     expect(isSingleReadOnlyConnectionQuery(config, 'SELECT 1 /* ; */')).toBe(false);
     expect(isSingleReadOnlyConnectionQuery(config, 'SELECT 1; -- probe')).toBe(true);
     expect(supportsConnectionKeepAliveSQL({ type: 'redis' } as any)).toBe(false);
+  });
+
+  it('supports Nacos production protection without treating it as a SQL keepalive source', () => {
+    const config = { type: 'nacos' } as any;
+
+    expect(supportsConnectionReadOnlyMode(config)).toBe(true);
+    expect(supportsConnectionKeepAliveSQL(config)).toBe(false);
   });
 
   it('maps legacy readOnly connections to the full production protection set', () => {

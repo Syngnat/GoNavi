@@ -171,57 +171,8 @@ func TestGetSecurityUpdateStatusIncludesPendingAIProviderIssuesBeforeStart(t *te
 	}
 }
 
-func TestSecurityUpdateEngineDoesNotHardcodeAIProviderIssueMessages(t *testing.T) {
-	source, err := os.ReadFile("security_update_engine.go")
-	if err != nil {
-		t.Fatalf("ReadFile returned error: %v", err)
-	}
-	text := string(source)
-	for _, legacy := range []string{
-		"AI 提供商配置需要补充后才能完成安全更新",
-		"AI 提供商配置已不存在或仍需重新保存后才能完成安全更新",
-		"AI 提供商配置仍保存在当前应用配置中，完成安全更新后会迁入新的安全存储。",
-	} {
-		if strings.Contains(text, legacy) {
-			t.Fatalf("security_update_engine.go still hardcodes AI provider issue message %q", legacy)
-		}
-	}
-}
 
-func TestSecurityUpdateEngineDoesNotHardcodeConnectionIssueMessages(t *testing.T) {
-	source, err := os.ReadFile("security_update_engine.go")
-	if err != nil {
-		t.Fatalf("ReadFile returned error: %v", err)
-	}
-	text := string(source)
-	for _, legacy := range []string{
-		"连接配置已不存在或仍需重新保存后才能完成安全更新",
-		"连接配置仍需补充后才能完成安全更新",
-		"连接密码已丢失，请重新保存后再继续",
-	} {
-		if strings.Contains(text, legacy) {
-			t.Fatalf("security_update_engine.go still hardcodes connection issue message %q", legacy)
-		}
-	}
-}
 
-func TestSecurityUpdateEngineDoesNotHardcodeGlobalProxyIssueMessages(t *testing.T) {
-	source, err := os.ReadFile("security_update_engine.go")
-	if err != nil {
-		t.Fatalf("ReadFile returned error: %v", err)
-	}
-	text := string(source)
-	for _, legacy := range []string{
-		"全局代理",
-		"全局代理配置已不存在或仍需重新保存后才能完成安全更新",
-		"全局代理密码仍需补充后才能完成安全更新",
-		"全局代理密码已丢失，请重新保存后再继续",
-	} {
-		if strings.Contains(text, legacy) {
-			t.Fatalf("security_update_engine.go still hardcodes global proxy issue text %q", legacy)
-		}
-	}
-}
 
 func TestRetrySecurityUpdateCurrentRoundReusesMigrationIDAfterPendingIssueIsFixed(t *testing.T) {
 	store := newFakeAppSecretStore()

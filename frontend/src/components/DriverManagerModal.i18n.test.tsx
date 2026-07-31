@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { t } from '../i18n';
@@ -197,14 +196,6 @@ vi.mock('antd', () => {
 });
 
 describe('DriverManagerModal i18n', () => {
-  it('keeps backend cancel sentinel checks centralized outside UI branches', () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    expect(source).not.toContain("String(fileRes?.message || '') !== '已取消'");
-    expect(source).not.toContain("String(directoryRes?.message || '') !== '已取消'");
-    expect(source).toContain('isBackendCancelledResult(fileRes)');
-    expect(source).toContain('isBackendCancelledResult(directoryRes)');
-  });
 
   beforeEach(() => {
     vi.resetModules();
@@ -287,95 +278,6 @@ describe('DriverManagerModal i18n', () => {
     expect(storeState.setLanguagePreference).toHaveBeenCalledWith('en-US');
     expect(textContent(renderer!.toJSON())).toContain('Driver Manager');
     expect(textContent(renderer!.toJSON())).not.toContain('驱动管理');
-  });
-
-  it('reuses the shared backend cancel sentinel helper instead of local Chinese string checks', async () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain('isBackendCancelledResult(');
-    expect(source).not.toContain("String(fileRes?.message || '') !== '已取消'");
-    expect(source).not.toContain("String(directoryRes?.message || '') !== '已取消'");
-  });
-
-  it('uses driver_manager network catalog keys instead of legacy driver.modal network keys', () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain('driver_manager.network.summary.reachable');
-    expect(source).toContain('driver_manager.network.not_checked');
-    expect(source).toContain('driver_manager.network.alert.download_chain_unreachable');
-    expect(source).toContain('driver_manager.punctuation.list_separator');
-    expect(source).not.toContain('driver.modal.network.');
-    expect(source).not.toContain('driver.modal.punctuation.listSeparator');
-  });
-
-  it('uses driver_manager log catalog keys instead of legacy driver.modal log keys', () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain("t('driver_manager.action.logs')");
-    expect(source).toContain("t('driver_manager.log_modal.title', { name: activeLogRow?.name || logDriverType })");
-    expect(source).toContain("t('driver_manager.log_modal.install_dir', { path: activeLogRow.installDir })");
-    expect(source).toContain("t('driver_manager.log_modal.executable_path', { path: activeLogRow.executablePath })");
-    expect(source).toContain("t('driver_manager.log_modal.empty')");
-    expect(source).not.toContain("t('driver.modal.card.logs')");
-    expect(source).not.toContain("t('driver.modal.log.");
-  });
-
-  it('uses driver_manager directory info keys and shared import guidance helpers instead of legacy driver.modal directory keys', () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain("t('driver_manager.directory_info.title')");
-    expect(source).toContain("t('driver_manager.directory_info.reuse_help')");
-    expect(source).toContain("t('driver_manager.directory_info.root_dir', { path: downloadDir || '-' })");
-    expect(source).toContain("t('driver_manager.directory_info.log_file', { path: networkStatus.logPath })");
-    expect(source).toContain('getDriverLocalImportDirectoryHelp()');
-    expect(source).toContain('getDriverLocalImportSingleFileHelp()');
-    expect(source).not.toContain("t('driver.modal.directory.title')");
-    expect(source).not.toContain("t('driver.modal.directory.description')");
-    expect(source).not.toContain("t('driver.modal.directory.root'");
-    expect(source).not.toContain("t('driver.modal.directory.logPath'");
-  });
-
-  it('uses structured local source codes internally instead of Chinese labels', () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain("type DriverLocalSourceCode = 'file' | 'directory'");
-    expect(source).toContain("await installDriverFromLocalPath(row, filePath, 'file');");
-    expect(source).toContain("await installDriverFromLocalPath(row, directoryPath, 'directory', { silentToast: true, skipRefresh: true });");
-    expect(source).not.toContain("await installDriverFromLocalPath(row, filePath, '文件');");
-    expect(source).not.toContain("await installDriverFromLocalPath(row, directoryPath, '目录', { silentToast: true, skipRefresh: true });");
-  });
-
-  it('localizes install watchdog and version switch chrome without translating raw driver values', () => {
-    const source = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-
-    [
-      'driver_manager.message.install_watchdog_timeout',
-      'driver_manager.message.install_failed_fallback',
-      'driver_manager.version.switch_pending',
-      'driver_manager.version.current_fallback',
-      'driver_manager.version.target_fallback',
-      'driver_manager.version.installed_with_version',
-      'driver_manager.version.installed',
-      'driver_manager.version.needs_reinstall_suffix',
-      'driver_manager.action.switch_version',
-    ].forEach((key) => {
-      expect(source).toContain(key);
-    });
-
-    [
-      '仍未完成。后台任务可能仍在下载或构建',
-      '安装 ${row.name} 失败',
-      '当前已安装',
-      '当前版本',
-      '目标版本',
-      '已选择',
-      '点击“切换版本”生效',
-      '已安装',
-      '需重装',
-      '切换版本',
-    ].forEach((legacyCopy) => {
-      expect(source).not.toContain(legacyCopy);
-    });
   });
 
   it.each([

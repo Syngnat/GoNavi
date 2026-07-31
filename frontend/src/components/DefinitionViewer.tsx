@@ -4,13 +4,14 @@ import { Button, Spin, Alert } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 import { TabData } from '../types';
 import { useStore } from '../store';
-import { DBQuery } from '../../wailsjs/go/app/App';
+import { DBQuery, DBShowCreateTable } from '../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { normalizeOceanBaseProtocol } from '../utils/oceanBaseProtocol';
 import { useI18n } from '../i18n/provider';
 import { splitQualifiedNameLast } from '../utils/qualifiedName';
 import { buildSqlServerObjectDefinitionQueries } from '../utils/sqlServerObjectDefinition';
 import { clearQueryTabDraft } from '../utils/sqlFileTabDrafts';
+import { formatDdlForDisplay } from '../utils/ddlFormat';
 
 interface DefinitionViewerProps {
     tab: TabData;
@@ -812,15 +813,39 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
                 ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' }
             };
 
+            if (tab.type === 'view-def' && dialect === 'oracle') {
+                const result = await DBShowCreateTable(
+                    buildRpcConnectionConfig(config) as any,
+                    dbName,
+                    resolvedObjectName,
+                );
+                if (result.success && String(result.data || '').trim()) {
+                    const displayDefinition = buildDisplayDefinitionSql(
+                        tab,
+                        String(result.data),
+                        resolvedObjectName,
+                    );
+                    return {
+                        success: true,
+                        definition: formatDdlForDisplay(displayDefinition, dialect),
+                    };
+                }
+                return {
+                    success: false,
+                    error: result.message || t('definition_viewer.error.query_failed'),
+                };
+            }
+
             const result = tab.type === 'package-def'
                 ? await runQueryCandidatesCollectAll(config, dbName, queries)
                 : await runQueryCandidates(config, dbName, queries);
 
             if (result.success && Array.isArray(result.data) && result.data.length > 0) {
                 const rawDefinition = extractFn(dialect, result.data);
+                const displayDefinition = buildDisplayDefinitionSql(tab, rawDefinition, resolvedObjectName);
                 return {
                     success: true,
-                    definition: buildDisplayDefinitionSql(tab, rawDefinition, resolvedObjectName),
+                    definition: displayDefinition,
                 };
             }
 
@@ -1095,6 +1120,7 @@ const DefinitionViewer: React.FC<DefinitionViewerProps> = ({ tab }) => {
                 <Editor
                     path={editorModelPath}
                     height="100%"
+                    gonaviTypography="sql"
                     language="sql"
                     theme={darkMode ? 'transparent-dark' : 'transparent-light'}
                     value={displayedDefinition}

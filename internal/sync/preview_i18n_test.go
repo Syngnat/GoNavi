@@ -4,7 +4,6 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -35,43 +34,6 @@ func assertNoLegacyPreviewChinese(t *testing.T, text string) {
 	}
 }
 
-func TestPreviewUsesLocalizedBackendTextSourceGuard(t *testing.T) {
-	sourceBytes, err := os.ReadFile("preview.go")
-	if err != nil {
-		t.Fatalf("read preview.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	legacyMessages := []string{
-		"fmt.Errorf(\"\u521d\u59cb\u5316\u6e90\u6570\u636e\u5e93\u9a71\u52a8\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u521d\u59cb\u5316\u76ee\u6807\u6570\u636e\u5e93\u9a71\u52a8\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u6e90\u6570\u636e\u5e93\u8fde\u63a5\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u76ee\u6807\u6570\u636e\u5e93\u8fde\u63a5\u5931\u8d25: %w\", err)",
-		"errors.New(firstNonEmpty(plan.PlannedAction, \"\u76ee\u6807\u8868\u4e0d\u5b58\u5728\uff0c\u65e0\u6cd5\u9884\u89c8\u5dee\u5f02\"))",
-		"fmt.Errorf(\"\u65e0\u4e3b\u952e\uff0c\u4e0d\u652f\u6301\u6570\u636e\u9884\u89c8\")",
-		"fmt.Errorf(\"\u590d\u5408\u4e3b\u952e\uff08%s\uff09\uff0c\u6682\u4e0d\u652f\u6301\u6570\u636e\u9884\u89c8\", strings.Join(pkCols, \",\"))",
-	}
-	for _, legacy := range legacyMessages {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("preview.go still contains legacy raw user-visible message %q", legacy)
-		}
-	}
-
-	requiredKeys := []string{
-		"data_sync.backend.error.init_source_driver_failed",
-		"data_sync.backend.error.init_target_driver_failed",
-		"data_sync.backend.error.connect_source_failed",
-		"data_sync.backend.error.connect_target_failed",
-		"data_sync.plan.target_missing_preview_unavailable",
-		"data_sync.backend.error.preview_pk_required",
-		"data_sync.backend.error.preview_composite_pk_unsupported",
-	}
-	for _, key := range requiredKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("preview.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestPreviewCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

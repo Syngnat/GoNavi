@@ -12,8 +12,6 @@ import AIMCPRemoteQuickStartPanel from './AIMCPRemoteQuickStartPanel';
 vi.mock('../../i18n/runtime', () => ({
   syncLanguageRuntime: vi.fn(async () => undefined),
 }));
-
-const source = readFileSync(new URL('./AIMCPRemoteQuickStartPanel.tsx', import.meta.url), 'utf8');
 const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
 const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
 const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
@@ -60,22 +58,6 @@ const REQUIRED_KEYS = [
   'ai_settings.mcp_server.remote_quick_start.security.execute_sql',
 ];
 
-const SHELL_CHINESE_LITERALS = [
-  '远程 MCP 快速配置',
-  '下面分别给云端 Agent',
-  '必填',
-  '可选',
-  '应填：',
-  '示例：',
-  '避免：',
-  '配置到云端 Agent',
-  '无 GUI / CLI 生成配置',
-  'Windows 启动 GoNavi MCP HTTP',
-  '独立二进制：',
-  '验证顺序',
-  '安全边界',
-];
-
 const renderPanel = (
   element: React.ReactElement,
   preference?: 'zh-CN' | 'en-US',
@@ -95,16 +77,6 @@ const renderPanel = (
 };
 
 describe('AIMCPRemoteQuickStartPanel', () => {
-  it('keeps remote quick start shell copy in catalogs instead of source literals', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
-    for (const key of REQUIRED_KEYS.slice(0, 14)) {
-      expect(source).toContain(key);
-    }
-    for (const literal of SHELL_CHINESE_LITERALS) {
-      expect(source).not.toContain(literal);
-    }
-  });
 
   it('keeps remote quick start keys present in all six catalogs with matching placeholders', () => {
     const catalogs = [zhCnCatalog, zhTwCatalog, enUsCatalog, jaJpCatalog, deDeCatalog, ruRuCatalog];

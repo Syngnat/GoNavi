@@ -123,6 +123,36 @@ const SQL_ERROR_RULES: SqlErrorSemanticRule[] = [
     ],
   },
   {
+    // 必须排在 timeout_or_canceled 之前：findSqlErrorSemantic 取首个命中的规则，
+    // 而那条规则的 /timeout/i 过宽，会把 "Lock wait timeout exceeded" 也吞成「查询超时」，
+    // 于是给出「检查执行计划、过滤条件和索引，必要时调整超时时间」这种完全无效的建议 ——
+    // 行锁等待超时的成因是另一个事务持锁，调大超时只会让用户等更久。
+    key: 'lock_contention',
+    fallbackLabel: 'Blocked by another transaction holding locks',
+    fallbackExplanation: 'Another uncommitted transaction holds locks on the target rows or table, so this statement waited past the lock timeout or was picked as a deadlock victim.',
+    fallbackSuggestion: 'Commit or roll back the pending transaction first — including this app\'s own uncommitted SQL editor transaction — then retry. Raising the query timeout does not help.',
+    patterns: [
+      // MySQL / MariaDB：1205 锁等待超时、1213 死锁
+      /lock wait timeout exceeded/i,
+      /deadlock found when trying to get lock/i,
+      // PostgreSQL 系
+      /deadlock detected/i,
+      /canceling statement due to lock timeout/i,
+      /could not obtain lock/i,
+      // SQL Server：1222 锁请求超时、1205 死锁牺牲者
+      /lock request time out period exceeded/i,
+      /was deadlocked on lock resources/i,
+      /deadlock victim/i,
+      // Oracle：ORA-00060 死锁、ORA-00054/ORA-30006 资源忙
+      /ORA-00060/i,
+      /ORA-00054/i,
+      /ORA-30006/i,
+      // SQLite
+      /database is locked/i,
+      /database table is locked/i,
+    ],
+  },
+  {
     key: 'timeout_or_canceled',
     fallbackLabel: 'Query timed out or was canceled',
     fallbackExplanation: 'The SQL ran longer than the timeout limit, or execution was manually canceled.',

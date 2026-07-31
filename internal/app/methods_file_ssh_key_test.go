@@ -3,7 +3,6 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -42,33 +41,3 @@ func TestResolveFileOpenDialogDirectoryHandlesExtensionlessSSHKeys(t *testing.T)
 	}
 }
 
-func TestSelectSSHKeyFileSourceAllowsExtensionlessKeys(t *testing.T) {
-	source, err := os.ReadFile("methods_file.go")
-	if err != nil {
-		t.Fatalf("read methods_file.go: %v", err)
-	}
-	text := string(source)
-
-	selectFnStart := strings.Index(text, "func (a *App) SelectSSHKeyFile(")
-	if selectFnStart < 0 {
-		t.Fatal("SelectSSHKeyFile not found")
-	}
-	selectFnEnd := strings.Index(text[selectFnStart:], "\nfunc (a *App) ")
-	if selectFnEnd < 0 {
-		t.Fatal("SelectSSHKeyFile end not found")
-	}
-	fn := text[selectFnStart : selectFnStart+selectFnEnd]
-
-	if !strings.Contains(fn, "resolveFileOpenDialogDirectory(currentPath, fallbackDir)") {
-		t.Fatal("SelectSSHKeyFile should resolve default directory for extensionless key paths")
-	}
-	if !strings.Contains(fn, "ShowHiddenFiles:  true") {
-		t.Fatal("SelectSSHKeyFile should show hidden files so ~/.ssh keys are visible")
-	}
-	if strings.Contains(fn, `Pattern:     "*.pem;*.key;*.ppk`) || strings.Contains(fn, "id_rsa*") {
-		t.Fatal("SelectSSHKeyFile must not restrict filters to extension-only or id_rsa globs")
-	}
-	if !strings.Contains(fn, `Pattern:     "*.*"`) {
-		t.Fatal("SelectSSHKeyFile should allow all files for extensionless OpenSSH keys")
-	}
-}

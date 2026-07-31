@@ -9,7 +9,7 @@ import Editor from './MonacoEditor';
 import { TabData, ColumnDefinition, IndexDefinition, ForeignKeyDefinition, TriggerDefinition } from '../types';
 import { useStore } from '../store';
 import { DBGetColumns, DBGetIndexes, DBQueryAudited, DBGetForeignKeys, DBGetTriggers, DBShowCreateTable } from '../../wailsjs/go/app/App';
-import { hasIndexFormChanged, normalizeIndexFormFromRow, shouldRestoreOriginalIndex, toggleIndexSelection as getNextIndexSelection, type IndexDisplaySnapshot } from './tableDesignerIndexUtils';
+import { hasIndexFormChanged, normalizeIndexFormFromRow, resolveIndexMetadataResponse, shouldRestoreOriginalIndex, toggleIndexSelection as getNextIndexSelection, type IndexDisplaySnapshot } from './tableDesignerIndexUtils';
 import { buildIndexCreateSqlPreview } from './tableDesignerIndexSql';
 import { buildAlterTablePreviewSql, buildCreateTablePreviewSql, hasAlterTableDraftChanges, type StarRocksCreateTableOptions, type StarRocksDistributionType, type StarRocksKeyModel, type StarRocksTableKind } from './tableDesignerSchemaSql';
 import { summarizeDuckDbPrimaryKeyChange } from './tableDesignerDuckDbPrimaryKey';
@@ -35,6 +35,11 @@ import {
     resolveSqlDialect,
 } from '../utils/sqlDialect';
 import { splitQualifiedNameLast, stripIdentifierQuotes } from '../utils/qualifiedName';
+import {
+    cloneTableDesignerColumnsForPaste,
+    parseTableDesignerColumns,
+    serializeTableDesignerColumns,
+} from './tableDesignerColumnClipboard';
 
 interface EditableColumn extends ColumnDefinition {
     _key: string;
@@ -1021,10 +1026,20 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
     const loadIndexes = DBGetIndexes(rpcConfig, dbName, tableName)
         .then((idxRes) => {
             if (!isCurrentRequest()) return;
-            setIndexes(idxRes.success && Array.isArray(idxRes.data) ? idxRes.data : []);
+            const result = resolveIndexMetadataResponse<IndexDefinition>(idxRes);
+            setIndexes(result.indexes);
+            if (result.errorDetail !== null) {
+                message.error(t('table_designer.message.load_indexes_failed', {
+                    detail: result.errorDetail || t('table_designer.fallback.unknown_error', undefined, i18nLanguage),
+                }, i18nLanguage));
+            }
         })
-        .catch(() => {
-            if (isCurrentRequest()) setIndexes([]);
+        .catch((error: unknown) => {
+            if (!isCurrentRequest()) return;
+            setIndexes([]);
+            message.error(t('table_designer.message.load_indexes_failed', {
+                detail: formatLoadError(error) || t('table_designer.fallback.unknown_error', undefined, i18nLanguage),
+            }, i18nLanguage));
         })
         .finally(() => {
             if (isCurrentRequest()) setIndexesLoading(false);
@@ -1433,6 +1448,28 @@ ${selectedTrigger.statement}`;
 
   const handleDeleteColumn = (key: string) => {
       setColumns(prev => prev.filter(c => c._key !== key));
+  };
+
+  const isNativeColumnEditorTarget = (target: EventTarget | null): boolean => {
+      const element = target instanceof HTMLElement ? target : null;
+      return !!element?.closest('input:not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable="true"]');
+  };
+
+  const handleColumnClipboardCopy = (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly || selectedColumns.length === 0 || isNativeColumnEditorTarget(event.target)) return;
+      event.clipboardData.setData('text/plain', serializeTableDesignerColumns(selectedColumns));
+      event.preventDefault();
+  };
+
+  const handleColumnClipboardPaste = (event: React.ClipboardEvent<HTMLDivElement>) => {
+      if (readOnly || isNativeColumnEditorTarget(event.target)) return;
+      const pastedColumns = parseTableDesignerColumns(event.clipboardData.getData('text/plain'));
+      if (!pastedColumns || pastedColumns.length === 0) return;
+      const nextColumns = cloneTableDesignerColumnsForPaste(pastedColumns, columns) as EditableColumn[];
+      setColumns(prev => [...prev, ...nextColumns]);
+      setSelectedColumnRowKeys(nextColumns.map(column => column._key));
+      pendingFocusColumnKeyRef.current = nextColumns[0]._key || null;
+      event.preventDefault();
   };
 
   const selectedColumns = useMemo(() => {
@@ -2810,6 +2847,8 @@ END;`;
       <div
           ref={containerRef}
           className={`table-designer-wrapper${isV2Ui ? ' gn-v2-designer-table-shell' : ''}`}
+          onCopy={handleColumnClipboardCopy}
+          onPaste={handleColumnClipboardPaste}
           style={{
               height: '100%',
               overflow: 'hidden',

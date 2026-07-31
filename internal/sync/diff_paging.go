@@ -406,7 +406,7 @@ func buildPKInSelectQuery(dbType, queryTable string, cols []connection.ColumnDef
 	}
 	literals := make([]string, 0, len(pkValues))
 	for _, value := range pkValues {
-		literal, ok := formatSyncSQLLiteral(value)
+		literal, ok := formatSyncSQLLiteral(dbType, value)
 		if !ok {
 			continue
 		}
@@ -433,7 +433,7 @@ func buildKeysetPagedTableQuery(dbType, queryTable string, cols []connection.Col
 	}
 	where := ""
 	if hasLastValue {
-		literal, ok := formatSyncSQLLiteral(lastValue)
+		literal, ok := formatSyncSQLLiteral(dbType, lastValue)
 		if !ok {
 			return ""
 		}
@@ -537,20 +537,20 @@ func buildColumnSelectListForSync(dbType string, cols []connection.ColumnDefinit
 	return strings.Join(quoted, ", ")
 }
 
-func formatSyncSQLLiteral(value interface{}) (string, bool) {
+func formatSyncSQLLiteral(dbType string, value interface{}) (string, bool) {
 	if value == nil {
 		return "", false
 	}
 	switch v := value.(type) {
 	case time.Time:
-		return quoteSyncSQLString(v.Format("2006-01-02 15:04:05.999999999")), true
+		return quoteSyncSQLString(dbType, v.Format("2006-01-02 15:04:05.999999999")), true
 	case []byte:
-		return quoteSyncSQLString(string(v)), true
+		return quoteSyncSQLString(dbType, string(v)), true
 	case string:
 		if strings.TrimSpace(v) == "" {
 			return "", false
 		}
-		return quoteSyncSQLString(v), true
+		return quoteSyncSQLString(dbType, v), true
 	case bool:
 		if v {
 			return "1", true
@@ -565,12 +565,34 @@ func formatSyncSQLLiteral(value interface{}) (string, bool) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 			return text, true
 		default:
-			return quoteSyncSQLString(text), true
+			return quoteSyncSQLString(dbType, text), true
 		}
 	}
 }
 
-func quoteSyncSQLString(value string) string {
+// syncDialectEscapesBackslash 判断方言是否把反斜杠当作字符串字面量里的转义符。
+//
+// 只需覆盖 supportsDirectImportPagination 白名单中的方言：mysql 系与 ClickHouse/TDengine
+// 的字面量都以反斜杠转义，而 postgres 系（standard_conforming_strings=on）、sqlserver、
+// sqlite、duckdb 的反斜杠是普通字面字符，翻倍反而会写入两个反斜杠并损坏比对结果。
+func syncDialectEscapesBackslash(dbType string) bool {
+	switch normalizeMigrationDBType(dbType) {
+	case "mysql", "mariadb", "clickhouse", "tdengine", "starrocks", "diros", "oceanbase":
+		return true
+	default:
+		return false
+	}
+}
+
+// quoteSyncSQLString 生成内联进比对 SQL 的字符串字面量。
+//
+// 反斜杠必须先于单引号处理。原先只翻倍单引号：含反斜杠的主键（Windows 路径、正则、
+// 转义 JSON）在 MySQL/ClickHouse 等目标上会被解释成别的字符串，导致 IN 列表匹配不到，
+// 于是源端存在的行先被判为需要插入、随后又被判为需要删除并真的从目标删掉。
+func quoteSyncSQLString(dbType string, value string) string {
+	if syncDialectEscapesBackslash(dbType) {
+		value = strings.ReplaceAll(value, `\`, `\\`)
+	}
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 

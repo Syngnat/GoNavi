@@ -521,6 +521,13 @@ func readXMLTextNode(decoder *xml.Decoder, endLocal string) (string, error) {
 	}
 }
 
+// xlsxMaxColumns 是 OOXML/SpreadsheetML 的列数上限（XFD = 16384）。
+//
+// 单元格的 r 属性完全来自文件内容且可被任意篡改，必须设上限：形如 <c r="ZZZZZZZZ1"/>
+// 会解析出约 2.2e11 的列号，直接驱动 readXLSXRow 的 slice 填充循环分配 TB 级内存，
+// 使整个桌面进程被 OOM 杀死（其他标签页的未保存内容一并丢失）。9 字节属性即可放大到 TB 级。
+const xlsxMaxColumns = 16384
+
 func xlsxCellRefColumnIndex(ref string) int {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -535,9 +542,16 @@ func xlsxCellRefColumnIndex(ref string) int {
 		case ch >= 'a' && ch <= 'z':
 			value = value*26 + int(ch-'a'+1)
 		default:
+			// 字母段结束（后面是行号），此时 value 即列号。
 			if value > 0 {
 				return value
 			}
+			continue
+		}
+		if value > xlsxMaxColumns {
+			// 超出 OOXML 列上限：视为非法 r 属性，返回 0 让调用方回退到顺序列号；
+			// 同时提前熔断，避免继续累加造成整型溢出。
+			return 0
 		}
 	}
 	return value

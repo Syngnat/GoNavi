@@ -212,7 +212,7 @@ const NativeDetachedQueryResult: React.FC<{
       data={result.rows || []}
       columnNames={result.columns || []}
       loading={false}
-      tableName={result.metadataTableName || result.tableName}
+      tableName={result.tableName}
       pkColumns={result.pkColumns || []}
       editLocator={result.editLocator as any}
       readOnly={result.readOnly !== false}

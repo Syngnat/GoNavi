@@ -1,9 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { formatSqlExecutionError } from './sqlErrorSemantics';
-
-const source = readFileSync(new URL('./sqlErrorSemantics.ts', import.meta.url), 'utf8');
 
 describe('formatSqlExecutionError', () => {
   it('adds semantic explanation for SQL syntax errors and keeps raw text', () => {
@@ -127,14 +124,55 @@ describe('formatSqlExecutionError', () => {
 
     expect(formatSqlExecutionError(raw)).toBe(raw);
   });
+});
 
-  it('keeps SQL execution semantic copy out of production Chinese literals', () => {
-    expect(source).toContain('query_editor.sql_error.rule.');
-    expect(source).toContain("key: 'syntax'");
-    expect(source).toContain('query_editor.sql_error.wrapper.semantic_line');
-    expect(source).not.toContain('SQL 语法错误');
-    expect(source).not.toContain('处理建议');
-    expect(source).not.toContain('原始错误');
-    expect(source).not.toContain('数据库执行错误');
+describe('锁竞争错误的语义分类', () => {
+  // 回归背景：timeout_or_canceled 规则的 /timeout/i 过宽，把 MySQL 的
+  // "Lock wait timeout exceeded" 也吞成「查询超时」，于是给出「检查执行计划、过滤条件和索引，
+  // 必要时调整超时时间」这种完全无效的建议 —— 行锁等待超时的成因是另一个事务持锁，
+  // 调大超时只会让用户等更久。lock_contention 规则必须先于 timeout 规则命中。
+  it('MySQL 1205 锁等待超时不再被归类为查询超时', () => {
+    const formatted = formatSqlExecutionError(
+      'Error 1205 (HY000): Lock wait timeout exceeded; try restarting transaction',
+    );
+
+    expect(formatted).toContain('Semantic meaning: Blocked by another transaction holding locks');
+    expect(formatted).not.toContain('Query timed out or was canceled');
+    expect(formatted).toContain('Raw error: Error 1205 (HY000): Lock wait timeout exceeded; try restarting transaction');
+  });
+
+  it('建议指向提交或回滚未完成事务，而不是调整超时', () => {
+    const formatted = formatSqlExecutionError('Lock wait timeout exceeded; try restarting transaction');
+
+    expect(formatted).toContain('Commit or roll back the pending transaction first');
+    expect(formatted).not.toContain('adjust the timeout');
+  });
+
+  it('覆盖各方言的锁竞争与死锁错误', () => {
+    const messages = [
+      'Error 1213 (40001): Deadlock found when trying to get lock; try restarting transaction',
+      'ERROR: deadlock detected',
+      'ERROR: canceling statement due to lock timeout',
+      'Lock request time out period exceeded.',
+      'Transaction (Process ID 52) was deadlocked on lock resources with another process',
+      'ORA-00060: deadlock detected while waiting for resource',
+      'ORA-00054: resource busy and acquire with NOWAIT specified',
+      'database is locked',
+    ];
+    for (const message of messages) {
+      expect(
+        formatSqlExecutionError(message),
+        `未被识别为锁竞争：${message}`,
+      ).toContain('Semantic meaning: Blocked by another transaction holding locks');
+    }
+  });
+
+  it('普通查询超时仍归类为查询超时，未被新规则误吞', () => {
+    for (const message of ['context deadline exceeded', 'sql: statement canceled', 'query execution timeout']) {
+      expect(
+        formatSqlExecutionError(message),
+        `被锁竞争规则误吞：${message}`,
+      ).toContain('Semantic meaning: Query timed out or was canceled');
+    }
   });
 });

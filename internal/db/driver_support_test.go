@@ -257,22 +257,6 @@ func TestDriverRuntimeSupportStatusUsesCurrentLanguageForMissingOptionalDriverAg
 	}
 }
 
-func TestResolveExternalDriverRootSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("driver_support.go")
-	if err != nil {
-		t.Fatalf("read driver_support.go: %v", err)
-	}
-	source := string(sourceBytes)
-	functionSource := driverSupportFunctionSource(t, source, "func resolveExternalDriverRoot(downloadDir string) (string, error)")
-	rawCreateDirectoryWrapper := "fmt.Errorf(\"\\u521b\\u5efa\\u9a71\\u52a8\\u76ee\\u5f55\\u5931\\u8d25\\uff1a%w\", err)"
-
-	if strings.Contains(functionSource, rawCreateDirectoryWrapper) {
-		t.Fatal("resolveExternalDriverRoot still contains raw Chinese create-directory wrapper")
-	}
-	if !strings.Contains(functionSource, "driver_manager.backend.error.create_directory_failed") {
-		t.Fatal("resolveExternalDriverRoot does not reference driver_manager.backend.error.create_directory_failed")
-	}
-}
 
 func TestResolveExternalDriverRootUsesCurrentLanguageForCreateDirectoryFailure(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)

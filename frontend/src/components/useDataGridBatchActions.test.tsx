@@ -1,0 +1,322 @@
+import React from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useDataGridBatchActions } from './useDataGridBatchActions';
+
+const messageApi = vi.hoisted(() => ({
+  info: vi.fn(),
+  success: vi.fn(),
+}));
+
+vi.mock('antd', () => ({ message: messageApi }));
+
+const CELL_KEY_SEP = '\u0001';
+const makeCellKey = (rowKey: string, colName: string) => `${rowKey}${CELL_KEY_SEP}${colName}`;
+const splitCellKey = (cellKey: string) => {
+  const index = cellKey.indexOf(CELL_KEY_SEP);
+  return index === -1 ? null : { rowKey: cellKey.slice(0, index), colName: cellKey.slice(index + 1) };
+};
+
+class MockHTMLElement {
+  attributes: Record<string, string>;
+  parent: MockHTMLElement | null;
+  selectorMatches: Set<string>;
+
+  constructor(attributes: Record<string, string> = {}, parent: MockHTMLElement | null = null, selectorMatches: string[] = []) {
+    this.attributes = attributes;
+    this.parent = parent;
+    this.selectorMatches = new Set(selectorMatches);
+  }
+
+  closest(selector: string): MockHTMLElement | null {
+    if (selector === '[data-row-key][data-col-name]' && this.attributes['data-row-key'] && this.attributes['data-col-name']) {
+      return this;
+    }
+    if (this.selectorMatches.has(selector)) return this;
+    return this.parent?.closest(selector) || null;
+  }
+
+  getAttribute(name: string) {
+    return this.attributes[name] ?? null;
+  }
+}
+
+const createEventTarget = () => {
+  const listeners = new Map<string, EventListener>();
+  return {
+    listeners,
+    addEventListener: vi.fn((name: string, listener: EventListener) => listeners.set(name, listener)),
+    removeEventListener: vi.fn((name: string) => listeners.delete(name)),
+  };
+};
+
+describe('useDataGridBatchActions clipboard paste', () => {
+  let renderer: ReactTestRenderer | null = null;
+  let windowTarget: ReturnType<typeof createEventTarget>;
+  let documentTarget: ReturnType<typeof createEventTarget> & { activeElement: MockHTMLElement | null; elementFromPoint: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    messageApi.info.mockReset();
+    messageApi.success.mockReset();
+    windowTarget = createEventTarget();
+    documentTarget = {
+      ...createEventTarget(),
+      activeElement: null,
+      elementFromPoint: vi.fn(() => null),
+    };
+    vi.stubGlobal('HTMLElement', MockHTMLElement);
+    vi.stubGlobal('window', windowTarget);
+    vi.stubGlobal('document', documentTarget);
+  });
+
+  afterEach(() => {
+    act(() => renderer?.unmount());
+    renderer = null;
+    vi.unstubAllGlobals();
+  });
+
+  const renderHook = ({
+    canModifyData = true,
+    addedRows = [] as any[],
+    modifiedRows = {} as Record<string, any>,
+  } = {}) => {
+    const containerTarget = createEventTarget();
+    const container = {
+      ...containerTarget,
+      contains: vi.fn(() => true),
+      querySelector: vi.fn(() => null),
+    };
+    const rows = [
+      { key: 'row-1', id: '1', generated: 'A', name: 'alpha' },
+      { key: 'row-2', id: '2', generated: 'B', name: 'beta' },
+      ...addedRows,
+    ];
+    const selectedCells = new Set<string>();
+    const currentSelectionRef = { current: selectedCells };
+    const selectionStartRef = { current: null as null | { rowKey: string; colName: string; rowIndex: number; colIndex: number } };
+    const setAddedRows = vi.fn();
+    const setModifiedRows = vi.fn();
+    const setModifiedColumns = vi.fn();
+    const setSelectedCells = vi.fn();
+    const updateCellSelection = vi.fn();
+
+    const ctx = {
+      CELL_SELECTION_DRAG_THRESHOLD_PX: 4,
+      GONAVI_ROW_KEY: 'key',
+      addedRows,
+      batchEditSetNull: false,
+      batchEditValue: '',
+      canModifyData,
+      cancelAnimationFrame: vi.fn(),
+      cellEditModeRef: { current: false },
+      cellSelectionAutoScrollRafRef: { current: null },
+      cellSelectionPointerRef: { current: null },
+      cellSelectionRafRef: { current: null },
+      cellSelectionScrollRafRef: { current: null },
+      closeBatchEditModal: vi.fn(),
+      columnIndexMap: new Map([['id', 0], ['generated', 1], ['name', 2]]),
+      containerRef: { current: container },
+      copiedCellPatch: null,
+      currentSelectionRef,
+      deletedRowKeys: new Set<string>(),
+      displayColumnNames: ['id', 'generated', 'name'],
+      displayDataRef: { current: rows },
+      effectiveEditLocator: {},
+      isActive: true,
+      isCellValueEqualForDiff: (left: unknown, right: unknown) => left === right,
+      isDraggingRef: { current: false },
+      isTableSurfaceActive: true,
+      isWritableResultColumn: (columnName: string) => columnName !== 'generated',
+      makeCellKey,
+      markCellSelectionDeleteEligible: vi.fn(),
+      modifiedRows,
+      pendingCellSelectionStartRef: { current: null },
+      requestAnimationFrame: (callback: FrameRequestCallback) => { callback(0); return 1; },
+      rowIndexMapRef: { current: new Map<string, number>() },
+      rowKeyStr: String,
+      selectedCells,
+      selectedRowKeysRef: { current: [] },
+      selectionStartRef,
+      setAddedRows,
+      setCellContextMenu: vi.fn(),
+      setCellEditMode: vi.fn(),
+      setCopiedCellPatch: vi.fn(),
+      setModifiedColumns,
+      setModifiedRows,
+      setSelectedCells,
+      splitCellKey,
+      suppressCellSelectionClickRef: { current: false },
+      translateDataGrid: (key: string, params?: Record<string, unknown>) => `${key}:${JSON.stringify(params || {})}`,
+      updateCellSelection,
+    };
+
+    const Harness = () => {
+      useDataGridBatchActions(ctx as any);
+      return null;
+    };
+    act(() => { renderer = create(<Harness />); });
+
+    return {
+      container,
+      ctx,
+      currentSelectionRef,
+      selectionStartRef,
+      setAddedRows,
+      setModifiedRows,
+      setModifiedColumns,
+      setSelectedCells,
+      updateCellSelection,
+      rerender: () => act(() => { renderer?.update(<Harness />); }),
+    };
+  };
+
+  const selectCell = (container: ReturnType<typeof renderHook>['container'], rowKey: string, colName: string) => {
+    const cell = new MockHTMLElement({ 'data-row-key': rowKey, 'data-col-name': colName });
+    act(() => {
+      (container.listeners.get('mousedown') as any)?.({ button: 0, target: cell, clientX: 10, clientY: 10 });
+      (documentTarget.listeners.get('mouseup') as any)?.({ target: cell, clientX: 10, clientY: 10 });
+    });
+    return cell;
+  };
+
+  it('pastes a two-dimensional matrix from the selected anchor cell', () => {
+    const hook = renderHook({ modifiedRows: { 'row-1': { name: 'draft' } } });
+    const cell = selectCell(hook.container, 'row-1', 'id');
+
+    expect(hook.selectionStartRef.current).toEqual({ rowKey: 'row-1', colName: 'id', rowIndex: 0, colIndex: 0 });
+    expect(hook.setSelectedCells).toHaveBeenCalledWith(new Set([makeCellKey('row-1', 'id')]));
+
+    const preventDefault = vi.fn();
+    act(() => {
+      (windowTarget.listeners.get('paste') as any)?.({
+        target: cell,
+        clipboardData: {
+          types: ['text/plain'],
+          getData: vi.fn(() => '11\tignored\tAda\r\n12\tignored\tNULL\r\n'),
+        },
+        preventDefault,
+      });
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(hook.setModifiedRows).toHaveBeenCalledOnce();
+    const nextRows = hook.setModifiedRows.mock.calls[0][0]({ 'row-1': { name: 'draft' } });
+    expect(nextRows).toEqual({
+      'row-1': { id: '11', name: 'Ada' },
+      'row-2': { id: '12', name: null },
+    });
+    const nextColumns = hook.setModifiedColumns.mock.calls[0][0]({});
+    expect(nextColumns['row-1']).toEqual(new Set(['id', 'name']));
+    expect(nextColumns['row-2']).toEqual(new Set(['id', 'name']));
+    expect(messageApi.success).toHaveBeenCalledWith('data_grid.message.pasted_columns_to_rows:{"rows":2,"cells":4}');
+  });
+
+  it('fills the selected cells when pasting a single value', () => {
+    const hook = renderHook();
+    const cell = selectCell(hook.container, 'row-1', 'id');
+    hook.currentSelectionRef.current = new Set([
+      makeCellKey('row-1', 'id'),
+      makeCellKey('row-1', 'name'),
+      makeCellKey('row-2', 'id'),
+      makeCellKey('row-2', 'name'),
+    ]);
+
+    const preventDefault = vi.fn();
+    act(() => {
+      (windowTarget.listeners.get('paste') as any)?.({
+        target: cell,
+        clipboardData: { types: ['text/plain'], getData: vi.fn(() => 'filled') },
+        preventDefault,
+      });
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    const nextRows = hook.setModifiedRows.mock.calls[0][0]({});
+    expect(nextRows).toEqual({
+      'row-1': { id: 'filled', name: 'filled' },
+      'row-2': { id: 'filled', name: 'filled' },
+    });
+    const nextColumns = hook.setModifiedColumns.mock.calls[0][0]({});
+    expect(nextColumns['row-1']).toEqual(new Set(['id', 'name']));
+    expect(nextColumns['row-2']).toEqual(new Set(['id', 'name']));
+    expect(messageApi.success).toHaveBeenCalledWith('data_grid.message.pasted_columns_to_rows:{"rows":2,"cells":4}');
+  });
+
+  it('resolves the selected row and column again before pasting', () => {
+    const hook = renderHook();
+    const cell = selectCell(hook.container, 'row-2', 'name');
+    hook.ctx.displayDataRef.current = [
+      { key: 'row-2', id: '2', generated: 'B', name: 'beta' },
+      { key: 'row-1', id: '1', generated: 'A', name: 'alpha' },
+    ];
+    hook.ctx.displayColumnNames = ['name', 'id', 'generated'];
+    hook.ctx.columnIndexMap = new Map([['name', 0], ['id', 1], ['generated', 2]]);
+    hook.rerender();
+
+    const preventDefault = vi.fn();
+    act(() => {
+      (windowTarget.listeners.get('paste') as any)?.({
+        target: cell,
+        clipboardData: { types: ['text/plain'], getData: vi.fn(() => '') },
+        preventDefault,
+      });
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    const nextRows = hook.setModifiedRows.mock.calls[0][0]({});
+    expect(nextRows).toEqual({ 'row-2': { name: '' } });
+  });
+
+  it('allows grid paste inside a shortcut-guarded floating window', () => {
+    const hook = renderHook();
+    const floatingWindow = new MockHTMLElement({}, null, ['[data-gonavi-close-shortcut-guard]']);
+    const cell = new MockHTMLElement({ 'data-row-key': 'row-1', 'data-col-name': 'name' }, floatingWindow);
+    selectCell(hook.container, 'row-1', 'name');
+    documentTarget.activeElement = floatingWindow;
+
+    const preventDefault = vi.fn();
+    act(() => {
+      (windowTarget.listeners.get('paste') as any)?.({
+        target: cell,
+        clipboardData: { types: ['text/plain'], getData: vi.fn(() => 'updated') },
+        preventDefault,
+      });
+    });
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(hook.setModifiedRows).toHaveBeenCalledOnce();
+  });
+
+  it('does not intercept paste for read-only grids or editable targets', () => {
+    const readOnlyHook = renderHook({ canModifyData: false });
+    selectCell(readOnlyHook.container, 'row-1', 'id');
+    expect(windowTarget.listeners.has('paste')).toBe(true);
+    const readOnlyPreventDefault = vi.fn();
+    act(() => {
+      (windowTarget.listeners.get('paste') as any)?.({
+        target: new MockHTMLElement(),
+        clipboardData: { types: ['text/plain'], getData: vi.fn(() => '11') },
+        preventDefault: readOnlyPreventDefault,
+      });
+    });
+    expect(readOnlyPreventDefault).not.toHaveBeenCalled();
+
+    act(() => renderer?.unmount());
+    renderer = null;
+    const editableHook = renderHook();
+    selectCell(editableHook.container, 'row-1', 'id');
+    const input = new MockHTMLElement({}, null, ['input, textarea, select, [contenteditable="true"], .ant-modal, .ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .ant-popover']);
+    documentTarget.activeElement = input;
+    const editablePreventDefault = vi.fn();
+    act(() => {
+      (windowTarget.listeners.get('paste') as any)?.({
+        target: input,
+        clipboardData: { types: ['text/plain'], getData: vi.fn(() => '11') },
+        preventDefault: editablePreventDefault,
+      });
+    });
+    expect(editablePreventDefault).not.toHaveBeenCalled();
+    expect(editableHook.setModifiedRows).not.toHaveBeenCalled();
+  });
+});

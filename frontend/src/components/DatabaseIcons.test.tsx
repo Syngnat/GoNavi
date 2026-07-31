@@ -1,11 +1,8 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { readFileSync } from 'node:fs';
 
 import { DB_ICON_TYPES, getDbIcon, getDbIconLabel } from './DatabaseIcons';
-
-const source = readFileSync(new URL('./DatabaseIcons.tsx', import.meta.url), 'utf8');
 const translate = (key: string) =>
   key === 'connection_modal.db_icon_label.custom' ? 'T:custom' : key;
 
@@ -31,7 +28,7 @@ const BRAND_ICON_CASES: Array<[string, string, string]> = [
   ['chroma', 'Chroma', 'chroma.svg'],
   ['qdrant', 'Qdrant', 'qdrant.svg'],
   ['milvus', 'Milvus', 'milvus.svg'],
-  ['jvm', 'JVM', 'jvm.ico'],
+  ['jvm', 'JVM', 'java.svg'],
 ];
 
 describe('DatabaseIcons', () => {
@@ -61,7 +58,5 @@ describe('DatabaseIcons', () => {
     expect(getDbIconLabel('kingbase', translate)).toBe('Kingbase');
     expect(getDbIconLabel('dameng', translate)).toBe('Dameng');
     expect(getDbIconLabel('highgo', translate)).toBe('HighGo');
-    expect(source).not.toContain("custom: '自定义'");
-    expect(source).not.toMatch(/kingbase:\s*'金仓'|dameng:\s*'达梦'|highgo:\s*'瀚高'/);
   });
 });

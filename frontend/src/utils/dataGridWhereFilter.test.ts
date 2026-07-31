@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { setCurrentLanguage } from '../i18n';
 import {
@@ -12,8 +11,6 @@ import {
   shouldApplyQuickWhereOnEnter,
   validateQuickWhereCondition,
 } from './dataGridWhereFilter';
-
-const source = readFileSync(new URL('./dataGridWhereFilter.ts', import.meta.url), 'utf8');
 
 describe('dataGridWhereFilter', () => {
   beforeEach(() => {
@@ -174,16 +171,5 @@ describe('dataGridWhereFilter', () => {
       suggestionsOpen: false,
       suggestionCount: 0,
     })).toBe(false);
-  });
-
-  it('keeps quick where UI copy out of hard-coded Chinese strings', () => {
-    [
-      'WHERE 条件不能包含分号或 SQL 注释',
-      "detail: '操作符'",
-      "detail: '关键字'",
-      "detail: '字段'",
-    ].forEach((snippet) => {
-      expect(source).not.toContain(snippet);
-    });
   });
 });

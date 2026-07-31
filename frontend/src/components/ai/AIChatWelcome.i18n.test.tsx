@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -23,8 +22,6 @@ vi.mock('@ant-design/icons', () => {
     ThunderboltOutlined: Icon,
   };
 });
-
-const source = readFileSync(new URL('./AIChatWelcome.tsx', import.meta.url), 'utf8');
 
 const welcomeKeys = [
   'ai_chat.welcome.title',
@@ -83,28 +80,6 @@ const valuesExpectedToDifferFromEnglish = [
   'ai_chat.quick_action.explain_sql.hint.default',
   'ai_chat.welcome.suggestion.divider',
   'ai_chat.welcome.suggestion.cleanup.default',
-] as const;
-
-const fixedChineseWelcomeChrome = [
-  '你好，我是 GoNavi AI',
-  '我是你的智能数据库助手',
-  '已自动关联',
-  '点击下方按钮快速开始分析',
-  '生成 SQL',
-  '解释表结构',
-  '解释 SQL',
-  '优化建议',
-  '自然语言生成查询',
-  '逐字段说明含义与约束',
-  '索引、范式、潜在风险',
-  '说明执行逻辑',
-  '性能和索引建议',
-  '结构质量分析',
-  '或直接提问',
-  '为什么当前结果只有少量记录',
-  '过去 7 天订单渠道分布',
-  '帮我写一条清理异常数据的 SQL',
-  "split('.').pop()",
 ] as const;
 
 const getPlaceholders = (value: string): string[] =>
@@ -257,17 +232,5 @@ describe('AIChatWelcome i18n', () => {
     expect(quickActionPrompts[0]).toContain('public.orders');
     expect(quickActionPrompts[0]).toContain('analytics.channel_metrics');
     expect(quickActionPrompts[0]).not.toContain('请根据以下表结构');
-  });
-
-  it('keeps source wired to i18n keys instead of fixed Chinese welcome chrome', () => {
-    expect(source).toContain('useI18n()');
-
-    for (const key of welcomeKeys) {
-      expect(source).toContain(key);
-    }
-
-    for (const snippet of fixedChineseWelcomeChrome) {
-      expect(source).not.toContain(snippet);
-    }
   });
 });

@@ -1,0 +1,180 @@
+name: Feature Request (English)
+description: Propose a new feature or an improvement with enough detail to evaluate and verify the request
+title: "[Enhancement] "
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the suggestion. Focus on the problem, the real usage scenario, and verifiable expected outcomes. Clear context is more useful for evaluation than prescribing an implementation alone.
+
+        **Do not include passwords, tokens, complete connection strings, private keys, or unredacted business data.**
+
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find the same or a highly similar request
+          required: true
+        - label: I removed or redacted passwords, tokens, connection strings, private keys, and business data
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      description: Select the area that most closely matches the request
+      options:
+        - Data source connection, authentication, or network
+        - Database, schema, table, view, index, or other object management
+        - SQL editing, execution, or result sets
+        - Table data browsing or editing
+        - Redis, MongoDB, messaging, vector, or search data
+        - Import, export, or backup
+        - SSH, proxy, or tunnel
+        - Driver or Driver Agent
+        - AI, MCP, or Agent
+        - Installation, update, or startup
+        - User interface, interaction, or local settings
+        - Performance or resource usage
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Request type
+      options:
+        - Add a new capability
+        - Improve an existing feature or workflow
+        - Add data source, protocol, or version compatibility
+        - Improve performance, stability, or resource efficiency
+        - Improve the user interface, interaction, or accessibility
+        - Add automation, integration, or extension support
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Current GoNavi version
+      description: Enter the full version shown on the About page; include the commit for a development build
+      placeholder: "For example: v0.9.0 / dev build (commit abc1234)"
+    validations:
+      required: true
+
+  - type: input
+    id: datasource
+    attributes:
+      label: Related data source and version
+      description: If applicable, include the type, server version, and compatibility mode; otherwise enter "Not applicable"
+      placeholder: "For example: MySQL 8.0.36 / Redis 7.2 Cluster / Not applicable"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Usage scenario and target users
+      description: Explain who would use this feature, when they would use it, and approximately how often
+      placeholder: |
+        Users: for example, DBAs, developers, or operators
+        Scenario: the task or workflow where this feature is needed
+        Frequency: several times per day / occasionally / during a specific project phase
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Current workflow and pain points
+      description: Describe how this work is currently completed, the limitations, and their concrete impact
+      placeholder: |
+        Current workflow:
+        Limitations or additional cost:
+        Existing workaround and why it is insufficient:
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Expected feature and interaction
+      description: Describe the entry point, workflow, inputs and outputs, plus important defaults, empty states, or error states
+      placeholder: |
+        1. Where the workflow starts
+        2. What actions the user can perform
+        3. What should be displayed or produced
+        4. Requirements for defaults, permissions, or failure messages
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Describe observable and verifiable outcomes that indicate the request is complete
+      placeholder: |
+        - [ ] When ..., the user can ...
+        - [ ] After the action, the application displays or produces ...
+        - [ ] With ... data or environment, the feature still ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Usage frequency and impact
+      description: Select the closest match to help maintainers assess priority
+      options:
+        - Blocks a core workflow with no usable workaround
+        - Used frequently and the current workflow has significant cost
+        - Used occasionally and would reduce effort or improve usability
+        - Exploratory request for a future scenario
+    validations:
+      required: true
+
+  - type: textarea
+    id: scale
+    attributes:
+      label: Data scale or performance expectations
+      description: For large data sets, concurrency, files, or long-running tasks, provide typical and maximum values; otherwise leave blank
+      placeholder: "For example: 5 million rows, 100,000 Redis keys, a 2 GB import file, or completion within 3 seconds"
+
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Impact on existing behavior
+      description: Indicate whether this request needs to change current defaults or data formats
+      options:
+        - Adds capability without changing existing behavior
+        - Changes existing behavior but should remain backward compatible
+        - May require a breaking change
+        - Not sure yet
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include current workarounds, implementations in other clients, and why those alternatives are insufficient
+      placeholder: Optional
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Mockups, screenshots, or references
+      description: Drag in redacted mockups, screenshots, or recordings, or link to relevant documentation and comparable products
+      placeholder: Optional
+
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: Are you willing to submit a PR for this issue?
+      options:
+        - label: I am willing to try submitting a PR

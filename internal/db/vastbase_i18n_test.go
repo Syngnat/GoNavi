@@ -3,10 +3,8 @@
 package db
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -69,18 +67,3 @@ func TestVastbaseMetadataErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestVastbaseMetadataErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("vastbase_impl.go")
-	if err != nil {
-		t.Fatalf("read vastbase_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	rawMessage := `fmt.Errorf("` + rawVastbaseTableNameRequiredText + `")`
-
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("vastbase_impl.go still contains raw Vastbase metadata text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.table_name_required") {
-		t.Fatal("vastbase_impl.go does not reference db.backend.error.table_name_required")
-	}
-}

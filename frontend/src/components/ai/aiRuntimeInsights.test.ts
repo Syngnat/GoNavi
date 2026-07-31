@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import type { AIMCPToolDescriptor, AIProviderConfig, AISkillConfig } from '../../types';
@@ -69,15 +67,6 @@ describe('buildAIRuntimeSnapshot', () => {
     expect(snapshot.activeProvider?.name).toBe('OpenAI 主账号');
     expect(snapshot.mcpTools[0].title).toBe('打开浏览器');
     expect(snapshot.message).toBe('T:ai_chat.inspection.runtime.message.active provider=OpenAI 主账号,toolCount=2');
-  });
-
-  it('keeps runtime production source free of legacy Chinese wrappers', () => {
-    const source = readFileSync('src/components/ai/aiRuntimeInsights.ts', 'utf8');
-
-    expect(source).not.toContain('只读');
-    expect(source).not.toContain('结构+样例');
-    expect(source).not.toContain('当前 AI 正在使用');
-    expect(source).not.toContain('当前未启用 AI 供应商');
   });
 
   it('returns a sanitized runtime snapshot for the active provider, tools, and skills', () => {

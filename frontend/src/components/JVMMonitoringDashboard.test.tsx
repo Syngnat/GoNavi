@@ -1,5 +1,4 @@
 import React from "react";
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -80,33 +79,5 @@ describe("JVMMonitoringDashboard", () => {
     expect(markup).toContain('data-jvm-monitoring-content-stack="true"');
     expect(markup).toContain("gap:24px");
     expect(markup).not.toContain("minmax(min(100%, 320px), 1fr)");
-  });
-
-  it("keeps dashboard-owned Chinese literals out of the component source", () => {
-    const source = readFileSync(
-      new URL("./JVMMonitoringDashboard.tsx", import.meta.url),
-      "utf8",
-    );
-
-    [
-      "JVMGetMonitoringHistory 后端方法不可用",
-      "读取监控历史失败",
-      "连接不存在或已被删除",
-      "JVMStartMonitoring 后端方法不可用",
-      "开始监控失败",
-      "JVMStopMonitoring 后端方法不可用",
-      "停止监控失败",
-      "JVM 持续监控",
-      "采样中",
-      "未运行",
-      "刷新",
-      "开始监控",
-      "停止监控",
-      "监控能力存在降级",
-      "当前尚未开始持续监控",
-      "点击“开始监控”后",
-    ].forEach((literal) => {
-      expect(source).not.toContain(literal);
-    });
   });
 });

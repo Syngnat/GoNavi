@@ -222,9 +222,10 @@ PYEOF
   git add tools/package-driver-release-assets.py
   git -c user.name=GoNavi -c user.email=gonavi@example.test commit -q -m 'update packaging script'
 
+  # 发布打包脚本不参与驱动二进制构建，改动不应触发任何驱动重建
   actual="$(bash ./tools/detect-changed-driver-agents.sh --base "$base" --head HEAD 2>/dev/null)"
-  if [[ "$actual" != *"mariadb"* || "$actual" != *"clickhouse"* || "$actual" != *"duckdb"* || "$actual" != *"elasticsearch"* ]]; then
-    echo "expected packaging script change to trigger all driver builds, got: ${actual:-<empty>}" >&2
+  if [[ -n "$actual" ]]; then
+    echo "expected packaging script change to trigger no driver builds, got: ${actual}" >&2
     exit 1
   fi
 )
@@ -247,9 +248,10 @@ PYEOF
   git add tools/validate-driver-release-assets.py
   git -c user.name=GoNavi -c user.email=gonavi@example.test commit -q -m 'update release validation script'
 
+  # 发布校验脚本不参与驱动二进制构建，改动不应触发任何驱动重建
   actual="$(bash ./tools/detect-changed-driver-agents.sh --base "$base" --head HEAD 2>/dev/null)"
-  if [[ "$actual" != *"mariadb"* || "$actual" != *"clickhouse"* || "$actual" != *"duckdb"* || "$actual" != *"elasticsearch"* ]]; then
-    echo "expected release validation script change to trigger all driver builds, got: ${actual:-<empty>}" >&2
+  if [[ -n "$actual" ]]; then
+    echo "expected release validation script change to trigger no driver builds, got: ${actual}" >&2
     exit 1
   fi
 )

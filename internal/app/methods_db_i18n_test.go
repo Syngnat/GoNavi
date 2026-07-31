@@ -119,162 +119,6 @@ func (f *fakeManagedExecOnlyDB) OpenSessionExecer(ctx context.Context) (db.State
 
 var _ db.SessionExecerProvider = (*fakeManagedExecOnlyDB)(nil)
 
-func TestMethodsDBConnectionAndMongoMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db.go")
-	if err != nil {
-		t.Fatalf("read methods_db.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func validateTestConnectionInputWithText": {
-			rawMessages: []string{
-				`"请先选择数据源类型"`,
-				`"请填写 ClickHouse 主机地址或连接 URI"`,
-			},
-			keys: []string{
-				"db.backend.error.data_source_type_required",
-				"db.backend.error.clickhouse_address_required",
-			},
-		},
-		"func (a *App) DBConnect": {
-			rawMessages: []string{`Message: "连接成功"`},
-			keys:        []string{"db.backend.message.connect_success"},
-		},
-		"func (a *App) DBReleaseConnection": {
-			rawMessages: []string{`Message: "连接已释放"`},
-			keys:        []string{"db.backend.message.release_success"},
-		},
-		"func (a *App) TestConnection": {
-			rawMessages: []string{
-				`Message: "连接成功"`,
-				`fmt.Sprintf("连接成功但释放测试连接失败：%v", closeErr)`,
-			},
-			keys: []string{
-				"db.backend.message.connect_success",
-				"db.backend.error.test_connection_close_failed",
-			},
-		},
-		"func (a *App) MongoDiscoverMembers": {
-			rawMessages: []string{
-				`Message: "当前 MongoDB 驱动不支持成员发现"`,
-				`fmt.Sprintf("发现 %d 个成员"`,
-			},
-			keys: []string{
-				"db.backend.error.mongo_member_discovery_unsupported",
-				"db.backend.message.mongo_members_discovered",
-			},
-		},
-		"func buildCreateSchemaSQLWithText": {
-			rawMessages: []string{
-				`"模式名称不能为空"`,
-				`"当前数据源（%s）暂不支持通过此入口新建模式"`,
-			},
-			keys: []string{
-				"db.backend.error.schema_name_required",
-				"db.backend.error.schema_create_unsupported",
-			},
-		},
-		"func buildRenameSchemaSQLWithText": {
-			rawMessages: []string{
-				`"模式名称不能为空"`,
-				`"新旧模式名称不能相同"`,
-				`"当前数据源（%s）暂不支持通过此入口编辑模式"`,
-			},
-			keys: []string{
-				"db.backend.error.schema_name_required",
-				"db.backend.error.schema_same_name",
-				"db.backend.error.schema_rename_unsupported",
-			},
-		},
-		"func buildDropSchemaSQLWithText": {
-			rawMessages: []string{
-				`"模式名称不能为空"`,
-				`"当前数据源（%s）暂不支持通过此入口删除模式"`,
-			},
-			keys: []string{
-				"db.backend.error.schema_name_required",
-				"db.backend.error.schema_drop_unsupported",
-			},
-		},
-		"func resolveSchemaDDLTargetDatabaseWithText": {
-			rawMessages: []string{`"目标数据库不能为空"`},
-			keys:        []string{"db.backend.error.target_database_required"},
-		},
-		"func (a *App) CreateSchema": {
-			rawMessages: []string{`Message: "模式创建成功"`},
-			keys:        []string{"db.backend.message.schema_created"},
-		},
-		"func (a *App) RenameSchema": {
-			rawMessages: []string{`Message: "模式重命名成功"`},
-			keys:        []string{"db.backend.message.schema_renamed"},
-		},
-		"func (a *App) DropSchema": {
-			rawMessages: []string{`Message: "模式删除成功"`},
-			keys:        []string{"db.backend.message.schema_dropped"},
-		},
-		"func (a *App) CreateDatabase": {
-			rawMessages: []string{
-				`Message: "数据库名称不能为空"`,
-				`Message: "Sphinx 暂不支持创建数据库"`,
-				`"数据库创建成功"`,
-				`"当前数据源（%s）的「数据库」实际为用户/Schema，暂不支持通过此入口创建，请使用 SQL 编辑器执行 CREATE USER 语句"`,
-			},
-			keys: []string{
-				"db.backend.error.database_name_required",
-				"db.backend.error.database_create_sphinx_unsupported",
-				"db.backend.error.database_create_user_schema_unsupported",
-				"db.backend.message.database_created",
-			},
-		},
-		"func (a *App) RenameDatabase": {
-			rawMessages: []string{
-				`Message: "数据库名称不能为空"`,
-				`Message: "新旧数据库名称不能相同"`,
-				`Message: "数据库重命名成功"`,
-				`Message: "MySQL/MariaDB/OceanBase/StarRocks/Sphinx 不支持直接重命名数据库，请新建库后迁移数据"`,
-				`"当前数据源(%s)暂不支持重命名数据库"`,
-			},
-			keys: []string{
-				"db.backend.error.database_name_required",
-				"db.backend.error.database_same_name",
-				"db.backend.error.database_rename_direct_unsupported",
-				"db.backend.error.database_rename_unsupported",
-				"db.backend.message.database_renamed",
-			},
-		},
-		"func (a *App) DropDatabase": {
-			rawMessages: []string{
-				`Message: "数据库名称不能为空"`,
-				`"当前数据源(%s)暂不支持删除数据库"`,
-				`Message: "数据库删除成功"`,
-			},
-			keys: []string{
-				"db.backend.error.database_name_required",
-				"db.backend.error.database_drop_unsupported",
-				"db.backend.message.database_dropped",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsDBFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw DB backend text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference DB backend i18n key %q", signature, key)
-			}
-		}
-	}
-}
-
 func TestMethodsDBConnectionAndMongoCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -352,6 +196,9 @@ func TestMethodsDBConnectionValidationAndReleaseUseEnglishMessages(t *testing.T)
 func TestMethodsDBConnectUsesCurrentLanguageForDriverRuntimeReason(t *testing.T) {
 	tmpDir := t.TempDir()
 	db.SetExternalDriverDownloadDirectory(tmpDir)
+	t.Cleanup(func() {
+		db.SetExternalDriverDownloadDirectory("")
+	})
 
 	app := NewAppWithSecretStore(newFakeAppSecretStore())
 	app.configDir = tmpDir
@@ -518,39 +365,6 @@ func TestMethodsDBDatabaseDDLSuccessUsesEnglishMessages(t *testing.T) {
 	}
 }
 
-func TestMethodsDBQueryMultiMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db.go")
-	if err != nil {
-		t.Fatalf("read methods_db.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	// DBQueryMulti only selects the audit policy; the shared execution path owns
-	// all user-facing multi-statement messages.
-	functionSource := methodsDBFunctionSource(t, source, "func (a *App) dbQueryMulti")
-	rawMessages := []string{
-		`fmt.Sprintf("第 %d 条语句执行失败: %v", idx+1, err)`,
-		`fmt.Sprintf("（前 %d 条已执行成功）", len(resultSets))`,
-		`fmt.Sprintf("当前数据源（%s）本次未走原生多语句结果路径，已自动拆分为 %d 条语句逐条执行。", runConfig.Type, len(statements))`,
-	}
-	keys := []string{
-		"db.backend.error.multi_statement_execution_failed",
-		"db.backend.error.multi_statement_previous_success",
-		"db.backend.message.multi_statement_sequential_fallback",
-	}
-
-	for _, rawMessage := range rawMessages {
-		if strings.Contains(functionSource, rawMessage) {
-			t.Fatalf("DBQueryMulti still contains raw multi-statement text %q", rawMessage)
-		}
-	}
-	for _, key := range keys {
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("DBQueryMulti does not reference multi-statement i18n key %q", key)
-		}
-	}
-}
-
 func TestMethodsDBQueryMultiCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -633,95 +447,6 @@ func TestMethodsDBQueryMultiSequentialFallbackUsesEnglishMessages(t *testing.T) 
 	}
 	if result.Message != "The current data source (mysql) did not use the native multi-statement result path for this execution. It was automatically split into 2 statements and executed sequentially." {
 		t.Fatalf("expected localized sequential fallback message, got %q", result.Message)
-	}
-}
-
-func TestMethodsDBManagedTransactionMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db_transaction.go")
-	if err != nil {
-		t.Fatalf("read methods_db_transaction.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	functionSource := methodsDBFunctionSource(t, source, "func (a *App) finishManagedSQLTransaction")
-	rawMessages := []string{
-		`Message: "事务 ID 不能为空"`,
-		`Message: "事务不存在或已结束"`,
-		`fmt.Sprintf("事务%s失败: %v", action, execErr)`,
-		`fmt.Sprintf("事务%s成功，但关闭会话失败: %v", action, closeErr)`,
-		`Message: "事务已提交"`,
-		`Message: "事务已回滚"`,
-		`action := "回滚"`,
-		`action = "提交"`,
-	}
-	keys := []string{
-		"db.backend.error.transaction_id_required",
-		"db.backend.error.transaction_not_found",
-		"db.backend.error.transaction_commit_failed",
-		"db.backend.error.transaction_rollback_failed",
-		"db.backend.error.transaction_commit_close_failed",
-		"db.backend.error.transaction_rollback_close_failed",
-		"db.backend.message.transaction_committed",
-		"db.backend.message.transaction_rolled_back",
-	}
-
-	for _, rawMessage := range rawMessages {
-		if strings.Contains(functionSource, rawMessage) {
-			t.Fatalf("finishManagedSQLTransaction still contains raw transaction text %q", rawMessage)
-		}
-	}
-	for _, key := range keys {
-		if !strings.Contains(functionSource, key) {
-			t.Fatalf("finishManagedSQLTransaction does not reference transaction i18n key %q", key)
-		}
-	}
-}
-
-func TestMethodsDBManagedTransactionExecutionMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db_transaction.go")
-	if err != nil {
-		t.Fatalf("read methods_db_transaction.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func (a *App) DBQueryMultiTransactional": {
-			rawMessages: []string{
-				`fmt.Sprintf("当前数据源（%s）不支持 SQL 编辑器托管事务", transactionDBType)`,
-				`fmt.Errorf("%v；回滚失败: %w", err, rollbackErr)`,
-			},
-			keys: []string{
-				"db.backend.error.managed_transaction_unsupported",
-				"db.backend.error.transaction_rollback_failed",
-			},
-		},
-		"func executeManagedSQLTransactionStatementsWithObserver": {
-			rawMessages: []string{
-				`fmt.Errorf("当前事务会话不支持查询语句")`,
-				`fmt.Errorf("第 %d 条语句执行失败: %w", idx+1, err)`,
-			},
-			keys: []string{
-				"db.backend.error.transaction_query_unsupported",
-				"db.backend.error.multi_statement_execution_failed",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsDBFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw managed-transaction execution text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference managed-transaction execution i18n key %q", signature, key)
-			}
-		}
 	}
 }
 
@@ -1052,84 +777,6 @@ func TestMethodsDBManagedTransactionExecutionUsesEnglishMessages(t *testing.T) {
 	})
 }
 
-func TestMethodsDBTableDDLMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db.go")
-	if err != nil {
-		t.Fatalf("read methods_db.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func resolveCreateStatementWithFallbackWithText": {
-			rawMessages: []string{
-				`fmt.Errorf("表名不能为空")`,
-			},
-			keys: []string{
-				"db.backend.error.table_name_required",
-			},
-		},
-		"func buildFallbackCreateStatementWithText": {
-			rawMessages: []string{
-				`fmt.Errorf("表名不能为空")`,
-				`fmt.Errorf("未获取到字段定义，无法生成建表语句")`,
-				`fmt.Errorf("字段定义为空，无法生成建表语句")`,
-			},
-			keys: []string{
-				"db.backend.error.table_name_required",
-				"db.backend.error.table_columns_missing_for_ddl",
-				"db.backend.error.table_columns_empty_for_ddl",
-			},
-		},
-		"func (a *App) RenameTable": {
-			rawMessages: []string{
-				`Message: "表名不能为空"`,
-				`Message: "新旧表名不能相同"`,
-				`Message: "新表名不能包含 schema 或数据库前缀"`,
-				`"当前数据源(%s)暂不支持重命名表"`,
-				`Message: "旧表名不能为空"`,
-				`Message: "表重命名成功"`,
-			},
-			keys: []string{
-				"db.backend.error.table_name_required",
-				"db.backend.error.table_same_name",
-				"db.backend.error.table_new_name_no_qualifier",
-				"db.backend.error.table_rename_unsupported",
-				"db.backend.error.old_table_name_required",
-				"db.backend.message.table_renamed",
-			},
-		},
-		"func (a *App) DropTable": {
-			rawMessages: []string{
-				`Message: "表名不能为空"`,
-				`"当前数据源(%s)暂不支持删除表"`,
-				`Message: "表删除成功"`,
-			},
-			keys: []string{
-				"db.backend.error.table_name_required",
-				"db.backend.error.table_drop_unsupported",
-				"db.backend.message.table_dropped",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsDBFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw DB table text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference DB table i18n key %q", signature, key)
-			}
-		}
-	}
-}
-
 func TestMethodsDBTableDDLCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -1341,64 +988,6 @@ func TestMethodsDBShowCreateTableFallbackUsesEnglishMessages(t *testing.T) {
 	})
 }
 
-func TestMethodsDBViewDDLMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db.go")
-	if err != nil {
-		t.Fatalf("read methods_db.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func (a *App) DropView": {
-			rawMessages: []string{
-				`Message: "视图名称不能为空"`,
-				`"当前数据源(%s)暂不支持删除视图"`,
-				`Message: "视图删除成功"`,
-			},
-			keys: []string{
-				"db.backend.error.view_name_required",
-				"db.backend.error.view_drop_unsupported",
-				"db.backend.message.view_dropped",
-			},
-		},
-		"func (a *App) RenameView": {
-			rawMessages: []string{
-				`Message: "视图名称不能为空"`,
-				`Message: "新旧视图名称不能相同"`,
-				`Message: "新视图名不能包含 schema 或数据库前缀"`,
-				`Message: "旧视图名不能为空"`,
-				`"当前数据源(%s)暂不支持重命名视图"`,
-				`Message: "视图重命名成功"`,
-			},
-			keys: []string{
-				"db.backend.error.view_name_required",
-				"db.backend.error.view_same_name",
-				"db.backend.error.view_new_name_no_qualifier",
-				"db.backend.error.old_view_name_required",
-				"db.backend.error.view_rename_unsupported",
-				"db.backend.message.view_renamed",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsDBFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw DB view text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference DB view i18n key %q", signature, key)
-			}
-		}
-	}
-}
-
 func TestMethodsDBViewDDLCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -1524,51 +1113,6 @@ func TestMethodsDBViewDDLSuccessUsesEnglishMessages(t *testing.T) {
 	}
 	if dropped.Message != "View dropped" {
 		t.Fatalf("expected localized drop view success message, got %q", dropped.Message)
-	}
-}
-
-func TestMethodsDBRoutineDDLMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db.go")
-	if err != nil {
-		t.Fatalf("read methods_db.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func (a *App) DropFunction": {
-			rawMessages: []string{
-				`Message: "函数/存储过程名称不能为空"`,
-				`"当前数据源(%s)暂不支持删除函数/存储过程"`,
-				`Message: "DuckDB 暂不支持存储过程"`,
-				`label := "函数"`,
-				`label = "存储过程"`,
-				`fmt.Sprintf("%s删除成功", label)`,
-			},
-			keys: []string{
-				"db.backend.error.routine_name_required",
-				"db.backend.error.routine_drop_unsupported",
-				"db.backend.error.duckdb_procedure_drop_unsupported",
-				"db.backend.message.function_dropped",
-				"db.backend.message.procedure_dropped",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsDBFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw DB routine text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference DB routine i18n key %q", signature, key)
-			}
-		}
 	}
 }
 

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Tabs, Tooltip, message, type MenuProps } from 'antd';
-import { BugOutlined, CloseOutlined, CopyOutlined, EyeInvisibleOutlined, RobotOutlined } from '@ant-design/icons';
+import { BugOutlined, ClearOutlined, CloseOutlined, CopyOutlined, EyeInvisibleOutlined, PushpinOutlined, RobotOutlined } from '@ant-design/icons';
 
+import { useStore } from '../store';
 import type { EditRowLocator } from '../utils/rowLocator';
 import type { GridSortInfoItem } from '../utils/dataGridSort';
 import type { QueryResultPaginationState } from '../utils/queryResultPagination';
@@ -52,6 +53,7 @@ export type QueryEditorResultSet = {
     pkLoading?: boolean;
     sortInfo?: GridSortInfoItem[];
     page?: QueryResultPaginationState & { loading?: boolean };
+    pinned?: boolean;
 };
 
 export const resolveEffectiveActiveResultKey = (
@@ -88,6 +90,7 @@ interface QueryEditorResultsPanelProps {
     onCloseResultTabsToLeft: (key: string) => void;
     onCloseResultTabsToRight: (key: string) => void;
     onCloseAllResultTabs: () => void;
+    onResultPinnedChange: (key: string, pinned: boolean) => void;
     onOpenResultInWindow?: (key: string, preferred?: OpenResultInWindowPreferred) => void;
     onReloadResult: (key: string, sql: string) => void;
     onResultPageChange: (key: string, page: number, pageSize: number) => void;
@@ -150,6 +153,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     onCloseResultTabsToLeft,
     onCloseResultTabsToRight,
     onCloseAllResultTabs,
+    onResultPinnedChange,
     onOpenResultInWindow,
     onReloadResult,
     onResultPageChange,
@@ -161,6 +165,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
 }) => {
     const i18n = useOptionalI18n();
     const t = i18n?.t ?? defaultTranslate;
+    const clearSqlLogs = useStore(state => state.clearSqlLogs);
     const globalHiddenColumns = useGlobalHiddenColumns();
     const [draggingResultKey, setDraggingResultKey] = useState<string | null>(null);
     const [detachDragPreview, setDetachDragPreview] = useState<DetachDragPreviewState | null>(null);
@@ -471,10 +476,23 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     );
 
     function buildResultTabMenuItems(key: string, index: number): MenuProps['items'] {
+        const result = resultSets[index];
         const comparableCount = resultSets.filter(
             (rs) => rs.resultType !== 'message' && !isAffectedRowsResult(rs) && Array.isArray(rs.columns) && rs.columns.length > 0,
         ).length;
+        const hasClosableOtherResult = resultSets.some((item) => item.key !== key && !item.pinned);
+        const hasClosableResultToLeft = resultSets.some((item, itemIndex) => itemIndex < index && !item.pinned);
+        const hasClosableResultToRight = resultSets.some((item, itemIndex) => itemIndex > index && !item.pinned);
+        const hasClosableResult = resultSets.some((item) => !item.pinned);
         return [
+            {
+                key: result?.pinned ? 'unpin' : 'pin',
+                label: t(result?.pinned
+                    ? 'query_editor.results_panel.menu.unpin'
+                    : 'query_editor.results_panel.menu.pin'),
+                onClick: () => onResultPinnedChange(key, !result?.pinned),
+            },
+            { type: 'divider' as const },
             ...(onOpenResultInWindow
                 ? [{
                     key: 'open-in-window',
@@ -490,11 +508,11 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     onClick: () => onCompareResult(key),
                 }, { type: 'divider' as const }]
                 : []),
-            { key: 'close-other', label: t('query_editor.results_panel.menu.close_other'), disabled: resultSets.length <= 1, onClick: () => onCloseOtherResultTabs(key) },
-            { key: 'close-left', label: t('query_editor.results_panel.menu.close_left'), disabled: index <= 0, onClick: () => onCloseResultTabsToLeft(key) },
-            { key: 'close-right', label: t('query_editor.results_panel.menu.close_right'), disabled: index >= resultSets.length - 1, onClick: () => onCloseResultTabsToRight(key) },
+            { key: 'close-other', label: t('query_editor.results_panel.menu.close_other'), disabled: !hasClosableOtherResult, onClick: () => onCloseOtherResultTabs(key) },
+            { key: 'close-left', label: t('query_editor.results_panel.menu.close_left'), disabled: !hasClosableResultToLeft, onClick: () => onCloseResultTabsToLeft(key) },
+            { key: 'close-right', label: t('query_editor.results_panel.menu.close_right'), disabled: !hasClosableResultToRight, onClick: () => onCloseResultTabsToRight(key) },
             { type: 'divider' },
-            { key: 'close-all', label: t('query_editor.results_panel.menu.close_all'), disabled: resultSets.length === 0, onClick: onCloseAllResultTabs },
+            { key: 'close-all', label: t('query_editor.results_panel.menu.close_all'), disabled: !hasClosableResult, onClick: onCloseAllResultTabs },
         ];
     }
 
@@ -515,6 +533,11 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                                 : t('query_editor.results_panel.tab.result', { index: idx + 1 })}
                         </span>
                     </Tooltip>
+                    {rs.pinned ? (
+                        <Tooltip title={t('query_editor.results_panel.menu.unpin')}>
+                            <PushpinOutlined className="query-result-tab-pin" />
+                        </Tooltip>
+                    ) : null}
                     {(() => {
                         if (rs.resultType === 'message') return <span className="query-result-tab-count">i</span>;
                         if (isAffectedRowsResult(rs)) return <span className="query-result-tab-count">✓</span>;
@@ -572,7 +595,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 );
             }
             const visibleColumns = resolveVisibleQueryResultColumns(rs.columns, globalHiddenColumns);
-            const resultTableName = rs.metadataTableName || rs.tableName;
+            const resultTableName = rs.tableName;
             return (
                 <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                     {Array.isArray(rs.messages) && rs.messages.length > 0 ? (
@@ -675,11 +698,24 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
 
     const tabsHideButton = (
         <Tooltip title={hideTooltipTitle}>
-            <Button aria-label={t('query_editor.results_panel.aria.hide')} className="query-result-panel-hide query-result-panel-hide-compact" type="text" size="small" icon={<EyeInvisibleOutlined />} onClick={onHide} />
+            <Button aria-label={t('query_editor.results_panel.aria.hide')} className="query-result-panel-hide query-result-panel-tab-action" type="text" size="small" icon={<EyeInvisibleOutlined />} onClick={onHide} />
         </Tooltip>
     );
+    const tabsClearButton = (
+        <Tooltip title={t('log_panel.action.clear')}>
+            <Button aria-label={t('log_panel.action.clear')} className="query-result-panel-clear query-result-panel-tab-action" type="text" size="small" icon={<ClearOutlined />} onClick={clearSqlLogs} />
+        </Tooltip>
+    );
+    const isSqlLogActive = resolvedActiveResultKey === QUERY_EDITOR_SQL_LOG_TAB_KEY;
     const tabsExtraContent = !activeResultUsesDataGrid
-        ? { right: <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>{tabsHideButton}</div> }
+        ? {
+            right: (
+                <div className="query-result-panel-tab-actions">
+                    {isSqlLogActive && tabsClearButton}
+                    {tabsHideButton}
+                </div>
+            ),
+        }
         : undefined;
 
     return (
@@ -690,7 +726,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
               .query-result-tabs .ant-tabs-nav-wrap { flex: 0 1 auto; min-width: 0; }
               .query-result-tabs .ant-tabs-extra-content { display: inline-flex; align-items: center; padding-left: 8px; }
               .query-result-tabs .ant-tabs-nav-list { align-items: center; width: auto; }
-              .query-result-tabs .ant-tabs-tab { width: auto !important; min-width: 0 !important; max-width: 148px !important; height: 30px !important; min-height: 30px; margin: 4px 6px 4px 0 !important; padding: 0 9px !important; border-radius: 999px !important; border: 0.5px solid transparent !important; border-right: 0.5px solid transparent !important; align-items: center !important; justify-content: center !important; }
+              .query-result-tabs .ant-tabs-tab { width: auto !important; min-width: 0 !important; max-width: 148px !important; height: 30px !important; min-height: 30px; margin: 4px 6px 4px 0 !important; padding: 0 9px !important; border-radius: 8px !important; border: 0.5px solid transparent !important; border-right: 0.5px solid transparent !important; align-items: center !important; justify-content: center !important; }
               .query-result-tabs .ant-tabs-tab-btn { width: auto !important; height: 100%; max-width: 100%; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 14px !important; line-height: 1 !important; }
               .query-result-tabs .ant-tabs-tab.ant-tabs-tab-active::after { display: none; }
               .query-result-tabs .ant-tabs-content-holder, .query-result-tabs .ant-tabs-content, .query-result-tabs .ant-tabs-tabpane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -708,13 +744,15 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 cursor: grabbing !important;
               }
               .query-result-tab-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+              .query-result-tab-pin { flex: 0 0 auto; font-size: 12px; }
               .query-result-tab-count { flex: 0 0 auto; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(148, 163, 184, 0.16); color: inherit; font-size: 11px; font-weight: 700; line-height: 17px; }
               .query-result-tab-close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; color: #999; cursor: pointer; flex: 0 0 auto; }
               .query-result-tab-close:hover { background: rgba(0, 0, 0, 0.06); color: #666; }
               .query-result-panel-header { flex: 0 0 auto; min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.06); background: rgba(255, 255, 255, 0.9); }
               .query-result-panel-header-title { font-size: 13px; font-weight: 600; color: #666; }
               .query-result-panel-hide { display: inline-flex; align-items: center; gap: 4px; }
-              .query-result-panel-hide-compact { min-width: 28px; padding: 0 6px; justify-content: center; }
+              .query-result-panel-tab-actions { display: inline-flex; flex-direction: row; align-items: center; gap: 4px; }
+              .query-result-tabs .ant-tabs-extra-content .query-result-panel-tab-action { width: 28px; min-width: 28px; height: 28px !important; min-height: 28px !important; padding: 0 !important; display: inline-flex; align-items: center; justify-content: center; }
             `}</style>
             <div data-gonavi-close-shortcut-scope="result" className={isV2Ui ? 'gn-v2-query-results' : undefined} style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', padding: 0, display: 'flex', flexDirection: 'column' }}>
                 {tabItems.length > 0 ? (

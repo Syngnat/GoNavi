@@ -60,7 +60,14 @@ func (d *DamengDB) getDSN(config connection.ConnectionConfig) string {
 	return dsn + "?" + encoded
 }
 
-func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
+func (d *DamengDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = d.Close()
+	defer func() {
+		if err != nil {
+			_ = d.Close()
+		}
+	}()
+
 	runConfig := config
 	if runConfig.UseSSL {
 		if strings.TrimSpace(runConfig.SSLCertPath) == "" || strings.TrimSpace(runConfig.SSLKeyPath) == "" {
@@ -72,7 +79,7 @@ func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
 		// Create SSH tunnel with local port forwarding
 		logger.Infof("达梦数据库使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -132,7 +139,7 @@ func (d *DamengDB) Connect(config connection.ConnectionConfig) error {
 func (d *DamengDB) Close() error {
 	// Close SSH forwarder first if exists
 	if d.forwarder != nil {
-		if err := d.forwarder.Close(); err != nil {
+		if err := d.forwarder.Release(); err != nil {
 			logger.Warnf("关闭达梦数据库 SSH 端口转发失败：%v", err)
 		}
 		d.forwarder = nil
@@ -298,7 +305,17 @@ func (d *DamengDB) GetCreateStatement(dbName, tableName string) (string, error) 
 
 	if len(data) > 0 {
 		if val, ok := data[0]["DDL"]; ok {
-			return fmt.Sprintf("%v", val), nil
+			ddl := fmt.Sprintf("%v", val)
+			commentData, _, commentErr := d.Query(buildDamengTableCommentQuery(dbName, tableName))
+			if commentErr != nil {
+				logger.Warnf("达梦 GetCreateStatement 表注释元数据查询失败，已返回基础 DDL：%v", commentErr)
+				return ddl, nil
+			}
+			if len(commentData) == 0 {
+				return ddl, nil
+			}
+			comment := getDamengRowString(commentData[0], "TABLE_COMMENT", "COMMENT", "COMMENTS")
+			return appendDamengTableCommentDDL(ddl, dbName, tableName, comment), nil
 		}
 	}
 	return "", localizedDatabaseRuntimeError("db.backend.error.create_table_statement_not_found", nil)
@@ -314,6 +331,14 @@ func (d *DamengDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 	if len(columns) == 0 {
 		return columns, nil
 	}
+	if !hasDamengColumnComments(columns) {
+		commentData, _, commentErr := d.Query(buildDamengColumnCommentsQuery(dbName, tableName))
+		if commentErr != nil {
+			logger.Warnf("达梦 GetColumns 原生字段注释查询失败，已返回基础字段定义：%v", commentErr)
+		} else {
+			columns = applyDamengColumnComments(columns, commentData)
+		}
+	}
 
 	autoIncrementData, _, autoIncrementErr := d.Query(buildDamengAutoIncrementColumnsQuery(dbName, tableName))
 	if autoIncrementErr != nil {
@@ -325,40 +350,11 @@ func (d *DamengDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 }
 
 func (d *DamengDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
-	query := fmt.Sprintf(`SELECT index_name, column_name, uniqueness 
-		FROM all_ind_columns 
-		JOIN all_indexes USING (index_name, owner) 
-		WHERE table_owner = '%s' AND table_name = '%s'`,
-		strings.ToUpper(dbName), strings.ToUpper(tableName))
-
-	if dbName == "" {
-		query = fmt.Sprintf(`SELECT index_name, column_name, uniqueness 
-			FROM user_ind_columns 
-			JOIN user_indexes USING (index_name) 
-			WHERE table_name = '%s'`, strings.ToUpper(tableName))
-	}
-
-	data, _, err := d.Query(query)
+	data, _, err := d.Query(buildDamengIndexesQuery(dbName, tableName))
 	if err != nil {
 		return nil, err
 	}
-
-	var indexes []connection.IndexDefinition
-	for _, row := range data {
-		unique := 1
-		if val, ok := row["UNIQUENESS"]; ok && val == "UNIQUE" {
-			unique = 0
-		}
-
-		idx := connection.IndexDefinition{
-			Name:       fmt.Sprintf("%v", row["INDEX_NAME"]),
-			ColumnName: fmt.Sprintf("%v", row["COLUMN_NAME"]),
-			NonUnique:  unique,
-			IndexType:  "BTREE",
-		}
-		indexes = append(indexes, idx)
-	}
-	return indexes, nil
+	return buildDamengIndexDefinitions(data), nil
 }
 
 func (d *DamengDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {

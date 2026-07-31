@@ -46,7 +46,27 @@ class FakeAttributeHost {
   }
 }
 
+class FakeStyle {
+  private properties = new Map<string, string>();
+
+  setProperty(name: string, value: string) {
+    this.properties.set(name, value);
+  }
+
+  removeProperty(name: string) {
+    const previous = this.properties.get(name) || '';
+    this.properties.delete(name);
+    return previous;
+  }
+
+  getPropertyValue(name: string) {
+    return this.properties.get(name) || '';
+  }
+}
+
 class FakeHTMLElement extends FakeAttributeHost {
+  style = new FakeStyle();
+
   getBoundingClientRect() {
     return { right: 240, width: 240 };
   }
@@ -81,7 +101,6 @@ describe('useAppSidebarResize interaction cleanup', () => {
   let resize: ReturnType<typeof useAppSidebarResize> | null = null;
   let fakeWindow: FakeEventTarget & { getComputedStyle: () => { minWidth: string; maxWidth: string }; innerWidth: number };
   let fakeDocument: FakeEventTarget & { body: FakeBody };
-  let ghost: { style: { display: string; left: string } };
   let scheduledFrames: Map<number, FrameRequestCallback>;
   let nextFrameId: number;
   let setSidebarWidth: ReturnType<typeof vi.fn>;
@@ -117,8 +136,6 @@ describe('useAppSidebarResize interaction cleanup', () => {
     fakeDocument = Object.assign(new FakeEventTarget(), {
       body: new FakeBody(),
     });
-    ghost = { style: { display: 'none', left: '' } };
-
     Object.defineProperty(globalThis, 'window', { configurable: true, value: fakeWindow });
     Object.defineProperty(globalThis, 'document', { configurable: true, value: fakeDocument });
     Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: FakeHTMLElement });
@@ -139,7 +156,6 @@ describe('useAppSidebarResize interaction cleanup', () => {
       renderer = create(<Harness />);
     });
     (resize!.siderRef as React.MutableRefObject<any>).current = new FakeHTMLElement();
-    (resize!.ghostRef as React.MutableRefObject<any>).current = ghost;
   });
 
   afterEach(() => {
@@ -170,7 +186,6 @@ describe('useAppSidebarResize interaction cleanup', () => {
       userSelect: 'none',
       webkitUserSelect: 'none',
     });
-    expect(ghost.style.display).toBe('block');
     expect(fakeWindow.listenerCount('blur')).toBe(1);
 
     act(() => fakeWindow.dispatch('blur'));
@@ -180,7 +195,6 @@ describe('useAppSidebarResize interaction cleanup', () => {
       userSelect: 'text',
       webkitUserSelect: 'auto',
     });
-    expect(ghost.style.display).toBe('none');
     expect(fakeDocument.listenerCount('mousemove')).toBe(0);
     expect(fakeDocument.listenerCount('mouseup')).toBe(0);
     expect(fakeWindow.listenerCount('blur')).toBe(0);
@@ -193,14 +207,36 @@ describe('useAppSidebarResize interaction cleanup', () => {
     act(() => fakeDocument.dispatch('mousemove', { buttons: 0, clientX: 260 }));
 
     expect(setSidebarWidth).toHaveBeenCalledWith(300);
-    expect(ghost.style.display).toBe('none');
+    expect((resize?.siderRef.current as unknown as FakeHTMLElement).style.getPropertyValue('--gonavi-sidebar-resize-width')).toBe('300px');
     expect(fakeDocument.body.style.cursor).toBe('wait');
     expect(fakeDocument.body.style.userSelect).toBe('text');
     expect(fakeDocument.listenerCount('mousemove')).toBe(0);
     expect(fakeWindow.listenerCount('blur')).toBe(0);
   });
 
+  it('previews the sidebar width while dragging and persists it only after release', () => {
+    const sider = resize!.siderRef.current as unknown as FakeHTMLElement;
+
+    beginResize();
+    act(() => fakeDocument.dispatch('mousemove', { buttons: 1, clientX: 260 }));
+
+    expect(setSidebarWidth).not.toHaveBeenCalled();
+    expect(sider.style.getPropertyValue('--gonavi-sidebar-resize-width')).toBe('240px');
+
+    act(() => flushAnimationFrames(scheduledFrames, 1));
+
+    expect(sider.style.getPropertyValue('--gonavi-sidebar-resize-width')).toBe('300px');
+    expect(setSidebarWidth).not.toHaveBeenCalled();
+
+    act(() => fakeDocument.dispatch('mouseup', { clientX: 260 }));
+
+    expect(setSidebarWidth).toHaveBeenCalledTimes(1);
+    expect(setSidebarWidth).toHaveBeenCalledWith(300);
+  });
+
   it('cancels pending work and restores interaction state when unmounted mid-resize', () => {
+    const sider = resize!.siderRef.current as unknown as FakeHTMLElement;
+
     beginResize();
     act(() => fakeDocument.dispatch('mousemove', { buttons: 1, clientX: 250 }));
     expect(scheduledFrames.size).toBe(1);
@@ -210,7 +246,7 @@ describe('useAppSidebarResize interaction cleanup', () => {
 
     expect(scheduledFrames.size).toBe(0);
     expect(cancelAnimationFrame).toHaveBeenCalledTimes(1);
-    expect(ghost.style.display).toBe('none');
+    expect(sider.style.getPropertyValue('--gonavi-sidebar-resize-width')).toBe('');
     expect(fakeDocument.body.style).toEqual({
       cursor: 'wait',
       userSelect: 'text',
@@ -239,5 +275,6 @@ describe('useAppSidebarResize interaction cleanup', () => {
 
     expect(sider.getAttribute('data-sidebar-resizing')).toBe(null);
     expect(fakeDocument.body.getAttribute('data-sidebar-resizing')).toBe(null);
+    expect(sider.style.getPropertyValue('--gonavi-sidebar-resize-width')).toBe('');
   });
 });

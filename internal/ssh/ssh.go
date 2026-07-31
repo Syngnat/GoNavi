@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/sync/singleflight"
 )
 
 // ViaSSHDialer registers a custom network for MySQL that proxies through SSH
@@ -103,19 +104,39 @@ func connectSSH(config connection.SSHConfig) (*ssh.Client, error) {
 	return client, nil
 }
 
-// RegisterSSHNetwork registers a unique network name for a specific SSH tunnel
+// sshNetworkName 按 SSH 目标确定性派生 go-sql-driver 的自定义 network 名。
+//
+// 必须是确定性的：mysql.RegisterDialContext 写入驱动内一张永不回收的全局 map
+// （DeregisterDialContext 在本仓库无任何调用点）。若每次调用都用时间戳生成新名字，
+// 每次（重）连接都会新增一条永久条目并钉住其闭包捕获的 ssh.Client，形成随重连线性增长的
+// SSH 连接与 goroutine 泄漏。相同目标复用同名注册后，map 大小收敛为 SSH 目标个数。
+//
+// 用 %q 做字段分隔以保证单射（host/user 里的引号会被转义），并只取短哈希，避免在
+// network 名与日志中泄露认证指纹明文。
+func sshNetworkName(key sshClientCacheKey) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%q %d %q %q", key.host, key.port, key.user, key.auth)))
+	return "ssh_" + hex.EncodeToString(sum[:8])
+}
+
+// RegisterSSHNetwork registers a network name for a specific SSH tunnel
 // Returns the network name to use in DSN
 func RegisterSSHNetwork(sshConfig connection.SSHConfig) (string, error) {
-	client, err := connectSSH(sshConfig)
-	if err != nil {
+	// 走缓存创建客户端，使其进入 sshClientCache，从而能被 CloseAllSSHClients 统一回收；
+	// 直接调 connectSSH 会产出一个既不入缓存、也无人关闭的孤立客户端。
+	if _, err := GetOrCreateSSHClient(sshConfig); err != nil {
 		return "", err
 	}
 
-	// Generate unique network name
-	netName := fmt.Sprintf("ssh_%s_%d", sshConfig.Host, time.Now().UnixNano())
+	netName := sshNetworkName(newSSHClientCacheKey(sshConfig))
 	logger.Infof("注册 SSH 网络：%s（地址=%s:%d 用户=%s）", netName, sshConfig.Host, sshConfig.Port, sshConfig.User)
 
+	// 闭包在拨号时才取客户端，不捕获固定实例：GetOrCreateSSHClient 会探测存活并在断开后重建，
+	// 因此这条注册项对同一目标可长期复用，也不会把一个已死的 client 永久钉在驱动的全局 map 里。
 	mysql.RegisterDialContext(netName, func(ctx context.Context, addr string) (net.Conn, error) {
+		client, err := GetOrCreateSSHClient(sshConfig)
+		if err != nil {
+			return nil, err
+		}
 		return dialContext(ctx, client, "tcp", addr)
 	})
 
@@ -142,6 +163,8 @@ func DialContextThroughSSH(ctx context.Context, config connection.SSHConfig, net
 var (
 	sshClientCache   = make(map[sshClientCacheKey]*ssh.Client)
 	sshClientCacheMu sync.RWMutex
+	sshClientFlights singleflight.Group
+	connectSSHClient = connectSSH
 	localForwarders  = make(map[forwarderCacheKey]*LocalForwarder)
 	forwarderMu      sync.RWMutex
 )
@@ -199,9 +222,16 @@ type LocalForwarder struct {
 	SSHClient  *ssh.Client
 	listener   net.Listener
 	closeChan  chan struct{}
-	closeOnce  sync.Once // 防止重复关闭
-	closed     bool      // 关闭状态标记
+	closeOnce  sync.Once
+	closed     bool
 	closedMu   sync.RWMutex
+
+	// shared/cacheKey identify a lease returned by AcquireLocalForwarder.
+	// The cached forwarder itself keeps shared nil and owns the listener.
+	shared    *LocalForwarder
+	cacheKey  forwarderCacheKey
+	leaseOnce sync.Once
+	refCount  int // guarded by forwarderMu; meaningful only on the cached forwarder
 }
 
 // NewLocalForwarder creates a new local port forwarder
@@ -294,8 +324,29 @@ func (f *LocalForwarder) handleConnection(localConn net.Conn) {
 	<-errc
 }
 
-// Close closes the forwarder (thread-safe, can be called multiple times)
+// Close releases a cached lease, or closes a standalone forwarder created by
+// NewLocalForwarder. It is thread-safe and can be called multiple times.
 func (f *LocalForwarder) Close() error {
+	if f == nil {
+		return nil
+	}
+	if f.shared != nil {
+		var err error
+		f.leaseOnce.Do(func() {
+			err = releaseLocalForwarder(f.cacheKey, f.shared)
+		})
+		return err
+	}
+	return f.closeUnderlying()
+}
+
+// Release releases this acquisition. It is an explicit lifecycle alias for
+// callers that obtained the forwarder through AcquireLocalForwarder.
+func (f *LocalForwarder) Release() error {
+	return f.Close()
+}
+
+func (f *LocalForwarder) closeUnderlying() error {
 	var err error
 	f.closeOnce.Do(func() {
 		f.closedMu.Lock()
@@ -313,13 +364,21 @@ func (f *LocalForwarder) Close() error {
 
 // IsClosed returns whether the forwarder is closed
 func (f *LocalForwarder) IsClosed() bool {
+	if f == nil {
+		return true
+	}
+	if f.shared != nil {
+		return f.shared.IsClosed()
+	}
 	f.closedMu.RLock()
 	defer f.closedMu.RUnlock()
 	return f.closed
 }
 
-// GetOrCreateLocalForwarder returns a cached forwarder or creates a new one
-func GetOrCreateLocalForwarder(sshConfig connection.SSHConfig, remoteHost string, remotePort int) (*LocalForwarder, error) {
+// AcquireLocalForwarder acquires a lease on a cached forwarder or creates one.
+// Each successful call must be paired with Release. The shared listener is
+// closed and evicted only after the last lease is released.
+func AcquireLocalForwarder(sshConfig connection.SSHConfig, remoteHost string, remotePort int) (*LocalForwarder, error) {
 	key := forwarderCacheKey{
 		ssh:        newSSHClientCacheKey(sshConfig),
 		remoteHost: remoteHost,
@@ -328,22 +387,15 @@ func GetOrCreateLocalForwarder(sshConfig connection.SSHConfig, remoteHost string
 	logKey := fmt.Sprintf("%s:%d:%s->%s:%d",
 		sshConfig.Host, sshConfig.Port, sshConfig.User, remoteHost, remotePort)
 
-	forwarderMu.RLock()
-	forwarder, exists := localForwarders[key]
-	forwarderMu.RUnlock()
-
-	// Check if exists and is still valid
-	if exists && forwarder != nil && !forwarder.IsClosed() {
-		logger.Infof("复用已有端口转发：%s", logKey)
-		return forwarder, nil
-	}
-
-	// Remove stale forwarder from cache
-	if exists {
-		forwarderMu.Lock()
-		delete(localForwarders, key)
+	forwarderMu.Lock()
+	if forwarder := localForwarders[key]; forwarder != nil && !forwarder.IsClosed() {
+		lease := acquireForwarderLeaseLocked(key, forwarder)
 		forwarderMu.Unlock()
+		logger.Infof("复用已有端口转发：%s", logKey)
+		return lease, nil
 	}
+	delete(localForwarders, key)
+	forwarderMu.Unlock()
 
 	forwarder, err := NewLocalForwarder(sshConfig, remoteHost, remotePort)
 	if err != nil {
@@ -351,20 +403,65 @@ func GetOrCreateLocalForwarder(sshConfig connection.SSHConfig, remoteHost string
 	}
 
 	forwarderMu.Lock()
+	if existing := localForwarders[key]; existing != nil && !existing.IsClosed() {
+		lease := acquireForwarderLeaseLocked(key, existing)
+		forwarderMu.Unlock()
+		_ = forwarder.closeUnderlying()
+		logger.Infof("复用已有端口转发：%s", logKey)
+		return lease, nil
+	}
+	delete(localForwarders, key)
 	localForwarders[key] = forwarder
+	lease := acquireForwarderLeaseLocked(key, forwarder)
 	forwarderMu.Unlock()
 
-	return forwarder, nil
+	return lease, nil
 }
 
-// CloseAllForwarders closes all local forwarders
+// GetOrCreateLocalForwarder is kept for internal compatibility. New callers
+// should use AcquireLocalForwarder so the lease ownership is explicit.
+func GetOrCreateLocalForwarder(sshConfig connection.SSHConfig, remoteHost string, remotePort int) (*LocalForwarder, error) {
+	return AcquireLocalForwarder(sshConfig, remoteHost, remotePort)
+}
+
+func acquireForwarderLeaseLocked(key forwarderCacheKey, shared *LocalForwarder) *LocalForwarder {
+	shared.refCount++
+	return &LocalForwarder{
+		LocalAddr:  shared.LocalAddr,
+		RemoteAddr: shared.RemoteAddr,
+		SSHClient:  shared.SSHClient,
+		shared:     shared,
+		cacheKey:   key,
+	}
+}
+
+func releaseLocalForwarder(key forwarderCacheKey, shared *LocalForwarder) error {
+	forwarderMu.Lock()
+	if shared.refCount > 0 {
+		shared.refCount--
+	}
+	if shared.refCount > 0 {
+		forwarderMu.Unlock()
+		return nil
+	}
+	if localForwarders[key] == shared {
+		delete(localForwarders, key)
+	}
+	forwarderMu.Unlock()
+
+	return shared.closeUnderlying()
+}
+
+// CloseAllForwarders force-closes all cached local forwarders regardless of
+// active leases.
 func CloseAllForwarders() {
 	forwarderMu.Lock()
 	defer forwarderMu.Unlock()
 
 	for _, forwarder := range localForwarders {
 		if forwarder != nil {
-			_ = forwarder.Close()
+			forwarder.refCount = 0
+			_ = forwarder.closeUnderlying()
 			logger.Infof("已关闭端口转发：本地 %s -> 远程 %s", forwarder.LocalAddr, forwarder.RemoteAddr)
 		}
 	}
@@ -374,7 +471,20 @@ func CloseAllForwarders() {
 // GetOrCreateSSHClient returns a cached SSH client or creates a new one
 func GetOrCreateSSHClient(config connection.SSHConfig) (*ssh.Client, error) {
 	key := newSSHClientCacheKey(config)
+	value, err, _ := sshClientFlights.Do(sshClientFlightKey(key), func() (interface{}, error) {
+		return getOrCreateSSHClient(config, key)
+	})
+	if err != nil {
+		return nil, err
+	}
+	client, ok := value.(*ssh.Client)
+	if !ok || client == nil {
+		return nil, fmt.Errorf("SSH client creation returned an invalid result")
+	}
+	return client, nil
+}
 
+func getOrCreateSSHClient(config connection.SSHConfig, key sshClientCacheKey) (*ssh.Client, error) {
 	sshClientCacheMu.RLock()
 	client, exists := sshClientCache[key]
 	sshClientCacheMu.RUnlock()
@@ -397,7 +507,7 @@ func GetOrCreateSSHClient(config connection.SSHConfig) (*ssh.Client, error) {
 	}
 
 	// Create new SSH client
-	client, err := connectSSH(config)
+	client, err := connectSSHClient(config)
 	if err != nil {
 		return nil, err
 	}
@@ -409,6 +519,10 @@ func GetOrCreateSSHClient(config connection.SSHConfig) (*ssh.Client, error) {
 
 	logger.Infof("已缓存 SSH 连接：%s", formatSSHClientKeyForLog(key))
 	return client, nil
+}
+
+func sshClientFlightKey(key sshClientCacheKey) string {
+	return fmt.Sprintf("%q\x00%d\x00%q\x00%s", key.host, key.port, key.user, key.auth)
 }
 
 // DialThroughSSH creates a connection through SSH tunnel

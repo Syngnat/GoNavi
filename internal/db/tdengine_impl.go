@@ -43,24 +43,33 @@ func (t *TDengineDB) getDSN(config connection.ConnectionConfig) string {
 		path = "/" + dbName
 	}
 
+	escapedUser := url.QueryEscape(user)
+	escapedPass := url.QueryEscape(pass)
 	netType := resolveTDengineNet(config)
 	params := url.Values{}
 	mergeConnectionParamsFromConfigWithAllowlist(params, config, tdengineConnectionParamNames, "taos", "taosws", "tdengine")
 	query := params.Encode()
-	dsn := fmt.Sprintf("%s:%s@%s(%s)%s", user, pass, netType, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), path)
+	dsn := fmt.Sprintf("%s:%s@%s(%s)%s", escapedUser, escapedPass, netType, net.JoinHostPort(config.Host, strconv.Itoa(config.Port)), path)
 	if query == "" {
 		return dsn
 	}
 	return dsn + "?" + query
 }
 
-func (t *TDengineDB) Connect(config connection.ConnectionConfig) error {
+func (t *TDengineDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = t.Close()
+	defer func() {
+		if err != nil {
+			_ = t.Close()
+		}
+	}()
+
 	runConfig := config
 
 	if config.UseSSH {
 		logger.Infof("TDengine 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -116,7 +125,7 @@ func (t *TDengineDB) Connect(config connection.ConnectionConfig) error {
 
 func (t *TDengineDB) Close() error {
 	if t.forwarder != nil {
-		if err := t.forwarder.Close(); err != nil {
+		if err := t.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 TDengine SSH 端口转发失败：%v", err)
 		}
 		t.forwarder = nil

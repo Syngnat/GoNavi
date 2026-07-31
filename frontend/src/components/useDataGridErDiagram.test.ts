@@ -1,11 +1,13 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ForeignKeyDefinition } from '../types';
 import type { ErDiagramTableSnapshot } from './dataGridErDiagramModel';
 import { collectErDiagramNeighborhood, useDataGridErDiagram } from './useDataGridErDiagram';
 
 const backendApp = vi.hoisted(() => ({
   DBGetColumns: vi.fn(),
+  DBGetDatabaseForeignKeys: vi.fn(),
   DBGetForeignKeys: vi.fn(),
   DBGetIndexes: vi.fn(),
   DBGetTables: vi.fn(),
@@ -128,12 +130,62 @@ describe('collectErDiagramNeighborhood', () => {
     );
     expect(twoHop.canExpandRelations).toBe(false);
   });
+
+  it('uses a prefetched foreign-key snapshot instead of scanning every table', async () => {
+    const unrelatedTables = Array.from({ length: 500 }, (_, index) => `unrelated_${index}`);
+    const schemaTableNames = ['orders', 'customers', 'order_items', ...unrelatedTables];
+    const loadSnapshot = vi.fn(async (tableName: string) => ({
+      tableName,
+      columns: [],
+      foreignKeys: [],
+      uniqueKeyGroups: [],
+    }));
+    const loadForeignKeys = vi.fn(async () => []);
+    const prefetchedForeignKeysByTable = new Map<string, ForeignKeyDefinition[]>(
+      schemaTableNames.map((tableName) => [tableName, []]),
+    );
+    prefetchedForeignKeysByTable.set('orders', [{
+      name: 'fk_orders_customer',
+      columnName: 'customer_id',
+      refTableName: 'customers',
+      refColumnName: 'id',
+      constraintName: 'fk_orders_customer',
+    }]);
+    prefetchedForeignKeysByTable.set('order_items', [{
+      name: 'fk_items_order',
+      columnName: 'order_id',
+      refTableName: 'orders',
+      refColumnName: 'id',
+      constraintName: 'fk_items_order',
+    }]);
+
+    const result = await collectErDiagramNeighborhood({
+      currentSnapshot: {
+        tableName: 'orders',
+        columns: [],
+        foreignKeys: [],
+        uniqueKeyGroups: [],
+      },
+      schemaTableNames,
+      relationDepth: 1,
+      loadSnapshot,
+      loadForeignKeys,
+      resolveTableName: (tableName) => tableName,
+      prefetchedForeignKeysByTable,
+    });
+
+    expect(result.relations.map((relation) => `${relation.sourceTableName}->${relation.targetTableName}`)).toEqual(
+      expect.arrayContaining(['orders->customers', 'order_items->orders']),
+    );
+    expect(loadForeignKeys).not.toHaveBeenCalled();
+  });
 });
 
 describe('useDataGridErDiagram cache invalidation', () => {
   beforeEach(() => {
     Object.values(backendApp).forEach((mock) => mock.mockReset());
     backendApp.DBGetColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetDatabaseForeignKeys.mockResolvedValue({ success: true, data: {} });
     backendApp.DBGetForeignKeys.mockResolvedValue({ success: true, data: [] });
     backendApp.DBGetIndexes.mockResolvedValue({ success: true, data: [] });
     backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ table: 'orders' }] });
@@ -196,6 +248,52 @@ describe('useDataGridErDiagram cache invalidation', () => {
         expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
       });
     });
+
+    act(() => {
+      renderer?.unmount();
+    });
+  });
+
+  it('loads one Kingbase foreign-key snapshot instead of querying every table', async () => {
+    const unrelatedTables = Array.from({ length: 500 }, (_, index) => ({
+      table: `ldf_server.unrelated_${index}`,
+    }));
+    backendApp.DBGetTables.mockResolvedValue({
+      success: true,
+      data: [{ table: 'ldf_server.orders' }, ...unrelatedTables],
+    });
+
+    let controller: ReturnType<typeof useDataGridErDiagram> | null = null;
+    let renderer: ReactTestRenderer | null = null;
+    const params = {
+      connections: [{
+        id: 'kingbase-er-snapshot-test',
+        config: {
+          type: 'kingbase',
+          host: '127.0.0.1',
+          port: 54321,
+          database: 'ldf_server_dbs_dev',
+        },
+      }],
+      connectionId: 'kingbase-er-snapshot-test',
+      dbName: 'ldf_server_dbs_dev',
+      tableName: 'ldf_server.orders',
+    };
+    const Harness = () => {
+      controller = useDataGridErDiagram(params);
+      return null;
+    };
+
+    await act(async () => {
+      renderer = create(React.createElement(Harness));
+      await vi.waitFor(() => {
+        expect(controller?.loading).toBe(false);
+        expect(controller?.graph).not.toBeNull();
+      });
+    });
+
+    expect(backendApp.DBGetDatabaseForeignKeys).toHaveBeenCalledTimes(1);
+    expect(backendApp.DBGetForeignKeys).not.toHaveBeenCalled();
 
     act(() => {
       renderer?.unmount();

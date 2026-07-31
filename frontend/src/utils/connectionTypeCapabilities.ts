@@ -21,6 +21,7 @@ export const singleHostUriSchemesByType: Record<string, string[]> = {
   rocketmq: ["rocketmq", "rmq"],
   mqtt: ["mqtt", "mqtts", "tcp", "ssl", "tls"],
   rabbitmq: ["rabbitmq", "http", "https"],
+  nacos: ["http", "https", "nacos"],
 };
 
 const normalizeConnectionType = (type: string) =>
@@ -76,6 +77,7 @@ const sslSupportedTypes = new Set([
   "mqtt",
   "kafka",
   "rabbitmq",
+  "nacos",
 ]);
 
 export const supportsSSLForType = (type: string) =>
@@ -186,4 +188,5 @@ export const supportsConnectionParamsForType = (type: string) =>
   type === "rocketmq" ||
   type === "mqtt" ||
   type === "kafka" ||
-  type === "rabbitmq";
+  type === "rabbitmq" ||
+  type === "nacos";

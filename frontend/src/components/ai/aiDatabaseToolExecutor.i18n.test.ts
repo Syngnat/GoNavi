@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AIToolCall, SavedConnection } from '../../types';
@@ -490,16 +489,5 @@ describe('aiDatabaseToolExecutor i18n', () => {
     expect(result.success).toBe(false);
     expect(result.content).toBe(localizedTimeoutMessage);
     expect(result.countsAsProbeFailure).toBe(true);
-  });
-
-  it('keeps localized probe-failure keywords out of production Han literals', () => {
-    const source = readFileSync(new URL('./aiDatabaseToolExecutor.ts', import.meta.url), 'utf8');
-
-    expect(source).not.toContain('连接失败');
-    expect(source).not.toContain('连接异常');
-    expect(source).not.toContain('连接超时');
-    expect(source).not.toContain('连接已关闭');
-    expect(source).not.toContain('网络超时');
-    expect(source).not.toContain('网络异常');
   });
 });

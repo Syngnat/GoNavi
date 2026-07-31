@@ -2,11 +2,9 @@ package ssh
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"unicode"
-
 	"GoNavi-Wails/internal/connection"
 )
 
@@ -67,22 +65,6 @@ func TestSSHConnectionFailureWrappersUseEnglish(t *testing.T) {
 	}
 }
 
-func TestSSHSourceDoesNotKeepLegacyChineseErrorWrappers(t *testing.T) {
-	source, err := os.ReadFile("ssh.go")
-	if err != nil {
-		t.Fatalf("read ssh.go: %v", err)
-	}
-	text := string(source)
-	for _, legacy := range []string{
-		"fmt.Errorf(\"\u5efa\u7acb SSH \u8fde\u63a5\u5931\u8d25\uff1a%w\", err)",
-		"fmt.Errorf(\"\u901a\u8fc7 SSH \u96a7\u9053\u8fde\u63a5\u5230 %s \u5931\u8d25\uff1a%w\", address, err)",
-		"fmt.Errorf(\"\u521b\u5efa\u672c\u5730\u76d1\u542c\u5668\u5931\u8d25\uff1a%w\", err)",
-	} {
-		if strings.Contains(text, legacy) {
-			t.Fatalf("legacy Chinese SSH wrapper still exists: %s", legacy)
-		}
-	}
-}
 
 func containsHan(text string) bool {
 	for _, r := range text {

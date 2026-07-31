@@ -43,6 +43,7 @@ type Service struct {
 	guard              *safety.Guard
 	configDir          string // 配置存储目录
 	secretStore        secretstore.SecretStore
+	configChanged      func()
 	localizer          *i18n.Localizer
 	streamProducers    map[string]map[*aiStreamProducer]struct{}
 	streamHandoffCount int
@@ -157,6 +158,14 @@ var codebuddyCLIHealthCheckFunc = func(config ai.ProviderConfig) error {
 // NewService 创建 AI Service 实例
 func NewService() *Service {
 	return NewServiceWithSecretStore(secretstore.NewKeyringStore())
+}
+
+// NewServiceWithConfigChangeHandler creates a service that notifies the owner
+// after a persisted AI configuration change succeeds.
+func NewServiceWithConfigChangeHandler(handler func()) *Service {
+	service := NewService()
+	service.configChanged = handler
+	return service
 }
 
 func NewServiceWithSecretStore(store secretstore.SecretStore) *Service {
@@ -1562,7 +1571,7 @@ func (s *Service) AIChatStreamWithOptions(sessionID string, messages []ai.Messag
 		}
 
 		// 当 context 被主动 cancel 的时候，不把这个视为向外抛的 error
-		if err != nil && err != context.Canceled {
+		if err != nil && !isAIStreamCancellation(err) {
 			logger.Warnf("AIChatStream 失败：sessionID=%s provider=%s messages=%d tools=%d duration=%s err=%s", sessionID, providerName, len(messages), len(tools), time.Since(started).Round(time.Millisecond), provider.RedactAIUpstreamLogText(err.Error()))
 			uievents.Emit(s.ctx, "ai:stream:"+sessionID, map[string]interface{}{
 				"error": err.Error(),
@@ -1570,7 +1579,7 @@ func (s *Service) AIChatStreamWithOptions(sessionID string, messages []ai.Messag
 			})
 			return
 		}
-		if err == context.Canceled {
+		if isAIStreamCancellation(err) {
 			logger.Infof("AIChatStream 已取消：sessionID=%s provider=%s duration=%s", sessionID, providerName, time.Since(started).Round(time.Millisecond))
 			return
 		}
@@ -1597,6 +1606,10 @@ func (s *Service) AIChatStreamWithOptions(sessionID string, messages []ai.Messag
 			time.Since(started).Round(time.Millisecond),
 		)
 	}()
+}
+
+func isAIStreamCancellation(err error) bool {
+	return errors.Is(err, context.Canceled)
 }
 
 func (s *Service) registerAIStreamProducer(sessionID string, cancel context.CancelFunc) *aiStreamProducer {
@@ -1772,8 +1785,8 @@ func (s *Service) getActiveProviderRuntime() (provider.Provider, ai.ProviderConf
 }
 
 func (s *Service) getActiveProviderRuntimeWithOptions(options ai.ChatSendOptions) (provider.Provider, ai.ProviderConfig, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	localizer := s.serviceLocalizerForLanguageLocked()
 
 	if s.activeProvider == "" && len(s.providers) > 0 {
@@ -1983,7 +1996,7 @@ func (s *Service) loadConfig() {
 }
 
 func (s *Service) saveConfig() error {
-	return NewProviderConfigStoreWithLanguage(s.configDir, s.secretStore, s.serviceLanguageLocked()).Save(ProviderConfigStoreSnapshot{
+	err := NewProviderConfigStoreWithLanguage(s.configDir, s.secretStore, s.serviceLanguageLocked()).Save(ProviderConfigStoreSnapshot{
 		Providers:          s.providers,
 		ActiveProvider:     s.activeProvider,
 		SafetyLevel:        s.safetyLevel,
@@ -1993,6 +2006,10 @@ func (s *Service) saveConfig() error {
 		MCPHTTPServer:      s.mcpHTTPConfig,
 		Skills:             s.skills,
 	})
+	if err == nil && s.configChanged != nil {
+		s.configChanged()
+	}
+	return err
 }
 
 const maxUserPromptChars = 16000
@@ -2052,7 +2069,17 @@ func (s *Service) loadSessionFile(sessionID string) (sessionFileData, error) {
 	return sessionData, nil
 }
 
+func (s *Service) ensureSessionsDir() error {
+	if err := os.MkdirAll(s.sessionsDir(), 0o755); err != nil {
+		return s.serviceError("ai_service.backend.error.sessions_dir_create_failed", nil, err)
+	}
+	return nil
+}
+
 func (s *Service) loadOrCreateSessionFile(sessionID string) (sessionFileData, error) {
+	if err := s.ensureSessionsDir(); err != nil {
+		return sessionFileData{}, err
+	}
 	sessionData, err := s.loadSessionFile(sessionID)
 	if err == nil {
 		return sessionData, nil
@@ -2069,9 +2096,8 @@ func (s *Service) loadOrCreateSessionFile(sessionID string) (sessionFileData, er
 }
 
 func (s *Service) saveSessionFile(sessionID string, sessionData sessionFileData) error {
-	dir := s.sessionsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return s.serviceError("ai_service.backend.error.sessions_dir_create_failed", nil, err)
+	if err := s.ensureSessionsDir(); err != nil {
+		return err
 	}
 	if strings.TrimSpace(sessionData.ID) == "" {
 		sessionData.ID = sessionID

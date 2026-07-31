@@ -50,16 +50,17 @@ type MilvusDB struct {
 	forwarder   *ssh.LocalForwarder
 }
 
-func (m *MilvusDB) Connect(config connection.ConnectionConfig) error {
-	if m.forwarder != nil {
-		_ = m.forwarder.Close()
-		m.forwarder = nil
-	}
-	m.client = nil
+func (m *MilvusDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = m.Close()
+	defer func() {
+		if err != nil {
+			_ = m.Close()
+		}
+	}()
 
 	runConfig := normalizeMilvusConfig(config)
 	if runConfig.UseSSH {
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("create Milvus SSH tunnel: %w", err)
 		}
@@ -93,7 +94,7 @@ func (m *MilvusDB) Connect(config connection.ConnectionConfig) error {
 
 func (m *MilvusDB) Close() error {
 	if m.forwarder != nil {
-		if err := m.forwarder.Close(); err != nil {
+		if err := m.forwarder.Release(); err != nil {
 			logger.Warnf("close Milvus SSH port forwarding failed: %v", err)
 		}
 		m.forwarder = nil

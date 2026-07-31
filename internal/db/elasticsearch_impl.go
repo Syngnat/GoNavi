@@ -50,13 +50,13 @@ func (e *esHTTPStatusError) Error() string {
 }
 
 // Connect 建立到 Elasticsearch 集群的连接。
-func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) error {
-	// 清理旧连接
-	if e.forwarder != nil {
-		_ = e.forwarder.Close()
-		e.forwarder = nil
-	}
-	e.client = nil
+func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = e.Close()
+	defer func() {
+		if err != nil {
+			_ = e.Close()
+		}
+	}()
 
 	runConfig := normalizeElasticsearchConfig(config)
 	e.pingTimeout = getConnectTimeout(runConfig)
@@ -68,7 +68,7 @@ func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) error {
 	// SSH 隧道支持
 	if runConfig.UseSSH {
 		logger.Infof("Elasticsearch 使用 SSH 连接：地址=%s:%d", runConfig.Host, runConfig.Port)
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -132,7 +132,7 @@ func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) error {
 // Close 关闭 Elasticsearch 连接并释放底层资源。
 func (e *ElasticsearchDB) Close() error {
 	if e.forwarder != nil {
-		if err := e.forwarder.Close(); err != nil {
+		if err := e.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 Elasticsearch SSH 端口转发失败：%v", err)
 		}
 		e.forwarder = nil

@@ -49,6 +49,7 @@ describe('AIMessageMarkdown', () => {
     expect(markup).toContain('Insert');
     expect(markup).toContain('Execute');
     expect(markup).toContain('Preview');
+    expect(markup).toMatch(/<span class="token"[^>]*>SELECT<\/span>/);
   });
 
   it('renders SQL code block actions in Chinese when an i18n provider is available', () => {

@@ -6,6 +6,7 @@ import {
   collectDataGridFindResult,
   findDataGridTextRanges,
   hasDataGridFindRenderVersionChanged,
+  matchesDataGridColumnQuickFind,
   normalizeDataGridFindQuery,
   resolveDataGridColumnQuickFindTarget,
   resolveDataGridFindNavigationIndex,
@@ -118,6 +119,16 @@ describe('dataGridFind', () => {
     expect(resolveDataGridColumnQuickFindTarget(columnNames, 'user')).toBe('user_id');
     expect(resolveDataGridColumnQuickFindTarget(columnNames, '  ')).toBe('');
     expect(resolveDataGridColumnQuickFindTarget(columnNames, 'missing')).toBe('');
+  });
+
+  it('matches quick-find column names without case sensitivity', () => {
+    const columnNames = ['USER_NAME_ARCHIVE', 'USER_NAME', 'CREATED_AT'];
+
+    expect(matchesDataGridColumnQuickFind('USER_NAME', 'user')).toBe(true);
+    expect(matchesDataGridColumnQuickFind('user_name', 'USER')).toBe(true);
+    expect(matchesDataGridColumnQuickFind('USER_NAME', 'missing')).toBe(false);
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, 'user_name')).toBe('USER_NAME');
+    expect(resolveDataGridColumnQuickFindTarget(columnNames, 'created')).toBe('CREATED_AT');
   });
 
   it('tracks render version changes without exposing metadata as row data', () => {

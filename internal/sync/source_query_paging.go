@@ -50,17 +50,72 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 		return handled, counts, nil
 	}
 
-	if tableMode == "full_overwrite" {
+	clearTarget := func() error {
 		clearSQL := buildClearTargetTableSQL(ctx.TargetType, ctx.TargetQueryTable)
 		if _, err := targetDB.Exec(clearSQL); err != nil {
-			return true, counts, fmt.Errorf("清空目标表失败: %w", err)
+			return fmt.Errorf("清空目标表失败: %w", err)
+		}
+		return nil
+	}
+
+	if tableMode == "full_overwrite" {
+		// 源是任意 SQL，无法可靠判断它是否引用了目标表。只要源与目标是同一物理端点就退回
+		// 非分页路径（该路径先把源行全部读入内存、之后才清空目标，语义安全）。
+		// 分页 + 自表覆盖本质上不可行：清空之后的分页会读到空表，目标最终只剩第一页数据。
+		if isSameSyncEndpoint(config, sourceType, ctx.TargetType) {
+			return false, pagedDiffCounts{}, nil
 		}
 	}
+
 	if !opts.Insert {
+		// 不插入任何数据时无需预读，按既有语义仅清空目标表。
+		if tableMode == "full_overwrite" {
+			if err := clearTarget(); err != nil {
+				return true, counts, err
+			}
+		}
 		return true, counts, nil
 	}
 
-	for offset := 0; ; offset += defaultSyncReadPageSize {
+	// 先读首页、成功后才清空目标（与 tryApplyDirectImportInPages 一致）。
+	// 原先的顺序是先 TRUNCATE 再首读，一旦源查询报错就留下一张被清空且无法恢复的目标表，
+	// 而函数还会把「读到 0 行」当成同步成功返回。
+	firstQuery := buildSourceQueryPageSQL(sourceType, config.SourceQuery, ctx.PKColumn, defaultSyncReadPageSize, 0)
+	firstRows, _, err := sourceDB.Query(firstQuery)
+	if err != nil {
+		return true, counts, fmt.Errorf("分页读取源查询失败(offset=%d): %w", 0, err)
+	}
+
+	if tableMode == "full_overwrite" {
+		if err := clearTarget(); err != nil {
+			return true, counts, err
+		}
+	}
+
+	applyPage := func(rows []map[string]interface{}) error {
+		insertRows := filterRowsByPKSelection(ctx.PKColumn, rows, opts.Insert, opts.SelectedInsertPKs)
+		insertRows = filterInsertRows(insertRows, targetColSet)
+		if len(insertRows) == 0 {
+			return nil
+		}
+		if err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, connection.ChangeSet{Inserts: insertRows}); err != nil {
+			return err
+		}
+		counts.Inserts += len(insertRows)
+		return nil
+	}
+
+	if len(firstRows) == 0 {
+		return true, counts, nil
+	}
+	if err := applyPage(firstRows); err != nil {
+		return true, counts, err
+	}
+	if len(firstRows) < defaultSyncReadPageSize {
+		return true, counts, nil
+	}
+
+	for offset := defaultSyncReadPageSize; ; offset += defaultSyncReadPageSize {
 		query := buildSourceQueryPageSQL(sourceType, config.SourceQuery, ctx.PKColumn, defaultSyncReadPageSize, offset)
 		rows, _, err := sourceDB.Query(query)
 		if err != nil {
@@ -69,16 +124,10 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 		if len(rows) == 0 {
 			return true, counts, nil
 		}
-		pageSize := len(rows)
-		insertRows := filterRowsByPKSelection(ctx.PKColumn, rows, opts.Insert, opts.SelectedInsertPKs)
-		insertRows = filterInsertRows(insertRows, targetColSet)
-		if len(insertRows) > 0 {
-			if err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, connection.ChangeSet{Inserts: insertRows}); err != nil {
-				return true, counts, err
-			}
-			counts.Inserts += len(insertRows)
+		if err := applyPage(rows); err != nil {
+			return true, counts, err
 		}
-		if pageSize < defaultSyncReadPageSize {
+		if len(rows) < defaultSyncReadPageSize {
 			return true, counts, nil
 		}
 	}
@@ -223,7 +272,7 @@ func buildSourceQueryPKInSelectSQL(dbType, sourceQuery string, cols []connection
 	}
 	literals := make([]string, 0, len(pkValues))
 	for _, value := range pkValues {
-		literal, ok := formatSyncSQLLiteral(value)
+		literal, ok := formatSyncSQLLiteral(dbType, value)
 		if ok {
 			literals = append(literals, literal)
 		}

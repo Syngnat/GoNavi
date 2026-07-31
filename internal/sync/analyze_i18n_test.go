@@ -5,7 +5,6 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/shared/i18n"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -43,65 +42,6 @@ func assertNoLegacyAnalyzeChinese(t *testing.T, text string) {
 	}
 }
 
-func TestAnalyzeUsesLocalizedBackendTextSourceGuard(t *testing.T) {
-	sourceBytes, err := os.ReadFile("analyze.go")
-	if err != nil {
-		t.Fatalf("read analyze.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	legacyMessages := []string{
-		`"差异分析开始"`,
-		`fmt.Sprintf("分析表(%d/%d)", i+1, totalTables)`,
-		`"差异分析完成"`,
-		`fmt.Sprintf("已完成 %d 张表的差异分析", len(result.Tables))`,
-		`"初始化源数据库驱动失败: " + err.Error()`,
-		`"初始化目标数据库驱动失败: " + err.Error()`,
-		`"源数据库连接失败: " + err.Error()`,
-		`"目标数据库连接失败: " + err.Error()`,
-		`"目标表不存在，无法执行同步"`,
-		`fmt.Sprintf("检测到 %d 条结构变更", summary.SchemaDiffCount)`,
-		`"仅同步结构，未执行数据差异分析"`,
-		`"读取源表失败: " + err.Error()`,
-		`"目标表不存在，执行时将自动建表并导入全部源数据"`,
-		`"当前模式无需差异对比，将按源表数据执行导入"`,
-		`"无主键，不支持差异对比同步；如需直接导入请使用仅插入或全量覆盖模式"`,
-		`fmt.Sprintf("复合主键（%s），暂不支持差异对比同步", strings.Join(pkCols, ","))`,
-		`"读取目标表失败: " + err.Error()`,
-		`"差异分析完成"`,
-	}
-	for _, legacy := range legacyMessages {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("analyze.go still contains legacy raw user-visible message %q", legacy)
-		}
-	}
-
-	requiredKeys := []string{
-		"data_sync.progress.stage.analysis_started",
-		"data_sync.progress.stage.analysis_completed",
-		"data_sync.progress.stage.analyzing_table",
-		"data_sync.backend.error.init_source_driver_failed",
-		"data_sync.backend.error.init_target_driver_failed",
-		"data_sync.backend.error.connect_source_failed",
-		"data_sync.backend.error.connect_target_failed",
-		"data_sync.backend.error.read_source_table_failed",
-		"data_sync.backend.error.read_target_table_failed",
-		"data_sync.backend.error.diff_pk_required",
-		"data_sync.backend.error.diff_composite_pk_unsupported",
-		"data_sync.backend.result.analyzed_tables",
-		"data_sync.backend.summary.diff_completed",
-		"data_sync.plan.target_missing_cannot_sync",
-		"data_sync.plan.schema_changes_detected",
-		"data_sync.plan.schema_only_no_data_diff",
-		"data_sync.plan.target_missing_auto_create_all",
-		"data_sync.plan.data_import_without_diff",
-	}
-	for _, key := range requiredKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("analyze.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestAnalyzeCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

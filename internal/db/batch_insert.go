@@ -163,6 +163,13 @@ func execParameterizedInsertBatch(config parameterizedInsertConfig, rows []prepa
 	)
 	res, err := config.Exec(query, args...)
 	if err != nil {
+		if len(rows) > 1 && isPreparedStatementPlaceholderLimitError(err) {
+			middle := len(rows) / 2
+			if err := execParameterizedInsertBatch(config, rows[:middle]); err != nil {
+				return err
+			}
+			return execParameterizedInsertBatch(config, rows[middle:])
+		}
 		return localizedDatabaseRuntimeError("db.backend.error.batch_insert_failed", map[string]any{"detail": err.Error()})
 	}
 	if config.RequireAffected {
@@ -171,6 +178,13 @@ func execParameterizedInsertBatch(config parameterizedInsertConfig, rows []prepa
 		}
 	}
 	return nil
+}
+
+func isPreparedStatementPlaceholderLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "prepared statement contains too many placeholders")
 }
 
 func requireInsertAffected(result sql.Result) error {

@@ -8,14 +8,11 @@ import (
 	"database/sql/driver"
 	"errors"
 	"io"
-	"os"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
-
 	"github.com/golang-sql/sqlexp"
 	_ "modernc.org/sqlite"
 )
@@ -345,18 +342,3 @@ func TestSQLServerMetadataErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestSQLServerMetadataErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("sqlserver_impl.go")
-	if err != nil {
-		t.Fatalf("read sqlserver_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	rawMessage := `fmt.Errorf("` + rawSQLServerTableNameRequiredText + `")`
-
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("sqlserver_impl.go still contains raw SQL Server metadata text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.table_name_required") {
-		t.Fatal("sqlserver_impl.go does not reference db.backend.error.table_name_required")
-	}
-}

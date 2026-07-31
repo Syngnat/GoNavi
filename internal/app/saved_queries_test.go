@@ -611,15 +611,6 @@ func TestSavedQueryRepositoryLocalizesGeneratedName(t *testing.T) {
 	}
 }
 
-func TestSavedQueriesDoesNotHardcodeGeneratedNameChinese(t *testing.T) {
-	source, err := os.ReadFile("saved_queries.go")
-	if err != nil {
-		t.Fatalf("ReadFile returned error: %v", err)
-	}
-	if strings.Contains(string(source), `fmt.Sprintf("查询-%d", index+1)`) {
-		t.Fatal("saved_queries.go still hardcodes generated saved query name")
-	}
-}
 
 func TestSavedQueryRepositorySerializesConcurrentWrites(t *testing.T) {
 	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))

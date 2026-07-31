@@ -16,6 +16,7 @@ var windowsShortcutRepairPowerShellScript string
 type windowsMSIUpdateLaunchContext struct {
 	SourcePath           string
 	TargetPath           string
+	UpdatesDir           string
 	StagedDir            string
 	LogPath              string
 	MSILogPath           string
@@ -45,6 +46,7 @@ func buildWindowsMSILaunchCommand(scriptPath string, context windowsMSIUpdateLau
 	cmd.Env = append(cmd.Environ(),
 		"GONAVI_UPDATE_SOURCE="+context.SourcePath,
 		"GONAVI_UPDATE_TARGET="+context.TargetPath,
+		"GONAVI_UPDATE_ROOT_DIR="+context.UpdatesDir,
 		"GONAVI_UPDATE_STAGED_DIR="+context.StagedDir,
 		"GONAVI_UPDATE_LOG_PATH="+context.LogPath,
 		"GONAVI_UPDATE_MSI_LOG_PATH="+context.MSILogPath,

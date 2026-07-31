@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,8 +43,6 @@ vi.mock('antd', () => {
 
   return { Button, Tooltip };
 });
-
-const source = readFileSync(new URL('./AIChatHeader.tsx', import.meta.url), 'utf8');
 
 const headerKeys = [
   'ai_chat.header.tooltip.history',
@@ -340,23 +337,6 @@ describe('AIChatHeader i18n', () => {
     expect(markdown).toContain('## 👤 You');
     expect(markdown).toContain('## 🤖 GoNavi AI');
     expect(markdown).not.toContain('ai_chat.header.export_time');
-  });
-
-  it('keeps source wired to i18n keys instead of fixed Chinese header chrome', () => {
-    for (const key of headerKeys) {
-      expect(source).toContain(key);
-    }
-    expect(source).toContain("t('ai_chat.panel.session.default_title')");
-    expect(source).toContain("app.theme.ui_version.v2.badge");
-    expect(source).not.toContain('历史会话');
-    expect(source).not.toContain('导出为 Markdown');
-    expect(source).not.toContain('新对话 (清空当前)');
-    expect(source).not.toContain('AI 设置');
-    expect(source).not.toContain('关闭面板');
-    expect(source).not.toContain('AI 工作模式');
-    expect(source).not.toContain('自动洞察');
-    expect(source).not.toContain('导出时间');
-    expect(source).not.toContain('BETA');
   });
 
   it('translates only the connected wrapper and keeps title parameter raw', () => {

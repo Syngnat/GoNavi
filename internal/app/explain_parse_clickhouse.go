@@ -47,7 +47,6 @@ func parseClickHouseExplain(sourceSQL, raw string, format connection.ExplainForm
 		DBType:    "clickhouse",
 		SourceSQL: sourceSQL,
 	}
-	resetExplainNodeID()
 
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

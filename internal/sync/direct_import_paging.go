@@ -287,11 +287,12 @@ func buildClearTargetTableSQL(targetType, targetQueryTable string) string {
 	return fmt.Sprintf("DELETE FROM %s", quotedTable)
 }
 
-func isSamePhysicalSyncTable(config SyncConfig, plan SchemaMigrationPlan, sourceType, targetType string) bool {
+// isSameSyncEndpoint 判断同步的源与目标是否指向同一个物理连接端点。
+//
+// 不比较表名，因此也适用于「源是任意 SQL 查询」的场景：此时无法可靠判断查询是否引用了
+// 目标表，只能保守地按端点相同就退回安全路径。
+func isSameSyncEndpoint(config SyncConfig, sourceType, targetType string) bool {
 	if normalizeMigrationDBType(sourceType) != normalizeMigrationDBType(targetType) {
-		return false
-	}
-	if !strings.EqualFold(strings.TrimSpace(plan.SourceQueryTable), strings.TrimSpace(plan.TargetQueryTable)) {
 		return false
 	}
 	source := config.SourceConfig
@@ -301,4 +302,11 @@ func isSamePhysicalSyncTable(config SyncConfig, plan SchemaMigrationPlan, source
 		strings.EqualFold(strings.TrimSpace(source.Database), strings.TrimSpace(target.Database)) &&
 		strings.EqualFold(strings.TrimSpace(source.Driver), strings.TrimSpace(target.Driver)) &&
 		strings.EqualFold(strings.TrimSpace(source.DSN), strings.TrimSpace(target.DSN))
+}
+
+func isSamePhysicalSyncTable(config SyncConfig, plan SchemaMigrationPlan, sourceType, targetType string) bool {
+	if !strings.EqualFold(strings.TrimSpace(plan.SourceQueryTable), strings.TrimSpace(plan.TargetQueryTable)) {
+		return false
+	}
+	return isSameSyncEndpoint(config, sourceType, targetType)
 }

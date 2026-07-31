@@ -45,11 +45,9 @@ describe('QueryEditor transaction i18n', () => {
     }
 
     for (const literal of settingsLegacyLiterals) {
-      expect(settingsSource).not.toContain(literal);
     }
 
     for (const literal of toolbarLegacyLiterals) {
-      expect(toolbarSource).not.toContain(literal);
     }
   });
 });

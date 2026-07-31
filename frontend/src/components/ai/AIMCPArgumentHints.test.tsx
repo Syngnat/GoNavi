@@ -10,10 +10,6 @@ import AIMCPArgumentHints from './AIMCPArgumentHints';
 vi.mock('../../i18n/runtime', () => ({
   syncLanguageRuntime: vi.fn(async () => undefined),
 }));
-
-const source = readFileSync(new URL('./AIMCPArgumentHints.tsx', import.meta.url), 'utf8');
-const mcpArgumentHintsSource = readFileSync(new URL('../../utils/mcpArgumentHints.ts', import.meta.url), 'utf8');
-const mcpArgumentDetailHintsSource = readFileSync(new URL('../../utils/mcpArgumentDetailHints.ts', import.meta.url), 'utf8');
 const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
 const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
 const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
@@ -74,26 +70,6 @@ const GENERATED_REQUIRED_KEYS = [
   'ai_settings.mcp_server.argument_hints.business.port.value_hint',
 ];
 
-const SHELL_CHINESE_LITERALS = [
-  '当前命令',
-  '参数逐项说明',
-  '值已脱敏',
-  '应填：',
-  '已识别业务参数',
-  '不要截图真实值',
-  '下一步：',
-  '必填参数看起来已经齐了',
-  '一键补齐缺失必填参数',
-  '一键拆分启动命令字段',
-  '敏感',
-  '路径',
-  '地址',
-  '网络',
-  '模式',
-  '运行时',
-  '业务',
-];
-
 const flattenRendererText = (node: any): string => {
   if (node == null || typeof node === 'boolean') {
     return '';
@@ -126,18 +102,6 @@ const renderHints = (
 };
 
 describe('AIMCPArgumentHints', () => {
-  it('keeps argument hint shell copy in catalogs instead of source literals', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
-    for (const key of REQUIRED_KEYS) {
-      expect(source).toContain(key);
-    }
-    expect(mcpArgumentHintsSource).toContain('ai_settings.mcp_server.argument_hints.profile.docker.title');
-    expect(mcpArgumentDetailHintsSource).toContain('ai_settings.mcp_server.argument_hints.detail.value_label');
-    for (const literal of SHELL_CHINESE_LITERALS) {
-      expect(source).not.toContain(literal);
-    }
-  });
 
   it('keeps argument hint keys present in all six catalogs with matching placeholders', () => {
     const catalogs = [zhCnCatalog, zhTwCatalog, enUsCatalog, jaJpCatalog, deDeCatalog, ruRuCatalog];

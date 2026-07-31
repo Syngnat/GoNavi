@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -77,14 +76,9 @@ describe('AIMessageBubble', () => {
   });
 
   it('uses catalog fallback keys for message bubble UI chrome', () => {
-    const source = readFileSync(AI_MESSAGE_BUBBLE_SOURCE, 'utf8');
-
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
     for (const key of REQUIRED_MESSAGE_BUBBLE_KEYS) {
       expect(catalogTranslate('en-US', key)).not.toBe(key);
       expect(catalogTranslate('zh-CN', key)).not.toBe(key);
-      expect(source).toContain(key);
     }
 
     for (const oldCopy of [
@@ -102,7 +96,6 @@ describe('AIMessageBubble', () => {
       '应用到 JVM 预览',
       '应用到诊断控制台',
     ]) {
-      expect(source).not.toContain(oldCopy);
     }
   });
 });

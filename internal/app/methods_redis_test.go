@@ -17,6 +17,12 @@ type capturingRedisClient struct {
 	deletedHashFields []string
 	removedListKey    string
 	removedListValue  string
+	valueResult       *redislib.RedisValue
+	listResult        []string
+	listKey           string
+	listStart         int64
+	listStop          int64
+	listCalls         int
 	closed            int
 	closeErr          error
 }
@@ -50,6 +56,9 @@ func (c *capturingRedisClient) RenameKey(oldKey, newKey string) error { return n
 func (c *capturingRedisClient) KeyExists(key string) (bool, error) { return false, nil }
 
 func (c *capturingRedisClient) GetValue(key string) (*redislib.RedisValue, error) {
+	if c.valueResult != nil {
+		return c.valueResult, nil
+	}
 	return &redislib.RedisValue{}, nil
 }
 
@@ -70,7 +79,11 @@ func (c *capturingRedisClient) DeleteHashField(key string, fields ...string) err
 }
 
 func (c *capturingRedisClient) GetList(key string, start, stop int64) ([]string, error) {
-	return nil, nil
+	c.listKey = key
+	c.listStart = start
+	c.listStop = stop
+	c.listCalls++
+	return append([]string(nil), c.listResult...), nil
 }
 
 func (c *capturingRedisClient) ListPush(key string, values ...string) error { return nil }
@@ -852,6 +865,57 @@ func TestRedisDeleteHashFieldAcceptsStringSlice(t *testing.T) {
 	}
 	if len(client.deletedHashFields) != 2 || client.deletedHashFields[0] != "nickname" || client.deletedHashFields[1] != "avatar" {
 		t.Fatalf("unexpected deleted hash fields: %v", client.deletedHashFields)
+	}
+}
+
+func TestRedisGetListValueDescendingReadsAndReversesTailWindow(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	CloseAllRedisClients()
+	client := &capturingRedisClient{
+		valueResult: &redislib.RedisValue{
+			Type:   "list",
+			TTL:    -1,
+			Value:  []string{"item-0", "item-1", "item-2"},
+			Length: 5,
+		},
+		listResult: []string{"item-2", "item-3", "item-4"},
+	}
+	originalNewRedisClientFunc := newRedisClientFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	defer func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+		CloseAllRedisClients()
+	}()
+	newRedisClientFunc = func() redislib.RedisClient {
+		return client
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	result := app.RedisGetListValue(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "tasks", true)
+	if !result.Success {
+		t.Fatalf("RedisGetListValue returned failure: %+v", result)
+	}
+	if client.listCalls != 1 || client.listKey != "tasks" || client.listStart != 2 || client.listStop != -1 {
+		t.Fatalf("unexpected list tail request: calls=%d key=%q start=%d stop=%d", client.listCalls, client.listKey, client.listStart, client.listStop)
+	}
+	value, ok := result.Data.(*redislib.RedisValue)
+	if !ok {
+		t.Fatalf("expected *redis.RedisValue result, got %T", result.Data)
+	}
+	if !reflect.DeepEqual(value.Value, []string{"item-4", "item-3", "item-2"}) {
+		t.Fatalf("unexpected descending list values: %#v", value.Value)
+	}
+	if value.Length != 5 || value.TTL != -1 {
+		t.Fatalf("expected list metadata to remain unchanged, got length=%d ttl=%d", value.Length, value.TTL)
 	}
 }
 

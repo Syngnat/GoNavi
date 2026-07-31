@@ -701,25 +701,19 @@ func clickHouseProtocolsForAttempt(config connection.ConnectionConfig) []clickho
 	return []clickhouse.Protocol{primaryProtocol, clickhouse.Native}
 }
 
-func (c *ClickHouseDB) Connect(config connection.ConnectionConfig) error {
+func (c *ClickHouseDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = c.Close()
+	defer func() {
+		if err != nil {
+			_ = c.Close()
+		}
+	}()
+
 	if supported, reason := DriverRuntimeSupportStatus("clickhouse"); !supported {
 		if strings.TrimSpace(reason) == "" {
 			reason = localizedDriverRuntimeText("driver_manager.backend.status.optional_disabled", map[string]any{"name": "ClickHouse"})
 		}
 		return fmt.Errorf("%s", reason)
-	}
-
-	if c.forwarder != nil {
-		_ = c.forwarder.Close()
-		c.forwarder = nil
-	}
-	if c.conn != nil {
-		_ = c.conn.Close()
-		c.conn = nil
-	}
-	if c.legacyHTTP != nil {
-		_ = c.legacyHTTP.Close()
-		c.legacyHTTP = nil
 	}
 
 	runConfig := normalizeClickHouseConfig(config)
@@ -734,7 +728,7 @@ func (c *ClickHouseDB) Connect(config connection.ConnectionConfig) error {
 			runConfig.ClickHouseProtocol = clickHouseProtocolHTTP
 		}
 		logger.Infof("ClickHouse 使用 SSH 连接：地址=%s:%d 用户=%s", runConfig.Host, runConfig.Port, runConfig.User)
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -869,7 +863,7 @@ func (c *ClickHouseDB) connectClickHouseLegacyHTTP(opts *clickhouse.Options) (*c
 
 func (c *ClickHouseDB) Close() error {
 	if c.forwarder != nil {
-		if err := c.forwarder.Close(); err != nil {
+		if err := c.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 ClickHouse SSH 端口转发失败：%v", err)
 		}
 		c.forwarder = nil

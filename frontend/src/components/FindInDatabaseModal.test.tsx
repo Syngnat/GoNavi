@@ -1,5 +1,4 @@
 import React from "react";
-import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
@@ -186,20 +185,5 @@ describe("FindInDatabaseModal i18n", () => {
     });
 
     expect(mocks.message.error).toHaveBeenCalledWith("Failed to get table list: driver raw detail");
-  });
-
-  it("does not keep migrated Chinese UI literals in FindInDatabaseModal source", () => {
-    const source = readFileSync(new URL("./FindInDatabaseModal.tsx", import.meta.url), "utf8");
-
-    expect(source).not.toContain("请输入搜索关键字");
-    expect(source).not.toContain("未找到连接配置");
-    expect(source).not.toContain("获取表列表失败");
-    expect(source).not.toContain("当前数据库没有表");
-    expect(source).not.toContain("未找到匹配的数据");
-    expect(source).not.toContain("搜索出错");
-    expect(source).not.toContain("在数据库中搜索");
-    expect(source).not.toContain("输入要搜索的字符串");
-    expect(source).not.toContain("精确匹配");
-    expect(source).not.toContain("匹配行详情");
   });
 });

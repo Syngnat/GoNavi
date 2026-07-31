@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -75,8 +76,28 @@ type mqttTopicDescriptor struct {
 }
 
 type pahoMQTTRuntime struct {
+	// mu 保护 client/closed。FetchMessages 会在 4~30 秒的等待窗口结束后才在 defer 里
+	// 解引用客户端，而保活失败或用户断开会并发调用 Close()。若 Close 直接把 client 置 nil，
+	// 在途读者的 nil 接口方法调用会 panic 并崩掉整个 Wails 桌面进程，
+	// 因此 Close 只置 closed 标志，字段本身保留给在途读者。
+	mu      sync.RWMutex
 	client  pahomqtt.Client
+	closed  bool
 	timeout time.Duration
+}
+
+// activeClient 取出可用的客户端快照。调用方必须全程只使用返回的局部变量
+// （含 defer 里的 Unsubscribe），不能再读 r.client，否则并发 Close 会重新引入竞争。
+func (r *pahoMQTTRuntime) activeClient() (pahomqtt.Client, error) {
+	if r == nil {
+		return nil, fmt.Errorf("连接未打开")
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.closed || r.client == nil {
+		return nil, fmt.Errorf("连接未打开")
+	}
+	return r.client, nil
 }
 
 var newMQTTRuntime = func(config connection.ConnectionConfig) (mqttRuntime, error) {
@@ -145,13 +166,15 @@ func (m *MQTTDB) Close() error {
 		if err := m.runtime.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
-		m.runtime = nil
+		// 不置 nil：并发的 QueryContext/Publish 已通过 m.runtime != nil 检查后才解引用，
+		// 置 nil 会让它们在 nil 接口上调用方法并崩掉整个进程。
+		// 关闭后的 runtime 会对所有调用返回「连接未打开」，与置 nil 后的报错口径一致。
 	}
 	for _, forwarder := range m.forwarders {
 		if forwarder == nil {
 			continue
 		}
-		if err := forwarder.Close(); err != nil && firstErr == nil {
+		if err := forwarder.Release(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -685,19 +708,29 @@ func mqttForwardBrokersOverSSH(config connection.ConnectionConfig) (connection.C
 	}
 	runConfig := config
 	forwarders := make([]*ssh.LocalForwarder, 0, len(brokers))
+	cleanupForwarders := true
+	defer func() {
+		if !cleanupForwarders {
+			return
+		}
+		for _, forwarder := range forwarders {
+			_ = forwarder.Release()
+		}
+	}()
 	rewritten := make([]string, 0, len(brokers))
 	for _, broker := range brokers {
 		host, port, ok := parseHostPortWithDefault(broker, defaultMQTTPort)
 		if !ok {
 			return connection.ConnectionConfig{}, nil, nil, fmt.Errorf("解析 MQTT broker 地址失败：%s", broker)
 		}
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, host, port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, host, port)
 		if err != nil {
 			return connection.ConnectionConfig{}, nil, nil, fmt.Errorf("创建 MQTT SSH 隧道失败：%w", err)
 		}
 		forwarders = append(forwarders, forwarder)
 		rewritten = append(rewritten, forwarder.LocalAddr)
 	}
+	cleanupForwarders = false
 	return runConfig, rewritten, forwarders, nil
 }
 
@@ -796,34 +829,48 @@ func mqttProxyOpenConnectionFn(proxyConfig connection.ProxyConfig, timeout time.
 }
 
 func (r *pahoMQTTRuntime) Close() error {
-	if r == nil || r.client == nil {
+	if r == nil {
 		return nil
 	}
-	r.client.Disconnect(250)
-	r.client = nil
+	r.mu.Lock()
+	if r.closed || r.client == nil {
+		r.mu.Unlock()
+		return nil
+	}
+	r.closed = true
+	client := r.client
+	r.mu.Unlock()
+
+	// 只断开连接，不把 r.client 置 nil：仍在等待消息的 FetchMessages 会在其 defer 里
+	// 通过快照解引用同一个客户端，置 nil 会让它 panic 并崩掉整个进程。
+	// paho 的 Unsubscribe/Publish 在已断开的客户端上只会返回错误，不会 panic。
+	client.Disconnect(250)
 	return nil
 }
 
 func (r *pahoMQTTRuntime) Ping(ctx context.Context) error {
-	if r == nil || r.client == nil {
-		return fmt.Errorf("连接未打开")
+	client, err := r.activeClient()
+	if err != nil {
+		return err
 	}
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	if !r.client.IsConnectionOpen() {
+	if !client.IsConnectionOpen() {
 		return fmt.Errorf("MQTT 连接已断开")
 	}
 	return nil
 }
 
 func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRequest) ([]mqttMessageRecord, error) {
-	if r == nil || r.client == nil {
-		return nil, fmt.Errorf("连接未打开")
+	// 一次性取快照：下面要等待 4~30 秒，期间并发 Close 不能让本函数的解引用失效。
+	client, err := r.activeClient()
+	if err != nil {
+		return nil, err
 	}
-	if !r.client.IsConnectionOpen() {
+	if !client.IsConnectionOpen() {
 		return nil, fmt.Errorf("MQTT 连接已断开")
 	}
 
@@ -859,7 +906,7 @@ func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRe
 		}
 	}
 
-	token := r.client.Subscribe(request.Topic, request.QoS, callback)
+	token := client.Subscribe(request.Topic, request.QoS, callback)
 	if !token.WaitTimeout(r.timeout) {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.mqtt_subscribe_timeout", nil)
 	}
@@ -867,7 +914,8 @@ func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRe
 		return nil, fmt.Errorf("MQTT 订阅失败：%w", err)
 	}
 	defer func() {
-		unsub := r.client.Unsubscribe(request.Topic)
+		// 用快照而非 r.client：等待期间可能已并发 Close。
+		unsub := client.Unsubscribe(request.Topic)
 		if !unsub.WaitTimeout(r.timeout) {
 			logger.Warnf("MQTT 取消订阅超时：%s", request.Topic)
 			return
@@ -902,17 +950,18 @@ func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRe
 }
 
 func (r *pahoMQTTRuntime) Publish(ctx context.Context, command mqttPublishCommand) (int64, error) {
-	if r == nil || r.client == nil {
-		return 0, fmt.Errorf("连接未打开")
+	client, err := r.activeClient()
+	if err != nil {
+		return 0, err
 	}
-	if !r.client.IsConnectionOpen() {
+	if !client.IsConnectionOpen() {
 		return 0, fmt.Errorf("MQTT 连接已断开")
 	}
 	payload, err := mqttEncodePayload(command.Payload)
 	if err != nil {
 		return 0, err
 	}
-	token := r.client.Publish(command.Topic, command.QoS, command.Retain, payload)
+	token := client.Publish(command.Topic, command.QoS, command.Retain, payload)
 	wait := r.timeout
 	if deadline, ok := ctx.Deadline(); ok {
 		if remaining := time.Until(deadline); remaining > 0 && remaining < wait {

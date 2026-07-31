@@ -25,8 +25,8 @@ func TestOracleGetDSNIncludesQueryPerformanceOptions(t *testing.T) {
 		t.Fatalf("解析 Oracle DSN 失败: %v", err)
 	}
 	query := parsed.Query()
-	if got := query.Get("PREFETCH_ROWS"); got != "10000" {
-		t.Fatalf("PREFETCH_ROWS = %q, want 10000", got)
+	if got := query.Get("PREFETCH_ROWS"); got != "25" {
+		t.Fatalf("PREFETCH_ROWS = %q, want 25", got)
 	}
 	if got := query.Get("LOB FETCH"); got != "POST" {
 		t.Fatalf("LOB FETCH = %q, want POST", got)

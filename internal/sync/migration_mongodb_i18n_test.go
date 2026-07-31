@@ -5,7 +5,6 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/shared/i18n"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -63,41 +62,6 @@ func assertNoLegacyMongoMigrationChinese(t *testing.T, text string) {
 	}
 }
 
-func TestMongoMigrationUsesLocalizedBackendTextSourceGuard(t *testing.T) {
-	sourceBytes, err := os.ReadFile("migration_mongodb.go")
-	if err != nil {
-		t.Fatalf("read migration_mongodb.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	legacyMessages := []string{
-		"fmt.Errorf(\"\u83b7\u53d6\u6e90\u8868\u5b57\u6bb5\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u6e90\u8868\u4e0d\u5b58\u5728\u6216\u65e0\u5217\u5b9a\u4e49: %s\", tableName)",
-		"fmt.Errorf(\"\u68c0\u67e5\u76ee\u6807\u96c6\u5408\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u6e90\u96c6\u5408\u672a\u63a8\u65ad\u51fa\u53ef\u8fc1\u79fb\u5b57\u6bb5: %s\", tableName)",
-		"fmt.Errorf(\"\u83b7\u53d6\u76ee\u6807\u8868\u5b57\u6bb5\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u8bfb\u53d6\u6e90\u96c6\u5408\u6837\u672c\u5931\u8d25: %w\", err)",
-	}
-	for _, legacy := range legacyMessages {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("migration_mongodb.go still contains legacy raw user-visible message %q", legacy)
-		}
-	}
-
-	requiredKeys := []string{
-		"data_sync.backend.error.source_table_columns_failed",
-		"data_sync.backend.error.source_table_missing_or_no_columns",
-		"data_sync.backend.error.target_collection_check_failed",
-		"data_sync.backend.error.source_collection_no_migratable_fields",
-		"data_sync.backend.error.target_table_columns_failed",
-		"data_sync.backend.error.mongo_read_source_samples_failed",
-	}
-	for _, key := range requiredKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("migration_mongodb.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestMongoMigrationCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

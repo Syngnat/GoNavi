@@ -119,14 +119,24 @@ func (s *Store) Save(file File) error {
 	if len(file.AIProviders) == 0 {
 		file.AIProviders = nil
 	}
-	if err := os.MkdirAll(s.root, 0o755); err != nil {
+	// 本文件以明文保存全部数据库/SSH/代理口令与 AI Provider 的 API Key，必须限制为仅属主可读。
+	// 目录同时收紧到 0o700，避免同机其他用户遍历目录。
+	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return err
 	}
 	payload, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.Path(), payload, 0o644)
+	if err := os.WriteFile(s.Path(), payload, 0o600); err != nil {
+		return err
+	}
+	// os.WriteFile 的权限参数只在创建新文件时生效；对历史上以 0o644 创建的文件必须显式收紧，
+	// 否则升级后的用户仍然暴露。Windows 上 Chmod 只影响只读位，此调用无实际副作用。
+	if err := os.Chmod(s.Path(), 0o600); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) GetConnection(id string) (ConnectionBundle, bool, error) {

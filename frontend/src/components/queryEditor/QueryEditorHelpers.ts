@@ -2771,6 +2771,10 @@ export const resolveQueryLocatorPlan = async ({
 
         const tableColumns = resCols.data as ColumnDefinition[];
         const tableColumnNames = tableColumns.map(getColumnDefinitionName).filter(Boolean);
+        if (tableColumnNames.length === 0) {
+            plan.editLocator = buildQueryReadOnlyLocator(translate('query_editor.message.read_only_system_metadata'));
+            return plan;
+        }
         let executableStatement = statement;
         if (isOracleLikeDialect(dbType) && selectInfo.selectsAll) {
             const rewritten = rewriteOracleDuplicateSelectColumns(executableStatement, tableColumnNames);

@@ -128,13 +128,13 @@ const RedisViewerKeyToolbar: React.FC<RedisViewerKeyToolbarProps> = ({
           buttonStyle="solid"
           style={{ flexShrink: 0 }}
         >
-          <Radio.Button value="fuzzy">{tr('redis_viewer.search.fuzzy')}</Radio.Button>
+          <Radio.Button value="prefix">{tr('redis_viewer.search.prefix')}</Radio.Button>
           <Radio.Button value="exact">{tr('redis_viewer.search.exact')}</Radio.Button>
         </Radio.Group>
         <Search
           {...noAutoCapInputProps}
           style={{ flex: 1 }}
-          placeholder={searchMode === 'exact' ? tr('redis_viewer.placeholder.search_exact') : tr('redis_viewer.placeholder.search_fuzzy')}
+          placeholder={searchMode === 'exact' ? tr('redis_viewer.placeholder.search_exact') : tr('redis_viewer.placeholder.search_prefix')}
           value={searchInput}
           onChange={onSearchInputChange}
           onSearch={onSearch}

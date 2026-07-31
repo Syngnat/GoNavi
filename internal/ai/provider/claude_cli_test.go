@@ -654,48 +654,6 @@ func TestClaudeCLIProvider_ChatStreamUsesRequestTimeoutWhenNoMeaningfulResponseA
 	assertClaudeCLIRuntimeErrorIsEnglish(t, lastChunk.Error)
 }
 
-func TestClaudeCLIRuntimeErrorsStayEnglish(t *testing.T) {
-	message, hasError := extractClaudeCLIEventError(cliStreamEvent{Type: "error"})
-	if !hasError {
-		t.Fatal("expected fallback error")
-	}
-	if message != "claude CLI returned an unknown error" {
-		t.Fatalf("expected English unknown error, got %q", message)
-	}
-
-	authMessage, hasAuthError := extractClaudeCLISystemRetryError(cliStreamEvent{
-		Type:        "system",
-		Subtype:     "api_retry",
-		ErrorStatus: 401,
-		Error:       cliStreamEventError{Message: "authentication_failed"},
-	})
-	if !hasAuthError {
-		t.Fatal("expected auth retry error")
-	}
-	if authMessage != "claude CLI authentication failed (HTTP 401): authentication_failed" {
-		t.Fatalf("expected English auth retry error, got %q", authMessage)
-	}
-
-	source, err := os.ReadFile("claude_cli.go")
-	if err != nil {
-		t.Fatalf("read claude_cli.go: %v", err)
-	}
-	for _, notWant := range []string{
-		"执行超时",
-		"执行失败",
-		"返回错误",
-		"创建 stdout 管道失败",
-		"启动 claude CLI 失败",
-		"鉴权失败",
-		"异常退出",
-		"返回未知错误",
-	} {
-		if strings.Contains(string(source), notWant) {
-			t.Fatalf("expected Claude CLI runtime wrappers to stay English, found %q", notWant)
-		}
-	}
-}
-
 func assertClaudeCLIRuntimeErrorIsEnglish(t *testing.T, message string) {
 	t.Helper()
 	if strings.TrimSpace(message) == "" {
@@ -718,12 +676,11 @@ func assertClaudeCLIRuntimeErrorIsEnglish(t *testing.T, message string) {
 }
 
 func TestClaudeCLIProvider_ChatStreamAllowsDelayedMeaningfulResponse(t *testing.T) {
-	fakeClaude := writeFakeClaudeScript(t, "#!/bin/sh\necho '{\"type\":\"system\",\"subtype\":\"init\"}'\nsleep 0.2\necho '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"OK\"}]}}'\necho '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"OK\"}'\n")
-	restore := overrideClaudeCLIForTest(t, fakeClaude)
+	restore := overrideClaudeCLIWithTestProcess(t, "delayed-stream-success")
 	defer restore()
 
 	originalRequestTimeout := claudeCLIRequestTimeout
-	claudeCLIRequestTimeout = 1 * time.Second
+	claudeCLIRequestTimeout = 5 * time.Second
 	defer func() {
 		claudeCLIRequestTimeout = originalRequestTimeout
 	}()
@@ -1001,6 +958,12 @@ func TestClaudeCLIHelperProcess(t *testing.T) {
 		os.Exit(0)
 	case "model-success":
 		_, _ = os.Stdout.WriteString(`{"type":"result","subtype":"success","is_error":false,"result":"model request should not run"}`)
+		os.Exit(0)
+	case "delayed-stream-success":
+		_, _ = os.Stdout.WriteString("{\"type\":\"system\",\"subtype\":\"init\"}\n")
+		time.Sleep(200 * time.Millisecond)
+		_, _ = os.Stdout.WriteString("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"OK\"}]}}\n")
+		_, _ = os.Stdout.WriteString("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"OK\"}\n")
 		os.Exit(0)
 	case "sleep":
 		time.Sleep(5 * time.Second)

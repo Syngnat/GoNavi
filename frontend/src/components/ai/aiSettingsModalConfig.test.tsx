@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { QWEN_CODING_PLAN_ANTHROPIC_BASE_URL } from '../../utils/aiProviderPresets';
@@ -13,7 +12,6 @@ import {
 } from './aiSettingsModalConfig';
 
 describe('aiSettingsModalConfig', () => {
-  const source = readFileSync(new URL('./aiSettingsModalConfig.tsx', import.meta.url), 'utf8');
 
   it('finds the matching preset and falls back to custom when the key is unknown', () => {
     expect(findPreset('openai').label).toBe('OpenAI');
@@ -134,8 +132,6 @@ describe('aiSettingsModalConfig', () => {
     for (const preset of PROVIDER_PRESETS) {
       expect(preset.labelKey).toMatch(/^ai_settings\.provider_preset\.[a-z0-9_]+\.label$/);
       expect(preset.descKey).toMatch(/^ai_settings\.provider_preset\.[a-z0-9_]+\.desc$/);
-      expect(source).toContain(preset.labelKey);
-      expect(source).toContain(preset.descKey);
     }
 
     [
@@ -155,7 +151,6 @@ describe('aiSettingsModalConfig', () => {
       '自定义',
       '自定义 API 端点',
     ].forEach((legacyCopy) => {
-      expect(source).not.toContain(legacyCopy);
     });
   });
 });

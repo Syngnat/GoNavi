@@ -6,7 +6,6 @@ import (
 	"GoNavi-Wails/shared/i18n"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -136,71 +135,6 @@ func assertNoLegacySourceQueryChinese(t *testing.T, text string) {
 	}
 }
 
-func TestSourceQuerySyncUsesLocalizedBackendTextSourceGuard(t *testing.T) {
-	sourceBytes, err := os.ReadFile("source_query_sync.go")
-	if err != nil {
-		t.Fatalf("read source_query_sync.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	legacyMessages := []string{
-		`fmt.Errorf("源查询 SQL 不能为空")`,
-		`fmt.Errorf("SQL 结果集同步当前仅支持“仅同步数据”")`,
-		`fmt.Errorf("SQL 结果集同步要求且仅允许选择一个目标表")`,
-		`fmt.Errorf("目标表不能为空")`,
-		`fmt.Errorf("目标表无主键，不支持基于 SQL 结果集的差异分析")`,
-		`fmt.Errorf("目标表为复合主键（%s），暂不支持基于 SQL 结果集的差异分析", strings.Join(pkCols, ","))`,
-		`fmt.Errorf("获取目标表字段失败: %w", err)`,
-		`fmt.Errorf("目标表 %s 不存在或未读取到字段定义", tableName)`,
-		`fmt.Errorf("执行源查询失败: %w", err)`,
-		`fmt.Errorf("读取目标表失败: %w", err)`,
-		"\u521d\u59cb\u5316\u6e90\u6570\u636e\u5e93\u9a71\u52a8\u5931\u8d25: ",
-		"\u521d\u59cb\u5316\u76ee\u6807\u6570\u636e\u5e93\u9a71\u52a8\u5931\u8d25: ",
-		"\u6e90\u6570\u636e\u5e93\u8fde\u63a5\u5931\u8d25: ",
-		"\u76ee\u6807\u6570\u636e\u5e93\u8fde\u63a5\u5931\u8d25: ",
-		"已完成 1 个目标表的差异分析",
-		"SQL 结果集差异分析完成",
-		"SQL 结果集同步预览",
-		"差异分析开始",
-		"差异分析完成",
-		"开始同步",
-		"同步来源：SQL 结果集 -> 目标表",
-	}
-	for _, legacy := range legacyMessages {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("source_query_sync.go still contains legacy raw user-visible message %q", legacy)
-		}
-	}
-
-	requiredKeys := []string{
-		"data_sync.backend.validation.source_query_required",
-		"data_sync.backend.validation.query_mode_data_only",
-		"data_sync.backend.validation.single_target_table_required",
-		"data_sync.backend.validation.target_table_required",
-		"data_sync.backend.error.target_pk_required_for_query_diff",
-		"data_sync.backend.error.target_composite_pk_query_diff_unsupported",
-		"data_sync.backend.error.load_target_columns_failed",
-		"data_sync.backend.error.target_table_columns_missing",
-		"data_sync.backend.error.execute_source_query_failed",
-		"data_sync.backend.error.read_target_table_failed",
-		"data_sync.backend.error.init_source_driver_failed",
-		"data_sync.backend.error.init_target_driver_failed",
-		"data_sync.backend.error.connect_source_failed",
-		"data_sync.backend.error.connect_target_failed",
-		"data_sync.backend.result.analyzed_target_tables",
-		"data_sync.backend.summary.source_query_diff_completed",
-		"data_sync.plan.source_query_preview",
-		"data_sync.progress.stage.analysis_started",
-		"data_sync.progress.stage.analysis_completed",
-		"data_sync.progress.stage.sync_started",
-		"data_sync.backend.log.source_query_sync_source",
-	}
-	for _, key := range requiredKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("source_query_sync.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestSourceQuerySyncCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

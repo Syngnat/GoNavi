@@ -71,7 +71,6 @@ const LogPanel: React.FC<LogPanelProps> = ({
         ? `rgba(255, 255, 255, ${Math.max(0.28, opacity * 0.48)})`
         : `rgba(0, 0, 0, ${Math.max(0.18, opacity * 0.36)})`;
     const isEmbedded = variant === 'embedded';
-    const logCountLabel = sqlLogs.length.toLocaleString();
 
     const columns = [
         {
@@ -118,7 +117,7 @@ const LogPanel: React.FC<LogPanelProps> = ({
             style={{
                 flex: 1,
                 overflow: 'auto',
-                padding: isEmbedded ? '0 12px 12px' : '8px 10px 10px',
+                padding: isEmbedded ? '0 0 12px' : '8px 10px 10px',
             }}
         >
             {sqlLogs.length === 0 ? (
@@ -187,60 +186,18 @@ const LogPanel: React.FC<LogPanelProps> = ({
     if (isEmbedded) {
         return (
             <div
+                className="log-panel-embedded"
                 style={{
                     flex: 1,
                     minHeight: 0,
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
+                    background: isV2Ui
+                        ? 'var(--gn-query-workbench-bg, var(--gn-bg-panel-2))'
+                        : undefined,
                 }}
             >
-                <div
-                    style={{
-                        flex: '0 0 auto',
-                        padding: '8px 12px',
-                        borderBottom: `1px solid ${panelDividerColor}`,
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        gap: 12,
-                        minHeight: 40,
-                    }}
-                >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                        <div
-                            style={{
-                                width: 26,
-                                height: 26,
-                                borderRadius: 8,
-                                display: 'grid',
-                                placeItems: 'center',
-                                background: panelAccentSoftBg,
-                                color: panelAccentColor,
-                                flexShrink: 0,
-                            }}
-                        >
-                            <BugOutlined />
-                        </div>
-                        <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: panelPrimaryTextColor }}>
-                                {t('log_panel.description')}
-                            </div>
-                            <div style={{ fontSize: 11, color: panelMutedTextColor }}>
-                                {logCountLabel}
-                            </div>
-                        </div>
-                    </div>
-                    <Tooltip title={t('log_panel.action.clear')}>
-                        <Button
-                            type="text"
-                            size="small"
-                            icon={<ClearOutlined />}
-                            onClick={clearSqlLogs}
-                            style={{ color: panelMutedTextColor }}
-                        />
-                    </Tooltip>
-                </div>
                 {executionError && (
                     <div style={{ padding: '12px 12px 0' }}>
                         <div style={{

@@ -148,6 +148,110 @@ func TestSplitKingbaseQualifiedTable(t *testing.T) {
 	}
 }
 
+func TestBuildKingbaseDatabaseForeignKeysQueryUsesOneCatalogSnapshot(t *testing.T) {
+	query := buildKingbaseDatabaseForeignKeysQuery()
+
+	if strings.Contains(query, "information_schema") && !strings.Contains(query, "NOT IN ('pg_catalog', 'information_schema')") {
+		t.Fatalf("expected pg_catalog query, got %s", query)
+	}
+	for _, fragment := range []string{
+		"pg_catalog.pg_constraint",
+		"pg_catalog.generate_subscripts(con.conkey, 1) AS key_position(position)",
+		"con.contype = 'f'",
+		"source_ns.nspname",
+		"target_ns.nspname",
+	} {
+		if !strings.Contains(query, fragment) {
+			t.Fatalf("expected query to contain %q, got %s", fragment, query)
+		}
+	}
+}
+
+func TestBuildKingbaseDatabaseForeignKeysGroupsQualifiedTables(t *testing.T) {
+	foreignKeysByTable := buildKingbaseDatabaseForeignKeys([]map[string]interface{}{
+		{
+			"table_schema":         "ldf_server",
+			"table_name":           "orders",
+			"constraint_name":      "fk_orders_customer",
+			"column_name":          "customer_id",
+			"foreign_table_schema": "crm",
+			"foreign_table_name":   "customers",
+			"foreign_column_name":  "id",
+		},
+		{
+			"table_schema":         "ldf_server",
+			"table_name":           "order_items",
+			"constraint_name":      "fk_items_order",
+			"column_name":          "order_id",
+			"foreign_table_schema": "ldf_server",
+			"foreign_table_name":   "orders",
+			"foreign_column_name":  "id",
+		},
+	})
+
+	orders := foreignKeysByTable["ldf_server.orders"]
+	if len(orders) != 1 {
+		t.Fatalf("expected one orders foreign key, got %+v", orders)
+	}
+	if orders[0].RefTableName != "crm.customers" || orders[0].ColumnName != "customer_id" {
+		t.Fatalf("unexpected orders foreign key: %+v", orders[0])
+	}
+	if len(foreignKeysByTable["ldf_server.order_items"]) != 1 {
+		t.Fatalf("expected qualified order_items foreign key, got %+v", foreignKeysByTable)
+	}
+}
+
+func TestKingbaseGetDatabaseForeignKeysUsesSingleQuery(t *testing.T) {
+	registerFakeKingbaseDriverOnce.Do(func() {
+		sql.Register(fakeKingbaseDriverName, fakeKingbaseDriver{})
+	})
+
+	sqlDB, err := sql.Open(fakeKingbaseDriverName, "")
+	if err != nil {
+		t.Fatalf("open fake kingbase db failed: %v", err)
+	}
+	defer sqlDB.Close()
+
+	query := buildKingbaseDatabaseForeignKeysQuery()
+	fakeKingbaseStateMu.Lock()
+	fakeKingbaseState.queryErr = nil
+	fakeKingbaseState.queryResults = map[string]fakeKingbaseQueryResult{
+		query: {
+			columns: []string{
+				"table_schema",
+				"table_name",
+				"constraint_name",
+				"column_name",
+				"foreign_table_schema",
+				"foreign_table_name",
+				"foreign_column_name",
+			},
+			rows: [][]driver.Value{
+				{"ldf_server", "orders", "fk_orders_customer", "customer_id", "crm", "customers", "id"},
+			},
+		},
+	}
+	fakeKingbaseState.lastQuery = ""
+	fakeKingbaseState.queries = nil
+	fakeKingbaseStateMu.Unlock()
+
+	client := &KingbaseDB{conn: sqlDB}
+	foreignKeysByTable, err := client.GetDatabaseForeignKeys("ldf_server_dbs_dev")
+	if err != nil {
+		t.Fatalf("GetDatabaseForeignKeys returned error: %v", err)
+	}
+	if len(foreignKeysByTable["ldf_server.orders"]) != 1 {
+		t.Fatalf("unexpected foreign keys: %+v", foreignKeysByTable)
+	}
+
+	fakeKingbaseStateMu.Lock()
+	queries := append([]string(nil), fakeKingbaseState.queries...)
+	fakeKingbaseStateMu.Unlock()
+	if len(queries) != 1 || queries[0] != query {
+		t.Fatalf("expected one database-wide foreign-key query, got %v", queries)
+	}
+}
+
 func TestKingbaseGetDatabasesFallsBackToCurrentDatabase(t *testing.T) {
 	registerFakeKingbaseDriverOnce.Do(func() {
 		sql.Register(fakeKingbaseDriverName, fakeKingbaseDriver{})

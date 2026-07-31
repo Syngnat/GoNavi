@@ -60,12 +60,4 @@ describe('sqlAnalysisTab', () => {
       t('sql_analysis.workbench.tab_title'),
     )
   })
-
-  it('keeps sql analysis tab source free of hard-coded Chinese titles', async () => {
-    const { readFileSync } = await import('node:fs')
-    const source = readFileSync(new URL('./sqlAnalysisTab.ts', import.meta.url), 'utf8')
-
-    expect(source).not.toContain('SQL 分析 ·')
-    expect(source).not.toContain("'SQL 分析'")
-  })
 })

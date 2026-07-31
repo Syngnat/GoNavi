@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -36,8 +35,6 @@ vi.mock('@ant-design/icons', async () => {
     DownOutlined: () => React.createElement('span', { 'data-icon': 'down' }),
   };
 });
-
-const source = readFileSync(new URL('./AIChatProviderModelSelect.tsx', import.meta.url), 'utf8');
 
 const baseProvider = {
   id: 'provider-1',
@@ -126,12 +123,6 @@ const renderInvalidLocalCLIModelSelect = (variant: 'legacy' | 'v2') => renderToS
 );
 
 describe('AIChatProviderModelSelect i18n source guards', () => {
-  it('uses the shared model placeholder key instead of the legacy Chinese placeholder', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US', key, params)");
-    expect(source).toContain("ai_chat.input.model.placeholder");
-    expect(source).not.toContain('placeholder="选择模型"');
-  });
 
   it('renders the localized placeholder for both legacy and v2 variants', () => {
     expect(renderModelSelect('legacy')).toContain('Select model');

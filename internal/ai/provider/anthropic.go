@@ -595,8 +595,11 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 	callback(ai.StreamChunk{Done: true})
-	return scanner.Err()
+	return nil
 }
 
 // --- HTTP 请求 ---

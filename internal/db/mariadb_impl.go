@@ -151,7 +151,9 @@ func (m *MariaDB) OpenSessionExecer(ctx context.Context) (StatementExecer, error
 	if err != nil {
 		return nil, err
 	}
-	return NewSQLConnStatementExecer(conn), nil
+	// 与 QueryContext 的扫描方言保持一致（mariadb_impl.go:119 用 "mariadb"），
+	// 否则 DATE 列在会话路径会退化成 RFC3339 时间戳，与网格直查结果不一致。
+	return NewSQLConnStatementExecerWithDialect(conn, "mariadb"), nil
 }
 
 func (m *MariaDB) ExecContext(ctx context.Context, query string) (int64, error) {
@@ -377,8 +379,15 @@ func (m *MariaDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM `%s` WHERE %s", tableName, strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		res, err := tx.Exec(query, args...)
+		if err != nil {
 			return fmt.Errorf("删除失败：%v", err)
+		}
+		// 与 mysql_impl.go:1259 一致：本函数是 MySQL 版的拷贝，但漏掉了影响行数校验。
+		// 缺少该校验时，无主键表上一次单元格编辑可能静默改写多行；
+		// 或 WHERE 命中 0 行（他人已改该行）仍提交空事务并提示成功，造成静默丢失更新。
+		if err := requireSingleRowAffected(res, rowMutationActionDelete); err != nil {
+			return err
 		}
 	}
 
@@ -407,8 +416,13 @@ func (m *MariaDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		}
 
 		query := fmt.Sprintf("UPDATE `%s` SET %s WHERE %s", tableName, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		res, err := tx.Exec(query, args...)
+		if err != nil {
 			return fmt.Errorf("更新失败：%v", err)
+		}
+		// 与 mysql_impl.go:1293 一致，避免一次编辑静默改写多行或 0 行命中仍提示成功。
+		if err := requireSingleRowAffected(res, rowMutationActionUpdate); err != nil {
+			return err
 		}
 	}
 

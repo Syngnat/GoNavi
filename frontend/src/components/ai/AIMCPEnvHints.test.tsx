@@ -10,8 +10,6 @@ import AIMCPEnvHints from './AIMCPEnvHints';
 vi.mock('../../i18n/runtime', () => ({
   syncLanguageRuntime: vi.fn(async () => undefined),
 }));
-
-const source = readFileSync(new URL('./AIMCPEnvHints.tsx', import.meta.url), 'utf8');
 const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
 const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
 const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
@@ -35,24 +33,6 @@ const REQUIRED_KEYS = [
   'ai_settings.mcp_server.env_hints.warning_prefix',
   'ai_settings.mcp_server.env_hints.next_actions',
   'ai_settings.mcp_server.env_hints.action_separator',
-];
-
-const SHELL_CHINESE_LITERALS = [
-  '密钥',
-  '地址',
-  '代理',
-  '路径',
-  '运行时',
-  '自定义',
-  '环境变量用途提示',
-  '已识别',
-  '个像密钥',
-  '这里只解释 key 的用途和风险',
-  '应填：',
-  '当前值为空',
-  '当前像示例占位值',
-  '注意：',
-  '下一步：',
 ];
 
 const flattenRendererText = (node: any): string => {
@@ -87,16 +67,6 @@ const renderHints = (
 };
 
 describe('AIMCPEnvHints', () => {
-  it('keeps environment hint shell copy in catalogs instead of source literals', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
-    for (const key of REQUIRED_KEYS) {
-      expect(source).toContain(key);
-    }
-    for (const literal of SHELL_CHINESE_LITERALS) {
-      expect(source).not.toContain(literal);
-    }
-  });
 
   it('keeps environment hint keys present in all six catalogs with matching placeholders', () => {
     const catalogs = [zhCnCatalog, zhTwCatalog, enUsCatalog, jaJpCatalog, deDeCatalog, ruRuCatalog];

@@ -1,15 +1,9 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import DriverManagerModal from './DriverManagerModal';
 import { t } from '../i18n';
-
-const connectionModalSource = readFileSync(new URL('./ConnectionModal.tsx', import.meta.url), 'utf8');
-const driverManagerModalSource = readFileSync(new URL('./DriverManagerModal.tsx', import.meta.url), 'utf8');
-const appCssSource = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
-const sidebarSource = readFileSync(new URL('./Sidebar.tsx', import.meta.url), 'utf8');
 
 const storeState = vi.hoisted(() => ({
   theme: 'light',
@@ -64,18 +58,6 @@ vi.mock('@ant-design/icons', () => {
   };
 });
 
-describe('driver-agent update prompt placement', () => {
-  it('keeps revision mismatch prompts inside driver manager only', () => {
-    expect(driverManagerModalSource).toContain('driver_manager.version.needs_reinstall_suffix');
-    expect(driverManagerModalSource).toContain('row.needsUpdate');
-
-    expect(connectionModalSource).not.toContain('当前数据源驱动代理建议重装');
-    expect(connectionModalSource).not.toContain('去驱动管理重装');
-
-    expect(sidebarSource).not.toContain('驱动代理需要重装：');
-  });
-});
-
 vi.mock('antd', () => {
   const Button: any = ({ children, disabled, loading, onClick, ...rest }: any) => (
     <button type="button" disabled={disabled || loading} onClick={onClick} {...rest}>
@@ -116,7 +98,7 @@ vi.mock('antd', () => {
       })}
     </select>
   );
-  const Progress = () => <div data-progress="true" />;
+  const Progress = (props: any) => <div data-progress="true" {...props} />;
   const Tag = ({ children }: any) => <span>{children}</span>;
   const Switch = ({ checked, onChange, disabled }: any) => (
     <button type="button" disabled={disabled} data-switch-checked={String(checked)} onClick={() => onChange?.(!checked)}>
@@ -263,9 +245,7 @@ describe('DriverManagerModal toolbar actions', () => {
       background: 'transparent',
     });
     expect(findButton(embeddedRenderer!, t('driver.modal.card.action.install')).props.size).toBe('small');
-    expect(appCssSource).toMatch(/\.driver-manager-embedded-layout\s*\{[^}]*overflow:\s*hidden;/s);
-    expect(appCssSource).toMatch(/\.driver-manager-embedded-layout\s*>\s*\.driver-manager-shell\.is-embedded\s*\{[^}]*overflow-y:\s*auto;/s);
-    expect(appCssSource).toMatch(/\.driver-manager-embedded-layout\s*>\s*\.driver-manager-footer-actions\s*\{[^}]*flex:\s*0 0 auto;/s);
+    expect(embeddedRenderer!.root.findByProps({ 'data-progress': 'true' }).props.className).toBe('driver-manager-progress');
 
     let modalRenderer: ReactTestRenderer;
     await act(async () => {

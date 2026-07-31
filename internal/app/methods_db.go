@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -1143,6 +1144,7 @@ func (a *App) dbQueryMulti(
 	// 慢 SQL 埋点：成功执行后记录（低于阈值 500ms 自动跳过）。
 	// 用 named return + defer 覆盖所有 return path，避免遗漏。
 	var queryExecutionDuration time.Duration
+	queryExecuted := false
 	defer func() {
 		if !result.Success {
 			return
@@ -1152,6 +1154,7 @@ func (a *App) dbQueryMulti(
 	}()
 	measureQueryExecution := func(run func()) {
 		startedAt := time.Now()
+		queryExecuted = true
 		run()
 		queryExecutionDuration += time.Since(startedAt)
 	}
@@ -1189,6 +1192,12 @@ func (a *App) dbQueryMulti(
 		logger.Error(err, "DBQueryMulti 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 	}
+	defer func() {
+		// A successful SQL round trip is at least as strong a health signal as Ping.
+		if result.Success && queryExecuted {
+			a.markCachedDatabaseHealthy(dbInst, time.Now())
+		}
+	}()
 
 	ctx, cancel := newQueryExecutionContext(runConfig)
 	defer cancel()
@@ -1297,6 +1306,7 @@ func (a *App) dbQueryMulti(
 				logger.Error(retryErr, "DBQueryMulti 重建连接失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 				return connection.QueryResult{Success: false, Message: retryErr.Error(), QueryID: queryID}
 			}
+			dbInst = retryInst
 			results, resultMessages, err = runMultiQuery(retryInst)
 		}
 	}
@@ -1410,6 +1420,7 @@ func (a *App) dbQueryMulti(
 							logger.Error(retryErr, "DBQueryMulti 批量写重建连接失败：%s", formatConnSummary(runConfig))
 							return connection.QueryResult{Success: false, Message: retryErr.Error(), QueryID: queryID}
 						}
+						dbInst = retryInst
 						if retryBatcher, ok2 := retryInst.(db.BatchWriteExecer); ok2 {
 							measureQueryExecution(func() {
 								affected, batchErr = retryBatcher.ExecBatchContext(ctx, query)
@@ -1865,8 +1876,33 @@ func ensureNonNilSlice[T any](items []T) []T {
 	return items
 }
 
+func resolveConfiguredMongoDatabase(config connection.ConnectionConfig) string {
+	if !strings.EqualFold(strings.TrimSpace(config.Type), "mongodb") {
+		return ""
+	}
+	if database := strings.TrimSpace(config.Database); database != "" {
+		return database
+	}
+
+	rawURI := strings.TrimSpace(config.URI)
+	lowerURI := strings.ToLower(rawURI)
+	if !strings.HasPrefix(lowerURI, "mongodb://") && !strings.HasPrefix(lowerURI, "mongodb+srv://") {
+		return ""
+	}
+	parsed, err := url.Parse(rawURI)
+	if err != nil {
+		return ""
+	}
+	database := strings.Trim(strings.TrimSpace(parsed.Path), "/")
+	if database == "" || strings.Contains(database, "/") {
+		return ""
+	}
+	return database
+}
+
 func (a *App) DBGetDatabases(config connection.ConnectionConfig) connection.QueryResult {
 	runConfig := normalizeRunConfig(config, "")
+	configuredMongoDatabase := resolveConfiguredMongoDatabase(runConfig)
 	if strings.EqualFold(strings.TrimSpace(runConfig.Type), "redis") {
 		runConfig.Type = "redis"
 		client, err := a.getRedisClient(runConfig)
@@ -1889,6 +1925,12 @@ func (a *App) DBGetDatabases(config connection.ConnectionConfig) connection.Quer
 	if err != nil {
 		logger.Error(err, "DBGetDatabases 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if configuredMongoDatabase != "" {
+		return connection.QueryResult{
+			Success: true,
+			Data:    []map[string]string{{"Database": configuredMongoDatabase}},
+		}
 	}
 
 	dbs, err := dbInst.GetDatabases()
@@ -2874,6 +2916,29 @@ func (a *App) DBGetForeignKeys(config connection.ConnectionConfig, dbName string
 	}
 
 	return connection.QueryResult{Success: true, Data: ensureNonNilSlice(fks)}
+}
+
+func (a *App) DBGetDatabaseForeignKeys(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+	runConfig := normalizeRunConfig(config, dbName)
+
+	dbInst, err := a.getDatabase(runConfig)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	provider, ok := dbInst.(db.DatabaseForeignKeyProvider)
+	if !ok {
+		return connection.QueryResult{Success: false, Message: "database-wide foreign-key metadata is not supported"}
+	}
+
+	foreignKeysByTable, err := provider.GetDatabaseForeignKeys(dbName)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if foreignKeysByTable == nil {
+		foreignKeysByTable = make(map[string][]connection.ForeignKeyDefinition)
+	}
+	return connection.QueryResult{Success: true, Data: foreignKeysByTable}
 }
 
 func (a *App) DBGetTriggers(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {

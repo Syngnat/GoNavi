@@ -537,14 +537,7 @@ for file in "${!changed_file_set[@]}"; do
       fi
       add_forced_drivers_from_tokens "$shared_delta"
       ;;
-    tools/compress-driver-artifact.sh|\
-    tools/package-driver-release-assets.py|\
-    tools/generate-driver-release-manifest.py|\
-    tools/validate-driver-release-assets.py|\
-    tools/complete-driver-release-assets.py|\
-    tools/resolve-driver-release-source.py|\
-    tools/validate-driver-release-manifest.sh|\
-    tools/should-force-global-driver-builds.sh)
+    tools/compress-driver-artifact.sh)
       echo "检测到 driver-agent 构建/发布链路脚本变更；保守构建全部 driver-agent：$file" >&2
       all_drivers_csv
       exit 0

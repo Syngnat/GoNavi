@@ -295,15 +295,19 @@ func buildTrinoDSN(config connection.ConnectionConfig, customClientName string) 
 }
 
 func (t *TrinoDB) Close() error {
+	var firstErr error
 	if t.conn != nil {
 		if err := t.conn.Close(); err != nil {
-			return err
+			firstErr = err
 		}
 		t.conn = nil
 	}
 	if t.forwarder != nil {
-		if err := t.forwarder.Close(); err != nil {
+		if err := t.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 Trino SSH 端口转发失败：%v", err)
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 		t.forwarder = nil
 	}
@@ -312,7 +316,7 @@ func (t *TrinoDB) Close() error {
 		t.customClientName = ""
 	}
 	t.namespace = ""
-	return nil
+	return firstErr
 }
 
 func (t *TrinoDB) Connect(config connection.ConnectionConfig) error {
@@ -322,7 +326,7 @@ func (t *TrinoDB) Connect(config connection.ConnectionConfig) error {
 	t.pingTimeout = getConnectTimeout(runConfig)
 
 	if runConfig.UseSSH {
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}

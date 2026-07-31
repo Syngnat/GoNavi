@@ -44,7 +44,6 @@ func parseOracleExplain(sourceSQL, raw string, format connection.ExplainFormat) 
 		DBType:    "oracle",
 		SourceSQL: sourceSQL,
 	}
-	resetExplainNodeID()
 
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

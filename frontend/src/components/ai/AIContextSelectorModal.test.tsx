@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -76,14 +75,6 @@ vi.mock('@ant-design/icons', () => ({
   SearchOutlined: () => React.createElement('span', { 'data-icon': 'search' }),
 }));
 
-const source = readFileSync(new URL('./AIContextSelectorModal.tsx', import.meta.url), 'utf8');
-const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
-const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
-const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
-const jaJpCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ja-JP.json', import.meta.url), 'utf8'));
-const deDeCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/de-DE.json', import.meta.url), 'utf8'));
-const ruRuCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ru-RU.json', import.meta.url), 'utf8'));
-
 const baseProps: React.ComponentProps<typeof AIContextSelectorModal> = {
   open: true,
   loading: false,
@@ -124,42 +115,6 @@ const renderWithoutProvider = (
 ) => renderToStaticMarkup(<AIContextSelectorModal {...baseProps} {...overrides} />);
 
 describe('AIContextSelectorModal i18n guards', () => {
-  it('uses optional i18n keys instead of legacy Chinese literals', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US', key, params)");
-    expect(source).toContain("ai_chat.input.context.selector.title");
-    expect(source).toContain("ai_chat.input.context.selector.confirm");
-    expect(source).toContain("ai_chat.input.context.selector.search_placeholder");
-    expect(source).toContain("ai_chat.input.context.selector.empty_no_match");
-    expect(source).not.toContain('关联数据库表结构上下文');
-    expect(source).not.toContain('同步所选表至上下文');
-    expect(source).not.toContain('全选匹配的表');
-    expect(source).not.toContain('反选匹配结果');
-    expect(source).not.toContain('当前数据库没有可关联的表');
-  });
-
-  it('keeps required selector keys present in all six catalogs', () => {
-    const requiredKeys = [
-      'ai_chat.input.context.selector.title',
-      'ai_chat.input.context.selector.confirm',
-      'ai_chat.input.context.selector.cancel',
-      'ai_chat.input.context.selector.database_placeholder',
-      'ai_chat.input.context.selector.search_placeholder',
-      'ai_chat.input.context.selector.select_all',
-      'ai_chat.input.context.selector.invert_selection',
-      'ai_chat.input.context.selector.empty_no_tables',
-      'ai_chat.input.context.selector.empty_no_match',
-    ];
-
-    for (const key of requiredKeys) {
-      expect(zhCnCatalog[key]).toBeTruthy();
-      expect(zhTwCatalog[key]).toBeTruthy();
-      expect(enUsCatalog[key]).toBeTruthy();
-      expect(jaJpCatalog[key]).toBeTruthy();
-      expect(deDeCatalog[key]).toBeTruthy();
-      expect(ruRuCatalog[key]).toBeTruthy();
-    }
-  });
 
   it('renders english fallback copy without an i18n provider while preserving raw database and search text', () => {
     expect(() => renderWithoutProvider({

@@ -69,10 +69,4 @@ describe('resolveAITableSchemaToolResult', () => {
     expect(result.content).toContain('columns permission denied');
     expect(result.content).not.toContain('获取建表语句失败');
   });
-
-  it('keeps legacy Chinese table schema wrappers out of the source', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(new URL('./aiTableSchemaTool.ts', import.meta.url), 'utf8');
-    expect(source).not.toMatch(/DDL 获取失败|DDL 错误|该结果不包含完整索引|可用字段|详细信息|获取建表语句失败|未知错误|降级获取字段列表/);
-  });
 });

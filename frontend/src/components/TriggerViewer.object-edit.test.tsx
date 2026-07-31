@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { act, create } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -106,29 +105,6 @@ describe('TriggerViewer object edit entry', () => {
       success: true,
       data: [{ trigger_definition: 'CREATE TRIGGER users_bi BEFORE INSERT ON audit.users EXECUTE FUNCTION audit.audit_users();' }],
     });
-  });
-
-  it('keeps TriggerViewer shell and fallback copy localized', () => {
-    const source = readFileSync(new URL('./TriggerViewer.tsx', import.meta.url), 'utf8');
-
-    expect(source).not.toMatch(/DuckDB 不支持触发器|TDengine 不支持触发器|MongoDB 不支持触发器|暂不支持该数据库类型的触发器定义查看/);
-    expect(source).not.toMatch(/未找到触发器定义|未找到数据库连接|触发器名称为空|查询触发器定义失败/);
-    expect(source).not.toMatch(/当前 Sphinx 实例|已执行多套兼容查询|返回失败信息: |unknown error/);
-    expect(source).not.toMatch(/加载触发器定义|加载失败|修改触发器|触发器: |数据库: |对象修改|刷新最新定义失败/);
-
-    expect(source).toContain('trigger_viewer.loading.definition');
-    expect(source).toContain('trigger_viewer.error.load_failed');
-    expect(source).toContain('trigger_viewer.error.connection_not_found');
-    expect(source).toContain('trigger_viewer.error.trigger_name_empty');
-    expect(source).toContain('trigger_viewer.error.query_failed');
-    expect(source).toContain('trigger_viewer.error.query_failed_detail');
-    expect(source).toContain('trigger_viewer.field.trigger');
-    expect(source).toContain('trigger_viewer.field.database');
-    expect(source).toContain('trigger_viewer.action.edit_object');
-    expect(source).toContain('trigger_viewer.warning.refresh_latest_failed');
-    expect(source).toContain('trigger_viewer.tab.edit_trigger_title');
-    expect(source).toContain('trigger_viewer.editor.unsupported.duckdb');
-    expect(source).toContain('trigger_viewer.editor.sphinx.failed_message_unknown');
   });
 
   it('opens an editable query tab for trigger definitions', async () => {

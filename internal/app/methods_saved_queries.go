@@ -40,7 +40,11 @@ func (a *App) SaveQuery(input connection.SavedQuery) (connection.SavedQuery, err
 	if err == nil {
 		input = resolveSavedQueryBindings([]connection.SavedQuery{input}, currentConnections, nil)[0]
 	}
-	return a.savedQueryRepository().Save(input)
+	query, err := a.savedQueryRepository().Save(input)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return query, err
 }
 
 func (a *App) ImportSavedQueries(payload connection.SavedQueryImportPayload) ([]connection.SavedQuery, error) {
@@ -57,7 +61,11 @@ func (a *App) ImportSavedQueries(payload connection.SavedQueryImportPayload) ([]
 	if err != nil {
 		currentConnections = nil
 	}
-	return a.savedQueryRepository().Import(payload, currentConnections)
+	queries, err := a.savedQueryRepository().Import(payload, currentConnections)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return queries, err
 }
 
 func (a *App) localizedSavedQueryDefaultName(index int) string {
@@ -65,36 +73,60 @@ func (a *App) localizedSavedQueryDefaultName(index int) string {
 }
 
 func (a *App) DeleteQuery(id string) error {
-	return a.savedQueryRepository().Delete(id)
+	err := a.savedQueryRepository().Delete(id)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return err
 }
 
 func (a *App) RenameSavedQuery(id string, name string) (connection.SavedQuery, error) {
-	return a.savedQueryRepository().Rename(id, name)
+	query, err := a.savedQueryRepository().Rename(id, name)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return query, err
 }
 
 // SaveSavedQueryGroup creates or fully replaces a saved SQL group. Callers
 // must submit the current parent, query IDs, and child order; query IDs in the
 // submitted group become owned by that direct group only.
 func (a *App) SaveSavedQueryGroup(input connection.SavedQueryGroup) (connection.SavedQueryGroup, error) {
-	return a.savedQueryRepository().SaveGroup(input)
+	group, err := a.savedQueryRepository().SaveGroup(input)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return group, err
 }
 
 // DeleteSavedQueryGroup removes a group and promotes its direct queries and
 // child groups to the deleted group's parent when it has one.
 func (a *App) DeleteSavedQueryGroup(id string) error {
-	return a.savedQueryRepository().DeleteGroup(id)
+	err := a.savedQueryRepository().DeleteGroup(id)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return err
 }
 
 // MoveSavedQueryToGroup moves a saved query to a direct group. An empty group
 // id makes the query ungrouped.
 func (a *App) MoveSavedQueryToGroup(queryID string, groupID string) error {
-	return a.savedQueryRepository().MoveQueryToGroup(queryID, groupID)
+	err := a.savedQueryRepository().MoveQueryToGroup(queryID, groupID)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return err
 }
 
 // MoveSavedQueryGroup reparents a saved-query group. An empty parent id moves
 // it to the root level.
 func (a *App) MoveSavedQueryGroup(groupID string, parentGroupID string) error {
-	return a.savedQueryRepository().MoveGroup(groupID, parentGroupID)
+	err := a.savedQueryRepository().MoveGroup(groupID, parentGroupID)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return err
 }
 
 func (a *App) RebindSavedQuery(id string, connectionID string) (connection.SavedQuery, error) {
@@ -102,7 +134,11 @@ func (a *App) RebindSavedQuery(id string, connectionID string) (connection.Saved
 	if err != nil {
 		return connection.SavedQuery{}, err
 	}
-	return a.savedQueryRepository().Rebind(id, target)
+	query, err := a.savedQueryRepository().Rebind(id, target)
+	if err == nil {
+		a.markCloudBackupDirty()
+	}
+	return query, err
 }
 
 func (a *App) GetUnboundSavedQueries() ([]connection.SavedQuery, error) {

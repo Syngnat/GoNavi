@@ -1,0 +1,2803 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GoNavi · 新建连接 UI Demo（选型 + 表单）</title>
+  <style>
+    :root {
+      --font: "Inter", "SF Pro Text", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+      --mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
+      /* fallback = Comfort Dark-ish until theme applied */
+      --gn-bg-app: #1b1d21;
+      --gn-bg-chrome: #1f2227;
+      --gn-bg-panel: #24272d;
+      --gn-bg-panel-2: #292d34;
+      --gn-bg-input: #202329;
+      --gn-bg-hover: rgba(226, 232, 240, 0.045);
+      --gn-bg-active: rgba(226, 232, 240, 0.075);
+      --gn-bg-selected: rgba(121, 166, 147, 0.14);
+      --gn-fg-1: #d2d5da;
+      --gn-fg-2: #bbc0c7;
+      --gn-fg-3: #9ea5ae;
+      --gn-fg-4: #9299a3;
+      --gn-fg-5: #878e98;
+      --gn-br-1: rgba(226, 232, 240, 0.06);
+      --gn-br-2: rgba(226, 232, 240, 0.10);
+      --gn-br-3: rgba(226, 232, 240, 0.16);
+      --gn-accent: #79a693;
+      --gn-accent-2: #6b9887;
+      --gn-accent-soft: rgba(121, 166, 147, 0.16);
+      --gn-on-accent: #142019;
+      --gn-info: #79a6c9;
+      --gn-warn: #c6a15b;
+      --gn-danger: #d47777;
+      --gn-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.24);
+      --gn-shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.32);
+      --gn-shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.07), 0 1px 3px rgba(0, 0, 0, 0.18);
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: var(--font);
+      background: var(--gn-bg-app);
+      color: var(--gn-fg-1);
+      min-height: 100vh;
+      transition: background .2s, color .2s;
+    }
+
+    .shell { max-width: 1280px; margin: 0 auto; padding: 24px 20px 72px; }
+    .hero {
+      display: flex; flex-wrap: wrap; gap: 14px;
+      justify-content: space-between; align-items: flex-end;
+      margin-bottom: 14px;
+    }
+    .hero h1 { margin: 0 0 4px; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+    .hero p { margin: 0; color: var(--gn-fg-4); font-size: 13px; line-height: 1.5; max-width: 560px; }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .tabs, .theme-pills {
+      display: inline-flex; flex-wrap: wrap; gap: 4px;
+      padding: 4px; background: var(--gn-bg-chrome);
+      border: 1px solid var(--gn-br-2); border-radius: 12px;
+    }
+    .tab, .theme-pill {
+      appearance: none; border: 0; cursor: pointer; font: inherit;
+      font-size: 12.5px; font-weight: 600; color: var(--gn-fg-3);
+      background: transparent; padding: 7px 11px; border-radius: 8px;
+    }
+    .tab small { display: block; font-size: 10px; font-weight: 500; opacity: .7; margin-top: 1px; }
+    .tab:hover, .theme-pill:hover { color: var(--gn-fg-1); background: var(--gn-bg-hover); }
+    .tab.active, .theme-pill.active {
+      background: var(--gn-bg-selected); color: var(--gn-accent);
+    }
+    .theme-pill { display: flex; align-items: center; gap: 6px; padding: 6px 10px; }
+    .theme-swatch {
+      width: 12px; height: 12px; border-radius: 50%;
+      border: 1px solid var(--gn-br-3); flex-shrink: 0;
+    }
+
+    .note {
+      margin: 0 0 14px; padding: 10px 12px; border-radius: 10px;
+      background: var(--gn-bg-panel); border: 1px solid var(--gn-br-2);
+      color: var(--gn-fg-3); font-size: 12.5px; line-height: 1.55;
+    }
+    .note strong { color: var(--gn-fg-1); }
+
+    .panel { display: none; }
+    .panel.active { display: block; animation: fade .2s ease; }
+    @keyframes fade {
+      from { opacity: 0; transform: translateY(3px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    /* ── shared modal frame ── */
+    .frame {
+      border-radius: 16px; overflow: hidden;
+      background: var(--gn-bg-panel);
+      border: 1px solid var(--gn-br-2);
+      box-shadow: var(--gn-shadow-lg);
+      min-height: 560px;
+      display: flex; flex-direction: column;
+      width: 100%;
+    }
+    /* 表单步：宽度贴合字段区，避免右侧大片空 */
+    .frame.frame-form {
+      min-height: 0;
+      height: fit-content;
+      width: min(600px, 100%);
+      max-width: 600px;
+      margin: 0 auto;
+      align-self: center;
+    }
+    .frame-top {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 12px 16px; border-bottom: 1px solid var(--gn-br-1);
+      background: var(--gn-bg-chrome);
+    }
+    .frame-top-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .type-badge {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: #fff;
+      font-size: 22px; font-weight: 500; line-height: 1;
+      flex-shrink: 0;
+      /* 光学居中：+ 字形常略偏下 */
+      padding: 0;
+      box-sizing: border-box;
+    }
+    .type-badge .plus {
+      display: block;
+      transform: translateY(-0.5px);
+      line-height: 1;
+      font-size: 22px;
+      font-weight: 400;
+    }
+    .frame-title { font-size: 14.5px; font-weight: 700; }
+    .frame-sub { font-size: 11.5px; color: var(--gn-fg-4); margin-top: 2px; }
+    .steps {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      font-size: 11.5px; color: var(--gn-fg-5);
+      white-space: nowrap;
+    }
+    .steps .on { color: var(--gn-accent); font-weight: 700; }
+    .steps .done { color: var(--gn-fg-3); }
+    .top-actions { display: flex; gap: 8px; align-items: center; justify-content: flex-end; }
+
+    /* 表单头：三列等宽，步骤绝对居中，不随左右内容偏移 */
+    .frame-form .frame-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+      align-items: center;
+      column-gap: 8px;
+      padding: 8px 12px;
+    }
+    .frame-form .frame-top-left {
+      justify-self: start;
+      min-width: 0;
+    }
+    .frame-form .steps {
+      justify-self: center;
+      grid-column: 2;
+    }
+    .frame-form .top-actions {
+      justify-self: end;
+      grid-column: 3;
+    }
+
+    .btn {
+      appearance: none; border: 1px solid var(--gn-br-2);
+      background: var(--gn-bg-panel-2); color: var(--gn-fg-2);
+      border-radius: 9px; padding: 7px 12px;
+      font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    }
+    .btn:hover { background: var(--gn-bg-hover); }
+    .btn.primary {
+      background: var(--gn-accent); border-color: var(--gn-accent);
+      color: var(--gn-on-accent);
+    }
+    .btn.primary:hover { filter: brightness(1.05); }
+    .btn.ghost { background: transparent; }
+    .btn.link {
+      border: 0; background: transparent; color: var(--gn-accent); padding: 7px 4px;
+    }
+
+    /* ── A picker ── */
+    .a-body {
+      display: grid;
+      grid-template-columns: minmax(200px, 24%) minmax(0, 1fr);
+      flex: 1; min-height: 0;
+    }
+    .a-side {
+      border-right: 1px solid var(--gn-br-1); padding: 12px 14px;
+      background: var(--gn-bg-chrome); display: flex; flex-direction: column; gap: 12px;
+      min-width: 0;
+    }
+    .a-main {
+      padding: 14px 16px 18px;
+      overflow: auto;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .search {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--gn-bg-input); border: 1px solid var(--gn-br-2);
+      border-radius: 10px; padding: 7px 8px 7px 10px;
+      min-width: 0;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .search .search-ico {
+      flex-shrink: 0;
+      color: var(--gn-fg-5);
+      font-size: 13px;
+      line-height: 1;
+    }
+    .search input {
+      flex: 1 1 auto;
+      min-width: 0; /* 关键：允许收缩，避免把 kbd 挤出 */
+      width: 0;
+      border: 0; outline: 0; background: transparent;
+      color: var(--gn-fg-1); font: inherit; font-size: 12.5px;
+    }
+    .search kbd {
+      flex-shrink: 0;
+      font-family: var(--mono); font-size: 10px; color: var(--gn-fg-5);
+      border: 1px solid var(--gn-br-2); border-radius: 4px;
+      padding: 2px 5px;
+      line-height: 1.2;
+      white-space: nowrap;
+      background: var(--gn-bg-panel-2);
+    }
+    .sec-label {
+      font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+      color: var(--gn-fg-5); margin: 0 0 6px 4px; font-weight: 700;
+    }
+    .nav-item, .chip {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 8px 10px; border-radius: 8px; border: 0;
+      background: transparent; color: var(--gn-fg-2);
+      font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+    }
+    .nav-item:hover, .chip:hover { background: var(--gn-bg-hover); }
+    .nav-item.active { background: var(--gn-bg-selected); color: var(--gn-accent); font-weight: 650; }
+    .nav-item .count {
+      margin-left: auto; font-size: 11px; color: var(--gn-fg-5);
+      background: var(--gn-bg-panel); padding: 1px 6px; border-radius: 999px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .a-main-h {
+      display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px;
+    }
+    .a-main-h h3 { margin: 0; font-size: 13.5px; font-weight: 700; }
+    .a-main-h span { font-size: 12px; color: var(--gn-fg-5); }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      width: 100%;
+    }
+    @media (min-width: 1200px) {
+      .grid-3 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    .src-card {
+      appearance: none; text-align: left; cursor: pointer; font: inherit; color: inherit;
+      background: var(--gn-bg-panel-2); border: 1px solid var(--gn-br-2);
+      border-radius: var(--radius); padding: 12px;
+      transition: border-color .15s, transform .15s, background .15s;
+    }
+    .src-card:hover {
+      border-color: var(--gn-accent); background: var(--gn-bg-selected);
+      transform: translateY(-1px);
+    }
+    .src-card-top { display: flex; align-items: center; gap: 10px; }
+    .src-logo {
+      width: 36px; height: 36px; border-radius: 9px;
+      display: grid; place-items: center; font-size: 12px; font-weight: 800; color: #fff; flex-shrink: 0;
+    }
+    .src-name { font-size: 13.5px; font-weight: 700; }
+    .src-meta { font-size: 11.5px; color: var(--gn-fg-4); margin-top: 2px; }
+    .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+    .tag {
+      font-size: 10.5px; color: var(--gn-fg-4);
+      background: var(--gn-bg-chrome); border-radius: 999px; padding: 2px 7px;
+    }
+
+    /* ── Form (step 2) · dense tool layout ── */
+    .form-layout {
+      display: flex; flex-direction: column;
+      flex: 0 0 auto; /* 不拉高吃空 */
+      min-height: 0;
+    }
+    .form-nav {
+      display: flex; flex-wrap: wrap; gap: 2px;
+      padding: 6px 12px 0;
+      border-bottom: 1px solid var(--gn-br-1);
+      background: var(--gn-bg-chrome);
+      flex: 0 0 auto;
+    }
+    .form-nav-item {
+      appearance: none; border: 0; background: transparent; text-align: center;
+      font: inherit; font-size: 12px; font-weight: 600; color: var(--gn-fg-4);
+      padding: 7px 12px 8px; border-radius: 8px 8px 0 0; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px;
+      border-bottom: 2px solid transparent; margin-bottom: -1px;
+    }
+    .form-nav-item:hover { color: var(--gn-fg-1); background: var(--gn-bg-hover); }
+    .form-nav-item.active {
+      color: var(--gn-accent);
+      border-bottom-color: var(--gn-accent);
+      background: transparent;
+    }
+    .form-nav-item .ico { font-size: 11px; opacity: .8; }
+    .form-main {
+      padding: 10px 12px 12px;
+      overflow: visible;
+      flex: 0 0 auto;
+      width: 100%;
+      max-width: none;
+    }
+    /* 基本字段行：整组左对齐，不再在宽对话框里右侧留空 */
+    .form-section[data-sec="basic"] .f-row .ctrl.inline {
+      justify-content: flex-start;
+    }
+    .frame-form .frame-foot {
+      flex: 0 0 auto;
+    }
+
+    /* 生产连接保护：扁平折叠；左侧 lead 列对齐勾选框 */
+    .prot {
+      --prot-lead: 22px;
+      --prot-gap: 10px;
+      margin-top: 10px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      overflow: visible;
+    }
+    .prot[data-on="1"] { border: 0; }
+    .prot-head {
+      display: grid;
+      grid-template-columns: var(--prot-lead) minmax(0, 1fr) auto;
+      column-gap: var(--prot-gap);
+      align-items: center;
+      padding: 2px 0;
+      min-height: 28px;
+      cursor: pointer;
+      user-select: none;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      font: inherit;
+      color: inherit;
+      text-align: left;
+    }
+    .prot-head:hover { color: var(--gn-fg-1); }
+    .prot-head .chev {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: var(--prot-lead);
+      height: var(--prot-lead);
+      margin: 0;
+      padding: 0;
+      font-size: 0;
+      line-height: 0;
+      color: var(--gn-fg-3);
+      border-radius: 6px;
+      transition: transform .15s, background .15s, color .15s;
+    }
+    .prot-head .chev::before {
+      content: "";
+      display: block;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 5px 0 5px 7px;
+      border-color: transparent transparent transparent currentColor;
+    }
+    .prot-head:hover .chev {
+      background: var(--gn-bg-hover);
+      color: var(--gn-fg-1);
+    }
+    .prot.open .prot-head .chev {
+      transform: rotate(90deg);
+    }
+    .prot-title {
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      min-height: 28px;
+      line-height: 1.2;
+    }
+    .prot-tag {
+      align-self: center;
+      font-size: 11px; font-weight: 650; padding: 1px 7px; border-radius: 999px;
+      background: transparent; color: var(--gn-fg-4);
+      border: 1px solid var(--gn-br-2);
+    }
+    .prot-tag.on {
+      background: color-mix(in srgb, var(--gn-danger) 16%, transparent);
+      color: var(--gn-danger);
+      border-color: color-mix(in srgb, var(--gn-danger) 35%, transparent);
+    }
+    .prot-body { display: none; padding: 4px 0 0; }
+    .prot.open .prot-body { display: block; }
+    .prot-help {
+      font-size: 11.5px; color: var(--gn-fg-5); line-height: 1.45;
+      margin: 0 0 8px; padding: 0;
+      background: transparent; border: 0;
+    }
+    /* 统一自定义勾选框（替代原生方框） */
+    .gn-check {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      flex-shrink: 0;
+      border: 1.5px solid var(--gn-br-3);
+      border-radius: 4px;
+      background: var(--gn-bg-input);
+      box-sizing: border-box;
+      cursor: pointer;
+      vertical-align: middle;
+      position: relative;
+      display: inline-grid;
+      place-items: center;
+      transition: border-color .12s, background .12s, box-shadow .12s;
+    }
+    .gn-check:hover {
+      border-color: var(--gn-accent);
+    }
+    .gn-check:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--gn-accent-soft);
+      border-color: var(--gn-accent);
+    }
+    .gn-check:checked {
+      background: var(--gn-accent);
+      border-color: var(--gn-accent);
+    }
+    /* 对勾用居中伪元素，避免 left/top 手算偏移 */
+    .gn-check:checked::after {
+      content: "";
+      width: 4px;
+      height: 8px;
+      margin-top: -1px; /* 视觉光学居中：勾形略偏下 */
+      border: solid var(--gn-on-accent);
+      border-width: 0 1.5px 1.5px 0;
+      transform: rotate(45deg);
+      box-sizing: border-box;
+    }
+    /* 生产保护用危险强调色 */
+    .prot-opt .gn-check:checked {
+      background: var(--gn-danger);
+      border-color: var(--gn-danger);
+    }
+    .prot-opt .gn-check:checked::after {
+      border-color: #fff;
+    }
+    .prot-opt .gn-check:hover {
+      border-color: var(--gn-danger);
+    }
+
+    .prot-list { display: flex; flex-direction: column; gap: 2px; }
+    .prot-opt {
+      display: grid;
+      grid-template-columns: var(--prot-lead) minmax(0, 1fr);
+      column-gap: var(--prot-gap);
+      align-items: start;
+      padding: 6px 0;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      font: inherit;
+      color: inherit;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .prot-opt:hover { background: var(--gn-bg-hover); }
+    .prot-opt.on { background: transparent; }
+    .prot-opt .gn-check {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      /* 在 22px 列内水平居中，与折叠三角中心对齐 */
+      justify-self: center;
+      margin-top: 2px;
+    }
+    .prot-opt .n { font-size: 12.5px; font-weight: 600; line-height: 1.25; color: var(--gn-fg-2); }
+    .prot-opt .h { font-size: 11px; color: var(--gn-fg-5); margin-top: 2px; line-height: 1.35; }
+
+    .check-line .gn-check { margin-right: 2px; }
+    .net-row .gn-check { margin-top: 0; }
+    .prot-sum {
+      margin-top: 6px; font-size: 11.5px; color: var(--gn-fg-4);
+      padding: 0; border: 0; background: transparent;
+    }
+    .prot-tip { margin-top: 4px; font-size: 11px; color: var(--gn-fg-5); line-height: 1.4; }
+    @media (max-width: 640px) {
+    }
+
+    /* 外观 · 图标 / 颜色 / 预览 */
+    .appear-label {
+      font-size: 11px; font-weight: 700; color: var(--gn-fg-5);
+      letter-spacing: .04em; text-transform: uppercase;
+      margin: 0 0 6px;
+    }
+    .appear-label span { font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--gn-fg-4); margin-left: 6px; }
+    .icon-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+      gap: 6px;
+      max-height: 148px;
+      overflow: auto;
+      padding: 2px;
+      margin-bottom: 10px;
+    }
+    .icon-cell {
+      width: 100%; aspect-ratio: 1; border-radius: 8px;
+      border: 1.5px solid var(--gn-br-2); background: var(--gn-bg-input);
+      display: grid; place-items: center; cursor: pointer; padding: 4px;
+      font: inherit; color: inherit;
+    }
+    .icon-cell:hover { border-color: var(--gn-br-3); background: var(--gn-bg-hover); }
+    .icon-cell.on {
+      border-color: var(--gn-accent);
+      box-shadow: 0 0 0 2px var(--gn-accent-soft);
+    }
+    .icon-cell img {
+      width: 22px; height: 22px; object-fit: contain; display: block;
+    }
+    .icon-cell .fb {
+      width: 22px; height: 22px; border-radius: 5px;
+      display: grid; place-items: center; font-size: 9px; font-weight: 800; color: #fff;
+    }
+    .color-row {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      margin-bottom: 10px;
+    }
+    .color-dot {
+      width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent;
+      cursor: pointer; padding: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12);
+    }
+    .color-dot.on {
+      border-color: var(--gn-fg-1);
+      box-shadow: 0 0 0 2px var(--gn-bg-panel), 0 0 0 3.5px var(--gn-fg-1);
+    }
+    .color-dot.custom-wrap {
+      position: relative; overflow: hidden;
+    }
+    .color-dot.custom-wrap input {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; border: 0; padding: 0;
+    }
+    .appear-preview {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--gn-br-2); background: var(--gn-bg-panel-2);
+    }
+    .appear-preview .pv-icon {
+      width: 28px; height: 28px; border-radius: 7px;
+      border: 1.5px solid var(--gn-br-2); background: var(--gn-bg-input);
+      display: grid; place-items: center; overflow: hidden; flex-shrink: 0;
+    }
+    .appear-preview .pv-icon img { width: 18px; height: 18px; object-fit: contain; }
+    .appear-preview .pv-name { font-size: 13px; font-weight: 650; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .appear-preview .pv-meta { font-size: 11px; color: var(--gn-fg-5); margin-top: 1px; }
+    .form-section { display: none; }
+    .form-section.active { display: block; }
+    .form-section h3,
+    .form-section .desc { display: none; } /* 与 Tab 重复，省掉 */
+
+    /* 左标签右控件：工具密度（标签列收窄，与连接串区块左缘对齐） */
+    .f-row {
+      display: grid;
+      grid-template-columns: 40px 1fr;
+      gap: 6px 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .f-row > label {
+      font-size: 12px; font-weight: 600; color: var(--gn-fg-3);
+      text-align: left; line-height: 1.2;
+    }
+    .f-row .ctrl { min-width: 0; }
+    .f-row .ctrl.inline {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    .field { margin-bottom: 8px; }
+    .field label {
+      display: block;
+      font-size: 11.5px; font-weight: 600; color: var(--gn-fg-4); margin-bottom: 3px;
+    }
+    .field label .hint { font-weight: 500; color: var(--gn-fg-5); font-size: 11px; margin-left: 4px; }
+    .field input, .field select, .field textarea,
+    .f-row input, .f-row select, .f-row textarea,
+    .ctrl input, .ctrl select, .ctrl textarea {
+      width: 100%; background: var(--gn-bg-input); border: 1px solid var(--gn-br-2);
+      border-radius: 6px; color: var(--gn-fg-1); padding: 5px 8px;
+      font: inherit; font-size: 12.5px; outline: 0; height: 30px;
+    }
+    .field textarea, .ctrl textarea, .f-row textarea {
+      height: auto; min-height: 56px; padding: 6px 8px; resize: vertical;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus,
+    .f-row input:focus, .f-row select:focus, .ctrl input:focus, .ctrl select:focus {
+      border-color: var(--gn-accent); box-shadow: 0 0 0 2px var(--gn-accent-soft);
+    }
+    .ctrl .grow { flex: 1 1 auto; min-width: 100px; max-width: 280px; }
+    .ctrl .w-host { flex: 1 1 auto; min-width: 120px; max-width: 220px; width: 220px; }
+    .ctrl .w-name { flex: 1 1 auto; min-width: 140px; max-width: 260px; width: 260px; }
+    .ctrl .w-pass { flex: 1 1 auto; min-width: 120px; max-width: 200px; width: 200px; }
+    .ctrl .w-port { width: 72px; flex: 0 0 72px; max-width: 72px; }
+    .ctrl .w-sm { width: 100px; flex: 0 0 100px; max-width: 100px; }
+    .ctrl .w-md { width: 140px; flex: 0 0 140px; max-width: 140px; }
+    .ctrl .w-user { width: 120px; flex: 0 0 120px; max-width: 120px; }
+    .ctrl .w-db { width: 120px; flex: 0 0 120px; max-width: 120px; }
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .row-3 { display: grid; grid-template-columns: 1.5fr 88px 1fr; gap: 8px; }
+
+    .check-line {
+      display: flex; flex-wrap: wrap; gap: 12px 16px;
+      align-items: center; padding: 2px 0 2px 48px; margin-bottom: 4px;
+      font-size: 12px; color: var(--gn-fg-2);
+    }
+    .check-line label {
+      display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+      user-select: none; font-weight: 500;
+    }
+    .check-line input { accent-color: var(--gn-accent); width: 14px; height: 14px; margin: 0; }
+
+    .switch-row {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 6px 8px; border: 1px solid var(--gn-br-2); border-radius: 6px;
+      background: var(--gn-bg-panel-2); margin-bottom: 6px;
+    }
+    .switch-row .t { font-size: 12px; font-weight: 650; }
+    .switch-row .d { font-size: 11px; color: var(--gn-fg-4); margin-top: 1px; }
+    .toggle {
+      width: 34px; height: 18px; border-radius: 999px; border: 0; cursor: pointer;
+      background: var(--gn-br-3); position: relative; flex-shrink: 0;
+    }
+    .toggle.on { background: var(--gn-accent); }
+    .toggle::after {
+      content: ""; position: absolute; top: 2px; left: 2px;
+      width: 14px; height: 14px; border-radius: 50%; background: #fff;
+      transition: transform .15s;
+    }
+    .toggle.on::after { transform: translateX(16px); }
+    .card-block {
+      border: 1px solid var(--gn-br-2); border-radius: 8px;
+      background: var(--gn-bg-panel-2); padding: 8px 10px; margin-bottom: 8px;
+    }
+    .card-block h4 { margin: 0 0 6px; font-size: 12px; font-weight: 700; color: var(--gn-fg-2); }
+    .uri-box {
+      font-family: var(--mono); font-size: 11.5px; line-height: 1.4;
+      background: var(--gn-bg-input); border: 1px dashed var(--gn-br-3);
+      border-radius: 6px; padding: 6px 8px; color: var(--gn-fg-3);
+      word-break: break-all;
+    }
+    /* 连接串 / 区块：扁平，无卡片外框 */
+    .uri-block {
+      margin-bottom: 10px; padding: 0;
+      border: 0; border-radius: 0; background: transparent;
+    }
+    .uri-block-top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 6px;
+    }
+    .uri-block-top .ttl {
+      font-size: 12px; font-weight: 700; color: var(--gn-fg-2);
+    }
+    .uri-block-top .hint {
+      font-size: 11px; color: var(--gn-fg-5); font-weight: 500;
+    }
+    .uri-block textarea {
+      width: 100%; min-height: 52px; resize: vertical;
+      font-family: var(--mono); font-size: 11.5px; line-height: 1.4;
+      background: var(--gn-bg-input); border: 1px solid var(--gn-br-2);
+      border-radius: 6px; color: var(--gn-fg-1); padding: 6px 8px;
+      outline: 0;
+      box-sizing: border-box;
+    }
+    .uri-block textarea:focus {
+      border-color: var(--gn-accent); box-shadow: 0 0 0 2px var(--gn-accent-soft);
+    }
+    .uri-actions {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center;
+    }
+    .uri-actions .msg {
+      font-size: 11.5px; color: var(--gn-fg-4); margin-left: auto;
+    }
+    .uri-actions .msg.ok { color: var(--gn-accent); }
+    .uri-actions .msg.err { color: var(--gn-danger); }
+    .uri-divider {
+      display: flex; align-items: center; gap: 8px;
+      margin: 2px 0 10px; font-size: 11px; color: var(--gn-fg-5);
+    }
+    .uri-divider::before, .uri-divider::after {
+      content: ""; flex: 1; height: 1px; background: var(--gn-br-2);
+    }
+
+    /* 网络方式：列表行（非卡片） */
+    .net-list {
+      display: flex; flex-direction: column; gap: 0;
+      margin-bottom: 8px;
+      border: 0; border-radius: 0;
+      overflow: visible; background: transparent;
+    }
+    .net-row {
+      appearance: none; width: 100%; text-align: left; cursor: pointer;
+      font: inherit; color: inherit; border: 0;
+      border-bottom: 1px solid var(--gn-br-1);
+      border-left: 2px solid transparent;
+      background: transparent;
+      padding: 8px 4px 8px 6px;
+      display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 8px;
+      align-items: center;
+      box-sizing: border-box;
+    }
+    .net-row:last-child { border-bottom: 0; }
+    .net-row:hover { background: var(--gn-bg-hover); }
+    /* 选中=正在编辑：左侧强调线 + 文字色，不要整行色块 */
+    .net-row.active {
+      background: transparent;
+      border-left-color: var(--gn-accent);
+    }
+    .net-row.active .nt { color: var(--gn-accent); }
+    .net-row.active .st { color: var(--gn-accent); font-weight: 650; }
+    .net-row .nt { font-size: 12.5px; font-weight: 650; color: var(--gn-fg-1); }
+    .net-row .nd { font-size: 11px; color: var(--gn-fg-5); margin-top: 1px; }
+    .net-row .st { font-size: 11px; color: var(--gn-fg-5); white-space: nowrap; }
+    .net-row.on .st { color: var(--gn-accent); font-weight: 650; }
+    .net-row .gn-check {
+      margin: 0;
+    }
+    .net-detail {
+      border: 0; border-radius: 0; background: transparent;
+      padding: 2px 0 10px; margin-bottom: 4px;
+    }
+    .net-detail h4 {
+      margin: 0 0 2px; font-size: 12.5px; font-weight: 700;
+    }
+    .net-detail .ndesc {
+      margin: 0 0 8px; font-size: 11px; color: var(--gn-fg-5); line-height: 1.4;
+    }
+    .net-detail .empty-hint {
+      font-size: 11.5px; color: var(--gn-fg-4); padding: 4px 0;
+      border: 0; background: transparent;
+    }
+
+    /* 连接模式：分段选择（非卡片） */
+    .mode-seg {
+      display: inline-flex; flex-wrap: wrap; gap: 0;
+      padding: 2px; margin-bottom: 6px;
+      border: 1px solid var(--gn-br-2); border-radius: 8px;
+      background: var(--gn-bg-chrome);
+    }
+    .mode-seg button {
+      appearance: none; border: 0; cursor: pointer; font: inherit;
+      font-size: 12px; font-weight: 600; color: var(--gn-fg-3);
+      background: transparent; padding: 6px 12px; border-radius: 6px;
+    }
+    .mode-seg button:hover { color: var(--gn-fg-1); }
+    .mode-seg button.on {
+      background: var(--gn-bg-selected); color: var(--gn-accent);
+    }
+    .mode-hint-line {
+      font-size: 11px; color: var(--gn-fg-5); margin: -2px 0 8px; line-height: 1.35;
+    }
+    .mode-extra {
+      margin-top: 0; padding: 0;
+      border: 0; background: transparent;
+    }
+    .mode-extra .el { font-size: 12px; font-weight: 600; color: var(--gn-fg-3); margin-bottom: 3px; }
+    .mode-extra .eh { font-size: 11px; color: var(--gn-fg-5); margin-bottom: 6px; line-height: 1.35; }
+    .mode-extra input,
+    .mode-extra textarea,
+    .mode-extra select {
+      width: 100%;
+      max-width: 100%;
+      background: var(--gn-bg-input) !important;
+      border: 1px solid var(--gn-br-2) !important;
+      border-radius: 6px;
+      color: var(--gn-fg-1) !important;
+      caret-color: var(--gn-fg-1);
+      padding: 5px 8px;
+      font: inherit;
+      font-size: 12.5px;
+      outline: 0;
+      height: 30px;
+      box-sizing: border-box;
+      -webkit-appearance: none;
+      appearance: none;
+      color-scheme: only dark;
+    }
+    html[data-form-scheme="light"] .mode-extra input,
+    html[data-form-scheme="light"] .mode-extra textarea,
+    html[data-form-scheme="light"] .mode-extra select {
+      color-scheme: only light;
+    }
+    .mode-extra input:focus,
+    .mode-extra textarea:focus,
+    .mode-extra select:focus {
+      border-color: var(--gn-accent) !important;
+      box-shadow: 0 0 0 2px var(--gn-accent-soft);
+    }
+    .mode-extra input::placeholder {
+      color: var(--gn-fg-5);
+      opacity: 1;
+    }
+
+    /* 路径 + 浏览选文件 */
+    .path-pick {
+      display: flex; gap: 6px; align-items: center; width: 100%;
+      max-width: 100%;
+    }
+    .path-pick input[type="text"] {
+      flex: 1; min-width: 0;
+      background: var(--gn-bg-input) !important;
+      border: 1px solid var(--gn-br-2) !important;
+      border-radius: 6px;
+      color: var(--gn-fg-1) !important;
+      padding: 5px 8px;
+      font: inherit;
+      font-size: 12.5px;
+      height: 30px;
+      outline: 0;
+      box-sizing: border-box;
+    }
+    .path-pick input[type="text"]:focus {
+      border-color: var(--gn-accent) !important;
+      box-shadow: 0 0 0 2px var(--gn-accent-soft);
+    }
+    .path-pick input[type="text"]::placeholder {
+      color: var(--gn-fg-5);
+    }
+    .path-pick .btn-browse {
+      flex: 0 0 auto;
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 6px;
+      border: 1px solid var(--gn-br-2);
+      background: var(--gn-bg-panel-2);
+      color: var(--gn-fg-2);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .path-pick .btn-browse:hover {
+      background: var(--gn-bg-hover);
+      border-color: var(--gn-br-3);
+    }
+    .path-pick input[type="file"] {
+      position: absolute;
+      width: 0; height: 0; opacity: 0; pointer-events: none;
+    }
+
+    .test-banner {
+      display: none; margin-bottom: 8px; padding: 4px 8px; border-radius: 6px;
+      border: 1px solid var(--gn-br-2); font-size: 12px; line-height: 1.35;
+    }
+    .test-banner.ok {
+      display: block; background: var(--gn-accent-soft);
+      border-color: color-mix(in srgb, var(--gn-accent) 35%, transparent);
+      color: var(--gn-accent);
+    }
+    .test-banner.fail {
+      display: block; background: rgba(212, 119, 119, 0.12);
+      border-color: color-mix(in srgb, var(--gn-danger) 35%, transparent);
+      color: var(--gn-danger);
+    }
+    .frame-foot {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 8px 12px; border-top: 1px solid var(--gn-br-1);
+      background: var(--gn-bg-chrome);
+    }
+    .frame-foot .left { display: flex; gap: 8px; align-items: center; color: var(--gn-fg-4); font-size: 12px; }
+    .frame-foot .right { display: flex; gap: 8px; }
+    .btn { padding: 5px 10px; border-radius: 7px; font-size: 12px; }
+    .frame-form .type-badge { width: 28px; height: 28px; border-radius: 7px; font-size: 11px; }
+    .frame-form .frame-title { font-size: 13.5px; }
+    .frame-form .frame-sub { font-size: 11px; }
+
+    /* ── B light-ish structure still theme driven ── */
+    .b-seg {
+      display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px;
+      border-bottom: 1px solid var(--gn-br-1); background: var(--gn-bg-chrome);
+    }
+    .b-seg button {
+      appearance: none; border: 0; cursor: pointer; font: inherit;
+      font-size: 12px; font-weight: 650; color: var(--gn-fg-3);
+      background: var(--gn-bg-panel-2); padding: 6px 11px; border-radius: 999px;
+    }
+    .b-seg button.on { background: var(--gn-accent); color: var(--gn-on-accent); }
+    .b-body { padding: 16px; overflow: auto; flex: 1; }
+    .b-section { margin-bottom: 18px; }
+    .b-section h4 {
+      margin: 0 0 10px; font-size: 11px; font-weight: 700;
+      letter-spacing: .04em; text-transform: uppercase; color: var(--gn-fg-5);
+    }
+    .b-recent { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .b-recent-card {
+      background: var(--gn-bg-panel-2); border: 1px solid var(--gn-br-2);
+      border-radius: 12px; padding: 11px 12px; cursor: pointer; text-align: left;
+      font: inherit; color: inherit;
+    }
+    .b-recent-card:hover { border-color: var(--gn-accent); background: var(--gn-bg-selected); }
+    .b-tiles { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+    .b-tile {
+      appearance: none; cursor: pointer; font: inherit; text-align: left; color: inherit;
+      background: var(--gn-bg-panel-2); border: 1px solid var(--gn-br-2);
+      border-radius: 14px; padding: 14px 12px; min-height: 110px;
+      position: relative; overflow: hidden;
+    }
+    .b-tile::before {
+      content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+      background: var(--accent, var(--gn-accent)); opacity: 0;
+    }
+    .b-tile:hover { border-color: var(--gn-accent); transform: translateY(-1px); }
+    .b-tile:hover::before { opacity: 1; }
+    .b-tile .logo {
+      width: 40px; height: 40px; border-radius: 11px; margin-bottom: 10px;
+      display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 13px;
+    }
+    .b-tile .name { font-size: 13.5px; font-weight: 700; }
+    .b-tile .meta { font-size: 11.5px; color: var(--gn-fg-4); margin-top: 3px; }
+
+    /* ── C split ── */
+    .c-frame {
+      display: grid; grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+      width: min(880px, 100%);
+      margin: 0 auto;
+      min-height: 0;
+      height: fit-content;
+      max-height: min(640px, calc(100vh - 120px));
+      border-radius: 16px; overflow: hidden;
+      border: 1px solid var(--gn-br-2); background: var(--gn-bg-panel);
+      box-shadow: var(--gn-shadow-lg);
+    }
+    .c-left {
+      border-right: 1px solid var(--gn-br-1); background: var(--gn-bg-chrome);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .c-left-head { padding: 14px 14px 10px; border-bottom: 1px solid var(--gn-br-1); }
+    .c-left-head h3 { margin: 0; font-size: 14.5px; font-weight: 700; }
+    .c-left-head p { margin: 4px 0 10px; font-size: 12px; color: var(--gn-fg-4); }
+    .c-list { overflow: auto; padding: 8px; flex: 1; }
+    .c-group { font-size: 10.5px; color: var(--gn-fg-5); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 10px 8px 4px; }
+    .c-item {
+      width: 100%; display: flex; align-items: center; gap: 10px;
+      padding: 8px 9px; border-radius: 10px; border: 1px solid transparent;
+      background: transparent; color: var(--gn-fg-2); cursor: pointer;
+      font: inherit; text-align: left; margin-bottom: 2px;
+    }
+    .c-item:hover { background: var(--gn-bg-hover); }
+    .c-item.on { background: var(--gn-bg-selected); border-color: color-mix(in srgb, var(--gn-accent) 40%, transparent); color: var(--gn-fg-1); }
+    .c-item .logo {
+      width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center;
+      color: #fff; font-size: 10px; font-weight: 800; flex-shrink: 0;
+    }
+    .c-item .n { font-size: 12.5px; font-weight: 650; }
+    .c-item .m { font-size: 11px; color: var(--gn-fg-4); margin-top: 1px; }
+    .c-right { display: flex; flex-direction: column; min-height: 0; background: var(--gn-bg-panel); flex: 1; }
+    .c-right-head, .c-foot { flex: 0 0 auto; }
+    .c-right-head {
+      padding: 14px 16px 10px; border-bottom: 1px solid var(--gn-br-1);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .c-empty {
+      flex: 0 0 auto; min-height: 180px;
+      display: grid; place-items: center; text-align: center;
+      color: var(--gn-fg-4); padding: 20px;
+    }
+    .c-empty .big { font-size: 36px; margin-bottom: 8px; opacity: .6; }
+    .c-form-scroll { flex: 0 1 auto; overflow: auto; padding: 10px 12px; max-height: 360px; }
+    .c-foot {
+      padding: 10px 16px; border-top: 1px solid var(--gn-br-1);
+      display: flex; justify-content: space-between; gap: 8px; background: var(--gn-bg-chrome);
+    }
+
+    .toast {
+      position: fixed; right: 18px; bottom: 18px; z-index: 50;
+      background: var(--gn-bg-panel); border: 1px solid var(--gn-br-2);
+      color: var(--gn-fg-1); padding: 10px 13px; border-radius: 10px;
+      font-size: 12.5px; box-shadow: var(--gn-shadow-md);
+      opacity: 0; transform: translateY(8px); pointer-events: none; transition: .2s;
+    }
+    .toast.show { opacity: 1; transform: none; }
+
+    .hidden { display: none !important; }
+
+    @media (max-width: 960px) {
+      .a-body { grid-template-columns: 1fr; }
+      .c-frame { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .f-row { grid-template-columns: 40px 1fr; }
+      .check-line { padding-left: 48px; }
+      .grid-3, .b-tiles { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="hero">
+      <div>
+        <h1>新建连接 · 选型 + 配置表单 Demo</h1>
+        <p>
+          A/B：先选数据源，再进入完整表单（基本 / 网络与安全 / 高级）。
+          C：左右分栏，选中即出表单。颜色跟随下方内置主题 token（非写死蓝黑）。
+        </p>
+      </div>
+      <div class="toolbar">
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="a" type="button">A · Studio<small>选型→表单</small></button>
+          <button class="tab" data-tab="b" type="button">B · Tiles<small>选型→表单</small></button>
+          <button class="tab" data-tab="c" type="button">C · Split<small>即时表单</small></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="theme-pills" id="theme-pills" aria-label="内置主题"></div>
+    <div class="note" style="margin-top:12px">
+      <strong>主题：</strong><span id="theme-label">Comfort Dark</span>
+      · 切换后壳子/强调色/输入框全部走 <code>--gn-*</code>，模拟真实产品里「跟当前设置主题」。
+      点任意数据源可进入配置表单。
+    </div>
+
+    <!-- ════════════ A ════════════ -->
+    <section class="panel active" id="panel-a">
+      <div class="note">
+        <strong>设计原则：</strong>保留本 Demo 的布局密度与信息架构；
+        不得丢弃现网连接能力（只重排、不删功能）。
+      </div>
+
+      <!-- step 1 picker -->
+      <div class="frame" id="a-step1">
+        <div class="frame-top">
+          <div class="frame-top-left">
+            <div class="type-badge" style="background:var(--gn-accent);color:var(--gn-on-accent)" aria-hidden="true"><span class="plus">+</span></div>
+            <div>
+              <div class="frame-title">新建连接</div>
+              <div class="frame-sub">选择数据源类型</div>
+            </div>
+          </div>
+          <div class="steps">
+            <span class="on">1 选类型</span><span>→</span><span>2 配参数</span><span>→</span><span>3 测试保存</span>
+          </div>
+          <div class="top-actions">
+            <button class="btn ghost" type="button">✕</button>
+          </div>
+        </div>
+        <div class="a-body">
+          <aside class="a-side">
+            <div class="search">
+              <span class="search-ico" aria-hidden="true">⌕</span>
+              <input id="a-search" placeholder="搜索名称 / 别名 / 协议…" />
+              <kbd>⌘K</kbd>
+            </div>
+            <div>
+              <div class="sec-label">最近</div>
+              <button class="chip" type="button" data-pick="mysql"><span class="dot" style="background:#00758f"></span>MySQL · prod-***</button>
+              <button class="chip" type="button" data-pick="redis"><span class="dot" style="background:#d82c20"></span>Redis · local</button>
+              <button class="chip" type="button" data-pick="pg"><span class="dot" style="background:#336791"></span>PostgreSQL · dev</button>
+            </div>
+            <div>
+              <div class="sec-label">分类</div>
+              <div id="a-nav"></div>
+            </div>
+          </aside>
+          <main class="a-main">
+            <div class="a-main-h">
+              <h3 id="a-heading">推荐 / 常用</h3>
+              <span>单击进入配置表单</span>
+            </div>
+            <div class="grid-3" id="a-grid"></div>
+          </main>
+        </div>
+      </div>
+
+      <!-- step 2 form · dense -->
+      <div class="frame frame-form hidden" id="a-step2">
+        <div class="frame-top">
+          <div class="frame-top-left">
+            <div class="type-badge" id="a-form-badge">My</div>
+            <div>
+              <div class="frame-title" id="a-form-title">MySQL 连接</div>
+            </div>
+          </div>
+          <div class="steps">
+            <span class="done">1 类型</span><span>→</span><span class="on">2 参数</span><span>→</span><span>3 保存</span>
+          </div>
+          <div class="top-actions">
+            <button class="btn ghost" type="button" title="关闭">✕</button>
+          </div>
+        </div>
+        <div class="form-layout">
+          <nav class="form-nav" id="a-form-nav">
+            <button class="form-nav-item active" type="button" data-sec="basic">基本</button>
+            <button class="form-nav-item" type="button" data-sec="network">网络与安全</button>
+            <button class="form-nav-item" type="button" data-sec="appear">外观</button>
+            <button class="form-nav-item" type="button" data-sec="advanced">高级</button>
+          </nav>
+          <div class="form-main">
+            <div class="test-banner" id="a-test-banner"></div>
+
+            <div class="form-section active" data-sec="basic">
+              <!-- 连接串放在基本信息：解析 → 回填主机/端口/账号/库 -->
+              <div class="uri-block">
+                <div class="uri-block-top">
+                  <div>
+                    <span class="ttl">连接串</span>
+                    <span class="hint">可选 · 粘贴后解析自动填充下方字段</span>
+                  </div>
+                </div>
+                <textarea id="a-uri" spellcheck="false" placeholder="mysql://user:password@127.0.0.1:3306/demo&#10;postgres://…  redis://…  mongodb://…"></textarea>
+                <div class="uri-actions">
+                  <button class="btn primary" type="button" id="a-uri-parse">解析并填充</button>
+                  <button class="btn" type="button" id="a-uri-gen">从字段生成</button>
+                  <button class="btn" type="button" id="a-uri-copy">复制</button>
+                  <span class="msg" id="a-uri-msg"></span>
+                </div>
+              </div>
+              <div class="uri-divider">或手动填写</div>
+
+              <div class="f-row">
+                <label>名称</label>
+                <div class="ctrl inline">
+                  <input class="w-name" id="a-name" placeholder="侧栏显示名" />
+                  <select class="w-sm" id="a-env">
+                    <option>未分组</option><option>开发</option><option>测试</option><option selected>生产</option>
+                  </select>
+                </div>
+              </div>
+              <div class="f-row" id="a-host-row">
+                <label>主机</label>
+                <div class="ctrl inline">
+                  <input class="w-host" id="a-host" value="127.0.0.1" />
+                  <input class="w-port" id="a-port" value="3306" title="端口" placeholder="端口" />
+                  <input class="w-db" id="a-db" placeholder="数据库" />
+                </div>
+              </div>
+              <div class="f-row hidden" id="a-file-wrap">
+                <label>文件</label>
+                <div class="ctrl"><input class="w-name" placeholder="/path/to/file.db" value="~/data/demo.duckdb" /></div>
+              </div>
+              <div class="f-row" id="a-auth-row">
+                <label>认证</label>
+                <div class="ctrl inline">
+                  <input class="w-user" id="a-user" placeholder="用户名" value="root" />
+                  <input class="w-pass" id="a-pass" type="password" placeholder="密码" value="secret" />
+                </div>
+              </div>
+              <div class="f-row hidden" id="a-token-wrap">
+                <label>Token</label>
+                <div class="ctrl"><input type="password" placeholder="API Token / Key" /></div>
+              </div>
+              <!-- 服务名 / SID 等（Oracle、部分国产库） -->
+              <div class="f-row hidden" id="a-service-wrap">
+                <label>服务</label>
+                <div class="ctrl inline">
+                  <input class="w-name" id="a-service" placeholder="Service Name / SID / 实例" />
+                  <select class="w-sm" id="a-service-kind">
+                    <option value="service">Service</option>
+                    <option value="sid">SID</option>
+                  </select>
+                </div>
+              </div>
+              <!-- 数据库范围（仅浏览指定库，产品 databaseScope） -->
+              <div class="f-row hidden" id="a-scope-wrap">
+                <label>库范围</label>
+                <div class="ctrl">
+                  <input id="a-db-scope" style="max-width:100%;width:100%" placeholder="可选：仅包含的库，逗号分隔；空=全部可见" />
+                </div>
+              </div>
+              <div class="check-line">
+                <label><input type="checkbox" class="gn-check" checked id="a-save-pass" /> 保存密码</label>
+                <label><input type="checkbox" class="gn-check" checked /> 保存后连接并展开</label>
+              </div>
+
+              <!-- 连接模式：分段选择（非卡片） -->
+              <div id="a-mode-block" style="margin-top:8px">
+                <div class="f-row" style="margin-bottom:2px;align-items:start">
+                  <label style="padding-top:8px">模式</label>
+                  <div class="ctrl">
+                    <div class="mode-seg" id="a-mode-grid"></div>
+                    <div class="mode-hint-line" id="a-mode-hint" style="margin:4px 0 0">单机 / 主从</div>
+                    <div class="mode-extra hidden" id="a-mode-extra" style="margin-top:6px"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 生产连接保护 · 对齐真实 capability，非简单「只读」 -->
+              <div class="prot" id="a-prot" data-on="0">
+                <button type="button" class="prot-head" id="a-prot-toggle" aria-expanded="false">
+                  <span class="chev">▸</span>
+                  <span class="prot-title">生产连接保护</span>
+                  <span class="prot-tag" id="a-prot-tag">未限制</span>
+                </button>
+                <div class="prot-body">
+                  <div class="prot-list" id="a-prot-grid">
+                    <button type="button" class="prot-opt" data-prot="dataEdit">
+                      <input type="checkbox" class="gn-check" tabindex="-1" />
+                      <div>
+                        <div class="n">限制数据编辑</div>
+                        <div class="h">禁止结果集改写、批量清空、消息发布等写入</div>
+                      </div>
+                    </button>
+                    <button type="button" class="prot-opt" data-prot="structureEdit">
+                      <input type="checkbox" class="gn-check" tabindex="-1" />
+                      <div>
+                        <div class="n">限制结构编辑</div>
+                        <div class="h">禁止建改删对象，表设计器只读打开</div>
+                      </div>
+                    </button>
+                    <button type="button" class="prot-opt" data-prot="scriptExecution">
+                      <input type="checkbox" class="gn-check" tabindex="-1" />
+                      <div>
+                        <div class="n">限制脚本执行</div>
+                        <div class="h">禁止 SQL/脚本中的写操作</div>
+                      </div>
+                    </button>
+                    <button type="button" class="prot-opt" data-prot="dataImport">
+                      <input type="checkbox" class="gn-check" tabindex="-1" />
+                      <div>
+                        <div class="n">限制数据导入</div>
+                        <div class="h">禁止导入、批量装载、作为同步目标</div>
+                      </div>
+                    </button>
+                  </div>
+                  <div class="prot-sum" id="a-prot-sum">当前策略：未限制</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section" data-sec="appear">
+              <div class="appear-label">图标 <span id="a-icon-current">当前：MySQL</span></div>
+              <div class="icon-grid" id="a-icon-grid"></div>
+              <div class="appear-label">颜色</div>
+              <div class="color-row" id="a-color-row"></div>
+              <div class="appear-label">预览</div>
+              <div class="appear-preview" id="a-appear-preview">
+                <div class="pv-icon" id="a-pv-icon"></div>
+                <div style="min-width:0">
+                  <div class="pv-name" id="a-pv-name">连接名称</div>
+                  <div class="pv-meta" id="a-pv-meta">侧栏中的显示效果</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section" data-sec="network">
+              <div style="font-size:11px;color:var(--gn-fg-5);margin-bottom:6px;line-height:1.4">
+                勾选启用 · 点击行编辑详情
+              </div>
+              <div class="net-list" id="a-net-grid">
+                <button type="button" class="net-row active" data-net="ssl">
+                  <input type="checkbox" class="gn-check" data-net-en="ssl" title="启用" />
+                  <div>
+                    <div class="nt">SSL/TLS</div>
+                    <div class="nd">加密与证书校验</div>
+                  </div>
+                  <span class="st" data-net-st="ssl">未启用</span>
+                </button>
+                <button type="button" class="net-row" data-net="ssh">
+                  <input type="checkbox" class="gn-check" data-net-en="ssh" title="启用" />
+                  <div>
+                    <div class="nt">SSH 隧道</div>
+                    <div class="nd">跳板机 / 堡垒机转发</div>
+                  </div>
+                  <span class="st" data-net-st="ssh">未启用</span>
+                </button>
+                <button type="button" class="net-row" data-net="proxy">
+                  <input type="checkbox" class="gn-check" data-net-en="proxy" title="启用" />
+                  <div>
+                    <div class="nt">代理</div>
+                    <div class="nd">本地代理或网关转发</div>
+                  </div>
+                  <span class="st" data-net-st="proxy">未启用</span>
+                </button>
+                <button type="button" class="net-row" data-net="httpTunnel">
+                  <input type="checkbox" class="gn-check" data-net-en="httpTunnel" title="启用" />
+                  <div>
+                    <div class="nt">HTTP 隧道</div>
+                    <div class="nd">HTTP CONNECT 路由</div>
+                  </div>
+                  <span class="st" data-net-st="httpTunnel">未启用</span>
+                </button>
+              </div>
+
+              <div class="net-detail" id="a-net-detail"></div>
+
+              <div class="uri-block" style="margin-bottom:0">
+                <div class="uri-block-top">
+                  <div><span class="ttl">高级连接</span><span class="hint">超时与探活</span></div>
+                </div>
+                <div class="f-row" style="margin-bottom:6px">
+                  <label style="min-width:40px">超时</label>
+                  <div class="ctrl inline">
+                    <input class="w-port" type="number" value="30" id="a-conn-timeout" />
+                    <span style="font-size:11.5px;color:var(--gn-fg-5)">秒</span>
+                  </div>
+                </div>
+                <div id="a-keepalive-block">
+                  <div class="check-line" style="padding-left:0;margin-bottom:6px">
+                    <label>
+                      <input type="checkbox" class="gn-check" id="a-keepalive-on" />
+                      启用后台定时探活保活
+                    </label>
+                  </div>
+                  <div class="f-row" style="margin-bottom:6px">
+                    <label style="min-width:40px">间隔</label>
+                    <div class="ctrl inline">
+                      <input class="w-port" type="number" id="a-keepalive-min" value="240" min="1" max="1440" disabled />
+                      <span style="font-size:11.5px;color:var(--gn-fg-5)">分钟</span>
+                    </div>
+                  </div>
+                  <div style="font-size:12px;font-weight:650;color:var(--gn-fg-3);margin-bottom:4px">自定义探活 SQL</div>
+                  <textarea id="a-keepalive-sql" spellcheck="false" disabled placeholder="留空则驱动 Ping；仅 SELECT/WITH，如 SELECT 1" style="min-height:40px"></textarea>
+                  <div style="font-size:11px;color:var(--gn-fg-5);margin-top:4px;line-height:1.35">
+                    文件库不支持探活。配置明文保存，勿写凭证。
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section" data-sec="advanced">
+              <div class="f-row">
+                <label>字符集</label>
+                <div class="ctrl inline">
+                  <select class="w-md" id="a-charset"><option>utf8mb4</option><option>utf8</option><option>默认</option></select>
+                  <span style="font-size:11.5px;color:var(--gn-fg-5)">时区</span>
+                  <select class="w-md" id="a-tz"><option>SYSTEM</option><option>UTC</option><option>Asia/Shanghai</option></select>
+                </div>
+              </div>
+              <div class="f-row">
+                <label>查询超时</label>
+                <div class="ctrl inline">
+                  <input class="w-port" type="number" id="a-query-timeout" value="0" min="0" />
+                  <span style="font-size:11.5px;color:var(--gn-fg-5)">秒（0=不限制，与连接超时分开）</span>
+                </div>
+              </div>
+              <div class="f-row">
+                <label>参数</label>
+                <div class="ctrl"><input id="a-conn-params" placeholder="connectionParams · key=value&amp;…  例 allowPublicKeyRetrieval=true" style="max-width:100%;width:100%" /></div>
+              </div>
+              <div id="a-extra-type-fields"></div>
+              <div class="uri-block" id="a-custom-dsn-block" style="margin-top:8px;display:none">
+                <div class="uri-block-top">
+                  <div><span class="ttl">自定义驱动 / DSN</span><span class="hint">custom 数据源</span></div>
+                </div>
+                <div class="f-row" style="margin-bottom:6px">
+                  <label style="min-width:40px">驱动</label>
+                  <div class="ctrl"><input id="a-custom-driver" placeholder="驱动标识 / 类名" style="width:100%;max-width:100%" /></div>
+                </div>
+                <div class="f-row" style="margin:0">
+                  <label style="min-width:40px">DSN</label>
+                  <div class="ctrl"><textarea id="a-custom-dsn" placeholder="完整 DSN / JDBC URL" style="min-height:48px"></textarea></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+        <div class="frame-foot">
+          <div class="left">
+            <button class="btn" type="button" id="a-back">← 上一步</button>
+            <span id="a-foot-hint">未测试</span>
+          </div>
+          <div class="right">
+            <button class="btn" type="button" id="a-test">测试连接</button>
+            <button class="btn primary" type="button" data-toast="保存并连接（demo）">保存</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════ B ════════════ -->
+    <section class="panel" id="panel-b">
+      <div class="note"><strong>B：</strong>明亮磁贴信息架构；选中后复用同一套分段表单（主题色同样跟随）。</div>
+      <div class="frame" id="b-step1">
+        <div class="frame-top">
+          <div class="frame-top-left">
+            <div>
+              <div class="frame-title">选择数据源</div>
+              <div class="frame-sub">从最近使用开始，或搜索后进入配置</div>
+            </div>
+          </div>
+          <button class="btn ghost" type="button">✕</button>
+        </div>
+        <div style="padding:12px 16px 0;background:var(--gn-bg-chrome);border-bottom:1px solid var(--gn-br-1)">
+          <div class="search" style="margin-bottom:10px">
+            <span>⌕</span>
+            <input id="b-search" placeholder="搜索 MySQL、达梦、pg、redis…" />
+          </div>
+        </div>
+        <div class="b-seg" id="b-seg"></div>
+        <div class="b-body">
+          <div class="b-section" id="b-recent-sec">
+            <h4>最近使用</h4>
+            <div class="b-recent">
+              <button class="b-recent-card" type="button" data-pick="mysql">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <div class="src-logo" style="background:#00758f">My</div>
+                  <div><div class="src-name">MySQL</div><div class="src-meta">prod-*** · 2 天前</div></div>
+                </div>
+              </button>
+              <button class="b-recent-card" type="button" data-pick="redis">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <div class="src-logo" style="background:#d82c20">Re</div>
+                  <div><div class="src-name">Redis</div><div class="src-meta">local · 昨天</div></div>
+                </div>
+              </button>
+              <button class="b-recent-card" type="button" data-pick="pg">
+                <div style="display:flex;gap:10px;align-items:center">
+                  <div class="src-logo" style="background:#336791">Pg</div>
+                  <div><div class="src-name">PostgreSQL</div><div class="src-meta">dev · 上周</div></div>
+                </div>
+              </button>
+            </div>
+          </div>
+          <div class="b-section">
+            <h4 id="b-heading">常用推荐</h4>
+            <div class="b-tiles" id="b-tiles"></div>
+          </div>
+        </div>
+        <div class="frame-foot">
+          <button class="btn link" type="button" data-toast="从连接串创建（demo）">从连接串创建</button>
+          <button class="btn" type="button">取消</button>
+        </div>
+      </div>
+
+      <div class="frame frame-form hidden" id="b-step2">
+        <div class="frame-top">
+          <div class="frame-top-left">
+            <div class="type-badge" id="b-form-badge">My</div>
+            <div>
+              <div class="frame-title" id="b-form-title">配置连接</div>
+              <div class="frame-sub" id="b-form-sub">高密度表单</div>
+            </div>
+          </div>
+          <div class="top-actions">
+            <button class="btn ghost" type="button" title="关闭">✕</button>
+          </div>
+        </div>
+        <div class="form-layout">
+          <nav class="form-nav" id="b-form-nav">
+            <button class="form-nav-item active" type="button" data-sec="basic">基本</button>
+            <button class="form-nav-item" type="button" data-sec="network">网络与安全</button>
+            <button class="form-nav-item" type="button" data-sec="appear">外观</button>
+            <button class="form-nav-item" type="button" data-sec="advanced">高级</button>
+          </nav>
+          <div class="form-main" id="b-form-main">
+            <div class="form-section active" data-sec="basic">
+              <div class="f-row">
+                <label>名称</label>
+                <div class="ctrl inline">
+                  <input class="w-name" id="b-name" />
+                  <select class="w-sm"><option>生产</option><option>开发</option></select>
+                </div>
+              </div>
+              <div class="f-row">
+                <label>主机</label>
+                <div class="ctrl inline">
+                  <input class="w-host" id="b-host" value="127.0.0.1" />
+                  <input class="w-port" id="b-port" />
+                  <input class="w-db" id="b-db" placeholder="数据库" />
+                </div>
+              </div>
+              <div class="f-row">
+                <label>认证</label>
+                <div class="ctrl inline">
+                  <input class="w-user" value="root" placeholder="用户" />
+                  <input class="w-pass" type="password" value="secret" placeholder="密码" />
+                </div>
+              </div>
+              <div class="check-line">
+                <label><input type="checkbox" class="gn-check" checked /> 保存密码</label>
+                <label><input type="checkbox" class="gn-check" checked /> 保存后连接</label>
+              </div>
+              <div class="prot" id="b-prot" data-on="0">
+                <button type="button" class="prot-head" data-prot-toggle="b-prot" aria-expanded="false">
+                  <span class="chev">▸</span>
+                  <span class="prot-title">生产连接保护</span>
+                  <span class="prot-tag" data-prot-tag>未限制</span>
+                </button>
+                <div class="prot-body">
+                  <div class="prot-list" data-prot-grid>
+                    <button type="button" class="prot-opt" data-prot="dataEdit"><input type="checkbox" class="gn-check" tabindex="-1" /><div><div class="n">限制数据编辑</div><div class="h">禁止结果集写入</div></div></button>
+                    <button type="button" class="prot-opt" data-prot="structureEdit"><input type="checkbox" class="gn-check" tabindex="-1" /><div><div class="n">限制结构编辑</div><div class="h">禁止对象变更</div></div></button>
+                    <button type="button" class="prot-opt" data-prot="scriptExecution"><input type="checkbox" class="gn-check" tabindex="-1" /><div><div class="n">限制脚本执行</div><div class="h">禁止写 SQL</div></div></button>
+                    <button type="button" class="prot-opt" data-prot="dataImport"><input type="checkbox" class="gn-check" tabindex="-1" /><div><div class="n">限制数据导入</div><div class="h">禁止导入/同步目标</div></div></button>
+                  </div>
+                  <div class="prot-sum" data-prot-sum>当前策略：未限制，按普通连接处理。</div>
+                </div>
+              </div>
+            </div>
+            <div class="form-section" data-sec="network">
+              <div class="f-row">
+                <label>SSH</label>
+                <div class="ctrl inline">
+                  <button class="toggle" type="button" data-toggle></button>
+                  <span style="font-size:12px;color:var(--gn-fg-4)">跳板机</span>
+                </div>
+              </div>
+              <div class="f-row">
+                <label>SSL</label>
+                <div class="ctrl inline">
+                  <select class="w-md"><option>优选</option><option>关闭</option><option>必须</option></select>
+                  <input class="w-port" type="number" value="10" title="超时" />
+                  <span style="font-size:11.5px;color:var(--gn-fg-5)">秒</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-section" data-sec="appear">
+              <div class="appear-label">图标 <span id="b-icon-current">当前：MySQL</span></div>
+              <div class="icon-grid" id="b-icon-grid"></div>
+              <div class="appear-label">颜色</div>
+              <div class="color-row" id="b-color-row"></div>
+              <div class="appear-label">预览</div>
+              <div class="appear-preview">
+                <div class="pv-icon" id="b-pv-icon"></div>
+                <div style="min-width:0">
+                  <div class="pv-name" id="b-pv-name">连接名称</div>
+                  <div class="pv-meta">侧栏显示效果</div>
+                </div>
+              </div>
+            </div>
+            <div class="form-section" data-sec="advanced">
+              <div class="f-row">
+                <label>参数</label>
+                <div class="ctrl"><input placeholder="key=value&amp;…" /></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="frame-foot">
+          <button class="btn" type="button" id="b-back">← 上一步</button>
+          <div class="right">
+            <button class="btn" type="button" data-toast="测试连接（demo）">测试</button>
+            <button class="btn primary" type="button" data-toast="保存（demo）">保存</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════ C ════════════ -->
+    <section class="panel" id="panel-c">
+      <div class="note"><strong>C：</strong>左侧选类型，右侧即时表单（含 SSH 折叠与测试/保存）。</div>
+      <div class="c-frame">
+        <div class="c-left">
+          <div class="c-left-head">
+            <h3>新建连接</h3>
+            <p>选择类型后右侧直接填写</p>
+            <div class="search"><span>⌕</span><input id="c-search" placeholder="过滤数据源…" /></div>
+          </div>
+          <div class="c-list" id="c-list"></div>
+        </div>
+        <div class="c-right">
+          <div class="c-right-head">
+            <div>
+              <div class="frame-title" id="c-title">连接参数</div>
+              <div class="frame-sub" id="c-sub">从左侧选择数据源</div>
+            </div>
+            <div class="type-badge hidden" id="c-badge">My</div>
+          </div>
+          <div class="c-empty" id="c-empty">
+            <div>
+              <div class="big">⟷</div>
+              <div style="font-weight:700;color:var(--gn-fg-2);margin-bottom:4px">先选左侧数据源</div>
+              <div style="font-size:12.5px;max-width:260px;margin:0 auto;line-height:1.5">选中后展示 Host / 端口 / 认证，SSH·SSL 收在高级折叠里。</div>
+            </div>
+          </div>
+          <div class="c-form-scroll hidden" id="c-form" style="padding:10px 12px">
+            <div class="test-banner" id="c-test-banner"></div>
+            <div class="f-row">
+              <label>名称</label>
+              <div class="ctrl"><input id="c-name" /></div>
+            </div>
+            <div class="f-row">
+              <label>主机</label>
+              <div class="ctrl inline">
+                <input class="w-host" id="c-host" value="127.0.0.1" />
+                <input class="w-port" id="c-port" />
+                <input class="w-db" id="c-db" placeholder="库" />
+              </div>
+            </div>
+            <div class="f-row" id="c-db-wrap" style="display:none"></div>
+            <div class="f-row">
+              <label>认证</label>
+              <div class="ctrl inline">
+                <input class="w-user" id="c-user" value="root" placeholder="用户" />
+                <input class="w-pass" type="password" value="secret" placeholder="密码" />
+              </div>
+            </div>
+            <div class="f-row">
+              <label>安全</label>
+              <div class="ctrl inline">
+                <button class="toggle" type="button" data-toggle title="SSH"></button>
+                <span style="font-size:11.5px;color:var(--gn-fg-5)">SSH</span>
+                <select class="w-sm"><option>SSL 优选</option><option>关闭</option><option>必须</option></select>
+              </div>
+            </div>
+            <div class="check-line" style="padding-left:82px">
+              <label><input type="checkbox" class="gn-check" checked /> 保存密码</label>
+              <label><input type="checkbox" class="gn-check" checked /> 保存后连接</label>
+            </div>
+            <div class="uri-box" id="c-uri" style="margin-top:6px">—</div>
+          </div>
+          <div class="c-foot">
+            <span style="font-size:12px;color:var(--gn-fg-4)" id="c-foot">未选择</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn" type="button" id="c-test">测试连接</button>
+              <button class="btn primary" type="button" data-toast="保存并连接（demo）">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    /* ── themes from customThemePresets (subset tokens) ── */
+    const THEMES = [
+      {
+        id: "builtin-comfort-dark", name: "Comfort Dark",
+        t: { app:"#1b1d21", chrome:"#1f2227", panel:"#24272d", panel2:"#292d34", input:"#202329",
+          hover:"rgba(226,232,240,.045)", selected:"rgba(121,166,147,.14)",
+          fg1:"#d2d5da", fg2:"#bbc0c7", fg3:"#9ea5ae", fg4:"#9299a3", fg5:"#878e98",
+          br1:"rgba(226,232,240,.06)", br2:"rgba(226,232,240,.10)", br3:"rgba(226,232,240,.16)",
+          accent:"#79a693", accent2:"#6b9887", accentSoft:"rgba(121,166,147,.16)", onAccent:"#142019",
+          info:"#79a6c9", warn:"#c6a15b", danger:"#d47777",
+          shadowMd:"0 4px 14px rgba(0,0,0,.24)", shadowLg:"0 12px 36px rgba(0,0,0,.32)",
+          shadowCard:"0 0 0 .5px rgba(255,255,255,.07), 0 1px 3px rgba(0,0,0,.18)" }
+      },
+      {
+        id: "builtin-midnight-navy", name: "Midnight Navy",
+        t: { app:"#111821", chrome:"#15202c", panel:"#192533", panel2:"#1e2b3a", input:"#141e2a",
+          hover:"rgba(199,210,223,.05)", selected:"rgba(104,160,200,.16)",
+          fg1:"#e1e8f0", fg2:"#c7d2df", fg3:"#a8b7c7", fg4:"#8497aa", fg5:"#7a8e9f",
+          br1:"rgba(199,210,223,.06)", br2:"rgba(199,210,223,.11)", br3:"rgba(199,210,223,.18)",
+          accent:"#68a0c8", accent2:"#5c91b8", accentSoft:"rgba(104,160,200,.16)", onAccent:"#10202d",
+          info:"#6cb6d9", warn:"#d0a85c", danger:"#df7d84",
+          shadowMd:"0 4px 14px rgba(0,0,0,.28)", shadowLg:"0 12px 38px rgba(0,0,0,.38)",
+          shadowCard:"0 0 0 .5px rgba(199,210,223,.07), 0 1px 3px rgba(0,0,0,.22)" }
+      },
+      {
+        id: "builtin-nord-slate", name: "Nord Slate",
+        t: { app:"#282e38", chrome:"#2b313c", panel:"#2e3440", panel2:"#353c49", input:"#292f3a",
+          hover:"rgba(216,222,233,.055)", selected:"rgba(136,192,208,.16)",
+          fg1:"#eceff4", fg2:"#d8dee9", fg3:"#c1cad8", fg4:"#9aa7b8", fg5:"#929ead",
+          br1:"rgba(216,222,233,.07)", br2:"rgba(216,222,233,.12)", br3:"rgba(216,222,233,.20)",
+          accent:"#88c0d0", accent2:"#6faabb", accentSoft:"rgba(136,192,208,.16)", onAccent:"#17252a",
+          info:"#89add0", warn:"#ebcb8b", danger:"#df858d",
+          shadowMd:"0 4px 14px rgba(20,24,31,.32)", shadowLg:"0 12px 38px rgba(20,24,31,.42)",
+          shadowCard:"0 0 0 .5px rgba(216,222,233,.08), 0 1px 3px rgba(20,24,31,.25)" }
+      },
+      {
+        id: "builtin-deep-ocean", name: "Deep Ocean",
+        t: { app:"#0f181c", chrome:"#142126", panel:"#18282e", panel2:"#1c2e35", input:"#111e23",
+          hover:"rgba(184,214,214,.05)", selected:"rgba(98,166,163,.17)",
+          fg1:"#deebea", fg2:"#c5d7d6", fg3:"#a6bcbb", fg4:"#879f9e", fg5:"#7b9392",
+          br1:"rgba(197,215,214,.06)", br2:"rgba(197,215,214,.11)", br3:"rgba(197,215,214,.18)",
+          accent:"#62a6a3", accent2:"#66aaa6", accentSoft:"rgba(98,166,163,.17)", onAccent:"#102321",
+          info:"#69a9bd", warn:"#c5a36d", danger:"#cd787b",
+          shadowMd:"0 4px 14px rgba(0,0,0,.30)", shadowLg:"0 12px 38px rgba(0,0,0,.40)",
+          shadowCard:"0 0 0 .5px rgba(197,215,214,.07), 0 1px 3px rgba(0,0,0,.24)" }
+      },
+      {
+        id: "builtin-warm-paper", name: "Warm Paper",
+        t: { app:"#f4f0e7", chrome:"#eae4d8", panel:"#fffcf5", panel2:"#f8f3e9", input:"#fffdf8",
+          hover:"rgba(67,59,49,.05)", selected:"rgba(47,125,104,.14)",
+          fg1:"#292722", fg2:"#45413a", fg3:"#655f55", fg4:"#766e63", fg5:"#7a7267",
+          br1:"rgba(67,59,49,.08)", br2:"rgba(67,59,49,.13)", br3:"rgba(67,59,49,.20)",
+          accent:"#2d7864", accent2:"#236553", accentSoft:"#dcede6", onAccent:"#ffffff",
+          info:"#3572a4", warn:"#9f5f1d", danger:"#b94a4a",
+          shadowMd:"0 4px 14px rgba(67,59,49,.10)", shadowLg:"0 12px 36px rgba(67,59,49,.16)",
+          shadowCard:"0 0 0 .5px rgba(67,59,49,.10), 0 1px 3px rgba(67,59,49,.07)" }
+      },
+      {
+        id: "builtin-mist-jade", name: "Mist Jade",
+        t: { app:"#eef4f0", chrome:"#e4eee8", panel:"#f7faf8", panel2:"#f1f6f3", input:"#ffffff",
+          hover:"rgba(38,72,60,.05)", selected:"rgba(50,122,103,.14)",
+          fg1:"#18231f", fg2:"#2d3d37", fg3:"#4d625a", fg4:"#5e7169", fg5:"#64776f",
+          br1:"rgba(38,72,60,.08)", br2:"rgba(38,72,60,.13)", br3:"rgba(38,72,60,.20)",
+          accent:"#327a67", accent2:"#286452", accentSoft:"#d9ece5", onAccent:"#ffffff",
+          info:"#327386", warn:"#946329", danger:"#b54f5e",
+          shadowMd:"0 4px 14px rgba(38,72,60,.09)", shadowLg:"0 12px 36px rgba(38,72,60,.14)",
+          shadowCard:"0 0 0 .5px rgba(38,72,60,.10), 0 1px 3px rgba(38,72,60,.06)" }
+      },
+    ];
+
+    const SOURCES = [
+      { id:"mysql", name:"MySQL", meta:"关系型 · SQL", tags:["热门","SSL"], cat:["hot","sql"], color:"#00758f", short:"My", port:"3306", scheme:"mysql", aliases:"mysql", kind:"sql" },
+      { id:"pg", name:"PostgreSQL", meta:"关系型 · SQL", tags:["热门","SSL"], cat:["hot","sql"], color:"#336791", short:"Pg", port:"5432", scheme:"postgres", aliases:"pg postgres", kind:"sql" },
+      { id:"redis", name:"Redis", meta:"单机 / 集群", tags:["缓存","KV"], cat:["hot","nosql"], color:"#d82c20", short:"Re", port:"6379", scheme:"redis", aliases:"redis", kind:"kv" },
+      { id:"mongo", name:"MongoDB", meta:"单机 / 副本集", tags:["文档"], cat:["hot","nosql"], color:"#00684a", short:"Mo", port:"27017", scheme:"mongodb", aliases:"mongo", kind:"doc" },
+      { id:"sqlite", name:"SQLite", meta:"本地文件连接", tags:["文件"], cat:["hot","file","sql"], color:"#0f80cc", short:"Sq", port:"", scheme:"sqlite", aliases:"sqlite", kind:"file" },
+      { id:"duckdb", name:"DuckDB", meta:"本地文件 / 分析", tags:["文件","OLAP"], cat:["hot","file","sql"], color:"#e6c200", short:"Du", port:"", scheme:"duckdb", aliases:"duckdb", kind:"file", textDark:true },
+      { id:"clickhouse", name:"ClickHouse", meta:"列存 · OLAP", tags:["分析"], cat:["hot","sql"], color:"#ffcc00", short:"CH", port:"8123", scheme:"clickhouse", aliases:"ch clickhouse", kind:"sql", textDark:true },
+      { id:"es", name:"Elasticsearch", meta:"索引 · Mapping", tags:["搜索"], cat:["hot","nosql"], color:"#343741", short:"ES", port:"9200", scheme:"elasticsearch", aliases:"es elastic", kind:"search" },
+      { id:"oracle", name:"Oracle", meta:"关系型 · 企业", tags:["SQL"], cat:["sql"], color:"#c74634", short:"Or", port:"1521", scheme:"oracle", aliases:"oracle", kind:"sql" },
+      { id:"sqlserver", name:"SQL Server", meta:"关系型 · T-SQL", tags:["SQL"], cat:["sql"], color:"#a91d2c", short:"MS", port:"1433", scheme:"sqlserver", aliases:"mssql", kind:"sql" },
+      { id:"dameng", name:"Dameng（达梦）", meta:"国产 · 关系型", tags:["国产"], cat:["cn","sql"], color:"#e21a22", short:"DM", port:"5236", scheme:"dm", aliases:"达梦 dameng", kind:"sql" },
+      { id:"oceanbase", name:"OceanBase", meta:"MySQL / Oracle 租户", tags:["国产"], cat:["cn","sql","hot"], color:"#006aff", short:"OB", port:"2881", scheme:"oceanbase", aliases:"oceanbase ob", kind:"sql" },
+      { id:"kingbase", name:"Kingbase（人大金仓）", meta:"国产 · PG 兼容", tags:["国产"], cat:["cn","sql"], color:"#e60012", short:"KB", port:"54321", scheme:"kingbase", aliases:"金仓 kingbase", kind:"sql" },
+      { id:"milvus", name:"Milvus", meta:"向量检索", tags:["向量"], cat:["vector"], color:"#00a1ea", short:"Mi", port:"19530", scheme:"milvus", aliases:"milvus", kind:"vector" },
+      { id:"qdrant", name:"Qdrant", meta:"向量搜索", tags:["向量"], cat:["vector"], color:"#dc244c", short:"Qd", port:"6333", scheme:"qdrant", aliases:"qdrant", kind:"vector" },
+      { id:"kafka", name:"Kafka", meta:"Broker · Topic", tags:["MQ"], cat:["mq"], color:"#222", short:"Kf", port:"9092", scheme:"kafka", aliases:"kafka", kind:"mq" },
+      { id:"rabbit", name:"RabbitMQ", meta:"AMQP", tags:["MQ"], cat:["mq"], color:"#f60", short:"Rq", port:"5672", scheme:"amqp", aliases:"rabbitmq", kind:"mq" },
+      { id:"mqtt", name:"MQTT", meta:"Broker · Topic", tags:["IoT"], cat:["mq"], color:"#660066", short:"MQ", port:"1883", scheme:"mqtt", aliases:"mqtt", kind:"mq" },
+    ];
+
+    const CATS = [
+      { id:"hot", label:"推荐 / 常用", count:8 },
+      { id:"sql", label:"关系型", count:12 },
+      { id:"cn", label:"国产库", count:7 },
+      { id:"nosql", label:"NoSQL", count:5 },
+      { id:"vector", label:"向量", count:3 },
+      { id:"mq", label:"消息队列", count:4 },
+      { id:"file", label:"本地文件", count:2 },
+    ];
+
+    /* toast */
+    const toastEl = document.getElementById("toast");
+    let toastTimer;
+    function toast(msg) {
+      toastEl.textContent = msg;
+      toastEl.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2000);
+    }
+    document.body.addEventListener("click", (e) => {
+      const t = e.target.closest("[data-toast]");
+      if (t) toast(t.getAttribute("data-toast"));
+      const tog = e.target.closest("[data-toggle]");
+      if (tog) {
+        tog.classList.toggle("on");
+      }
+    });
+
+    /* theme */
+    function applyTheme(theme) {
+      const p = theme.t;
+      // 浅色主题用 light color-scheme，避免系统把 input 渲成白底
+      const isLight = ["builtin-warm-paper", "builtin-mist-jade"].includes(theme.id);
+      document.documentElement.setAttribute("data-form-scheme", isLight ? "light" : "dark");
+      const r = document.documentElement.style;
+      r.setProperty("--gn-bg-app", p.app);
+      r.setProperty("--gn-bg-chrome", p.chrome);
+      r.setProperty("--gn-bg-panel", p.panel);
+      r.setProperty("--gn-bg-panel-2", p.panel2);
+      r.setProperty("--gn-bg-input", p.input);
+      r.setProperty("--gn-bg-hover", p.hover);
+      r.setProperty("--gn-bg-selected", p.selected);
+      r.setProperty("--gn-fg-1", p.fg1);
+      r.setProperty("--gn-fg-2", p.fg2);
+      r.setProperty("--gn-fg-3", p.fg3);
+      r.setProperty("--gn-fg-4", p.fg4);
+      r.setProperty("--gn-fg-5", p.fg5);
+      r.setProperty("--gn-br-1", p.br1);
+      r.setProperty("--gn-br-2", p.br2);
+      r.setProperty("--gn-br-3", p.br3);
+      r.setProperty("--gn-accent", p.accent);
+      r.setProperty("--gn-accent-2", p.accent2);
+      r.setProperty("--gn-accent-soft", p.accentSoft);
+      r.setProperty("--gn-on-accent", p.onAccent);
+      r.setProperty("--gn-info", p.info);
+      r.setProperty("--gn-warn", p.warn);
+      r.setProperty("--gn-danger", p.danger);
+      r.setProperty("--gn-shadow-md", p.shadowMd);
+      r.setProperty("--gn-shadow-lg", p.shadowLg);
+      r.setProperty("--gn-shadow-card", p.shadowCard);
+      document.getElementById("theme-label").textContent = theme.name;
+    }
+    const pills = document.getElementById("theme-pills");
+    THEMES.forEach((th, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "theme-pill" + (i === 0 ? " active" : "");
+      b.innerHTML = `<span class="theme-swatch" style="background:${th.t.accent}"></span>${th.name}`;
+      b.addEventListener("click", () => {
+        pills.querySelectorAll(".theme-pill").forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        applyTheme(th);
+      });
+      pills.appendChild(b);
+    });
+    applyTheme(THEMES[0]);
+
+    /* tabs */
+    document.querySelectorAll(".tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+        document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("panel-" + tab.dataset.tab).classList.add("active");
+      });
+    });
+
+    function logoStyle(s) {
+      return `background:${s.color};color:${s.textDark ? "#111" : "#fff"}`;
+    }
+    function buildUri(s, host, port, db, user, pass) {
+      if (s.kind === "file") return `${s.scheme}:///${db || "path/to/file"}`;
+      let auth = "";
+      if (user) {
+        auth = pass
+          ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@`
+          : `${encodeURIComponent(user)}@`;
+      }
+      const p = port ? `:${port}` : "";
+      const path = db ? `/${db}` : "/";
+      return `${s.scheme}://${auth}${host || "127.0.0.1"}${p}${path}`;
+    }
+
+    /** 简易连接串解析 → 主机/端口/用户/密码/库（demo，覆盖常见 scheme） */
+    function parseConnectionUri(raw) {
+      const text = (raw || "").trim().replace(/^["']|["']$/g, "");
+      if (!text) return { ok: false, error: "请先粘贴连接串" };
+      let urlStr = text;
+      // jdbc:mysql://host:port/db
+      const jdbc = text.match(/^jdbc:([a-z0-9+]+):(.*)$/i);
+      if (jdbc) urlStr = `${jdbc[1]}:${jdbc[2]}`;
+      // allow scheme without //
+      if (/^[a-z][a-z0-9+.-]*:[^/]/i.test(urlStr) && !urlStr.includes("://")) {
+        urlStr = urlStr.replace(/^([^:]+):/, "$1://");
+      }
+      let u;
+      try {
+        u = new URL(urlStr);
+      } catch {
+        return { ok: false, error: "无法解析，请检查格式（如 mysql://user:pass@host:3306/db）" };
+      }
+      const scheme = (u.protocol || "").replace(":", "").toLowerCase();
+      const host = u.hostname || "";
+      const port = u.port || "";
+      const user = decodeURIComponent(u.username || "");
+      const pass = decodeURIComponent(u.password || "");
+      let db = "";
+      if (u.pathname && u.pathname !== "/") {
+        db = decodeURIComponent(u.pathname.replace(/^\//, "").split("/")[0] || "");
+      }
+      // file path for sqlite
+      if (scheme === "sqlite" || scheme === "duckdb") {
+        db = u.pathname || db;
+      }
+      return { ok: true, scheme, host, port, user, pass, db };
+    }
+
+    let currentFormSource = null;
+
+    function setUriMsg(text, kind) {
+      const el = document.getElementById("a-uri-msg");
+      if (!el) return;
+      el.textContent = text || "";
+      el.className = "msg" + (kind ? " " + kind : "");
+    }
+
+    function syncUriFromFields() {
+      const s = currentFormSource;
+      if (!s) return;
+      const uri = buildUri(
+        s,
+        document.getElementById("a-host")?.value,
+        document.getElementById("a-port")?.value,
+        document.getElementById("a-db")?.value,
+        document.getElementById("a-user")?.value,
+        document.getElementById("a-pass")?.value,
+      );
+      const ta = document.getElementById("a-uri");
+      if (ta) ta.value = uri;
+      return uri;
+    }
+
+    function applyParsedUri(parsed) {
+      if (parsed.host) document.getElementById("a-host").value = parsed.host;
+      if (parsed.port) document.getElementById("a-port").value = parsed.port;
+      else if (currentFormSource?.port) document.getElementById("a-port").value = currentFormSource.port;
+      document.getElementById("a-db").value = parsed.db || "";
+      if (parsed.user) document.getElementById("a-user").value = parsed.user;
+      if (parsed.pass) document.getElementById("a-pass").value = parsed.pass;
+      // 文件型
+      if (currentFormSource?.kind === "file" && parsed.db) {
+        const fileInput = document.querySelector("#a-file-wrap input");
+        if (fileInput) fileInput.value = parsed.db;
+      }
+    }
+
+    /* ── open form helpers ── */
+    function fillAForm(s) {
+      currentFormSource = s;
+      document.getElementById("a-step1").classList.add("hidden");
+      document.getElementById("a-step2").classList.remove("hidden");
+      const badge = document.getElementById("a-form-badge");
+      badge.textContent = s.short;
+      badge.style.background = s.color;
+      badge.style.color = s.textDark ? "#111" : "#fff";
+      document.getElementById("a-form-title").textContent = s.name + " 连接";
+      document.getElementById("a-name").value = s.name + " · 本地";
+      window.__setAppearFromSource?.("a", s);
+      document.getElementById("a-port").value = s.port || "";
+      document.getElementById("a-host").value = "127.0.0.1";
+      document.getElementById("a-db").value = s.kind === "sql" ? "demo" : "";
+      const isFile = s.kind === "file";
+      document.getElementById("a-host-row").classList.toggle("hidden", isFile);
+      document.getElementById("a-file-wrap").classList.toggle("hidden", !isFile);
+      const kaBlock = document.getElementById("a-keepalive-block");
+      if (kaBlock) {
+        // 文件库强制关闭探活（与产品一致）
+        kaBlock.classList.toggle("hidden", isFile);
+        if (isFile) {
+          const on = document.getElementById("a-keepalive-on");
+          if (on) on.checked = false;
+          window.__syncKeepAliveUI?.();
+        }
+      }
+      const hideDb = s.kind === "kv" || s.kind === "mq" || isFile;
+      document.getElementById("a-db").style.display = hideDb ? "none" : "";
+      document.getElementById("a-token-wrap").classList.toggle("hidden", !(s.kind === "search" || s.kind === "vector"));
+      document.getElementById("a-auth-row").classList.toggle("hidden", s.kind === "file");
+      document.getElementById("a-user").value = s.kind === "mq" || s.kind === "kv" ? "" : "root";
+      document.getElementById("a-pass").value = s.kind === "mq" || s.kind === "kv" ? "" : "secret";
+      modeState.value = "single";
+      window.__renderModeUI?.(s.id);
+
+      // 按类型：服务名 / 库范围 / 自定义 DSN
+      const needsService = ["oracle", "dameng", "sqlserver", "iris", "gauss", "opengauss", "kingbase"].includes(s.id);
+      const needsScope = s.kind === "sql" || s.id === "mongo";
+      const isCustom = s.id === "custom";
+      document.getElementById("a-service-wrap")?.classList.toggle("hidden", !needsService);
+      document.getElementById("a-scope-wrap")?.classList.toggle("hidden", !needsScope);
+      const dsnBlock = document.getElementById("a-custom-dsn-block");
+      if (dsnBlock) dsnBlock.style.display = isCustom ? "block" : "none";
+
+      const prot = document.getElementById("a-prot");
+      if (prot) {
+        const show = window.__protSupport?.has(s.id) ?? true;
+        prot.classList.toggle("hidden", !show);
+        if (show) {
+          prot.classList.add("open");
+          prot.querySelector(".prot-head")?.setAttribute("aria-expanded", "true");
+        }
+        window.__refreshProt?.(prot);
+      }
+      const extra = document.getElementById("a-extra-type-fields");
+      // 类型专属协议/拓扑扩展（产品 oceanBaseProtocol、clickHouseProtocol 等）
+      if (s.id === "oceanbase") {
+        extra.innerHTML = `<div class="f-row"><label>租户协议</label><div class="ctrl"><select class="w-md" id="a-ob-proto"><option value="mysql">MySQL</option><option value="oracle">Oracle</option></select></div></div>
+          <div style="font-size:11px;color:var(--gn-fg-5);margin:-2px 0 8px 48px">对应产品 oceanBaseProtocol</div>`;
+      } else if (s.id === "clickhouse") {
+        extra.innerHTML = `<div class="f-row"><label>协议</label><div class="ctrl"><select class="w-md"><option>auto</option><option>HTTP</option><option>Native</option></select></div></div>`;
+      } else if (s.id === "mongo") {
+        extra.innerHTML = `
+          <div class="f-row"><label>认证库</label><div class="ctrl"><input class="w-name" placeholder="authSource 如 admin" id="a-mongo-auth-src" /></div></div>
+          <div class="check-line" style="padding-left:48px"><label><input type="checkbox" class="gn-check" id="a-mongo-srv" /> 使用 mongodb+srv</label></div>
+          <div style="font-size:11px;color:var(--gn-fg-5);margin:0 0 6px 48px">副本集成员 / 发现策略见「连接模式」主从扩展；此处为 Mongo 策略摘要</div>`;
+      } else if (s.id === "redis") {
+        extra.innerHTML = `<div style="font-size:11.5px;color:var(--gn-fg-4);padding:4px 0 8px">Redis 拓扑在「连接模式」选择单机/集群/哨兵；集群节点与 Sentinel 字段在模式扩展区。</div>`;
+      } else {
+        extra.innerHTML = "";
+      }
+      syncUriFromFields();
+      setUriMsg("");
+      document.getElementById("a-test-banner").className = "test-banner";
+      document.getElementById("a-foot-hint").textContent = "未测试 · " + s.name;
+      document.querySelectorAll("#a-form-nav .form-nav-item").forEach((x, i) => x.classList.toggle("active", i === 0));
+      document.querySelectorAll("#a-step2 .form-section").forEach((x, i) => x.classList.toggle("active", i === 0));
+      toast("进入配置：" + s.name);
+      document.getElementById("a-step2").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function fillBForm(s) {
+      document.getElementById("b-step1").classList.add("hidden");
+      document.getElementById("b-step2").classList.remove("hidden");
+      const badge = document.getElementById("b-form-badge");
+      badge.textContent = s.short;
+      badge.style.background = s.color;
+      badge.style.color = s.textDark ? "#111" : "#fff";
+      document.getElementById("b-form-title").textContent = s.name + " 连接";
+      document.getElementById("b-form-sub").textContent = s.meta;
+      document.getElementById("b-name").value = s.name + " · 本地";
+      document.getElementById("b-port").value = s.port || "";
+      window.__setAppearFromSource?.("b", s);
+      const bProt = document.getElementById("b-prot");
+      if (bProt) {
+        bProt.classList.toggle("hidden", !(window.__protSupport?.has(s.id)));
+        bProt.classList.add("open");
+        window.__refreshProt?.(bProt);
+      }
+      document.querySelectorAll("#b-form-nav .form-nav-item").forEach((x, i) => x.classList.toggle("active", i === 0));
+      document.querySelectorAll("#b-form-main .form-section").forEach((x, i) => x.classList.toggle("active", i === 0));
+      toast("进入配置：" + s.name);
+    }
+
+    function fillCForm(s) {
+      document.querySelectorAll("#c-list .c-item").forEach((el) => el.classList.toggle("on", el.dataset.id === s.id));
+      document.getElementById("c-empty").classList.add("hidden");
+      document.getElementById("c-form").classList.remove("hidden");
+      const badge = document.getElementById("c-badge");
+      badge.classList.remove("hidden");
+      badge.textContent = s.short;
+      badge.style.background = s.color;
+      badge.style.color = s.textDark ? "#111" : "#fff";
+      document.getElementById("c-title").textContent = s.name;
+      document.getElementById("c-sub").textContent = s.meta + " · 基础字段已展开";
+      document.getElementById("c-name").value = s.name + " · 本地";
+      document.getElementById("c-port").value = s.port || "";
+      document.getElementById("c-db").style.display = (s.kind === "kv" || s.kind === "mq" || s.kind === "file") ? "none" : "";
+      document.getElementById("c-uri").textContent = buildUri(s, "127.0.0.1", s.port, "demo", "root");
+      document.getElementById("c-foot").textContent = "已选 " + s.name + (s.port ? " · 端口 " + s.port : " · 文件型");
+      document.getElementById("c-test-banner").className = "test-banner";
+      toast("已展开 " + s.name + " 表单");
+    }
+
+    function pickSource(id, prefer) {
+      const s = SOURCES.find((x) => x.id === id);
+      if (!s) return;
+      if (prefer === "b") fillBForm(s);
+      else if (prefer === "c") fillCForm(s);
+      else {
+        // respect active panel
+        const active = document.querySelector(".panel.active")?.id;
+        if (active === "panel-b") fillBForm(s);
+        else if (active === "panel-c") fillCForm(s);
+        else fillAForm(s);
+      }
+    }
+
+    document.body.addEventListener("click", (e) => {
+      const pick = e.target.closest("[data-pick]");
+      if (pick) pickSource(pick.getAttribute("data-pick"));
+    });
+
+    /* A nav + grid */
+    let aCat = "hot";
+    const aNav = document.getElementById("a-nav");
+    CATS.forEach((c, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "nav-item" + (i === 0 ? " active" : "");
+      b.dataset.cat = c.id;
+      b.innerHTML = `${c.label}<span class="count">${c.count}</span>`;
+      b.addEventListener("click", () => {
+        aNav.querySelectorAll(".nav-item").forEach((x) => x.classList.remove("active"));
+        b.classList.add("active");
+        aCat = c.id;
+        document.getElementById("a-heading").textContent = c.label;
+        renderA();
+      });
+      aNav.appendChild(b);
+    });
+    function renderA() {
+      const q = document.getElementById("a-search").value.trim().toLowerCase();
+      const list = SOURCES.filter((s) => {
+        if (!s.cat.includes(aCat) && aCat !== "all") return false;
+        if (!q) return true;
+        return (s.name + s.meta + s.aliases).toLowerCase().includes(q);
+      });
+      const grid = document.getElementById("a-grid");
+      grid.innerHTML = list.map((s) => `
+        <button class="src-card" type="button" data-pick="${s.id}">
+          <div class="src-card-top">
+            <div class="src-logo" style="${logoStyle(s)}">${s.short}</div>
+            <div>
+              <div class="src-name">${s.name}</div>
+              <div class="src-meta">${s.meta}</div>
+            </div>
+          </div>
+          <div class="tags">${s.tags.map((t) => `<span class="tag">${t}</span>`).join("")}</div>
+        </button>
+      `).join("") || `<div style="color:var(--gn-fg-5);grid-column:1/-1;padding:20px 0">无匹配</div>`;
+    }
+    document.getElementById("a-search").addEventListener("input", renderA);
+    renderA();
+
+    document.getElementById("a-back").addEventListener("click", () => {
+      document.getElementById("a-step2").classList.add("hidden");
+      document.getElementById("a-step1").classList.remove("hidden");
+    });
+
+    document.getElementById("a-form-nav").addEventListener("click", (e) => {
+      const btn = e.target.closest(".form-nav-item");
+      if (!btn) return;
+      const sec = btn.dataset.sec;
+      document.querySelectorAll("#a-form-nav .form-nav-item").forEach((x) => x.classList.toggle("active", x === btn));
+      document.querySelectorAll("#a-step2 .form-section").forEach((x) => x.classList.toggle("active", x.dataset.sec === sec));
+    });
+
+    document.getElementById("a-test").addEventListener("click", () => {
+      const banner = document.getElementById("a-test-banner");
+      banner.className = "test-banner ok";
+      banner.textContent = "✓ 连接成功 · 延迟 12ms · 服务器版本 8.0.36（demo）";
+      document.getElementById("a-foot-hint").textContent = "测试通过";
+      toast("测试连接成功（demo）");
+    });
+
+    function syncKeepAliveUI() {
+      const on = !!document.getElementById("a-keepalive-on")?.checked;
+      const min = document.getElementById("a-keepalive-min");
+      const sql = document.getElementById("a-keepalive-sql");
+      if (min) min.disabled = !on;
+      if (sql) sql.disabled = !on;
+    }
+    window.__syncKeepAliveUI = syncKeepAliveUI;
+    document.getElementById("a-keepalive-on")?.addEventListener("change", syncKeepAliveUI);
+    syncKeepAliveUI();
+
+    /* 网络方式：SSL / SSH / 代理 / HTTP 隧道 */
+    const netState = {
+      active: "ssl",
+      enabled: { ssl: false, ssh: false, proxy: false, httpTunnel: false },
+    };
+    function pathPickHtml(inputId, placeholder) {
+      return `<div class="path-pick">
+        <input type="text" id="${inputId}" placeholder="${placeholder}" autocomplete="off" />
+        <button type="button" class="btn-browse" data-browse-for="${inputId}">浏览…</button>
+        <input type="file" id="${inputId}-file" tabindex="-1" />
+      </div>`;
+    }
+
+    const NET_PANELS = {
+      ssl: {
+        title: "SSL/TLS",
+        desc: "加密与证书校验。勾选启用后可配置模式与证书文件。",
+        body: `
+          <div class="f-row"><label style="min-width:40px">模式</label>
+            <div class="ctrl inline">
+              <select class="w-md" id="a-ssl-mode"><option value="preferred">优选</option><option value="required">必须</option><option value="skip">跳过校验</option></select>
+            </div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">CA</label>
+            <div class="ctrl">${pathPickHtml("a-ssl-ca", "CA 证书文件（可选）")}</div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">证书</label>
+            <div class="ctrl">${pathPickHtml("a-ssl-cert", "客户端证书文件")}</div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">私钥</label>
+            <div class="ctrl">${pathPickHtml("a-ssl-key", "客户端私钥文件")}</div>
+          </div>`,
+      },
+      ssh: {
+        title: "SSH 隧道",
+        desc: "经跳板机 / 堡垒机转发到内网数据库。",
+        body: `
+          <div class="f-row"><label style="min-width:40px">主机</label>
+            <div class="ctrl inline">
+              <input class="w-host" placeholder="bastion.example.com" id="a-ssh-host" />
+              <input class="w-port" value="22" id="a-ssh-port" />
+            </div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">用户</label>
+            <div class="ctrl inline">
+              <input class="w-user" placeholder="ubuntu" id="a-ssh-user" />
+              <select class="w-sm" id="a-ssh-auth"><option value="password">密码</option><option value="key">私钥</option><option value="agent">agent</option></select>
+            </div>
+          </div>
+          <div class="f-row" id="a-ssh-pass-row"><label style="min-width:40px">密码</label>
+            <div class="ctrl"><input class="w-name" type="password" placeholder="SSH 密码" id="a-ssh-secret" /></div>
+          </div>
+          <div class="f-row hidden" id="a-ssh-key-row"><label style="min-width:40px">私钥</label>
+            <div class="ctrl">${pathPickHtml("a-ssh-key", "选择私钥文件")}</div>
+          </div>`,
+      },
+      proxy: {
+        title: "代理",
+        desc: "借助本地代理软件或中间网关转发数据库流量。",
+        body: `
+          <div class="f-row"><label style="min-width:40px">类型</label>
+            <div class="ctrl inline">
+              <select class="w-sm" id="a-proxy-type"><option>HTTP</option><option>SOCKS5</option><option>SOCKS4</option></select>
+            </div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">地址</label>
+            <div class="ctrl inline">
+              <input class="w-host" placeholder="127.0.0.1" id="a-proxy-host" />
+              <input class="w-port" value="7890" id="a-proxy-port" />
+            </div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">认证</label>
+            <div class="ctrl inline">
+              <input class="w-user" placeholder="用户（可选）" id="a-proxy-user" />
+              <input class="w-pass" type="password" placeholder="密码（可选）" id="a-proxy-pass" />
+            </div>
+          </div>`,
+      },
+      httpTunnel: {
+        title: "HTTP 隧道",
+        desc: "独立 HTTP CONNECT 路由，适合仅开放 HTTP 代理的环境。",
+        body: `
+          <div class="f-row"><label style="min-width:40px">地址</label>
+            <div class="ctrl inline">
+              <input class="w-host" placeholder="proxy.example.com" id="a-http-host" />
+              <input class="w-port" value="8080" id="a-http-port" />
+            </div>
+          </div>
+          <div class="f-row"><label style="min-width:40px">认证</label>
+            <div class="ctrl inline">
+              <input class="w-user" placeholder="用户（可选）" id="a-http-user" />
+              <input class="w-pass" type="password" placeholder="密码（可选）" id="a-http-pass" />
+            </div>
+          </div>`,
+      },
+    };
+
+    function wirePathPickers(root) {
+      if (!root) return;
+      root.querySelectorAll("[data-browse-for]").forEach((btn) => {
+        if (btn.dataset.wired) return;
+        btn.dataset.wired = "1";
+        const id = btn.getAttribute("data-browse-for");
+        const fileInput = root.querySelector("#" + CSS.escape(id) + "-file")
+          || document.getElementById(id + "-file");
+        const textInput = document.getElementById(id);
+        if (!fileInput || !textInput) return;
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          fileInput.click();
+        });
+        fileInput.addEventListener("change", () => {
+          const f = fileInput.files && fileInput.files[0];
+          if (!f) return;
+          // 浏览器安全限制无法拿到真实磁盘路径，Demo 写入文件名；产品内走原生选文件拿绝对路径
+          textInput.value = f.name;
+          textInput.title = "Demo 仅显示文件名；正式版为系统路径选择器";
+          toast("已选择：" + f.name);
+        });
+      });
+    }
+
+    function wireSshAuthToggle(root) {
+      const sel = root?.querySelector("#a-ssh-auth");
+      const passRow = root?.querySelector("#a-ssh-pass-row");
+      const keyRow = root?.querySelector("#a-ssh-key-row");
+      if (!sel || !passRow || !keyRow) return;
+      const sync = () => {
+        const v = sel.value;
+        passRow.classList.toggle("hidden", v === "key" || v === "agent");
+        keyRow.classList.toggle("hidden", v !== "key");
+      };
+      sel.addEventListener("change", sync);
+      sync();
+    }
+
+    function renderNetDetail() {
+      const key = netState.active;
+      const panel = NET_PANELS[key];
+      const box = document.getElementById("a-net-detail");
+      if (!box || !panel) return;
+      const enabled = !!netState.enabled[key];
+      if (!enabled) {
+        box.innerHTML = `
+          <h4>${panel.title}</h4>
+          <p class="ndesc">${panel.desc}</p>
+          <div class="empty-hint">左侧勾选「${panel.title}」后，可在此填写详细参数。</div>`;
+        return;
+      }
+      box.innerHTML = `<h4>${panel.title} <span style="font-size:11px;color:var(--gn-accent);font-weight:650">· 已启用</span></h4>
+        <p class="ndesc">${panel.desc}</p>${panel.body}`;
+      wirePathPickers(box);
+      if (key === "ssh") wireSshAuthToggle(box);
+    }
+
+    function syncNetCards() {
+      document.querySelectorAll("#a-net-grid .net-row").forEach((row) => {
+        const key = row.dataset.net;
+        const on = !!netState.enabled[key];
+        row.classList.toggle("active", netState.active === key);
+        row.classList.toggle("on", on);
+        const cb = row.querySelector("input[data-net-en]");
+        if (cb) cb.checked = on;
+        const st = row.querySelector("[data-net-st]");
+        if (st) {
+          st.textContent = on
+            ? (netState.active === key ? "编辑中 · 已启用" : "已启用")
+            : (netState.active === key ? "编辑中" : "未启用");
+        }
+      });
+      renderNetDetail();
+    }
+
+    document.getElementById("a-net-grid")?.addEventListener("click", (e) => {
+      const row = e.target.closest(".net-row");
+      if (!row) return;
+      const key = row.dataset.net;
+      if (e.target.matches("input[data-net-en]")) {
+        e.stopPropagation();
+        netState.enabled[key] = e.target.checked;
+        if (key === "proxy" && e.target.checked) netState.enabled.httpTunnel = false;
+        if (key === "httpTunnel" && e.target.checked) netState.enabled.proxy = false;
+        netState.active = key;
+        syncNetCards();
+        return;
+      }
+      netState.active = key;
+      syncNetCards();
+    });
+    syncNetCards();
+
+    /* 连接模式：单机 / 主从 / 集群 / 副本集（按数据源，对齐产品 connectionMode） */
+    const MODE_BY_SOURCE = {
+      mysql: {
+        hint: "单机模式 / 主从模式",
+        options: [
+          { id: "single", title: "单机模式", desc: "连接单个 MySQL 兼容节点。" },
+          { id: "replica", title: "主从模式", desc: "使用主连接，并可选配置从库地址。" },
+        ],
+      },
+      mariadb: null, // filled same as mysql below
+      oceanbase: null,
+      dameng: null,
+      pg: {
+        hint: "单机",
+        options: [
+          { id: "single", title: "单机模式", desc: "连接单个 PostgreSQL 兼容节点。" },
+        ],
+      },
+      redis: {
+        hint: "单机 / 集群 / 哨兵",
+        options: [
+          { id: "single", title: "单机模式", desc: "只连接一个 Redis 节点。" },
+          { id: "cluster", title: "集群模式", desc: "Redis Cluster，配置多个种子节点。" },
+          { id: "sentinel", title: "哨兵模式", desc: "通过 Sentinel 发现主节点，适合主从高可用。" },
+        ],
+      },
+      mongo: {
+        hint: "单机 / 副本集",
+        options: [
+          { id: "single", title: "单机模式", desc: "连接单个 MongoDB 节点。" },
+          { id: "replica", title: "副本集 / 多节点", desc: "配置 Replica Set 名称与多个成员。" },
+        ],
+      },
+      kafka: {
+        hint: "单 Broker / 集群",
+        options: [
+          { id: "single", title: "单 Broker", desc: "只配置一个 bootstrap broker。" },
+          { id: "cluster", title: "集群模式", desc: "配置多个 bootstrap broker。" },
+        ],
+      },
+      rocket: {
+        hint: "单 NameServer / 集群",
+        options: [
+          { id: "single", title: "单 NameServer", desc: "只配置一个 NameServer。" },
+          { id: "cluster", title: "集群模式", desc: "配置多个 NameServer。" },
+        ],
+      },
+      mqtt: {
+        hint: "单 Broker / 集群",
+        options: [
+          { id: "single", title: "单 Broker", desc: "只配置一个 broker。" },
+          { id: "cluster", title: "集群模式", desc: "配置多个 broker。" },
+        ],
+      },
+    };
+    // MySQL 系共用
+    ["mariadb", "oceanbase", "dameng", "goldendb", "starrocks", "tidb"].forEach((id) => {
+      MODE_BY_SOURCE[id] = MODE_BY_SOURCE.mysql;
+    });
+
+    let modeState = { sourceId: "mysql", value: "single" };
+
+    function modeExtraHtml(sourceId, modeId) {
+      if (sourceId === "mysql" || MODE_BY_SOURCE[sourceId] === MODE_BY_SOURCE.mysql) {
+        if (modeId === "replica") {
+          return `
+            <div class="el">从库地址（可选，多个）</div>
+            <div class="eh">格式 host:port，回车或逗号分隔。主库用上方主机/端口。</div>
+            <input placeholder="192.168.1.2:3306, 192.168.1.3:3306" id="a-replica-hosts" />`;
+        }
+      }
+      if (sourceId === "redis") {
+        if (modeId === "cluster") {
+          return `
+            <div class="el">集群种子节点</div>
+            <div class="eh">多个 host:port，逗号分隔。</div>
+            <input placeholder="10.0.0.1:6379, 10.0.0.2:6379" id="a-redis-nodes" />`;
+        }
+        if (modeId === "sentinel") {
+          return `
+            <div class="el">Sentinel</div>
+            <div class="eh">Master 名称 + Sentinel 节点列表。</div>
+            <div class="f-row" style="margin:0 0 6px">
+              <label style="min-width:40px">Master</label>
+              <div class="ctrl"><input class="w-name" value="mymaster" id="a-sentinel-master" /></div>
+            </div>
+            <input placeholder="sentinel1:26379, sentinel2:26379" id="a-sentinel-nodes" />`;
+        }
+      }
+      if (sourceId === "mongo" && modeId === "replica") {
+        return `
+          <div class="el">Replica Set</div>
+          <div class="eh">集合名称与附加成员地址。</div>
+          <div class="f-row" style="margin:0 0 6px">
+            <label style="min-width:40px">名称</label>
+            <div class="ctrl"><input class="w-name" placeholder="rs0" id="a-mongo-rs" /></div>
+          </div>
+          <input placeholder="host2:27017, host3:27017" id="a-mongo-members" />`;
+      }
+      if ((sourceId === "kafka" || sourceId === "mqtt" || sourceId === "rocket") && modeId === "cluster") {
+        return `
+          <div class="el">附加节点</div>
+          <div class="eh">多个地址，逗号分隔。</div>
+          <input placeholder="host2:9092, host3:9092" id="a-mq-extra" />`;
+      }
+      return "";
+    }
+
+    function renderModeUI(sourceId) {
+      const block = document.getElementById("a-mode-block");
+      const grid = document.getElementById("a-mode-grid");
+      const extra = document.getElementById("a-mode-extra");
+      const hint = document.getElementById("a-mode-hint");
+      if (!block || !grid) return;
+      const conf = MODE_BY_SOURCE[sourceId];
+      if (!conf || !conf.options?.length) {
+        block.classList.add("hidden");
+        return;
+      }
+      block.classList.remove("hidden");
+      if (hint) hint.textContent = conf.hint || "";
+      if (!conf.options.some((o) => o.id === modeState.value)) {
+        modeState.value = conf.options[0].id;
+      }
+      modeState.sourceId = sourceId;
+      const activeOpt = conf.options.find((o) => o.id === modeState.value) || conf.options[0];
+      if (hint) {
+        hint.textContent = activeOpt ? activeOpt.desc : (conf.hint || "");
+      }
+      grid.innerHTML = conf.options.map((o) => `
+        <button type="button" class="${modeState.value === o.id ? "on" : ""}" data-mode="${o.id}">${o.title}</button>
+      `).join("");
+      const html = modeExtraHtml(sourceId, modeState.value);
+      if (extra) {
+        if (html) {
+          extra.classList.remove("hidden");
+          extra.innerHTML = html;
+        } else {
+          extra.classList.add("hidden");
+          extra.innerHTML = "";
+        }
+      }
+    }
+
+    document.getElementById("a-mode-grid")?.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-mode]");
+      if (!btn) return;
+      modeState.value = btn.dataset.mode;
+      renderModeUI(modeState.sourceId);
+      toast("连接模式：" + (btn.textContent || modeState.value));
+    });
+
+    window.__renderModeUI = renderModeUI;
+
+    document.getElementById("a-uri-parse")?.addEventListener("click", () => {
+      const raw = document.getElementById("a-uri")?.value || "";
+      const parsed = parseConnectionUri(raw);
+      if (!parsed.ok) {
+        setUriMsg(parsed.error, "err");
+        toast(parsed.error);
+        return;
+      }
+      applyParsedUri(parsed);
+      setUriMsg("已解析并填充主机 / 端口 / 认证 / 库", "ok");
+      toast("连接串已解析填充");
+    });
+    document.getElementById("a-uri-gen")?.addEventListener("click", () => {
+      syncUriFromFields();
+      setUriMsg("已根据下方字段生成连接串", "ok");
+      toast("已生成连接串");
+    });
+    document.getElementById("a-uri-copy")?.addEventListener("click", async () => {
+      const v = document.getElementById("a-uri")?.value || "";
+      try {
+        await navigator.clipboard.writeText(v);
+        setUriMsg("已复制到剪贴板", "ok");
+        toast("已复制连接串");
+      } catch {
+        setUriMsg("复制失败，请手动选择", "err");
+      }
+    });
+    // 字段变更时可按需再生成（不自动覆盖用户粘贴，仅提供按钮）
+
+    /* 生产连接保护 */
+    const PROT_SUPPORT = new Set([
+      "mysql", "pg", "mariadb", "oracle", "sqlserver", "sqlite", "duckdb",
+      "clickhouse", "mongo", "dameng", "oceanbase", "kingbase", "gauss", "opengauss",
+    ]);
+    function refreshProt(root) {
+      if (!root) return;
+      const opts = [...root.querySelectorAll(".prot-opt")];
+      let n = 0;
+      opts.forEach((opt) => {
+        const on = opt.querySelector("input")?.checked;
+        opt.classList.toggle("on", !!on);
+        if (on) n += 1;
+      });
+      root.dataset.on = n > 0 ? "1" : "0";
+      const tag = root.querySelector("[data-prot-tag], .prot-tag");
+      if (tag) {
+        tag.textContent = n > 0 ? `已限制 ${n} 项` : "未限制";
+        tag.classList.toggle("on", n > 0);
+      }
+      const sum = root.querySelector("[data-prot-sum], .prot-sum");
+      if (sum) {
+        sum.textContent = n > 0 ? `当前策略：已限制 ${n} 项` : "当前策略：未限制";
+      }
+    }
+    function bindProt(root) {
+      if (!root || root.dataset.bound) return;
+      root.dataset.bound = "1";
+      const head = root.querySelector(".prot-head");
+      head?.addEventListener("click", () => {
+        root.classList.toggle("open");
+        head.setAttribute("aria-expanded", root.classList.contains("open") ? "true" : "false");
+      });
+      root.querySelectorAll(".prot-opt").forEach((opt) => {
+        const cb = opt.querySelector("input");
+        if (!cb) return;
+        // 点勾选框：只走原生 checked，阻止冒泡到行（避免再 toggle 一次抵消）
+        cb.addEventListener("click", (e) => {
+          e.stopPropagation();
+        });
+        cb.addEventListener("change", () => {
+          refreshProt(root);
+        });
+        // 点文字：切换勾选
+        opt.addEventListener("click", (e) => {
+          if (e.target === cb || e.target.closest("input")) return;
+          e.preventDefault();
+          cb.checked = !cb.checked;
+          refreshProt(root);
+        });
+      });
+      refreshProt(root);
+    }
+    bindProt(document.getElementById("a-prot"));
+    bindProt(document.getElementById("b-prot"));
+
+    // expose for fillAForm visibility
+    window.__protSupport = PROT_SUPPORT;
+    window.__refreshProt = refreshProt;
+
+    /* 外观 · 图标 / 颜色（对齐产品「外观」分区） */
+    const ICON_TYPES = [
+      { id: "mysql", label: "MySQL", file: "mysql.svg", color: "#00758F" },
+      { id: "mariadb", label: "MariaDB", file: "mariadb.svg", color: "#003545" },
+      { id: "oceanbase", label: "OceanBase", file: "oceanbase.png", color: "#0052CC" },
+      { id: "postgres", label: "PostgreSQL", file: "postgres.svg", color: "#336791" },
+      { id: "redis", label: "Redis", file: "redis.svg", color: "#DC382D" },
+      { id: "mongodb", label: "MongoDB", file: "mongodb.svg", color: "#47A248" },
+      { id: "oracle", label: "Oracle", file: "oracle.ico", color: "#F80000" },
+      { id: "sqlserver", label: "SQL Server", file: "sqlserver.svg", color: "#CC2927" },
+      { id: "sqlite", label: "SQLite", file: "sqlite.svg", color: "#003B57" },
+      { id: "duckdb", label: "DuckDB", file: "duckdb.svg", color: "#FFC107" },
+      { id: "clickhouse", label: "ClickHouse", file: "clickhouse.svg", color: "#FFBF00" },
+      { id: "starrocks", label: "StarRocks", file: "starrocks.png", color: "#00A6A6" },
+      { id: "kingbase", label: "Kingbase", file: "kingbase.ico", color: "#1890FF" },
+      { id: "dameng", label: "Dameng", file: "dameng.png", color: "#E6002D" },
+      { id: "vastbase", label: "VastBase", file: "vastbase.svg", color: "#0066CC" },
+      { id: "opengauss", label: "OpenGauss", file: "opengauss.ico", color: "#2446A8" },
+      { id: "gaussdb", label: "GaussDB", file: "gaussdb.ico", color: "#0B7FAB" },
+      { id: "goldendb", label: "GoldenDB", file: "goldendb.ico", color: "#D97706" },
+      { id: "highgo", label: "HighGo", file: "highgo.ico", color: "#00A86B" },
+      { id: "iris", label: "IRIS", file: "iris.png", color: "#1F6FEB" },
+      { id: "tdengine", label: "TDengine", file: "tdengine.ico", color: "#2962FF" },
+      { id: "iotdb", label: "IoTDB", file: "iotdb.svg", color: "#0F766E" },
+      { id: "rocketmq", label: "RocketMQ", file: "rocketmq.png", color: "#EA580C" },
+      { id: "mqtt", label: "MQTT", file: "mqtt.svg", color: "#0EA5A4" },
+      { id: "kafka", label: "Kafka", file: "kafka.png", color: "#F97316" },
+      { id: "rabbitmq", label: "RabbitMQ", file: "rabbitmq.svg", color: "#FF6B35" },
+      { id: "chroma", label: "Chroma", file: "chroma.svg", color: "#7C3AED" },
+      { id: "qdrant", label: "Qdrant", file: "qdrant.svg", color: "#DC244C" },
+      { id: "milvus", label: "Milvus", file: "milvus.svg", color: "#00A1EA" },
+      { id: "elasticsearch", label: "Elasticsearch", file: "elasticsearch.svg", color: "#FEC514" },
+      { id: "jvm", label: "JVM", file: "jvm.ico", color: "#1677FF" },
+      { id: "custom", label: "Custom", file: "", color: "#888888" },
+    ];
+    const PRESET_COLORS = [
+      "#336791", "#00758F", "#DC382D", "#47A248", "#F80000",
+      "#CC2927", "#1890FF", "#E6002D", "#FFBF00", "#2962FF",
+      "#00A86B", "#0066CC", "#FF6B35", "#7C3AED",
+    ];
+    // map source id -> icon type id
+    const SOURCE_ICON = {
+      mysql: "mysql", pg: "postgres", redis: "redis", mongo: "mongodb",
+      sqlite: "sqlite", duckdb: "duckdb", clickhouse: "clickhouse", es: "elasticsearch",
+      oracle: "oracle", sqlserver: "sqlserver", dameng: "dameng", oceanbase: "oceanbase",
+      kingbase: "kingbase", milvus: "milvus", qdrant: "qdrant", kafka: "kafka",
+      rabbit: "rabbitmq", mqtt: "mqtt", mariadb: "mariadb", gauss: "gaussdb", opengauss: "opengauss",
+    };
+
+    const appearState = {
+      a: { icon: "mysql", color: "#00758F", name: "MySQL · 本地" },
+      b: { icon: "mysql", color: "#00758F", name: "MySQL · 本地" },
+    };
+
+    function iconMeta(id) {
+      return ICON_TYPES.find((x) => x.id === id) || ICON_TYPES[ICON_TYPES.length - 1];
+    }
+    function renderIconContent(meta, size = 22) {
+      if (meta.file) {
+        return `<img src="db-icons/${meta.file}" alt="${meta.label}" width="${size}" height="${size}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'fb',textContent:'${meta.label.slice(0,2)}',style:'background:${meta.color};width:${size}px;height:${size}px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:800;color:#fff'}))" />`;
+      }
+      return `<span class="fb" style="background:${meta.color};width:${size}px;height:${size}px">${meta.label.slice(0, 2)}</span>`;
+    }
+    function refreshAppear(which) {
+      const st = appearState[which];
+      const meta = iconMeta(st.icon);
+      const grid = document.getElementById(which + "-icon-grid");
+      const colors = document.getElementById(which + "-color-row");
+      const cur = document.getElementById(which + "-icon-current");
+      const pvIcon = document.getElementById(which + "-pv-icon");
+      const pvName = document.getElementById(which + "-pv-name");
+      if (cur) cur.textContent = "当前：" + meta.label;
+      if (pvName) {
+        const nameInput = document.getElementById(which === "a" ? "a-name" : "b-name");
+        pvName.textContent = (nameInput && nameInput.value) || st.name || meta.label;
+      }
+      if (pvIcon) {
+        pvIcon.style.borderColor = st.color;
+        pvIcon.innerHTML = renderIconContent(meta, 18);
+      }
+      // header badge on form
+      const badge = document.getElementById(which + "-form-badge");
+      if (badge) {
+        badge.style.background = st.color;
+        badge.style.color = "#fff";
+        badge.textContent = meta.label.slice(0, 2);
+        // try show img inside badge
+        if (meta.file) {
+          badge.innerHTML = `<img src="db-icons/${meta.file}" alt="" style="width:16px;height:16px;object-fit:contain" onerror="this.remove()" />`;
+          if (!badge.querySelector("img")) badge.textContent = meta.label.slice(0, 2);
+        }
+      }
+      if (grid) {
+        grid.querySelectorAll(".icon-cell").forEach((cell) => {
+          cell.classList.toggle("on", cell.dataset.icon === st.icon);
+        });
+      }
+      if (colors) {
+        colors.querySelectorAll(".color-dot").forEach((dot) => {
+          if (dot.dataset.color) {
+            dot.classList.toggle("on", dot.dataset.color.toLowerCase() === st.color.toLowerCase());
+          }
+        });
+      }
+    }
+    function buildAppearUI(which) {
+      const grid = document.getElementById(which + "-icon-grid");
+      const colors = document.getElementById(which + "-color-row");
+      if (!grid || !colors || grid.dataset.ready) return;
+      grid.dataset.ready = "1";
+      grid.innerHTML = ICON_TYPES.map((ic) => `
+        <button type="button" class="icon-cell" data-icon="${ic.id}" title="${ic.label}">
+          ${renderIconContent(ic, 22)}
+        </button>
+      `).join("");
+      grid.addEventListener("click", (e) => {
+        const cell = e.target.closest(".icon-cell");
+        if (!cell) return;
+        appearState[which].icon = cell.dataset.icon;
+        const meta = iconMeta(cell.dataset.icon);
+        // 切换图标时若颜色仍是「上一个默认」可跟新默认；这里简化：始终跟新图标默认色
+        appearState[which].color = meta.color;
+        refreshAppear(which);
+        toast("图标：" + meta.label);
+      });
+      colors.innerHTML = PRESET_COLORS.map((c) =>
+        `<button type="button" class="color-dot" data-color="${c}" style="background:${c}" title="${c}"></button>`
+      ).join("") + `<label class="color-dot custom-wrap" style="background:conic-gradient(red,yellow,lime,blue,red)" title="自定义"><input type="color" id="${which}-color-custom" value="#1677ff" /></label>`;
+      colors.addEventListener("click", (e) => {
+        const dot = e.target.closest(".color-dot[data-color]");
+        if (!dot) return;
+        appearState[which].color = dot.dataset.color;
+        refreshAppear(which);
+      });
+      document.getElementById(which + "-color-custom")?.addEventListener("input", (e) => {
+        appearState[which].color = e.target.value;
+        refreshAppear(which);
+      });
+      const nameInput = document.getElementById(which === "a" ? "a-name" : "b-name");
+      nameInput?.addEventListener("input", () => refreshAppear(which));
+      refreshAppear(which);
+    }
+    buildAppearUI("a");
+    buildAppearUI("b");
+    window.__setAppearFromSource = (which, source) => {
+      const iconId = SOURCE_ICON[source.id] || source.id || "custom";
+      const meta = iconMeta(iconId);
+      appearState[which].icon = meta.id;
+      appearState[which].color = meta.color;
+      appearState[which].name = source.name + " · 本地";
+      refreshAppear(which);
+    };
+
+    /* B */
+    let bCat = "all";
+    const bSeg = document.getElementById("b-seg");
+    [{ id:"all", label:"全部" }, ...CATS].forEach((c, i) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = c.label;
+      b.dataset.bcat = c.id;
+      if (i === 0) b.classList.add("on");
+      b.addEventListener("click", () => {
+        bSeg.querySelectorAll("button").forEach((x) => x.classList.remove("on"));
+        b.classList.add("on");
+        bCat = c.id;
+        renderB();
+      });
+      bSeg.appendChild(b);
+    });
+    function renderB() {
+      const q = document.getElementById("b-search").value.trim().toLowerCase();
+      document.getElementById("b-recent-sec").style.display = (!q && bCat === "all") ? "" : "none";
+      const list = SOURCES.filter((s) => {
+        const inCat = bCat === "all" ? s.cat.includes("hot") || q : s.cat.includes(bCat);
+        if (!inCat && bCat !== "all") return false;
+        if (bCat === "all" && !q && !s.cat.includes("hot")) return false;
+        if (!q) return true;
+        return (s.name + s.aliases).toLowerCase().includes(q);
+      });
+      document.getElementById("b-heading").textContent = q ? "搜索结果" : (bCat === "all" ? "常用推荐" : "浏览");
+      document.getElementById("b-tiles").innerHTML = list.map((s) => `
+        <button class="b-tile" type="button" style="--accent:${s.color}" data-pick="${s.id}">
+          <div class="logo" style="${logoStyle(s)}">${s.short}</div>
+          <div class="name">${s.name}</div>
+          <div class="meta">${s.meta}</div>
+        </button>
+      `).join("") || `<div style="color:var(--gn-fg-5)">无匹配</div>`;
+    }
+    document.getElementById("b-search").addEventListener("input", renderB);
+    renderB();
+    document.getElementById("b-back").addEventListener("click", () => {
+      document.getElementById("b-step2").classList.add("hidden");
+      document.getElementById("b-step1").classList.remove("hidden");
+    });
+    document.getElementById("b-form-nav").addEventListener("click", (e) => {
+      const btn = e.target.closest(".form-nav-item");
+      if (!btn) return;
+      document.querySelectorAll("#b-form-nav .form-nav-item").forEach((x) => x.classList.toggle("active", x === btn));
+      document.querySelectorAll("#b-form-main .form-section").forEach((x) => x.classList.toggle("active", x.dataset.sec === btn.dataset.sec));
+    });
+
+    /* C */
+    function renderC(q = "") {
+      const qq = q.trim().toLowerCase();
+      const groups = [
+        { key:"hot", title:"常用" },
+        { key:"cn", title:"国产" },
+        { key:"vector", title:"向量" },
+        { key:"mq", title:"消息" },
+      ];
+      const used = new Set();
+      let html = "";
+      for (const g of groups) {
+        const items = SOURCES.filter((s) => s.cat.includes(g.key) && (!qq || (s.name + s.aliases).toLowerCase().includes(qq)));
+        const fresh = items.filter((s) => !used.has(s.id));
+        fresh.forEach((s) => used.add(s.id));
+        if (!fresh.length) continue;
+        html += `<div class="c-group">${g.title}</div>`;
+        html += fresh.map((s) => `
+          <button class="c-item" type="button" data-id="${s.id}">
+            <div class="logo" style="${logoStyle(s)}">${s.short}</div>
+            <div><div class="n">${s.name}</div><div class="m">${s.meta}</div></div>
+          </button>
+        `).join("");
+      }
+      document.getElementById("c-list").innerHTML = html || `<div style="padding:12px;color:var(--gn-fg-5);font-size:12.5px">无匹配</div>`;
+      document.querySelectorAll("#c-list .c-item").forEach((item) => {
+        item.addEventListener("click", () => {
+          const s = SOURCES.find((x) => x.id === item.dataset.id);
+          fillCForm(s);
+        });
+      });
+    }
+    document.getElementById("c-search").addEventListener("input", (e) => renderC(e.target.value));
+    renderC();
+    document.getElementById("c-test").addEventListener("click", () => {
+      const b = document.getElementById("c-test-banner");
+      b.className = "test-banner ok";
+      b.textContent = "✓ 连接成功 · 延迟 9ms（demo）";
+      toast("测试连接成功（demo）");
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        document.querySelector(".panel.active input")?.focus();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -115,6 +115,7 @@ func TestBuildWindowsLaunchCommandUsesHiddenPowerShellFile(t *testing.T) {
 		SourcePath:           `C:\tmp\GoNavi-0.8.5-Windows-Amd64.exe`,
 		TargetPath:           `C:\GoNavi\GoNavi.exe`,
 		CurrentTargetPath:    `C:\GoNavi\GoNavi.exe`,
+		UpdatesDir:           `C:\tmp\gonavi-update`,
 		StagedDir:            `C:\tmp\gonavi-update`,
 		LogPath:              `C:\tmp\gonavi-update\update.log`,
 		MaintenanceEventName: `Global\GoNavi-Update-Test`,

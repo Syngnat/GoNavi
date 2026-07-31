@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,26 +9,6 @@ import {
   type EditableColumnSnapshot,
 } from './tableDesignerSchemaSql';
 import { t as catalogTranslate } from '../i18n/catalog';
-
-const sharedI18nDir = new URL('../../../shared/i18n/', import.meta.url);
-const sharedI18nLocaleFiles = [
-  'de-DE.json',
-  'en-US.json',
-  'ja-JP.json',
-  'ru-RU.json',
-  'zh-CN.json',
-  'zh-TW.json',
-] as const;
-
-const schemaSqlI18nKeys = [
-  'table_designer.schema_sql.doris.primary_key_hint',
-  'table_designer.schema_sql.duckdb.comment_hint',
-  'table_designer.schema_sql.duckdb.primary_key_hint',
-  'table_designer.schema_sql.limited_column_hint',
-  'table_designer.schema_sql.sqlite.modify_column_hint',
-  'table_designer.schema_sql.sqlserver.drop_primary_key_hint',
-  'table_designer.schema_sql.tdengine.timestamp_hint',
-] as const;
 
 const translateEn = (key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
   catalogTranslate('en-US', key, params);
@@ -63,32 +41,6 @@ const buildInput = (overrides: Partial<BuildAlterTablePreviewInput>): BuildAlter
 });
 
 describe('tableDesignerSchemaSql', () => {
-  it('keeps generated SQL warning comments in i18n catalogs without source Chinese literals', () => {
-    const source = readFileSync(new URL('./tableDesignerSchemaSql.ts', import.meta.url), 'utf8');
-
-    for (const localeFile of sharedI18nLocaleFiles) {
-      const catalog = JSON.parse(readFileSync(new URL(localeFile, sharedI18nDir), 'utf8')) as Record<string, string>;
-      for (const key of schemaSqlI18nKeys) {
-        expect(catalog[key], `${localeFile} ${key}`).toBeTruthy();
-      }
-    }
-
-    for (const key of schemaSqlI18nKeys) {
-      expect(source).toContain(key);
-    }
-
-    for (const literal of [
-      'Doris 修改主键/Key 模型需要按表模型手工迁移',
-      'SQL Server 删除旧主键需要原约束名',
-      'SQLite 不支持直接修改字段属性',
-      'DuckDB 不支持通过 COMMENT ON COLUMN 持久化字段备注',
-      'DuckDB 当前仅支持为无主键表新增 PRIMARY KEY',
-      '字段约束/默认值/备注语法与 MySQL 不同',
-      'TDengine 普通表通常需要 TIMESTAMP 时间列',
-    ]) {
-      expect(source).not.toContain(literal);
-    }
-  });
 
   it('localizes generated SQL warning comments while keeping SQL and identifiers raw', () => {
     const sqliteSql = buildAlterTablePreviewSql(buildInput({

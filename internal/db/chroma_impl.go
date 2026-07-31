@@ -56,16 +56,17 @@ type chromaGetResponse struct {
 	Included   []string                 `json:"included"`
 }
 
-func (c *ChromaDB) Connect(config connection.ConnectionConfig) error {
-	if c.forwarder != nil {
-		_ = c.forwarder.Close()
-		c.forwarder = nil
-	}
-	c.client = nil
+func (c *ChromaDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = c.Close()
+	defer func() {
+		if err != nil {
+			_ = c.Close()
+		}
+	}()
 
 	runConfig := normalizeChromaConfig(config)
 	if runConfig.UseSSH {
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -100,7 +101,7 @@ func (c *ChromaDB) Connect(config connection.ConnectionConfig) error {
 
 func (c *ChromaDB) Close() error {
 	if c.forwarder != nil {
-		if err := c.forwarder.Close(); err != nil {
+		if err := c.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 Chroma SSH 端口转发失败：%v", err)
 		}
 		c.forwarder = nil

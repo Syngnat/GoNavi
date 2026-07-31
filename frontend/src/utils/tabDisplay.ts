@@ -280,6 +280,9 @@ const isRedisTab = (tab: TabData): boolean => {
   return tab.type === 'redis-keys' || tab.type === 'redis-command' || tab.type === 'redis-monitor';
 };
 
+const isNacosTab = (tab: TabData): boolean =>
+  tab.type === 'nacos-config' || tab.type === 'nacos-services';
+
 const buildRedisBaseTitle = (tab: TabData, translate: TabDisplayTranslate = defaultTranslate): string => {
   const dbLabel = `db${tab.redisDB ?? 0}`;
   if (tab.type === 'redis-command') return translate('sidebar.tab.redis_command', { database: dbLabel });
@@ -635,6 +638,13 @@ export const buildTabDisplayTitle = (
     const hostSummary = resolveConnectionHostSummary(connection?.config);
     const identity = [connectionName, hostSummary].filter(Boolean).join(' | ');
     return identity ? `[${identity}] ${buildRedisBaseTitle(tab, translate)}` : buildRedisBaseTitle(tab, translate);
+  }
+
+  if (isNacosTab(tab)) {
+    const nsTitle = String(tab.nacosNamespaceName || tab.nacosNamespaceId || tab.title || 'public').trim();
+    const kind = tab.type === 'nacos-services' ? 'services' : 'config';
+    const full = `${nsTitle} · ${kind}`;
+    return connectionName ? `[${connectionName}] ${full}` : full;
   }
 
   const baseTitle = buildCompactObjectTabTitle(tab, translate);

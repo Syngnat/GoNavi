@@ -9,6 +9,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
@@ -73,6 +74,41 @@ func TestIsLowMemoryMode(t *testing.T) {
 			t.Setenv("GONAVI_LOW_MEMORY_MODE", tt.env)
 			if got := isLowMemoryMode(); got != tt.want {
 				t.Fatalf("isLowMemoryMode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveInitialWindowStartStateDoesNotOverrideFrontendPreference(t *testing.T) {
+	for _, goos := range []string{"windows", "darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			if got := resolveInitialWindowStartState(goos); got != options.Normal {
+				t.Fatalf("resolveInitialWindowStartState(%q) = %v, want Normal", goos, got)
+			}
+		})
+	}
+}
+
+func TestResolveMainWindowChromeUsesNativeMacControlsFromCreation(t *testing.T) {
+	macChrome := resolveMainWindowChrome(" Darwin ")
+	if macChrome.Frameless {
+		t.Fatal("macOS main window unexpectedly uses frameless Windows-style chrome")
+	}
+	if macChrome.TitleBar == nil {
+		t.Fatal("macOS main window title bar is nil")
+	}
+	if got, want := *macChrome.TitleBar, *mac.TitleBarHidden(); got != want {
+		t.Fatalf("macOS title bar = %+v, want %+v", got, want)
+	}
+
+	for _, goos := range []string{"windows", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			chrome := resolveMainWindowChrome(goos)
+			if !chrome.Frameless {
+				t.Fatalf("%s main window unexpectedly enables native macOS chrome", goos)
+			}
+			if chrome.TitleBar != nil {
+				t.Fatalf("%s main window title bar = %+v, want nil", goos, chrome.TitleBar)
 			}
 		})
 	}

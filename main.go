@@ -17,6 +17,7 @@ import (
 	"GoNavi-Wails/internal/webserver"
 
 	"github.com/wailsapp/wails/v2"
+	wailslogger "github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -34,6 +35,11 @@ type primaryWindowActivator struct {
 	ctx     context.Context
 	pending bool
 	show    func(context.Context)
+}
+
+type mainWindowChromeOptions struct {
+	Frameless bool
+	TitleBar  *mac.TitleBar
 }
 
 func (a *primaryWindowActivator) requestActivation() {
@@ -117,7 +123,7 @@ func main() {
 
 	// Create an instance of the app structure
 	application := app.NewApp()
-	aiService := aiservice.NewService()
+	aiService := aiservice.NewServiceWithConfigChangeHandler(app.NewCloudBackupChangeHandler(application))
 	nativeWindowManager, nativeWindowErr := nativewindow.NewManager(assets, application, aiService)
 	if nativeWindowErr != nil {
 		logger.Warnf("初始化原生独立窗口管理器失败：%v", nativeWindowErr)
@@ -129,6 +135,7 @@ func main() {
 	lowMemoryMode := isLowMemoryMode()
 	backgroundColour, windowsOptions := resolveWindowVisualOptions(runtime.GOOS, lowMemoryMode)
 	windowsOptions.WebviewUserDataPath = resolveWindowsWebviewUserDataPath()
+	windowChrome := resolveMainWindowChrome(runtime.GOOS)
 	var runtimeCtx context.Context
 	var appMenu *menu.Menu
 	if strings.EqualFold(strings.TrimSpace(runtime.GOOS), "darwin") {
@@ -137,26 +144,21 @@ func main() {
 				return
 			}
 			wailsRuntime.EventsEmit(runtimeCtx, nativeSelectCurrentLineEvent)
-		}, true)
-	}
-
-	// Windows 冷启动：原生先最大化，避免 main 默认小窗先闪一帧；
-	// 前端 hydration 后再按用户记忆（最大化 / 普通尺寸）精细恢复。
-	// 其它平台仍用 Normal，由前端恢复逻辑接管。
-	windowStartState := options.Normal
-	if strings.EqualFold(strings.TrimSpace(runtime.GOOS), "windows") {
-		windowStartState = options.Maximised
+		}, windowChrome.Frameless)
 	}
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:            "GoNavi",
-		Width:            1440,
-		Height:           900,
-		MinWidth:         900,
-		MinHeight:        600,
-		WindowStartState: windowStartState,
-		Frameless:        true,
+		Title:              "GoNavi",
+		Logger:             logger.NewWailsAdapter(),
+		LogLevel:           wailslogger.INFO,
+		LogLevelProduction: wailslogger.INFO,
+		Width:              1440,
+		Height:             900,
+		MinWidth:           900,
+		MinHeight:          600,
+		WindowStartState:   resolveInitialWindowStartState(runtime.GOOS),
+		Frameless:          windowChrome.Frameless,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -179,6 +181,13 @@ func main() {
 				logger.Warnf("自动修复本地 MCP 客户端配置失败：%v", err)
 			}
 		},
+		OnDomReady: func(_ context.Context) {
+			// 每次 WebView 导航完成（含用户刷新前端）都会触发。
+			// 刷新会让 SQL 编辑器的待提交事务 ID 随组件内存一起丢失，
+			// 但后端事务仍开着并持有行锁：不清理的话，重新执行同一条 DML 会卡满
+			// innodb_lock_wait_timeout 并报 Error 1205，只能重启应用恢复。
+			app.HandleFrontendDomReady(application)
+		},
 		OnShutdown: func(ctx context.Context) {
 			nativewindow.ShutdownLifecycle(nativeWindowManager)
 			aiService.Shutdown()
@@ -188,6 +197,7 @@ func main() {
 		Bind:          bindings,
 		Windows:       windowsOptions,
 		Mac: &mac.Options{
+			TitleBar:             windowChrome.TitleBar,
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 		},
@@ -272,6 +282,23 @@ func isLowMemoryMode() bool {
 	default:
 		return false
 	}
+}
+
+// The startup preference lives in frontend storage, which is unavailable until
+// hydration. Native startup must stay normal so it cannot override a disabled preference.
+func resolveInitialWindowStartState(string) options.WindowStartState {
+	return options.Normal
+}
+
+func resolveMainWindowChrome(goos string) mainWindowChromeOptions {
+	if strings.EqualFold(strings.TrimSpace(goos), "darwin") {
+		return mainWindowChromeOptions{
+			Frameless: false,
+			TitleBar:  mac.TitleBarHidden(),
+		}
+	}
+
+	return mainWindowChromeOptions{Frameless: true}
 }
 
 func resolveWindowVisualOptions(goos string, lowMemoryMode bool) (*options.RGBA, *windows.Options) {

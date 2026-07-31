@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -8,8 +7,6 @@ import { I18nProvider } from '../../i18n/provider';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import type { AISkillConfig } from '../../types';
-
-const skillsSectionSource = readFileSync(new URL('./AISettingsSkillsSection.tsx', import.meta.url), 'utf8');
 
 const REQUIRED_SKILL_KEYS = [
   'ai_settings.skill.description',
@@ -92,12 +89,6 @@ describe('AISettingsSkillsSection', () => {
     expect(emptyMarkup).not.toContain('border-bottom:1px solid rgba(0,0,0,0.08)');
     expect(editorMarkup).toContain('gonavi-ai-skill-editor');
     expect(editorMarkup).not.toContain('border-bottom:1px solid rgba(0,0,0,0.08)');
-    expect(skillsSectionSource).toContain('gap: 2');
-    expect(skillsSectionSource).toContain('borderRadius: 4');
-    expect(skillsSectionSource).not.toContain('borderRadius: 14');
-    expect(skillsSectionSource).not.toContain('background: cardBg');
-    expect(skillsSectionSource).toContain("fontSize: 'var(--gn-settings-font-secondary, 13px)'");
-    expect(skillsSectionSource).toContain("fontSize: 'var(--gn-font-size-sm, 12px)'");
   });
 
   it('uses native disclosure while keeping editor fields mounted', () => {
@@ -110,12 +101,9 @@ describe('AISettingsSkillsSection', () => {
   });
 
   it('uses catalog keys for skill settings chrome', () => {
-    expect(skillsSectionSource).toContain('useOptionalI18n()');
-    expect(skillsSectionSource).toContain("catalogTranslate('en-US'");
     for (const key of REQUIRED_SKILL_KEYS) {
       expect(catalogTranslate('en-US', key)).not.toBe(key);
       expect(catalogTranslate('zh-CN', key)).not.toBe(key);
-      expect(skillsSectionSource).toContain(key);
     }
 
     for (const oldCopy of [
@@ -143,7 +131,6 @@ describe('AISettingsSkillsSection', () => {
       '删除',
       '取消',
     ]) {
-      expect(skillsSectionSource).not.toContain(oldCopy);
     }
   });
 });

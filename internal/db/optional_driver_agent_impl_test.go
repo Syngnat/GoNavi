@@ -4,11 +4,29 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 )
+
+type optionalAgentCancelWhenDoneObservedContext struct {
+	context.Context
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (c *optionalAgentCancelWhenDoneObservedContext) Done() <-chan struct{} {
+	done := c.Context.Done()
+	c.once.Do(c.cancel)
+	return done
+}
 
 func TestNormalizeKingbaseAgentTableName(t *testing.T) {
 	tests := []struct {
@@ -75,6 +93,416 @@ type optionalAgentTestWriteCloser struct {
 }
 
 func (w *optionalAgentTestWriteCloser) Close() error { return nil }
+
+type optionalAgentSignalingWriteCloser struct {
+	writes chan []byte
+}
+
+func (w *optionalAgentSignalingWriteCloser) Write(payload []byte) (int, error) {
+	copied := append([]byte(nil), payload...)
+	w.writes <- copied
+	return len(payload), nil
+}
+
+func (w *optionalAgentSignalingWriteCloser) Close() error { return nil }
+
+type optionalAgentBlockingTransport struct {
+	mu           sync.Mutex
+	writes       bytes.Buffer
+	readStarted  chan struct{}
+	closed       chan struct{}
+	readFinished chan struct{}
+	startOnce    sync.Once
+	closeOnce    sync.Once
+	finishOnce   sync.Once
+}
+
+func newOptionalAgentBlockingTransport() *optionalAgentBlockingTransport {
+	return &optionalAgentBlockingTransport{
+		readStarted:  make(chan struct{}),
+		closed:       make(chan struct{}),
+		readFinished: make(chan struct{}),
+	}
+}
+
+func (t *optionalAgentBlockingTransport) Write(payload []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.writes.Write(payload)
+}
+
+func (t *optionalAgentBlockingTransport) Read([]byte) (int, error) {
+	t.startOnce.Do(func() {
+		close(t.readStarted)
+	})
+	<-t.closed
+	t.finishOnce.Do(func() {
+		close(t.readFinished)
+	})
+	return 0, io.ErrClosedPipe
+}
+
+func (t *optionalAgentBlockingTransport) Close() error {
+	t.closeOnce.Do(func() {
+		close(t.closed)
+	})
+	return nil
+}
+
+func TestOptionalDriverAgentQueryContextStopsUnresponsiveTransport(t *testing.T) {
+	transport := newOptionalAgentBlockingTransport()
+	defer transport.Close()
+	client := &optionalDriverAgentClient{
+		stdin:  transport,
+		reader: bufio.NewReader(transport),
+		driver: "dameng",
+	}
+	dbInst := &OptionalDriverAgentDB{driverType: "dameng", client: client}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := dbInst.QueryContext(ctx, "SELECT 1")
+		result <- err
+	}()
+
+	select {
+	case <-transport.readStarted:
+	case <-time.After(time.Second):
+		t.Fatal("driver-agent call did not start reading its response")
+	}
+
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected context deadline error, got %v", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("QueryContext remained blocked after its context deadline")
+	}
+
+	select {
+	case <-transport.readFinished:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("timed-out transport read remained blocked")
+	}
+
+	retryStartedAt := time.Now()
+	err := client.call(optionalAgentRequest{Method: optionalAgentMethodPing}, nil, nil, nil, nil)
+	if !errors.Is(err, errOptionalAgentTransportStopped) {
+		t.Fatalf("expected terminated transport error on retry, got %v", err)
+	}
+	if elapsed := time.Since(retryStartedAt); elapsed > 50*time.Millisecond {
+		t.Fatalf("retry on terminated transport did not fail fast: %s", elapsed)
+	}
+}
+
+func TestOptionalDriverAgentCloseDoesNotWaitForStuckCallLock(t *testing.T) {
+	transport := newOptionalAgentBlockingTransport()
+	defer transport.Close()
+	client := &optionalDriverAgentClient{
+		stdin:           transport,
+		reader:          bufio.NewReader(transport),
+		driver:          "dameng",
+		shutdownTimeout: 25 * time.Millisecond,
+	}
+	dbInst := &OptionalDriverAgentDB{driverType: "dameng", client: client}
+
+	queryDone := make(chan error, 1)
+	go func() {
+		_, _, err := dbInst.Query("SELECT 1")
+		queryDone <- err
+	}()
+
+	select {
+	case <-transport.readStarted:
+	case <-time.After(time.Second):
+		t.Fatal("driver-agent call did not start reading its response")
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- dbInst.Close()
+	}()
+
+	select {
+	case err := <-queryDone:
+		if err == nil {
+			t.Fatal("expected the terminated in-flight query to return an error")
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("Close did not terminate the in-flight unbounded IPC call")
+	}
+	select {
+	case <-closeDone:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("Close remained blocked behind the in-flight IPC lock")
+	}
+}
+
+func TestOptionalDriverAgentPingUsesBoundedTransport(t *testing.T) {
+	transport := newOptionalAgentBlockingTransport()
+	defer transport.Close()
+	client := &optionalDriverAgentClient{
+		stdin:  transport,
+		reader: bufio.NewReader(transport),
+		driver: "dameng",
+	}
+	dbInst := &OptionalDriverAgentDB{
+		driverType:  "dameng",
+		client:      client,
+		pingTimeout: 25 * time.Millisecond,
+	}
+
+	startedAt := time.Now()
+	err := dbInst.Ping()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline error, got %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed > 250*time.Millisecond {
+		t.Fatalf("Ping exceeded its transport timeout: %s", elapsed)
+	}
+	select {
+	case <-transport.readFinished:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("timed-out ping left its transport read blocked")
+	}
+}
+
+func TestOptionalDriverAgentQueryWithoutContextKeepsLongRunningSemantics(t *testing.T) {
+	var stdin optionalAgentTestWriteCloser
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		stdout: stdoutReader,
+		reader: bufio.NewReader(stdoutReader),
+		driver: "dameng",
+	}
+	dbInst := &OptionalDriverAgentDB{
+		driverType:  "dameng",
+		client:      client,
+		pingTimeout: 5 * time.Millisecond,
+	}
+
+	type queryResult struct {
+		rows   []map[string]interface{}
+		fields []string
+		err    error
+	}
+	result := make(chan queryResult, 1)
+	go func() {
+		rows, fields, err := dbInst.Query("SELECT slow_value")
+		result <- queryResult{rows: rows, fields: fields, err: err}
+	}()
+
+	select {
+	case early := <-result:
+		t.Fatalf("query unexpectedly inherited the control timeout: %v", early.err)
+	case <-time.After(25 * time.Millisecond):
+	}
+
+	if _, err := stdoutWriter.Write([]byte(`{"id":1,"success":true,"data":[{"slow_value":42}],"fields":["slow_value"]}` + "\n")); err != nil {
+		t.Fatalf("write delayed agent response: %v", err)
+	}
+	select {
+	case got := <-result:
+		if got.err != nil {
+			t.Fatalf("long-running query returned error: %v", got.err)
+		}
+		if len(got.rows) != 1 || got.rows[0]["slow_value"] != int64(42) {
+			t.Fatalf("unexpected query rows: %#v", got.rows)
+		}
+		if len(got.fields) != 1 || got.fields[0] != "slow_value" {
+			t.Fatalf("unexpected query fields: %#v", got.fields)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("query did not consume its delayed response")
+	}
+}
+
+func TestOptionalDriverAgentQueuedPingTimeoutDoesNotTerminateLongQuery(t *testing.T) {
+	stdin := &optionalAgentSignalingWriteCloser{writes: make(chan []byte, 3)}
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+	defer stdoutWriter.Close()
+	client := &optionalDriverAgentClient{
+		stdin:  stdin,
+		stdout: stdoutReader,
+		reader: bufio.NewReader(stdoutReader),
+		driver: "dameng",
+	}
+	dbInst := &OptionalDriverAgentDB{driverType: "dameng", client: client}
+
+	type queryResult struct {
+		rows []map[string]interface{}
+		err  error
+	}
+	queryDone := make(chan queryResult, 1)
+	go func() {
+		rows, _, err := dbInst.Query("SELECT slow_value")
+		queryDone <- queryResult{rows: rows, err: err}
+	}()
+
+	select {
+	case payload := <-stdin.writes:
+		if !bytes.Contains(payload, []byte(`"method":"query"`)) {
+			t.Fatalf("first request was not the long query: %s", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("long query did not acquire the agent transport")
+	}
+
+	pingCtx, cancelPing := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancelPing()
+	pingDone := make(chan error, 1)
+	go func() {
+		pingDone <- dbInst.PingContext(pingCtx)
+	}()
+	select {
+	case err := <-pingDone:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("queued ping returned %v, want context deadline", err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("queued ping did not honor its context deadline")
+	}
+	select {
+	case payload := <-stdin.writes:
+		t.Fatalf("timed-out queued ping was written to the agent: %s", payload)
+	default:
+	}
+	if err := client.stoppedError(); err != nil {
+		t.Fatalf("queued ping timeout terminated the active transport: %v", err)
+	}
+
+	if _, err := stdoutWriter.Write([]byte(`{"id":1,"success":true,"data":[{"slow_value":42}],"fields":["slow_value"]}` + "\n")); err != nil {
+		t.Fatalf("write long query response: %v", err)
+	}
+	select {
+	case result := <-queryDone:
+		if result.err != nil {
+			t.Fatalf("long query failed after queued ping timeout: %v", result.err)
+		}
+		if len(result.rows) != 1 || result.rows[0]["slow_value"] != int64(42) {
+			t.Fatalf("unexpected long query rows: %#v", result.rows)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("long query did not complete after its response")
+	}
+
+	finalPingDone := make(chan error, 1)
+	go func() {
+		finalPingDone <- dbInst.PingContext(context.Background())
+	}()
+	select {
+	case payload := <-stdin.writes:
+		if !bytes.Contains(payload, []byte(`"method":"ping"`)) {
+			t.Fatalf("transport reuse request was not ping: %s", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("transport was not reusable after queued timeout")
+	}
+	if _, err := stdoutWriter.Write([]byte(`{"id":2,"success":true}` + "\n")); err != nil {
+		t.Fatalf("write final ping response: %v", err)
+	}
+	select {
+	case err := <-finalPingDone:
+		if err != nil {
+			t.Fatalf("reused transport ping failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reused transport ping did not complete")
+	}
+}
+
+func TestOptionalDriverAgentCancellationAfterGateAcquisitionDoesNotStartOperation(t *testing.T) {
+	for i := 0; i < 128; i++ {
+		baseCtx, cancel := context.WithCancel(context.Background())
+		ctx := &optionalAgentCancelWhenDoneObservedContext{
+			Context: baseCtx,
+			cancel:  cancel,
+		}
+		client := &optionalDriverAgentClient{driver: "dameng"}
+		operationStarted := false
+
+		err := client.runWithContext(ctx, optionalAgentMethodPing, func() error {
+			operationStarted = true
+			return nil
+		})
+		cancel()
+
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("iteration %d returned %v, want context cancellation", i, err)
+		}
+		if operationStarted {
+			t.Fatalf("iteration %d started an operation after cancellation", i)
+		}
+		if err := client.stoppedError(); err != nil {
+			t.Fatalf("iteration %d terminated an idle transport: %v", i, err)
+		}
+	}
+}
+
+func TestOptionalDriverAgentUnresponsiveProcessIsReapedAfterTimeout(t *testing.T) {
+	const helperMarker = "gonavi-optional-agent-hang-helper"
+	if os.Getenv("GONAVI_OPTIONAL_AGENT_HANG_HELPER") == "1" &&
+		len(os.Args) > 0 &&
+		os.Args[len(os.Args)-1] == helperMarker {
+		time.Sleep(time.Hour)
+		return
+	}
+
+	cmd := exec.Command(
+		os.Args[0],
+		"-test.run=^TestOptionalDriverAgentUnresponsiveProcessIsReapedAfterTimeout$",
+		"--",
+		helperMarker,
+	)
+	cmd.Env = append(os.Environ(), "GONAVI_OPTIONAL_AGENT_HANG_HELPER=1")
+	configureAgentProcess(cmd)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("create helper stdin: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("create helper stdout: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start helper process: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+
+	client := &optionalDriverAgentClient{
+		cmd:    cmd,
+		stdin:  stdin,
+		stdout: stdout,
+		reader: bufio.NewReader(stdout),
+		driver: "dameng",
+	}
+	err = client.callWithTimeout(
+		optionalAgentRequest{Method: optionalAgentMethodPing},
+		nil,
+		nil,
+		nil,
+		nil,
+		50*time.Millisecond,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline error, got %v", err)
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("timed-out driver-agent process was not reaped")
+	}
+}
 
 type optionalAgentTestStreamConsumer struct {
 	columns []string

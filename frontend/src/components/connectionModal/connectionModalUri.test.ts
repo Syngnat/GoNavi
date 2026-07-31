@@ -77,3 +77,86 @@ describe('connectionModalUri Milvus support', () => {
     expect(getConnectionParamsPlaceholder('milvus', 'mysql')).toBe('token=...');
   });
 });
+
+describe('connectionModalUri Nacos support', () => {
+  it('treats the URI path as contextPath and the namespace query as the scoped namespace', () => {
+    expect(
+      parseUriToValues(
+        'https://alice:secret@nacos.example.test:8848/registry/api?namespaceId=dev-team&custom=value',
+        'nacos',
+      ),
+    ).toMatchObject({
+      host: 'nacos.example.test',
+      port: 8848,
+      user: 'alice',
+      password: 'secret',
+      useSSL: true,
+      sslMode: 'required',
+      nacosNamespaceId: 'dev-team',
+      connectionParams: 'custom=value&contextPath=%2Fregistry%2Fapi',
+    });
+    expect(
+      parseUriToValues(
+        'https://alice:secret@nacos.example.test:8848/registry/api?namespaceId=dev-team&custom=value',
+        'nacos',
+      ),
+    ).not.toHaveProperty('database');
+  });
+
+  it('builds a Nacos URI from contextPath and the dedicated namespace field', () => {
+    expect(
+      buildUriFromValues({
+        type: 'nacos',
+        host: 'nacos.example.test',
+        port: 8848,
+        user: 'alice',
+        password: 'secret',
+        useSSL: true,
+        sslMode: 'required',
+        nacosNamespaceId: 'public',
+        connectionParams: 'contextPath=/registry/api&custom=value',
+      }),
+    ).toBe(
+      'https://alice:secret@nacos.example.test:8848/registry/api?custom=value&namespaceId=public',
+    );
+  });
+
+  it('falls back to a stored scope when the dedicated URI field is undefined', () => {
+    expect(
+      buildUriFromValues({
+        type: 'nacos',
+        host: 'nacos.example.test',
+        port: 8848,
+        nacosNamespaceId: undefined,
+        connectionParams: 'contextPath=/nacos&namespaceId=dev',
+      }),
+    ).toBe('http://nacos.example.test:8848/nacos?namespaceId=dev');
+  });
+
+  it('preserves an explicit root context path through a Nacos URI round trip', () => {
+    const uri = buildUriFromValues({
+      type: 'nacos',
+      host: 'nacos.example.test',
+      port: 8848,
+      nacosNamespaceId: 'public',
+      connectionParams: 'contextPath=/',
+    });
+
+    expect(uri).toBe(
+      'http://nacos.example.test:8848/?namespaceId=public',
+    );
+    expect(parseUriToValues(uri, 'nacos')).toMatchObject({
+      nacosNamespaceId: 'public',
+      connectionParams: 'contextPath=%2F',
+    });
+  });
+
+  it('uses Nacos-specific URI and advanced parameter placeholders', () => {
+    expect(getUriPlaceholder('nacos')).toBe(
+      'http://nacos:nacos@127.0.0.1:8848/nacos?namespaceId=dev',
+    );
+    expect(getConnectionParamsPlaceholder('nacos', 'mysql')).toBe(
+      'contextPath=/nacos',
+    );
+  });
+});

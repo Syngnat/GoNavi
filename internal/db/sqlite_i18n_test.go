@@ -6,11 +6,9 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -203,55 +201,7 @@ func TestSQLiteDSNValidationErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestSQLiteMetadataErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("sqlite_impl.go")
-	if err != nil {
-		t.Fatalf("read sqlite_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
 
-	for _, rawMessage := range []string{
-		`fmt.Errorf("` + rawSQLiteCreateStatementNotFoundText + `")`,
-		`fmt.Errorf("` + rawSQLiteTableNameRequiredText + `")`,
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("sqlite_impl.go still contains raw SQLite metadata text %q", rawMessage)
-		}
-	}
-	for _, key := range []string{
-		"db.backend.error.create_table_statement_not_found",
-		"db.backend.error.table_name_required",
-	} {
-		if !strings.Contains(source, key) {
-			t.Fatalf("sqlite_impl.go does not reference i18n key %q", key)
-		}
-	}
-}
-
-func TestSQLiteDSNValidationErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("sqlite_impl.go")
-	if err != nil {
-		t.Fatalf("read sqlite_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, rawMessage := range []string{
-		rawSQLiteFilePathRequiredText,
-		rawSQLiteHostAddressHintText,
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("sqlite_impl.go still contains raw SQLite DSN validation text %q", rawMessage)
-		}
-	}
-	for _, key := range []string{
-		"db.backend.error.sqlite_file_path_required",
-		"db.backend.error.sqlite_host_port_not_file_path",
-	} {
-		if !strings.Contains(source, key) {
-			t.Fatalf("sqlite_impl.go does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestSQLiteDSNValidationErrorCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

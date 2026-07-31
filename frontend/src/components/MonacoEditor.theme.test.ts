@@ -25,7 +25,7 @@ const contrastRatio = (foreground: string, background: string): number => {
 };
 
 describe('GoNavi Monaco themes', () => {
-  it('defines bold SQL keyword colors that remain AA-readable across every built-in preset', () => {
+  it('defines bold SQL keyword colors that remain AA-readable on the shared workbench surface', () => {
     const defineTheme = vi.fn();
     registerGonaviMonacoThemes({ editor: { defineTheme } } as never);
 
@@ -56,7 +56,7 @@ describe('GoNavi Monaco themes', () => {
     for (const preset of BUILTIN_CUSTOM_THEME_PRESETS) {
       const keyword = (preset.baseMode === 'dark' ? darkRules : lightRules)
         .find((rule: any) => rule.token === 'keyword.sql');
-      const background = readHexProperty(preset.css, '--gn-bg-input');
+      const background = readHexProperty(preset.css, '--gn-bg-panel-2');
       expect(
         contrastRatio(`#${keyword.foreground}`, background),
         `${preset.id} SQL keyword must contrast with its editor background`,

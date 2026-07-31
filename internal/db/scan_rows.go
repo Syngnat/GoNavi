@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"runtime"
+	"strings"
+	"unicode/utf8"
 
 	"GoNavi-Wails/internal/connection"
 )
@@ -17,6 +19,10 @@ import (
 // 取值 50000：每 5W 行触发一次 GC，对 88W 行导出场景约触发 18 次，CPU 开销可忽略；
 // 同时保证单次 GC 之间累积的临时对象不超过几百 MB，避免 GC 间隙堆膨胀。
 const streamRowsPeriodicGCInterval = 50000
+
+// interactiveOracleLargeObjectPreviewBytes bounds Oracle large objects before
+// they cross the Wails bridge. The streaming export path stays unbounded.
+const interactiveOracleLargeObjectPreviewBytes = 4 * 1024
 
 func scanRows(rows *sql.Rows) ([]map[string]interface{}, []string, error) {
 	return scanRowsForDialect(rows, "")
@@ -36,6 +42,14 @@ type queryRowScanner struct {
 }
 
 func scanRowsForDialect(rows *sql.Rows, dialect string) ([]map[string]interface{}, []string, error) {
+	return scanRowsForDialectWithPreview(rows, dialect, true)
+}
+
+func scanRowsUnboundedForDialect(rows *sql.Rows, dialect string) ([]map[string]interface{}, []string, error) {
+	return scanRowsForDialectWithPreview(rows, dialect, false)
+}
+
+func scanRowsForDialectWithPreview(rows *sql.Rows, dialect string, boundOracleLargeObjects bool) ([]map[string]interface{}, []string, error) {
 	columns, err := rows.Columns()
 	if err != nil {
 		return nil, nil, err
@@ -51,7 +65,12 @@ func scanRowsForDialect(rows *sql.Rows, dialect string) ([]map[string]interface{
 	resultData := make([]map[string]interface{}, 0)
 
 	for rows.Next() {
-		entry, err := scanner.scanCurrentRow(rows)
+		var entry map[string]interface{}
+		if boundOracleLargeObjects {
+			entry, err = scanner.scanCurrentPreviewRow(rows)
+		} else {
+			entry, err = scanner.scanCurrentRow(rows)
+		}
 		if err != nil {
 			continue
 		}
@@ -145,13 +164,103 @@ func newQueryRowScanner(columns []string, colTypes []*sql.ColumnType, dialect st
 }
 
 func (s *queryRowScanner) scanCurrentRowValues(rows *sql.Rows) ([]interface{}, error) {
+	return s.scanCurrentRowValuesWithPreview(rows, false)
+}
+
+func (s *queryRowScanner) scanCurrentRowValuesWithPreview(rows *sql.Rows, boundOracleLargeObjects bool) ([]interface{}, error) {
 	if err := rows.Scan(s.valuePtrs...); err != nil {
 		return nil, err
 	}
 	for i := range s.columns {
-		s.normalized[i] = normalizeQueryValueWithDBTypeAndDialect(s.values[i], s.dbTypeNames[i], s.dialect)
+		if boundOracleLargeObjects {
+			s.normalized[i] = normalizeInteractiveQueryValue(s.values[i], s.dbTypeNames[i], s.dialect)
+		} else {
+			s.normalized[i] = normalizeQueryValueWithDBTypeAndDialect(s.values[i], s.dbTypeNames[i], s.dialect)
+		}
 	}
 	return s.normalized, nil
+}
+
+func normalizeInteractiveQueryValue(value interface{}, databaseTypeName, dialect string) interface{} {
+	switch typedValue := value.(type) {
+	case []byte:
+		if len(typedValue) > interactiveOracleLargeObjectPreviewBytes && isOracleBinaryLargeObjectType(databaseTypeName) {
+			preview := normalizeQueryValueWithDBTypeAndDialect(
+				typedValue[:interactiveOracleLargeObjectPreviewBytes],
+				databaseTypeName,
+				dialect,
+			)
+			previewText, ok := preview.(string)
+			if !ok {
+				previewText = fmt.Sprint(preview)
+			}
+			return fmt.Sprintf(
+				"[BLOB preview: %d/%d bytes] %s",
+				interactiveOracleLargeObjectPreviewBytes,
+				len(typedValue),
+				previewText,
+			)
+		}
+	case string:
+		if len(typedValue) > interactiveOracleLargeObjectPreviewBytes && isOracleTextLargeObjectType(databaseTypeName) {
+			preview := truncateUTF8Prefix(typedValue, interactiveOracleLargeObjectPreviewBytes)
+			return fmt.Sprintf(
+				"[CLOB preview: %d/%d bytes] %s",
+				len(preview),
+				len(typedValue),
+				preview,
+			)
+		}
+	}
+
+	return normalizeQueryValueWithDBTypeAndDialect(value, databaseTypeName, dialect)
+}
+
+func isOracleBinaryLargeObjectType(databaseTypeName string) bool {
+	typeName := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(databaseTypeName), " ", ""))
+	switch typeName {
+	case "OCIBLOBLOCATOR", "LONGRAW", "LONGVARRAW":
+		return true
+	default:
+		return false
+	}
+}
+
+func isOracleTextLargeObjectType(databaseTypeName string) bool {
+	typeName := strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(databaseTypeName), " ", ""))
+	switch typeName {
+	case "OCICLOBLOCATOR", "LONG", "LONGVARCHAR":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncateUTF8Prefix(value string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+
+	end := maxBytes
+	for end > 0 && !utf8.RuneStart(value[end]) {
+		end--
+	}
+	return value[:end]
+}
+
+func (s *queryRowScanner) scanCurrentPreviewRow(rows *sql.Rows) (map[string]interface{}, error) {
+	normalized, err := s.scanCurrentRowValuesWithPreview(rows, true)
+	if err != nil {
+		return nil, err
+	}
+	entry := make(map[string]interface{}, len(s.columns))
+	for i, col := range s.columns {
+		entry[col] = normalized[i]
+	}
+	return entry, nil
 }
 
 func (s *queryRowScanner) scanCurrentRow(rows *sql.Rows) (map[string]interface{}, error) {

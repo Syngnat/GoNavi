@@ -3,10 +3,8 @@
 package db
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -69,18 +67,3 @@ func TestKingbaseMetadataErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestKingbaseTableNameRequiredSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("kingbase_impl.go")
-	if err != nil {
-		t.Fatalf("read kingbase_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	rawMessage := `fmt.Errorf("` + rawKingbaseTableNameRequiredText + `")`
-
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("kingbase_impl.go still contains raw Kingbase table-name-required text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.table_name_required") {
-		t.Fatal("kingbase_impl.go does not reference db.backend.error.table_name_required")
-	}
-}

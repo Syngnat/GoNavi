@@ -1805,9 +1805,9 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
               {row.builtIn ? (
                 <Text type="secondary">{t('driver.modal.card.noInstallNeeded')}</Text>
               ) : hasActiveProgress ? (
-                <Progress percent={progress.percent} status={progress.status} size="small" />
+                <Progress className="driver-manager-progress" percent={progress.percent} status={progress.status} size="small" />
               ) : (
-                <Progress percent={0} size="small" />
+                <Progress className="driver-manager-progress" percent={0} size="small" />
               )}
             </div>
             {renderDriverActions(row)}

@@ -1,11 +1,53 @@
 package aiservice
 
 import (
+	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 
 	"GoNavi-Wails/internal/ai"
 )
+
+func TestGetActiveProviderRuntimeSerializesFallbackSelection(t *testing.T) {
+	service := NewServiceWithSecretStore(nil)
+	service.providers = []ai.ProviderConfig{{
+		ID:          "provider-1",
+		Type:        "openai",
+		Name:        "test",
+		APIKey:      "sk-test",
+		BaseURL:     "https://example.com/v1",
+		Model:       "test-model",
+		MaxTokens:   64,
+		Temperature: 0.1,
+	}}
+
+	const callers = 16
+	var wg sync.WaitGroup
+	errs := make(chan error, callers)
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			_, config, err := service.getActiveProviderRuntime()
+			if err == nil && config.ID != "provider-1" {
+				err = fmt.Errorf("selected provider %q, want provider-1", config.ID)
+			}
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := service.AIGetActiveProvider(); got != "provider-1" {
+		t.Fatalf("active provider = %q, want provider-1", got)
+	}
+}
 
 func TestResolveModelsURL_UsesMoonshotOpenAIModelsEndpointForKimiAnthropicBaseURL(t *testing.T) {
 	url := resolveModelsURL(ai.ProviderConfig{

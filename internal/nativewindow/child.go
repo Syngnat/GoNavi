@@ -23,6 +23,7 @@ import (
 // kept in the parent registry and fetched through Bootstrap.
 type ChildOptions struct {
 	ParentURL string
+	ParentPID int
 	Token     string
 	ID        string
 	Kind      string
@@ -36,6 +37,7 @@ type ChildOptions struct {
 func ParseChildOptions(args []string) (ChildOptions, error) {
 	result := ChildOptions{
 		ParentURL: strings.TrimSpace(os.Getenv(envParentURL)),
+		ParentPID: environmentInt(envParentPID, 0),
 		Token:     strings.TrimSpace(os.Getenv(envToken)),
 		ID:        strings.TrimSpace(os.Getenv(envWindowID)),
 		Kind:      strings.TrimSpace(os.Getenv(envKind)),
@@ -48,6 +50,7 @@ func ParseChildOptions(args []string) (ChildOptions, error) {
 	flags := flag.NewFlagSet("gonavi detached-window", flag.ContinueOnError)
 	flags.SetOutput(discardWriter{})
 	flags.StringVar(&result.ParentURL, "parent-url", result.ParentURL, "parent loopback bridge URL")
+	flags.IntVar(&result.ParentPID, "parent-pid", result.ParentPID, "parent process ID")
 	flags.StringVar(&result.Token, "token", result.Token, "parent bridge token")
 	flags.StringVar(&result.ID, "id", result.ID, "detached window ID")
 	flags.StringVar(&result.Kind, "kind", result.Kind, "detached window kind")
@@ -61,6 +64,9 @@ func ParseChildOptions(args []string) (ChildOptions, error) {
 	}
 	if flags.NArg() > 0 {
 		return ChildOptions{}, fmt.Errorf("unknown detached-window arguments: %s", strings.Join(flags.Args(), " "))
+	}
+	if result.ParentPID <= 1 {
+		result.ParentPID = os.Getppid()
 	}
 	result.Kind = strings.TrimSpace(result.Kind)
 	if result.Kind == "" {
@@ -85,6 +91,9 @@ func ParseChildOptions(args []string) (ChildOptions, error) {
 func validateChildOptions(options ChildOptions) error {
 	if strings.TrimSpace(options.Token) == "" || strings.TrimSpace(options.ID) == "" {
 		return fmt.Errorf("detached-window token and id are required")
+	}
+	if options.ParentPID <= 1 {
+		return fmt.Errorf("detached-window parent process ID is required")
 	}
 	parentURL, err := url.Parse(options.ParentURL)
 	if err != nil || parentURL.Scheme != "http" || parentURL.Host == "" || (parentURL.Path != "" && parentURL.Path != "/") || parentURL.RawQuery != "" || parentURL.User != nil {
@@ -153,6 +162,14 @@ func RunChild(parentCtx context.Context, assetFS fs.FS, args []string) error {
 		OnStartup: func(ctx context.Context) {
 			InitializeBridge(bridge, ctx)
 			InitializeControl(control, ctx)
+			parentWatcher, watcherErr := newDetachedParentWatcher(childOptions.ParentPID)
+			if watcherErr != nil {
+				wailsRuntime.Quit(ctx)
+				return
+			}
+			go monitorDetachedParent(ctx, parentWatcher, defaultDetachedParentCheckInterval, func() {
+				wailsRuntime.Quit(ctx)
+			})
 			if parentCtx != nil {
 				go func() {
 					select {

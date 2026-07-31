@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -101,6 +102,7 @@ func TestParseChildOptionsPreservesNegativeVirtualDesktopCoordinates(t *testing.
 
 	options, err := ParseChildOptions([]string{
 		"--parent-url=http://127.0.0.1:43119",
+		"--parent-pid=4242",
 		"--token=test-token",
 		"--id=window-1",
 		"--x=-2560",
@@ -114,8 +116,30 @@ func TestParseChildOptionsPreservesNegativeVirtualDesktopCoordinates(t *testing.
 	if options.X != -2560 || options.Y != -180 {
 		t.Fatalf("virtual desktop coordinates were clamped: x=%d y=%d", options.X, options.Y)
 	}
+	if options.ParentPID != 4242 {
+		t.Fatalf("parent process ID = %d, want 4242", options.ParentPID)
+	}
 	if options.Width != 1400 || options.Height != 900 {
 		t.Fatalf("unexpected child size: %dx%d", options.Width, options.Height)
+	}
+}
+
+func TestParseChildOptionsFallsBackToCurrentParentPID(t *testing.T) {
+	t.Setenv(envParentURL, "")
+	t.Setenv(envParentPID, "")
+	t.Setenv(envToken, "")
+	t.Setenv(envWindowID, "")
+
+	options, err := ParseChildOptions([]string{
+		"--parent-url=http://127.0.0.1:43119",
+		"--token=test-token",
+		"--id=window-1",
+	})
+	if err != nil {
+		t.Fatalf("ParseChildOptions returned error: %v", err)
+	}
+	if options.ParentPID != os.Getppid() {
+		t.Fatalf("fallback parent process ID = %d, want %d", options.ParentPID, os.Getppid())
 	}
 }
 

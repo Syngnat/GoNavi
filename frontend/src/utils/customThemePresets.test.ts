@@ -48,11 +48,15 @@ describe('built-in custom theme presets', () => {
       expect(sanitizeCustomThemeDefinition(preset)).toEqual(expect.objectContaining({ id: preset.id }));
       expect(preset.css).toContain('--gn-ant-primary:');
       expect(preset.css).toContain('--gn-ant-on-primary:');
+      expect(preset.css).toContain('--gn-monaco-bg: var(--gn-bg-panel-2);');
       expect(preset.css).toContain('--gn-settings-card-bg:');
       expect(preset.css).toContain('--gn-explain-critical:');
       expect(preset.css).toContain('--gn-status-connected:');
       expect(preset.css).toContain('.gn-v2-tab-label-part-host');
       expect(preset.css).toContain('.gn-v2-tab-label-part-database');
+      expect(preset.css).toContain(
+        'background-color: var(--gn-monaco-bg, var(--gn-bg-panel-2)) !important;',
+      );
     }
     expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'dark')).toHaveLength(4);
     expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'light')).toHaveLength(2);
@@ -70,6 +74,7 @@ describe('built-in custom theme presets', () => {
     expect(comfortDark.css).toContain('.gn-v2-query-toolbar-save-action');
     expect(comfortDark.css).toContain('.gn-v2-ai-panel .ai-logo');
     expect(comfortDark.css).toContain('.monaco-editor-background');
+    expect(comfortDark.css).not.toContain('background-color: var(--gn-bg-input) !important;');
   });
 
   it('keeps preset text and solid-button colors at WCAG AA contrast', () => {

@@ -51,6 +51,11 @@ func migrateSavedConnectionSecrets(repo *savedConnectionRepository, legacy legac
 		return nil
 	}
 
+	// 与 Save/Delete/Duplicate 共用同一把包级锁：本函数直接走 load/saveAll 的读改写序列，
+	// 不经过 Save，因此不会重入。
+	savedConnectionsMu.Lock()
+	defer savedConnectionsMu.Unlock()
+
 	items, err := repo.load()
 	if err != nil {
 		return err

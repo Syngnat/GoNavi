@@ -196,6 +196,10 @@ samp {
     font-weight: 700;
 }
 
+.redis-value-table-shell .ant-table-body {
+    overflow-y: auto !important;
+}
+
 /* Scrollbar styling for dark mode */
 body[data-theme='dark'] ::-webkit-scrollbar {
     width: 10px;
@@ -337,11 +341,15 @@ body[data-theme='dark'] .ant-radio-checked .ant-radio-inner {
 }
 
 body[data-theme='dark'] .ant-radio-wrapper:hover .ant-radio-inner,
-body[data-theme='dark'] .ant-radio:hover .ant-radio-inner {
+/* 这两条是旧版 UI 的琥珀强调色，必须排除 v2：
+   v2 的强调色是绿色（v2-theme.css 的 --gn-accent 与 antd colorPrimary 均为绿），
+   而这里的选择器特异性更高（.ant-switch.ant-switch-checked 是两个类），
+   即便 v2-theme.css 后加载也会被这里压过，导致 v2 下的开关/单选显示成琥珀色。 */
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-radio:hover .ant-radio-inner {
     border-color: #f6c453 !important;
 }
 
-body[data-theme='dark'] .ant-switch.ant-switch-checked {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-switch.ant-switch-checked {
     background: #d8a93b !important;
 }
 
@@ -399,6 +407,19 @@ body[data-theme='light'] .redis-viewer-workbench .ant-radio-button-wrapper-check
     max-height: calc(100vh - 72px);
     display: flex;
     flex-direction: column;
+    padding: 0 !important;
+    overflow: hidden;
+    border-radius: 16px !important;
+    background: var(--gn-bg-panel, var(--ant-color-bg-elevated)) !important;
+    border: 1px solid var(--gn-br-2, var(--ant-color-border-secondary)) !important;
+    box-shadow: var(--gn-shadow-lg, var(--ant-box-shadow-secondary)) !important;
+}
+
+.connection-modal-wrap .ant-modal-header {
+    margin: 0 !important;
+    padding: 0 !important;
+    border-bottom: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    background: var(--gn-bg-chrome, var(--ant-color-fill-quaternary)) !important;
 }
 
 .connection-modal-wrap .ant-modal-body {
@@ -408,9 +429,1627 @@ body[data-theme='light'] .redis-viewer-workbench .ant-radio-button-wrapper-check
 
 .connection-modal-wrap .ant-modal-footer {
     flex-shrink: 0;
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    border-top: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    background: var(--gn-bg-chrome, var(--ant-color-fill-quaternary)) !important;
+}
+
+/* v2-theme.css 后加载且包含通用 Modal !important，这里仅提高连接弹窗作用域优先级。 */
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-content {
+    border: 1px solid var(--gn-br-2) !important;
+    border-radius: 16px !important;
+}
+
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-header {
+    margin: 0 !important;
+    padding: 0 !important;
+    border-bottom: 1px solid var(--gn-br-1) !important;
+    background: var(--gn-bg-chrome) !important;
+}
+
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-body {
+    padding: 0 !important;
+}
+
+body[data-ui-version='v2'] .connection-modal-wrap .ant-modal .ant-modal-footer {
+    margin: 0 !important;
+    padding: 8px 12px !important;
+    border-top: 1px solid var(--gn-br-1) !important;
+    background: var(--gn-bg-chrome) !important;
+}
+
+.connection-modal-picker-wrap .ant-modal-footer {
+    display: none;
+}
+
+/* A · Studio 标题栏：左右列等宽，步骤始终保持几何居中。 */
+.gn-conn-studio-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    width: 100%;
+    padding: 12px 16px;
+    box-sizing: border-box;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-header {
+    column-gap: 8px;
+    padding: 8px 12px;
+}
+
+.gn-conn-studio-header-left {
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.gn-conn-studio-type-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 36px;
+    overflow: hidden;
+    box-sizing: border-box;
+    color: #fff;
+    background: var(--gn-accent, #1677ff);
+    font-size: 22px;
+    line-height: 1;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-type-badge {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+    border-radius: 7px;
+    font-size: 11px;
+}
+
+.gn-conn-studio-heading {
+    min-width: 0;
+}
+
+.gn-conn-studio-title {
+    overflow: hidden;
+    color: var(--gn-fg-1, var(--ant-color-text));
+    font-size: 14.5px;
+    font-weight: 700;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-title {
+    font-size: 13.5px;
+}
+
+.gn-conn-studio-subtitle {
+    margin-top: 2px;
+    overflow: hidden;
+    color: var(--gn-fg-4, var(--ant-color-text-secondary));
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-steps {
+    grid-column: 2;
+    justify-self: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: var(--gn-fg-5, var(--ant-color-text-quaternary));
+    font-size: 11.5px;
+    font-weight: 400;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-steps [data-active='true'] {
+    color: var(--gn-accent, var(--ant-color-primary));
+    font-weight: 700;
+}
+
+.gn-conn-studio-steps [data-done='true'] {
+    color: var(--gn-fg-3, var(--ant-color-text-secondary));
+}
+
+.gn-conn-studio-step-arrow {
+    color: var(--gn-fg-5, var(--ant-color-text-quaternary));
+    font-size: 9px;
+}
+
+.gn-conn-studio-close {
+    grid-column: 3;
+    justify-self: end;
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--gn-fg-4, var(--ant-color-text-secondary));
+    cursor: pointer;
+}
+
+.gn-conn-studio-close:hover {
+    background: var(--gn-bg-hover, var(--ant-color-fill-tertiary));
+    color: var(--gn-fg-1, var(--ant-color-text));
+}
+
+.gn-conn-studio-close:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 55%, transparent);
+    outline-offset: 1px;
+}
+
+/* 连接配置的表单分组改用「小标题 + 细分割线」代替卡片（见 ConnectionModal.tsx 的
+   configSectionCardStyle）。每组靠一条上分割线与前一组划界，因此首组不需要这条线。 */
+[data-connection-config-section]:first-child {
+    padding-top: 0 !important;
+    border-top: none !important;
+}
+
+.gn-connection-type-row {
+    background: transparent;
+}
+
+.gn-connection-type-row:hover {
+    background: rgba(16, 24, 40, 0.05);
+}
+
+.gn-connection-type-row:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gn-connection-type-row:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.gn-connection-type-group:hover:not([aria-pressed='true']) {
+    background: rgba(16, 24, 40, 0.035) !important;
+}
+
+.gn-connection-type-group:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: -2px;
+}
+
+body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true']) {
+    background: rgba(255, 255, 255, 0.045) !important;
+}
+
+/* ── Connection modal · Studio type picker (Demo A) ── */
+.gn-conn-picker {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.gn-conn-picker-body {
+    display: grid;
+    grid-template-columns: minmax(200px, 24%) minmax(0, 1fr);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--gn-bg-panel, transparent);
+}
+
+.gn-conn-picker-side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 14px;
+    border-right: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    background: var(--gn-bg-chrome, rgba(16, 24, 40, 0.02));
+    min-width: 0;
+    overflow: auto;
+}
+
+.gn-conn-picker-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--gn-bg-input, var(--gn-bg-panel-2, rgba(16, 24, 40, 0.04)));
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 10px;
+    padding: 7px 8px 7px 10px;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.gn-conn-picker-search-ico {
+    flex-shrink: 0;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.35));
+    font-size: 13px;
+}
+
+.gn-conn-picker-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 0;
+    padding: 0 !important;
+}
+
+.gn-conn-picker-search-input.ant-input-affix-wrapper,
+.gn-conn-picker-search-input.ant-input {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+.gn-conn-picker-search-shortcut {
+    flex-shrink: 0;
+    padding: 2px 5px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 4px;
+    background: var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03));
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    font-family: var(--mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.gn-conn-picker-sec-label {
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin: 0 0 6px 4px;
+    font-weight: 700;
+}
+
+.gn-conn-picker-block-grow {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.gn-conn-picker-recent {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.gn-conn-picker-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--gn-fg-2, inherit);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.gn-conn-picker-chip:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.05));
+}
+
+.gn-conn-picker-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.gn-conn-picker-chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-picker-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: auto;
+    min-height: 0;
+}
+
+.gn-conn-picker-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--gn-fg-2, inherit);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.gn-conn-picker-nav-item:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.05));
+}
+
+.gn-conn-picker-nav-item[aria-pressed='true'] {
+    background: var(--gn-bg-selected, color-mix(in srgb, var(--gn-accent, #1677ff) 14%, transparent));
+    color: var(--gn-accent, #1677ff);
+    font-weight: 650;
+}
+
+.gn-conn-picker-nav-label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-picker-nav-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    background: var(--gn-bg-panel, rgba(16, 24, 40, 0.04));
+    padding: 1px 6px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.gn-conn-picker-nav-item[aria-pressed='true'] .gn-conn-picker-nav-count {
+    color: var(--gn-accent, #1677ff);
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 12%, transparent);
+}
+
+.gn-conn-picker-main {
+    padding: 14px 16px 18px;
+    overflow: auto;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.gn-conn-picker-main-h {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+    gap: 12px;
+}
+
+.gn-conn-picker-main-h h3 {
+    margin: 0;
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-picker-main-h span {
+    font-size: 12px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    flex-shrink: 0;
+}
+
+.gn-conn-picker-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+}
+
+.gn-conn-type-card {
+    appearance: none;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    background: var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03));
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: var(--radius, 8px);
+    padding: 12px;
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    min-width: 0;
+}
+
+.gn-conn-type-card:hover {
+    border-color: var(--gn-accent, #1677ff);
+    background: var(--gn-bg-selected, color-mix(in srgb, var(--gn-accent, #1677ff) 10%, transparent));
+    transform: translateY(-1px);
+}
+
+.gn-conn-type-card:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: 1px;
+}
+
+.gn-conn-type-card-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.gn-conn-type-card-logo {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.gn-conn-type-card-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.gn-conn-type-card-name {
+    font-size: 13.5px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+}
+
+.gn-conn-type-card-hint {
+    font-size: 11.5px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.25;
+}
+
+.gn-conn-type-card-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 10px;
+}
+
+.gn-conn-type-card-tag {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: var(--gn-bg-chrome, rgba(16, 24, 40, 0.03));
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-size: 10.5px;
+    font-weight: 400;
+    line-height: 1.2;
+}
+
+.gn-conn-picker-empty {
+    padding: 18px 10px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-size: 13px;
+}
+
+/* ── Connection modal · form top tabs ── */
+/* 弹窗外框与 Step1 统一为 760 宽（避免 centered 切步骤时位置跳动）；
+   表单内容铺满弹窗宽度即可，和「拖拽调高后」的 100% 宽度表现保持一致，
+   不再额外收窄到 600 居中——收窄反而会在未拖拽时露出两侧大片空白。 */
+.gn-conn-form-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 0 0 auto;
+    max-height: min(780px, calc(100vh - 132px));
+    width: 100%;
+}
+
+.gn-conn-form-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 6px 12px 0;
+    margin: 0;
+    border-bottom: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.08));
+    background: var(--gn-bg-chrome, var(--ant-color-fill-quaternary));
+    flex: 0 0 auto;
+}
+
+.gn-conn-form-nav-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    text-align: center;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    padding: 7px 12px 8px;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.gn-conn-form-nav-item:hover {
+    color: var(--gn-fg-1, inherit);
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.04));
+}
+
+.gn-conn-form-nav-item[aria-selected='true'] {
+    color: var(--gn-accent, #1677ff);
+    border-bottom-color: var(--gn-accent, #1677ff);
+    background: transparent;
+}
+
+.gn-conn-form-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    max-width: none;
+    overflow: auto;
+    padding: 10px 2% 12px;
+    box-sizing: border-box;
+}
+
+/* URI 命令按钮：仅当前操作组使用绿色交互态，不影响弹窗底栏。 */
+.gn-conn-uri-actions .ant-space-item > .ant-btn {
+    transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
+}
+
+.gn-conn-uri-actions .ant-space-item > .ant-btn:hover,
+.gn-conn-uri-actions .ant-space-item > .ant-btn:focus,
+.gn-conn-uri-actions .ant-space-item > .ant-btn:focus-visible {
+    border-color: var(--gn-accent, #15803d) !important;
+    background: var(--gn-accent, #15803d) !important;
+    color: #fff !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-accent, #15803d) 22%, transparent);
+}
+
+.gn-conn-uri-actions .ant-space-item > .ant-btn:active {
+    border-color: var(--gn-accent, #15803d) !important;
+    background: var(--gn-accent, #15803d) !important;
+    color: #fff !important;
+    transform: scale(0.98);
+}
+
+/* URI 提示关闭按钮仅在悬浮或键盘聚焦时显示。 */
+.gn-conn-uri-block .ant-alert-close-icon {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease;
+}
+
+.gn-conn-uri-block .ant-alert:hover .ant-alert-close-icon,
+.gn-conn-uri-block .ant-alert:focus-within .ant-alert-close-icon {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Studio 测试反馈：与 Demo 的 test-banner 保持同一信息密度。 */
+.gn-conn-studio-test-banner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 4px 8px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 6px;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.gn-conn-studio-test-banner > span:nth-child(2) {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-test-banner[data-status='success'] {
+    border-color: color-mix(in srgb, var(--gn-accent, #1677ff) 35%, transparent);
+    background: var(--gn-accent-soft, rgba(22, 119, 255, 0.1));
+    color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-studio-test-banner[data-status='error'] {
+    border-color: color-mix(in srgb, var(--gn-danger, #ff4d4f) 35%, transparent);
+    background: color-mix(in srgb, var(--gn-danger, #ff4d4f) 12%, transparent);
+    color: var(--gn-danger, #ff4d4f);
+}
+
+.gn-conn-studio-test-banner .ant-btn-link {
+    height: auto;
+    padding: 0 2px;
+    color: currentColor;
+    font-size: 11.5px;
+}
+
+/* Studio 第二步底栏。 */
+.gn-conn-studio-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+}
+
+.gn-conn-studio-foot-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+    color: var(--gn-fg-4, var(--ant-color-text-secondary));
+    font-size: 12px;
+}
+
+.gn-conn-studio-foot-right {
+    flex: 0 0 auto;
+}
+
+.gn-conn-studio-button.ant-btn {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: none;
+}
+
+.gn-conn-studio-foot-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-foot-status[data-status='success'] {
+    color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-studio-foot-status[data-status='error'],
+.gn-conn-studio-foot-error {
+    color: var(--gn-danger, #ff4d4f);
+}
+
+.gn-conn-studio-foot-error {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-studio-details-button.ant-btn {
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border-color: color-mix(in srgb, var(--gn-danger, #ff4d4f) 35%, transparent);
+    background: color-mix(in srgb, var(--gn-danger, #ff4d4f) 10%, transparent);
+    color: var(--gn-danger, #ff4d4f);
+    font-size: 11.5px;
+}
+
+/* 外观页：对应 Demo 的 icon-grid / color-row / appear-preview。 */
+.gn-conn-appearance {
+    display: grid;
+    gap: 14px;
+}
+
+.gn-conn-appearance-label {
+    margin: 0 0 6px;
+    color: var(--gn-fg-5, var(--ant-color-text-quaternary));
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.gn-conn-appearance-label span {
+    margin-left: 6px;
+    color: var(--gn-fg-4, var(--ant-color-text-secondary));
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.gn-conn-appearance-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
+    gap: 6px;
+    max-height: 148px;
+    overflow: auto;
+    padding: 2px;
+}
+
+.gn-conn-appearance-icon {
+    appearance: none;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 1;
+    padding: 4px;
+    border: 1.5px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 8px;
+    background: var(--gn-bg-input, var(--ant-color-bg-container));
+    color: inherit;
+    cursor: pointer;
+}
+
+.gn-conn-appearance-icon:hover {
+    border-color: var(--gn-br-3, rgba(16, 24, 40, 0.18));
+    background: var(--gn-bg-hover, var(--ant-color-fill-tertiary));
+}
+
+.gn-conn-appearance-icon[data-active='true'] {
+    border-color: var(--gn-accent, #1677ff);
+    box-shadow: 0 0 0 2px var(--gn-accent-soft, rgba(22, 119, 255, 0.12));
+}
+
+.gn-conn-appearance-colors {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.gn-conn-appearance-color,
+.gn-conn-appearance-custom-color {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    padding: 0;
+    border: 2px solid transparent;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+}
+
+.gn-conn-appearance-color[data-active='true'] {
+    border-color: var(--gn-fg-1, var(--ant-color-text));
+    box-shadow: 0 0 0 2px var(--gn-bg-panel, var(--ant-color-bg-container)), 0 0 0 3.5px var(--gn-fg-1, var(--ant-color-text));
+}
+
+.gn-conn-appearance-custom-color {
+    overflow: hidden;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    background: var(--gn-bg-input, var(--ant-color-bg-container));
+}
+
+.gn-conn-appearance-custom-color::-webkit-color-swatch-wrapper {
+    padding: 1px;
+}
+
+.gn-conn-appearance-custom-color::-webkit-color-swatch {
+    border: 0;
+    border-radius: 50%;
+}
+
+.gn-conn-appearance-preview {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 8px;
+    background: var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03));
+}
+
+.gn-conn-appearance-preview-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.gn-conn-appearance-preview-icon {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    overflow: hidden;
+    border: 1.5px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    border-radius: 7px;
+    background: var(--gn-bg-input, var(--ant-color-bg-container));
+}
+
+.gn-conn-appearance-preview-copy {
+    min-width: 0;
+}
+
+.gn-conn-appearance-preview-name {
+    overflow: hidden;
+    color: var(--gn-fg-1, var(--ant-color-text));
+    font-size: 13px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-conn-appearance-preview-meta {
+    margin-top: 1px;
+    color: var(--gn-fg-5, var(--ant-color-text-quaternary));
+    font-size: 11px;
+}
+
+.gn-conn-appearance-reset.ant-btn {
+    margin-left: auto;
+}
+
+@media (max-width: 700px) {
+    .gn-conn-studio-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .gn-conn-studio-steps {
+        display: none;
+    }
+
+    .gn-conn-studio-close {
+        grid-column: 2;
+    }
+
+    .gn-conn-picker-body {
+        grid-template-columns: minmax(155px, 36%) minmax(0, 1fr);
+    }
+
+    .gn-conn-studio-foot-error,
+    .gn-conn-studio-details-button {
+        display: none;
+    }
+}
+
+/* URI block in basic tab — flat, no heavy card chrome */
+.gn-conn-uri-block {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 4px;
+    background: transparent;
+}
+
+.gn-conn-uri-block-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.gn-conn-uri-block-top .ttl {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gn-fg-2, inherit);
+}
+
+.gn-conn-uri-block-top .hint {
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    font-weight: 500;
+}
+
+.gn-conn-uri-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 6px;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+}
+
+.gn-conn-uri-divider::before,
+.gn-conn-uri-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--gn-br-2, rgba(16, 24, 40, 0.1));
+}
+
+/*
+ * 连接配置 Step2 密排 — 1:1 规格源：
+ *   frontend/public/new-connection-ui-demo.html
+ * 关键：宽度套在 .gn-conn-w-* 外壳上，Form.Item 用 noStyle 或 100% 填满外壳，
+ * 避免 Ant Form.Item 被 flex 拉成「输入框小、盒子很大 / 名称与环境中间留白」。
+ */
+.gn-conn-dense {
+    --gn-conn-label-w: 40px;
+    --gn-conn-ctrl-h: 32px;
+    width: 100%;
+}
+
+.connection-modal-wrap.connection-modal-form .ant-modal-body {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+}
+
+/* 垂直拖拽后，表单内容区消费新增高度，底栏保持固定。 */
+.connection-modal-wrap.connection-modal-form .gn-resizable-draggable-modal[data-has-resized-height='true'] .ant-modal-content {
+    height: var(--gn-modal-resized-height);
+    max-height: var(--gn-modal-resized-height);
+}
+
+.connection-modal-wrap.connection-modal-form .gn-resizable-draggable-modal[data-has-resized-height='true'] .ant-modal-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    max-height: none !important;
+    overflow: hidden !important;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-resizable-draggable-modal[data-has-resized-height='true'] .gn-conn-studio-form,
+.connection-modal-wrap.connection-modal-form .gn-resizable-draggable-modal[data-has-resized-height='true'] .gn-conn-form-layout {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+}
+
+/* demo .f-row */
+.connection-modal-form .gn-conn-f-row,
+.gn-conn-dense .gn-conn-f-row {
+    display: grid;
+    grid-template-columns: var(--gn-conn-label-w) minmax(0, 1fr);
+    gap: 6px 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.connection-modal-form .gn-conn-f-label,
+.gn-conn-dense .gn-conn-f-label {
+    margin: 0;
+    padding: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.55));
+    text-align: left;
+    line-height: 1.2;
+    height: var(--gn-conn-ctrl-h);
+    display: flex;
+    align-items: center;
+    align-self: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
+}
+
+.connection-modal-form .gn-conn-f-row[data-align="start"],
+.gn-conn-dense .gn-conn-f-row[data-align="start"] {
+    align-items: start;
+}
+
+.connection-modal-form .gn-conn-f-row[data-align="start"] > .gn-conn-f-label,
+.gn-conn-dense .gn-conn-f-row[data-align="start"] > .gn-conn-f-label {
+    height: auto;
+    padding-top: 8px;
+    align-self: start;
+    align-items: flex-start;
+}
+
+/* demo .ctrl — 块级铺满 */
+.connection-modal-form .gn-conn-f-ctrl,
+.gn-conn-dense .gn-conn-f-ctrl {
+    min-width: 0;
+    width: 100%;
+    display: block;
+    box-sizing: border-box;
+}
+
+/* demo .ctrl.inline — 横排、控件紧挨、不 space-between */
+.connection-modal-form .gn-conn-f-inline,
+.gn-conn-dense .gn-conn-f-inline {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start !important;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--gn-conn-ctrl-h);
+}
+
+/* 宽度外壳（对应 demo .w-name 等） */
+.gn-conn-w {
+    flex: 0 0 auto;
+    box-sizing: border-box;
+    min-width: 0;
+}
+
+.gn-conn-w-name { width: 260px; max-width: min(260px, 100%); }
+.gn-conn-w-host { width: 220px; max-width: min(220px, 100%); }
+.gn-conn-w-port { width: 72px; flex: 0 0 72px; }
+.gn-conn-w-db { width: 120px; flex: 0 0 120px; }
+.gn-conn-w-user { width: 120px; flex: 0 0 120px; }
+.gn-conn-w-pass { width: 200px; max-width: min(200px, 100%); }
+.gn-conn-w-env { width: 136px; flex: 0 0 136px; }
+.gn-conn-w-sm { width: 100px; flex: 0 0 100px; }
+.gn-conn-w-grow {
+    flex: 1 1 auto;
+    min-width: 100px;
+    max-width: 280px;
+}
+
+.gn-conn-w .ant-form-item {
+    margin-bottom: 0 !important;
+    width: 100% !important;
+}
+
+.gn-conn-w .ant-input,
+.gn-conn-w .ant-input-affix-wrapper,
+.gn-conn-w .ant-input-number,
+.gn-conn-w .ant-select {
+    width: 100% !important;
+}
+
+/* 库范围：整行 100%（demo input width:100%） */
+.gn-conn-f-ctrl > .ant-form-item {
+    margin-bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+}
+
+.gn-conn-f-ctrl .ant-select,
+.gn-conn-f-ctrl .ant-select-selector,
+.gn-conn-scope-select {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+}
+
+.gn-conn-dense .ant-form-item,
+/* 覆盖 v2 主题的 body[data-ui-version="v2"] .ant-form-item{margin-bottom:14px}，
+   该规则特异性(0,2,1)高于 .gn-conn-dense .ant-form-item(0,2,0)，需同前缀提权。 */
+body[data-ui-version="v2"] .gn-conn-dense .ant-form-item,
+body[data-ui-version="v2"] .gn-conn-w .ant-form-item,
+body[data-ui-version="v2"] .gn-conn-f-ctrl > .ant-form-item,
+body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
+    margin-bottom: 0 !important;
+}
+
+.gn-conn-dense .ant-form-item .ant-form-item-row {
+    align-items: center !important;
+}
+
+.gn-conn-dense .ant-form-item-control-input {
+    min-height: var(--gn-conn-ctrl-h) !important;
+}
+
+.gn-conn-dense .ant-input:not(textarea),
+.gn-conn-dense .ant-input-affix-wrapper,
+.gn-conn-dense .ant-input-number,
+.gn-conn-dense .ant-input-number-input,
+.gn-conn-dense .ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+    height: var(--gn-conn-ctrl-h) !important;
+    min-height: var(--gn-conn-ctrl-h) !important;
+    font-size: 12.5px !important;
+    border-radius: 6px !important;
+}
+
+.gn-conn-dense .ant-input:not(textarea),
+.gn-conn-dense .ant-input-affix-wrapper {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+/* URI 多行输入需保留原生 resize 拖拽：只锁最小高度/字号，不用 !important 锁 height，
+   否则会覆盖拖拽产生的内联 style.height（!important 规则始终优先于内联样式）。 */
+.gn-conn-dense textarea.ant-input {
+    min-height: var(--gn-conn-ctrl-h);
+    font-size: 12.5px !important;
+    border-radius: 6px !important;
+}
+
+.gn-conn-dense .ant-input-affix-wrapper .ant-input {
+    height: auto !important;
+    min-height: 0 !important;
+}
+
+.gn-conn-dense .ant-select-single .ant-select-selector {
+    display: flex !important;
+    align-items: center !important;
+    padding-inline: 8px !important;
+}
+
+.gn-conn-dense .ant-input-number-input {
+    padding: 0 8px !important;
+}
+
+.gn-conn-dense .ant-select-multiple .ant-select-selector {
+    min-height: var(--gn-conn-ctrl-h) !important;
+    height: auto !important;
+    width: 100% !important;
+    padding-block: 2px !important;
+    border-radius: 6px !important;
+}
+
+/* demo .check-line */
+.gn-conn-check-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    align-items: center;
+    padding: 2px 0 2px 48px;
+    margin-bottom: 4px;
+    font-size: 12px;
+}
+
+.gn-conn-check-line .ant-form-item {
+    margin-bottom: 0 !important;
+}
+
+/* demo: 模式分段 + 说明在下方（绝不能横排） */
+.gn-conn-mode-block {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0;
+    width: 100%;
+}
+
+.gn-conn-mode-seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 2px;
+    margin-bottom: 0;
+    border-radius: 8px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    background: var(--gn-bg-chrome, var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03)));
+}
+
+.gn-conn-mode-seg-item {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.55));
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1.3;
+}
+
+.gn-conn-mode-seg-item:hover {
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-mode-seg-item[aria-pressed="true"] {
+    background: var(--gn-bg-selected, color-mix(in srgb, var(--gn-accent, #1677ff) 14%, transparent));
+    color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-mode-hint {
+    display: block !important;
+    margin: 4px 0 0 !important;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    line-height: 1.35;
+    width: 100%;
+}
+
+/* Mode-extra 扁平面板 — 规格源 demo .mode-extra / .el / .eh */
+.gn-conn-mode-extra {
+    margin-top: 10px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+}
+
+.gn-conn-el {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--gn-fg-3);
+    margin-bottom: 3px;
+}
+
+.gn-conn-eh {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-bottom: 6px;
+    line-height: 1.35;
+}
+
+.gn-conn-mode-extra .ant-form-item {
+    margin-bottom: 8px;
+}
+
+.gn-conn-mode-extra .ant-form-item:last-child {
+    margin-bottom: 0;
+}
+
+/* Production protection — 规格源 demo .prot / .prot-head / .chev */
+.gn-conn-prot {
+    --prot-lead: 22px;
+    --prot-gap: 10px;
+    margin-top: 10px;
+    margin-bottom: 4px;
+    border: 0;
+    background: transparent;
+}
+
+.gn-conn-prot-head {
+    display: grid;
+    grid-template-columns: var(--prot-lead) minmax(0, 1fr) auto;
+    column-gap: var(--prot-gap);
+    align-items: center;
+    padding: 2px 0;
+    min-height: 28px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    user-select: none;
+}
+
+.gn-conn-prot-head:hover {
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-prot-chev {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--prot-lead);
+    height: var(--prot-lead);
+    margin: 0;
+    padding: 0;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.45));
+    border-radius: 6px;
+    transition: transform 0.15s, background 0.15s, color 0.15s;
+    font-size: 0;
+    line-height: 0;
+}
+
+/* demo .prot-head .chev::before — border-width: 5px 0 5px 7px */
+.gn-conn-prot-chev::before {
+    content: "";
+    display: block;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 5px 0 5px 7px;
+    border-color: transparent transparent transparent currentColor;
+}
+
+.gn-conn-prot-head:hover .gn-conn-prot-chev {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.05));
+    color: var(--gn-fg-1, inherit);
+}
+
+.gn-conn-prot[data-open="1"] .gn-conn-prot-chev {
+    transform: rotate(90deg);
+}
+
+.gn-conn-prot-title {
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+    line-height: 1.2;
+}
+
+.gn-conn-prot-tag {
+    font-size: 11px;
+    font-weight: 650;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    background: transparent;
+}
+
+.gn-conn-prot-tag.on {
+    background: color-mix(in srgb, var(--gn-danger, #ff4d4f) 16%, transparent);
+    color: var(--gn-danger, #ff4d4f);
+    border-color: color-mix(in srgb, var(--gn-danger, #ff4d4f) 35%, transparent);
+}
+
+.gn-conn-prot-body {
+    padding: 4px 0 0;
+}
+
+.gn-conn-prot-opt {
+    display: grid;
+    grid-template-columns: var(--prot-lead) minmax(0, 1fr);
+    column-gap: var(--prot-gap);
+    align-items: start;
+    padding: 6px 0;
+    width: 100%;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+
+.gn-conn-prot-opt:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.04));
+}
+
+.gn-conn-prot-opt .n {
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--gn-fg-2, inherit);
+}
+
+.gn-conn-prot-opt .h {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-top: 2px;
+    line-height: 1.35;
+}
+
+.gn-conn-prot-sum {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+}
+
+/* Compact section title for residual blocks */
+.gn-conn-subhead {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--gn-fg-2, inherit);
+    margin: 10px 0 6px;
+}
+
+/* Hide heavy section chrome when dense form uses section cards sparingly */
+.gn-conn-dense [data-connection-config-section] {
+    padding-top: 8px !important;
+    margin-top: 4px;
+    border-top: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06)) !important;
+}
+
+.gn-conn-dense [data-connection-config-section]:first-child {
+    border-top: none !important;
+    padding-top: 0 !important;
+}
+
+/* Network list rows */
+/* demo .net-list：扁平列表（非卡片） */
+.gn-conn-net-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin-bottom: 8px;
+}
+
+/* demo .net-row：无外框、行间细分割线、选中=左侧强调线 */
+.gn-conn-net-row {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 4px 8px 6px;
+    border: 0;
+    border-bottom: 1px solid var(--gn-br-1, rgba(16, 24, 40, 0.06));
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    box-sizing: border-box;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.gn-conn-net-row:last-child {
+    border-bottom: 0;
+}
+
+.gn-conn-net-row:hover {
+    background: var(--gn-bg-hover, rgba(16, 24, 40, 0.04));
+}
+
+/* 选中=正在编辑：左侧强调线 + 文字色，不整行填色 */
+.gn-conn-net-row[data-active='true'] {
+    background: transparent;
+    border-left-color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-net-row[data-active='true'] .nt,
+.gn-conn-net-row[data-active='true'] .st {
+    color: var(--gn-accent, #1677ff);
+}
+
+.gn-conn-net-row .nt {
+    font-size: 12.5px;
+    font-weight: 650;
+    line-height: 1.25;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+}
+
+.gn-conn-net-row .nd {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-top: 1px;
+    line-height: 1.35;
+}
+
+.gn-conn-net-row .st {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    white-space: nowrap;
+}
+
+.gn-conn-net-row .st.on {
+    color: var(--gn-accent, #1677ff);
+    font-weight: 650;
+}
+
+.gn-conn-net-hint {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+
+/* demo .net-detail：扁平详情区（h4 · 已启用 + ndesc + 密排字段） */
+.gn-conn-net-detail {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 2px 0 10px;
+    margin-bottom: 4px;
+}
+
+.gn-conn-net-detail h4 {
+    margin: 0 0 2px;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+}
+
+.gn-conn-net-detail h4 .on {
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--gn-accent, #1677ff);
+    margin-left: 6px;
+}
+
+.gn-conn-net-detail .ndesc {
+    margin: 0 0 8px;
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    line-height: 1.4;
+}
+
+.gn-conn-net-detail .empty-hint {
+    font-size: 11.5px;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    padding: 4px 0;
+    border: 0;
+    background: transparent;
+    line-height: 1.45;
+}
+
+/* demo .path-pick：输入 + 浏览按钮 */
+.gn-conn-path-pick {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
+}
+
+.gn-conn-path-pick .ant-input,
+.gn-conn-path-pick .ant-input-affix-wrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.gn-conn-path-pick .ant-btn {
+    flex: 0 0 auto;
+}
+
+/* 网络 · 高级连接区块内的小单位说明 */
+.gn-conn-unit-hint {
+    font-size: 11.5px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    white-space: nowrap;
+}
+
+.gn-conn-field-hint {
+    font-size: 11px;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    line-height: 1.4;
+    margin-top: 4px;
 }
 
 /* Custom Title Bar Close Button Hover */
+.gonavi-titlebar-leading {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 10px;
+    overflow: hidden;
+}
+
+.gonavi-titlebar-primary-actions {
+    display: inline-flex;
+    min-width: max-content;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
+}
+
+.gonavi-titlebar-primary-action.ant-btn {
+    min-width: 0;
+    height: 28px;
+    padding: 0 9px;
+    border: 0.5px solid var(--gn-br-2, var(--ant-color-border-secondary));
+    border-radius: 6px;
+    background: var(--gn-bg-panel, var(--ant-color-bg-container));
+    color: var(--gn-fg-2, var(--ant-color-text));
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0;
+    box-shadow: none;
+}
+
+.gonavi-titlebar-primary-action.ant-btn:hover,
+.gonavi-titlebar-primary-action.ant-btn:focus-visible {
+    border-color: color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 42%, transparent);
+    background: var(--gn-accent-soft, var(--ant-color-primary-bg));
+    color: var(--gn-accent, var(--ant-color-primary));
+}
+
+@media (max-width: 720px) {
+    .gonavi-titlebar-leading {
+        gap: 6px;
+    }
+
+    .gonavi-titlebar-primary-actions {
+        gap: 3px;
+    }
+
+    .gonavi-titlebar-primary-action.ant-btn {
+        padding-inline: 6px;
+    }
+}
+
 body[data-platform='windows'] .titlebar-window-controls {
     gap: 8px;
 }
@@ -609,6 +2248,12 @@ body[data-platform='windows'] .titlebar-window-controls {
 .driver-manager-control-block {
     display: grid;
     gap: 4px;
+    min-width: 0;
+}
+
+.driver-manager-progress.ant-progress-line {
+    width: 100%;
+    min-width: 0;
 }
 
 .driver-manager-control-label,
@@ -830,7 +2475,7 @@ body[data-platform='windows'] .titlebar-window-controls {
 
 .driver-manager-shell.is-embedded .driver-manager-card-controls {
     display: grid;
-    grid-template-columns: minmax(150px, 1fr) minmax(110px, 0.7fr);
+    grid-template-columns: minmax(0, 1fr) minmax(96px, 0.7fr);
     align-content: start;
     gap: 7px 12px;
 }
@@ -1017,6 +2662,8 @@ body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] {
 body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'][data-sidebar-resizing='true'],
 body[data-sidebar-resizing='true'] .ant-layout-sider[data-sidebar-panel='true'] {
   transition: none !important;
+  width: var(--gonavi-sidebar-resize-width) !important;
+  flex: 0 0 var(--gonavi-sidebar-resize-width) !important;
 }
 
 body[data-ui-version] .ant-layout-sider[data-sidebar-collapsed='true'] {
@@ -1252,6 +2899,232 @@ body[data-ui-version] .gonavi-settings-center-modal .ant-btn-link {
   font-weight: 600;
 }
 
+.gonavi-cloud-backup-settings .ant-input-affix-wrapper > input.ant-input:focus,
+.gonavi-cloud-backup-settings .ant-input-affix-wrapper > input.ant-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.gonavi-cloud-backup-feedback {
+  display: grid;
+  gap: 2px;
+  min-width: min(320px, calc(100vw - 96px));
+  max-width: 420px;
+  text-align: left;
+}
+
+.gonavi-cloud-backup-feedback__title {
+  color: var(--gn-fg-1, #0c1322);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.gonavi-cloud-backup-feedback__description {
+  color: var(--gn-fg-4, #6b7280);
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 1.45;
+}
+
+.gonavi-cloud-backup-remote-preview {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 6px;
+  background: var(--gn-bg-panel, #fff);
+}
+
+.gonavi-cloud-backup-remote-preview__header {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--gn-bg-panel-2, #fafaf8);
+}
+
+.gonavi-cloud-backup-remote-preview__icon {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--gn-accent, #15803d) 28%, transparent);
+  border-radius: 6px;
+  background: var(--gn-accent-soft, #dcfce7);
+  color: var(--gn-accent-2, #166534);
+  font-size: 16px;
+}
+
+.gonavi-cloud-backup-remote-preview__heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gonavi-cloud-backup-remote-preview__heading .ant-typography {
+  margin: 0;
+}
+
+.gonavi-cloud-backup-remote-preview__metrics {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--gn-fg-3, #4b5563);
+  font-size: var(--gn-settings-font-caption, 12px);
+  white-space: nowrap;
+}
+
+.gonavi-cloud-backup-remote-preview__metrics > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.gonavi-cloud-backup-remote-preview__metrics .anticon {
+  color: var(--gn-fg-4, #6b7280);
+}
+
+.gonavi-cloud-backup-remote-preview__categories {
+  max-height: min(320px, 38vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.gonavi-cloud-backup-remote-preview__category {
+  min-width: 0;
+  border-top: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gonavi-cloud-backup-remote-preview__category-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 7px 14px;
+}
+
+.gonavi-cloud-backup-remote-preview__category-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--gn-fg-2, #1f2937);
+  font-weight: 600;
+}
+
+.gonavi-cloud-backup-remote-preview__category-name .anticon {
+  flex: 0 0 auto;
+  color: var(--gn-accent, #15803d);
+}
+
+.gonavi-cloud-backup-remote-preview__restart {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--gn-warn, #d97706);
+  font-size: var(--gn-settings-font-caption, 12px);
+  white-space: nowrap;
+}
+
+.gonavi-cloud-backup-remote-preview__files {
+  display: grid;
+  margin: 0;
+  padding: 0 14px 8px 36px;
+  list-style: none;
+}
+
+.gonavi-cloud-backup-remote-preview__files li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--gn-fg-4, #6b7280);
+}
+
+.gonavi-cloud-backup-remote-preview__files li:hover {
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.045));
+}
+
+.gonavi-cloud-backup-remote-preview__file-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gonavi-cloud-backup-remote-preview__file-name,
+.gonavi-cloud-backup-remote-preview__file-directory,
+.gonavi-cloud-backup-remote-preview__connection-name,
+.gonavi-cloud-backup-remote-preview__connection-host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-cloud-backup-remote-preview__file-name {
+  flex: 0 1 auto;
+  color: var(--gn-fg-2, #1f2937);
+  font-family: var(--gn-font-mono, Consolas, monospace);
+  font-size: var(--gn-font-size-mono, 12px);
+}
+
+.gonavi-cloud-backup-remote-preview__file-directory {
+  flex: 1 1 auto;
+  color: var(--gn-fg-5, #9ca3af);
+  font-size: var(--gn-font-size-xs, 11px);
+}
+
+.gonavi-cloud-backup-remote-preview__connection-name {
+  flex: 0 1 auto;
+  color: var(--gn-fg-2, #1f2937);
+  font-weight: 500;
+}
+
+.gonavi-cloud-backup-remote-preview__connection-host {
+  flex: 1 1 auto;
+  color: var(--gn-fg-5, #9ca3af);
+  font-family: var(--gn-font-mono, Consolas, monospace);
+  font-size: var(--gn-font-size-xs, 11px);
+}
+
+.gonavi-cloud-backup-remote-preview__empty {
+  display: block;
+  padding: 18px 14px;
+  text-align: center;
+}
+
+body[data-theme='dark'] .gonavi-cloud-backup-feedback__title {
+  color: var(--gn-fg-1, #f1f3f5);
+}
+
+@media (max-width: 760px) {
+  .gonavi-cloud-backup-remote-preview__header {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .gonavi-cloud-backup-remote-preview__metrics {
+    grid-column: 1 / -1;
+    padding-left: 42px;
+  }
+
+  .gonavi-cloud-backup-remote-preview__category-heading {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .gonavi-cloud-backup-remote-preview__restart {
+    grid-column: 1 / -1;
+    padding-left: 24px;
+  }
+
+  .gonavi-cloud-backup-remote-preview__file-copy {
+    display: grid;
+    gap: 1px;
+  }
+}
+
 .gonavi-settings-center-group-tab,
 .gonavi-settings-center-entry {
   transition: background-color 160ms ease, color 160ms ease;
@@ -1296,6 +3169,12 @@ body[data-theme='dark'] .gonavi-settings-center-entry:hover {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+
+  /* Loading indicators communicate ongoing work, rather than decorative motion. */
+  .gonavi-settings-center-modal .ant-btn-loading-icon .anticon-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
   }
 }
 
@@ -1877,6 +3756,44 @@ body[data-theme='dark'] .gonavi-about-update-channel .ant-segmented-thumb {
 
 body[data-theme='dark'] .gonavi-about-update-channel .ant-segmented-item-selected .ant-segmented-item-label {
   color: #f8fafc !important;
+}
+
+/* ── 更新通道：选中项使用主题强调色实心胶囊 ──────────────
+   原先深色下选中态是 rgba(30,41,59,.98)，与容器底 rgba(15,23,42,.55) 对比极低，
+   选中状态几乎看不出来，且完全没有体现主题色。
+   --gn-accent 仅在 v2 下定义，因此这里限定 v2 作用域；旧版 UI 保留其自身的中性配色。
+   ant-segmented-thumb 是切换时的滑动块，必须与选中项同色，否则动画期间会闪回灰底。
+
+   注意选择器必须带上 .ant-segmented（即 .gonavi-about-update-channel.ant-segmented），
+   把特异性提到 (0,4,1)：v2-theme.css:601 的
+   `body[data-ui-version="v2"] .ant-segmented .ant-segmented-item-selected`
+   特异性同为 (0,3,1) 且该文件在 App.css 之后导入，同分时后加载者胜出，
+   只写 (0,3,1) 会被它按 --gn-bg-panel 覆盖回灰底。 */
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-item-selected,
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-thumb {
+  background: var(--gn-accent) !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-item-selected,
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-item-selected .ant-segmented-item-label {
+  color: #ffffff !important;
+}
+
+/* 未选项：透明底 + hover 时微亮，避免与选中胶囊争夺注意力。 */
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-item:not(.ant-segmented-item-selected) {
+  background: transparent !important;
+}
+
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-item:not(.ant-segmented-item-selected):hover .ant-segmented-item-label {
+  color: var(--gn-fg-1) !important;
+}
+
+/* 键盘可达性：Segmented 的焦点环也跟随主题色。 */
+body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segmented-item-input:focus-visible + .ant-segmented-item-label {
+  outline: 2px solid var(--gn-accent) !important;
+  outline-offset: -2px;
+  border-radius: 4px;
 }
 
 /* ── Theme settings (v2 only): clean desktop settings ─── */

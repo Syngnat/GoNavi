@@ -75,16 +75,17 @@ type qdrantCountResponse struct {
 	} `json:"result"`
 }
 
-func (q *QdrantDB) Connect(config connection.ConnectionConfig) error {
-	if q.forwarder != nil {
-		_ = q.forwarder.Close()
-		q.forwarder = nil
-	}
-	q.client = nil
+func (q *QdrantDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = q.Close()
+	defer func() {
+		if err != nil {
+			_ = q.Close()
+		}
+	}()
 
 	runConfig := normalizeQdrantConfig(config)
 	if runConfig.UseSSH {
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -118,7 +119,7 @@ func (q *QdrantDB) Connect(config connection.ConnectionConfig) error {
 
 func (q *QdrantDB) Close() error {
 	if q.forwarder != nil {
-		if err := q.forwarder.Close(); err != nil {
+		if err := q.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 Qdrant SSH 端口转发失败：%v", err)
 		}
 		q.forwarder = nil

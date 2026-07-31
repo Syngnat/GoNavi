@@ -47,7 +47,8 @@ describe('dataGridDisplay helpers', () => {
 
   it('keeps manual column widths ahead of density defaults', () => {
     expect(resolveDataTableColumnWidth({ manualWidth: 320, density: 'compact' })).toBe(320);
-    expect(resolveDataTableColumnWidth({ manualWidth: undefined, density: 'compact' })).toBe(100);
+    expect(resolveDataTableColumnWidth({ manualWidth: 80, density: 'comfortable' })).toBe(120);
+    expect(resolveDataTableColumnWidth({ manualWidth: undefined, density: 'compact' })).toBe(120);
   });
 
   it('uses subtle themed vertical border colors and transparent when disabled', () => {

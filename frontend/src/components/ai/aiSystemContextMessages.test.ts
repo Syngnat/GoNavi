@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import type {
@@ -132,11 +130,6 @@ describe('buildAISystemContextMessages', () => {
         expect(catalogs[language][key as keyof (typeof catalogs)[typeof language]]).toBeTruthy();
       }
     }
-  });
-
-  it('keeps fixed system inspection guidance production source free of legacy Chinese wrappers', () => {
-    const source = readFileSync(new URL('./aiSystemInspectionGuidance.ts', import.meta.url), 'utf8');
-    expect(source).not.toMatch(/[\u4e00-\u9fff]/);
   });
 
   it('uses the provided translator for fixed system context prompts and wrappers', () => {

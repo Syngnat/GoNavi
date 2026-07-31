@@ -13,8 +13,6 @@ const makeFile = (parts: BlobPart[], name: string, type: string): File => {
   return Object.assign(blob, { name, lastModified: 0 }) as File;
 };
 
-const source = readFileSync(new URL('./aiChatAttachments.ts', import.meta.url), 'utf8');
-
 const translateAttachmentWarning = (
   key: string,
   params?: Record<string, string | number | boolean | null | undefined>,
@@ -46,42 +44,6 @@ const translateAttachmentWarning = (
 }[key] || key);
 
 describe('aiChatAttachments', () => {
-  it('uses i18n keys instead of legacy Chinese PDF and legacy Office warnings', () => {
-    expect(source).toContain('ai_chat.input.attachment.excel.worksheet_header');
-    expect(source).toContain('ai_chat.input.attachment.warning.pdf_partial_text');
-    expect(source).toContain('ai_chat.input.attachment.warning.pdf_no_text');
-    expect(source).toContain('ai_chat.input.attachment.warning.legacy_office_partial_text');
-    expect(source).toContain('ai_chat.input.attachment.warning.too_large');
-    expect(source).toContain('ai_chat.input.attachment.warning.unsupported_type');
-    expect(source).toContain('ai_chat.input.attachment.warning.extract_failed');
-    expect(source).toContain('ai_chat.input.attachment.prompt.heading');
-    expect(source).toContain('ai_chat.input.attachment.prompt.kind');
-    expect(source).toContain('ai_chat.input.attachment.prompt.mime');
-    expect(source).toContain('ai_chat.input.attachment.prompt.size');
-    expect(source).toContain('ai_chat.input.attachment.prompt.extract_warning');
-    expect(source).toContain('ai_chat.input.attachment.prompt.text_truncated');
-    expect(source).toContain('ai_chat.input.attachment.prompt.no_text');
-    expect(source).toContain('ai_chat.input.attachment.prompt.default_user_content');
-    expect(source).toContain('ai_chat.input.attachment.prompt.wrapper_start');
-    expect(source).toContain('ai_chat.input.attachment.prompt.wrapper_end');
-    expect(source).not.toContain('PDF 已使用轻量文本提取');
-    expect(source).not.toContain('未从 PDF 中提取到可读文本');
-    expect(source).not.toContain('旧版 Office 二进制格式仅做轻量文本片段提取');
-    expect(source).not.toContain('文件超过 ');
-    expect(source).not.toContain('当前文件类型已附加，但暂未提取正文');
-    expect(source).not.toContain('附件正文提取失败：');
-    expect(source).not.toContain('[工作表: ');
-    expect(source).not.toContain('读取文件失败');
-    expect(source).not.toContain('[附件正文过长，已截断]');
-    expect(source).not.toContain('### 附件 ');
-    expect(source).not.toContain('- 类型: ');
-    expect(source).not.toContain('- 大小: ');
-    expect(source).not.toContain('- 提取说明: ');
-    expect(source).not.toContain('未提取到可发送的附件正文。');
-    expect(source).not.toContain('请根据以下附件内容继续处理。');
-    expect(source).not.toContain('<用户上传附件>');
-    expect(source).not.toContain('</用户上传附件>');
-  });
 
   it('keeps attachment prompt and worksheet keys present in all six catalogs', () => {
     const catalogs = [

@@ -113,6 +113,8 @@ describe('RedisResizableDivider interaction cleanup', () => {
   });
 
   it('removes the full-screen overlay and commits the width when the window blurs', () => {
+    expect(renderer?.root.findByType('div').props.className).toBe('redis-resizable-divider');
+
     startResize();
     expect(overlays).toHaveLength(1);
 
@@ -140,6 +142,33 @@ describe('RedisResizableDivider interaction cleanup', () => {
     expect(overlays).toHaveLength(0);
     expect(fakeDocument.listenerCount('mousemove')).toBe(0);
     expect(onResizeEnd).toHaveBeenCalledWith(420);
+  });
+
+  it('updates a container grid width variable while dragging', () => {
+    const setProperty = vi.fn();
+    target.parentElement = { offsetWidth: 1200, style: { setProperty } } as any;
+    act(() => {
+      renderer?.unmount();
+      renderer = create(
+        <RedisResizableDivider
+          targetRef={{ current: target } as React.RefObject<HTMLDivElement>}
+          onResizeEnd={onResizeEnd}
+          maxReservedWidth={361}
+          containerWidthCssVariable="--redis-sidebar-width"
+          title="resize"
+        />,
+      );
+    });
+
+    startResize();
+    act(() => fakeDocument.dispatch('mousemove', {
+      buttons: 1,
+      clientX: 520,
+      preventDefault: vi.fn(),
+    }));
+
+    expect(setProperty).toHaveBeenCalledWith('--redis-sidebar-width', '540px');
+    expect(target.style.width).toBe('');
   });
 
   it('removes the overlay without updating state when unmounted mid-resize', () => {

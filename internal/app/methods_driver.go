@@ -1033,7 +1033,11 @@ func (a *App) OpenDriverDownloadDirectory(directory string) connection.QueryResu
 	default:
 		return connection.QueryResult{Success: false, Message: a.appText("driver_manager.backend.error.open_directory_unsupported", map[string]any{"platform": stdRuntime.GOOS})}
 	}
-	if err := cmd.Start(); err != nil {
+	if err := startBackgroundCommand(cmd, func(waitErr error) {
+		if waitErr != nil {
+			logger.Warnf("打开驱动目录的后台进程退出异常：%v", waitErr)
+		}
+	}); err != nil {
 		logger.Error(err, "打开驱动目录失败")
 		return connection.QueryResult{Success: false, Message: a.appText("driver_manager.backend.error.open_directory_failed", map[string]any{"detail": err.Error()})}
 	}

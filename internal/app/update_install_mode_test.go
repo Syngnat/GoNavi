@@ -60,18 +60,33 @@ func TestExpectedAssetNameForWindowsInstallMode(t *testing.T) {
 	}
 }
 
-func TestResolveUpdateWorkspaceDirForPlatformSeparatesMSIFromInstallDirectory(t *testing.T) {
-	installTarget := filepath.Join("C:\\Program Files", "GoNavi", "GoNavi.exe")
-	userCacheDir := filepath.Join("C:\\Users", "tester", "AppData", "Local")
-
-	msiDir := resolveUpdateWorkspaceDirForPlatform("windows", "1.2.3", updateInstallModeMSI, installTarget, userCacheDir)
-	wantMSIDir := filepath.Join(userCacheDir, "GoNavi", "updates")
-	if msiDir != wantMSIDir {
-		t.Fatalf("MSI workspace = %q, want %q", msiDir, wantMSIDir)
+func TestResolveUpdateWorkspaceDirForPlatformUsesVersionedCacheForEveryPlatform(t *testing.T) {
+	installTarget := filepath.Join("Users", "tester", "Desktop", "GoNavi.exe")
+	userCacheDir := filepath.Join("Users", "tester", "cache")
+	want := filepath.Join(userCacheDir, "GoNavi", "updates", "1.2.3")
+	cases := []struct {
+		goos        string
+		installMode updateInstallMode
+	}{
+		{goos: "darwin", installMode: updateInstallModePortable},
+		{goos: "windows", installMode: updateInstallModePortable},
+		{goos: "windows", installMode: updateInstallModeMSI},
+		{goos: "linux", installMode: updateInstallModePortable},
 	}
-	portableDir := resolveUpdateWorkspaceDirForPlatform("windows", "1.2.3", updateInstallModePortable, installTarget, userCacheDir)
-	if portableDir != filepath.Dir(installTarget) {
-		t.Fatalf("portable workspace = %q, want install directory %q", portableDir, filepath.Dir(installTarget))
+
+	for _, tc := range cases {
+		got := resolveUpdateWorkspaceDirForPlatform(tc.goos, "1.2.3", tc.installMode, installTarget, userCacheDir)
+		if got != want {
+			t.Fatalf("%s/%s workspace = %q, want %q", tc.goos, tc.installMode, got, want)
+		}
+	}
+}
+
+func TestResolveUpdateWorkspaceDirForPlatformFallsBackToVersionedTempDirectory(t *testing.T) {
+	got := resolveUpdateWorkspaceDirForPlatform("linux", "v1.2.3 beta", updateInstallModePortable, "/opt/GoNavi", "")
+	want := filepath.Join(os.TempDir(), "GoNavi", "updates", "v1.2.3-beta")
+	if got != want {
+		t.Fatalf("temporary workspace = %q, want %q", got, want)
 	}
 }
 

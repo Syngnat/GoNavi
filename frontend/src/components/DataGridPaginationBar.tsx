@@ -36,6 +36,7 @@ export interface DataGridPaginationBarProps {
   manualTotalCountAvailable?: boolean;
   totalCountLoading?: boolean;
   onPageChange?: (page: number, size: number) => void;
+  onLastPage?: (pageSize: number) => void;
   onPageSizeChange: (value: string) => void;
   onV2PageStep: (direction: 'previous' | 'next') => void;
   onToggleTotalCount?: () => void;
@@ -65,6 +66,36 @@ export const resolveDataGridPaginationBoundaryTarget = ({
   return current < lastPage ? lastPage : null;
 };
 
+export const createDataGridLastPageAction = ({
+  current,
+  pageSize,
+  totalPages,
+  totalKnown,
+  onPageChange,
+  onLastPage,
+}: {
+  current: number;
+  pageSize: number;
+  totalPages: number;
+  totalKnown: boolean;
+  onPageChange?: (page: number, size: number) => void;
+  onLastPage?: (pageSize: number) => void;
+}): (() => void) | null => {
+  if (onLastPage) {
+    return () => onLastPage(pageSize);
+  }
+
+  const target = resolveDataGridPaginationBoundaryTarget({
+    boundary: 'last',
+    current,
+    totalPages,
+    totalKnown,
+    canNavigate: Boolean(onPageChange),
+  });
+  if (!onPageChange || target === null) return null;
+  return () => onPageChange(target, pageSize);
+};
+
 const DataGridPaginationBar: React.FC<DataGridPaginationBarProps> = ({
   isV2Ui,
   pagination,
@@ -78,6 +109,7 @@ const DataGridPaginationBar: React.FC<DataGridPaginationBarProps> = ({
   manualTotalCountAvailable = false,
   totalCountLoading = false,
   onPageChange,
+  onLastPage,
   onPageSizeChange,
   onV2PageStep,
   onToggleTotalCount,
@@ -160,12 +192,13 @@ const DataGridPaginationBar: React.FC<DataGridPaginationBarProps> = ({
     totalKnown: showKnownPageCount,
     canNavigate: Boolean(onPageChange),
   });
-  const lastPageTarget = resolveDataGridPaginationBoundaryTarget({
-    boundary: 'last',
+  const lastPageAction = createDataGridLastPageAction({
     current: pagination.current,
+    pageSize: pagination.pageSize,
     totalPages: paginationTotalPages,
     totalKnown: showKnownPageCount,
-    canNavigate: Boolean(onPageChange),
+    onPageChange,
+    onLastPage,
   });
   const navigateToBoundary = (target: number | null) => {
     if (!onPageChange || target === null) return;
@@ -198,8 +231,8 @@ const DataGridPaginationBar: React.FC<DataGridPaginationBarProps> = ({
           icon={<VerticalLeftOutlined />}
           iconPosition="end"
           aria-label={lastPageLabel}
-          disabled={lastPageTarget === null}
-          onClick={() => navigateToBoundary(lastPageTarget)}
+          disabled={lastPageAction === null}
+          onClick={() => lastPageAction?.()}
         >
           {lastPageLabel}
         </Button>

@@ -1,48 +1,13 @@
 package app
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	syncjob "GoNavi-Wails/internal/sync"
 	"GoNavi-Wails/shared/i18n"
 )
 
-func TestConnectionReadOnlyMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("connection_readonly.go")
-	if err != nil {
-		t.Fatalf("read connection_readonly.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawMessages := []string{
-		`return "当前连接已启用生产保护，仅允许执行查询操作"`,
-		`return fmt.Sprintf("当前连接已启用生产保护，禁止执行%s", label)`,
-	}
-	for _, raw := range rawMessages {
-		if strings.Contains(source, raw) {
-			t.Fatalf("connection_readonly.go still contains raw user-visible text %q", raw)
-		}
-	}
-
-	keys := []string{
-		"query_editor.message.connection_readonly_blocked",
-		"connection.backend.error.readonly_action_blocked",
-		"connection.backend.action.create_database",
-		"connection.backend.action.import_data",
-		"connection.backend.action.data_sync_structure",
-		"connection.backend.action.data_sync_write",
-		"connection.backend.action.clear_table",
-		"connection.backend.action.truncate_table",
-	}
-	for _, key := range keys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("connection_readonly.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestConnectionReadOnlyCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

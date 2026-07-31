@@ -2,7 +2,10 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import DataGridPaginationBar, { resolveDataGridPaginationBoundaryTarget } from './DataGridPaginationBar';
+import DataGridPaginationBar, {
+  createDataGridLastPageAction,
+  resolveDataGridPaginationBoundaryTarget,
+} from './DataGridPaginationBar';
 
 describe('DataGridPaginationBar boundary navigation', () => {
   it('resolves the first and last page when the total page count is known', () => {
@@ -100,6 +103,60 @@ describe('DataGridPaginationBar boundary navigation', () => {
     );
 
     expect(markup).not.toContain('data-grid-pagination-total-count="true"');
+  });
+
+  it('keeps the last-page action available for a fresh tail lookup at the cached boundary', () => {
+    const onPageChange = vi.fn();
+    const onLastPage = vi.fn();
+    const action = createDataGridLastPageAction({
+      current: 10,
+      pageSize: 10,
+      totalPages: 10,
+      totalKnown: true,
+      onPageChange,
+      onLastPage,
+    });
+    const markup = renderToStaticMarkup(
+      <DataGridPaginationBar
+        isV2Ui
+        pagination={{ current: 10, pageSize: 10, total: 100, totalKnown: true }}
+        paginationV2SummaryText="100 rows"
+        paginationSummaryText="100 rows"
+        paginationControlTotal={100}
+        paginationTotalPages={10}
+        paginationPageText="Page 10 / 10"
+        paginationPageSizeOptions={['10']}
+        showKnownPageCount
+        onPageChange={onPageChange}
+        onLastPage={onLastPage}
+        onPageSizeChange={vi.fn()}
+        onV2PageStep={vi.fn()}
+      />,
+    );
+    const lastPageButton = markup.match(/<button[^>]*data-grid-pagination-last="true"[^>]*>/)?.[0];
+
+    expect(lastPageButton).toBeDefined();
+    expect(lastPageButton).not.toContain('disabled');
+    expect(action).toEqual(expect.any(Function));
+    action?.();
+
+    expect(onLastPage).toHaveBeenCalledWith(10);
+    expect(onPageChange).not.toHaveBeenCalled();
+  });
+
+  it('falls back to cached last-page navigation when no fresh callback is available', () => {
+    const onPageChange = vi.fn();
+    const action = createDataGridLastPageAction({
+      current: 3,
+      pageSize: 10,
+      totalPages: 10,
+      totalKnown: true,
+      onPageChange,
+    });
+
+    expect(action).toEqual(expect.any(Function));
+    action?.();
+    expect(onPageChange).toHaveBeenCalledWith(10, 10);
   });
 
 });

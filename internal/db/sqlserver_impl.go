@@ -144,13 +144,20 @@ func (s *SqlServerDB) getDSN(config connection.ConnectionConfig) string {
 	return u.String()
 }
 
-func (s *SqlServerDB) Connect(config connection.ConnectionConfig) error {
+func (s *SqlServerDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = s.Close()
+	defer func() {
+		if err != nil {
+			_ = s.Close()
+		}
+	}()
+
 	var dsn string
 
 	if config.UseSSH {
 		logger.Infof("SQL Server 使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -195,7 +202,7 @@ func (s *SqlServerDB) Connect(config connection.ConnectionConfig) error {
 
 func (s *SqlServerDB) Close() error {
 	if s.forwarder != nil {
-		if err := s.forwarder.Close(); err != nil {
+		if err := s.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 SQL Server SSH 端口转发失败：%v", err)
 		}
 		s.forwarder = nil

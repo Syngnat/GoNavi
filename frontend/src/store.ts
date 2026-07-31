@@ -157,12 +157,12 @@ export interface AppearanceSettings
   enabled: boolean;
   opacity: number;
   blur: number;
-  useNativeMacWindowControls: boolean;
   tableDoubleClickAction: TableDoubleClickAction;
   v2SidebarSearchMode: "command" | "filter";
   v2CommandSearchPersistentFilterEnabled: boolean;
   v2SidebarPersistedFilter: string;
   v2SidebarRailScale: number;
+  sidebarSingleDatabaseExpansion: boolean;
   sidebarHiddenObjectGroups: SidebarObjectGroupKey[];
   customUIFontFamily: string | null;
   customMonoFontFamily: string | null;
@@ -180,12 +180,12 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   enabled: true,
   opacity: 1.0,
   blur: 0,
-  useNativeMacWindowControls: false,
   tableDoubleClickAction: "open-data",
   v2SidebarSearchMode: "command",
   v2CommandSearchPersistentFilterEnabled: false,
   v2SidebarPersistedFilter: "",
   v2SidebarRailScale: DEFAULT_V2_SIDEBAR_RAIL_SCALE,
+  sidebarSingleDatabaseExpansion: false,
   sidebarHiddenObjectGroups: [],
   customUIFontFamily: null,
   customMonoFontFamily: null,
@@ -1771,6 +1771,7 @@ interface AppState {
   appearance: AppearanceSettings;
   uiScale: number;
   fontSize: number;
+  /** Legacy persisted name; true means maximise the startup window on every desktop platform. */
   startupFullscreen: boolean;
   /** 启动后与定时静默检查更新；默认开启 */
   autoCheckForUpdates: boolean;
@@ -2793,7 +2794,7 @@ const sanitizeQueryOptions = (value: unknown): QueryOptions => {
   const queryEditorEditorHeightRatio = sanitizeQueryEditorEditorHeightRatio(
     raw.queryEditorEditorHeightRatio,
   );
-  if (!Number.isFinite(maxRows) || maxRows <= 0) {
+  if (!Number.isFinite(maxRows) || maxRows < 0) {
     return {
       maxRows: 5000,
       wordWrap,
@@ -2956,10 +2957,6 @@ const sanitizeAppearance = (
       typeof appearance.blur === "number"
         ? appearance.blur
         : DEFAULT_APPEARANCE.blur,
-    useNativeMacWindowControls:
-      typeof appearance.useNativeMacWindowControls === "boolean"
-        ? appearance.useNativeMacWindowControls
-        : DEFAULT_APPEARANCE.useNativeMacWindowControls,
     tableDoubleClickAction: sanitizeTableDoubleClickAction(
       appearance.tableDoubleClickAction,
     ),
@@ -2976,6 +2973,8 @@ const sanitizeAppearance = (
     v2SidebarRailScale: sanitizeV2SidebarRailScale(
       appearance.v2SidebarRailScale,
     ),
+    sidebarSingleDatabaseExpansion:
+      appearance.sidebarSingleDatabaseExpansion === true,
     sidebarHiddenObjectGroups: sanitizeSidebarHiddenObjectGroups(
       appearance.sidebarHiddenObjectGroups,
     ),
@@ -5338,7 +5337,7 @@ export const useStore = create<AppState>()(
       setWindowState: (state) => {
         const nextState = sanitizeWindowState(state);
         set({ windowState: nextState });
-        // 最大化/普通态也要同步写盘，否则下次冷启动会落到默认 1024×768「半窗」
+        // 与窗口尺寸一致即时落盘，避免退出阶段丢失最后一次观测状态。
         writePersistedStatePatch({ windowState: nextState });
       },
 

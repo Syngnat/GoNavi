@@ -1,10 +1,8 @@
 package app
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -45,51 +43,6 @@ func (db *fakeOracleMetadataDB) GetTriggers(dbName, tableName string) ([]connect
 	return nil, nil
 }
 
-func TestMethodsDBOracleMetadataMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_db.go")
-	if err != nil {
-		t.Fatalf("read methods_db.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func inferOracleColumnsFromDictionary": {
-			rawMessages: []string{
-				`fmt.Errorf("未获取到字段定义")`,
-			},
-			keys: []string{
-				"db.backend.error.column_definitions_missing",
-			},
-		},
-		"func inferOracleColumnsFromEmptySelect": {
-			rawMessages: []string{
-				`fmt.Errorf("表名不能为空")`,
-				`fmt.Errorf("未获取到字段定义")`,
-			},
-			keys: []string{
-				"db.backend.error.table_name_required",
-				"db.backend.error.column_definitions_missing",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsDBFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw Oracle metadata text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference Oracle metadata i18n key %q", signature, key)
-			}
-		}
-	}
-}
 
 func TestMethodsDBOracleMetadataCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

@@ -30,6 +30,7 @@ import {
   getColumnDefinitionType,
 } from '../utils/columnDefinition';
 import { splitQualifiedNameLast, splitQualifiedNameSegments } from '../utils/qualifiedName';
+import { requestTableMetadata } from '../utils/tableMetadataRequestCache';
 
 type ViewerPaginationState = {
   current: number;
@@ -40,6 +41,11 @@ type ViewerPaginationState = {
   approximateTotal?: number;
   totalCountLoading: boolean;
   totalCountCancelled: boolean;
+};
+
+type DataViewerFetchOptions = {
+  refreshTotal?: boolean;
+  navigateToLastPage?: boolean;
 };
 
 type DataViewerTranslator = (key: string, params?: I18nParams) => string;
@@ -354,11 +360,17 @@ const getViewerFilterSnapshot = (tabId: string): ViewerFilterSnapshot => {
 
 const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({ tab, isActive = true }) => {
   const initialViewerSnapshot = useMemo(() => getViewerFilterSnapshot(tab.id), [tab.id]);
+  const viewerLoadContextKey = `${tab.id}|${tab.connectionId}|${tab.dbName || ''}|${tab.tableName || ''}|${tab.objectType || 'table'}`;
+  const deferInitialDataFetch = shouldDeferInitialDataViewerFetch(tab.initialViewMode);
   const [data, setData] = useState<any[]>([]);
   const [columnNames, setColumnNames] = useState<string[]>([]);
   const [pkColumns, setPkColumns] = useState<string[]>([]);
   const [editLocator, setEditLocator] = useState<EditRowLocator | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
+  const [loadingState, setLoading] = useState(() => !deferInitialDataFetch);
+  const loadingContextKeyRef = useRef(viewerLoadContextKey);
+  const loading = loadingContextKeyRef.current === viewerLoadContextKey
+    ? loadingState
+    : !deferInitialDataFetch;
   const connections = useStore(state => state.connections);
   const addSqlLog = useStore(state => state.addSqlLog);
   const appearance = useStore(state => state.appearance);
@@ -583,9 +595,11 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
     setPagination(prev => ({ ...prev, totalCountLoading: false, totalCountCancelled: true }));
   }, []);
 
-  const fetchData = useCallback(async (page = pagination.current, size = pagination.pageSize, options?: { refreshTotal?: boolean }) => {
-    const refreshTotal = options?.refreshTotal === true;
+  const fetchData = useCallback(async (page = pagination.current, size = pagination.pageSize, options?: DataViewerFetchOptions) => {
+    const navigateToLastPage = options?.navigateToLastPage === true;
+    const refreshTotal = options?.refreshTotal === true || navigateToLastPage;
     const seq = ++fetchSeqRef.current;
+    loadingContextKeyRef.current = viewerLoadContextKey;
     setLoading(true);
     const conn = connections.find(c => c.id === tab.connectionId);
     if (!conn) {
@@ -636,6 +650,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
 
     let pkColumnsForQuery = pkColumns;
     let editLocatorForQuery = editLocator;
+    let deferredEditLocatorLoad: (() => Promise<void>) | null = null;
     if (isMongoDB && !forceReadOnly && tableName) {
         pkColumnsForQuery = [MONGODB_ID_COLUMN];
     }
@@ -644,24 +659,35 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
         if (pkKeyRef.current !== locatorKey || !editLocatorForQuery) {
             pkKeyRef.current = locatorKey;
             const locatorSeq = ++pkSeqRef.current;
-            try {
-                const [resCols, resIndexes] = await Promise.all([
-                    DBGetColumns(buildRpcConnectionConfig(config) as any, dbName, tableName),
-                    DBGetIndexes(buildRpcConnectionConfig(config) as any, dbName, tableName)
-                        .catch((error: any) => ({ success: false, message: String(error?.message || error || 'Failed to load indexes'), data: [] })),
-                ]);
-                if (fetchSeqRef.current !== seq) return;
-                if (pkSeqRef.current !== locatorSeq) return;
-                if (pkKeyRef.current !== locatorKey) return;
+            const loadEditLocator = async (): Promise<{
+                primaryKeys: string[];
+                locator: EditRowLocator;
+            } | null> => {
+                try {
+                    const rpcConfig = buildRpcConnectionConfig(config) as any;
+                    const [resCols, resIndexes] = await Promise.all([
+                        requestTableMetadata(
+                            { connectionId: tab.connectionId, dbName, tableName, kind: 'columns' },
+                            () => DBGetColumns(rpcConfig, dbName, tableName),
+                        ),
+                        requestTableMetadata(
+                            { connectionId: tab.connectionId, dbName, tableName, kind: 'indexes' },
+                            () => DBGetIndexes(rpcConfig, dbName, tableName),
+                        )
+                            .catch((error: any) => ({ success: false, message: String(error?.message || error || 'Failed to load indexes'), data: [] })),
+                    ]);
+                    if (fetchSeqRef.current !== seq) return null;
+                    if (pkSeqRef.current !== locatorSeq) return null;
+                    if (pkKeyRef.current !== locatorKey) return null;
 
-                if (!resCols?.success || !Array.isArray(resCols.data)) {
-                    const nextLocator = buildAllColumnsLocator([], { translate: tr });
-                    pkColumnsForQuery = [];
-                    editLocatorForQuery = nextLocator;
-                    setPkColumns([]);
-                    setEditLocator(nextLocator);
-                    if (nextLocator.reason) message.info(nextLocator.reason);
-                } else {
+                    if (!resCols?.success || !Array.isArray(resCols.data)) {
+                        const nextLocator = buildAllColumnsLocator([], { translate: tr });
+                        setPkColumns([]);
+                        setEditLocator(nextLocator);
+                        if (nextLocator.reason) message.info(nextLocator.reason);
+                        return { primaryKeys: [], locator: nextLocator };
+                    }
+
                     const columnDefs = resCols.data as ColumnDefinition[];
                     const primaryKeys = columnDefs
                         .filter((column: any) => getColumnDefinitionKey(column) === 'PRI')
@@ -686,8 +712,6 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
                         translate: tr,
                     }), tr);
 
-                    pkColumnsForQuery = primaryKeys;
-                    editLocatorForQuery = nextLocator;
                     setPkColumns(primaryKeys);
                     setEditLocator(nextLocator);
                     if (nextLocator.readOnly) {
@@ -695,17 +719,30 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
                     } else if (nextLocator.strategy === 'all-columns' && nextLocator.reason) {
                         message.info(nextLocator.reason);
                     }
+                    return { primaryKeys, locator: nextLocator };
+                } catch {
+                    if (fetchSeqRef.current !== seq) return null;
+                    if (pkSeqRef.current !== locatorSeq) return null;
+                    if (pkKeyRef.current !== locatorKey) return null;
+                    const nextLocator = buildAllColumnsLocator([], { translate: tr });
+                    setPkColumns([]);
+                    setEditLocator(nextLocator);
+                    if (nextLocator.reason) message.info(nextLocator.reason);
+                    return { primaryKeys: [], locator: nextLocator };
                 }
-            } catch {
-                if (fetchSeqRef.current !== seq) return;
-                if (pkSeqRef.current !== locatorSeq) return;
-                if (pkKeyRef.current !== locatorKey) return;
-                const nextLocator = buildAllColumnsLocator([], { translate: tr });
-                pkColumnsForQuery = [];
-                editLocatorForQuery = nextLocator;
-                setPkColumns([]);
-                setEditLocator(nextLocator);
-                if (nextLocator.reason) message.info(nextLocator.reason);
+            };
+
+            if (dbTypeLower === 'kingbase') {
+                // Kingbase catalog metadata can be noticeably slower than the page query.
+                // Keep the grid read-only briefly and enable editing when the locator arrives.
+                deferredEditLocatorLoad = async () => {
+                    await loadEditLocator();
+                };
+            } else {
+                const locatorMetadata = await loadEditLocator();
+                if (!locatorMetadata) return;
+                pkColumnsForQuery = locatorMetadata.primaryKeys;
+                editLocatorForQuery = locatorMetadata.locator;
             }
         }
     }
@@ -713,12 +750,81 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
     const countSql = isMongoDB
       ? buildMongoCountCommand(tableName, mongoFilter || {})
       : `SELECT COUNT(*) as total FROM ${quoteQualifiedIdent(dbType, tableName)} ${whereSQL}`;
+    const countKey = `${tab.connectionId}|${dbName}|${tableName}|${whereSQL}`;
+    let refreshedTotal: number | null = null;
+
+    if (navigateToLastPage) {
+        countSeqRef.current++;
+        manualCountSeqRef.current++;
+        duckdbApproxSeqRef.current++;
+        oracleApproxSeqRef.current++;
+        countKeyRef.current = '';
+        autoCountKeyRef.current = '';
+        manualCountKeyRef.current = '';
+        duckdbApproxKeyRef.current = '';
+        oracleApproxKeyRef.current = '';
+        setPagination(prev => ({
+            ...prev,
+            totalCountLoading: false,
+            totalCountCancelled: false,
+        }));
+
+        latestConfigRef.current = config;
+        latestDbTypeRef.current = dbTypeLower;
+        latestDbNameRef.current = dbName;
+        latestCountSqlRef.current = countSql;
+        latestCountKeyRef.current = countKey;
+
+        const countStart = Date.now();
+        const countConfig = buildRpcConnectionConfig(config, { timeout: 120 });
+        try {
+            const resCount = await DBQuery(countConfig as any, dbName, countSql);
+            addSqlLog({
+                id: `log-${Date.now()}-last-page-count`,
+                timestamp: Date.now(),
+                sql: countSql,
+                status: resCount?.success ? 'success' : 'error',
+                duration: Date.now() - countStart,
+                message: resCount?.success ? '' : String(resCount?.message || tr('data_viewer.message.total_count_failed')),
+                dbName,
+            });
+
+            if (fetchSeqRef.current !== seq) return;
+            if (!resCount?.success) {
+                setPagination(prev => ({ ...prev, totalCountLoading: false }));
+                message.error(String(resCount?.message || tr('data_viewer.message.total_count_failed')));
+                setLoading(false);
+                return;
+            }
+            if (!Array.isArray(resCount.data) || resCount.data.length === 0) {
+                setPagination(prev => ({ ...prev, totalCountLoading: false }));
+                message.error(tr('data_viewer.message.total_count_failed'));
+                setLoading(false);
+                return;
+            }
+
+            refreshedTotal = parseTotalFromCountRow(resCount.data[0]);
+            if (refreshedTotal === null) {
+                setPagination(prev => ({ ...prev, totalCountLoading: false }));
+                message.error(tr('data_viewer.message.total_count_parse_failed'));
+                setLoading(false);
+                return;
+            }
+        } catch (e: any) {
+            if (fetchSeqRef.current !== seq) return;
+            setPagination(prev => ({ ...prev, totalCountLoading: false }));
+            message.error(tr('data_viewer.message.total_count_failed_detail', { detail: String(e?.message || e) }));
+            setLoading(false);
+            return;
+        }
+    }
+
     const orderBySQL = isMongoDB
       ? ''
       : buildOrderBySQL(dbType, sortInfo, resolveDataViewerOrderFallbackColumns(editLocatorForQuery, pkColumnsForQuery));
-    const totalRows = Number(pagination.total);
+    const totalRows = refreshedTotal ?? Number(pagination.total);
     const hasFiniteTotal = Number.isFinite(totalRows) && totalRows >= 0;
-    const totalKnown = !refreshTotal && pagination.totalKnown && hasFiniteTotal;
+    const totalKnown = refreshedTotal !== null || (!refreshTotal && pagination.totalKnown && hasFiniteTotal);
     const approximateTotalRows = Number(pagination.approximateTotal);
     const hasApproximateTotalPages =
       !refreshTotal &&
@@ -727,9 +833,10 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
       pagination.totalApprox &&
       Number.isFinite(approximateTotalRows) &&
       approximateTotalRows > 0;
-    const effectiveTotalRows = hasApproximateTotalPages ? approximateTotalRows : (refreshTotal ? 0 : totalRows);
+    const effectiveTotalRows = refreshedTotal ?? (hasApproximateTotalPages ? approximateTotalRows : (refreshTotal ? 0 : totalRows));
     const totalPages = Number.isFinite(effectiveTotalRows) && effectiveTotalRows > 0 ? Math.max(1, Math.ceil(effectiveTotalRows / size)) : 0;
-    const currentPage = totalPages > 0 ? Math.min(Math.max(1, page), totalPages) : Math.max(1, page);
+    const requestedPage = navigateToLastPage ? Math.max(1, totalPages) : page;
+    const currentPage = totalPages > 0 ? Math.min(Math.max(1, requestedPage), totalPages) : Math.max(1, requestedPage);
     const offset = (currentPage - 1) * size;
     const isClickHouse = !isMongoDB && dbTypeLower === 'clickhouse';
     const reverseOrderSQL = isClickHouse ? reverseOrderBySQL(orderBySQL) : '';
@@ -806,13 +913,20 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
         const hasSort = hasExplicitSort(sortInfo);
         const isSortMemoryErr = (msg: string) => /error\s*1038|out of sort memory/i.test(String(msg || ''));
         let resData = await executeDataQuery(sql, tr('data_viewer.sql_log.phase.main_query'));
+        if (deferredEditLocatorLoad) {
+            void deferredEditLocatorLoad();
+            deferredEditLocatorLoad = null;
+        }
 
         if (!resData.success && dbTypeLower === 'duckdb' && isDuckDBUnsupportedTypeError(String(resData.message || ''))) {
             const cacheKey = `${tab.connectionId}|${dbName}|${tableName}`;
             let safeSelect = duckdbSafeSelectCacheRef.current[cacheKey] || '';
             if (!safeSelect) {
                 try {
-                    const resCols = await DBGetColumns(buildRpcConnectionConfig(config) as any, dbName, tableName);
+                    const resCols = await requestTableMetadata(
+                        { connectionId: tab.connectionId, dbName, tableName, kind: 'columns' },
+                        () => DBGetColumns(buildRpcConnectionConfig(config) as any, dbName, tableName),
+                    );
                     if (resCols?.success && Array.isArray(resCols.data)) {
                         const columnDefs = resCols.data as ColumnDefinition[];
                         const selectParts = columnDefs.map((col) => {
@@ -892,7 +1006,6 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
                 if (row && typeof row === 'object') row[GONAVI_ROW_KEY] = `row-${offset + i}`;
             });
             setData(resultData);
-            const countKey = `${tab.connectionId}|${dbName}|${tableName}|${whereSQL}`;
             const derivedTotalKnown = !hasMore;
             const derivedTotal = derivedTotalKnown ? offset + resultData.length : currentPage * size + 1;
             const minExpectedTotal = hasMore ? offset + resultData.length + 1 : offset + resultData.length;
@@ -1180,6 +1293,9 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
     setSortInfo([{ columnKey: normalizedField, order: normalizedOrder, enabled: true }]);
   }, []);
   const handlePageChange = useCallback((page: number, size: number) => fetchData(page, size), [fetchData]);
+  const handleLastPage = useCallback((pageSize: number) => (
+    fetchData(1, pageSize, { navigateToLastPage: true })
+  ), [fetchData]);
   const handleToggleFilter = useCallback(() => setShowFilter(prev => !prev), []);
   const handleApplyFilter = useCallback((conditions: FilterCondition[]) => {
     skipNextAutoFetchRef.current = false;
@@ -1265,6 +1381,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
           onReload={handleReload}
           onSort={handleSort}
           onPageChange={handlePageChange}
+          onLastPage={handleLastPage}
           pagination={pagination}
           onRequestTotalCount={preferManualTotalCount ? handleManualTotalCount : undefined}
           onCancelTotalCount={preferManualTotalCount ? handleCancelManualTotalCount : undefined}

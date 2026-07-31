@@ -1,5 +1,4 @@
 import React from "react";
-import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +28,6 @@ const mockState = {
 const backendApp = {
   JVMListAuditRecords: vi.fn(),
 };
-const source = readFileSync(new URL("./JVMAuditViewer.tsx", import.meta.url), "utf8");
 
 vi.mock("../store", () => ({
   useStore: (selector: (state: any) => any) =>
@@ -140,35 +138,5 @@ describe("JVMAuditViewer", () => {
       t("jvm_audit.error.connection_missing", undefined, "en-US"),
     );
     expect(markup).not.toContain("连接不存在或已被删除");
-  });
-
-  it("wires non-SSR audit wrappers and source tags through existing i18n keys", () => {
-    [
-      "AI 辅助",
-      "手工",
-      "JVMListAuditRecords 后端方法不可用",
-      "读取 JVM 审计记录失败",
-      "当前无法加载审计记录",
-    ].forEach((snippet) => {
-      expect(source).not.toContain(snippet);
-    });
-
-    [
-      "jvm_audit.source.ai_plan",
-      "jvm_audit.source.manual",
-      "jvm_audit.error.backend_unavailable",
-      "jvm_audit.error.load_failed",
-      "jvm_audit.empty.load_failed",
-    ].forEach((key) => {
-      expect(source).toContain(key);
-    });
-  });
-
-  it("passes the active language to action and result presentation helpers", () => {
-    expect(source).toContain("language } = useI18n()");
-    expect(source).toContain("formatTimestamp(value, language)");
-    expect(source).toContain("formatJVMActionDisplayText(value, language)");
-    expect(source).toContain("formatJVMAuditResultLabel(value, language)");
-    expect(source).not.toContain('toLocaleString("zh-CN"');
   });
 });

@@ -18,6 +18,10 @@ type LocalizedExpectation = {
 
 const remainingConnectionModalSliceExpectations: LocalizedExpectation[] = [
   {
+    key: "connection.modal.step1.group.all",
+    catalogKey: "connection_modal.step1.group.all",
+  },
+  {
     key: "connection.modal.step1.group.relational",
     catalogKey: "connection_modal.step1.group.relational",
   },
@@ -68,6 +72,14 @@ const remainingConnectionModalSliceExpectations: LocalizedExpectation[] = [
   {
     key: "connection.modal.step1.hint.standard",
     catalogKey: "connection_modal.step1.hint.standard",
+  },
+  {
+    key: "connection.modal.step1.search.empty",
+    catalogKey: "connection_modal.step1.search.empty",
+  },
+  {
+    key: "connection.modal.step1.search.placeholder",
+    catalogKey: "connection_modal.step1.search.placeholder",
   },
   {
     key: "connection.modal.field.driver.label",

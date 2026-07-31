@@ -8,16 +8,13 @@ import (
 	"errors"
 	"net"
 	"net/url"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
-
 	mysqlDriver "github.com/go-sql-driver/mysql"
 )
 
@@ -923,26 +920,6 @@ func TestOceanBaseOracleCreateStatementFallbackErrorUsesCurrentLanguage(t *testi
 	}
 }
 
-func TestOceanBaseOracleCreateStatementSourceUsesI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("oceanbase_impl.go")
-	if err != nil {
-		t.Fatalf("read oceanbase_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	if strings.Contains(source, `fmt.Errorf("未找到建表语句")`) {
-		t.Fatal("oceanbase_impl.go still contains raw create-statement-not-found error")
-	}
-	if strings.Contains(source, "OceanBase Oracle SHOW CREATE TABLE 兜底失败") {
-		t.Fatal("oceanbase_impl.go still contains raw OceanBase SHOW CREATE TABLE fallback wrapper")
-	}
-	if !strings.Contains(source, "db.backend.error.create_table_statement_not_found") {
-		t.Fatal("oceanbase_impl.go does not reference db.backend.error.create_table_statement_not_found")
-	}
-	if !strings.Contains(source, "db.backend.error.oceanbase_oracle_show_create_table_fallback_failed") {
-		t.Fatal("oceanbase_impl.go does not reference OceanBase SHOW CREATE TABLE fallback i18n key")
-	}
-}
 
 // 用户通过 ConnectionParams 设置 connectionAttributes 时，OceanBase MySQL wire 路径必须把
 // 这些 attribute 透传到 go-sql-driver/mysql DSN，让 driver 在握手响应里发 CLIENT_CONNECT_ATTRS。

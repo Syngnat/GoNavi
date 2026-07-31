@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DBGetColumns, DBGetForeignKeys, DBGetIndexes } from '../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
+import { resolveDataSourceType } from '../utils/dataSourceCapabilities';
+import { requestTableMetadata } from '../utils/tableMetadataRequestCache';
 import {
   buildColumnMetaMap,
   GONAVI_ROW_KEY,
@@ -18,6 +20,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     tableName,
     exportScope,
     visibleColumnNames,
+    loading,
   } = ctx;
 
   const [columnMetaMap, setColumnMetaMap] = useState<Record<string, any>>({});
@@ -30,6 +33,11 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
   const foreignKeySeqRef = useRef(0);
   const uniqueKeyGroupsCacheRef = useRef<Record<string, string[][]>>({});
   const uniqueKeyGroupsSeqRef = useRef(0);
+  const deferKingbaseMetadata = useMemo(() => {
+    if (!loading) return false;
+    const conn = connections.find((item: any) => item.id === connectionId);
+    return resolveDataSourceType(conn?.config) === 'kingbase';
+  }, [connections, connectionId, loading]);
 
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
@@ -41,16 +49,18 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
       return;
     }
     const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
+    columnMetaSeqRef.current += 1;
     setColumnMetaMap(columnMetaCacheRef.current[cacheKey] || {});
     foreignKeySeqRef.current += 1;
     setForeignKeyMap(exportScope === 'table' ? (foreignKeyCacheRef.current[cacheKey] || {}) : {});
+    uniqueKeyGroupsSeqRef.current += 1;
     setUniqueKeyGroups(uniqueKeyGroupsCacheRef.current[cacheKey] || []);
   }, [connectionId, dbName, tableName, exportScope]);
 
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
-    if (!connectionId || !normalizedTableName) return;
+    if (!connectionId || !normalizedTableName || deferKingbaseMetadata) return;
 
     const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
     if (columnMetaCacheRef.current[cacheKey]) return;
@@ -75,7 +85,11 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
       let nextMap: Record<string, any> | null = null;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
-          const res = await DBGetColumns(buildRpcConnectionConfig(config) as any, normalizedDbName, normalizedTableName);
+          const res = await requestTableMetadata(
+            { connectionId, dbName: normalizedDbName, tableName: normalizedTableName, kind: 'columns' },
+            () => DBGetColumns(buildRpcConnectionConfig(config) as any, normalizedDbName, normalizedTableName),
+            { force: metadataReloadVersion > 0 || attempt > 0 },
+          );
           if (seq !== columnMetaSeqRef.current) return;
           if (!res.success || !Array.isArray(res.data)) {
             continue;
@@ -101,12 +115,12 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     };
 
     void loadColumnMeta();
-  }, [connections, connectionId, dbName, tableName, metadataReloadVersion]);
+  }, [connections, connectionId, dbName, tableName, metadataReloadVersion, deferKingbaseMetadata]);
 
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
-    if (!connectionId || !normalizedTableName || exportScope !== 'table') return;
+    if (!connectionId || !normalizedTableName || exportScope !== 'table' || deferKingbaseMetadata) return;
 
     const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
     if (foreignKeyCacheRef.current[cacheKey]) return;
@@ -127,7 +141,11 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     };
 
     const seq = ++foreignKeySeqRef.current;
-    DBGetForeignKeys(buildRpcConnectionConfig(config) as any, normalizedDbName, normalizedTableName)
+    requestTableMetadata(
+      { connectionId, dbName: normalizedDbName, tableName: normalizedTableName, kind: 'foreignKeys' },
+      () => DBGetForeignKeys(buildRpcConnectionConfig(config) as any, normalizedDbName, normalizedTableName),
+      { force: metadataReloadVersion > 0 },
+    )
       .then((res) => {
         if (seq !== foreignKeySeqRef.current) return;
         if (!res.success || !Array.isArray(res.data)) {
@@ -153,12 +171,12 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
         if (seq !== foreignKeySeqRef.current) return;
         setForeignKeyMap({});
       });
-  }, [connections, connectionId, dbName, tableName, exportScope, metadataReloadVersion]);
+  }, [connections, connectionId, dbName, tableName, exportScope, metadataReloadVersion, deferKingbaseMetadata]);
 
   useEffect(() => {
     const normalizedTableName = String(tableName || '').trim();
     const normalizedDbName = String(dbName || '').trim();
-    if (!connectionId || !normalizedTableName) return;
+    if (!connectionId || !normalizedTableName || deferKingbaseMetadata) return;
 
     const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
     if (uniqueKeyGroupsCacheRef.current[cacheKey]) return;
@@ -179,7 +197,11 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
     };
 
     const seq = ++uniqueKeyGroupsSeqRef.current;
-    DBGetIndexes(config as any, normalizedDbName, normalizedTableName)
+    requestTableMetadata(
+      { connectionId, dbName: normalizedDbName, tableName: normalizedTableName, kind: 'indexes' },
+      () => DBGetIndexes(config as any, normalizedDbName, normalizedTableName),
+      { force: metadataReloadVersion > 0 },
+    )
       .then((res) => {
         if (seq !== uniqueKeyGroupsSeqRef.current) return;
         if (!res.success || !Array.isArray(res.data)) {
@@ -194,7 +216,7 @@ export const useDataGridMetadata = (ctx: UseDataGridMetadataContext) => {
         if (seq !== uniqueKeyGroupsSeqRef.current) return;
         setUniqueKeyGroups([]);
       });
-  }, [connections, connectionId, dbName, tableName, metadataReloadVersion]);
+  }, [connections, connectionId, dbName, tableName, metadataReloadVersion, deferKingbaseMetadata]);
 
   const columnMetaMapByLowerName = useMemo(() => {
     const next: Record<string, any> = {};

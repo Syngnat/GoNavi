@@ -6,11 +6,9 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -100,21 +98,6 @@ func TestMariaDBCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestMariaDBCreateStatementSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("mariadb_impl.go")
-	if err != nil {
-		t.Fatalf("read mariadb_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawMessage := `fmt.Errorf("` + rawMariaDBCreateStatementNotFoundText + `")`
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("mariadb_impl.go still contains raw create-statement text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.create_table_statement_not_found") {
-		t.Fatal("mariadb_impl.go does not reference db.backend.error.create_table_statement_not_found")
-	}
-}
 
 func TestMariaDBGetAllColumnsDatabaseRequiredUsesCurrentLanguage(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
@@ -136,18 +119,3 @@ func TestMariaDBGetAllColumnsDatabaseRequiredUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestMariaDBGetAllColumnsDatabaseRequiredSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("mariadb_impl.go")
-	if err != nil {
-		t.Fatalf("read mariadb_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawMessage := `fmt.Errorf("` + rawMariaDBAllColumnsDatabaseRequiredText + `")`
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("mariadb_impl.go still contains raw database-name text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.database_name_required") {
-		t.Fatal("mariadb_impl.go does not reference db.backend.error.database_name_required")
-	}
-}

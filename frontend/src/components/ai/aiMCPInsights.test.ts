@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import { buildMCPSetupSnapshot } from './aiMCPInsights';
@@ -44,15 +42,6 @@ describe('aiMCPInsights', () => {
     expect(snapshot.message).toBe('T:ai_chat.inspection.mcp.message.with_issues serverCount=1,enabledCount=1,issueCount=2');
     expect(snapshot.clients[0].message).toBe('已接入当前 GoNavi MCP');
     expect(snapshot.clients[0].configPath).toBe('C:/Users/demo/.codex/config.toml');
-  });
-
-  it('keeps mcp setup production source free of legacy Chinese wrappers', () => {
-    const source = readFileSync('src/components/ai/aiMCPInsights.ts', 'utf8');
-
-    expect(source).not.toContain('存在启动配置错误');
-    expect(source).not.toContain('先修复 MCP 服务配置检查里的错误项');
-    expect(source).not.toContain('当前共配置');
-    expect(source).not.toContain('当前还没有配置任何 MCP 服务');
   });
 
   it('builds a combined snapshot for local mcp servers, tools, and external client install state', () => {

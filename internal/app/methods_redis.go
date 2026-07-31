@@ -1043,6 +1043,57 @@ func (a *App) RedisGetValue(config connection.ConnectionConfig, key string) conn
 	return connection.QueryResult{Success: true, Data: value}
 }
 
+// RedisGetListValue gets a list in its requested display order.
+func (a *App) RedisGetListValue(config connection.ConnectionConfig, key string, descending bool) connection.QueryResult {
+	config.Type = "redis"
+	client, err := a.getRedisClient(config)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+
+	value, err := client.GetValue(key)
+	if err != nil {
+		logger.Error(err, "RedisGetListValue 获取失败：key=%s", key)
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if value.Type != "list" {
+		return connection.QueryResult{Success: false, Message: a.appText("redis.backend.error.argument_invalid_type", map[string]any{"name": "Redis Key"})}
+	}
+
+	values, ok := value.Value.([]string)
+	if !ok {
+		return connection.QueryResult{Success: false, Message: a.appText("redis.backend.error.argument_invalid_type", map[string]any{"name": "Redis List"})}
+	}
+	if !descending {
+		return connection.QueryResult{Success: true, Data: value}
+	}
+
+	windowSize := int64(len(values))
+	needsTailFetch := value.Length > windowSize
+	if windowSize == 0 && value.Length > 0 {
+		windowSize = 1000
+		if value.Length < windowSize {
+			windowSize = value.Length
+		}
+		needsTailFetch = true
+	}
+	if needsTailFetch {
+		values, err = client.GetList(key, value.Length-windowSize, -1)
+		if err != nil {
+			logger.Error(err, "RedisGetListValue 获取尾部数据失败：key=%s", key)
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
+	} else {
+		values = append([]string(nil), values...)
+	}
+	for left, right := 0, len(values)-1; left < right; left, right = left+1, right-1 {
+		values[left], values[right] = values[right], values[left]
+	}
+	value.Value = values
+
+	return connection.QueryResult{Success: true, Data: value}
+}
+
 // RedisSetString sets a string value
 func (a *App) RedisSetString(config connection.ConnectionConfig, key, value string, ttl int64) connection.QueryResult {
 	config.Type = "redis"

@@ -1,9 +1,29 @@
 import React, { useState } from 'react';
 import { Tooltip, message } from 'antd';
 import { CheckOutlined, CopyOutlined, PlayCircleOutlined } from '@ant-design/icons';
-import mermaid from 'mermaid';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import diff from 'react-syntax-highlighter/dist/esm/languages/prism/diff';
+import go from 'react-syntax-highlighter/dist/esm/languages/prism/go';
+import ini from 'react-syntax-highlighter/dist/esm/languages/prism/ini';
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup';
+import php from 'react-syntax-highlighter/dist/esm/languages/prism/php';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby';
+import rust from 'react-syntax-highlighter/dist/esm/languages/prism/rust';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import toml from 'react-syntax-highlighter/dist/esm/languages/prism/toml';
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
+import vscDarkPlus from 'react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus';
+import vs from 'react-syntax-highlighter/dist/esm/styles/prism/vs';
 
 import { t as catalogTranslate } from '../../../i18n/catalog';
 import type { I18nParams } from '../../../i18n/types';
@@ -11,6 +31,29 @@ import { useOptionalI18n } from '../../../i18n/provider';
 import Modal from '../../common/ResizableDraggableModal';
 import type { OverlayWorkbenchTheme } from '../../../utils/overlayWorkbenchTheme';
 import { buildAIReadonlyPreviewSQL } from '../../../utils/aiSqlLimit';
+
+[
+  bash,
+  css,
+  diff,
+  go,
+  ini,
+  java,
+  javascript,
+  json,
+  jsx,
+  markdown,
+  markup,
+  php,
+  python,
+  ruby,
+  rust,
+  sql,
+  toml,
+  tsx,
+  typescript,
+  yaml,
+].forEach((language) => SyntaxHighlighter.registerLanguage('', language));
 
 interface AIMessageCodeBlockProps {
   className?: string;
@@ -56,24 +99,31 @@ const MermaidRenderer: React.FC<{ chart: string; darkMode: boolean }> = ({ chart
     if (!containerRef.current) {
       return;
     }
-    try {
-      mermaid.initialize({ startOnLoad: false, theme: darkMode ? 'dark' : 'default' });
-      const id = `mermaid-${Math.random().toString(36).slice(2)}`;
-      (async () => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { default: mermaid } = await import('mermaid');
+        if (cancelled || !containerRef.current) {
+          return;
+        }
+
+        mermaid.initialize({ startOnLoad: false, theme: darkMode ? 'dark' : 'default' });
+        const id = `mermaid-${Math.random().toString(36).slice(2)}`;
         const result: any = await mermaid.render(id, chart);
-        if (containerRef.current) {
+        if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = result.svg || result;
         }
-      })().catch((error: any) => {
-        if (containerRef.current) {
-          containerRef.current.innerHTML = `<div style="color:#ef4444; padding:12px; background:rgba(239,68,68,0.1); border-radius:6px; font-size:12px">${escapeHtml(copy('ai_chat.message.mermaid.parse_failed', { detail: error?.message || '' }))}</div>`;
+      } catch (error: any) {
+        if (!cancelled && containerRef.current) {
+          containerRef.current.innerHTML = `<div style="color:#ef4444; padding:12px; background:rgba(239,68,68,0.1); border-radius:6px; font-size:12px">${escapeHtml(copy('ai_chat.message.mermaid.render_failed', { detail: error?.message || '' }))}</div>`;
         }
-      });
-    } catch (error: any) {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = `<div style="color:#ef4444; padding:12px; background:rgba(239,68,68,0.1); border-radius:6px; font-size:12px">${escapeHtml(copy('ai_chat.message.mermaid.render_failed', { detail: error?.message || '' }))}</div>`;
       }
-    }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [chart, copy, darkMode]);
 
   return <div ref={containerRef} className="ai-mermaid-container" style={{ margin: '16px 0', display: 'flex', justifyContent: 'flex-start', overflowX: 'auto' }} />;

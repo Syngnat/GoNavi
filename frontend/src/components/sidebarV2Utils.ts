@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { Key, ReactNode } from 'react';
 
 import {
   resolveConnectionTagChildOrder,
@@ -7,7 +7,7 @@ import {
   buildSidebarTablePinKey,
   resolveSidebarRootOrderTokens,
 } from '../store';
-import type { ConnectionTag, SavedConnection } from '../types';
+import type { ConnectionTag, SavedConnection, TabData } from '../types';
 import type { SidebarTableMetadataField } from '../utils/sidebarTableMetadata';
 import { readTableAccessCount } from '../utils/tableAccessCount';
 import { t } from '../i18n';
@@ -52,6 +52,11 @@ export type SidebarTreeNodeType =
   | 'folder-fks'
   | 'folder-triggers'
   | 'redis-db'
+  | 'nacos-namespace'
+  | 'nacos-config-entry'
+  | 'nacos-config-group'
+  | 'nacos-services-entry'
+  | 'nacos-service-group'
   | 'tag'
   | 'jvm-mode'
   | 'jvm-resource'
@@ -82,7 +87,79 @@ export const shouldLoadSidebarNodeOnExpand = (
     || node.type === 'external-sql-root'
     || node.type === 'table'
     || node.type === 'jvm-mode'
-    || node.type === 'jvm-resource';
+    || node.type === 'jvm-resource'
+    || node.type === 'nacos-config-entry'
+    || node.type === 'nacos-services-entry';
+};
+
+type NacosServicesTabDataRef = {
+  id?: unknown;
+  nacosNamespaceId?: unknown;
+  nacosNamespaceName?: unknown;
+  nacosGroup?: unknown;
+};
+
+export type NacosNamespaceDiscoveryMode = 'listed' | 'configured';
+
+export const resolveNacosNamespaceDiscoveryModeFromTreeNode = (
+  node: Partial<SidebarTreeNode> | null | undefined,
+): NacosNamespaceDiscoveryMode | undefined => {
+  if (!node) return undefined;
+  const pending = [node];
+  let foundListedMode = false;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    const mode = current?.dataRef?.nacosNamespaceDiscoveryMode;
+    if (mode === 'configured') return 'configured';
+    if (mode === 'listed') foundListedMode = true;
+    if (Array.isArray(current?.children)) {
+      pending.push(...current.children);
+    }
+  }
+  return foundListedMode ? 'listed' : undefined;
+};
+
+const encodeNacosServicesTabIdPart = (value: string): string =>
+  encodeURIComponent(value)
+    .split('-ns-').join('%2Dns%2D')
+    .split('-g-').join('%2Dg%2D');
+
+export const buildNacosServicesTabData = (dataRef: NacosServicesTabDataRef): TabData => {
+  const connectionId = String(dataRef?.id || '').trim();
+  const namespaceId = String(dataRef?.nacosNamespaceId || '').trim();
+  const namespaceName = String(dataRef?.nacosNamespaceName || namespaceId || 'public').trim();
+  const groupName = String(dataRef?.nacosGroup || '').trim();
+  const namespaceKey = namespaceId || 'public';
+  const connectionTabKey = encodeNacosServicesTabIdPart(connectionId);
+  const namespaceTabKey = encodeNacosServicesTabIdPart(namespaceKey);
+  const groupTabKey = encodeNacosServicesTabIdPart(groupName);
+
+  return {
+    id: `nacos-services-${connectionTabKey}-ns-${namespaceTabKey}${groupName ? `-g-${groupTabKey}` : ''}`,
+    title: groupName
+      ? `${namespaceName} · ${groupName}`
+      : `${namespaceName} · ${t('nacos_service.title.service_explorer')}`,
+    type: 'nacos-services',
+    connectionId,
+    nacosNamespaceId: namespaceId,
+    nacosNamespaceName: namespaceName,
+    ...(groupName ? { nacosGroup: groupName } : {}),
+  };
+};
+
+export type NacosServicesDoubleClickAction =
+  | { kind: 'expand' }
+  | { kind: 'open'; tab: TabData }
+  | null;
+
+export const resolveNacosServicesDoubleClickAction = (
+  node: Pick<SidebarTreeNode, 'type' | 'dataRef'> | null | undefined,
+): NacosServicesDoubleClickAction => {
+  if (node?.type === 'nacos-services-entry') return { kind: 'expand' };
+  if (node?.type === 'nacos-service-group') {
+    return { kind: 'open', tab: buildNacosServicesTabData(node.dataRef || {}) };
+  }
+  return null;
 };
 
 export const resolveSidebarTableNameForCopy = (
@@ -1059,6 +1136,89 @@ export const shouldClearSidebarNodeChildrenOnCollapse = (
     return false;
   }
   return collectSidebarSubtreeKeys(node).length >= SIDEBAR_COLLAPSE_UNLOAD_SUBTREE_LIMIT;
+};
+
+type SidebarDatabaseExpansionNode = {
+  key: string;
+  groupKey: string;
+  subtreeKeys: string[];
+};
+
+export const resolveSidebarSingleDatabaseExpandedKeys = ({
+  previousExpandedKeys,
+  nextExpandedKeys,
+  treeData,
+}: {
+  previousExpandedKeys: Key[];
+  nextExpandedKeys: Key[];
+  treeData: SidebarTreeNode[];
+}): Key[] => {
+  const databaseNodesByKey = new Map<string, SidebarDatabaseExpansionNode>();
+
+  const visit = (nodes: SidebarTreeNode[], inheritedConnectionId = '') => {
+    nodes.forEach((node) => {
+      const nodeKey = String(node.key || '').trim();
+      const directConnectionId = String(
+        node.dataRef?.id || node.dataRef?.connectionId || '',
+      ).trim();
+      const connectionId = node.type === 'connection'
+        ? directConnectionId || nodeKey
+        : directConnectionId || inheritedConnectionId;
+
+      if (
+        nodeKey
+        && connectionId
+        && (node.type === 'database' || node.type === 'redis-db')
+      ) {
+        databaseNodesByKey.set(nodeKey, {
+          key: nodeKey,
+          groupKey: `${connectionId}\u0000${node.type}`,
+          subtreeKeys: collectSidebarSubtreeKeys(node),
+        });
+      }
+
+      if (node.children?.length) {
+        visit(node.children, connectionId);
+      }
+    });
+  };
+  visit(treeData);
+
+  if (databaseNodesByKey.size === 0) {
+    return nextExpandedKeys;
+  }
+
+  const previousKeySet = new Set(previousExpandedKeys.map((key) => String(key)));
+  const expandedByGroup = new Map<string, SidebarDatabaseExpansionNode[]>();
+  nextExpandedKeys.forEach((key) => {
+    const databaseNode = databaseNodesByKey.get(String(key));
+    if (!databaseNode) return;
+    const group = expandedByGroup.get(databaseNode.groupKey) || [];
+    group.push(databaseNode);
+    expandedByGroup.set(databaseNode.groupKey, group);
+  });
+
+  const winnerByGroup = new Map<string, string>();
+  expandedByGroup.forEach((nodes, groupKey) => {
+    const newlyExpanded = nodes.filter((node) => !previousKeySet.has(node.key));
+    const winner = newlyExpanded.length > 0
+      ? newlyExpanded[newlyExpanded.length - 1]
+      : nodes[nodes.length - 1];
+    winnerByGroup.set(groupKey, winner.key);
+  });
+
+  const keysToCollapse = new Set<string>();
+  databaseNodesByKey.forEach((node) => {
+    const winnerKey = winnerByGroup.get(node.groupKey);
+    if (!winnerKey || winnerKey === node.key) return;
+    keysToCollapse.add(node.key);
+    node.subtreeKeys.forEach((key) => keysToCollapse.add(key));
+  });
+
+  if (keysToCollapse.size === 0) {
+    return nextExpandedKeys;
+  }
+  return nextExpandedKeys.filter((key) => !keysToCollapse.has(String(key)));
 };
 
 export const resolveV2ActiveConnectionId = ({

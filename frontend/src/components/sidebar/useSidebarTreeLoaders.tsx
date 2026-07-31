@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 import { message } from 'antd';
 import {
+  AppstoreOutlined,
+  CloudOutlined,
   CodeOutlined,
   ClockCircleOutlined,
   DashboardOutlined,
@@ -11,8 +13,10 @@ import {
   FunctionOutlined,
   HddOutlined,
   KeyOutlined,
+  LinkOutlined,
   TableOutlined,
   ThunderboltOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import type { SavedConnection, SavedQuery, JVMCapability, JVMResourceSummary } from '../../types';
 import { useStore } from '../../store';
@@ -22,6 +26,7 @@ import { buildRedisDbNodeLabel, getRedisDbAlias } from '../../utils/redisDbAlias
 import { buildJVMMonitoringActionDescriptors } from '../../utils/jvmSidebarActions';
 import { getSchemaVisibilityRule, isSchemaVisible } from '../../utils/schemaVisibility';
 import { type SidebarViewMetadataEntry } from '../../utils/sidebarMetadata';
+import { resolveNacosConnectionScope } from '../../utils/nacosConnectionScope';
 import {
   buildQualifiedName,
   buildSidebarObjectKeyName,
@@ -53,8 +58,12 @@ import {
   type SidebarConnectionState,
   type SidebarTreeNode as TreeNode,
 } from '../sidebarV2Utils';
+import {
+  groupSidebarPartitionTableEntries,
+} from './sidebarPartitions';
 import { DBGetDatabases, DBGetTables, DBQuery, GetDriverStatusList, JVMProbeCapabilities } from '../../../wailsjs/go/app/App';
 import type { SidebarTableMetadataSnapshot } from '../../utils/sidebarTableMetadata';
+import { collectNacosServiceGroupsByPage } from '../nacosServiceName';
 
 type DriverStatusSnapshot = {
   type: string;
@@ -64,6 +73,24 @@ type DriverStatusSnapshot = {
   needsUpdate?: boolean;
   updateReason?: string;
   message?: string;
+};
+
+type SidebarLoadedTableMetadata = SidebarTableMetadataSnapshot & {
+  schemaName?: string;
+  partitionParentTableName?: string;
+};
+
+type SidebarLoadedTableEntry = {
+  tableName: string;
+  schemaName: string;
+  displayName: string;
+  rowCount?: number;
+  tableSize?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  tableComment?: string;
+  partitionParentTableName?: string;
+  partitionTables?: SidebarLoadedTableEntry[];
 };
 
 export const formatSidebarDriverAgentUpdateWarning = (
@@ -163,6 +190,11 @@ export const useSidebarTreeLoaders = ({
       items: Record<string, DriverStatusSnapshot>;
   } | null>(null);
   const driverUpdateWarningKeysRef = useRef<Set<string>>(new Set());
+  const nacosServiceGroupRequestIdsRef = useRef<Record<string, number>>({});
+  const nacosNamespaceRequestIdsRef = useRef<Record<string, number>>({});
+  const nacosNamespaceActiveRequestsRef = useRef<
+      Record<string, { requestId: number; signature: string }>
+  >({});
 
 	  const fetchDriverStatusMap = async (): Promise<Record<string, DriverStatusSnapshot>> => {
 	      const cached = driverStatusCacheRef.current;
@@ -223,8 +255,27 @@ export const useSidebarTreeLoaders = ({
 	  const loadDatabases = async (node: any) => {
 		      const conn = node.dataRef as SavedConnection;
 		      const loadKey = `dbs-${conn.id}`;
-	      if (loadingNodesRef.current.has(loadKey)) return;
-	      loadingNodesRef.current.add(loadKey);
+          let nacosNamespaceRequest:
+              | { requestId: number; signature: string }
+              | undefined;
+          if (conn.config.type === 'nacos') {
+              const signature = buildConnectionReloadSignature(conn);
+              const activeRequest =
+                  nacosNamespaceActiveRequestsRef.current[conn.id];
+              if (activeRequest?.signature === signature) {
+                  return;
+              }
+              const requestId =
+                  (nacosNamespaceRequestIdsRef.current[conn.id] || 0) + 1;
+              nacosNamespaceRequestIdsRef.current[conn.id] = requestId;
+              nacosNamespaceRequest = { requestId, signature };
+              nacosNamespaceActiveRequestsRef.current[conn.id] =
+                  nacosNamespaceRequest;
+              loadingNodesRef.current.add(loadKey);
+          } else {
+              if (loadingNodesRef.current.has(loadKey)) return;
+              loadingNodesRef.current.add(loadKey);
+          }
           setConnectionStates(prev => ({ ...prev, [conn.id]: 'loading' }));
           let shouldMarkConnectionSuccess = false;
 	      const config = {
@@ -356,6 +407,166 @@ export const useSidebarTreeLoaders = ({
                   loadingNodesRef.current.delete(loadKey);
                   if (shouldMarkConnectionSuccess) {
                       setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
+                  }
+              }
+              return;
+          }
+
+          // Handle Nacos connections: expand namespaces
+          if (conn.config.type === 'nacos') {
+              const { requestId, signature: requestSignature } =
+                  nacosNamespaceRequest!;
+              const isLatestNamespaceRequest = () =>
+                  nacosNamespaceRequestIdsRef.current[conn.id] === requestId;
+              const resolveCurrentRequestConnection = (): SavedConnection | null => {
+                  if (!isLatestNamespaceRequest()) {
+                      return null;
+                  }
+                  const currentConnection = useStore.getState().connections.find(
+                      (candidate) => candidate.id === conn.id,
+                  );
+                  if (
+                      !currentConnection ||
+                      buildConnectionReloadSignature(currentConnection) !== requestSignature
+                  ) {
+                      return null;
+                  }
+                  return currentConnection;
+              };
+              type NacosNamespaceDiscoveryMode = 'listed' | 'configured';
+              const buildNamespaceNode = (
+                  sourceConnection: SavedConnection,
+                  namespaceId: string,
+                  showName: string,
+                  configCount: number,
+                  discoveryMode: NacosNamespaceDiscoveryMode,
+              ): TreeNode => {
+                  const nodeKeyId = namespaceId || 'public';
+                  const nsDataRef = {
+                      ...sourceConnection,
+                      nacosNamespaceId: namespaceId,
+                      nacosNamespaceName: showName,
+                      nacosConfigCount: Number.isFinite(configCount) ? configCount : 0,
+                      nacosNamespaceDiscoveryMode: discoveryMode,
+                  };
+                  return {
+                      title: showName,
+                      key: `${conn.id}-nacos-ns-${nodeKeyId}`,
+                      icon: <DatabaseOutlined style={{ color: '#2E6BE6' }} />,
+                      type: 'nacos-namespace',
+                      dataRef: nsDataRef,
+                      isLeaf: false,
+                      children: [
+                          {
+                              title: t('nacos_viewer.title.config_explorer'),
+                              key: `${conn.id}-nacos-ns-${nodeKeyId}-config`,
+                              icon: <DatabaseOutlined style={{ color: '#2E6BE6' }} />,
+                              type: 'nacos-config-entry',
+                              dataRef: nsDataRef,
+                              // Expand to load Group list.
+                              isLeaf: false,
+                          },
+                          {
+                              title: t('nacos_service.title.service_explorer'),
+                              key: `${conn.id}-nacos-ns-${nodeKeyId}-services`,
+                              icon: <CloudOutlined style={{ color: '#13C2C2' }} />,
+                              type: 'nacos-services-entry',
+                              dataRef: nsDataRef,
+                              isLeaf: false,
+                          },
+                      ],
+                  };
+              };
+              try {
+                  const res = await (window as any).go.app.App.NacosListNamespaces(buildRpcConnectionConfig(config));
+                  const currentConnection = resolveCurrentRequestConnection();
+                  if (!currentConnection) {
+                      return;
+                  }
+                  if (res.success) {
+                      const rows: any[] = Array.isArray(res.data) ? res.data : [];
+                      const namespaces = rows.map((ns: any) => {
+                          const namespaceId = String(ns.id ?? ns.ID ?? '');
+                          const showName = String(ns.showName || ns.ShowName || (namespaceId || 'public'));
+                          const configCount = Number(ns.configCount ?? ns.ConfigCount ?? 0);
+                          return buildNamespaceNode(
+                              currentConnection,
+                              namespaceId,
+                              showName,
+                              configCount,
+                              'listed',
+                          );
+                      });
+                      replaceTreeNodeChildren(node.key, namespaces, {
+                          ...currentConnection,
+                          nacosNamespaceDiscoveryMode: 'listed',
+                      });
+                      shouldMarkConnectionSuccess = true;
+                  } else {
+                      const errorCode = String(res?.data?.errorCode || '');
+                      const scope = resolveNacosConnectionScope(
+                          currentConnection.config.connectionParams,
+                      );
+                      if (
+                          errorCode === 'nacos_namespace_list_forbidden' &&
+                          scope.configured
+                      ) {
+                          const namespace = buildNamespaceNode(
+                              currentConnection,
+                              scope.requestNamespaceId,
+                              scope.namespaceId,
+                              0,
+                              'configured',
+                          );
+                          replaceTreeNodeChildren(node.key, [namespace], {
+                              ...currentConnection,
+                              nacosNamespaceDiscoveryMode: 'configured',
+                          });
+                          shouldMarkConnectionSuccess = true;
+                          message.warning({
+                              content: t('nacos.namespace.message.scoped_fallback', {
+                                  id: scope.namespaceId,
+                              }),
+                              key: `conn-${currentConnection.id}-nacos-ns`,
+                          });
+                      } else {
+                          setConnectionStates(prev => ({ ...prev, [currentConnection.id]: 'error' }));
+                          setLoadedKeys(prev => prev.filter(k => k !== node.key));
+                          message.error({
+                              content:
+                                  errorCode === 'nacos_namespace_list_forbidden'
+                                      ? t('nacos.namespace.message.scope_required')
+                                      : res.message,
+                              key: `conn-${currentConnection.id}-nacos-ns`,
+                          });
+                      }
+                  }
+              } catch (e: any) {
+                  const currentConnection = resolveCurrentRequestConnection();
+                  if (!currentConnection) {
+                      return;
+                  }
+                  setConnectionStates(prev => ({ ...prev, [currentConnection.id]: 'error' }));
+                  setLoadedKeys(prev => prev.filter(k => k !== node.key));
+                  message.error({
+                      content: t('sidebar.message.connection_failed', { error: e?.message || String(e) }),
+                      key: `conn-${currentConnection.id}-nacos-ns`,
+                  });
+              } finally {
+                  const activeRequest =
+                      nacosNamespaceActiveRequestsRef.current[conn.id];
+                  if (activeRequest?.requestId === requestId) {
+                      delete nacosNamespaceActiveRequestsRef.current[conn.id];
+                      loadingNodesRef.current.delete(loadKey);
+                      const currentConnection = resolveCurrentRequestConnection();
+                      if (shouldMarkConnectionSuccess) {
+                          if (currentConnection) {
+                              setConnectionStates(prev => ({
+                                  ...prev,
+                                  [currentConnection.id]: 'success',
+                              }));
+                          }
+                      }
                   }
               }
               return;
@@ -500,7 +711,7 @@ export const useSidebarTreeLoaders = ({
                 const tableStatsResult = tableStatusSql
                     ? await DBQuery(buildRpcConnectionConfig(config) as any, conn.dbName, tableStatusSql).catch(() => ({ success: false, data: [] as any[] }))
                     : { success: false, data: [] as any[] };
-                const tableMetadataMap = new Map<string, SidebarTableMetadataSnapshot & { schemaName?: string }>();
+                const tableMetadataMap = new Map<string, SidebarLoadedTableMetadata>();
                 const buildTableMetadataKeys = (rawTableName: string, rawSchemaName = ''): string[] => {
                     const tableName = String(rawTableName || '').trim();
                     if (!tableName) return [];
@@ -526,7 +737,7 @@ export const useSidebarTreeLoaders = ({
                 };
                 const mergeTableMetadata = (
                     rawTableName: string,
-                    patch: SidebarTableMetadataSnapshot & { schemaName?: string },
+                    patch: SidebarLoadedTableMetadata,
                     rawSchemaName = '',
                 ) => {
                     buildTableMetadataKeys(rawTableName, rawSchemaName).forEach((metadataKey) => {
@@ -534,6 +745,7 @@ export const useSidebarTreeLoaders = ({
                         tableMetadataMap.set(metadataKey, {
                             ...current,
                             ...(patch.schemaName ? { schemaName: patch.schemaName } : {}),
+                            ...(patch.partitionParentTableName ? { partitionParentTableName: patch.partitionParentTableName } : {}),
                             ...(patch.tableComment ? { tableComment: patch.tableComment } : {}),
                             ...(patch.rowCount !== undefined ? { rowCount: patch.rowCount } : {}),
                             ...(patch.tableSize !== undefined ? { tableSize: patch.tableSize } : {}),
@@ -558,6 +770,10 @@ export const useSidebarTreeLoaders = ({
                         ).trim();
                         if (!rawTableName) return;
                         const rawSchemaName = getCaseInsensitiveValue(row, ['schema_name', 'SCHEMA_NAME', 'owner', 'OWNER']);
+                        const partitionParentTableName = String(getCaseInsensitiveValue(row, [
+                            'partition_parent_table',
+                            'PARTITION_PARENT_TABLE',
+                        ]) || '').trim();
                         const tableComment = String(getCaseInsensitiveValue(row, [
                             'table_comment',
                             'TABLE_COMMENT',
@@ -596,6 +812,7 @@ export const useSidebarTreeLoaders = ({
                         ]));
                         mergeTableMetadata(rawTableName, {
                             schemaName: rawSchemaName ? String(rawSchemaName).trim() : undefined,
+                            ...(partitionParentTableName ? { partitionParentTableName } : {}),
                             ...(tableComment ? { tableComment } : {}),
                             ...(rowCount !== undefined ? { rowCount } : {}),
                             ...(tableSize !== undefined ? { tableSize } : {}),
@@ -610,7 +827,7 @@ export const useSidebarTreeLoaders = ({
                     const metadataKeys = buildTableMetadataKeys(tableName);
                     const resolvedMetadata = metadataKeys
                         .map((metadataKey) => tableMetadataMap.get(metadataKey))
-                        .find((value): value is SidebarTableMetadataSnapshot & { schemaName?: string } => !!value);
+                        .find((value): value is SidebarLoadedTableMetadata => !!value);
                     const rowSchemaName = getCaseInsensitiveValue(row, ['schema_name', 'SCHEMA_NAME', 'owner', 'OWNER']);
                     const mappedSchemaName = rowSchemaName
                         || resolvedMetadata?.schemaName
@@ -625,7 +842,7 @@ export const useSidebarTreeLoaders = ({
                     ]);
 	                return {
 	                    tableName,
-	                    schemaName: mappedSchemaName,
+	                    schemaName: String(mappedSchemaName || '').trim(),
 	                    displayName: getSidebarTableDisplayName(conn, tableName),
                         rowCount: parseMetadataRowCount(row) ?? resolvedMetadata?.rowCount,
                         tableSize: resolvedMetadata?.tableSize,
@@ -634,8 +851,9 @@ export const useSidebarTreeLoaders = ({
                         tableComment: rowComment
                             || resolvedMetadata?.tableComment
                             || '',
+	                    partitionParentTableName: resolvedMetadata?.partitionParentTableName,
 	                };
-	            });
+	            }) as SidebarLoadedTableEntry[];
 
 	            const [schemasResult, viewsResult, materializedViewsResult, triggersResult, routinesResult, sequencesResult, packagesResult, eventsResult] = await Promise.all([
 	                loadSchemas(conn, conn.dbName),
@@ -785,18 +1003,30 @@ export const useSidebarTreeLoaders = ({
 	            const currentTableSortPreference = currentStoreState.tableSortPreference || tableSortPreference;
 	            const currentTableAccessCount = currentStoreState.tableAccessCount || tableAccessCount;
 	            const currentPinnedSidebarTables = currentStoreState.pinnedSidebarTables || pinnedSidebarTables;
+	            // Metadata loading can overlap with a schema visibility save. Build partition
+	            // relationships from the newest visible table set so hidden schemas cannot leak
+	            // through a visible parent, and visible children do not disappear with a hidden parent.
+	            const latestConnection = useStore.getState().connections.find(
+	                (candidate) => candidate.id === conn.id,
+	            ) || conn;
+	            const latestDatabaseConnection = { ...latestConnection, dbName };
+	            const shouldGroupBySchema = shouldHideSchemaPrefix(latestDatabaseConnection as SavedConnection);
+	            const schemaVisibilityRule = getSchemaVisibilityRule(latestDatabaseConnection, dbName);
 
 	            // 获取当前数据库的排序偏好
 	            const sortPreferenceKey = `${conn.id}-${conn.dbName}`;
 	            const sortBy = currentTableSortPreference[sortPreferenceKey] || 'name';
 
-	            const sortedTableEntries = sortSidebarTableEntries(normalizedTableEntries, {
+	            const sortedTableEntries = groupSidebarPartitionTableEntries(sortSidebarTableEntries(normalizedTableEntries, {
 	                connectionId: conn.id,
 	                dbName: conn.dbName,
 	                sortBy,
 	                tableAccessCount: currentTableAccessCount,
 	                pinnedSidebarTables: isV2Ui ? currentPinnedSidebarTables : [],
-	            });
+	            }), {
+	                isEntryVisible: (entry) => !shouldGroupBySchema
+	                    || isSchemaVisible(schemaVisibilityRule, entry.schemaName),
+	            }) as SidebarLoadedTableEntry[];
 
 	            // Sort views by name (case-insensitive)
 	            viewEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
@@ -815,16 +1045,7 @@ export const useSidebarTreeLoaders = ({
 
 	            eventEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
-	            const buildTableNode = (entry: {
-	                tableName: string;
-	                schemaName: string;
-	                displayName: string;
-	                rowCount?: number;
-	                tableSize?: number;
-	                createdAt?: string;
-	                updatedAt?: string;
-	                tableComment?: string;
-	            }): TreeNode => {
+	            const buildTableNode = (entry: SidebarLoadedTableEntry): TreeNode => {
 	                const isPinned = isV2Ui && isSidebarTablePinned(
 	                    currentPinnedSidebarTables,
 	                    conn.id,
@@ -832,22 +1053,76 @@ export const useSidebarTreeLoaders = ({
 	                    entry.tableName,
 	                    entry.schemaName,
 	                );
+	                const nodeKey = `${conn.id}-${conn.dbName}-${entry.tableName}`;
+	                const tableDataRef = {
+	                    ...conn,
+	                    tableName: entry.tableName,
+	                    schemaName: entry.schemaName,
+	                    ...(entry.rowCount !== undefined ? { rowCount: entry.rowCount } : {}),
+                        tableSize: entry.tableSize,
+                        createdAt: entry.createdAt,
+                        updatedAt: entry.updatedAt,
+                        tableComment: entry.tableComment,
+	                    ...(isPinned ? { pinnedSidebarTable: true } : {}),
+	                };
+	                const partitionNodes = (entry.partitionTables || []).map(buildTableNode);
+	                const children: TreeNode[] | undefined = partitionNodes.length > 0
+	                    ? [
+	                        {
+	                            title: t('sidebar.table_folder.columns'),
+	                            key: `${nodeKey}-columns`,
+	                            icon: <UnorderedListOutlined />,
+	                            type: 'folder-columns',
+	                            isLeaf: true,
+	                            dataRef: tableDataRef,
+	                        },
+	                        {
+	                            title: t('sidebar.table_folder.indexes'),
+	                            key: `${nodeKey}-indexes`,
+	                            icon: <KeyOutlined style={{ transform: 'rotate(45deg)' }} />,
+	                            type: 'folder-indexes',
+	                            isLeaf: true,
+	                            dataRef: tableDataRef,
+	                        },
+	                        {
+	                            title: t('sidebar.table_folder.foreign_keys'),
+	                            key: `${nodeKey}-fks`,
+	                            icon: <LinkOutlined />,
+	                            type: 'folder-fks',
+	                            isLeaf: true,
+	                            dataRef: tableDataRef,
+	                        },
+	                        {
+	                            title: t('sidebar.table_folder.triggers'),
+	                            key: `${nodeKey}-triggers`,
+	                            icon: <ThunderboltOutlined />,
+	                            type: 'folder-triggers',
+	                            isLeaf: true,
+	                            dataRef: tableDataRef,
+	                        },
+	                        {
+	                            title: t('sidebar.table_folder.partitions'),
+	                            key: `${nodeKey}-partitions`,
+	                            icon: <FolderOpenOutlined />,
+	                            type: 'object-group',
+	                            isLeaf: false,
+	                            selectable: false,
+	                            children: partitionNodes,
+	                            dataRef: {
+	                                ...tableDataRef,
+	                                groupKey: 'partitions',
+	                                partitionCount: partitionNodes.length,
+	                            },
+	                        },
+	                    ]
+	                    : undefined;
 	                return {
 	                    title: entry.displayName,
-	                    key: `${conn.id}-${conn.dbName}-${entry.tableName}`,
+	                    key: nodeKey,
 	                    icon: <TableOutlined />,
 	                    type: 'table',
-	                    dataRef: {
-	                        ...conn,
-	                        tableName: entry.tableName,
-	                        schemaName: entry.schemaName,
-	                        rowCount: entry.rowCount,
-                            tableSize: entry.tableSize,
-                            createdAt: entry.createdAt,
-                            updatedAt: entry.updatedAt,
-                            tableComment: entry.tableComment,
-	                        ...(isPinned ? { pinnedSidebarTable: true } : {}),
-	                    },
+	                    dataRef: tableDataRef,
+	                    ...(children ? { children } : {}),
 	                    isLeaf: false,
 	                };
 	            };
@@ -955,13 +1230,6 @@ export const useSidebarTreeLoaders = ({
 	                };
 	            };
 
-	            // Metadata loading can overlap with a schema visibility save. Render with the
-	            // newest saved connection so an in-flight request cannot restore stale groups.
-	            const latestConnection = useStore.getState().connections.find(
-	                (candidate) => candidate.id === conn.id,
-	            ) || conn;
-	            const latestDatabaseConnection = { ...latestConnection, dbName };
-	            const shouldGroupBySchema = shouldHideSchemaPrefix(latestDatabaseConnection as SavedConnection);
 	            if (shouldGroupBySchema) {
 	                type SchemaBucket = {
 	                    schemaName: string;
@@ -1014,7 +1282,6 @@ export const useSidebarTreeLoaders = ({
 	                const includeSequences = supportsDatabaseSequences(conn as SavedConnection);
 	                const includeEvents = supportsDatabaseEvents(conn as SavedConnection);
 
-	                const schemaVisibilityRule = getSchemaVisibilityRule(latestDatabaseConnection, dbName);
 	                const schemaNodes: TreeNode[] = Array.from(schemaMap.values())
 	                    .filter((bucket) => !(isOracleLike && !bucket.schemaName))
 	                    .filter((bucket) => isSchemaVisible(schemaVisibilityRule, bucket.schemaName))
@@ -1090,9 +1357,160 @@ export const useSidebarTreeLoaders = ({
   };
 
 
+  const loadNacosConfigGroups = async (node: any) => {
+      const dataRef = node?.dataRef || {};
+      const connectionId = String(dataRef.id || '');
+      const namespaceId = String(dataRef.nacosNamespaceId ?? '');
+      const namespaceName = String(dataRef.nacosNamespaceName || namespaceId || 'public');
+      const nodeKeyId = namespaceId || 'public';
+      const loadKey = `nacos-groups-${connectionId}-${nodeKeyId}`;
+      if (!connectionId) return;
+      if (loadingNodesRef.current.has(loadKey)) return;
+      loadingNodesRef.current.add(loadKey);
+      try {
+          const res = await (window as any).go.app.App.NacosListConfigGroups(
+              buildRpcConnectionConfig(dataRef.config || {}),
+              namespaceId,
+          );
+          if (!res?.success) {
+              message.error({
+                  content: res?.message || t('sidebar.message.connection_failed', { error: 'list groups failed' }),
+                  key: loadKey,
+              });
+              setLoadedKeys((prev) => prev.filter((k) => k !== node.key));
+              return;
+          }
+          const groups: string[] = Array.isArray(res.data) ? res.data.map((g: any) => String(g || '').trim()).filter(Boolean) : [];
+          // Always offer "全部" so users can open the namespace without a group filter.
+          const allNode: TreeNode = {
+              title: t('nacos_viewer.label.all'),
+              key: `${connectionId}-nacos-ns-${nodeKeyId}-group-__all__`,
+              icon: <AppstoreOutlined style={{ color: '#2E6BE6' }} />,
+              type: 'nacos-config-group' as const,
+              dataRef: {
+                  ...dataRef,
+                  nacosNamespaceId: namespaceId,
+                  nacosNamespaceName: namespaceName,
+                  nacosGroup: '',
+                  nacosAllConfigs: true,
+              },
+              isLeaf: true,
+          };
+          const groupNodes: TreeNode[] = groups.map((group) => ({
+              title: group,
+              key: `${connectionId}-nacos-ns-${nodeKeyId}-group-${encodeURIComponent(group)}`,
+              icon: <FolderOpenOutlined style={{ color: '#2E6BE6' }} />,
+              type: 'nacos-config-group' as const,
+              dataRef: {
+                  ...dataRef,
+                  nacosNamespaceId: namespaceId,
+                  nacosNamespaceName: namespaceName,
+                  nacosGroup: group,
+                  nacosAllConfigs: false,
+              },
+              isLeaf: true,
+          }));
+          replaceTreeNodeChildren(node.key, [allNode, ...groupNodes], dataRef);
+          if (groups.length === 0) {
+              message.info({
+                  content: t('nacos_viewer.message.no_groups'),
+                  key: loadKey,
+              });
+          }
+      } catch (error: any) {
+          message.error({
+              content: t('sidebar.message.connection_failed', { error: error?.message || String(error) }),
+              key: loadKey,
+          });
+          setLoadedKeys((prev) => prev.filter((k) => k !== node.key));
+      } finally {
+          loadingNodesRef.current.delete(loadKey);
+      }
+  };
+
+  const loadNacosServiceGroups = async (
+      node: any,
+      options: { force?: boolean } = {},
+  ): Promise<boolean> => {
+      const dataRef = node?.dataRef || {};
+      const connectionId = String(dataRef.id || '');
+      const namespaceId = String(dataRef.nacosNamespaceId ?? '');
+      const namespaceName = String(dataRef.nacosNamespaceName || namespaceId || 'public');
+      const nodeKeyId = namespaceId || 'public';
+      const loadKey = `nacos-service-groups-${connectionId}-${nodeKeyId}`;
+      if (!connectionId) return false;
+      if (loadingNodesRef.current.has(loadKey) && !options.force) return false;
+      const requestId = (nacosServiceGroupRequestIdsRef.current[loadKey] || 0) + 1;
+      nacosServiceGroupRequestIdsRef.current[loadKey] = requestId;
+      loadingNodesRef.current.add(loadKey);
+      try {
+          const rpcConfig = buildRpcConnectionConfig(dataRef.config || {});
+          const groups = await collectNacosServiceGroupsByPage(async (pageNo, pageSize) => {
+              const res = await (window as any).go.app.App.NacosListServices(rpcConfig, {
+                  namespaceId,
+                  groupName: '',
+                  pageNo,
+                  pageSize,
+              });
+              if (!res?.success) {
+                  throw new Error(res?.message || 'list service groups failed');
+              }
+              return res.data || {};
+          });
+          if (nacosServiceGroupRequestIdsRef.current[loadKey] !== requestId) {
+              return false;
+          }
+
+          const allNode: TreeNode = {
+              title: t('nacos_viewer.label.all'),
+              key: `${connectionId}-nacos-ns-${nodeKeyId}-service-group-__all__`,
+              icon: <AppstoreOutlined style={{ color: '#13C2C2' }} />,
+              type: 'nacos-service-group',
+              dataRef: {
+                  ...dataRef,
+                  nacosNamespaceId: namespaceId,
+                  nacosNamespaceName: namespaceName,
+                  nacosGroup: '',
+              },
+              isLeaf: true,
+          };
+          const groupNodes: TreeNode[] = groups.map((group) => ({
+              title: group,
+              key: `${connectionId}-nacos-ns-${nodeKeyId}-service-group-${encodeURIComponent(group)}`,
+              icon: <FolderOpenOutlined style={{ color: '#13C2C2' }} />,
+              type: 'nacos-service-group',
+              dataRef: {
+                  ...dataRef,
+                  nacosNamespaceId: namespaceId,
+                  nacosNamespaceName: namespaceName,
+                  nacosGroup: group,
+              },
+              isLeaf: true,
+          }));
+          replaceTreeNodeChildren(node.key, [allNode, ...groupNodes], dataRef);
+          return true;
+      } catch (error: any) {
+          if (nacosServiceGroupRequestIdsRef.current[loadKey] !== requestId) {
+              return false;
+          }
+          message.error({
+              content: t('sidebar.message.connection_failed', { error: error?.message || String(error) }),
+              key: loadKey,
+          });
+          setLoadedKeys((prev) => prev.filter((k) => k !== node.key));
+          return false;
+      } finally {
+          if (nacosServiceGroupRequestIdsRef.current[loadKey] === requestId) {
+              loadingNodesRef.current.delete(loadKey);
+          }
+      }
+  };
+
   return {
       loadDatabases,
       loadJVMResources,
       loadTables,
+      loadNacosConfigGroups,
+      loadNacosServiceGroups,
   };
 };

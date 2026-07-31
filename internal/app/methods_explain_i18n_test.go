@@ -2,10 +2,8 @@ package app
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/shared/i18n"
@@ -63,81 +61,6 @@ func (db *fakeExplainDatabase) Explain(ctx context.Context, query string) (strin
 	return db.explainRaw, db.explainFormat, nil
 }
 
-func TestMethodsExplainAndQueryHistoryMessagesUseLocalizedText(t *testing.T) {
-	explainSourceBytes, err := os.ReadFile("methods_explain.go")
-	if err != nil {
-		t.Fatalf("read methods_explain.go: %v", err)
-	}
-	queryHistorySourceBytes, err := os.ReadFile("methods_query_history.go")
-	if err != nil {
-		t.Fatalf("read methods_query_history.go: %v", err)
-	}
-
-	explainSource := string(explainSourceBytes)
-	queryHistorySource := string(queryHistorySourceBytes)
-
-	checks := map[string]struct {
-		source      string
-		signature   string
-		rawMessages []string
-		keys        []string
-	}{
-		"DiagnoseQuery": {
-			source:    explainSource,
-			signature: "func (a *App) DiagnoseQuery",
-			rawMessages: []string{
-				`Message: "查询语句不能为空"`,
-				`Message: "诊断仅支持 SELECT / WITH 查询；写操作请使用 EXPLAIN PLAN 模式（PR2 支持）"`,
-				`fmt.Sprintf("当前数据源（%s）暂不支持 SQL 诊断；一期支持 MySQL/PostgreSQL/SQLite/ClickHouse/Oracle/SQLServer/OceanBase", dbType)`,
-				`Message: "诊断完成"`,
-			},
-			keys: []string{
-				"sql_analysis.backend.error.query_required",
-				"sql_analysis.backend.error.select_only",
-				"sql_analysis.backend.error.unsupported_db_type",
-				"sql_analysis.backend.message.completed",
-			},
-		},
-		"GetSlowQueries": {
-			source:    queryHistorySource,
-			signature: "func (a *App) GetSlowQueries",
-			rawMessages: []string{
-				`Message: "无法解析连接指纹"`,
-				`Message: "加载完成"`,
-			},
-			keys: []string{
-				"query_history.backend.error.connection_fingerprint_invalid",
-				"query_history.backend.message.loaded",
-			},
-		},
-		"ClearSlowQueries": {
-			source:    queryHistorySource,
-			signature: "func (a *App) ClearSlowQueries",
-			rawMessages: []string{
-				`Message: "无法解析连接指纹"`,
-				`Message: "已清空慢查询历史"`,
-			},
-			keys: []string{
-				"query_history.backend.error.connection_fingerprint_invalid",
-				"query_history.backend.message.cleared",
-			},
-		},
-	}
-
-	for name, check := range checks {
-		body := methodsExplainFunctionSource(t, check.source, check.signature)
-		for _, raw := range check.rawMessages {
-			if strings.Contains(body, raw) {
-				t.Fatalf("%s still contains raw user-visible text %q", name, raw)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(body, key) {
-				t.Fatalf("%s should reference localized key %q", name, key)
-			}
-		}
-	}
-}
 
 func TestMethodsExplainAndQueryHistoryCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

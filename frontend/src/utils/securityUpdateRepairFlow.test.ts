@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { t as translate } from '../i18n';
 import type { SavedConnection, SecurityUpdateIssue, SecurityUpdateStatus } from '../types';
@@ -87,13 +86,6 @@ describe('securityUpdateRepairFlow', () => {
       type: 'warning',
       message: 'The matching connection was not found. Check the latest status first.',
     });
-  });
-
-  it('keeps the connection-not-found warning out of production source literals', () => {
-    const source = readFileSync(new URL('./securityUpdateRepairFlow.ts', import.meta.url), 'utf8');
-
-    expect(source).not.toContain('未找到对应连接，请先重新检查最新状态');
-    expect(source).toContain('security_update.repair.warning.connection_not_found');
   });
 
   it('maps proxy, ai and retry actions to the expected repair entry', () => {

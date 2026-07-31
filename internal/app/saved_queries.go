@@ -740,7 +740,11 @@ func (r *savedQueryRepository) Import(payload connection.SavedQueryImportPayload
 	if err != nil {
 		return nil, err
 	}
-	existing := file.Queries
+	// 必须复制而不能直接引用 file.Queries：下面对 existing 的下标原地写会共享同一底层数组，
+	// 使 replaceQueries 拿到的「磁盘旧快照」也被改成新值，于是它比较 previous.SQL == query.SQL
+	// 时成立而跳过写盘——同 ID 同名条目的 SQL 更新会被静默丢弃（元数据已更新、.sql 文件仍是旧内容）。
+	// Save(716) 与 Rename(858) 都是这样复制的。
+	existing := append([]connection.SavedQuery(nil), file.Queries...)
 
 	byID := make(map[string]int, len(existing)+len(payload.Queries))
 	for index, item := range existing {

@@ -4,7 +4,6 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -20,51 +19,6 @@ func baseRunSyncI18nConfig() SyncConfig {
 	}
 }
 
-func TestSyncEngineUsesLocalizedProgressAndFailureSourceGuard(t *testing.T) {
-	sourceBytes, err := os.ReadFile("sync_engine.go")
-	if err != nil {
-		t.Fatalf("read sync_engine.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	legacyMessages := []string{
-		`"开始同步"`,
-		`"连接源数据库"`,
-		`"连接目标数据库"`,
-		`fmt.Sprintf("同步表(%d/%d)", i+1, totalTables)`,
-		`"表处理完成"`,
-		`"同步完成"`,
-		`"同步失败"`,
-		`"初始化源数据库驱动失败: "+err.Error()`,
-		`"初始化目标数据库驱动失败: "+err.Error()`,
-		`"源数据库连接失败: "+err.Error()`,
-		`"目标数据库连接失败: "+err.Error()`,
-	}
-	for _, legacy := range legacyMessages {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("sync_engine.go still contains legacy raw user-visible message %q", legacy)
-		}
-	}
-
-	requiredKeys := []string{
-		"data_sync.progress.stage.sync_started",
-		"data_sync.progress.stage.connecting_source",
-		"data_sync.progress.stage.connecting_target",
-		"data_sync.progress.stage.syncing_table",
-		"data_sync.progress.stage.table_completed",
-		"data_sync.progress.stage.completed",
-		"data_sync.progress.stage.failed",
-		"data_sync.backend.error.init_source_driver_failed",
-		"data_sync.backend.error.init_target_driver_failed",
-		"data_sync.backend.error.connect_source_failed",
-		"data_sync.backend.error.connect_target_failed",
-	}
-	for _, key := range requiredKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("sync_engine.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestSyncEngineProgressAndFailureCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

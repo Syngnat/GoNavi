@@ -1,0 +1,177 @@
+name: Bug Report (English)
+description: Report a reproducible problem and provide the environment and data source details needed to investigate it
+title: "[Bug] "
+labels: ["bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Please provide as much of the information below as possible. Missing data source, version, or reproduction details may prevent maintainers from investigating the issue.
+
+        **Do not include passwords, tokens, complete connection strings, private keys, or screenshots and logs containing business data.**
+
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find a duplicate
+          required: true
+        - label: I removed or redacted passwords, tokens, connection strings, private keys, and business data
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      description: Select the area that most closely matches where the problem occurs
+      options:
+        - Data source connection, authentication, or network
+        - Database, schema, table, view, index, or other object management
+        - SQL editing, execution, or result sets
+        - Table data browsing or editing
+        - Redis, MongoDB, messaging, vector, or search data
+        - Import, export, or backup
+        - SSH, proxy, or tunnel
+        - Driver or Driver Agent
+        - AI, MCP, or Agent
+        - Installation, update, or startup
+        - User interface, interaction, or local settings
+        - Performance, freezing, or crash
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: GoNavi version
+      description: Enter the full version shown on the About page; include the commit for a development build
+      placeholder: "For example: v0.9.0 / dev build (commit abc1234)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation or run method
+      options:
+        - GitHub Release installer
+        - GitHub Release portable build or archive
+        - Source development mode
+        - Self-built binary
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: Operating system and version
+      description: Include both the operating system version and CPU architecture
+      placeholder: "For example: Windows 11 24H2 x64 / macOS 15.5 arm64 / Ubuntu 24.04 x64"
+    validations:
+      required: true
+
+  - type: input
+    id: datasource
+    attributes:
+      label: Data source type and version
+      description: For data source issues, include the type, server version, and compatibility mode; otherwise enter "Not applicable"
+      placeholder: "For example: MySQL 8.0.36 / OceanBase 4.3 (MySQL mode) / Redis 7.2 Cluster"
+    validations:
+      required: true
+
+  - type: input
+    id: datasource_environment
+    attributes:
+      label: Data source deployment
+      description: Include standalone, primary-replica, cluster, cloud, or Docker details, plus any Driver Agent or custom driver version
+      placeholder: "For example: Docker standalone / Redis Cluster with 3 primaries and 3 replicas / Amazon RDS"
+
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection method
+      description: Multiple selections are allowed; select "Not applicable" when the issue is unrelated to a data source
+      multiple: true
+      options:
+        - Direct connection
+        - SSH tunnel
+        - HTTP tunnel
+        - System or custom proxy
+        - TLS/SSL
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem description
+      description: Describe the page, object, or operation involved, and whether the problem is consistent or intermittent
+      placeholder: |
+        Where does the problem occur?
+        What object is involved (database, schema, table, index, key, and so on)?
+        Does it happen every time or only occasionally?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction steps
+      description: Starting from launching GoNavi or connecting to the data source, list the smallest repeatable sequence of actions
+      placeholder: |
+        1. Connect to ...
+        2. Open ...
+        3. Click or run ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: Describe the correct result you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste the complete error text when available; do not only write "error" or attach an error screenshot
+      placeholder: Describe the actual result and include the complete error text
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant logs from immediately before and after the problem; redact sensitive information first
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Drag in screenshots or recordings after hiding connection details, account information, and business data
+      placeholder: Optional
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: You may include comparison results from another client using the same data source or any temporary workaround
+      placeholder: Optional
+
+  - type: checkboxes
+    id: pr
+    attributes:
+      label: Are you willing to submit a PR for this issue?
+      options:
+        - label: I am willing to try submitting a PR

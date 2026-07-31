@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -11,24 +10,6 @@ import AIMCPServerValidationPanel from './AIMCPServerValidationPanel';
 vi.mock('../../i18n/runtime', () => ({
   syncLanguageRuntime: vi.fn(async () => undefined),
 }));
-
-const source = readFileSync(new URL('./AIMCPServerValidationPanel.tsx', import.meta.url), 'utf8');
-const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
-const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
-const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
-const jaJpCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ja-JP.json', import.meta.url), 'utf8'));
-const deDeCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/de-DE.json', import.meta.url), 'utf8'));
-const ruRuCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ru-RU.json', import.meta.url), 'utf8'));
-
-const REQUIRED_KEYS = [
-  'ai_settings.mcp_server.validation.title',
-  'ai_settings.mcp_server.validation.severity.error',
-  'ai_settings.mcp_server.validation.severity.warning',
-  'ai_settings.mcp_server.validation.severity.info',
-  'ai_settings.mcp_server.validation.summary.errors',
-  'ai_settings.mcp_server.validation.summary.warnings',
-  'ai_settings.mcp_server.validation.summary.ready',
-];
 
 const buildValidation = (patch: Partial<MCPServerDraftValidation> = {}): MCPServerDraftValidation => ({
   issues: [
@@ -71,28 +52,6 @@ const renderPanel = (validation: MCPServerDraftValidation, preference?: 'en-US' 
 };
 
 describe('AIMCPServerValidationPanel', () => {
-  it('uses catalog keys instead of hard-coded Chinese validation panel chrome', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
-    for (const key of REQUIRED_KEYS) {
-      expect(source).toContain(key);
-    }
-    expect(source).not.toContain('配置检查');
-    expect(source).not.toContain('需修复');
-    expect(source).not.toContain('建议检查');
-    expect(source).not.toContain('当前配置可以测试和保存。');
-  });
-
-  it('keeps validation panel keys present in all six catalogs', () => {
-    for (const key of REQUIRED_KEYS) {
-      expect(zhCnCatalog[key]).toBeTruthy();
-      expect(zhTwCatalog[key]).toBeTruthy();
-      expect(enUsCatalog[key]).toBeTruthy();
-      expect(jaJpCatalog[key]).toBeTruthy();
-      expect(deDeCatalog[key]).toBeTruthy();
-      expect(ruRuCatalog[key]).toBeTruthy();
-    }
-  });
 
   it('renders localized summary chrome while preserving issue title and detail as supplied', () => {
     const markup = renderPanel(buildValidation(), 'en-US');

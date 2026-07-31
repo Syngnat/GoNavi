@@ -52,8 +52,8 @@ base_ref="$(git rev-parse HEAD)"
   git add tools/package-driver-release-assets.py
   git -c user.name=GoNavi -c user.email=gonavi@example.test commit -q -m 'packaging change'
   actual="$(bash ./tools/should-force-global-driver-builds.sh --base "$base_ref" --head HEAD)"
-  if [[ "$actual" != "true" ]]; then
-    echo "expected packaging change to force global driver builds, got: ${actual:-<empty>}" >&2
+  if [[ "$actual" != "false" ]]; then
+    echo "expected packaging-only change not to force global driver builds, got: ${actual:-<empty>}" >&2
     exit 1
   fi
 )
@@ -65,8 +65,8 @@ base_ref="$(git rev-parse HEAD)"
   git add tools/validate-driver-release-assets.py
   git -c user.name=GoNavi -c user.email=gonavi@example.test commit -q -m 'release asset validation change'
   actual="$(bash ./tools/should-force-global-driver-builds.sh --base "$base_ref" --head HEAD)"
-  if [[ "$actual" != "true" ]]; then
-    echo "expected release asset validation change to force global driver builds, got: ${actual:-<empty>}" >&2
+  if [[ "$actual" != "false" ]]; then
+    echo "expected release asset validation-only change not to force global driver builds, got: ${actual:-<empty>}" >&2
     exit 1
   fi
 )

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -13,6 +14,20 @@ import urllib.request
 COMMIT_LINK_RE = re.compile(r"/commit/([0-9a-f]{40})(?:\b|/)")
 FULL_SHA_RE = re.compile(r"\b([0-9a-f]{40})\b")
 MANIFEST_ASSET_NAME = "GoNavi-DriverAgents-Manifest.json"
+
+# GitHub API 偶发 5xx 会让 base 解析失败并退化为全量驱动重建，这里做有限退避重试。
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 3
+
+
+def _sleep_before_retry(reason, attempt):
+    wait = RETRY_BACKOFF_SECONDS * attempt
+    print(
+        f"warning: transient GitHub API failure ({reason}); "
+        f"retry {attempt}/{RETRY_ATTEMPTS - 1} in {wait}s",
+        file=sys.stderr,
+    )
+    time.sleep(wait)
 
 
 def github_headers():
@@ -28,17 +43,39 @@ def github_headers():
 
 def fetch_json(url):
     request = urllib.request.Request(url, headers=github_headers())
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == RETRY_ATTEMPTS:
+                raise
+            _sleep_before_retry(f"HTTP {exc.code}", attempt)
+        except urllib.error.URLError as exc:
+            if attempt == RETRY_ATTEMPTS:
+                raise
+            _sleep_before_retry(exc.reason, attempt)
 
 
 def download_asset(asset, destination):
     headers = github_headers()
     headers["Accept"] = "application/octet-stream"
     request = urllib.request.Request(asset["url"], headers=headers)
-    with urllib.request.urlopen(request, timeout=120) as response:
-        with open(destination, "wb") as output:
-            output.write(response.read())
+    for attempt in range(1, RETRY_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                payload = response.read()
+            with open(destination, "wb") as output:
+                output.write(payload)
+            return
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 or attempt == RETRY_ATTEMPTS:
+                raise
+            _sleep_before_retry(exc.code, attempt)
+        except urllib.error.URLError as exc:
+            if attempt == RETRY_ATTEMPTS:
+                raise
+            _sleep_before_retry(exc.reason, attempt)
 
 
 def load_release(repo, tag):

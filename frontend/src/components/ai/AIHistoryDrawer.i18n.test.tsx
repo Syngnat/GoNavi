@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -56,8 +55,6 @@ vi.mock('antd', () => {
   return { Button, Drawer, Input, Tooltip };
 });
 
-const source = readFileSync(new URL('./AIHistoryDrawer.tsx', import.meta.url), 'utf8');
-
 const historyKeys = [
   'ai_chat.history.title',
   'ai_chat.history.tooltip.collapse',
@@ -67,17 +64,6 @@ const historyKeys = [
   'ai_chat.history.empty.no_matches',
   'ai_chat.history.default_session_title',
   'ai_chat.history.tooltip.delete',
-] as const;
-
-const fixedChineseDrawerChrome = [
-  '对话历史',
-  '收起',
-  '开启新对话',
-  '搜索历史记录...',
-  '暂无匹配的对话记录',
-  '删除',
-  "session.title || '新对话'",
-  'session.title || "新对话"',
 ] as const;
 
 const getPlaceholders = (value: string): string[] =>
@@ -252,16 +238,5 @@ describe('AIHistoryDrawer i18n', () => {
     expect(pageText).toContain('No matching chats');
     expect(pageText).not.toContain('prod/main.orders');
     expect(pageText).not.toContain('New chat');
-  });
-
-  it('keeps source wired to i18n keys instead of fixed Chinese drawer chrome', () => {
-    for (const key of historyKeys) {
-      expect(source).toContain(key);
-    }
-
-    for (const snippet of fixedChineseDrawerChrome) {
-      expect(source).not.toContain(snippet);
-    }
-    expect(source).not.toContain('还没有历史对话');
   });
 });

@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 func methodsDriverSource(t *testing.T) string {
@@ -22,6 +24,19 @@ func methodsDriverSource(t *testing.T) string {
 		parts = append(parts, string(content))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func installFakeOptionalDriverRuntime(t *testing.T) {
+	t.Helper()
+
+	originalDriverRuntimeSupportStatusFunc := driverRuntimeSupportStatusFunc
+	originalVerifyDriverAgentRevisionFunc := verifyDriverAgentRevisionFunc
+	driverRuntimeSupportStatusFunc = func(string) (bool, string) { return true, "" }
+	verifyDriverAgentRevisionFunc = func(connection.ConnectionConfig) error { return nil }
+	t.Cleanup(func() {
+		driverRuntimeSupportStatusFunc = originalDriverRuntimeSupportStatusFunc
+		verifyDriverAgentRevisionFunc = originalVerifyDriverAgentRevisionFunc
+	})
 }
 
 func disableGlobalProxyForTest(t *testing.T) {

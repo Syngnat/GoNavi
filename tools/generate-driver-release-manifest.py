@@ -9,7 +9,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
+
+
+METADATA_PROBE_ATTEMPTS = 3
 
 
 def parse_args():
@@ -156,17 +160,22 @@ def resolve_host_platform():
     return f"{goos}/{goarch}"
 
 
-def probe_agent_metadata(asset_path: Path):
+def probe_agent_metadata_once(asset_path: Path):
     if os.name != "nt":
         os.chmod(asset_path, asset_path.stat().st_mode | 0o111)
-    proc = subprocess.run(
-        [str(asset_path)],
-        input='{"id":1,"method":"metadata"}\n',
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        timeout=30,
-    )
+    try:
+        proc = subprocess.run(
+            [str(asset_path)],
+            input='{"id":1,"method":"metadata"}\n',
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{asset_path.name}: metadata probe timed out after 30 seconds") from exc
+    except OSError as exc:
+        raise RuntimeError(f"{asset_path.name}: metadata probe failed to start: {exc}") from exc
     if proc.returncode != 0:
         detail = proc.stderr.strip() or f"exit code {proc.returncode}"
         raise RuntimeError(f"{asset_path.name}: metadata probe failed: {detail}")
@@ -186,6 +195,64 @@ def probe_agent_metadata(asset_path: Path):
     if not driver_type or not revision:
         raise RuntimeError(f"{asset_path.name}: metadata response is missing driverType or agentRevision")
     return driver_type, revision
+
+
+def probe_upx_unpacked_metadata(asset_path: Path):
+    upx = shutil.which("upx")
+    if not upx:
+        return None
+
+    tested = subprocess.run(
+        [upx, "-t", str(asset_path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if tested.returncode != 0:
+        return None
+
+    with tempfile.TemporaryDirectory(prefix="gonavi-driver-agent-unpacked-") as tmp:
+        unpacked_path = Path(tmp) / asset_path.name
+        shutil.copy2(asset_path, unpacked_path)
+        unpacked = subprocess.run(
+            [upx, "-d", str(unpacked_path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if unpacked.returncode != 0:
+            detail = unpacked.stderr.strip() or f"exit code {unpacked.returncode}"
+            print(f"{asset_path.name}: UPX unpack fallback failed: {detail}", file=sys.stderr)
+            return None
+        try:
+            metadata = probe_agent_metadata_once(unpacked_path)
+        except RuntimeError as exc:
+            print(f"{asset_path.name}: unpacked metadata probe failed: {exc}", file=sys.stderr)
+            return None
+
+    print(f"{asset_path.name}: metadata probe recovered from an unpacked UPX copy", file=sys.stderr)
+    return metadata
+
+
+def probe_agent_metadata(asset_path: Path):
+    last_error = None
+    for attempt in range(1, METADATA_PROBE_ATTEMPTS + 1):
+        try:
+            return probe_agent_metadata_once(asset_path)
+        except RuntimeError as exc:
+            last_error = exc
+            print(
+                f"{asset_path.name}: metadata probe attempt "
+                f"{attempt}/{METADATA_PROBE_ATTEMPTS} failed: {exc}",
+                file=sys.stderr,
+            )
+            if attempt < METADATA_PROBE_ATTEMPTS:
+                time.sleep(attempt)
+
+    unpacked_metadata = probe_upx_unpacked_metadata(asset_path)
+    if unpacked_metadata is not None:
+        return unpacked_metadata
+    raise last_error
 
 
 def load_asset_provenance(paths):

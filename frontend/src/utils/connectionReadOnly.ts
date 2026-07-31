@@ -65,6 +65,11 @@ const CONNECTION_READ_ONLY_TYPES = new Set([
   "mongodb",
 ]);
 
+const CONNECTION_PROTECTION_TYPES = new Set([
+  ...CONNECTION_READ_ONLY_TYPES,
+  "nacos",
+]);
+
 export const MAX_CONNECTION_KEEPALIVE_SQL_LENGTH = 4096;
 
 const SQL_READ_ONLY_KEYWORDS = new Set([
@@ -446,7 +451,7 @@ export const isSingleReadOnlyConnectionQuery = (
 export const supportsConnectionReadOnlyMode = (
   config: ConnectionReadOnlyLike,
 ): boolean => {
-  return CONNECTION_READ_ONLY_TYPES.has(resolveConnectionReadOnlyType(config));
+  return CONNECTION_PROTECTION_TYPES.has(resolveConnectionReadOnlyType(config));
 };
 
 export const normalizeConnectionProtectionConfig = (

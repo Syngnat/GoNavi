@@ -16,20 +16,17 @@ export type StartupWindowBounds = {
 const MIN_STARTUP_WIDTH = 900;
 const MIN_STARTUP_HEIGHT = 600;
 
-/**
- * 工作区覆盖率低于该阈值时，视为「半窗 / 默认小窗」记忆，Windows 启动改走最大化。
- * 84%×84% 居中默认窗的面积比约为 0.706，会被捕获；用户刻意拉大的普通窗通常更高。
- */
-export const WINDOWS_STARTUP_MAXIMISE_AREA_RATIO = 0.78;
-
-/** Align with historical main.go Width/Height defaults that look half-open on modern screens. */
-const LEGACY_DEFAULT_WIDTH = 1024;
-const LEGACY_DEFAULT_HEIGHT = 768;
+export type StartupWindowRestoreMode = 'normal' | 'maximised';
 
 /**
- * Resolve a usable first-launch window when no persisted bounds exist.
- * Windows defaults to top-left 1024x768 which looks "half open" on modern screens.
+ * The explicit startup preference is authoritative. A disabled preference must
+ * not be overridden by a previously maximised window or a size heuristic.
  */
+export const resolveStartupWindowRestoreMode = (
+  startupMaximised: boolean,
+): StartupWindowRestoreMode => startupMaximised ? 'maximised' : 'normal';
+
+/** Resolve a centered normal window when no persisted bounds exist. */
 export const resolveDefaultStartupWindowBounds = (
   viewport: StartupVisibleViewport,
 ): StartupWindowBounds => {
@@ -62,7 +59,7 @@ export const resolveDefaultStartupWindowBounds = (
 
 /**
  * Fill the OS work area (taskbar excluded). Used when Maximise API fails on Windows
- * so the shell still looks "full" instead of lingering at 1024×768 / 84% floating.
+ * so the shell still looks full instead of lingering in a normal window.
  */
 export const resolveWorkAreaFillWindowBounds = (
   viewport: StartupVisibleViewport,
@@ -84,41 +81,9 @@ export const resolveWorkAreaFillWindowBounds = (
   };
 };
 
-/**
- * Decide whether Windows cold-start should prefer maximise over restoring bounds.
- * - 无记忆 / 非法尺寸 → 最大化
- * - 仍像旧默认 1024×768 → 最大化
- * - 覆盖工作区面积过低（含历史 84% 居中默认窗）→ 最大化
- */
-export const shouldPreferWindowsStartupMaximise = (
-  bounds: StartupWindowBounds | null | undefined,
-  viewport: StartupVisibleViewport,
-): boolean => {
-  if (!bounds) {
-    return true;
-  }
-  const width = Math.trunc(Number(bounds.width) || 0);
-  const height = Math.trunc(Number(bounds.height) || 0);
-  if (width < 400 || height < 300) {
-    return true;
-  }
-  if (width <= LEGACY_DEFAULT_WIDTH && height <= LEGACY_DEFAULT_HEIGHT) {
-    return true;
-  }
-
-  const availWidth = Math.max(0, Math.trunc(Number(viewport.availWidth) || 0));
-  const availHeight = Math.max(0, Math.trunc(Number(viewport.availHeight) || 0));
-  if (availWidth <= 0 || availHeight <= 0) {
-    return false;
-  }
-
-  const areaRatio = (width * height) / (availWidth * availHeight);
-  return areaRatio < WINDOWS_STARTUP_MAXIMISE_AREA_RATIO;
-};
-
 let startupWindowRestorePendingUntil = 0;
 
-/** Mark a short grace window while startup maximise/fullscreen is still settling. */
+/** Mark a short grace window while startup window restoration is still settling. */
 export const markStartupWindowRestorePending = (durationMs = 2800): void => {
   const duration = Math.max(0, Math.trunc(Number(durationMs) || 0));
   startupWindowRestorePendingUntil = Date.now() + duration;

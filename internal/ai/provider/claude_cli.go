@@ -137,7 +137,7 @@ func CheckClaudeCLILocalAuth(ctx context.Context) error {
 	defer cancel()
 
 	args := append(buildClaudeCLILocalAuthIsolationArgs(), "auth", "status", "--json")
-	cmd := claudeCommandContext(ctx, command.Path, args...)
+	cmd := newClaudeCLICommand(ctx, command.Path, args...)
 	env, err := buildClaudeCLIEnv(ai.ProviderConfig{AuthMode: "local-cli"}, cmd.Environ(), runtime.GOOS, claudeLookPath, fileExists)
 	if err != nil {
 		return err
@@ -224,7 +224,7 @@ func (p *ClaudeCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.C
 	if err != nil {
 		return nil, err
 	}
-	cmd := claudeCommandContext(ctx, command.Path, args...)
+	cmd := newClaudeCLICommand(ctx, command.Path, args...)
 	if err := p.setEnv(cmd); err != nil {
 		return nil, err
 	}
@@ -301,7 +301,7 @@ func (p *ClaudeCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 	if err != nil {
 		return err
 	}
-	cmd := claudeCommandContext(ctx, command.Path, args...)
+	cmd := newClaudeCLICommand(ctx, command.Path, args...)
 	if err := p.setEnv(cmd); err != nil {
 		return err
 	}
@@ -467,6 +467,12 @@ func isClaudeCLITimeout(ctx context.Context, err error) bool {
 		return false
 	}
 	return errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func newClaudeCLICommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	cmd := claudeCommandContext(ctx, name, args...)
+	configureClaudeCLICommand(cmd)
+	return cmd
 }
 
 func claudeCLIEndpointForLog(config ai.ProviderConfig) string {

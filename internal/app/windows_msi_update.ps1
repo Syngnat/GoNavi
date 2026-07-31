@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $Source = $env:GONAVI_UPDATE_SOURCE
 $Target = $env:GONAVI_UPDATE_TARGET
+$UpdatesDir = $env:GONAVI_UPDATE_ROOT_DIR
 $StagedDir = $env:GONAVI_UPDATE_STAGED_DIR
 $LogPath = $env:GONAVI_UPDATE_LOG_PATH
 $MSILogPath = $env:GONAVI_UPDATE_MSI_LOG_PATH
@@ -73,7 +74,7 @@ function Remove-UpdateArtifact {
 }
 
 try {
-    foreach ($requiredPath in @($Source, $Target, $StagedDir, $LogPath, $MSILogPath, $MSIExecPath, $MaintenanceEventName, $HandoffEventName)) {
+    foreach ($requiredPath in @($Source, $Target, $UpdatesDir, $StagedDir, $LogPath, $MSILogPath, $MSIExecPath, $MaintenanceEventName, $HandoffEventName)) {
         if ([string]::IsNullOrWhiteSpace($requiredPath)) {
             throw 'missing required MSI updater path'
         }
@@ -167,7 +168,7 @@ try {
     Remove-UpdateArtifact $Source
     Write-UpdateLog 'MSI update finished'
 
-    $CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_STAGED_DIR -Recurse -Force -ErrorAction SilentlyContinue'
+    $CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR -Recurse -Force -ErrorAction SilentlyContinue'
     $EncodedCleanupCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($CleanupCommand))
     $CleanupWorkingDirectory = [IO.Path]::GetTempPath()
     try {

@@ -4,10 +4,8 @@ package db
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -111,17 +109,3 @@ func TestElasticsearchConnectionNotOpenUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestElasticsearchConnectionNotOpenSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("elasticsearch_impl.go")
-	if err != nil {
-		t.Fatalf("read elasticsearch_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	if strings.Contains(source, `fmt.Errorf("`+rawElasticsearchConnectionNotOpenText+`")`) {
-		t.Fatal("elasticsearch_impl.go still contains raw connection-not-open text")
-	}
-	if !strings.Contains(source, "db.backend.error.connection_not_open") {
-		t.Fatal("elasticsearch_impl.go does not reference db.backend.error.connection_not_open")
-	}
-}

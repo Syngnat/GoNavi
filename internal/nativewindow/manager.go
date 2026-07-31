@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ import (
 
 const (
 	envParentURL = "GONAVI_DETACHED_PARENT_URL"
+	envParentPID = "GONAVI_DETACHED_PARENT_PID"
 	envToken     = "GONAVI_DETACHED_TOKEN"
 	envWindowID  = "GONAVI_DETACHED_WINDOW_ID"
 	envKind      = "GONAVI_DETACHED_KIND"
@@ -754,6 +756,7 @@ func (m *Manager) processSpecLocked(request OpenRequest) processSpec {
 	env := filterDetachedChildEnvironment(os.Environ())
 	values := map[string]string{
 		envParentURL: m.endpoint,
+		envParentPID: strconv.Itoa(os.Getpid()),
 		envToken:     m.token,
 		envWindowID:  request.ID,
 		envKind:      request.Kind,

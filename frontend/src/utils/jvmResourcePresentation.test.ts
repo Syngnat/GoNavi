@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -71,20 +70,6 @@ describe("jvmResourcePresentation", () => {
       "custom-state",
     );
     expect(resolveJVMAuditResultColor("warning")).toBe("gold");
-  });
-
-  it("keeps built-in action fallback copy in catalog instead of source literals", () => {
-    const source = readFileSync(
-      new URL("./jvmResourcePresentation.ts", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("jvm_resource.presentation.action.");
-    expect(source).not.toMatch(
-      /设置属性|更新当前资源暴露|调用操作|写入资源|清空资源|驱逐缓存|删除条目|删除资源|刷新资源|重新加载|重置状态/,
-    );
-    expect(source).toContain("jvm_resource.presentation.audit_result.");
-    expect(source).not.toMatch(/已执行|成功|警告|已阻断|失败/);
   });
 
   it("uses json mode for structured snapshots", () => {

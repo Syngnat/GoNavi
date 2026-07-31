@@ -102,7 +102,14 @@ func (g *GaussDB) getDSN(config connection.ConnectionConfig) string {
 	return u.String()
 }
 
-func (g *GaussDB) Connect(config connection.ConnectionConfig) error {
+func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = g.Close()
+	defer func() {
+		if err != nil {
+			_ = g.Close()
+		}
+	}()
+
 	if supported, reason := DriverRuntimeSupportStatus("gaussdb"); !supported {
 		if strings.TrimSpace(reason) == "" {
 			reason = localizedDriverRuntimeText("driver_manager.backend.status.optional_disabled", map[string]any{"name": "GaussDB"})
@@ -113,25 +120,10 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) error {
 	runConfig := applyGaussDBURI(config)
 	g.pingTimeout = getConnectTimeout(runConfig)
 
-	cleanupOnFailure := true
-	defer func() {
-		if !cleanupOnFailure {
-			return
-		}
-		if g.conn != nil {
-			_ = g.conn.Close()
-			g.conn = nil
-		}
-		if g.forwarder != nil {
-			_ = g.forwarder.Close()
-			g.forwarder = nil
-		}
-	}()
-
 	if runConfig.UseSSH {
 		logger.Infof("GaussDB 使用 SSH 连接：地址=%s:%d 用户=%s", runConfig.Host, runConfig.Port, runConfig.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -198,7 +190,6 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) error {
 
 			g.ensureSearchPath(dsn)
 
-			cleanupOnFailure = false
 			return nil
 		}
 	}

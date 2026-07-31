@@ -1,23 +1,6 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { validateMCPServerDraft } from './mcpServerValidation';
-
-const source = readFileSync(new URL('./mcpServerValidation.ts', import.meta.url), 'utf8');
-
-const ISSUE_KEYS = [
-  'name_missing',
-  'transport_unsupported',
-  'command_missing',
-  'command_whole_line',
-  'args_missing_for_launcher',
-  'docker_run_missing',
-  'docker_interactive_missing',
-  'docker_image_missing',
-  'args_contain_env_or_shell_glue',
-  'timeout_out_of_range',
-  'env_invalid_lines',
-];
 
 describe('mcpServerValidation', () => {
   it('blocks testing and saving when required MCP launch fields are invalid', () => {
@@ -135,15 +118,5 @@ describe('mcpServerValidation', () => {
     expect(envIssue?.title).toBe('标题:ai_settings.mcp_server.validation.issue.env_invalid_lines.title');
     expect(envIssue?.detail).toBe('详情:1:export GITHUB_TOKEN=abc');
     expect(seen.map((entry) => entry.key)).toContain('ai_settings.mcp_server.validation.issue.env_invalid_lines.detail');
-  });
-
-  it('keeps MCP validation issue copy out of production Chinese literals', () => {
-    for (const key of ISSUE_KEYS) {
-      expect(source).toContain(`ai_settings.mcp_server.validation.issue.${key}.title`);
-      expect(source).toContain(`ai_settings.mcp_server.validation.issue.${key}.detail`);
-    }
-    expect(source).not.toContain('服务名称为空');
-    expect(source).not.toContain('启动命令未填写');
-    expect(source).not.toContain('环境变量存在无效行');
   });
 });

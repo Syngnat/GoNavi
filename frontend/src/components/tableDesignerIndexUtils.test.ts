@@ -4,6 +4,7 @@ import { buildIndexCreateSqlPreview } from './tableDesignerIndexSql';
 import {
   hasIndexFormChanged,
   normalizeIndexFormFromRow,
+  resolveIndexMetadataResponse,
   shouldRestoreOriginalIndex,
   toggleIndexSelection,
   type IndexDisplaySnapshot,
@@ -113,6 +114,26 @@ describe('tableDesignerIndexUtils', () => {
 
     selected = toggleIndexSelection(selected, 'idx_user_name');
     expect(selected).toEqual([]);
+  });
+
+  it('keeps index metadata failures distinguishable from a successful empty list', () => {
+    expect(resolveIndexMetadataResponse({
+      success: false,
+      data: null,
+      message: 'invalid column name OWNER',
+    })).toEqual({
+      indexes: [],
+      errorDetail: 'invalid column name OWNER',
+    });
+
+    expect(resolveIndexMetadataResponse({
+      success: true,
+      data: [],
+      message: '',
+    })).toEqual({
+      indexes: [],
+      errorDetail: null,
+    });
   });
 
   it('only restores original index when create step fails after drop step', () => {

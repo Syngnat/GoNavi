@@ -111,6 +111,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.layoutKind.file": "文件型数据库",
     "connection.modal.layoutKind.custom": "自定义连接",
     "connection.modal.layoutKind.jvm": "JVM 运行时",
+    "connection.modal.layoutKind.nacos": "Nacos 配置中心",
     "connection.modal.layoutKind.genericSql": "标准 SQL",
     "connection.modal.section.identity.title": "基础身份",
     "connection.modal.section.identity.description":
@@ -984,6 +985,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.layoutKind.file": "File-based database",
     "connection.modal.layoutKind.custom": "Custom connection",
     "connection.modal.layoutKind.jvm": "JVM runtime",
+    "connection.modal.layoutKind.nacos": "Nacos config center",
     "connection.modal.layoutKind.genericSql": "Standard SQL",
     "connection.modal.section.identity.title": "Connection identity",
     "connection.modal.section.identity.description":

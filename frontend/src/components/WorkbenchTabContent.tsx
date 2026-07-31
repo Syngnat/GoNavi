@@ -10,6 +10,8 @@ const TableDesigner = React.lazy(() => import('./TableDesigner'));
 const RedisViewer = React.lazy(() => import('./RedisViewer'));
 const RedisCommandEditor = React.lazy(() => import('./RedisCommandEditor'));
 const RedisMonitor = React.lazy(() => import('./RedisMonitor'));
+const NacosViewer = React.lazy(() => import('./NacosViewer'));
+const NacosServiceViewer = React.lazy(() => import('./NacosServiceViewer'));
 const TriggerViewer = React.lazy(() => import('./TriggerViewer'));
 const DefinitionViewer = React.lazy(() => import('./DefinitionViewer'));
 const TableOverview = React.lazy(() => import('./TableOverview'));
@@ -112,6 +114,24 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <RedisCommandEditor connectionId={tab.connectionId} redisDB={tab.redisDB ?? 0} />;
   } else if (tab.type === 'redis-monitor') {
     content = <RedisMonitor connectionId={tab.connectionId} redisDB={tab.redisDB ?? 0} isActive={isActive} />;
+  } else if (tab.type === 'nacos-config') {
+    content = (
+      <NacosViewer
+        connectionId={tab.connectionId}
+        namespaceId={tab.nacosNamespaceId ?? ''}
+        namespaceName={tab.nacosNamespaceName}
+        initialGroup={tab.nacosGroup}
+      />
+    );
+  } else if (tab.type === 'nacos-services') {
+    content = (
+      <NacosServiceViewer
+        connectionId={tab.connectionId}
+        namespaceId={tab.nacosNamespaceId ?? ''}
+        namespaceName={tab.nacosNamespaceName}
+        initialGroup={tab.nacosGroup}
+      />
+    );
   } else if (tab.type === 'trigger') {
     content = <TriggerViewer tab={tab} />;
   } else if (tab.type === 'view-def' || tab.type === 'event-def' || tab.type === 'routine-def' || tab.type === 'sequence-def' || tab.type === 'package-def') {

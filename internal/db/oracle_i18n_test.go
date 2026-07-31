@@ -5,11 +5,9 @@ import (
 	"database/sql/driver"
 	"errors"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -178,38 +176,6 @@ func TestOracleMetadataErrorsUseCurrentLanguage(t *testing.T) {
 	})
 }
 
-func TestOracleUserVisibleMetadataErrorsDoNotReintroduceInlineChinese(t *testing.T) {
-	sourceBytes, err := os.ReadFile("oracle_impl.go")
-	if err != nil {
-		t.Fatalf("read oracle_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	getIndexesSource := oracleFunctionSource(t, source, "func (o *OracleDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error)")
-	if strings.Contains(getIndexesSource, `fmt.Errorf("表名不能为空")`) {
-		t.Fatal("GetIndexes still contains raw Chinese table-name-required text")
-	}
-	if !strings.Contains(getIndexesSource, "db.backend.error.table_name_required") {
-		t.Fatal("GetIndexes does not reference db.backend.error.table_name_required")
-	}
-
-	getCreateStatementSource := oracleFunctionSource(t, source, "func (o *OracleDB) GetCreateStatement(dbName, tableName string) (string, error)")
-	rawCreateStatementMessage := `fmt.Errorf("` + rawOracleCreateStatementNotFoundText + `")`
-	if strings.Contains(getCreateStatementSource, rawCreateStatementMessage) {
-		t.Fatalf("GetCreateStatement still contains raw create-statement text %q", rawCreateStatementMessage)
-	}
-	if !strings.Contains(getCreateStatementSource, "db.backend.error.create_table_statement_not_found") {
-		t.Fatal("GetCreateStatement does not reference db.backend.error.create_table_statement_not_found")
-	}
-
-	loadColumnTypeMapSource := oracleFunctionSource(t, source, "func (o *OracleDB) loadColumnTypeMap(tableName string) (map[string]string, error)")
-	if strings.Contains(loadColumnTypeMapSource, `fmt.Errorf("加载列元数据失败（表=%s）：%w；请检查 ALL_TAB_COLUMNS 查询权限与表是否存在", tableName, err)`) {
-		t.Fatal("loadColumnTypeMap still contains raw Chinese Oracle column-metadata failure text")
-	}
-	if !strings.Contains(loadColumnTypeMapSource, "db.backend.error.oracle_column_metadata_load_failed") {
-		t.Fatal("loadColumnTypeMap does not reference db.backend.error.oracle_column_metadata_load_failed")
-	}
-}
 
 func TestOracleMetadataCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,8 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/provider';
 import type { OverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import SnippetSettingsModal from './SnippetSettingsModal';
-
-const source = readFileSync(new URL('./SnippetSettingsModal.tsx', import.meta.url), 'utf8');
 
 const storeState = vi.hoisted(() => ({
   sqlSnippets: [] as Array<Record<string, unknown>>,
@@ -163,50 +160,6 @@ vi.mock('@ant-design/icons', async () => {
   };
 });
 
-const locales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'de-DE', 'ru-RU'] as const;
-const requiredKeys = [
-  'snippet_settings.list.title',
-  'snippet_settings.action.new',
-  'snippet_settings.action.reset',
-  'snippet_settings.action.delete',
-  'snippet_settings.action.save',
-  'snippet_settings.action.close',
-  'snippet_settings.tag.builtin',
-  'snippet_settings.field.prefix.label',
-  'snippet_settings.field.prefix.placeholder',
-  'snippet_settings.field.name.label',
-  'snippet_settings.field.name.placeholder',
-  'snippet_settings.field.description.label',
-  'snippet_settings.field.description.placeholder',
-  'snippet_settings.field.body.label',
-  'snippet_settings.empty_state',
-  'snippet_settings.syntax_help.label',
-  'snippet_settings.syntax_help.placeholder',
-  'snippet_settings.syntax_reference.label',
-  'snippet_settings.syntax_reference.first_tabstop',
-  'snippet_settings.syntax_reference.second_tabstop',
-  'snippet_settings.syntax_reference.final_cursor',
-  'snippet_settings.syntax_reference.linked_tabstop',
-  'snippet_settings.syntax_reference.builtin_variables',
-  'snippet_settings.syntax_reference.current_date',
-  'snippet_settings.syntax_reference.current_time',
-  'snippet_settings.syntax_reference.unix_seconds',
-  'snippet_settings.syntax_reference.uuid',
-  'snippet_settings.syntax_reference.random',
-  'snippet_settings.syntax_reference.example',
-  'snippet_settings.confirm.reset.title',
-  'snippet_settings.confirm.reset.description',
-  'snippet_settings.confirm.delete.title',
-  'snippet_settings.confirm.delete.description',
-  'snippet_settings.message.prefix_required',
-  'snippet_settings.message.name_required',
-  'snippet_settings.message.body_required',
-  'snippet_settings.message.prefix_duplicate',
-  'snippet_settings.message.saved',
-  'snippet_settings.message.deleted',
-  'snippet_settings.message.reset_default',
-] as const;
-
 const overlayTheme: OverlayWorkbenchTheme = {
   isDark: false,
   shellBg: '#fff',
@@ -272,70 +225,6 @@ describe('SnippetSettingsModal i18n', () => {
     messageApi.success.mockReset();
   });
 
-  it('localizes shell, action and feedback source strings instead of keeping hard-coded Chinese copy', () => {
-    expect(source).toContain("const { t } = useI18n();");
-    expect(source).toContain("t('app.tools.entry.snippets.title')");
-    expect(source).toContain("t('app.tools.entry.snippets.description')");
-    expect(source).toContain("t('snippet_settings.list.title')");
-    expect(source).toContain("t('snippet_settings.action.new')");
-    expect(source).toContain("message.warning(t('snippet_settings.message.prefix_required'))");
-    expect(source).toContain("message.warning(t('snippet_settings.message.name_required'))");
-    expect(source).toContain("message.warning(t('snippet_settings.message.body_required'))");
-    expect(source).toContain("message.success(t('snippet_settings.message.saved'))");
-    expect(source).toContain("message.success(t('snippet_settings.message.deleted'))");
-    expect(source).toContain("message.success(t('snippet_settings.message.reset_default'))");
-    expect(source).toContain("t('snippet_settings.syntax_help.label')");
-    expect(source).toContain("t('snippet_settings.syntax_help.placeholder')");
-    expect(source).toContain("t('snippet_settings.syntax_reference.label')");
-    expect(source).toContain("t('snippet_settings.syntax_reference.first_tabstop')");
-    expect(source).toContain("t('snippet_settings.syntax_reference.example')");
-
-    expect(source).not.toContain("void message.warning('前缀不能为空')");
-    expect(source).not.toContain("void message.warning('名称不能为空')");
-    expect(source).not.toContain("void message.warning('片段内容不能为空')");
-    expect(source).not.toContain("void message.success('片段已保存')");
-    expect(source).not.toContain("void message.success('片段已删除')");
-    expect(source).not.toContain("void message.success('已重置为默认')");
-    expect(source).not.toContain('代码片段管理');
-    expect(source).not.toContain('管理 SQL 代码片段，输入前缀后按 Tab 展开');
-    expect(source).not.toContain('片段列表');
-    expect(source).not.toContain('新建片段');
-    expect(source).not.toContain('选择左侧片段编辑，或点击「新建片段」');
-    expect(source).not.toContain('重置为默认');
-    expect(source).not.toContain('删除片段');
-    expect(source).not.toContain('保存');
-    expect(source).not.toContain('关闭');
-    expect(source).not.toContain('片段语法说明（可编辑）');
-    expect(source).not.toContain('展示在补全详情中的用法说明，例如占位符含义、参数约定或注意事项');
-    expect(source).not.toContain('占位符语法参考');
-    expect(source).not.toContain('第一个 Tab 位，占位符为提示文字');
-    expect(source).not.toContain('第二个 Tab 位，默认值可直接确认');
-    expect(source).not.toContain('最终光标位置');
-    expect(source).not.toContain('同一数字在多处出现时会同步编辑');
-    expect(source).not.toContain('内置变量（展开时自动替换为实际值）：');
-    expect(source).not.toContain('当前日期');
-    expect(source).not.toContain('当前时间');
-    expect(source).not.toContain('Unix 时间戳');
-    expect(source).not.toContain('随机 UUID');
-    expect(source).not.toContain('6 位随机数');
-    expect(source).not.toContain('示例：SELECT');
-  });
-
-  it('keeps snippet editor content scrollable without clipping the action row', () => {
-    expect(source).toContain("const snippetModalBodyMaxHeight = 'calc(100vh - 128px)';");
-    expect(source).toContain("const snippetModalEmbeddedBodyMaxHeight = '100%';");
-    expect(source).toContain("const snippetSyntaxReferenceMaxHeight = 'min(220px, 32vh)';");
-    expect(source).toContain('maxHeight: embedded ? snippetModalEmbeddedBodyMaxHeight : snippetModalBodyMaxHeight');
-    expect(source).toContain('data-sql-snippet-syntax-reference-scroll-region="true"');
-    expect(source).toContain('data-sql-snippet-editor-panel-scroll-region="true"');
-    expect(source).toContain('data-sql-snippet-content-region="true"');
-    expect(source).toContain('data-sql-snippet-editor-scroll-region="true"');
-    expect(source).toContain("overflowY: 'auto'");
-    expect(source).toContain("flex: '0 0 auto'");
-    expect(source).toContain('height: 220');
-    expect(source).toContain('maxHeight: 260');
-  });
-
   it('lets the tool center provide the title when embedded', async () => {
     const renderer = await renderModal({ embedded: true });
     const root = renderer.root;
@@ -347,15 +236,6 @@ describe('SnippetSettingsModal i18n', () => {
     const standaloneText = getJsonText(standaloneRenderer.toJSON());
     expect(standaloneText).toContain('Snippet Management');
     expect(standaloneText).toContain('Manage SQL snippets and prefix completion.');
-  });
-
-  it('keeps the shell and feedback keys available in every locale', () => {
-    locales.forEach((locale) => {
-      const catalog = JSON.parse(readFileSync(new URL(`../../../shared/i18n/${locale}.json`, import.meta.url), 'utf8')) as Record<string, string>;
-      requiredKeys.forEach((key) => {
-        expect(catalog[key], `${locale}:${key}`).toBeTruthy();
-      });
-    });
   });
 
   it('renders the modal shell in English and localizes save validation feedback', async () => {

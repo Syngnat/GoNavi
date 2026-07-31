@@ -287,11 +287,18 @@ const buildSidebarTableStatusSQL = (
     case "opengauss":
     case "gaussdb":
       return [
-        "SELECT n.nspname || '.' || c.relname AS table_name, obj_description(c.oid, 'pg_class') AS table_comment, c.reltuples::bigint AS table_rows,",
+        "SELECT n.nspname || '.' || c.relname AS table_name, obj_description(c.oid, 'pg_class') AS table_comment,",
+        "CASE WHEN c.relkind = 'p' THEN NULL ELSE c.reltuples::bigint END AS table_rows,",
+        "(SELECT parent_n.nspname || '.' || parent_c.relname",
+        " FROM pg_inherits inheritance",
+        " JOIN pg_class parent_c ON parent_c.oid = inheritance.inhparent AND parent_c.relkind = 'p'",
+        " JOIN pg_namespace parent_n ON parent_n.oid = parent_c.relnamespace",
+        " WHERE inheritance.inhrelid = c.oid",
+        " ORDER BY inheritance.inhseqno LIMIT 1) AS partition_parent_table,",
         "pg_total_relation_size(c.oid) AS table_size, NULL::text AS create_time, NULL::text AS update_time",
         "FROM pg_class c",
         "JOIN pg_namespace n ON n.oid = c.relnamespace",
-        "WHERE c.relkind = 'r'",
+        "WHERE c.relkind IN ('r', 'p')",
         "AND n.nspname NOT IN ('information_schema', 'pg_catalog')",
         "AND n.nspname NOT LIKE 'pg\\_%' ESCAPE '\\'",
         "ORDER BY n.nspname, c.relname",

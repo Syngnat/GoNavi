@@ -132,7 +132,7 @@ func TestMethodsDriverReleaseHelpersUseLocalizedText(t *testing.T) {
 				"driver_manager.backend.error.driver_version_list_parse_failed",
 			},
 		},
-		"func fetchDriverBundleAssetSizeIndex": {
+		"func fetchDriverBundleAssetIndex": {
 			rawMessages: []string{
 				`fmt.Errorf("release 为空")`,
 				`fmt.Errorf("未找到驱动总包索引资产")`,

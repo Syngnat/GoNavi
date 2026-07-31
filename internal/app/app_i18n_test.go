@@ -41,67 +41,6 @@ func expectedLocalizedAppMessage(base string) string {
 	return base + defaultAppText("driver_manager.backend.message.log_hint", map[string]any{"path": path})
 }
 
-func TestAppUserVisibleConnectionMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("app.go")
-	if err != nil {
-		t.Fatalf("read app.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func wrapConnectError": {
-			rawMessages: []string{
-				`fmt.Errorf("数据库连接超时：%s %s:%d/%s：%w", config.Type, config.Host, config.Port, dbName, err)`,
-			},
-			keys: []string{
-				"db.backend.message.connect_timeout_detail",
-			},
-		},
-		"func (a *App) getDatabaseWithPing": {
-			rawMessages: []string{
-				`fmt.Sprintf("连接最近失败，正在冷却中，请 %s 后重试；上次错误：%s",`,
-			},
-			keys: []string{
-				"db.backend.message.connect_failure_cooldown",
-			},
-		},
-		"func (a *App) CancelQuery": {
-			rawMessages: []string{
-				`Message: "查询已取消"`,
-				`Message: "查询不存在或已完成"`,
-			},
-			keys: []string{
-				"query_editor.message.cancel_success",
-				"query_editor.message.cancel_no_running",
-			},
-		},
-		"func (a *App) ResetWebViewZoom() (result connection.QueryResult)": {
-			rawMessages: []string{
-				`Message: fmt.Sprintf("重置 WebView2 zoom 失败：%v", recovered)`,
-			},
-			keys: []string{
-				"app.backend.error.reset_webview_zoom_failed",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		body := appFunctionSource(t, source, signature)
-		for _, raw := range check.rawMessages {
-			if strings.Contains(body, raw) {
-				t.Fatalf("%s still contains raw user-visible message %q", signature, raw)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(body, key) {
-				t.Fatalf("%s should reference localized key %q", signature, key)
-			}
-		}
-	}
-}
 
 func TestAppBackendCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

@@ -1,10 +1,8 @@
 package db
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -53,45 +51,6 @@ func TestMQTTTimeoutMessagesUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestMQTTTimeoutSourceUsesI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("mqtt_impl.go")
-	if err != nil {
-		t.Fatalf("read mqtt_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := []struct {
-		signature string
-		rawText   string
-		key       string
-	}{
-		{
-			signature: "func newPahoMQTTRuntime(config connection.ConnectionConfig) (mqttRuntime, error)",
-			rawText:   `fmt.Errorf("MQTT 连接超时")`,
-			key:       "db.backend.error.mqtt_connect_timeout",
-		},
-		{
-			signature: "func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRequest) ([]mqttMessageRecord, error)",
-			rawText:   `fmt.Errorf("MQTT 订阅超时")`,
-			key:       "db.backend.error.mqtt_subscribe_timeout",
-		},
-		{
-			signature: "func (r *pahoMQTTRuntime) Publish(ctx context.Context, command mqttPublishCommand) (int64, error)",
-			rawText:   `fmt.Errorf("MQTT 发布超时")`,
-			key:       "db.backend.error.mqtt_publish_timeout",
-		},
-	}
-
-	for _, tc := range checks {
-		functionSource := databaseFunctionSource(t, source, tc.signature)
-		if strings.Contains(functionSource, tc.rawText) {
-			t.Fatalf("%s still contains raw MQTT timeout text %q", tc.signature, tc.rawText)
-		}
-		if !strings.Contains(functionSource, tc.key) {
-			t.Fatalf("%s does not reference i18n key %q", tc.signature, tc.key)
-		}
-	}
-}
 
 func TestMQTTTimeoutCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

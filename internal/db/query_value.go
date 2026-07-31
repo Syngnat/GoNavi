@@ -456,9 +456,20 @@ func normalizeCompositeQueryValue(v interface{}) interface{} {
 		}
 		return out
 	case reflect.Slice, reflect.Array:
-		// []byte 在上层已单独处理，这里保留对其它切片/数组的递归规整。
+		// 无类型的 []byte 在上层已单独处理，这里还会收到**具名**字节切片
+		// （如 clickhouse-go 对 IPv4/IPv6 列返回的 net.IP —— 具名类型不匹配上层的 case []byte）。
+		// 这类值必须先尝试它自己的 String()，否则会被展开成 [192,168,0,1] 这样的字节数组，
+		// 前端与 CSV/JSON 导出都拿不到可读值也无法回灌。
 		if rv.Kind() == reflect.Slice && rv.IsNil() {
 			return nil
+		}
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			if stringer, ok := v.(fmt.Stringer); ok {
+				return stringer.String()
+			}
+			if rv.Kind() == reflect.Slice && rv.CanInterface() {
+				return bytesToDisplayValue(rv.Bytes(), "")
+			}
 		}
 		size := rv.Len()
 		items := make([]interface{}, size)
@@ -474,6 +485,17 @@ func normalizeCompositeQueryValue(v interface{}) interface{} {
 		}
 		if stringer, ok := v.(fmt.Stringer); ok {
 			return stringer.String()
+		}
+		// 再试一次「指针接收者」的 Stringer：big.Int 的 String() 定义在 *big.Int 上，
+		// 因此 clickhouse-go 对 Int128/UInt128/Int256/UInt256 列返回的 big.Int **值**
+		// 不满足上面的值接收者断言，会落到 fmt.Sprintf("%v") 变成
+		// `{false [18446744073709551615 9223372036854775807]}` 这样的内部结构体转储，原始数值完全丢失。
+		if rv.CanInterface() {
+			addressable := reflect.New(rv.Type())
+			addressable.Elem().Set(rv)
+			if stringer, ok := addressable.Interface().(fmt.Stringer); ok {
+				return stringer.String()
+			}
 		}
 		return fmt.Sprintf("%v", v)
 	default:

@@ -8,6 +8,11 @@ import { resolveSqlEditorFontSize } from '../utils/sqlEditorTypography';
 export type { BeforeMount, OnMount } from '@monaco-editor/react';
 export type GonaviMonacoTypography = 'code' | 'data' | 'sql';
 
+/** Unified host class for all GoNavi Monaco instances (theme bg via --gn-monaco-bg). */
+export const GONAVI_MONACO_SURFACE_CLASS = 'gn-monaco-surface';
+/** CSS variable used by .gn-monaco-surface; defaults to --gn-bg-panel in theme sheets. */
+export const GONAVI_MONACO_BG_CSS_VAR = '--gn-monaco-bg';
+
 const DEFAULT_FONT_SIZE = 14;
 const MIN_FONT_SIZE = 12;
 const MAX_FONT_SIZE = 20;
@@ -784,8 +789,9 @@ export const registerGonaviMonacoThemes: BeforeMount = (monaco) => {
       'editor.background': '#00000000',
       'editor.lineHighlightBackground': '#ffffff10',
       'editorGutter.background': '#00000000',
-      'editorStickyScroll.background': '#1e1e1e',
-      'editorStickyScrollHover.background': '#2a2a2a',
+      // Transparent sticky scroll so panel/theme bg shows through (CSS may also paint --gn-bg-panel).
+      'editorStickyScroll.background': '#00000000',
+      'editorStickyScrollHover.background': '#ffffff12',
     },
   });
   monaco.editor.defineTheme('transparent-light', {
@@ -802,8 +808,8 @@ export const registerGonaviMonacoThemes: BeforeMount = (monaco) => {
       'editor.background': '#00000000',
       'editor.lineHighlightBackground': '#00000010',
       'editorGutter.background': '#00000000',
-      'editorStickyScroll.background': '#ffffff',
-      'editorStickyScrollHover.background': '#f5f5f5',
+      'editorStickyScroll.background': '#00000000',
+      'editorStickyScrollHover.background': '#00000010',
     },
   });
 
@@ -850,9 +856,11 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   loading,
   onMount,
   options,
+  theme,
   ...props
 }) => {
   const [ready, setReady] = useState(isTestRuntime);
+  const appTheme = useStore((state) => state.theme);
   const uiVersion = useStore((state) => state.appearance.uiVersion);
   const dataTableFontSize = useStore((state) => state.appearance.dataTableFontSize);
   const dataTableFontSizeFollowGlobal = useStore((state) => state.appearance.dataTableFontSizeFollowGlobal);
@@ -860,6 +868,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   const sqlEditorFontSizeFollowGlobal = useStore((state) => state.appearance.sqlEditorFontSizeFollowGlobal);
   const monoFontFamily = useStore((state) => state.appearance.customMonoFontFamily);
   const globalFontSize = useStore((state) => state.fontSize);
+  // Monaco theme is process-global; never fall back to "light" or other editors get polluted.
+  const resolvedTheme = theme
+    ?? (appTheme === 'dark' ? 'transparent-dark' : 'transparent-light');
 
   useEffect(() => {
     let cancelled = false;
@@ -895,11 +906,21 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     onMount?.(editor, monaco);
   }, [onMount]);
 
+  // Unified surface: all call sites inherit panel via --gn-monaco-bg (no per-page bg).
+  const surfaceStyle: React.CSSProperties = {
+    height: props.height || '100%',
+    width: props.width || '100%',
+    minHeight: 0,
+    minWidth: 0,
+    background: `var(${GONAVI_MONACO_BG_CSS_VAR}, var(--gn-bg-panel, transparent))`,
+  };
+
   const loadingFallback = (
     <div
+      className={GONAVI_MONACO_SURFACE_CLASS}
       data-monaco-editor-loading="true"
       aria-busy="true"
-      style={{ height: props.height || '100%', width: props.width || '100%' }}
+      style={surfaceStyle}
     >
       {loading || null}
     </div>
@@ -959,13 +980,18 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   }
 
   return (
-    <Editor
-      {...props}
-      options={resolvedOptions}
-      loading={loadingFallback}
-      beforeMount={handleBeforeMount}
-      onMount={handleMount}
-    />
+    <div className={GONAVI_MONACO_SURFACE_CLASS} style={surfaceStyle}>
+      <Editor
+        {...props}
+        height="100%"
+        width="100%"
+        theme={resolvedTheme}
+        options={resolvedOptions}
+        loading={loadingFallback}
+        beforeMount={handleBeforeMount}
+        onMount={handleMount}
+      />
+    </div>
   );
 };
 

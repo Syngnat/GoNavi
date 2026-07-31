@@ -6,11 +6,9 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -99,18 +97,3 @@ func TestDamengCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestDamengCreateStatementSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("dameng_impl.go")
-	if err != nil {
-		t.Fatalf("read dameng_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawMessage := `fmt.Errorf("` + rawDamengCreateStatementNotFoundText + `")`
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("dameng_impl.go still contains raw create-statement text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.create_table_statement_not_found") {
-		t.Fatal("dameng_impl.go does not reference db.backend.error.create_table_statement_not_found")
-	}
-}

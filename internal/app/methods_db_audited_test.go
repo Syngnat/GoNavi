@@ -133,6 +133,7 @@ func TestDirectDBQueryCannotBypassWriteAuditWhenBatchStartsWithRead(t *testing.T
 }
 
 func TestDirectDBQueryCannotBypassAuditWithNestedWriteSyntax(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalVerifyDriverAgentRevisionFunc := verifyDriverAgentRevisionFunc
 	t.Cleanup(func() {

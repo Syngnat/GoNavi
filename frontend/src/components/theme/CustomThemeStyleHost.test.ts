@@ -61,13 +61,15 @@ describe('CustomThemeStyleHost runtime', () => {
   it('uses one style element, updates textContent, and cleans body state', () => {
     const fake = createFakeDocument();
     syncCustomThemeStyle(buildTheme('theme-one', 'body { color: red; }'), fake.documentRef);
-    expect(fake.getStyle().textContent).toBe('body { color: red; }');
+    expect(fake.getStyle().textContent).toContain('body { color: red; }');
+    expect(fake.getStyle().textContent).toContain('--gn-monaco-bg: var(--gn-bg-panel)');
     expect(fake.attributes.get('data-custom-theme')).toBe('active');
     expect(fake.attributes.get('data-custom-theme-id')).toBe('theme-one');
     expect(fake.getAppendCount()).toBe(1);
 
     syncCustomThemeStyle(buildTheme('theme-two', 'body { color: blue; }'), fake.documentRef);
-    expect(fake.getStyle().textContent).toBe('body { color: blue; }');
+    expect(fake.getStyle().textContent).toContain('body { color: blue; }');
+    expect(fake.getStyle().textContent).toContain('--gn-monaco-bg: var(--gn-bg-panel)');
     expect(fake.attributes.get('data-custom-theme-id')).toBe('theme-two');
     expect(fake.getAppendCount()).toBe(1);
 

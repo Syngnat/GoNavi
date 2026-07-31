@@ -83,6 +83,24 @@ func TestConfigureSQLConnectionPoolKeepsOneIdleSQLServerConnection(t *testing.T)
 	}
 }
 
+func TestConfigureSQLConnectionPoolKeepsOneIdleKingbaseConnection(t *testing.T) {
+	dbConn := openConfiguredPoolForTest(t, "kingbase")
+
+	if err := dbConn.PingContext(context.Background()); err != nil {
+		t.Fatalf("first ping failed: %v", err)
+	}
+	if err := dbConn.PingContext(context.Background()); err != nil {
+		t.Fatalf("second ping failed: %v", err)
+	}
+
+	if got := poolRecordingOpenCount.Load(); got != 1 {
+		t.Fatalf("expected Kingbase pool to reuse one idle connection, opened %d connections", got)
+	}
+	if got := poolRecordingCloseCount.Load(); got != 0 {
+		t.Fatalf("expected Kingbase idle connection to remain cached before DB close, closed %d connections", got)
+	}
+}
+
 func TestSQLServerConnectionPoolIdleWindowOutlastsDefaultPingBoundary(t *testing.T) {
 	sqlServerIdleTime := resolveSQLConnectionPoolMaxIdleTime("sqlserver")
 	if sqlServerIdleTime <= defaultSQLConnMaxIdleTime {

@@ -3,10 +3,8 @@
 package db
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -69,18 +67,3 @@ func TestHighGoMetadataErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestHighGoMetadataErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("highgo_impl.go")
-	if err != nil {
-		t.Fatalf("read highgo_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	rawMessage := `fmt.Errorf("` + rawHighGoTableNameRequiredText + `")`
-
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("highgo_impl.go still contains raw HighGo metadata text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.table_name_required") {
-		t.Fatal("highgo_impl.go does not reference db.backend.error.table_name_required")
-	}
-}

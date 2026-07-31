@@ -115,16 +115,17 @@ type IoTDBDB struct {
 	pingTimeout time.Duration
 }
 
-func (i *IoTDBDB) Connect(config connection.ConnectionConfig) error {
-	if i.forwarder != nil {
-		_ = i.forwarder.Close()
-		i.forwarder = nil
-	}
-	i.session = nil
+func (i *IoTDBDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = i.Close()
+	defer func() {
+		if err != nil {
+			_ = i.Close()
+		}
+	}()
 
 	runConfig := normalizeIoTDBConfig(config)
 	if runConfig.UseSSH {
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -160,7 +161,7 @@ func (i *IoTDBDB) Connect(config connection.ConnectionConfig) error {
 
 func (i *IoTDBDB) Close() error {
 	if i.forwarder != nil {
-		if err := i.forwarder.Close(); err != nil {
+		if err := i.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 IoTDB SSH 端口转发失败：%v", err)
 		}
 		i.forwarder = nil

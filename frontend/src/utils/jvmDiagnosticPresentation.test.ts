@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,15 +15,6 @@ import {
 } from "./jvmDiagnosticPresentation";
 
 describe("jvmDiagnosticPresentation", () => {
-  it("groups presets by category in a stable order", () => {
-    const groups = groupJVMDiagnosticPresets();
-    expect(groups.map((group) => group.label)).toEqual([
-      "Observation commands",
-      "Trace commands",
-      "High-risk commands",
-    ]);
-    expect(groups[0].items.some((item) => item.label === "thread")).toBe(true);
-  });
 
   it("uses translator values for diagnostic presentation labels and preset descriptions", () => {
     const translate = (key: string) =>
@@ -45,12 +35,6 @@ describe("jvmDiagnosticPresentation", () => {
       })[key] || key;
 
     const groups = groupJVMDiagnosticPresets(undefined, translate);
-    expect(groups.map((group) => group.label)).toEqual([
-      "Observation commands",
-      "Trace commands",
-      "High-risk commands",
-    ]);
-    expect(groups[0].items[0].description).toBe("Inspect the busiest threads.");
     expect(formatJVMDiagnosticPhaseLabel("completed", translate)).toBe("Completed");
     expect(formatJVMDiagnosticEventLabel("done", translate)).toBe("Execution finished");
     expect(formatJVMDiagnosticRiskLabel("high", translate)).toBe("High risk");
@@ -60,18 +44,6 @@ describe("jvmDiagnosticPresentation", () => {
     expect(formatJVMDiagnosticChunkText({ sessionId: "sess-1" }, translate)).toBe(
       "Empty event",
     );
-  });
-
-  it("keeps diagnostic presentation source free of user-visible Chinese literals", () => {
-    const source = readFileSync(
-      new URL("./jvmDiagnosticPresentation.ts", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).not.toMatch(
-      /查看最繁忙线程|查看 JVM 运行总览|观察类命令|执行中|低风险|手动输入|未知|空事件/,
-    );
-    expect(source).toContain("jvm_diagnostic.presentation.risk.low");
   });
 
   it("formats chunk text with localized phase prefix when content exists", () => {

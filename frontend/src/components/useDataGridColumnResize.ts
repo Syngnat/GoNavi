@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { resolveDataTableColumnWidth } from '../utils/dataGridDisplay';
+import {
+  MIN_DATA_TABLE_COLUMN_WIDTH,
+  resolveDataTableColumnWidth,
+} from '../utils/dataGridDisplay';
 import { calculateAutoFitColumnWidth } from './dataGridAutoWidth';
 import { DEFAULT_GRID_MONO_FONT_FAMILY, GONAVI_ROW_NUMBER_COLUMN_KEY } from './DataGridCore';
 
@@ -109,7 +112,7 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
       const finalClientX = Number.isFinite(clientX) ? clientX as number : latestClientX ?? dragState.startX;
       const deltaX = finalClientX - dragState.startX;
       const isRowNumberColumn = dragState.key === GONAVI_ROW_NUMBER_COLUMN_KEY;
-      const minWidth = isRowNumberColumn ? ROW_NUMBER_MIN_WIDTH : 50;
+      const minWidth = isRowNumberColumn ? ROW_NUMBER_MIN_WIDTH : MIN_DATA_TABLE_COLUMN_WIDTH;
       const maxWidth = isRowNumberColumn ? ROW_NUMBER_MAX_WIDTH : Number.POSITIVE_INFINITY;
       const newWidth = Math.min(maxWidth, Math.max(minWidth, dragState.startWidth + deltaX));
       setColumnWidthsRef.current((prev: Record<string, number>) => ({ ...prev, [dragState.key]: newWidth }));
@@ -215,7 +218,7 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
         valueTexts: displayData.slice(0, 200).map((row: any) => row?.[key]),
         measureHeaderText: (text) => measureTextWidth(text, `600 ${font}`),
         measureCellText: (text) => measureTextWidth(text, `400 ${font}`),
-        minWidth: 40,
+        minWidth: MIN_DATA_TABLE_COLUMN_WIDTH,
         maxWidth: 600,
         defaultWidth: densityParams.defaultColumnWidth,
       });
@@ -248,7 +251,7 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
       measureHeaderText: buildAutoFitMeasurer(headerEl ?? null, `600 ${densityParams.dataFontSize}px ${DEFAULT_GRID_MONO_FONT_FAMILY}`),
       measureCellText: buildAutoFitMeasurer(sampleCell ?? null, `400 ${densityParams.dataFontSize}px ${DEFAULT_GRID_MONO_FONT_FAMILY}`),
       defaultWidth,
-      minWidth: 80,
+      minWidth: MIN_DATA_TABLE_COLUMN_WIDTH,
       maxWidth: Math.max(720, Math.floor(containerWidth * 0.85)),
     });
 

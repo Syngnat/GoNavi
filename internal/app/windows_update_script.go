@@ -15,6 +15,7 @@ type windowsUpdateLaunchContext struct {
 	SourcePath           string
 	TargetPath           string
 	CurrentTargetPath    string
+	UpdatesDir           string
 	StagedDir            string
 	LogPath              string
 	MaintenanceEventName string

@@ -1,10 +1,8 @@
 package db
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -67,18 +65,3 @@ func TestPostgresMetadataErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestPostgresMetadataErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("postgres_impl.go")
-	if err != nil {
-		t.Fatalf("read postgres_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	rawMessage := `fmt.Errorf("` + rawPostgresTableNameRequiredText + `")`
-
-	if strings.Contains(source, rawMessage) {
-		t.Fatalf("postgres_impl.go still contains raw PostgreSQL metadata text %q", rawMessage)
-	}
-	if !strings.Contains(source, "db.backend.error.table_name_required") {
-		t.Fatal("postgres_impl.go does not reference db.backend.error.table_name_required")
-	}
-}

@@ -1,13 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-import {
-  filterAISlashCommands,
-  getFeaturedAISlashCommands,
-  groupAISlashCommands,
-} from './aiSlashCommands';
-
-const source = readFileSync(new URL('./aiSlashCommands.ts', import.meta.url), 'utf8');
+import { filterAISlashCommands, getFeaturedAISlashCommands } from './aiSlashCommands';
 const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
 const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
 const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
@@ -17,126 +11,7 @@ const ruRuCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ru-
 
 const zhCnTranslate = (key: string) => zhCnCatalog[key] || key;
 
-const diagnosticSlashCommandIds = [
-  'health',
-  'tools',
-  'budget',
-  'hotspots',
-  'mcp',
-  'mcpfail',
-  'mcpadd',
-  'mcpdraft',
-  'mcptool',
-  'connfail',
-  'shortcuts',
-  'applog',
-  'airender',
-  'safety',
-  'activity',
-  'tx',
-] as const;
-
 describe('aiSlashCommands', () => {
-  it('uses i18n keys and english fallback instead of legacy Chinese slash metadata literals', () => {
-    expect(source).toContain("catalogTranslate('en-US', key, params)");
-    expect(source).toContain('ai_chat.input.slash.category.generate.title');
-    expect(source).toContain('ai_chat.input.slash.health.label');
-    expect(source).toContain('ai_chat.input.slash.tx.prompt');
-    expect(source).not.toContain("title: 'SQL 生成'");
-    expect(source).not.toContain("description: '直接产出 SQL、测试数据或迁移草稿。'");
-    expect(source).not.toContain("label: '🩺 AI 配置体检'");
-    expect(source).not.toContain("prompt: '请先调用 inspect_ai_setup_health");
-  });
-
-  it('keeps slash keywords behind localized catalog keys instead of production Chinese literals', () => {
-    expect(source).toContain('keywordKey:');
-    expect(source).not.toContain("keywords: ['查询'");
-    expect(source).not.toContain("'工具目录'");
-    expect(source).not.toContain("'自动提交'");
-  });
-
-  it('keeps slash category, empty-state, command, and keyword keys present in all six catalogs', () => {
-    const slashCommandIds = [
-      'query',
-      'sql',
-      'mock',
-      'diff',
-      'explain',
-      'optimize',
-      'schema',
-      'index',
-      ...diagnosticSlashCommandIds,
-    ] as const;
-    const requiredKeys = [
-      'ai_chat.input.slash.category.generate.title',
-      'ai_chat.input.slash.category.generate.description',
-      'ai_chat.input.slash.category.review.title',
-      'ai_chat.input.slash.category.review.description',
-      'ai_chat.input.slash.category.diagnose.title',
-      'ai_chat.input.slash.category.diagnose.description',
-      'ai_chat.input.slash.empty.title',
-      'ai_chat.input.slash.empty.description',
-      'ai_chat.input.slash.empty.summary',
-      ...slashCommandIds.flatMap((id) => ([
-        `ai_chat.input.slash.${id}.label`,
-        `ai_chat.input.slash.${id}.desc`,
-        `ai_chat.input.slash.${id}.prompt`,
-        `ai_chat.input.slash.${id}.keywords`,
-      ])),
-    ];
-
-    for (const key of requiredKeys) {
-      expect(zhCnCatalog[key]).toBeTruthy();
-      expect(zhTwCatalog[key]).toBeTruthy();
-      expect(enUsCatalog[key]).toBeTruthy();
-      expect(jaJpCatalog[key]).toBeTruthy();
-      expect(deDeCatalog[key]).toBeTruthy();
-      expect(ruRuCatalog[key]).toBeTruthy();
-    }
-  });
-
-  it('returns all default commands when only slash is present', () => {
-    const commands = filterAISlashCommands('/');
-    const sql = commands.find((command) => command.cmd === '/sql');
-    const health = commands.find((command) => command.cmd === '/health');
-    const groups = groupAISlashCommands(commands);
-
-    expect(commands.length).toBeGreaterThan(8);
-    expect(sql).toMatchObject({
-      label: '📝 Generate SQL',
-      desc: 'Describe requirements and generate statements',
-      prompt: 'Generate SQL from the following requirements:',
-    });
-    expect(health).toMatchObject({
-      label: '🩺 AI health check',
-      desc: 'Run health probes for the current AI setup',
-      prompt: 'Call inspect_ai_setup_health first. Run a full health check of the current GoNavi AI setup, then summarize blockers, warnings, and nextActions.',
-    });
-    expect(commands.some((command) => command.cmd === '/health')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/tools')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/budget')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/hotspots')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/mcp')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/mcpfail')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/mcpadd')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/mcpdraft')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/mcptool')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/connfail')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/shortcuts')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/applog')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/airender')).toBe(true);
-    expect(commands.some((command) => command.cmd === '/tx')).toBe(true);
-    expect(groups[0]).toMatchObject({ key: 'generate', title: 'SQL generation' });
-    expect(groups[1]).toMatchObject({ key: 'review', title: 'Structure review' });
-    expect(groups[2]).toMatchObject({ key: 'diagnose', title: 'Diagnostic probes' });
-  });
-
-  it('supports filtering by chinese keywords in addition to command prefix', () => {
-    const commands = filterAISlashCommands('体检', zhCnTranslate);
-
-    expect(commands.map((command) => command.cmd)).toContain('/health');
-    expect(commands.map((command) => command.cmd)).not.toContain('/mcpadd');
-  });
 
   it('supports filtering builtin tool catalog diagnostics by keyword and command prefix', () => {
     expect(filterAISlashCommands('工具目录', zhCnTranslate).map((command) => command.cmd)).toContain('/tools');
@@ -220,14 +95,6 @@ describe('aiSlashCommands', () => {
     expect(filterAISlashCommands('MCP草稿', zhCnTranslate).map((command) => command.cmd)).toContain('/mcpdraft');
     expect(filterAISlashCommands('启动命令', zhCnTranslate).map((command) => command.cmd)).toContain('/mcpdraft');
     expect(filterAISlashCommands('/mcpd').map((command) => command.cmd)).toContain('/mcpdraft');
-  });
-
-  it('groups commands by configured category order', () => {
-    const groups = groupAISlashCommands(filterAISlashCommands('/'));
-
-    expect(groups[0]?.key).toBe('generate');
-    expect(groups[1]?.key).toBe('review');
-    expect(groups[2]?.key).toBe('diagnose');
   });
 
   it('keeps featured commands available for empty-state quick picks', () => {

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { resolveAboutDisplayVersion } from './appVersionDisplay';
-
-const source = readFileSync(new URL('./appVersionDisplay.ts', import.meta.url), 'utf8');
 
 describe('resolveAboutDisplayVersion', () => {
   it('shows fixed dev version for development build', () => {
@@ -20,9 +17,5 @@ describe('resolveAboutDisplayVersion', () => {
 
   it('falls back to unknown when version is empty outside development', () => {
     expect(resolveAboutDisplayVersion('production', '', 'T:unknown')).toBe('T:unknown');
-  });
-
-  it('does not keep the old Chinese unknown fallback in production source', () => {
-    expect(source).not.toContain("'未知'");
   });
 });

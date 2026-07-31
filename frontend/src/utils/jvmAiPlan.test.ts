@@ -202,23 +202,6 @@ describe('buildJVMAIPlanPrompt', () => {
     expect(prompt).not.toContain('请分析下面这个 JVM 资源');
     expect(prompt).not.toContain('当前资源快照尚未加载成功');
   });
-
-  it('keeps JVM AI plan prompt and error copy behind catalog keys', () => {
-    const source = fs.readFileSync(new URL('./jvmAiPlan.ts', import.meta.url), 'utf8');
-
-    [
-      'AI 计划缺少可用的资源定位信息',
-      '当前资源快照尚未加载成功',
-      '当前资源未声明支持动作',
-      '请分析下面这个 JVM 资源',
-      '输出要求：',
-      'JSON 示例：',
-    ].forEach((literal) => {
-      expect(source).not.toContain(literal);
-    });
-    expect(source).toContain('jvm_ai_plan.prompt.intro');
-    expect(source).toContain('jvm_ai_plan.error.payload_json_object_required');
-  });
 });
 
 describe('resolveJVMAIPlanTargetTabId', () => {

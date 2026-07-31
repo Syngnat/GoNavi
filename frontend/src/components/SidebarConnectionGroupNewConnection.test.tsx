@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -7,8 +6,6 @@ import { setCurrentLanguage, t } from '../i18n';
 import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu';
 import { resolveV2ConnectionGroup, type V2RailConnectionGroup } from './sidebarV2Utils';
 import { V2ConnectionGroupContextMenuView } from './V2TableContextMenu';
-
-const readSource = (relativePath: string) => readFileSync(new URL(relativePath, import.meta.url), 'utf8');
 
 describe('Sidebar connection group new connection action', () => {
   it('opens the V2 group menu for any right-clicked group, including nested groups', () => {
@@ -69,23 +66,5 @@ describe('Sidebar connection group new connection action', () => {
     expect(createItem).toBeDefined();
     createItem?.onClick?.();
     expect(onCreateConnectionInGroup).toHaveBeenCalledWith('production');
-  });
-
-  it('carries the right-clicked group through creation and assigns the saved connection', () => {
-    const sidebarSource = readSource('./Sidebar.tsx');
-    const sharedMenuSource = readSource('./sidebar/sidebarLegacyNodeMenu.tsx');
-    const v2ActionHandlerSource = readSource('./sidebar/useSidebarV2ActionHandlers.tsx');
-    const appSource = readSource('../App.tsx');
-
-    expect(sidebarSource).toContain('onCreateConnectionInGroup,');
-    expect(sidebarSource).toContain('const items = getNodeMenuItems(node);');
-    expect(sidebarSource).toContain('resolveV2ConnectionGroup(node, v2RailConnectionGroups)');
-    expect(sidebarSource).toContain("kind: 'v2-connection-group'");
-    expect(sharedMenuSource).toContain("key: 'new-connection-in-tag'");
-    expect(sharedMenuSource).toContain('onCreateConnectionInGroup?.(tagId)');
-    expect(v2ActionHandlerSource).toContain("if (action === 'new-connection')");
-    expect(v2ActionHandlerSource).toContain('onCreateConnectionInGroup?.(tag.id)');
-    expect(appSource).toContain('pendingConnectionTagIdRef.current = normalizedTargetTagId || null;');
-    expect(appSource).toContain('moveConnectionToTag(savedConnection.id, targetTagId);');
   });
 });

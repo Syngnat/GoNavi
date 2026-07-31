@@ -2,10 +2,8 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -121,33 +119,6 @@ func TestResolveConnectionSecretsOnDarwinUsesInlineSavedSecrets(t *testing.T) {
 	}
 }
 
-func TestConnectionSecretResolutionMessagesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("connection_secret_resolution.go")
-	if err != nil {
-		t.Fatalf("read connection_secret_resolution.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("未找到已保存连接，可能已被删除，请刷新后重试")`,
-		`fmt.Errorf("未找到当前连接对应的已保存密文，请重新填写密码并保存后再试")`,
-		`fmt.Errorf("系统密文存储当前不可用，请检查系统钥匙串或凭据管理器后再试")`,
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("connection_secret_resolution.go still contains raw secret resolution text %q", rawMessage)
-		}
-	}
-
-	for _, key := range []string{
-		"connection_modal.secret.error.saved_connection_deleted",
-		"connection_modal.secret.error.saved_connection_missing",
-		"connection_modal.secret.error.store_unavailable",
-	} {
-		if !strings.Contains(source, key) {
-			t.Fatalf("connection_secret_resolution.go does not reference secret resolution i18n key %q", key)
-		}
-	}
-}
 
 func TestConnectionSecretResolutionCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

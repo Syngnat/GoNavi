@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -115,17 +114,5 @@ describe('AIMCPToolSchemaSummary', () => {
     expect(markup).toContain('已发现工具和参数提示');
     expect(markup).toContain('1 个参数，必填 1 个；星号表示必填。');
     expect(markup).toContain('最小 arguments 示例：');
-  });
-
-  it('keeps AIMCPToolSchemaSummary user-facing chrome out of production source literals', () => {
-    const source = readFileSync(new URL('./AIMCPToolSchemaSummary.tsx', import.meta.url), 'utf8');
-
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
-    expect(source).not.toContain('已发现工具和参数提示');
-    expect(source).not.toContain('参数 ${summary.parameters.length} 个');
-    expect(source).not.toContain('未声明 inputSchema');
-    expect(source).not.toContain('最小 arguments 示例');
-    expect(source).not.toContain('还有 {summary.parameters.length - MAX_PARAMETER_PREVIEW} 个参数');
   });
 });

@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DBGetColumns, DBGetForeignKeys, DBGetIndexes, DBGetTables } from '../../wailsjs/go/app/App';
+import {
+  DBGetColumns,
+  DBGetDatabaseForeignKeys,
+  DBGetForeignKeys,
+  DBGetIndexes,
+  DBGetTables,
+} from '../../wailsjs/go/app/App';
 import type { ColumnDefinition, ForeignKeyDefinition } from '../types';
 import { createBoundedAsyncCache } from '../utils/boundedAsyncCache';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { normalizeColumnDefinitions } from '../utils/columnDefinition';
+import { resolveDataSourceType } from '../utils/dataSourceCapabilities';
 import { resolveUniqueKeyGroupsFromIndexes } from './dataGridCopyInsert';
 import {
   buildErDiagramGraph,
@@ -38,6 +45,7 @@ const ER_SCHEMA_CACHE_MAX_ENTRIES = 32;
 const ER_TABLE_METADATA_CACHE_MAX_ENTRIES = 256;
 
 const schemaTableNamesCache = createBoundedAsyncCache<string[]>(ER_SCHEMA_CACHE_MAX_ENTRIES);
+const databaseForeignKeysCache = createBoundedAsyncCache<Map<string, ForeignKeyDefinition[]>>(ER_SCHEMA_CACHE_MAX_ENTRIES);
 const tableColumnsCache = createBoundedAsyncCache<ColumnDefinition[]>(ER_TABLE_METADATA_CACHE_MAX_ENTRIES);
 const tableForeignKeysCache = createBoundedAsyncCache<ForeignKeyDefinition[]>(ER_TABLE_METADATA_CACHE_MAX_ENTRIES);
 const tableUniqueKeyGroupsCache = createBoundedAsyncCache<string[][]>(ER_TABLE_METADATA_CACHE_MAX_ENTRIES);
@@ -62,7 +70,13 @@ const normalizeConnectionConfig = (connection: any) => ({
 });
 
 const invalidateCacheByPrefix = (prefix: string) => {
-  [schemaTableNamesCache, tableColumnsCache, tableForeignKeysCache, tableUniqueKeyGroupsCache].forEach((cache) => {
+  [
+    schemaTableNamesCache,
+    databaseForeignKeysCache,
+    tableColumnsCache,
+    tableForeignKeysCache,
+    tableUniqueKeyGroupsCache,
+  ].forEach((cache) => {
     cache.invalidatePrefix(prefix);
   });
 };
@@ -139,6 +153,27 @@ const loadTableForeignKeys = async (
   return normalizeForeignKeyDefinitions(response.data);
 });
 
+const loadDatabaseForeignKeys = async (
+  config: any,
+  dbName: string,
+  cacheKey: string,
+): Promise<Map<string, ForeignKeyDefinition[]>> => databaseForeignKeysCache.getOrLoad(cacheKey, async () => {
+  const response = await DBGetDatabaseForeignKeys(buildRpcConnectionConfig(config) as any, dbName);
+  if (!response?.success || !response.data || typeof response.data !== 'object' || Array.isArray(response.data)) {
+    throw new Error(response?.message || 'Failed to load database foreign keys');
+  }
+
+  const result = new Map<string, ForeignKeyDefinition[]>();
+  Object.entries(response.data as Record<string, unknown>).forEach(([sourceTableName, rawForeignKeys]) => {
+    const key = normalizeErQualifiedName(sourceTableName);
+    if (!key) {
+      return;
+    }
+    result.set(key, normalizeForeignKeyDefinitions(rawForeignKeys));
+  });
+  return result;
+});
+
 const loadTableUniqueKeyGroups = async (
   config: any,
   dbName: string,
@@ -157,10 +192,12 @@ const loadTableSnapshot = async (
   dbName: string,
   tableName: string,
   tableCacheKey: string,
+  prefetchedForeignKeys?: Promise<ForeignKeyDefinition[]>,
 ): Promise<ErDiagramTableSnapshot> => {
   const [columnsResult, foreignKeysResult, uniqueKeyGroupsResult] = await Promise.allSettled([
     loadTableColumns(config, dbName, tableName, `${tableCacheKey}|columns`),
-    loadTableForeignKeys(config, dbName, tableName, `${tableCacheKey}|foreignKeys`),
+    prefetchedForeignKeys
+      || loadTableForeignKeys(config, dbName, tableName, `${tableCacheKey}|foreignKeys`),
     loadTableUniqueKeyGroups(config, dbName, tableName, `${tableCacheKey}|uniqueKeys`),
   ]);
 
@@ -225,6 +262,7 @@ type CollectErDiagramNeighborhoodParams = {
   loadSnapshot: (tableName: string) => Promise<ErDiagramTableSnapshot>;
   loadForeignKeys: (tableName: string) => Promise<ForeignKeyDefinition[]>;
   resolveTableName: (tableName: string) => string;
+  prefetchedForeignKeysByTable?: ReadonlyMap<string, ForeignKeyDefinition[]>;
 };
 
 type CollectErDiagramNeighborhoodResult = {
@@ -263,14 +301,25 @@ export const collectErDiagramNeighborhood = async (
 
   registerTableName(currentTableName);
   params.schemaTableNames.forEach(registerTableName);
+  params.prefetchedForeignKeysByTable?.forEach((foreignKeys, tableName) => {
+    const actualTableName = registerTableName(tableName);
+    const tableKey = normalizeErQualifiedName(actualTableName);
+    if (tableKey) {
+      foreignKeysByKey.set(tableKey, foreignKeys);
+    }
+  });
   params.currentSnapshot.foreignKeys.forEach((foreignKey) => {
     registerRelationTarget(foreignKey.refTableName);
   });
+  const currentForeignKeys = foreignKeysByKey.has(currentKey)
+    ? foreignKeysByKey.get(currentKey) || []
+    : params.currentSnapshot.foreignKeys || [];
   snapshotByKey.set(currentKey, {
     ...params.currentSnapshot,
     tableName: registerTableName(params.currentSnapshot.tableName),
+    foreignKeys: currentForeignKeys,
   });
-  foreignKeysByKey.set(currentKey, params.currentSnapshot.foreignKeys || []);
+  foreignKeysByKey.set(currentKey, currentForeignKeys);
   visitedKeys.add(currentKey);
 
   const loadSnapshotByKey = async (tableKey: string): Promise<ErDiagramTableSnapshot> => {
@@ -284,14 +333,18 @@ export const collectErDiagramNeighborhood = async (
       const snapshot = await params.loadSnapshot(tableName);
       const actualTableName = registerTableName(snapshot.tableName || tableName);
       const normalizedActualTableName = normalizeErQualifiedName(actualTableName);
+      const snapshotForeignKeys = foreignKeysByKey.has(tableKey)
+        ? foreignKeysByKey.get(tableKey) || []
+        : snapshot.foreignKeys || [];
       const nextSnapshot = {
         ...snapshot,
         tableName: actualTableName,
+        foreignKeys: snapshotForeignKeys,
       };
       snapshotByKey.set(tableKey, nextSnapshot);
-      foreignKeysByKey.set(tableKey, nextSnapshot.foreignKeys || []);
+      foreignKeysByKey.set(tableKey, snapshotForeignKeys);
       snapshotByKey.set(normalizedActualTableName, nextSnapshot);
-      foreignKeysByKey.set(normalizedActualTableName, nextSnapshot.foreignKeys || []);
+      foreignKeysByKey.set(normalizedActualTableName, snapshotForeignKeys);
       return nextSnapshot;
     } catch {
       warningCount += 1;
@@ -506,7 +559,9 @@ export const useDataGridErDiagram = (params: DataGridErDiagramParams) => {
     const seq = ++requestSeqRef.current;
     const config = normalizeConnectionConfig(connection);
     const schemaCacheKey = `${cachePrefix}schemaTables`;
+    const databaseForeignKeysCacheKey = `${cachePrefix}databaseForeignKeys`;
     const currentTableCacheKey = `${cachePrefix}${normalizedTableName}`;
+    const isKingbase = resolveDataSourceType(config) === 'kingbase';
 
     setState((prev) => ({
       ...prev,
@@ -520,7 +575,31 @@ export const useDataGridErDiagram = (params: DataGridErDiagramParams) => {
 
     const loadGraph = async () => {
       let warningCount = 0;
-      const currentSnapshot = await loadTableSnapshot(config, normalizedDbName, normalizedTableName, currentTableCacheKey);
+      const databaseForeignKeysResultPromise = isKingbase
+        ? loadDatabaseForeignKeys(config, normalizedDbName, databaseForeignKeysCacheKey)
+          .then((value) => ({ value, failed: false as const }))
+          .catch(() => ({ value: null, failed: true as const }))
+        : null;
+      const prefetchedCurrentForeignKeys = databaseForeignKeysResultPromise
+        ? databaseForeignKeysResultPromise.then((result) => {
+          if (result.value) {
+            return result.value.get(normalizeErQualifiedName(normalizedTableName)) || [];
+          }
+          return loadTableForeignKeys(
+            config,
+            normalizedDbName,
+            normalizedTableName,
+            `${currentTableCacheKey}|foreignKeys`,
+          );
+        })
+        : undefined;
+      const currentSnapshot = await loadTableSnapshot(
+        config,
+        normalizedDbName,
+        normalizedTableName,
+        currentTableCacheKey,
+        prefetchedCurrentForeignKeys,
+      );
 
       let schemaTableNames = [currentSnapshot.tableName];
       try {
@@ -536,6 +615,23 @@ export const useDataGridErDiagram = (params: DataGridErDiagramParams) => {
       ]);
 
       const resolveTableName = (name: string) => resolveErActualTableName(name, resolvedSchemaTableNames);
+      let prefetchedForeignKeysByTable: Map<string, ForeignKeyDefinition[]> | undefined;
+      if (databaseForeignKeysResultPromise) {
+        const databaseForeignKeysResult = await databaseForeignKeysResultPromise;
+        prefetchedForeignKeysByTable = new Map(
+          resolvedSchemaTableNames.map((name) => [normalizeErQualifiedName(name), []]),
+        );
+        databaseForeignKeysResult.value?.forEach((foreignKeys, tableKey) => {
+          prefetchedForeignKeysByTable?.set(tableKey, foreignKeys);
+        });
+        prefetchedForeignKeysByTable.set(
+          normalizeErQualifiedName(currentSnapshot.tableName),
+          currentSnapshot.foreignKeys,
+        );
+        if (databaseForeignKeysResult.failed) {
+          warningCount += 1;
+        }
+      }
 
       const neighborhood = await collectErDiagramNeighborhood({
         currentSnapshot,
@@ -543,13 +639,25 @@ export const useDataGridErDiagram = (params: DataGridErDiagramParams) => {
         relationDepth,
         loadSnapshot: async (relatedTableName) => {
           const tableCacheKey = `${cachePrefix}${relatedTableName}`;
-          return loadTableSnapshot(config, normalizedDbName, relatedTableName, tableCacheKey);
+          const prefetchedForeignKeys = prefetchedForeignKeysByTable
+            ? Promise.resolve(
+              prefetchedForeignKeysByTable.get(normalizeErQualifiedName(relatedTableName)) || [],
+            )
+            : undefined;
+          return loadTableSnapshot(
+            config,
+            normalizedDbName,
+            relatedTableName,
+            tableCacheKey,
+            prefetchedForeignKeys,
+          );
         },
         loadForeignKeys: async (relatedTableName) => {
           const tableCacheKey = `${cachePrefix}${relatedTableName}`;
           return loadTableForeignKeys(config, normalizedDbName, relatedTableName, `${tableCacheKey}|foreignKeys`);
         },
         resolveTableName,
+        prefetchedForeignKeysByTable,
       });
       warningCount += neighborhood.warningCount;
 

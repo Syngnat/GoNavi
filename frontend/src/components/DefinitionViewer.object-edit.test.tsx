@@ -29,6 +29,7 @@ const storeState = vi.hoisted(() => ({
 
 const backendApp = vi.hoisted(() => ({
   DBQuery: vi.fn(),
+  DBShowCreateTable: vi.fn(),
 }));
 
 vi.mock('../store', () => ({
@@ -105,9 +106,14 @@ describe('DefinitionViewer object edit entry', () => {
     storeState.connections[0].config.type = 'postgres';
     clearQueryTabDraft('routine-def-conn-1-H2-H2.F_GET_BUSPRICE');
     backendApp.DBQuery.mockReset();
+    backendApp.DBShowCreateTable.mockReset();
     backendApp.DBQuery.mockResolvedValue({
       success: true,
       data: [{ view_definition: 'SELECT id, name FROM users' }],
+    });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: false,
+      message: 'not configured for this test',
     });
   });
 
@@ -140,6 +146,43 @@ describe('DefinitionViewer object edit entry', () => {
     expect(storeState.addTab.mock.calls[0][0].query).toContain('-- Edit View: reporting.active_users');
     expect(storeState.addTab.mock.calls[0][0].query).toContain('-- Confirm the syntax is compatible with the current database before running it');
     expect(storeState.addTab.mock.calls[0][0].query).toContain('SELECT id, name FROM users;');
+  });
+
+  it('formats a one-line Oracle catalog view definition for display and editing', async () => {
+    storeState.connections[0].config.type = 'oracle';
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: `CREATE OR REPLACE VIEW APP.V_RISK AS SELECT a.id,NVL(b.org_name,'-') AS org_name FROM org a LEFT JOIN org_info b ON b.org_id=a.id WHERE a.deleted_flag=0`,
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(createTab({
+        id: 'view-def-conn-1-APP-APP.V_RISK',
+        title: '视图: APP.V_RISK',
+        dbName: 'APP',
+        viewName: 'APP.V_RISK',
+        schemaName: 'APP',
+      })));
+      await flushPromises();
+    });
+
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledWith(expect.anything(), 'APP', 'APP.V_RISK');
+    expect(backendApp.DBQuery).not.toHaveBeenCalled();
+    const editorText = String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''));
+    expect(editorText).toContain('CREATE OR REPLACE VIEW APP.V_RISK AS');
+    expect(editorText).toContain('SELECT\n  a.id,');
+    expect(editorText).toContain('\nFROM\n  org a');
+    expect(editorText).toContain('\nWHERE\n  a.deleted_flag = 0;');
+
+    const button = renderer.root.findAll((node: any) => node.type === 'button' && findButtonText(node).includes('Edit object'))[0];
+    await act(async () => {
+      button.props.onClick();
+    });
+
+    const query = String(storeState.addTab.mock.calls[0][0].query || '');
+    expect(query).toContain('SELECT\n  a.id,');
+    expect(query).toContain('\nWHERE\n  a.deleted_flag = 0;');
   });
 
   it('adds CREATE OR REPLACE without duplicating view fragments returned without ddl prefix', async () => {

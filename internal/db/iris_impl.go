@@ -92,31 +92,23 @@ func (i *IrisDB) getDSN(config connection.ConnectionConfig) string {
 	return u.String()
 }
 
-func (i *IrisDB) Connect(config connection.ConnectionConfig) error {
+func (i *IrisDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = i.Close()
+	defer func() {
+		if err != nil {
+			_ = i.Close()
+		}
+	}()
+
 	runConfig := applyIRISURI(config)
 	if runConfig.Port <= 0 {
 		runConfig.Port = defaultIRISPort
 	}
 	i.namespace = normalizeIRISNamespace(runConfig.Database)
 
-	cleanupOnFailure := true
-	defer func() {
-		if !cleanupOnFailure {
-			return
-		}
-		if i.conn != nil {
-			_ = i.conn.Close()
-			i.conn = nil
-		}
-		if i.forwarder != nil {
-			_ = i.forwarder.Close()
-			i.forwarder = nil
-		}
-	}()
-
 	if runConfig.UseSSH {
 		logger.Infof("InterSystems IRIS 使用 SSH 连接：地址=%s:%d 用户=%s", runConfig.Host, runConfig.Port, runConfig.User)
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -149,13 +141,12 @@ func (i *IrisDB) Connect(config connection.ConnectionConfig) error {
 		i.conn = nil
 		return wrapDatabaseConnectionVerifyError(err)
 	}
-	cleanupOnFailure = false
 	return nil
 }
 
 func (i *IrisDB) Close() error {
 	if i.forwarder != nil {
-		if err := i.forwarder.Close(); err != nil {
+		if err := i.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 InterSystems IRIS SSH 端口转发失败：%v", err)
 		}
 		i.forwarder = nil

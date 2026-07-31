@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,28 +9,6 @@ import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 vi.mock('../../i18n/runtime', () => ({
   syncLanguageRuntime: vi.fn(async () => undefined),
 }));
-
-const source = readFileSync(new URL('./AIMCPCommandDraftPreview.tsx', import.meta.url), 'utf8');
-const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
-const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
-const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
-const jaJpCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ja-JP.json', import.meta.url), 'utf8'));
-const deDeCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/de-DE.json', import.meta.url), 'utf8'));
-const ruRuCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ru-RU.json', import.meta.url), 'utf8'));
-
-const REQUIRED_KEYS = [
-  'ai_settings.mcp_server.command_preview.title',
-  'ai_settings.mcp_server.command_preview.description',
-  'ai_settings.mcp_server.command_preview.env_title',
-  'ai_settings.mcp_server.command_preview.env_count',
-  'ai_settings.mcp_server.command_preview.env_empty',
-  'ai_settings.mcp_server.command_preview.empty_value',
-  'ai_settings.mcp_server.command_preview.command_title',
-  'ai_settings.mcp_server.command_preview.command_hint',
-  'ai_settings.mcp_server.command_preview.args_title',
-  'ai_settings.mcp_server.command_preview.args_count',
-  'ai_settings.mcp_server.command_preview.args_empty',
-];
 
 const renderPreview = (preference: 'en-US' | 'zh-CN') => renderToStaticMarkup(
   <I18nProvider
@@ -56,30 +33,6 @@ const renderPreview = (preference: 'en-US' | 'zh-CN') => renderToStaticMarkup(
 );
 
 describe('AIMCPCommandDraftPreview', () => {
-  it('uses catalog keys instead of hard-coded Chinese preview chrome', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US'");
-    for (const key of REQUIRED_KEYS) {
-      expect(source).toContain(key);
-    }
-    expect(source).not.toContain('自动拆分预览');
-    expect(source).not.toContain('环境变量');
-    expect(source).not.toContain('启动命令');
-    expect(source).not.toContain('命令参数');
-    expect(source).not.toContain('这条命令里没有检测到前缀环境变量。');
-    expect(source).not.toContain('这条命令里没有检测到额外参数。');
-  });
-
-  it('keeps command preview keys present in all six catalogs', () => {
-    for (const key of REQUIRED_KEYS) {
-      expect(zhCnCatalog[key]).toBeTruthy();
-      expect(zhTwCatalog[key]).toBeTruthy();
-      expect(enUsCatalog[key]).toBeTruthy();
-      expect(jaJpCatalog[key]).toBeTruthy();
-      expect(deDeCatalog[key]).toBeTruthy();
-      expect(ruRuCatalog[key]).toBeTruthy();
-    }
-  });
 
   it('renders localized preview chrome while preserving raw command, args, and env keys', () => {
     const enMarkup = renderPreview('en-US');

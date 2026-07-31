@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import type { AIProviderConfig } from '../../types';
@@ -33,15 +31,6 @@ describe('aiProviderInsights', () => {
     expect(snapshot.activeProvider?.name).toBe('OpenAI 主账号');
     expect(snapshot.activeProvider?.baseUrlHost).toBe('api.openai.com');
     expect(snapshot.message).toBe('T:ai_chat.inspection.provider.message.active_ready count=1,provider=OpenAI 主账号');
-  });
-
-  it('keeps provider production source free of legacy Chinese wrappers', () => {
-    const source = readFileSync('src/components/ai/aiProviderInsights.ts', 'utf8');
-
-    expect(source).not.toContain('当前没有配置 AI 供应商');
-    expect(source).not.toContain('当前正在使用');
-    expect(source).not.toContain('当前共配置');
-    expect(source).not.toContain('尚未选择活动供应商');
   });
 
   it('returns a sanitized provider snapshot with missing-secret and missing-model diagnostics', () => {

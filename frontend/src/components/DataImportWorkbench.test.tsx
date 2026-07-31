@@ -177,6 +177,20 @@ describe('DataImportWorkbench', () => {
     expect(mocks.dbGetTables).toHaveBeenCalledWith(expect.anything(), 'app');
   });
 
+  it('keeps every target selector within the import target card', async () => {
+    const renderer = await renderWorkbench();
+
+    ['connection', 'database', 'table'].forEach((field) => {
+      expect(renderer.root.findByProps({
+        'data-import-target-field': field,
+      }).props.style).toEqual({
+        width: '100%',
+        minWidth: 0,
+        maxWidth: '100%',
+      });
+    });
+  });
+
   it('filters every SQL import protection from database mode connections', async () => {
     const primaryConnection = mocks.storeState.connections[0];
     mocks.storeState.connections = [

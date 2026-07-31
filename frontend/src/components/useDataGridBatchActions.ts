@@ -2,12 +2,14 @@ import { useCallback, useEffect } from 'react';
 import type React from 'react';
 import { message } from 'antd';
 import type { Item } from './DataGridCore';
+import { buildDataGridClipboardPasteRows, parseDataGridClipboardText } from './dataGridClipboardPaste';
 import { canSelectGridCellForClipboard } from './dataGridSelectionCopy';
 
 type DataGridBatchActionsContext = Record<string, any> & {
   CELL_SELECTION_DRAG_THRESHOLD_PX: number;
   GONAVI_ROW_KEY: string;
   addedRows: any[];
+  deletedRowKeys: Set<string>;
   modifiedRows: Record<string, any>;
   selectedCells: Set<string>;
   copiedCellPatch: { sourceRowKey: string; values: Record<string, any> } | null;
@@ -42,6 +44,7 @@ type DataGridBatchActionsContext = Record<string, any> & {
   setCopiedCellPatch: React.Dispatch<
     React.SetStateAction<{ sourceRowKey: string; values: Record<string, any> } | null>
   >;
+  setModifiedColumns: React.Dispatch<React.SetStateAction<Record<string, Set<string>>>>;
   setModifiedRows: React.Dispatch<React.SetStateAction<Record<string, any>>>;
   setSelectedCells: React.Dispatch<React.SetStateAction<Set<string>>>;
   markCellSelectionDeleteEligible: (eligible: boolean) => void;
@@ -73,6 +76,7 @@ export const useDataGridBatchActions = (ctx: DataGridBatchActionsContext) => {
     containerRef,
     copiedCellPatch,
     currentSelectionRef,
+    deletedRowKeys,
     displayColumnNames,
     displayDataRef,
     effectiveEditLocator,
@@ -94,6 +98,7 @@ export const useDataGridBatchActions = (ctx: DataGridBatchActionsContext) => {
     setCellContextMenu,
     setCellEditMode,
     setCopiedCellPatch,
+    setModifiedColumns,
     setModifiedRows,
     setSelectedCells,
     markCellSelectionDeleteEligible,
@@ -402,6 +407,25 @@ const handleBatchFillCells = useCallback(() => {
       ensureAutoScroll();
     };
 
+    const selectSingleCell = (cellInfo: { rowKey: string; colName: string }) => {
+      const currentData = displayDataRef.current;
+      const rowIndex = currentData.findIndex((row) => String(row?.[GONAVI_ROW_KEY]) === cellInfo.rowKey);
+      const colIndex = columnIndexMap.get(cellInfo.colName) ?? -1;
+      if (rowIndex === -1 || colIndex === -1) return;
+
+      const nextSelection = new Set([makeCellKey(cellInfo.rowKey, cellInfo.colName)]);
+      selectionStartRef.current = {
+        rowKey: cellInfo.rowKey,
+        colName: cellInfo.colName,
+        rowIndex,
+        colIndex,
+      };
+      currentSelectionRef.current = nextSelection;
+      setSelectedCells(nextSelection);
+      markCellSelectionDeleteEligible(false);
+      updateCellSelection(nextSelection);
+    };
+
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const target = e.target instanceof HTMLElement ? e.target : null;
@@ -445,8 +469,14 @@ const handleBatchFillCells = useCallback(() => {
     };
 
     const onMouseUp = (e: MouseEvent) => {
+      const pendingStart = pendingCellSelectionStartRef.current;
       pendingCellSelectionStartRef.current = null;
-      if (!isDraggingRef.current) return;
+      if (!isDraggingRef.current) {
+        if (pendingStart && canModifyData) {
+          selectSingleCell(pendingStart);
+        }
+        return;
+      }
       isDraggingRef.current = false;
       cellSelectionPointerRef.current = null;
       stopAutoScroll();
@@ -484,11 +514,104 @@ const handleBatchFillCells = useCallback(() => {
       });
     };
 
+    const onPaste = (e: ClipboardEvent) => {
+      if (!canModifyData || !selectionStartRef.current) return;
+      const activeElement = document.activeElement as HTMLElement | null;
+      const eventTarget = e.target instanceof HTMLElement ? e.target : null;
+      const nativePasteGuard = 'input, textarea, select, [contenteditable="true"], .ant-modal, .ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .ant-popover';
+      if (activeElement?.closest(nativePasteGuard) || eventTarget?.closest(nativePasteGuard)) return;
+
+      const clipboardData = e.clipboardData;
+      if (!clipboardData?.types.includes('text/plain')) return;
+      const matrix = parseDataGridClipboardText(clipboardData.getData('text/plain'));
+
+      const currentRows = displayDataRef.current;
+      const start = selectionStartRef.current;
+      const startRowIndex = currentRows.findIndex((row) => rowKeyStr(row?.[GONAVI_ROW_KEY]) === start.rowKey);
+      const startColumnIndex = columnIndexMap.get(start.colName) ?? -1;
+      if (startRowIndex === -1 || startColumnIndex === -1) return;
+
+      let targetCells: Array<{ rowIndex: number; columnIndex: number }> | undefined;
+      if (matrix.length === 1 && matrix[0]?.length === 1 && currentSelectionRef.current.size > 1) {
+        const rowIndexes = new Map<string, number>();
+        currentRows.forEach((row, rowIndex) => {
+          const key = row?.[GONAVI_ROW_KEY];
+          if (key !== undefined && key !== null) rowIndexes.set(rowKeyStr(key), rowIndex);
+        });
+        const selectedTargets = Array.from(currentSelectionRef.current).flatMap((cellKey) => {
+          const cell = splitCellKey(cellKey);
+          if (!cell) return [];
+          const rowIndex = rowIndexes.get(cell.rowKey);
+          const columnIndex = columnIndexMap.get(cell.colName);
+          return rowIndex === undefined || columnIndex === undefined ? [] : [{ rowIndex, columnIndex }];
+        });
+        if (selectedTargets.length > 1) targetCells = selectedTargets;
+      }
+
+      const addedRowKeys = new Set<string>();
+      addedRows.forEach((row) => {
+        const key = row?.[GONAVI_ROW_KEY];
+        if (key !== undefined && key !== null) addedRowKeys.add(rowKeyStr(key));
+      });
+      const result = buildDataGridClipboardPasteRows({
+        matrix,
+        rows: currentRows,
+        columnNames: displayColumnNames,
+        startRowIndex,
+        startColumnIndex,
+        targetCells,
+        rowKeyField: GONAVI_ROW_KEY,
+        addedRowKeys,
+        modifiedRows,
+        deletedRowKeys,
+        isWritableColumn: (columnName) => isWritableResultColumn(columnName, effectiveEditLocator),
+        isValueEqual: isCellValueEqualForDiff,
+      });
+
+      e.preventDefault();
+      if (result.updatedCellCount === 0) {
+        void message.info(translateDataGrid('data_grid.message.selected_cells_no_update'));
+        return;
+      }
+
+      const pasteRowsByKey = new Map(result.rows.map((row) => [row.rowKey, row]));
+      setAddedRows((prev) => prev.map((row) => {
+        const key = row?.[GONAVI_ROW_KEY];
+        if (key === undefined || key === null) return row;
+        const pasteRow = pasteRowsByKey.get(rowKeyStr(key));
+        return pasteRow?.isAdded ? { ...row, ...pasteRow.values } : row;
+      }));
+      setModifiedRows((prev) => {
+        const next = { ...prev };
+        result.rows.forEach((row) => {
+          if (row.isAdded) return;
+          if (Object.keys(row.modifiedValues).length === 0) delete next[row.rowKey];
+          else next[row.rowKey] = row.modifiedValues;
+        });
+        return next;
+      });
+      setModifiedColumns((prev) => {
+        const next = { ...prev };
+        result.rows.forEach((row) => {
+          if (row.isAdded) return;
+          if (row.modifiedColumnNames.length === 0) delete next[row.rowKey];
+          else next[row.rowKey] = new Set(row.modifiedColumnNames);
+        });
+        return next;
+      });
+
+      void message.success(translateDataGrid('data_grid.message.pasted_columns_to_rows', {
+        rows: result.rows.length,
+        cells: result.updatedCellCount,
+      }));
+    };
+
     container.addEventListener('mousedown', onMouseDown);
     container.addEventListener('mousemove', onMouseMove);
     container.addEventListener('click', onClickCapture, true);
     container.addEventListener('scroll', onScroll, true);
     document.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('paste', onPaste);
 
     return () => {
       container.removeEventListener('mousedown', onMouseDown);
@@ -496,6 +619,7 @@ const handleBatchFillCells = useCallback(() => {
       container.removeEventListener('click', onClickCapture, true);
       container.removeEventListener('scroll', onScroll, true);
       document.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('paste', onPaste);
       if (cellSelectionRafRef.current !== null) {
         cancelAnimationFrame(cellSelectionRafRef.current);
         cellSelectionRafRef.current = null;
@@ -509,7 +633,7 @@ const handleBatchFillCells = useCallback(() => {
       cellSelectionPointerRef.current = null;
       isDraggingRef.current = false;
     };
-  }, [canModifyData, isActive, isTableSurfaceActive, displayColumnNames, columnIndexMap, effectiveEditLocator, isWritableResultColumn, markCellSelectionDeleteEligible, updateCellSelection]);
+  }, [addedRows, canModifyData, deletedRowKeys, isActive, isTableSurfaceActive, displayColumnNames, columnIndexMap, effectiveEditLocator, isCellValueEqualForDiff, isWritableResultColumn, markCellSelectionDeleteEligible, modifiedRows, rowKeyStr, setAddedRows, setModifiedColumns, setModifiedRows, setSelectedCells, splitCellKey, translateDataGrid, updateCellSelection]);
 
   const handleCopySelectedColumnsFromRow = useCallback(() => {
     const activeSelection = currentSelectionRef.current.size > 0 ? currentSelectionRef.current : selectedCells;

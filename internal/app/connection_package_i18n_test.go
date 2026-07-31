@@ -2,10 +2,8 @@ package app
 
 import (
 	"errors"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -23,25 +21,6 @@ func connectionPackageFunctionSource(t *testing.T, source string, signature stri
 	return source[start : start+len(signature)+end]
 }
 
-func TestConnectionPackageInternalSentinelsDoNotUseLegacyChineseText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("connection_package_types.go")
-	if err != nil {
-		t.Fatalf("read connection_package_types.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, literal := range []string{
-		"恢复包密码不能为空",
-		"文件密码错误或文件已损坏",
-		"不支持的连接恢复包格式",
-		"连接导入文件过大",
-		"连接恢复包过大",
-	} {
-		if strings.Contains(source, literal) {
-			t.Fatalf("connection_package_types.go still contains legacy Chinese sentinel text %q", literal)
-		}
-	}
-}
 
 func TestImportConnectionsPayloadLocalizesPasswordRequiredErrorInGerman(t *testing.T) {
 	app := NewAppWithSecretStore(newFakeAppSecretStore())
@@ -134,20 +113,3 @@ func TestImportConnectionsPayloadLocalizesMySQLWorkbenchNoConnectionsErrorInGerm
 	}
 }
 
-func TestConnectionPackageDialogBoundariesUseLocalizedMessageHelpers(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_file.go")
-	if err != nil {
-		t.Fatalf("read methods_file.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	importFunction := connectionPackageFunctionSource(t, source, "func (a *App) ImportConfigFile() connection.QueryResult")
-	if !strings.Contains(importFunction, "localizedConnectionPackageMessage(") {
-		t.Fatal("ImportConfigFile should localize connection-package sentinel errors before returning QueryResult.Message")
-	}
-
-	exportFunction := connectionPackageFunctionSource(t, source, "func (a *App) ExportConnectionsPackage(options ConnectionExportOptions) connection.QueryResult")
-	if !strings.Contains(exportFunction, "localizedConnectionPackageExportMessage(") {
-		t.Fatal("ExportConnectionsPackage should map export oversize errors through a dedicated localized message helper")
-	}
-}

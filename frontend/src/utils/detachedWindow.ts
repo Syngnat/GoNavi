@@ -37,6 +37,7 @@ export type DetachedQueryResultSnapshot = {
   readOnly: boolean;
   showRowNumberColumn?: boolean;
   truncated?: boolean;
+  pinned?: boolean;
 };
 
 export type DetachedQueryResultWindow = DetachedWindowBounds & {

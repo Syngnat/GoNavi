@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -6,8 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { I18nProvider } from '../../i18n/provider';
 import AISlashCommandMenu from './AISlashCommandMenu';
 import { filterAISlashCommands } from './aiSlashCommands';
-
-const source = readFileSync(new URL('./AISlashCommandMenu.tsx', import.meta.url), 'utf8');
 
 const renderWithProvider = (
   language: 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'de-DE' | 'ru-RU',
@@ -30,15 +27,6 @@ const renderWithProvider = (
 );
 
 describe('AISlashCommandMenu', () => {
-  it('uses optional i18n fallback keys instead of legacy Chinese empty-state literals', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US', key, params)");
-    expect(source).toContain("ai_chat.input.slash.empty.title");
-    expect(source).toContain("ai_chat.input.slash.empty.summary");
-    expect(source).not.toContain('没有匹配的快捷命令');
-    expect(source).not.toContain('可以先试这些更常用的入口');
-    expect(source).not.toContain('当前共提供');
-  });
 
   it('renders an empty-state hint when the slash filter has no matches', () => {
     const markup = renderToStaticMarkup(

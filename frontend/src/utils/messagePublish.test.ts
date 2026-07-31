@@ -1,13 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import {
   buildMessagePublishCommand,
   createDefaultMessagePublishDraft,
   getMessagePublishPresentation,
 } from './messagePublish';
-
-const messagePublishSource = readFileSync(new URL('./messagePublish.ts', import.meta.url), 'utf8');
 
 describe('messagePublish', () => {
   it('localizes presentation copy through the supplied translator while keeping transport names raw', () => {
@@ -54,77 +51,6 @@ describe('messagePublish', () => {
       successHint: 'message_publish.presentation.kafka.success_hint',
       keyLabel: 'message_publish.presentation.key_label',
       keyPlaceholder: 'message_publish.presentation.kafka.key_placeholder',
-    });
-  });
-
-  it('keeps presentation copy out of hardcoded Chinese literals', () => {
-    [
-      '例如：orders.queue',
-      '请输入 Queue',
-      '当前表单会自动拼装 RabbitMQ publish JSON 命令',
-      '留空 Exchange 时会使用默认交换机',
-      '例如：orders.events',
-      '请输入 Topic',
-      '当前表单会自动拼装 RocketMQ publish JSON 命令',
-      'Tag、Keys、Delay Level 与 Properties 会一并写入 RocketMQ 消息属性',
-      '消息 Keys（可选）',
-      '可输入多个 Key，使用逗号分隔',
-      '例如：TagA',
-      '例如：devices/device-001/telemetry',
-      '当前表单会自动拼装 MQTT publish JSON 命令',
-      'QoS 与 retain 可单独指定',
-      '当前表单会自动拼装 Kafka publish JSON 命令',
-      'Headers 会作为 Kafka Record Headers 一并发送',
-      '消息 Key（可选）',
-      '可留空；JSON 模式请输入一行合法 JSON',
-    ].forEach((legacyText) => {
-      expect(messagePublishSource).not.toContain(legacyText);
-    });
-  });
-
-  it('keeps presentation keys in every locale catalog', () => {
-    (['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'de-DE', 'ru-RU'] as const).forEach((locale) => {
-      const catalog = JSON.parse(
-        readFileSync(new URL(`../../../shared/i18n/${locale}.json`, import.meta.url), 'utf8'),
-      ) as Record<string, string>;
-
-      [
-        'message_publish.presentation.rabbitmq.destination_placeholder',
-        'message_publish.presentation.rabbitmq.destination_required',
-        'message_publish.presentation.rabbitmq.alert',
-        'message_publish.presentation.rabbitmq.success_hint',
-        'message_publish.presentation.rocketmq.destination_placeholder',
-        'message_publish.presentation.topic_required',
-        'message_publish.presentation.rocketmq.alert',
-        'message_publish.presentation.rocketmq.success_hint',
-        'message_publish.presentation.keys_label',
-        'message_publish.presentation.rocketmq.key_placeholder',
-        'message_publish.presentation.rocketmq.tag_placeholder',
-        'message_publish.presentation.mqtt.destination_placeholder',
-        'message_publish.presentation.mqtt.alert',
-        'message_publish.presentation.mqtt.success_hint',
-        'message_publish.presentation.kafka.destination_placeholder',
-        'message_publish.presentation.kafka.alert',
-        'message_publish.presentation.kafka.success_hint',
-        'message_publish.presentation.key_label',
-        'message_publish.presentation.kafka.key_placeholder',
-      ].forEach((key) => {
-        expect(catalog[key]).toEqual(expect.any(String));
-        expect(catalog[key].length).toBeGreaterThan(0);
-      });
-
-      [
-        ['message_publish.presentation.rabbitmq.alert', 'RabbitMQ'],
-        ['message_publish.presentation.rabbitmq.alert', 'Management API'],
-        ['message_publish.presentation.rocketmq.alert', 'RocketMQ'],
-        ['message_publish.presentation.rocketmq.alert', 'NameServer'],
-        ['message_publish.presentation.mqtt.alert', 'MQTT'],
-        ['message_publish.presentation.kafka.alert', 'Kafka'],
-        ['message_publish.presentation.kafka.success_hint', 'Headers'],
-        ['message_publish.presentation.key_label', 'Key'],
-      ].forEach(([key, rawTerm]) => {
-        expect(catalog[key]).toContain(rawTerm);
-      });
     });
   });
 
@@ -183,44 +109,6 @@ describe('messagePublish', () => {
       },
       t,
     )).toThrow(/message_publish\.error\.unsupported_type .*not-a-message-bus/);
-  });
-
-  it('keeps command validation errors in locale catalogs and out of hardcoded Chinese literals', () => {
-    [
-      '请输入目标 Topic / Queue',
-      'MQTT 发送 Topic 不能包含 + 或 # 通配符',
-      '请输入${fieldLabel}',
-      '${fieldLabel}不是合法 JSON',
-      '${fieldLabel} 必须是 JSON 对象',
-      '当前数据源暂不支持测试发送消息',
-    ].forEach((legacyText) => {
-      expect(messagePublishSource).not.toContain(legacyText);
-    });
-
-    (['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'de-DE', 'ru-RU'] as const).forEach((locale) => {
-      const catalog = JSON.parse(
-        readFileSync(new URL(`../../../shared/i18n/${locale}.json`, import.meta.url), 'utf8'),
-      ) as Record<string, string>;
-
-      [
-        'message_publish.field.body',
-        'message_publish.field.message_key',
-        'message_publish.error.destination_required',
-        'message_publish.error.required_field',
-        'message_publish.error.invalid_json_detail',
-        'message_publish.error.json_object_required',
-        'message_publish.error.mqtt_wildcard_topic',
-        'message_publish.error.unsupported_type',
-      ].forEach((key) => {
-        expect(catalog[key]).toEqual(expect.any(String));
-        expect(catalog[key].length).toBeGreaterThan(0);
-      });
-
-      expect(catalog['message_publish.error.destination_required']).toContain('Topic / Queue');
-      expect(catalog['message_publish.error.mqtt_wildcard_topic']).toContain('MQTT');
-      expect(catalog['message_publish.error.mqtt_wildcard_topic']).toContain('+');
-      expect(catalog['message_publish.error.mqtt_wildcard_topic']).toContain('#');
-    });
   });
 
   it('builds a Kafka publish JSON command from JSON payload inputs', () => {

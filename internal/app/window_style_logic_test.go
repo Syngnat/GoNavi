@@ -19,20 +19,20 @@ func TestResolveMacNativeWindowControlStateEnabled(t *testing.T) {
 	}
 }
 
-func TestResolveMacNativeWindowControlStateDisabled(t *testing.T) {
+func TestResolveMacNativeWindowControlStateIgnoresLegacyDisablePreference(t *testing.T) {
 	state := resolveMacNativeWindowControlState(false)
 
-	if state.ShowNativeButtons {
-		t.Fatal("expected native buttons to be hidden when disabled")
+	if !state.ShowNativeButtons {
+		t.Fatal("expected native buttons to remain visible for a legacy disabled preference")
 	}
-	if state.UseTitledWindow || state.UseFullSizeContent {
-		t.Fatal("expected disabled state to avoid titled/full-size content window")
+	if !state.UseTitledWindow || !state.UseFullSizeContent {
+		t.Fatal("expected native titled full-size content window for a legacy disabled preference")
 	}
-	if state.HideWindowTitle || state.TransparentTitlebar {
-		t.Fatal("expected disabled state to keep title visibility and opaque titlebar")
+	if !state.HideWindowTitle || !state.TransparentTitlebar {
+		t.Fatal("expected hidden title and transparent titlebar for a legacy disabled preference")
 	}
-	if state.AllowNativeFullscreen {
-		t.Fatal("expected disabled state to avoid native fullscreen behavior")
+	if !state.AllowNativeFullscreen {
+		t.Fatal("expected native fullscreen behavior for a legacy disabled preference")
 	}
 }
 

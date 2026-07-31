@@ -1,17 +1,22 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 const scanRowsDuplicateDriverName = "gonavi-scan-rows-duplicate"
+const scanRowsOracleBlobTestBytes = 16*1024 + 17
 
 var registerScanRowsDuplicateDriverOnce sync.Once
 
@@ -28,6 +33,24 @@ func (scanRowsDuplicateConn) Close() error                              { return
 func (scanRowsDuplicateConn) Begin() (driver.Tx, error)                 { return nil, driver.ErrSkip }
 
 func (scanRowsDuplicateConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	if query == "SELECT blob_columns" {
+		return &scanRowsDuplicateRows{
+			columns:     []string{"payload"},
+			columnTypes: []string{"OCIBlobLocator"},
+			rows: [][]driver.Value{
+				{bytes.Repeat([]byte{0xff}, scanRowsOracleBlobTestBytes)},
+			},
+		}, nil
+	}
+	if query == "SELECT clob_columns" {
+		return &scanRowsDuplicateRows{
+			columns:     []string{"content"},
+			columnTypes: []string{"OCIClobLocator"},
+			rows: [][]driver.Value{
+				{strings.Repeat("数", 6*1024)},
+			},
+		}, nil
+	}
 	if query == "SELECT date_columns" {
 		return &scanRowsDuplicateRows{
 			columns:     []string{"ship_date", "created_at"},
@@ -118,6 +141,175 @@ func (scanRowsDuplicateConn) QueryContext(_ context.Context, query string, args 
 			{int64(1), int64(2), "alice"},
 		},
 	}, nil
+}
+
+type scanRowsValueConsumer struct {
+	columns []string
+	rows    [][]interface{}
+}
+
+func (c *scanRowsValueConsumer) SetColumns(columns []string) error {
+	c.columns = append([]string(nil), columns...)
+	return nil
+}
+
+func (c *scanRowsValueConsumer) ConsumeRow(row map[string]interface{}) error {
+	values := make([]interface{}, len(c.columns))
+	for index, column := range c.columns {
+		values[index] = row[column]
+	}
+	c.rows = append(c.rows, values)
+	return nil
+}
+
+func (c *scanRowsValueConsumer) ConsumeRowValues(values []interface{}) error {
+	c.rows = append(c.rows, append([]interface{}(nil), values...))
+	return nil
+}
+
+func TestScanRowsBoundsOracleBlobPreview(t *testing.T) {
+	t.Parallel()
+
+	registerScanRowsDuplicateDriverOnce.Do(func() {
+		sql.Register(scanRowsDuplicateDriverName, scanRowsDuplicateDriver{})
+	})
+
+	dbConn, err := sql.Open(scanRowsDuplicateDriverName, "")
+	if err != nil {
+		t.Fatalf("open blob scan rows db failed: %v", err)
+	}
+	defer dbConn.Close()
+
+	rows, err := dbConn.QueryContext(context.Background(), "SELECT blob_columns")
+	if err != nil {
+		t.Fatalf("query blob scan rows db failed: %v", err)
+	}
+	defer rows.Close()
+
+	// Production OracleDB leaves scanDialect empty; go-ora's column type is the
+	// reliable signal for applying the interactive BLOB guard.
+	data, columns, err := scanRowsForDialect(rows, "")
+	if err != nil {
+		t.Fatalf("scanRowsForDialect returned error: %v", err)
+	}
+	if !reflect.DeepEqual(columns, []string{"payload"}) || len(data) != 1 {
+		t.Fatalf("unexpected blob result: columns=%v rows=%d", columns, len(data))
+	}
+
+	preview, ok := data[0]["payload"].(string)
+	if !ok {
+		t.Fatalf("Oracle BLOB preview type = %T, want string", data[0]["payload"])
+	}
+	wantPrefix := fmt.Sprintf("[BLOB preview: 4096/%d bytes] 0x", scanRowsOracleBlobTestBytes)
+	if !strings.HasPrefix(preview, wantPrefix+strings.Repeat("ff", 4*1024)) {
+		t.Fatalf("Oracle BLOB preview is missing bounded data or visible metadata: length=%d", len(preview))
+	}
+	fullHexLength := len("0x") + scanRowsOracleBlobTestBytes*2
+	if len(preview) >= fullHexLength {
+		t.Fatalf("Oracle BLOB preview length = %d, want less than full hex length %d", len(preview), fullHexLength)
+	}
+}
+
+func TestStreamRowsKeepsCompleteOracleBlobValue(t *testing.T) {
+	t.Parallel()
+
+	registerScanRowsDuplicateDriverOnce.Do(func() {
+		sql.Register(scanRowsDuplicateDriverName, scanRowsDuplicateDriver{})
+	})
+
+	dbConn, err := sql.Open(scanRowsDuplicateDriverName, "")
+	if err != nil {
+		t.Fatalf("open streaming blob rows db failed: %v", err)
+	}
+	defer dbConn.Close()
+
+	rows, err := dbConn.QueryContext(context.Background(), "SELECT blob_columns")
+	if err != nil {
+		t.Fatalf("query streaming blob rows db failed: %v", err)
+	}
+	defer rows.Close()
+
+	consumer := &scanRowsValueConsumer{}
+	if err := streamRowsForDialect(rows, "", consumer); err != nil {
+		t.Fatalf("streamRowsForDialect returned error: %v", err)
+	}
+	if len(consumer.rows) != 1 || len(consumer.rows[0]) != 1 {
+		t.Fatalf("unexpected streamed blob rows: %#v", consumer.rows)
+	}
+	want := "0x" + strings.Repeat("ff", scanRowsOracleBlobTestBytes)
+	if got := consumer.rows[0][0]; got != want {
+		t.Fatalf("streamed Oracle BLOB was truncated: got length=%d want length=%d", len(got.(string)), len(want))
+	}
+}
+
+func TestScanRowsBoundsOracleClobPreviewAtUTF8Boundary(t *testing.T) {
+	t.Parallel()
+
+	registerScanRowsDuplicateDriverOnce.Do(func() {
+		sql.Register(scanRowsDuplicateDriverName, scanRowsDuplicateDriver{})
+	})
+
+	dbConn, err := sql.Open(scanRowsDuplicateDriverName, "")
+	if err != nil {
+		t.Fatalf("open clob scan rows db failed: %v", err)
+	}
+	defer dbConn.Close()
+
+	rows, err := dbConn.QueryContext(context.Background(), "SELECT clob_columns")
+	if err != nil {
+		t.Fatalf("query clob scan rows db failed: %v", err)
+	}
+	defer rows.Close()
+
+	data, _, err := scanRowsForDialect(rows, "")
+	if err != nil {
+		t.Fatalf("scanRowsForDialect returned error: %v", err)
+	}
+	preview, ok := data[0]["content"].(string)
+	if !ok {
+		t.Fatalf("Oracle CLOB preview type = %T, want string", data[0]["content"])
+	}
+	wantContentPrefix := strings.Repeat("数", (4*1024)/len("数"))
+	wantPrefix := fmt.Sprintf(
+		"[CLOB preview: %d/%d bytes] ",
+		len(wantContentPrefix),
+		len(strings.Repeat("数", 6*1024)),
+	)
+	if !strings.HasPrefix(preview, wantPrefix+wantContentPrefix) {
+		t.Fatalf("Oracle CLOB preview does not preserve the UTF-8 prefix: length=%d", len(preview))
+	}
+	if !utf8.ValidString(preview) {
+		t.Fatalf("Oracle CLOB preview split a UTF-8 character: %q", preview[:min(len(preview), 32)])
+	}
+}
+
+func TestStreamRowsKeepsCompleteOracleClobValue(t *testing.T) {
+	t.Parallel()
+
+	registerScanRowsDuplicateDriverOnce.Do(func() {
+		sql.Register(scanRowsDuplicateDriverName, scanRowsDuplicateDriver{})
+	})
+
+	dbConn, err := sql.Open(scanRowsDuplicateDriverName, "")
+	if err != nil {
+		t.Fatalf("open streaming clob rows db failed: %v", err)
+	}
+	defer dbConn.Close()
+
+	rows, err := dbConn.QueryContext(context.Background(), "SELECT clob_columns")
+	if err != nil {
+		t.Fatalf("query streaming clob rows db failed: %v", err)
+	}
+	defer rows.Close()
+
+	consumer := &scanRowsValueConsumer{}
+	if err := streamRowsForDialect(rows, "", consumer); err != nil {
+		t.Fatalf("streamRowsForDialect returned error: %v", err)
+	}
+	want := strings.Repeat("数", 6*1024)
+	if len(consumer.rows) != 1 || len(consumer.rows[0]) != 1 || consumer.rows[0][0] != want {
+		t.Fatalf("streamed Oracle CLOB was truncated: rows=%d", len(consumer.rows))
+	}
 }
 
 var _ driver.QueryerContext = (*scanRowsDuplicateConn)(nil)

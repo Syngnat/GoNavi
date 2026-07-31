@@ -15,6 +15,7 @@ export interface DataGridColumnInfoPopoverContentProps {
   darkMode: boolean;
   showColumnComment: boolean;
   showColumnType: boolean;
+  showRowNumberColumn: boolean;
   columnSearchText: string;
   allOrderedColumnNames: string[];
   localHiddenColumns: string[];
@@ -25,6 +26,7 @@ export interface DataGridColumnInfoPopoverContentProps {
   translate?: DataGridColumnInfoTranslate;
   onShowColumnCommentChange: (checked: boolean) => void;
   onShowColumnTypeChange: (checked: boolean) => void;
+  onShowRowNumberColumnChange: (checked: boolean) => void;
   onToggleAllColumnsVisibility: (visible: boolean) => void;
   onColumnSearchTextChange: (value: string) => void;
   onToggleColumnVisibility: (columnName: string, visible: boolean) => void;
@@ -40,6 +42,7 @@ const DataGridColumnInfoPopoverContent: React.FC<DataGridColumnInfoPopoverConten
   darkMode,
   showColumnComment,
   showColumnType,
+  showRowNumberColumn,
   columnSearchText,
   allOrderedColumnNames,
   localHiddenColumns,
@@ -50,6 +53,7 @@ const DataGridColumnInfoPopoverContent: React.FC<DataGridColumnInfoPopoverConten
   translate = defaultTranslate,
   onShowColumnCommentChange,
   onShowColumnTypeChange,
+  onShowRowNumberColumnChange,
   onToggleAllColumnsVisibility,
   onColumnSearchTextChange,
   onToggleColumnVisibility,
@@ -112,6 +116,13 @@ const DataGridColumnInfoPopoverContent: React.FC<DataGridColumnInfoPopoverConten
         allowClear
       />
       <div className="custom-scrollbar" style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <Checkbox
+          checked={showRowNumberColumn}
+          onChange={(e) => onShowRowNumberColumnChange(e.target.checked)}
+          style={{ marginLeft: 0 }}
+        >
+          {translate('app.theme.data_table.row_number')}
+        </Checkbox>
         {allOrderedColumnNames
           .filter((col) => !columnSearchText || col.toLowerCase().includes(columnSearchText.toLowerCase()))
           .map((col) => (

@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -62,23 +61,5 @@ describe("jvmMonitoringPresentation", () => {
     expect(normalizeMonitoringProviderMode("AGENT", "jmx")).toBe("agent");
     expect(normalizeMonitoringProviderMode("unsupported", "endpoint")).toBe("endpoint");
     expect(normalizeMonitoringProviderMode(undefined, "jmx")).toBe("jmx");
-  });
-
-  it("keeps presentation-owned Chinese literals out of the utility source", () => {
-    const source = readFileSync(
-      new URL("./jvmMonitoringPresentation.ts", import.meta.url),
-      "utf8",
-    );
-
-    [
-      "缺失指标",
-      "监控来源告警",
-      "当前监控会话未发现明显降级",
-      "堆内存",
-      "可运行",
-      "zh-CN",
-    ].forEach((literal) => {
-      expect(source).not.toContain(literal);
-    });
   });
 });

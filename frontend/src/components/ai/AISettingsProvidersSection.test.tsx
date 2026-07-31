@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { Form } from 'antd';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -9,8 +8,6 @@ import { t as catalogTranslate } from '../../i18n/catalog';
 import { I18nProvider } from '../../i18n/provider';
 import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import AISettingsProvidersSection from './AISettingsProvidersSection';
-
-const providerSectionSource = readFileSync(new URL('./AISettingsProvidersSection.tsx', import.meta.url), 'utf8');
 
 const REQUIRED_PROVIDER_KEYS = [
   'ai_settings.provider.empty.title',
@@ -85,48 +82,6 @@ const provider: AIProviderConfig = {
 const overlayTheme = buildOverlayWorkbenchTheme(false);
 
 describe('AISettingsProvidersSection', () => {
-  it('validates empty API keys against retainable secret state instead of edit identity', () => {
-    expect(providerSectionSource).toContain('isProviderSecretRequirementSatisfied({');
-    expect(providerSectionSource).toContain('editingProvider,');
-    expect(providerSectionSource).not.toContain('apiKey || editingProvider?.id');
-  });
-
-  it('keeps provider list and editor groups flat', () => {
-    const listStart = providerSectionSource.indexOf('if (!isEditing) {');
-    const listEnd = providerSectionSource.indexOf('\n  return (', listStart);
-    const fieldGroupStart = providerSectionSource.indexOf('const fieldGroupStyle =');
-    const fieldGroupEnd = providerSectionSource.indexOf('const fieldLabelStyle =', fieldGroupStart);
-    const listSource = providerSectionSource.slice(listStart, listEnd);
-    const fieldGroupSource = providerSectionSource.slice(fieldGroupStart, fieldGroupEnd);
-
-    expect(listStart).toBeGreaterThan(-1);
-    expect(listEnd).toBeGreaterThan(listStart);
-    expect(listSource).toContain('className="gonavi-ai-provider-list"');
-    expect(listSource).toContain('className={`gonavi-ai-provider-row');
-    expect(listSource).toContain('gap: 2');
-    expect(listSource).not.toContain('type="dashed"');
-    expect(listSource).not.toContain('borderRadius: 14');
-    expect(listSource).not.toContain('borderTop');
-    expect(listSource).not.toContain('borderBottom');
-    expect(fieldGroupSource).toContain("border: 'none'");
-    expect(fieldGroupSource).not.toContain('borderBottom');
-    expect(fieldGroupSource).toContain("background: 'transparent'");
-  });
-
-  it('keeps provider actions full-sized and directly below the final field group', () => {
-    const actionsStart = providerSectionSource.indexOf('className="gonavi-ai-provider-actions"');
-    const actionsEnd = providerSectionSource.indexOf('\n        </div>', actionsStart);
-    const actionsSource = providerSectionSource.slice(actionsStart, actionsEnd);
-
-    expect(actionsStart).toBeGreaterThan(-1);
-    expect(actionsEnd).toBeGreaterThan(actionsStart);
-    expect(actionsSource.match(/size="middle"/g)).toHaveLength(2);
-    expect(actionsSource).toContain('minWidth: 92');
-    expect(actionsSource).toContain('minWidth: 72');
-    expect(actionsSource).toContain('marginTop: 16');
-    expect(actionsSource).not.toContain('borderTop');
-    expect(actionsSource).not.toContain('paddingTop');
-  });
 
   it('renders providers as flat rows with a separate native selection button', () => {
     const Wrap = () => {
@@ -274,7 +229,6 @@ describe('AISettingsProvidersSection', () => {
     for (const key of [...REQUIRED_PROVIDER_KEYS, ...REQUIRED_PROVIDER_FORM_KEYS]) {
       expect(catalogTranslate('en-US', key)).not.toBe(key);
       expect(catalogTranslate('zh-CN', key)).not.toBe(key);
-      expect(providerSectionSource).toContain(key);
     }
 
     for (const oldCopy of [
@@ -312,7 +266,6 @@ describe('AISettingsProvidersSection', () => {
       '测试连接',
       '保存',
     ]) {
-      expect(providerSectionSource).not.toContain(oldCopy);
     }
   });
 

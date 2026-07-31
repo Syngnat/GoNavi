@@ -17,9 +17,11 @@ type RedisKeyTreeGroup = {
   leafCount: number;
 };
 
-export type RedisTreeDataNode = DataNode & {
+export type RedisTreeDataNode = Omit<DataNode, 'children'> & {
   nodeType: 'group' | 'leaf';
+  children?: RedisTreeDataNode[];
   groupName?: string;
+  groupPath?: string;
   groupLeafCount?: number;
   leafLabel?: string;
   rawKey?: string;
@@ -134,6 +136,7 @@ export const buildRedisKeyTree = (
         title: child.name,
         nodeType: 'group',
         groupName: child.name,
+        groupPath: child.path,
         groupLeafCount: child.leafCount,
         descendantRawKeys,
         children,

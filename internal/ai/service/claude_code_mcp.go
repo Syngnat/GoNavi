@@ -503,6 +503,9 @@ func readClaudeCodeMCPServerConfig(configPath string, serverID string, textFuncs
 
 func upsertClaudeCodeMCPServerConfig(configPath string, serverID string, serverConfig claudeCodeMCPServerConfig, textFuncs ...mcpClientInstallTextFunc) error {
 	text := firstMCPClientInstallText(textFuncs)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.claude_code.config_dir_create_failed", map[string]any{"detail": err.Error()}))
+	}
 	root, err := readClaudeCodeConfig(configPath, text)
 	if err != nil {
 		return err
@@ -526,9 +529,6 @@ func upsertClaudeCodeMCPServerConfig(configPath string, serverID string, serverC
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.claude_code.config_serialize_failed", map[string]any{"detail": err.Error()}))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.claude_code.config_dir_create_failed", map[string]any{"detail": err.Error()}))
-	}
 	if err := os.WriteFile(configPath, append(data, '\n'), 0o644); err != nil {
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.claude_code.config_write_failed", map[string]any{"detail": err.Error()}))
 	}
@@ -593,15 +593,15 @@ func readCodexMCPServerConfig(configPath string, serverID string, textFuncs ...m
 
 func upsertCodexMCPServerConfig(configPath string, serverID string, serverConfig codexMCPServerConfig, textFuncs ...mcpClientInstallTextFunc) error {
 	text := firstMCPClientInstallText(textFuncs)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.codex.config_dir_create_failed", map[string]any{"detail": err.Error()}))
+	}
 	data, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.codex.config_read_failed", map[string]any{"detail": err.Error()}))
 	}
 
 	updated := replaceOrAppendCodexMCPServerBlock(string(data), strings.TrimSpace(serverID), renderCodexMCPServerBlock(serverID, serverConfig))
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.codex.config_dir_create_failed", map[string]any{"detail": err.Error()}))
-	}
 	if err := os.WriteFile(configPath, []byte(updated), 0o644); err != nil {
 		return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.codex.config_write_failed", map[string]any{"detail": err.Error()}))
 	}

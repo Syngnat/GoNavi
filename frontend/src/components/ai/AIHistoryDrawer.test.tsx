@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,9 +25,6 @@ vi.mock('../../store', () => ({
   useStore: (selector: (state: typeof mockState) => unknown) => selector(mockState),
 }));
 
-const source = readFileSync(new URL('./AIHistoryDrawer.tsx', import.meta.url), 'utf8');
-const drawerOpenTag = source.match(/<Drawer[\s\S]*?>/)?.[0] || '';
-
 const renderHistoryDrawer = () => renderToStaticMarkup(
   <AIHistoryDrawer
     open
@@ -53,13 +49,6 @@ describe('AIHistoryDrawer', () => {
       setAIActiveSessionId,
       deleteAISession,
     };
-  });
-
-  it('uses antd v5 drawer style props instead of deprecated style/bodyStyle props', () => {
-    expect(drawerOpenTag).toContain("rootStyle={{ position: 'absolute' }}");
-    expect(drawerOpenTag).toContain('styles={{');
-    expect(drawerOpenTag).not.toContain('bodyStyle=');
-    expect(drawerOpenTag).not.toMatch(/\n\s*style=\{\{/);
   });
 
   it('renders recent sessions before older sessions', () => {

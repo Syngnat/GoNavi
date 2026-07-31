@@ -17,7 +17,6 @@ func parseDistributedMySQLTextExplain(dbType, sourceSQL, raw string, format conn
 		RawFormat:  connection.ExplainFormatText,
 		RawPayload: raw,
 	}
-	resetExplainNodeID()
 
 	parentID := ""
 	lastNodeIndex := -1

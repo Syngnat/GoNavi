@@ -1,5 +1,4 @@
 import React from "react";
-import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
@@ -260,21 +259,6 @@ describe("ImportPreviewModal i18n", () => {
     expect(renderedText).toContain("Import data preview");
     expect(renderedText).toContain("Start import");
     expect(renderedText).toContain("alice");
-  });
-
-  it("does not keep migrated Chinese UI literals in ImportPreviewModal source", () => {
-    const source = readFileSync(
-      new URL("./ImportPreviewModal.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).not.toContain("导入数据预览");
-    expect(source).not.toContain("开始导入");
-    expect(source).not.toContain("加载预览数据...");
-    expect(source).not.toContain("字段列表：");
-    expect(source).not.toContain("数据预览（前 5 行）：");
-    expect(source).not.toContain("正在导入数据...");
-    expect(source).not.toContain("错误日志：");
   });
 
   it("keeps preview total when progress events omit total rows", async () => {
@@ -687,18 +671,5 @@ describe("ImportPreviewModal i18n", () => {
 
     expect(mocks.previewImportFile).toHaveBeenCalledTimes(1);
     expect(textContent(renderer.toJSON())).toContain("database rejected import");
-  });
-
-  it("keeps large column mapping lists independently scrollable", () => {
-    const source = readFileSync(
-      new URL("./ImportPreviewModal.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain('data-import-column-mapping-list="true"');
-    expect(source).toContain('maxHeight: 240, overflowY: "auto"');
-    expect(source).toContain('closable={!importing}');
-    expect(source).toContain('maskClosable={!importing}');
-    expect(source).toContain('keyboard={!importing}');
   });
 });

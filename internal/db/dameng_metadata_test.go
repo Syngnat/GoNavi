@@ -146,16 +146,69 @@ func TestBuildDamengColumnsQuery_IncludesColumnCommentsJoin(t *testing.T) {
 	}
 }
 
+func TestBuildDamengColumnCommentsQueryUsesNativeDictionary(t *testing.T) {
+	t.Parallel()
+
+	userQuery := buildDamengColumnCommentsQuery("", "orders")
+	for _, want := range []string{
+		"FROM SYS.SYSCOLUMNCOMMENTS",
+		"SCHNAME = USER",
+		"TVNAME = 'ORDERS'",
+		"COLNAME AS column_name",
+		"COMMENT$ AS col_comment",
+	} {
+		if !strings.Contains(userQuery, want) {
+			t.Fatalf("current-schema native comment query should contain %q, got: %s", want, userQuery)
+		}
+	}
+
+	ownerQuery := buildDamengColumnCommentsQuery("biz", "orders")
+	if !strings.Contains(ownerQuery, "SCHNAME = 'BIZ'") || !strings.Contains(ownerQuery, "TVNAME = 'ORDERS'") {
+		t.Fatalf("schema native comment query should target the selected table, got: %s", ownerQuery)
+	}
+}
+
+func TestBuildDamengTableCommentQueryUsesSchemaAppropriateDictionaryView(t *testing.T) {
+	t.Parallel()
+
+	userQuery := buildDamengTableCommentQuery("", "orders")
+	if !strings.Contains(userQuery, "FROM user_tab_comments") || !strings.Contains(userQuery, "table_name = 'ORDERS'") {
+		t.Fatalf("expected current-schema table comment query, got: %s", userQuery)
+	}
+
+	allQuery := buildDamengTableCommentQuery("biz", "orders")
+	if !strings.Contains(allQuery, "FROM all_tab_comments") || !strings.Contains(allQuery, "owner = 'BIZ'") || !strings.Contains(allQuery, "table_name = 'ORDERS'") {
+		t.Fatalf("expected schema table comment query, got: %s", allQuery)
+	}
+}
+
+func TestAppendDamengTableCommentDDLAvoidsDuplicateAndEscapesLiteral(t *testing.T) {
+	t.Parallel()
+
+	ddl := appendDamengTableCommentDDL(`CREATE TABLE "BIZ"."ORDERS" ("ID" NUMBER)`, "biz", "orders", "订单'归档")
+	if !strings.Contains(ddl, `COMMENT ON TABLE "BIZ"."ORDERS" IS '订单''归档';`) {
+		t.Fatalf("expected escaped table comment DDL, got: %s", ddl)
+	}
+	if !strings.Contains(ddl, "(\"ID\" NUMBER);\n\nCOMMENT ON TABLE") {
+		t.Fatalf("expected create statement terminator before table comment, got: %s", ddl)
+	}
+
+	duplicated := appendDamengTableCommentDDL(ddl, "biz", "orders", "新备注")
+	if duplicated != ddl {
+		t.Fatalf("expected existing table comment DDL to remain unchanged, got: %s", duplicated)
+	}
+}
+
 func TestBuildDamengColumnDefinitions_MapsComment(t *testing.T) {
 	t.Parallel()
 
 	columns := buildDamengColumnDefinitions([]map[string]interface{}{
 		{
-			"COLUMN_NAME":  "ID",
-			"DATA_TYPE":    "NUMBER",
-			"NULLABLE":     "N",
-			"COLUMN_KEY":   "PRI",
-			"COL_COMMENT":  "主键",
+			"COLUMN_NAME": "ID",
+			"DATA_TYPE":   "NUMBER",
+			"NULLABLE":    "N",
+			"COLUMN_KEY":  "PRI",
+			"COL_COMMENT": "主键",
 		},
 	})
 
@@ -164,5 +217,82 @@ func TestBuildDamengColumnDefinitions_MapsComment(t *testing.T) {
 	}
 	if columns[0].Comment != "主键" {
 		t.Fatalf("expected comment to be mapped, got=%q", columns[0].Comment)
+	}
+}
+
+func TestBuildDamengIndexesQuery_JoinsAllViewsByIndexOwner(t *testing.T) {
+	t.Parallel()
+
+	query := buildDamengIndexesQuery("app", "orders")
+
+	if !strings.Contains(query, "JOIN all_indexes i ON i.owner = c.index_owner AND i.index_name = c.index_name") {
+		t.Fatalf("expected schema query to join ALL_INDEXES through INDEX_OWNER, got: %s", query)
+	}
+	if !strings.Contains(query, "i.index_type") {
+		t.Fatalf("expected index type metadata to be selected, got: %s", query)
+	}
+	if strings.Contains(strings.ToLower(query), "using (index_name, owner)") {
+		t.Fatalf("ALL_IND_COLUMNS exposes INDEX_OWNER rather than OWNER, got: %s", query)
+	}
+	if !strings.Contains(query, "c.table_owner = 'APP'") || !strings.Contains(query, "c.table_name = 'ORDERS'") {
+		t.Fatalf("expected normalized schema and table predicates, got: %s", query)
+	}
+	if !strings.Contains(query, "ORDER BY c.index_name, c.column_position") {
+		t.Fatalf("expected stable multi-column index ordering, got: %s", query)
+	}
+}
+
+func TestBuildDamengIndexesQuery_UsesUserViewsWithoutSchema(t *testing.T) {
+	t.Parallel()
+
+	query := buildDamengIndexesQuery("", "orders")
+
+	if !strings.Contains(query, "FROM user_ind_columns c") {
+		t.Fatalf("expected current-schema index columns view, got: %s", query)
+	}
+	if !strings.Contains(query, "JOIN user_indexes i ON i.index_name = c.index_name") {
+		t.Fatalf("expected current-schema index metadata join, got: %s", query)
+	}
+}
+
+func TestBuildDamengIndexDefinitions_MapsCaseInsensitiveMultiColumnMetadata(t *testing.T) {
+	t.Parallel()
+
+	indexes := buildDamengIndexDefinitions([]map[string]interface{}{
+		{
+			"index_name":      "IDX_ORDERS_TENANT_CREATED",
+			"column_name":     "TENANT_ID",
+			"uniqueness":      "NONUNIQUE",
+			"column_position": 1,
+			"index_type":      "NORMAL",
+		},
+		{
+			"INDEX_NAME":      "IDX_ORDERS_TENANT_CREATED",
+			"COLUMN_NAME":     "CREATED_AT",
+			"UNIQUENESS":      "NONUNIQUE",
+			"COLUMN_POSITION": "2",
+		},
+		{
+			"INDEX_NAME":      "UK_ORDERS_NUMBER",
+			"COLUMN_NAME":     "ORDER_NUMBER",
+			"UNIQUENESS":      "UNIQUE",
+			"COLUMN_POSITION": 1,
+		},
+	})
+
+	if len(indexes) != 3 {
+		t.Fatalf("expected three index columns, got=%d", len(indexes))
+	}
+	if indexes[0].Name != "IDX_ORDERS_TENANT_CREATED" || indexes[0].ColumnName != "TENANT_ID" || indexes[0].NonUnique != 1 || indexes[0].SeqInIndex != 1 {
+		t.Fatalf("unexpected first index column: %#v", indexes[0])
+	}
+	if indexes[0].IndexType != "NORMAL" {
+		t.Fatalf("expected index type metadata to be preserved, got: %#v", indexes[0])
+	}
+	if indexes[1].SeqInIndex != 2 {
+		t.Fatalf("expected second column position, got: %#v", indexes[1])
+	}
+	if indexes[2].NonUnique != 0 {
+		t.Fatalf("expected UNIQUE metadata to map to NonUnique=0, got: %#v", indexes[2])
 	}
 }

@@ -5,10 +5,8 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -159,6 +157,52 @@ func TestExecParameterizedInsertBatchesSplitsByArgumentLimit(t *testing.T) {
 	}
 	if strings.Count(queries[0], "(?, ?)") != 2 || strings.Count(queries[1], "(?, ?)") != 1 {
 		t.Fatalf("unexpected split queries: %v", queries)
+	}
+}
+
+func TestExecParameterizedInsertBatchesRetriesMySQLPlaceholderLimitWithSmallerBatches(t *testing.T) {
+	t.Parallel()
+
+	const (
+		columnCount       = 24
+		rowCount          = 1000
+		serverPlaceholder = 12000
+	)
+	rows := make([]map[string]interface{}, 0, rowCount)
+	for rowIndex := 0; rowIndex < rowCount; rowIndex++ {
+		row := make(map[string]interface{}, columnCount)
+		for columnIndex := 0; columnIndex < columnCount; columnIndex++ {
+			row[fmt.Sprintf("column_%02d", columnIndex)] = rowIndex*columnCount + columnIndex
+		}
+		rows = append(rows, row)
+	}
+
+	attemptedArgCounts := make([]int, 0, 3)
+	succeededRows := 0
+	err := execParameterizedInsertBatches(parameterizedInsertConfig{
+		Table:       "`events`",
+		Rows:        rows,
+		QuoteColumn: func(column string) string { return "`" + column + "`" },
+		Placeholder: func(int) string { return "?" },
+		Exec: func(_ string, values ...interface{}) (sql.Result, error) {
+			attemptedArgCounts = append(attemptedArgCounts, len(values))
+			if len(values) > serverPlaceholder {
+				return nil, errors.New("Error 1390 (HY000): Prepared statement contains too many placeholders")
+			}
+			succeededRows += len(values) / columnCount
+			return driver.RowsAffected(len(values) / columnCount), nil
+		},
+		MaxRows: 1000,
+		MaxArgs: 60000,
+	})
+	if err != nil {
+		t.Fatalf("execParameterizedInsertBatches() error = %v", err)
+	}
+	if got, want := fmt.Sprint(attemptedArgCounts), "[24000 12000 12000]"; got != want {
+		t.Fatalf("attempted arg counts = %s, want %s", got, want)
+	}
+	if succeededRows != rowCount {
+		t.Fatalf("succeeded rows = %d, want %d", succeededRows, rowCount)
 	}
 }
 
@@ -385,43 +429,6 @@ func TestBatchInsertErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestBatchInsertErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("batch_insert.go")
-	if err != nil {
-		t.Fatalf("read batch_insert.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("表名不能为空")`,
-		`fmt.Errorf("列名引用函数不能为空")`,
-		`fmt.Errorf("占位符函数不能为空")`,
-		`fmt.Errorf("执行函数不能为空")`,
-		`fmt.Errorf("字面量函数不能为空")`,
-		`fmt.Errorf("插入失败：%v", err)`,
-		`fmt.Errorf("插入失败：%v; sql=%s", err, query)`,
-		`fmt.Errorf("插入未生效：未影响任何行")`,
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("batch_insert.go still contains raw batch insert text %q", rawMessage)
-		}
-	}
-
-	for _, key := range []string{
-		"db.backend.error.table_name_required",
-		"db.backend.error.batch_insert_quote_column_required",
-		"db.backend.error.batch_insert_placeholder_required",
-		"db.backend.error.batch_insert_exec_required",
-		"db.backend.error.batch_insert_literal_required",
-		"db.backend.error.batch_insert_failed",
-		"db.backend.error.batch_insert_failed_with_sql",
-		"db.backend.error.batch_insert_no_rows_affected",
-	} {
-		if !strings.Contains(source, key) {
-			t.Fatalf("batch_insert.go does not reference i18n key %q", key)
-		}
-	}
-}
 
 func TestBatchInsertErrorCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

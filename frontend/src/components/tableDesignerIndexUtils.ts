@@ -19,6 +19,33 @@ export interface SchemaExecutionSnapshot {
   failedStatementIndex?: number;
 }
 
+export interface IndexMetadataResponse {
+  success: boolean;
+  data?: unknown;
+  message?: unknown;
+}
+
+export interface IndexMetadataResolution<T> {
+  indexes: T[];
+  errorDetail: string | null;
+}
+
+export const resolveIndexMetadataResponse = <T = unknown>(
+  response: IndexMetadataResponse,
+): IndexMetadataResolution<T> => {
+  if (!response.success) {
+    return {
+      indexes: [],
+      errorDetail: String(response.message || '').trim(),
+    };
+  }
+
+  return {
+    indexes: Array.isArray(response.data) ? response.data as T[] : [],
+    errorDetail: null,
+  };
+};
+
 export const normalizeIndexFormFromRow = (
   row: IndexDisplaySnapshot,
   supportedKinds: IndexKind[],

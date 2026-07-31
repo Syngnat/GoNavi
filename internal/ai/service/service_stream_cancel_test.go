@@ -1,10 +1,33 @@
 package aiservice
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestIsAIStreamCancellationRecognizesWrappedCancellation(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "direct cancellation", err: context.Canceled, want: true},
+		{name: "wrapped cancellation", err: fmt.Errorf("stream stopped: %w", context.Canceled), want: true},
+		{name: "deadline exceeded", err: context.DeadlineExceeded, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isAIStreamCancellation(tt.err); got != tt.want {
+				t.Fatalf("isAIStreamCancellation(%v) = %t, want %t", tt.err, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestAIChatCancelAndWaitWaitsForStreamProducer(t *testing.T) {
 	service := &Service{

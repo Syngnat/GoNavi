@@ -13,6 +13,7 @@ const {
   aiTerminalGuard,
   detachedResultAutoReport,
   detachedResultDataChangeHandlers,
+  detachedResultGridProps,
   detachedResultRows,
   flushAIChatSessionPersistence,
 } = vi.hoisted(() => ({
@@ -21,6 +22,7 @@ const {
   detachedResultDataChangeHandlers: {
     current: [] as Array<((rows: Array<Record<string, unknown>>) => void) | undefined>,
   },
+  detachedResultGridProps: { current: null as Record<string, any> | null },
   detachedResultRows: {
     current: [{ id: 1, name: 'edited in detached result' }] as Array<Record<string, unknown>>,
   },
@@ -149,7 +151,9 @@ vi.mock('./WorkbenchTabContent', () => ({
 }));
 
 vi.mock('./DataGrid', () => ({
-  default: ({ onDataChange }: { onDataChange?: (rows: Array<Record<string, unknown>>) => void }) => {
+  default: (props: { onDataChange?: (rows: Array<Record<string, unknown>>) => void }) => {
+    const { onDataChange } = props;
+    detachedResultGridProps.current = props;
     detachedResultDataChangeHandlers.current.push(onDataChange);
     React.useEffect(() => {
       if (detachedResultAutoReport.current) {
@@ -219,6 +223,7 @@ describe('NativeDetachedWindowApp', () => {
     aiTerminalGuard.mockResolvedValue(true);
     detachedResultAutoReport.current = false;
     detachedResultDataChangeHandlers.current = [];
+    detachedResultGridProps.current = null;
     detachedResultRows.current = [{ id: 1, name: 'edited in detached result' }];
     storeState = {
       tabs: [],
@@ -574,9 +579,12 @@ describe('NativeDetachedWindowApp', () => {
           zIndex: 1201,
           result: {
             key: 'r1',
-            sql: 'select * from users',
+            sql: 'select * from APP.USERS',
             rows: [{ id: 1, name: 'before' }],
             columns: ['id', 'name'],
+            tableName: 'APP.USERS',
+            metadataTableName: 'USERS',
+            metadataDbName: 'APP',
             pkColumns: ['id'],
             readOnly: false,
           },
@@ -604,6 +612,10 @@ describe('NativeDetachedWindowApp', () => {
         await vi.advanceTimersByTimeAsync(200);
       });
 
+      expect(detachedResultGridProps.current).toMatchObject({
+        tableName: 'APP.USERS',
+        dbName: 'APP',
+      });
       expect(client.sync).toHaveBeenCalledWith(expect.objectContaining({
         resultWindow: expect.objectContaining({
           result: expect.objectContaining({

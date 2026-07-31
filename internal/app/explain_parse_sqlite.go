@@ -38,7 +38,6 @@ func parseSQLiteExplain(sourceSQL, raw string, format connection.ExplainFormat) 
 		DBType:    "sqlite",
 		SourceSQL: sourceSQL,
 	}
-	resetExplainNodeID()
 
 	header, rows := parseExplainTSVRows(raw)
 	if len(header) == 0 || len(rows) == 0 {

@@ -33,6 +33,12 @@ import './DataImportWorkbench.css';
 
 const { Text, Title } = Typography;
 
+const targetSelectStyle: React.CSSProperties = {
+  width: '100%',
+  minWidth: 0,
+  maxWidth: '100%',
+};
+
 type SelectOption = {
   value: string;
   label: React.ReactNode;
@@ -520,6 +526,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
               <Text type="secondary">{t('data_import.workbench.label.connection')}</Text>
               <Select
                 data-import-target-field="connection"
+                style={targetSelectStyle}
                 value={selectedConnectionId || undefined}
                 options={connectionOptions}
                 placeholder={t('data_import.workbench.placeholder.select_connection')}
@@ -538,6 +545,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
               </Text>
               <Select
                 data-import-target-field="database"
+                style={targetSelectStyle}
                 value={selectedDbName || undefined}
                 options={databaseOptions}
                 placeholder={loadingDatabases
@@ -559,6 +567,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                 <Text type="secondary">{t('data_import.workbench.label.table')}</Text>
                 <Select
                   data-import-target-field="table"
+                  style={targetSelectStyle}
                   value={selectedTableName || undefined}
                   options={tableOptions}
                   placeholder={!selectedDbName

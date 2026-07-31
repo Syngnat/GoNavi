@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo } from 'react';
 import { CUSTOM_THEME_STORAGE_KEY, useCustomThemeStore } from '../../customThemeStore';
 import {
   CUSTOM_THEME_STYLE_ID,
+  ensureCustomThemeMonacoSurfaceVars,
   extractComputedCustomThemeAntTokens,
   extractCustomThemeAntTokens,
   type CustomThemeAntTokens,
@@ -77,7 +78,8 @@ export const syncCustomThemeStyle = (
   style.id = CUSTOM_THEME_STYLE_ID;
   style.setAttribute('data-gonavi-custom-theme', theme.id);
   // textContent is intentional: imported CSS must never pass through HTML.
-  style.textContent = theme.css;
+  // Inject --gn-monaco-bg for hand-written themes that only set --gn-bg-panel.
+  style.textContent = ensureCustomThemeMonacoSurfaceVars(theme.css);
   if (!style.isConnected) documentRef.head.appendChild(style);
   documentRef.body.setAttribute('data-custom-theme', 'active');
   documentRef.body.setAttribute('data-custom-theme-id', theme.id);

@@ -5,9 +5,8 @@ import {
   isStartupWindowRestorePending,
   markStartupWindowRestorePending,
   resolveDefaultStartupWindowBounds,
+  resolveStartupWindowRestoreMode,
   resolveWorkAreaFillWindowBounds,
-  shouldPreferWindowsStartupMaximise,
-  WINDOWS_STARTUP_MAXIMISE_AREA_RATIO,
 } from './windowStartupLayout';
 
 describe('windowStartupLayout', () => {
@@ -99,34 +98,11 @@ describe('windowStartupLayout', () => {
     });
   });
 
-  it('prefers maximise for missing, legacy 1024×768, and undersized default windows', () => {
-    const viewport = {
-      availWidth: 1920,
-      availHeight: 1080,
-      availLeft: 0,
-      availTop: 0,
-    };
+  it('keeps startup normal when the explicit fullscreen preference is disabled', () => {
+    expect(resolveStartupWindowRestoreMode(false)).toBe('normal');
+  });
 
-    expect(shouldPreferWindowsStartupMaximise(null, viewport)).toBe(true);
-    expect(shouldPreferWindowsStartupMaximise({
-      width: 1024,
-      height: 768,
-      x: 0,
-      y: 0,
-    }, viewport)).toBe(true);
-
-    // 84%×84% default area ≈ 0.706 < 0.78 → 最大化
-    const defaultBounds = resolveDefaultStartupWindowBounds(viewport);
-    expect((defaultBounds.width * defaultBounds.height) / (1920 * 1080))
-      .toBeLessThan(WINDOWS_STARTUP_MAXIMISE_AREA_RATIO);
-    expect(shouldPreferWindowsStartupMaximise(defaultBounds, viewport)).toBe(true);
-
-    // 用户刻意拉大的普通窗应保留
-    expect(shouldPreferWindowsStartupMaximise({
-      width: 1760,
-      height: 980,
-      x: 80,
-      y: 40,
-    }, viewport)).toBe(false);
+  it('maximises the startup window on every desktop platform when enabled', () => {
+    expect(resolveStartupWindowRestoreMode(true)).toBe('maximised');
   });
 });

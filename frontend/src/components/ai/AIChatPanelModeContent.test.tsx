@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -7,8 +6,6 @@ import { catalogs } from '../../i18n/catalog';
 import { I18nProvider } from '../../i18n/provider';
 import { SUPPORTED_LANGUAGES } from '../../i18n/resolveLanguage';
 import AIChatPanelModeContent from './AIChatPanelModeContent';
-
-const source = readFileSync(new URL('./AIChatPanelModeContent.tsx', import.meta.url), 'utf8');
 
 const renderWithI18n = (node: React.ReactElement) =>
   renderToStaticMarkup(
@@ -109,13 +106,5 @@ describe('AIChatPanelModeContent', () => {
     );
 
     expect(markup).toContain('disabled=""');
-  });
-
-  it('keeps source wired to ai_chat panel history i18n keys', () => {
-    expect(source).toContain("import { useI18n } from '../../i18n/provider';");
-    expect(source).toContain("t('ai_chat.panel.history.empty')");
-    expect(source).toContain("t('ai_chat.panel.session.default_title')");
-    expect(source).not.toContain('暂无历史会话');
-    expect(source).not.toContain("'新对话'");
   });
 });

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Button, Input, Popover, Select, Tooltip } from 'antd';
-import { FilterOutlined, LinkOutlined, PushpinOutlined } from '@ant-design/icons';
+import { FilterOutlined, LinkOutlined, PushpinOutlined, SearchOutlined } from '@ant-design/icons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
+import type { DataGridColumnValueCount } from '../utils/dataGridClientFilter';
 
 export type DataGridColumnTitleTranslate = (key: string, params?: I18nParams) => string;
 
@@ -53,6 +54,8 @@ export interface DataGridColumnTitleProps {
   pinnedLeft?: boolean;
   translate?: DataGridColumnTitleTranslate;
   onOpenForeignKey?: () => void;
+  currentValueCounts?: DataGridColumnValueCount[];
+  loadCurrentValueCounts?: () => DataGridColumnValueCount[] | undefined;
   columnFilter?: DataGridColumnFilterConfig | null;
 }
 
@@ -74,6 +77,8 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
   pinnedLeft = false,
   translate = defaultTranslate,
   onOpenForeignKey,
+  currentValueCounts,
+  loadCurrentValueCounts,
   columnFilter,
 }) => {
   const normalizedName = String(columnName || '');
@@ -101,12 +106,14 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
   const [draftFilterOperator, setDraftFilterOperator] = React.useState(initialFilterOperator);
   const [draftFilterValue, setDraftFilterValue] = React.useState(columnFilter?.initialValue || '');
   const [draftFilterValue2, setDraftFilterValue2] = React.useState(columnFilter?.initialValue2 || '');
+  const [valueCountSearch, setValueCountSearch] = React.useState('');
 
   React.useEffect(() => {
     if (!filterPopoverOpen || !columnFilter) return;
     setDraftFilterOperator(columnFilter.initialOperator || columnFilter.defaultOperator || '=');
     setDraftFilterValue(columnFilter.initialValue || '');
     setDraftFilterValue2(columnFilter.initialValue2 || '');
+    setValueCountSearch('');
   }, [
     columnFilter?.defaultOperator,
     columnFilter?.initialOperator,
@@ -251,7 +258,9 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
         styles={{ root: { maxWidth: 640 } }}
         {...(!darkMode ? { color: 'rgba(0, 0, 0, 0.82)' } : {})}
       >
-        <span style={{ display: 'inline-flex', maxWidth: '100%' }}>{titleNode}</span>
+        <span style={{ display: 'inline-flex', width: '100%', maxWidth: '100%', minWidth: 0, overflow: 'hidden' }}>
+          {titleNode}
+        </span>
       </Tooltip>
     );
   })();
@@ -268,6 +277,31 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
     ? activeColor
     : (darkMode ? 'rgba(255,255,255,0.52)' : 'rgba(15, 23, 42, 0.46)');
   const filterButtonTitle = `${columnFilter.filterLabel} ${normalizedName}`;
+  const getValueCountDisplay = (item: DataGridColumnValueCount) => {
+    if (item.kind === 'nullish') return translate('data_grid.filter.value_counts.nullish');
+    if (item.kind === 'empty') return translate('data_grid.filter.value_counts.empty');
+    return item.display;
+  };
+  const valueCounts = currentValueCounts
+    ?? (filterPopoverOpen ? loadCurrentValueCounts?.() : undefined);
+  const normalizedValueCountSearch = valueCountSearch.trim().toLocaleLowerCase();
+  const filteredValueCounts = (valueCounts || []).filter((item) => (
+    !normalizedValueCountSearch
+    || getValueCountDisplay(item).toLocaleLowerCase().includes(normalizedValueCountSearch)
+  ));
+  const selectValueCount = (item: DataGridColumnValueCount) => {
+    if (item.kind === 'nullish') {
+      setDraftFilterOperator('IS_NULL');
+      setDraftFilterValue('');
+    } else if (item.kind === 'empty') {
+      setDraftFilterOperator('IS_EMPTY');
+      setDraftFilterValue('');
+    } else {
+      setDraftFilterOperator('=');
+      setDraftFilterValue(item.display);
+    }
+    setDraftFilterValue2('');
+  };
   const submitColumnFilter = (event?: React.SyntheticEvent<HTMLElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
@@ -370,6 +404,62 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
           onChange={(event) => setDraftFilterValue(event.target.value)}
         />
       )}
+      {valueCounts && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: darkMode ? 'rgba(255,255,255,0.72)' : 'rgba(15,23,42,0.68)' }}>
+            {translate('data_grid.filter.value_counts.title')}
+          </div>
+          <Input
+            size="small"
+            allowClear
+            prefix={<SearchOutlined />}
+            value={valueCountSearch}
+            placeholder={translate('data_grid.filter.value_counts.search_placeholder')}
+            onChange={(event) => setValueCountSearch(event.target.value)}
+          />
+          <div
+            className="custom-scrollbar"
+            data-grid-column-value-counts="true"
+            style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}
+          >
+            {filteredValueCounts.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                data-grid-column-value-count-kind={item.kind}
+                title={getValueCountDisplay(item)}
+                onClick={() => selectValueCount(item)}
+                style={{
+                  minHeight: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  padding: '3px 6px',
+                  border: 0,
+                  borderRadius: 4,
+                  background: 'transparent',
+                  color: darkMode ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.85)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {getValueCountDisplay(item)}
+                </span>
+                <span style={{ flex: 'none', color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.46)' }}>
+                  {item.count}
+                </span>
+              </button>
+            ))}
+            {filteredValueCounts.length === 0 && (
+              <span style={{ padding: '6px 4px', fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.46)' : 'rgba(15,23,42,0.42)' }}>
+                {translate('data_grid.filter.value_counts.no_matches')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <Button
           size="small"
@@ -395,15 +485,16 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
     <span
       className="gn-v2-column-title-shell"
       style={{
-        display: 'inline-flex',
+        display: 'flex',
         // 顶对齐：有无注释时标题块高度不同，center 会让筛选图标上下错位
         alignItems: 'flex-start',
         gap: 4,
+        width: '100%',
         maxWidth: '100%',
         minWidth: 0,
       }}
     >
-      <span style={{ display: 'inline-flex', minWidth: 0, maxWidth: 'calc(100% - 24px)' }}>
+      <span style={{ display: 'inline-flex', flex: '1 1 auto', maxWidth: '100%', minWidth: 0, overflow: 'hidden' }}>
         {titleWithOptionalTooltip}
       </span>
       <Popover

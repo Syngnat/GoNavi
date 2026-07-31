@@ -3,10 +3,8 @@ package app
 import (
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -48,69 +46,6 @@ func (db *fakeExplainErrorDatabase) Explain(ctx context.Context, query string) (
 	return "", connection.ExplainFormatJSON, db.explainErr
 }
 
-func TestMethodsExplainBackendErrorSourcesUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("methods_explain.go")
-	if err != nil {
-		t.Fatalf("read methods_explain.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	checks := map[string]struct {
-		rawMessages []string
-		keys        []string
-	}{
-		"func (a *App) executeExplain": {
-			rawMessages: []string{
-				`fmt.Errorf("驱动 EXPLAIN 执行失败`,
-				`fmt.Errorf("执行 EXPLAIN 失败`,
-			},
-			keys: []string{
-				"sql_analysis.backend.error.driver_explain_failed",
-				"sql_analysis.backend.error.explain_execution_failed",
-			},
-		},
-		"func collectExplainRawWithText": {
-			rawMessages: []string{
-				`fmt.Errorf("未返回 EXPLAIN 结果集")`,
-				`fmt.Errorf("EXPLAIN 结果集为空")`,
-			},
-			keys: []string{
-				"sql_analysis.backend.error.explain_result_missing",
-				"sql_analysis.backend.error.explain_result_empty",
-			},
-		},
-		"func parseExplainRawWithText": {
-			rawMessages: []string{
-				`fmt.Errorf("当前数据源`,
-			},
-			keys: []string{
-				"sql_analysis.backend.error.explain_dialect_unsupported",
-			},
-		},
-		"func buildExplainQueryWithText": {
-			rawMessages: []string{
-				`fmt.Errorf("当前数据源`,
-			},
-			keys: []string{
-				"sql_analysis.backend.error.explain_query_not_implemented",
-			},
-		},
-	}
-
-	for signature, check := range checks {
-		functionSource := methodsExplainFunctionSource(t, source, signature)
-		for _, rawMessage := range check.rawMessages {
-			if strings.Contains(functionSource, rawMessage) {
-				t.Fatalf("%s still contains raw explain backend text %q", signature, rawMessage)
-			}
-		}
-		for _, key := range check.keys {
-			if !strings.Contains(functionSource, key) {
-				t.Fatalf("%s does not reference explain backend i18n key %q", signature, key)
-			}
-		}
-	}
-}
 
 func TestMethodsExplainBackendErrorCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

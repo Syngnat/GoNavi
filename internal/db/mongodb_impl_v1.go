@@ -325,7 +325,14 @@ func mongoAttemptSSLLabel(config connection.ConnectionConfig, fallbackToPlain bo
 	return "明文"
 }
 
-func (m *MongoDBV1) Connect(config connection.ConnectionConfig) error {
+func (m *MongoDBV1) Connect(config connection.ConnectionConfig) (err error) {
+	_ = m.Close()
+	defer func() {
+		if err != nil {
+			_ = m.Close()
+		}
+	}()
+
 	runConfig := applyMongoURI(config)
 	connectConfig := runConfig
 	sshRouteHint := ""
@@ -346,7 +353,7 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) error {
 
 		logger.Infof("MongoDB 使用 SSH 连接：地址=%s:%d", targetHost, targetPort)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(runConfig.SSH, targetHost, targetPort)
+		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, targetHost, targetPort)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -475,7 +482,7 @@ func (m *MongoDBV1) Connect(config connection.ConnectionConfig) error {
 
 func (m *MongoDBV1) Close() error {
 	if m.forwarder != nil {
-		if err := m.forwarder.Close(); err != nil {
+		if err := m.forwarder.Release(); err != nil {
 			logger.Warnf("关闭 MongoDB SSH 端口转发失败：%v", err)
 		}
 		m.forwarder = nil

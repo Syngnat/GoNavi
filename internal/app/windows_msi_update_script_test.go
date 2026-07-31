@@ -34,6 +34,7 @@ func TestBuildWindowsMSIUpdatePowerShellScriptInstallsRelaunchesAndCleans(t *tes
 		`update maintenance lock could not be released before relaunch`,
 		`Start-Process -FilePath $Target -WorkingDirectory $TargetDir`,
 		`Remove-UpdateArtifact $Source`,
+		`Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`,
 		`MSI package retained for manual install`,
 		`previous application relaunched after MSI failure`,
 	}
@@ -59,6 +60,11 @@ func TestBuildWindowsMSIUpdatePowerShellScriptInstallsRelaunchesAndCleans(t *tes
 	if releaseIndex < repairIndex || releaseIndex > relaunchIndex {
 		t.Fatalf("maintenance lock must be released after install repair and before relaunch\n%s", script)
 	}
+	cleanupIndex := strings.Index(script, `$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`)
+	failureIndex := strings.LastIndex(script, `} catch {`)
+	if cleanupIndex < relaunchIndex || failureIndex < cleanupIndex {
+		t.Fatalf("MSI updates cleanup must be scheduled only after relaunch on the success path\n%s", script)
+	}
 	for _, r := range script {
 		if r > 0x7f {
 			t.Fatalf("MSI updater must remain ASCII-only, found %q", r)
@@ -70,9 +76,10 @@ func TestBuildWindowsMSILaunchCommandPreservesPathsInEnvironment(t *testing.T) {
 	context := windowsMSIUpdateLaunchContext{
 		SourcePath:           `C:\Users\tester\AppData\Local\GoNavi 100%\GoNavi-Installer.msi`,
 		TargetPath:           `D:\software ! 100% & portable\GoNavi.exe`,
-		StagedDir:            `C:\Users\tester\AppData\Local\GoNavi 100%\stage`,
-		LogPath:              `C:\Users\tester\AppData\Local\GoNavi 100%\stage\update.log`,
-		MSILogPath:           `C:\Users\tester\AppData\Local\GoNavi 100%\stage\msi.log`,
+		UpdatesDir:           `C:\Users\tester\AppData\Local\GoNavi 100%\updates`,
+		StagedDir:            `C:\Users\tester\AppData\Local\GoNavi 100%\updates\1.2.3\stage`,
+		LogPath:              `C:\Users\tester\AppData\Local\GoNavi 100%\updates\1.2.3\stage\update.log`,
+		MSILogPath:           `C:\Users\tester\AppData\Local\GoNavi 100%\updates\1.2.3\stage\msi.log`,
 		MSIExecPath:          `C:\Windows\System32\msiexec.exe`,
 		MaintenanceEventName: `Global\GoNavi-Update-Test`,
 		HandoffEventName:     `Local\GoNavi-Update-Handoff-Test`,
@@ -99,6 +106,7 @@ func TestBuildWindowsMSILaunchCommandPreservesPathsInEnvironment(t *testing.T) {
 	want := map[string]string{
 		"GONAVI_UPDATE_SOURCE":                 context.SourcePath,
 		"GONAVI_UPDATE_TARGET":                 context.TargetPath,
+		"GONAVI_UPDATE_ROOT_DIR":               context.UpdatesDir,
 		"GONAVI_UPDATE_STAGED_DIR":             context.StagedDir,
 		"GONAVI_UPDATE_LOG_PATH":               context.LogPath,
 		"GONAVI_UPDATE_MSI_LOG_PATH":           context.MSILogPath,

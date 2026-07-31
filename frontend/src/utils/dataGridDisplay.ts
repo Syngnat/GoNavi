@@ -26,6 +26,9 @@ export const MIN_DATA_TABLE_FONT_SIZE = 10;
 export const MAX_DATA_TABLE_FONT_SIZE = 18;
 export const MIN_SIDEBAR_TREE_FONT_SIZE = 10;
 export const MAX_SIDEBAR_TREE_FONT_SIZE = 18;
+// Keep enough room for the column title, filter trigger, sorter and resize handle.
+// Default, manual and auto-fit widths must all preserve this invariant.
+export const MIN_DATA_TABLE_COLUMN_WIDTH = 120;
 
 type DensityOptionTranslator = (key: string) => string;
 
@@ -148,10 +151,10 @@ export const resolveDataTableColumnWidth = ({
   density: DataTableDensity | null | undefined;
 }): number => {
   if (typeof manualWidth === 'number' && Number.isFinite(manualWidth) && manualWidth > 0) {
-    return manualWidth;
+    return Math.max(MIN_DATA_TABLE_COLUMN_WIDTH, manualWidth);
   }
 
-  return resolveDataTableDefaultColumnWidth(density);
+  return Math.max(MIN_DATA_TABLE_COLUMN_WIDTH, resolveDataTableDefaultColumnWidth(density));
 };
 
 export const resolveDataTableVerticalBorderColor = ({

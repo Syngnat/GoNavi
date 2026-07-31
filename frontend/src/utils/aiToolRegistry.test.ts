@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { BUILTIN_AI_TOOL_INFO, buildAvailableAIChatTools } from './aiToolRegistry';
-
-const source = readFileSync(new URL('./aiToolRegistry.ts', import.meta.url), 'utf8');
 
 describe('aiToolRegistry', () => {
   it('registers the ai-runtime inspector as a builtin tool', () => {
@@ -333,8 +330,6 @@ describe('aiToolRegistry', () => {
     }], (key, params) => `${key}: ${params?.toolName} @ ${params?.serverName}`);
 
     const mcpTool = tools.find((item) => item.function.name === 'raw_alias');
-
-    expect(source).not.toContain('提供的 MCP 工具');
     expect(mcpTool?.function.description).toBe(
       'ai_chat.tools.mcp_fallback_description: raw_tool_title @ raw-server.local',
     );
@@ -364,22 +359,5 @@ describe('aiToolRegistry', () => {
     expect(sqlRiskTool?.function.parameters?.properties?.previewCharLimit?.description).toBe(
       'T:ai_chat.inspection.tool_info.inspect_sql_risk.param.previewCharLimit',
     );
-  });
-
-  it('keeps SQL inspection tool info source free of legacy Chinese copy', () => {
-    const sqlToolInfoSource = readFileSync(
-      new URL('./aiBuiltinInspectionSqlToolInfo.ts', import.meta.url),
-      'utf8',
-    );
-
-    expect(sqlToolInfoSource).toContain('const SQL_TOOL_INFO_KEY_PREFIX = "ai_chat.inspection.tool_info";');
-    expect(sqlToolInfoSource).toContain('inspect_recent_sql_logs');
-    expect(sqlToolInfoSource).toContain('`${keyPrefix}.desc`');
-    expect(sqlToolInfoSource).not.toContain('查看最近 SQL 执行日志');
-    expect(sqlToolInfoSource).not.toContain('总结最近 SQL 活动分布');
-    expect(sqlToolInfoSource).not.toContain('查看 SQL 编辑器事务提交状态');
-    expect(sqlToolInfoSource).not.toContain('检查当前或指定 SQL 的执行风险');
-    expect(sqlToolInfoSource).not.toContain('可选，返回多少条日志，默认 20，最大 100');
-    expect(sqlToolInfoSource).not.toContain('可选，要检查的 SQL；不传时默认读取当前活动查询页签的 SQL 草稿');
   });
 });

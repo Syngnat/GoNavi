@@ -23,6 +23,9 @@ import {
   buildRedisUriFromValues,
   parseRedisUriToFormValues,
 } from "../../utils/redisConnectionUri";
+import {
+  extractNacosConnectionScope,
+} from "../../utils/nacosConnectionScope";
 
 export type ClickHouseProtocolChoice = "auto" | "http" | "native";
 export type OceanBaseProtocolChoice = OceanBaseProtocol;
@@ -261,6 +264,7 @@ const parseMultiHostUri = (uriText: string, expectedScheme: string) => {
 
   let pathText = "";
   const slashIndex = rest.indexOf("/");
+  const hasExplicitPath = slashIndex >= 0;
   if (slashIndex >= 0) {
     pathText = rest.slice(slashIndex + 1);
     rest = rest.slice(0, slashIndex);
@@ -292,6 +296,7 @@ const parseMultiHostUri = (uriText: string, expectedScheme: string) => {
     password,
     hosts,
     database: safeDecode(pathText),
+    hasExplicitPath,
     params: new URLSearchParams(queryText),
   };
 };
@@ -306,6 +311,7 @@ const parseSingleHostUri = (
   username: string;
   password: string;
   database: string;
+  hasExplicitPath: boolean;
   params: URLSearchParams;
 } | null => {
   let parsed: ReturnType<typeof parseMultiHostUri> | null = null;
@@ -338,6 +344,7 @@ const parseSingleHostUri = (
     username: parsed.username,
     password: parsed.password,
     database: parsed.database || "",
+    hasExplicitPath: parsed.hasExplicitPath,
     params: parsed.params,
   };
 };
@@ -380,6 +387,25 @@ export const parseClickHouseHTTPUriToValues = (
     ...extractSSLPathValuesFromParams(parsed.params, "clickhouse"),
     connectionParams: serializeConnectionParams(parsed.params),
   };
+};
+
+const normalizeNacosContextPath = (raw: unknown): string => {
+  const text = String(raw ?? "").trim();
+  if (!text || text === "/") {
+    return text === "/" ? "/" : "/nacos";
+  }
+  return `/${text.replace(/^\/+|\/+$/g, "")}`;
+};
+
+const encodeNacosContextPath = (raw: unknown): string => {
+  const normalized = normalizeNacosContextPath(raw);
+  if (normalized === "/") {
+    return "/";
+  }
+  return normalized
+    .split("/")
+    .map((segment, index) => (index === 0 ? "" : encodeURIComponent(segment)))
+    .join("/");
 };
 
 const splitTrinoNamespace = (
@@ -941,6 +967,41 @@ export const parseUriToValues = (
     }
   }
 
+  if (type === "nacos") {
+    const parsed = parseSingleHostUri(
+      trimmedUri,
+      ["http", "https", "nacos"],
+      getDefaultPortByType(type),
+    );
+    if (!parsed) {
+      return null;
+    }
+    const {
+      connectionParams: paramsWithoutScope,
+      scope,
+    } = extractNacosConnectionScope(parsed.params.toString());
+    const params = new URLSearchParams(paramsWithoutScope);
+    const contextPath = normalizeNacosContextPath(
+      parsed.database
+        ? `/${parsed.database}`
+        : parsed.hasExplicitPath
+          ? "/"
+          : params.get("contextPath") || "/nacos",
+    );
+    params.set("contextPath", contextPath);
+    const useSSL = trimmedUri.toLowerCase().startsWith("https://");
+    return {
+      host: parsed.host,
+      port: parsed.port,
+      user: parsed.username,
+      password: parsed.password,
+      useSSL,
+      sslMode: useSSL ? "required" : "disable",
+      nacosNamespaceId: scope.namespaceId,
+      connectionParams: params.toString(),
+    };
+  }
+
   const singleHostSchemes = singleHostUriSchemesByType[type];
   if (singleHostSchemes && singleHostSchemes.length > 0) {
     const parsed = parseSingleHostUri(
@@ -1175,6 +1236,9 @@ export const getUriPlaceholder = (dbType: string) => {
         "redis://:pass@10.0.0.1:26379,10.0.0.2:26379/0?topology=sentinel&master=mymaster",
     });
   }
+  if (dbType === "nacos") {
+    return "http://nacos:nacos@127.0.0.1:8848/nacos?namespaceId=dev";
+  }
   if (dbType === "oracle") {
     return "oracle://user:pass@127.0.0.1:1521/ORCLPDB1";
   }
@@ -1244,6 +1308,8 @@ export const getConnectionParamsPlaceholder = (
       return "groupId=gonavi&mechanism=scram-sha-256&clientId=gonavi-desktop&startOffset=latest";
     case "rabbitmq":
       return "defaultQueue=orders.queue&exchange=events.topic&managementPathPrefix=/rabbitmq";
+    case "nacos":
+      return "contextPath=/nacos";
     default:
       return "key=value&another=value";
   }
@@ -1300,6 +1366,32 @@ export const buildUriFromValues = (values: any) => {
     const query = params.toString();
     const scheme = values.useSSL ? "https" : "http";
     return `${scheme}://${encodedAuth}${toAddress(host, port, defaultPort)}${query ? `?${query}` : ""}`;
+  }
+
+  if (type === "nacos") {
+    const {
+      connectionParams: paramsWithoutStoredScope,
+      scope: storedScope,
+    } = extractNacosConnectionScope(values.connectionParams);
+    const params = new URLSearchParams(paramsWithoutStoredScope);
+    const contextPath = encodeNacosContextPath(
+      params.get("contextPath") || "/nacos",
+    );
+    params.delete("contextPath");
+    const hasDedicatedNamespaceId =
+      Object.prototype.hasOwnProperty.call(values, "nacosNamespaceId") &&
+      values.nacosNamespaceId !== undefined;
+    const namespaceId = String(
+      hasDedicatedNamespaceId
+        ? values.nacosNamespaceId
+        : storedScope.namespaceId,
+    ).trim();
+    if (namespaceId) {
+      params.set("namespaceId", namespaceId);
+    }
+    const query = params.toString();
+    const scheme = values.useSSL ? "https" : "http";
+    return `${scheme}://${encodedAuth}${toAddress(host, port, defaultPort)}${contextPath}${query ? `?${query}` : ""}`;
   }
 
   if (isMySQLCompatibleType(type)) {

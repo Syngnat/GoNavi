@@ -2611,8 +2611,7 @@ func formatImportSQLValue(dbType, columnType string, value interface{}) string {
 
 	if isTemporalColumnType(dbType, columnType) {
 		normalized := normalizeImportTemporalValue(dbType, columnType, fmt.Sprintf("%v", value))
-		escaped := strings.ReplaceAll(normalized, "'", "''")
-		return "'" + escaped + "'"
+		return "'" + escapeSQLStringLiteralBody(dbType, normalized) + "'"
 	}
 
 	return formatSQLValue(dbType, value)
@@ -2865,6 +2864,14 @@ func buildExportTableSelectQuery(dbType string, tableName string, columns []stri
 	return fmt.Sprintf("SELECT %s FROM %s", selectList, quoteQualifiedIdentByType(dbType, tableName))
 }
 
+// closeExportFile 在导出成功路径上显式关闭文件并把 Close 错误返回给调用方。
+// 写路径上 Close 的错误意味着数据未真正落盘：网络盘回写缓存与磁盘配额耗尽常常直到 close(2)
+// 才报 ENOSPC/EIO，此时 Write 已经返回成功。若像读路径那样用 defer 丢弃，用户会拿到被截断的
+// 文件却收到“导出成功”，等于静默数据丢失。调用方仍应保留 defer 兜底关闭以覆盖错误路径。
+func closeExportFile(f *os.File) error {
+	return f.Close()
+}
+
 func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName string, tableName string, options ExportFileOptions) connection.QueryResult {
 	options = normalizeExportFileOptions("", options)
 	if err := validateExportColumnsSelection(options); err != nil {
@@ -2971,9 +2978,15 @@ func (a *App) ExportTableWithOptions(config connection.ConnectionConfig, dbName 
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	rowCount, _, err := exportQueryResultToFile(f, dbInst, runConfig, query, options, reporter)
 	if err != nil {
+		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
+		reporter.Error(rowCount, errMsg)
+		maybeReleaseFileTransferMemory("export-table-error", rowCount, filename)
+		return connection.QueryResult{Success: false, Message: errMsg}
+	}
+	if err := closeExportFile(f); err != nil {
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
 		reporter.Error(rowCount, errMsg)
 		maybeReleaseFileTransferMemory("export-table-error", rowCount, filename)
@@ -4324,7 +4337,7 @@ func tryGetViewCreateStatement(
 		if strings.TrimSpace(query) == "" {
 			continue
 		}
-		rows, _, err := queryDataForExport(dbInst, config, query)
+		rows, _, err := queryDataForViewDDL(dbInst, config, query)
 		if err != nil || len(rows) == 0 {
 			continue
 		}
@@ -4339,6 +4352,38 @@ func tryGetViewCreateStatement(
 		return ensureSQLTerminator(createSQL), true
 	}
 	return "", false
+}
+
+type viewDDLQueryCollector struct {
+	columns []string
+	rows    []map[string]interface{}
+}
+
+func (c *viewDDLQueryCollector) SetColumns(columns []string) error {
+	c.columns = append([]string(nil), columns...)
+	return nil
+}
+
+func (c *viewDDLQueryCollector) ConsumeRow(row map[string]interface{}) error {
+	c.rows = append(c.rows, row)
+	return nil
+}
+
+func queryDataForViewDDL(
+	dbInst db.Database,
+	config connection.ConnectionConfig,
+	query string,
+) ([]map[string]interface{}, []string, error) {
+	switch resolveDDLDBType(config) {
+	case "oracle", "dameng":
+		collector := &viewDDLQueryCollector{}
+		if err := streamQueryDataForExport(dbInst, config, query, collector); err != nil {
+			return nil, nil, err
+		}
+		return collector.rows, collector.columns, nil
+	default:
+		return queryDataForExport(dbInst, config, query)
+	}
 }
 
 func buildViewCreateQueries(config connection.ConnectionConfig, dbName, schemaName, viewName string) []string {
@@ -4402,10 +4447,12 @@ WHERE s.name = '%s' AND v.name = '%s'`,
 		if safeSchema != "" {
 			return []string{
 				fmt.Sprintf("SELECT DBMS_METADATA.GET_DDL('VIEW', '%s', '%s') AS ddl FROM DUAL", strings.ToUpper(escapedView), strings.ToUpper(escapeSQLLiteral(safeSchema))),
+				fmt.Sprintf("SELECT TEXT AS ddl FROM ALL_VIEWS WHERE OWNER = '%s' AND VIEW_NAME = '%s'", strings.ToUpper(escapeSQLLiteral(safeSchema)), strings.ToUpper(escapedView)),
 			}
 		}
 		return []string{
 			fmt.Sprintf("SELECT DBMS_METADATA.GET_DDL('VIEW', '%s') AS ddl FROM DUAL", strings.ToUpper(escapedView)),
+			fmt.Sprintf("SELECT TEXT AS ddl FROM USER_VIEWS WHERE VIEW_NAME = '%s'", strings.ToUpper(escapedView)),
 		}
 	case "sqlite":
 		return []string{
@@ -4601,6 +4648,36 @@ func escapeSQLLiteral(value string) string {
 	return strings.ReplaceAll(strings.TrimSpace(value), "'", "''")
 }
 
+// dialectEscapesBackslashInStringLiteral 判断方言是否把反斜杠当作字符串字面量里的转义符。
+//
+// 命中的方言必须在生成字面量时把反斜杠翻倍，否则还原时 \n \t \0 会被解释成控制字符
+// （静默改写数据），且以反斜杠结尾的值会吞掉闭合单引号，让后续文本越出字面量。
+//   - MySQL 协议系（mysql/mariadb/tidb/oceanbase/doris/starrocks）：默认 sql_mode 不含
+//     NO_BACKSLASH_ESCAPES，反斜杠为转义符。
+//   - ClickHouse 与 TDengine：字面量同样支持 C 风格反斜杠转义。
+//
+// 不命中的方言（postgres 系在 standard_conforming_strings=on 下、oracle、sqlserver、
+// sqlite 等）反斜杠是普通字面字符，翻倍反而会写入两个反斜杠、损坏数据。
+func dialectEscapesBackslashInStringLiteral(dbType string) bool {
+	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	case "mysql", "mariadb", "tidb", "oceanbase", "diros", "doris", "starrocks",
+		"clickhouse", "tdengine", "taos":
+		return true
+	default:
+		return false
+	}
+}
+
+// escapeSQLStringLiteralBody 按方言转义字符串字面量的内容（不含外层单引号）。
+// 反斜杠必须先于单引号处理，避免二次转义。非 MySQL 系方言（standard_conforming_strings）
+// 只需翻倍单引号，反斜杠保持字面量含义。
+func escapeSQLStringLiteralBody(dbType string, value string) string {
+	if dialectEscapesBackslashInStringLiteral(dbType) {
+		value = strings.ReplaceAll(value, "\\", "\\\\")
+	}
+	return strings.ReplaceAll(value, "'", "''")
+}
+
 func isMySQLHexLiteral(s string) bool {
 	if len(s) < 3 || !(strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X")) {
 		return false
@@ -4652,11 +4729,9 @@ func formatSQLValue(dbType string, v interface{}) string {
 		if (normalizedType == "mysql" || normalizedType == "oceanbase" || normalizedType == "diros" || normalizedType == "starrocks") && isMySQLHexLiteral(val) {
 			return val
 		}
-		escaped := strings.ReplaceAll(val, "'", "''")
-		return "'" + escaped + "'"
+		return "'" + escapeSQLStringLiteralBody(dbType, val) + "'"
 	default:
-		escaped := strings.ReplaceAll(fmt.Sprintf("%v", v), "'", "''")
-		return "'" + escaped + "'"
+		return "'" + escapeSQLStringLiteralBody(dbType, fmt.Sprintf("%v", v)) + "'"
 	}
 }
 
@@ -4846,10 +4921,17 @@ func (a *App) ExportDataWithOptions(data []map[string]interface{}, columns []str
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	writtenRows, err := writeRowsToFileWithReporter(f, data, columns, options, reporter)
 	if err != nil {
 		logger.Warnf("ExportData 写入失败：file=%s err=%v", filename, err)
+		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
+		reporter.Error(writtenRows, errMsg)
+		maybeReleaseFileTransferMemory("export-data-error", writtenRows, filename)
+		return connection.QueryResult{Success: false, Message: errMsg}
+	}
+	if err := closeExportFile(f); err != nil {
+		logger.Warnf("ExportData 落盘失败：file=%s err=%v", filename, err)
 		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
 		reporter.Error(writtenRows, errMsg)
 		maybeReleaseFileTransferMemory("export-data-error", writtenRows, filename)
@@ -4939,7 +5021,7 @@ func (a *App) ExportQueryWithOptions(config connection.ConnectionConfig, dbName 
 		reporter.Error(0, err.Error())
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	rowCount, columns, err := exportQueryResultToFile(f, dbInst, runConfig, query, options, reporter)
 	if err != nil {
@@ -4947,6 +5029,13 @@ func (a *App) ExportQueryWithOptions(config connection.ConnectionConfig, dbName 
 		reporter.Error(rowCount, err.Error())
 		maybeReleaseFileTransferMemory("export-query-error", rowCount, filename)
 		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if err := closeExportFile(f); err != nil {
+		logger.Warnf("ExportQuery 落盘失败：file=%s err=%v", filename, err)
+		errMsg := a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})
+		reporter.Error(rowCount, errMsg)
+		maybeReleaseFileTransferMemory("export-query-error", rowCount, filename)
+		return connection.QueryResult{Success: false, Message: errMsg}
 	}
 
 	logger.Infof("ExportQuery 完成：file=%s rows=%d cols=%d", filename, rowCount, len(columns))
@@ -6196,12 +6285,16 @@ func normalizeExportJSONValue(val interface{}) interface{} {
 }
 
 // writeRowsToXlsx 使用 excelize 写入真正的 xlsx 格式文件
-func writeRowsToXlsx(filename string, data []map[string]interface{}, columns []string) error {
+func writeRowsToXlsx(filename string, data []map[string]interface{}, columns []string) (err error) {
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	writer, err := newXLSXExportFileWriter(file, 0)
 	if err != nil {

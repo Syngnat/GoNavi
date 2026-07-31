@@ -103,6 +103,14 @@ func expectedAuditAppendError(t *testing.T, auditRoot string) string {
 	return err.Error()
 }
 
+func setJVMTestLanguage(t *testing.T, app *App, language string) {
+	t.Helper()
+	app.SetLanguage(language)
+	t.Cleanup(func() {
+		app.SetLanguage("zh-CN")
+	})
+}
+
 func assertEnglishJVMConfirmationMessage(t *testing.T, got string, want string) {
 	t.Helper()
 
@@ -118,7 +126,7 @@ func assertEnglishJVMConfirmationMessage(t *testing.T, got string, want string) 
 
 func TestTestJVMConnectionUsesPreferredProvider(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	var gotMode string
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		gotMode = mode
@@ -172,6 +180,7 @@ func TestTestJVMConnectionReturnsProviderError(t *testing.T) {
 
 func TestTestJVMConnectionTranslatesJMXBusinessPortError(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
+	setJVMTestLanguage(t, app, "zh-CN")
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{testErr: errors.New("jmx test connection failed: jmx helper ping failed for localhost:18080: JMX command ping failed for localhost:18080: Failed to retrieve RMIServer stub: javax.naming.CommunicationException [Root exception is java.rmi.ConnectIOException: non-JRMP server at remote endpoint]; details={\"exception\":\"java.lang.IllegalStateException\"}")}, nil
 	})
@@ -203,10 +212,7 @@ func TestTestJVMConnectionTranslatesJMXBusinessPortError(t *testing.T) {
 
 func TestTestJVMConnectionLocalizesJMXBusinessPortErrorInEnglish(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
-	t.Cleanup(func() {
-		app.SetLanguage("zh-CN")
-	})
+	setJVMTestLanguage(t, app, "en-US")
 
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{testErr: errors.New("jmx test connection failed: jmx helper ping failed for localhost:18080: JMX command ping failed for localhost:18080: Failed to retrieve RMIServer stub: javax.naming.CommunicationException [Root exception is java.rmi.ConnectIOException: non-JRMP server at remote endpoint]; details={\"exception\":\"java.lang.IllegalStateException\"}")}, nil
@@ -239,6 +245,7 @@ func TestTestJVMConnectionLocalizesJMXBusinessPortErrorInEnglish(t *testing.T) {
 
 func TestTestJVMConnectionTranslatesAgentConnectionRefused(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
+	setJVMTestLanguage(t, app, "zh-CN")
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{testErr: errors.New("agent probe request failed: Get \"http://127.0.0.1:19090/gonavi/agent/jvm\": dial tcp 127.0.0.1:19090: connect: connection refused")}, nil
 	})
@@ -266,10 +273,7 @@ func TestTestJVMConnectionTranslatesAgentConnectionRefused(t *testing.T) {
 
 func TestTestJVMConnectionLocalizesAgentConnectionRefusedInEnglish(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
-	t.Cleanup(func() {
-		app.SetLanguage("zh-CN")
-	})
+	setJVMTestLanguage(t, app, "en-US")
 
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{testErr: errors.New("agent probe request failed: Get \"http://127.0.0.1:19090/gonavi/agent/jvm\": dial tcp 127.0.0.1:19090: connect: connection refused")}, nil
@@ -301,7 +305,7 @@ func TestTestJVMConnectionLocalizesAgentConnectionRefusedInEnglish(t *testing.T)
 
 func TestTestJVMConnectionLocalizesEndpointErrorInEnglish(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{testErr: errors.New(`endpoint baseurl is invalid: parse ":bad-url": missing protocol scheme`)}, nil
@@ -414,7 +418,7 @@ func TestJVMProbeCapabilitiesIncludesReasonWhenProbeFails(t *testing.T) {
 
 func TestJVMProbeCapabilitiesLocalizesBuiltInReadOnlyReasons(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	restore := swapJVMProviderFactory(jvm.NewProvider)
 	defer restore()
 
@@ -464,7 +468,7 @@ func TestJVMProbeCapabilitiesLocalizesBuiltInReadOnlyReasons(t *testing.T) {
 
 func TestJVMProbeCapabilitiesKeepsProviderReasonThatLooksLikeCatalogKeyRaw(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	providerReason := "jvm.backend.error.change_blocked_read_only"
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{
@@ -503,6 +507,7 @@ func TestJVMProbeCapabilitiesKeepsProviderReasonThatLooksLikeCatalogKeyRaw(t *te
 
 func TestJVMProbeCapabilitiesTranslatesJMXProbeErrorUsingCurrentMode(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
+	setJVMTestLanguage(t, app, "zh-CN")
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
 		return fakeJVMProvider{
 			probeErr: errors.New("jmx test connection failed: jmx helper ping failed for localhost:18080: JMX command ping failed for localhost:18080: Failed to retrieve RMIServer stub: javax.naming.CommunicationException [Root exception is java.rmi.ConnectIOException: non-JRMP server at remote endpoint]; details={\"exception\":\"java.lang.IllegalStateException\"}"),
@@ -565,6 +570,7 @@ func TestJVMProbeCapabilitiesIncludesReasonWhenProviderFactoryFails(t *testing.T
 
 func TestJVMProbeCapabilitiesUsesReadableLabelForAgentValidationError(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
+	setJVMTestLanguage(t, app, "zh-CN")
 	restore := swapJVMProviderFactory(jvm.NewProvider)
 	defer restore()
 
@@ -594,6 +600,7 @@ func TestJVMProbeCapabilitiesUsesReadableLabelForAgentValidationError(t *testing
 
 func TestJVMProbeCapabilitiesUsesReadableLabelForEndpointValidationError(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
+	setJVMTestLanguage(t, app, "zh-CN")
 	restore := swapJVMProviderFactory(jvm.NewProvider)
 	defer restore()
 
@@ -704,7 +711,7 @@ func TestJVMGetValueReturnsProviderPayload(t *testing.T) {
 
 func TestJVMApplyChangeRequiresConfirmationTokenForHighRiskPreview(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	readOnly := false
 	var applyReq jvm.ChangeRequest
@@ -826,7 +833,7 @@ func TestJVMApplyChangeReturnsProviderPayload(t *testing.T) {
 
 func TestJVMApplyChangeUsesEnglishGuardFallbackWhenBlockingReasonEmpty(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	readOnly := false
 	var applyReq jvm.ChangeRequest
@@ -878,7 +885,7 @@ func TestJVMApplyChangeUsesEnglishGuardFallbackWhenBlockingReasonEmpty(t *testin
 
 func TestJVMProviderBlockingReasonThatLooksLikeCatalogKeyStaysRaw(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	readOnly := false
 	providerReason := "jvm.backend.error.change_blocked_read_only"
@@ -941,7 +948,7 @@ func TestJVMProviderBlockingReasonThatLooksLikeCatalogKeyStaysRaw(t *testing.T) 
 
 func TestJVMPreviewChange(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	readOnly := true
 
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
@@ -986,7 +993,7 @@ func TestJVMPreviewChange(t *testing.T) {
 
 func TestJVMApplyChange(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	readOnly := true
 	var applyReq jvm.ChangeRequest
@@ -1131,7 +1138,7 @@ func TestJVMApplyChangePreviewTokenAllowsConfirmedApply(t *testing.T) {
 
 func TestIssueJVMPreviewConfirmationTokenLocalizesPayloadHashError(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	readOnly := false
 
 	_, err := app.issueJVMPreviewConfirmationToken(connection.ConnectionConfig{
@@ -1175,7 +1182,7 @@ func TestIssueJVMPreviewConfirmationTokenLocalizesPayloadHashError(t *testing.T)
 
 func TestJVMPreviewChangeLocalizesConfirmationTokenFailure(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	readOnly := false
 
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
@@ -1225,7 +1232,7 @@ func TestJVMPreviewChangeLocalizesConfirmationTokenFailure(t *testing.T) {
 
 func TestJVMApplyChangeLocalizesConfirmationTokenFailure(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	readOnly := false
 
 	restore := swapJVMProviderFactory(func(mode string) (jvm.Provider, error) {
@@ -1275,7 +1282,7 @@ func TestJVMApplyChangeLocalizesConfirmationTokenFailure(t *testing.T) {
 
 func TestJVMApplyChangeRejectsUnissuedDeterministicConfirmationToken(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	readOnly := false
 	var applyReq jvm.ChangeRequest
@@ -1348,7 +1355,7 @@ func TestJVMApplyChangeRejectsUnissuedDeterministicConfirmationToken(t *testing.
 
 func TestJVMApplyChangeRejectsMismatchedPreviewConfirmationContext(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	readOnly := false
 	applyCalls := 0
@@ -1497,7 +1504,7 @@ func TestJVMApplyChangeRejectsReplayedPreviewConfirmationToken(t *testing.T) {
 
 func TestJVMApplyChangeRejectsExpiredPreviewConfirmationToken(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	app.configDir = t.TempDir()
 	app.jvmPreviewTokenTTL = time.Nanosecond
 	readOnly := false
@@ -1727,7 +1734,7 @@ func TestJVMApplyChangeNormalizesRequestBeforeProviderAndAudit(t *testing.T) {
 
 func TestJVMPreviewChangeRejectsDisallowedProviderMode(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 
 	cfg := connection.ConnectionConfig{
 		Type: "jvm",
@@ -1799,7 +1806,7 @@ func TestJVMListAuditRecordsReturnsLatestRecords(t *testing.T) {
 
 func TestJVMApplyChangeFailsClosedWhenInitialAuditWriteFails(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	blockerPath := filepath.Join(tempDir, "audit-blocker")
 	if err := os.WriteFile(blockerPath, []byte("blocker"), 0o600); err != nil {
@@ -1916,7 +1923,7 @@ func TestJVMApplyChangeLatestAuditRecordIsTerminal(t *testing.T) {
 
 func TestJVMApplyChangeApplySuccessKeepsSuccessWhenTerminalAuditFails(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
@@ -1982,7 +1989,7 @@ func TestJVMApplyChangeApplySuccessKeepsSuccessWhenTerminalAuditFails(t *testing
 
 func TestJVMApplyChangeApplyFailureReportsFailedAuditWriteError(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
@@ -2085,7 +2092,7 @@ func TestJVMApplyChangeApplyFailureKeepsProviderErrorWhenFailedAuditSucceeds(t *
 
 func TestJVMApplyChangeUsesProviderErrorWhenFailedAuditAlsoFails(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
@@ -2140,7 +2147,7 @@ func TestJVMApplyChangeUsesProviderErrorWhenFailedAuditAlsoFails(t *testing.T) {
 
 func TestJVMApplyChangeTerminalAuditWarningAppendsToExistingResultMessage(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
@@ -2192,7 +2199,7 @@ func TestJVMApplyChangeTerminalAuditWarningAppendsToExistingResultMessage(t *tes
 
 func TestJVMApplyChangeTerminalAuditWarningUsesStandaloneMessageWhenResultMessageEmpty(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
@@ -2244,7 +2251,7 @@ func TestJVMApplyChangeTerminalAuditWarningUsesStandaloneMessageWhenResultMessag
 
 func TestJVMApplyChangeFailedAuditFailureMessageIncludesUnderlyingError(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {
@@ -2287,7 +2294,7 @@ func TestJVMApplyChangeFailedAuditFailureMessageIncludesUnderlyingError(t *testi
 
 func TestJVMApplyChangeFailureMessageSeparatorUsesLocalizedEnglishSeparator(t *testing.T) {
 	app := NewAppWithSecretStore(nil)
-	app.SetLanguage("en-US")
+	setJVMTestLanguage(t, app, "en-US")
 	tempDir := t.TempDir()
 	auditDir := filepath.Join(tempDir, "audit")
 	if err := os.MkdirAll(auditDir, 0o755); err != nil {

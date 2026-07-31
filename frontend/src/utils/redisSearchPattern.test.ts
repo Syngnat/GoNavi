@@ -10,24 +10,24 @@ describe('normalizeRedisSearchInput', () => {
     });
   });
 
-  it('wraps plain keywords with wildcard for contains matching', () => {
+  it('adds only a trailing wildcard for prefix matching', () => {
     expect(normalizeRedisSearchInput('order')).toEqual({
       keyword: 'order',
-      pattern: '*[oO][rR][dD][eE][rR]*',
+      pattern: '[oO][rR][dD][eE][rR]*',
     });
   });
 
   it('builds ascii case-insensitive patterns for letter keywords', () => {
     expect(normalizeRedisSearchInput('agent')).toEqual({
       keyword: 'agent',
-      pattern: '*[aA][gG][eE][nN][tT]*',
+      pattern: '[aA][gG][eE][nN][tT]*',
     });
   });
 
   it('escapes redis glob special characters as literals', () => {
     expect(normalizeRedisSearchInput('user:*:[id]?')).toEqual({
       keyword: 'user:*:[id]?',
-      pattern: '*[uU][sS][eE][rR]:\\*:\\[[iI][dD]\\]\\?*',
+      pattern: '[uU][sS][eE][rR]:\\*:\\[[iI][dD]\\]\\?*',
     });
   });
 

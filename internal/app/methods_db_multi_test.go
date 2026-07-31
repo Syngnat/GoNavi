@@ -17,6 +17,7 @@ import (
 type fakeBatchWriteDB struct {
 	batchCalls   int
 	execCalls    int
+	pingCalls    int
 	execQueries  []string
 	lastQuery    string
 	lastCtx      context.Context
@@ -114,6 +115,7 @@ func (f *fakeBatchWriteDB) Close() error {
 }
 
 func (f *fakeBatchWriteDB) Ping() error {
+	f.pingCalls++
 	return nil
 }
 
@@ -796,6 +798,7 @@ var _ db.QueryMessageExecer = (*fakeBatchWriteDB)(nil)
 var _ db.StatementQueryMessageExecer = (*fakeBatchWriteSession)(nil)
 
 func TestDBQueryWithCancelReturnsResultSetForExecStoredProcedure(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -907,6 +910,7 @@ func TestDBQueryWithCancelRoutesMilvusSelectPreviewToQuery(t *testing.T) {
 }
 
 func TestDBQueryWithCancelReturnsMessagesForSQLServerQuery(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -942,6 +946,7 @@ func TestDBQueryWithCancelReturnsMessagesForSQLServerQuery(t *testing.T) {
 }
 
 func TestDBQueryWithCancel_DuckDBQueriesDoNotInheritConnectTimeout(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalVerifyDriverAgentRevisionFunc := verifyDriverAgentRevisionFunc
 	t.Cleanup(func() {
@@ -1113,6 +1118,7 @@ func TestDBQueryMultiTransactionalKeepsDMLTransactionOpenUntilCommit(t *testing.
 }
 
 func TestDBQueryMultiTransactionalKeepsSQLServerBeginEndBlockOpenUntilRollback(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -1492,6 +1498,7 @@ func TestDBQueryMultiTransactionalOraclePrefersTransactionProviderForFinish(t *t
 }
 
 func TestDBQueryMultiTransactionalUsesOracleImplicitSessionForOceanBaseOracleProtocol(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	originalVerifyDriverAgentRevisionFunc := verifyDriverAgentRevisionFunc
 	t.Cleanup(func() {
@@ -1865,6 +1872,7 @@ func TestDBQueryMultiTransactionalSkipsManagedTransactionForExplicitTransactionS
 }
 
 func TestDBQueryMultiPrefersResultSetForExecStoredProcedure(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -1909,6 +1917,7 @@ func TestDBQueryMultiPrefersResultSetForExecStoredProcedure(t *testing.T) {
 }
 
 func TestDBQueryMultiDoesNotBatchExecStoredProcedureAsWriteStatement(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -1953,6 +1962,7 @@ func TestDBQueryMultiDoesNotBatchExecStoredProcedureAsWriteStatement(t *testing.
 }
 
 func TestDBQueryMultiRunsSQLServerStatisticsBatchNatively(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2019,6 +2029,7 @@ func TestDBQueryMultiRunsSQLServerStatisticsBatchNatively(t *testing.T) {
 }
 
 func TestDBQueryMultiFallsBackWhenNativeReadOnlyBatchReturnsEmptyResults(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2248,6 +2259,7 @@ func TestDBQueryMultiFallsBackToPlainQueryWhenSequentialMultiStillReturnsBlankRe
 }
 
 func TestDBQueryMultiPrefersPlainQueryForKingbaseReadResults(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2305,6 +2317,49 @@ func TestDBQueryMultiPrefersPlainQueryForKingbaseReadResults(t *testing.T) {
 	}
 	if got := resultSets[0].Rows[0]["work_order"]; got != "MO-20260629" {
 		t.Fatalf("expected plain query SELECT result work_order=MO-20260629, got %#v", got)
+	}
+}
+
+func TestDBQueryMultiSuccessfulKingbaseQueryRefreshesCachedHealthTimestamp(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+
+	query := "SELECT * FROM ldf_server.andon_dash_events LIMIT 101 OFFSET 0"
+	fakeDB := &fakeBatchWriteDB{
+		queryMap: map[string][]map[string]interface{}{
+			query: {
+				{"id": 1},
+			},
+		},
+		fieldMap: map[string][]string{
+			query: {"id"},
+		},
+		queryErr: map[string]error{},
+	}
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	config := connection.ConnectionConfig{
+		Type:     "kingbase",
+		Host:     "127.0.0.1",
+		Port:     54321,
+		User:     "system",
+		Database: "ldf_server_dbs_dev",
+	}
+	key := getCacheKey(config)
+	previousHealthyAt := time.Now().Add(-10 * time.Second)
+	app.dbCache[key] = cachedDatabase{
+		inst:     fakeDB,
+		lastPing: previousHealthyAt,
+		config:   normalizeCacheKeyConfig(config),
+	}
+
+	result := app.DBQueryMulti(config, config.Database, query, "kingbase-refresh-cache-health-test")
+	if !result.Success {
+		t.Fatalf("expected DBQueryMulti success, got failure: %s", result.Message)
+	}
+	if fakeDB.pingCalls != 0 {
+		t.Fatalf("expected a recently healthy cached connection to skip foreground Ping, got %d calls", fakeDB.pingCalls)
+	}
+	if got := app.dbCache[key].lastPing; !got.After(previousHealthyAt) {
+		t.Fatalf("expected successful query to refresh cached health timestamp, before=%s after=%s", previousHealthyAt, got)
 	}
 }
 
@@ -2370,6 +2425,7 @@ func TestDBQueryMultiPrefersPlainQueryForDamengReadResults(t *testing.T) {
 }
 
 func TestDBQueryMultiPrefersPlainQueryForOceanBaseOracleReadResults(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2437,6 +2493,7 @@ func TestDBQueryMultiPrefersPlainQueryForOceanBaseOracleReadResults(t *testing.T
 }
 
 func TestDBQueryMultiUsesPinnedSessionForSequentialFallback(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2498,6 +2555,7 @@ func TestDBQueryMultiUsesPinnedSessionForSequentialFallback(t *testing.T) {
 }
 
 func TestDBQueryMultiKeepsAllResultSetsFromSingleSQLServerStatement(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2552,6 +2610,7 @@ func TestDBQueryMultiKeepsAllResultSetsFromSingleSQLServerStatement(t *testing.T
 }
 
 func TestDBQueryMultiNormalizesSingleSQLServerSelectAffectedRowsStatementIndex(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2597,6 +2656,7 @@ func TestDBQueryMultiNormalizesSingleSQLServerSelectAffectedRowsStatementIndex(t
 }
 
 func TestDBQueryMultiNormalizesSQLServerSelectAffectedRowsPairsByStatement(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2672,6 +2732,7 @@ func TestNormalizeNativeResultStatementIndexesKeepsAmbiguousSQLServerResultsUnas
 }
 
 func TestDBQueryMultiTreatsBareSQLServerProcedureCallAsQueryFirst(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2767,6 +2828,7 @@ func TestDBQueryMultiTreatsReturningWriteAsQueryFirst(t *testing.T) {
 }
 
 func TestDBQueryMultiTreatsSQLServerOutputWriteAsQueryFirst(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc
@@ -2814,6 +2876,7 @@ func TestDBQueryMultiTreatsSQLServerOutputWriteAsQueryFirst(t *testing.T) {
 }
 
 func TestDBQueryMultiTreatsWrappedMessageBlocksAsQueryFirst(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() {
 		newDatabaseFunc = originalNewDatabaseFunc

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,35 @@ type keepAliveRecordingDB struct {
 	queryContextDeadline bool
 	queryContextHook     func(context.Context, string) error
 	connectHook          func()
+}
+
+type contextAwareKeepAliveDB struct {
+	keepAliveRecordingDB
+	pingStarted chan struct{}
+	pingRelease chan struct{}
+	startOnce   sync.Once
+}
+
+func (f *contextAwareKeepAliveDB) signalPingStarted() {
+	f.startOnce.Do(func() {
+		close(f.pingStarted)
+	})
+}
+
+func (f *contextAwareKeepAliveDB) Ping() error {
+	f.signalPingStarted()
+	<-f.pingRelease
+	return nil
+}
+
+func (f *contextAwareKeepAliveDB) PingContext(ctx context.Context) error {
+	f.signalPingStarted()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-f.pingRelease:
+		return nil
+	}
 }
 
 func (f *keepAliveRecordingDB) Connect(config connection.ConnectionConfig) error {
@@ -100,6 +130,49 @@ func TestRunConnectionKeepAliveTick_PingsDueCachedConnection(t *testing.T) {
 	}
 	if entry.lastKeepAliveAt.IsZero() {
 		t.Fatal("expected keepalive success to update lastKeepAliveAt")
+	}
+}
+
+func TestStopConnectionKeepAliveLoopCancelsContextAwarePing(t *testing.T) {
+	app := NewApp()
+	config := connection.ConnectionConfig{Type: "dameng", Host: "db.local", Port: 5236, User: "readonly"}
+	key := getCacheKey(config)
+	dbInst := &contextAwareKeepAliveDB{
+		pingStarted: make(chan struct{}),
+		pingRelease: make(chan struct{}),
+	}
+	defer close(dbInst.pingRelease)
+	app.dbCache[key] = cachedDatabase{
+		inst:              dbInst,
+		config:            normalizeCacheKeyConfig(config),
+		keepAliveEnabled:  true,
+		keepAliveInterval: 4 * time.Hour,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	app.keepAliveCancel = cancel
+	app.keepAliveDone = done
+	go func() {
+		defer close(done)
+		app.runConnectionKeepAliveTickContext(ctx, time.Now())
+	}()
+
+	select {
+	case <-dbInst.pingStarted:
+	case <-time.After(time.Second):
+		t.Fatal("keepalive ping did not start")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		app.stopConnectionKeepAliveLoop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("stopConnectionKeepAliveLoop remained blocked after cancellation")
 	}
 }
 

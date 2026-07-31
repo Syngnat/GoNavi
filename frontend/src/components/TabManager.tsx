@@ -226,6 +226,8 @@ const getTabKindTooltipLabel = (tab: TabData): string => {
   if (tab.type === 'redis-keys') return t('tab_manager.hover.kind.redis_keys');
   if (tab.type === 'redis-command') return t('tab_manager.hover.kind.redis_command');
   if (tab.type === 'redis-monitor') return t('tab_manager.hover.kind.redis_monitor');
+  if (tab.type === 'nacos-config') return t('tab_manager.hover.kind.nacos_config');
+  if (tab.type === 'nacos-services') return t('tab_manager.hover.kind.nacos_services');
   if (tab.type === 'jvm-overview') return t('tab_manager.hover.kind.jvm_overview');
   if (tab.type === 'jvm-resource') return t('tab_manager.hover.kind.jvm_resource');
   if (tab.type === 'jvm-audit') return t('tab_manager.hover.kind.jvm_audit');

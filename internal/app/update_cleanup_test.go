@@ -149,12 +149,12 @@ func TestResolveWindowsUpdateFinalTargetPathKeepsFixedExecutablePath(t *testing.
 	}
 }
 
-func TestBuildWindowsPowerShellScriptSchedulesStagedDirectoryCleanupAfterSuccess(t *testing.T) {
+func TestBuildWindowsPowerShellScriptSchedulesUpdatesDirectoryCleanupAfterSuccess(t *testing.T) {
 	script := buildWindowsPowerShellScript()
 
 	mustContain := []string{
 		`Write-UpdateLog 'update finished'`,
-		`$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_STAGED_DIR`,
+		`$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`,
 		`$CleanupWorkingDirectory = [IO.Path]::GetTempPath()`,
 		`-EncodedCommand`,
 	}
@@ -165,6 +165,12 @@ func TestBuildWindowsPowerShellScriptSchedulesStagedDirectoryCleanupAfterSuccess
 	}
 	if strings.Contains(script, `cmd.exe`) {
 		t.Fatalf("PowerShell updater must not route cleanup through cmd.exe\n%s", script)
+	}
+	relaunchIdx := strings.Index(script, `$NewProcess = Start-Process -FilePath $Target`)
+	cleanupIdx := strings.Index(script, `$CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR`)
+	failureIdx := strings.LastIndex(script, `} catch {`)
+	if relaunchIdx < 0 || cleanupIdx < relaunchIdx || failureIdx < cleanupIdx {
+		t.Fatalf("updates cleanup must be scheduled only on the success path (relaunch=%d cleanup=%d failure=%d)\n%s", relaunchIdx, cleanupIdx, failureIdx, script)
 	}
 }
 
@@ -210,8 +216,9 @@ func TestBuildWindowsLaunchCommandPreservesSpecialPathsInEnvironment(t *testing.
 		SourcePath:           `C:\Users\tester\AppData\Local\Temp\GoNavi %TEMP%\GoNavi-0.8.5-Windows-Amd64.exe`,
 		TargetPath:           `D:\软件 ! 100% & (便携版)\O'Brien\GoNavi.exe`,
 		CurrentTargetPath:    `D:\软件 ! 100% & (便携版)\O'Brien\GoNavi-dev-f930ffe.exe`,
-		StagedDir:            `C:\Users\tester\AppData\Local\Temp\GoNavi %TEMP%\stage`,
-		LogPath:              `C:\Users\tester\AppData\Local\Temp\GoNavi %TEMP%\stage\update.log`,
+		UpdatesDir:           `C:\Users\tester\AppData\Local\Temp\GoNavi %TEMP%\updates`,
+		StagedDir:            `C:\Users\tester\AppData\Local\Temp\GoNavi %TEMP%\updates\0.8.5\stage`,
+		LogPath:              `C:\Users\tester\AppData\Local\Temp\GoNavi %TEMP%\updates\0.8.5\stage\update.log`,
 		MaintenanceEventName: `Global\GoNavi-Update-Test`,
 		HandoffEventName:     `Local\GoNavi-Update-Handoff-Test`,
 		PID:                  12345,
@@ -222,6 +229,7 @@ func TestBuildWindowsLaunchCommandPreservesSpecialPathsInEnvironment(t *testing.
 		"GONAVI_UPDATE_SOURCE":                 context.SourcePath,
 		"GONAVI_UPDATE_TARGET":                 context.TargetPath,
 		"GONAVI_UPDATE_CURRENT_TARGET":         context.CurrentTargetPath,
+		"GONAVI_UPDATE_ROOT_DIR":               context.UpdatesDir,
 		"GONAVI_UPDATE_STAGED_DIR":             context.StagedDir,
 		"GONAVI_UPDATE_LOG_PATH":               context.LogPath,
 		"GONAVI_UPDATE_MAINTENANCE_EVENT_NAME": context.MaintenanceEventName,

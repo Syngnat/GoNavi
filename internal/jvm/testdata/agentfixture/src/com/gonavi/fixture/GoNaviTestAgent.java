@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
 import java.lang.instrument.Instrumentation;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -350,7 +351,11 @@ public final class GoNaviTestAgent {
     }
 
     private static String decode(String value) {
-        return URLDecoder.decode(value, StandardCharsets.UTF_8);
+        try {
+            return URLDecoder.decode(value, StandardCharsets.UTF_8.name());
+        } catch (UnsupportedEncodingException err) {
+            throw new IllegalStateException("UTF-8 is unavailable", err);
+        }
     }
 
     private static AgentArgs parseArgs(String rawArgs) {

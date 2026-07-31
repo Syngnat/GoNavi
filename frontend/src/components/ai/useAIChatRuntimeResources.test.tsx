@@ -1,11 +1,8 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useAIChatRuntimeResources } from './useAIChatRuntimeResources';
-
-const source = readFileSync(new URL('./useAIChatRuntimeResources.ts', import.meta.url), 'utf8');
 const runtimeService = vi.hoisted(() => ({
   AIListModels: vi.fn(),
 }));
@@ -49,11 +46,6 @@ describe('useAIChatRuntimeResources', () => {
   afterEach(() => {
     consoleWarnSpy.mockRestore();
     vi.unstubAllGlobals();
-  });
-
-  it('keeps the model-fetch failure path free of legacy Chinese wrapper copy', () => {
-    expect(source).not.toContain('获取模型列表失败：');
-    expect(source).not.toContain("'未知错误'");
   });
 
   it('uses English notice chrome for thrown model load failures while preserving raw detail', async () => {

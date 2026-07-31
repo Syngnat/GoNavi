@@ -7,11 +7,12 @@ import (
 
 func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 	script := buildMacScript(
-		"/tmp/GoNavi-1.2.3-MacOS-Arm64.dmg",
+		"/tmp/GoNavi/updates/1.2.3/GoNavi-1.2.3-MacOS-Arm64.dmg",
 		"/Applications/GoNavi.app",
-		"/tmp/stage",
-		"/tmp/stage/mnt",
-		"/tmp/gonavi-update-macos.log",
+		"/tmp/GoNavi/updates",
+		"/tmp/GoNavi/updates/1.2.3/stage",
+		"/tmp/GoNavi/updates/1.2.3/stage/mnt",
+		"/tmp/GoNavi/updates/1.2.3/gonavi-update-macos.log",
 		4242,
 	)
 
@@ -24,12 +25,13 @@ func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 		"run_admin_replace",
 		"relaunch_app",
 		`open -n "$TARGET_APP"`,
+		`nohup "$TARGET_APP/$APP_BIN_REL" >/dev/null 2>&1 &`,
 		// 安装包扩展名分支
 		"dmg)",
 		"zip)",
-		// relaunch 成功后再删安装包，失败则保留
+		// relaunch 成功后删除整个 updates 目录，失败则保留
 		"package kept for manual install",
-		`/bin/rm -f "$PACKAGE"`,
+		`exec /bin/rm -rf "$UPDATES_DIR"`,
 	}
 	for _, token := range mustContain {
 		if !strings.Contains(script, token) {
@@ -39,13 +41,16 @@ func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 	if strings.Contains(script, `rm -rf "$MOUNT_DIR" "$DMG" "$STAGED"`) {
 		t.Fatal("mac update script must not delete STAGED while the script may still be running from it")
 	}
-	// 确保不会在 relaunch 之前无条件删除安装包
-	rmIdx := strings.Index(script, `/bin/rm -f "$PACKAGE"`)
+	// 确保不会在 relaunch 之前删除 updates 目录。
+	rmIdx := strings.Index(script, `exec /bin/rm -rf "$UPDATES_DIR"`)
 	relaunchIdx := strings.Index(script, "if ! relaunch_app; then")
 	if rmIdx < 0 || relaunchIdx < 0 || rmIdx < relaunchIdx {
-		t.Fatalf("package cleanup must happen only after relaunch attempt (rmIdx=%d relaunchIdx=%d)", rmIdx, relaunchIdx)
+		t.Fatalf("updates cleanup must happen only after relaunch attempt (rmIdx=%d relaunchIdx=%d)", rmIdx, relaunchIdx)
 	}
-	if !strings.Contains(script, "/tmp/GoNavi-1.2.3-MacOS-Arm64.dmg") {
+	if strings.Contains(script[rmIdx+len(`exec /bin/rm -rf "$UPDATES_DIR"`):], `log "`) {
+		t.Fatal("mac update script must not write installation logs after deleting the updates directory")
+	}
+	if !strings.Contains(script, "/tmp/GoNavi/updates/1.2.3/GoNavi-1.2.3-MacOS-Arm64.dmg") {
 		t.Fatal("expected package path embedded in script")
 	}
 	if !strings.Contains(script, "/Applications/GoNavi.app") {

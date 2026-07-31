@@ -11,25 +11,14 @@ type macNativeWindowControlState struct {
 	AllowNativeFullscreen bool
 }
 
-func resolveMacNativeWindowControlState(enabled bool) macNativeWindowControlState {
-	if enabled {
-		return macNativeWindowControlState{
-			ShowNativeButtons:     true,
-			UseTitledWindow:       true,
-			UseFullSizeContent:    true,
-			HideWindowTitle:       true,
-			TransparentTitlebar:   true,
-			AllowNativeFullscreen: true,
-		}
-	}
-
+func resolveMacNativeWindowControlState(bool) macNativeWindowControlState {
 	return macNativeWindowControlState{
-		ShowNativeButtons:     false,
-		UseTitledWindow:       false,
-		UseFullSizeContent:    false,
-		HideWindowTitle:       false,
-		TransparentTitlebar:   false,
-		AllowNativeFullscreen: false,
+		ShowNativeButtons:     true,
+		UseTitledWindow:       true,
+		UseFullSizeContent:    true,
+		HideWindowTitle:       true,
+		TransparentTitlebar:   true,
+		AllowNativeFullscreen: true,
 	}
 }
 

@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $Source = $env:GONAVI_UPDATE_SOURCE
 $Target = $env:GONAVI_UPDATE_TARGET
 $CurrentTarget = $env:GONAVI_UPDATE_CURRENT_TARGET
+$UpdatesDir = $env:GONAVI_UPDATE_ROOT_DIR
 $StagedDir = $env:GONAVI_UPDATE_STAGED_DIR
 $LogPath = $env:GONAVI_UPDATE_LOG_PATH
 $MaintenanceEventName = $env:GONAVI_UPDATE_MAINTENANCE_EVENT_NAME
@@ -152,7 +153,7 @@ function Select-PortableExecutable {
 }
 
 try {
-    foreach ($requiredPath in @($Source, $Target, $CurrentTarget, $StagedDir, $LogPath, $MaintenanceEventName, $HandoffEventName)) {
+    foreach ($requiredPath in @($Source, $Target, $CurrentTarget, $UpdatesDir, $StagedDir, $LogPath, $MaintenanceEventName, $HandoffEventName)) {
         if ([string]::IsNullOrWhiteSpace($requiredPath)) {
             throw 'missing required updater path'
         }
@@ -272,7 +273,7 @@ try {
     }
     Write-UpdateLog 'update finished'
 
-    $CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_STAGED_DIR -Recurse -Force -ErrorAction SilentlyContinue'
+    $CleanupCommand = 'Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:GONAVI_UPDATE_ROOT_DIR -Recurse -Force -ErrorAction SilentlyContinue'
     $EncodedCleanupCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($CleanupCommand))
     $CleanupWorkingDirectory = [IO.Path]::GetTempPath()
     try {

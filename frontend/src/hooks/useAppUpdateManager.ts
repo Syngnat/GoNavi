@@ -221,6 +221,7 @@ export const useAppUpdateManager = ({
   const [installMode, setInstallMode] = useState<UpdateInstallMode>('unknown');
   const [isUpdateChannelLoading, setIsUpdateChannelLoading] = useState(false);
   const [isUpdateChannelSaving, setIsUpdateChannelSaving] = useState(false);
+  const [isCheckingForUpdates, setIsCheckingForUpdates] = useState(false);
   const [aboutInfo, setAboutInfo] = useState<AboutInfo>(() => DEFAULT_ABOUT_INFO);
   const [aboutUpdateStatus, setAboutUpdateStatus] = useState<string>('');
   const [lastUpdateInfo, setLastUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -470,6 +471,7 @@ export const useAppUpdateManager = ({
   const checkForUpdates = useCallback(async (silent: boolean) => {
     if (updateCheckInFlightRef.current) return;
     updateCheckInFlightRef.current = true;
+    setIsCheckingForUpdates(true);
     if (!silent) {
       setAboutUpdateStatus(t('app.about.update_status.checking'));
     }
@@ -477,8 +479,13 @@ export const useAppUpdateManager = ({
     const checkFn = silent && typeof updateAPI.CheckForUpdatesSilently === 'function'
       ? updateAPI.CheckForUpdatesSilently
       : updateAPI.CheckForUpdates;
-    const res = await checkFn();
-    updateCheckInFlightRef.current = false;
+    let res: any = null;
+    try {
+      res = await checkFn();
+    } finally {
+      updateCheckInFlightRef.current = false;
+      setIsCheckingForUpdates(false);
+    }
     if (!res?.success) {
       if (!silent) {
         const error = res?.message || t('common.unknown');
@@ -785,6 +792,7 @@ export const useAppUpdateManager = ({
     hideUpdateDownloadProgress,
     isAboutOpen,
     isBackgroundProgressForLatestUpdate,
+    isCheckingForUpdates,
     isLatestUpdateDownloaded,
     isUpdateChannelLoading,
     isUpdateChannelSaving,

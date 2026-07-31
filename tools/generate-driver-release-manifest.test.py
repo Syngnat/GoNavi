@@ -105,12 +105,41 @@ class GenerateDriverReleaseManifestTest(unittest.TestCase):
         ).stdout.strip()
         return goos, goarch
 
-    def _build_metadata_agent(self, output: Path, revision: str):
+    def _build_metadata_agent(self, output: Path, revision: str, driver: str = "clickhouse"):
         source = output.parent / "metadata-agent.go"
         source.write_text(
             "package main\n"
             "import (\"bufio\"; \"fmt\"; \"os\")\n"
             "func main() {\n"
+            "  scanner := bufio.NewScanner(os.Stdin)\n"
+            "  for scanner.Scan() {\n"
+            f"    fmt.Println(`{{\"id\":1,\"success\":true,\"data\":{{\"driverType\":\"{driver}\",\"agentRevision\":\"{revision}\",\"protocolSchema\":\"json-lines-v1\"}}}}`)\n"
+            "  }\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        output.unlink(missing_ok=True)
+        proc = subprocess.run(
+            ["go", "build", "-o", str(output), str(source)],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def _build_transiently_failing_metadata_agent(self, output: Path, revision: str):
+        source = output.parent / "transient-metadata-agent.go"
+        marker = output.parent / "metadata-agent-first-probe"
+        source.write_text(
+            "package main\n"
+            "import (\"bufio\"; \"fmt\"; \"os\")\n"
+            "func main() {\n"
+            f"  marker := {json.dumps(str(marker))}\n"
+            "  if _, err := os.Stat(marker); os.IsNotExist(err) {\n"
+            "    if err := os.WriteFile(marker, []byte(\"attempted\"), 0600); err != nil { panic(err) }\n"
+            "    os.Exit(127)\n"
+            "  }\n"
             "  scanner := bufio.NewScanner(os.Stdin)\n"
             "  for scanner.Scan() {\n"
             f"    fmt.Println(`{{\"id\":1,\"success\":true,\"data\":{{\"driverType\":\"clickhouse\",\"agentRevision\":\"{revision}\",\"protocolSchema\":\"json-lines-v1\"}}}}`)\n"
@@ -156,6 +185,48 @@ class GenerateDriverReleaseManifestTest(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, proc.stdout)
             self.assertIn("src-stale-agent", proc.stderr)
             self.assertFalse(output.exists())
+
+    def test_retries_native_metadata_probe_after_transient_exit_127(self):
+        goos, goarch = self._host_platform()
+        platform = f"{goos}/{goarch}"
+        extension = ".exe" if goos == "windows" else ""
+        revision = "src-transient-probe"
+        with tempfile.TemporaryDirectory(prefix="gonavi-release-manifest-transient-agent-") as tmp:
+            tmpdir = Path(tmp)
+            assets_dir = tmpdir / "drivers"
+            assets_dir.mkdir(parents=True)
+            asset = assets_dir / f"clickhouse-driver-agent-{goos}-{goarch}{extension}"
+            self._build_transiently_failing_metadata_agent(asset, revision)
+            revision_file = tmpdir / "driver_agent_revisions_gen.go"
+            revision_file.write_text(
+                "package db\n"
+                "var revisions = map[string]string{\n"
+                f'    "clickhouse": "{revision}",\n'
+                "}\n",
+                encoding="utf-8",
+            )
+            provenance = tmpdir / "build-provenance.json"
+
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--assets-dir",
+                    str(assets_dir),
+                    "--provenance-output",
+                    str(provenance),
+                    "--revision-file",
+                    str(revision_file),
+                ],
+                cwd=ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            payload = json.loads(provenance.read_text(encoding="utf-8"))
+            self.assertEqual(payload["assets"][asset.name]["revision"], revision)
 
     def test_rejects_native_asset_when_sha_bound_provenance_disagrees_with_binary(self):
         goos, goarch = self._host_platform()
@@ -448,8 +519,8 @@ class GenerateDriverReleaseManifestTest(unittest.TestCase):
             for path, (driver, platform, content) in fixtures.items():
                 path.write_bytes(content)
                 os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-                if platform == host_platform and driver == "clickhouse":
-                    self._build_metadata_agent(path, revision_by_platform_driver[(platform, driver)])
+                if platform == host_platform:
+                    self._build_metadata_agent(path, revision_by_platform_driver[(platform, driver)], driver)
 
             provenance_assets = {}
             for path, (driver, platform, _) in fixtures.items():

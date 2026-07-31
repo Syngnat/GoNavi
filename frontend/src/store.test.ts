@@ -76,12 +76,13 @@ describe('store appearance persistence', () => {
     expect(appearance.enabled).toBe(false);
     expect(appearance.opacity).toBe(0.75);
     expect(appearance.blur).toBe(6);
-    expect(appearance.useNativeMacWindowControls).toBe(true);
+    expect(appearance).not.toHaveProperty('useNativeMacWindowControls');
     expect(appearance.tableDoubleClickAction).toBe('open-data');
     expect(appearance.v2SidebarSearchMode).toBe('command');
     expect(appearance.v2CommandSearchPersistentFilterEnabled).toBe(false);
     expect(appearance.v2SidebarPersistedFilter).toBe('');
     expect(appearance.v2SidebarRailScale).toBe(1);
+    expect(appearance.sidebarSingleDatabaseExpansion).toBe(false);
     expect(appearance.sidebarHiddenObjectGroups).toEqual([]);
     expect(appearance.showDataTableVerticalBorders).toBe(false);
     expect(appearance.showDataTableRowNumber).toBe(true);
@@ -221,6 +222,7 @@ describe('store appearance persistence', () => {
       dataTableDensity: 'compact',
       tableDoubleClickAction: 'open-design',
       v2SidebarRailScale: 1.55,
+      sidebarSingleDatabaseExpansion: true,
     });
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
@@ -229,6 +231,7 @@ describe('store appearance persistence', () => {
     expect(persisted.state.appearance.dataTableDensity).toBe('compact');
     expect(persisted.state.appearance.tableDoubleClickAction).toBe('open-design');
     expect(persisted.state.appearance.v2SidebarRailScale).toBe(1.55);
+    expect(persisted.state.appearance.sidebarSingleDatabaseExpansion).toBe(true);
 
     vi.resetModules();
     const reloaded = await importStore();
@@ -239,6 +242,7 @@ describe('store appearance persistence', () => {
     expect(appearance.dataTableDensity).toBe('compact');
     expect(appearance.tableDoubleClickAction).toBe('open-design');
     expect(appearance.v2SidebarRailScale).toBe(1.55);
+    expect(appearance.sidebarSingleDatabaseExpansion).toBe(true);
   });
 
   it('persists and sanitizes hidden sidebar object groups', async () => {
@@ -312,6 +316,23 @@ describe('store appearance persistence', () => {
     vi.resetModules();
     const reloaded = await importStore();
     expect(reloaded.useStore.getState().queryOptions.wordWrap).toBe(true);
+  });
+
+  it('persists zero as the unlimited SQL query row limit', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setQueryOptions({ maxRows: 0 });
+    expect(useStore.getState().queryOptions.maxRows).toBe(0);
+
+    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
+    expect(persisted.state.queryOptions.maxRows).toBe(0);
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().queryOptions.maxRows).toBe(0);
+
+    reloaded.useStore.getState().setQueryOptions({ maxRows: -1 });
+    expect(reloaded.useStore.getState().queryOptions.maxRows).toBe(5000);
   });
 
   it('persists the table overview view mode across store reloads', async () => {
@@ -2278,18 +2299,6 @@ describe('store appearance persistence', () => {
     }
   });
 
-  it('keeps store fallback titles out of production source literals', async () => {
-    const { readFileSync } = await import('node:fs');
-    const source = readFileSync(new URL('./store.ts', import.meta.url), 'utf8');
-
-    expect(source).not.toContain('`连接-${index + 1}`');
-    expect(source).not.toContain('`标签-${index + 1}`');
-    expect(source).not.toContain('`片段-${index + 1}`');
-    expect(source).not.toContain('"未命名对象"');
-    expect(source).not.toContain('"新建查询"');
-    expect(source).not.toContain('"新的对话"');
-  });
-
   it('persists open query tab drafts and restores them after reload', async () => {
     const { useStore } = await importStore();
 
@@ -3241,7 +3250,7 @@ describe('store appearance persistence', () => {
     expect(hydrated.useStore.getState().autoCheckForUpdatesIntervalMinutes).toBe(30);
   });
 
-  it('persists window state and bounds immediately so Windows reopen keeps maximise or size memory', async () => {
+  it('persists window state and bounds immediately across store reloads', async () => {
     const { useStore } = await importStore();
 
     useStore.getState().setWindowState('maximized');

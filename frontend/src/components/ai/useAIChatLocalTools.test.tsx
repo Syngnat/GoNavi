@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React, { useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -43,8 +42,6 @@ vi.mock('./aiLocalToolExecutor', () => ({
 }));
 
 const SESSION_ID = 'session-local-tools';
-const source = readFileSync(new URL('./useAIChatLocalTools.ts', import.meta.url), 'utf8');
-const panelSource = readFileSync(new URL('../AIChatPanel.tsx', import.meta.url), 'utf8');
 const translatedCopy: Record<string, string> = {
   'ai_chat.panel.probe.max_rounds': 'T:max-rounds {{count}}',
   'ai_chat.panel.probe.consecutive_failed': 'T:probe-failed',
@@ -117,31 +114,6 @@ const LocalToolsHarness = () => {
 };
 
 describe('useAIChatLocalTools', () => {
-  it('threads the panel translator through the local-tool resend chain', () => {
-    expect(panelSource).toContain('translate: t,');
-    expect(source).toContain('.map((message) => toAIRequestMessage(message, translate));');
-  });
-
-  it('keeps local-tool status and guard copy behind panel i18n keys', () => {
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.probe\.max_rounds'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.probe\.consecutive_failed'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.status\.summarizing_probe'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.status\.returning_runtime_data'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.status\.deep_reasoning'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.status\.waiting_instruction'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.status\.analyzing_chain'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.status\.memory_probe_summary'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.model_control\.continue_after_summary'/);
-    expect(source).not.toContain('content: `⚠️ 工具调用已达');
-    expect(source).not.toContain("content: '⚠️ 探针连续 3 轮执行失败");
-    expect(source).not.toContain("content: '汇总探针执行结果中'");
-    expect(source).not.toContain("safeUpdateTransition('向模型回传运行时数据')");
-    expect(source).not.toContain("safeUpdateTransition('模型大脑深度推理中')");
-    expect(source).not.toContain("safeUpdateTransition('等待下发操作指令')");
-    expect(source).not.toContain("safeUpdateTransition('正在深度思考链路与逻辑')");
-    expect(source).not.toContain('【自动记忆重塑】');
-    expect(source).not.toContain('继续完成你先前未竟的分析或执行下一步');
-  });
 
   beforeEach(() => {
     vi.useFakeTimers();

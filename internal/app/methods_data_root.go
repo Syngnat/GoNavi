@@ -451,7 +451,7 @@ func copyDir(sourceDir string, targetDir string) error {
 	})
 }
 
-func copyFile(sourcePath string, targetPath string, mode os.FileMode) error {
+func copyFile(sourcePath string, targetPath string, mode os.FileMode) (err error) {
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return err
 	}
@@ -465,9 +465,19 @@ func copyFile(sourcePath string, targetPath string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer targetFile.Close()
+	// 迁移是写路径：网络盘回写缓存与配额耗尽常常直到 close(2) 才报 ENOSPC/EIO，
+	// 此时 io.Copy 已返回成功。丢弃 Close 错误会让被截断的副本被判定为迁移成功，
+	// 随后 SetActiveRoot 把活动数据根切到这份损坏的连接配置/审计库上。
+	defer func() {
+		if closeErr := targetFile.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
 
 	if _, err := io.Copy(targetFile, sourceFile); err != nil {
+		return err
+	}
+	if err := targetFile.Sync(); err != nil {
 		return err
 	}
 	return os.Chmod(targetPath, mode)

@@ -34,6 +34,7 @@ type kingbaseSessionExecer struct {
 
 var _ QueryMessageExecer = (*KingbaseDB)(nil)
 var _ StatementQueryMessageExecer = (*kingbaseSessionExecer)(nil)
+var _ DatabaseForeignKeyProvider = (*KingbaseDB)(nil)
 
 func quoteConnValue(v string) string {
 	if v == "" {
@@ -110,14 +111,21 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 	return strings.Join(parts, " ")
 }
 
-func (k *KingbaseDB) Connect(config connection.ConnectionConfig) error {
+func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
+	_ = k.Close()
+	defer func() {
+		if err != nil {
+			_ = k.Close()
+		}
+	}()
+
 	runConfig := config
 
 	if config.UseSSH {
 		// Create SSH tunnel with local port forwarding
 		logger.Infof("人大金仓使用 SSH 连接：地址=%s:%d 用户=%s", config.Host, config.Port, config.User)
 
-		forwarder, err := ssh.GetOrCreateLocalForwarder(config.SSH, config.Host, config.Port)
+		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -250,7 +258,7 @@ func (k *KingbaseDB) getSearchPathStr() string {
 func (k *KingbaseDB) Close() error {
 	// Close SSH forwarder first if exists
 	if k.forwarder != nil {
-		if err := k.forwarder.Close(); err != nil {
+		if err := k.forwarder.Release(); err != nil {
 			logger.Warnf("关闭人大金仓 SSH 端口转发失败：%v", err)
 		}
 		k.forwarder = nil
@@ -603,6 +611,86 @@ func (k *KingbaseDB) GetForeignKeys(dbName, tableName string) ([]connection.Fore
 		fks = append(fks, fk)
 	}
 	return fks, nil
+}
+
+func buildKingbaseDatabaseForeignKeysQuery() string {
+	return `
+		SELECT
+			source_ns.nspname AS table_schema,
+			source_table.relname AS table_name,
+			con.conname AS constraint_name,
+			source_column.attname AS column_name,
+			target_ns.nspname AS foreign_table_schema,
+			target_table.relname AS foreign_table_name,
+			target_column.attname AS foreign_column_name
+		FROM pg_catalog.pg_constraint AS con
+		JOIN pg_catalog.pg_class AS source_table
+		  ON source_table.oid = con.conrelid
+		JOIN pg_catalog.pg_namespace AS source_ns
+		  ON source_ns.oid = source_table.relnamespace
+		JOIN pg_catalog.pg_class AS target_table
+		  ON target_table.oid = con.confrelid
+		JOIN pg_catalog.pg_namespace AS target_ns
+		  ON target_ns.oid = target_table.relnamespace
+		JOIN LATERAL pg_catalog.generate_subscripts(con.conkey, 1) AS key_position(position)
+		  ON TRUE
+		JOIN pg_catalog.pg_attribute AS source_column
+		  ON source_column.attrelid = source_table.oid
+		  AND source_column.attnum = con.conkey[key_position.position]
+		JOIN pg_catalog.pg_attribute AS target_column
+		  ON target_column.attrelid = target_table.oid
+		  AND target_column.attnum = con.confkey[key_position.position]
+		WHERE con.contype = 'f'
+		  AND source_ns.nspname NOT IN ('pg_catalog', 'information_schema')
+		  AND source_ns.nspname NOT LIKE 'pg|_%' ESCAPE '|'
+		ORDER BY source_ns.nspname, source_table.relname, con.conname, key_position.position`
+}
+
+func buildKingbaseDatabaseForeignKeys(
+	data []map[string]interface{},
+) map[string][]connection.ForeignKeyDefinition {
+	foreignKeysByTable := make(map[string][]connection.ForeignKeyDefinition)
+	for _, row := range data {
+		sourceSchema := strings.TrimSpace(fmt.Sprint(row["table_schema"]))
+		sourceTable := strings.TrimSpace(fmt.Sprint(row["table_name"]))
+		targetSchema := strings.TrimSpace(fmt.Sprint(row["foreign_table_schema"]))
+		targetTable := strings.TrimSpace(fmt.Sprint(row["foreign_table_name"]))
+		if sourceTable == "" || targetTable == "" {
+			continue
+		}
+
+		sourceTableName := sourceTable
+		if sourceSchema != "" {
+			sourceTableName = sourceSchema + "." + sourceTable
+		}
+		targetTableName := targetTable
+		if targetSchema != "" {
+			targetTableName = targetSchema + "." + targetTable
+		}
+		constraintName := strings.TrimSpace(fmt.Sprint(row["constraint_name"]))
+		foreignKeysByTable[sourceTableName] = append(
+			foreignKeysByTable[sourceTableName],
+			connection.ForeignKeyDefinition{
+				Name:           constraintName,
+				ColumnName:     strings.TrimSpace(fmt.Sprint(row["column_name"])),
+				RefTableName:   targetTableName,
+				RefColumnName:  strings.TrimSpace(fmt.Sprint(row["foreign_column_name"])),
+				ConstraintName: constraintName,
+			},
+		)
+	}
+	return foreignKeysByTable
+}
+
+// GetDatabaseForeignKeys loads all user-schema foreign keys in one catalog
+// query. The ER diagram uses this snapshot to avoid issuing one metadata query
+// per table on large Kingbase schemas.
+func (k *KingbaseDB) GetDatabaseForeignKeys(_ string) (map[string][]connection.ForeignKeyDefinition, error) {
+	data, _, err := k.Query(buildKingbaseDatabaseForeignKeysQuery())
+	if err != nil {
+		return nil, err
+	}
+	return buildKingbaseDatabaseForeignKeys(data), nil
 }
 
 func (k *KingbaseDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {

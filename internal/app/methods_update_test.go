@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 )
@@ -497,6 +499,307 @@ func TestResolveReusableStagedUpdateDoesNotReuseDifferentChannelPackage(t *testi
 	}
 }
 
+func TestCheckForUpdatesDoesNotMutatePublishedStagedUpdate(t *testing.T) {
+	app := NewApp()
+	app.configDir = t.TempDir()
+	t.Setenv("GONAVI_DATA_ROOT", t.TempDir())
+
+	installMode := updateResolveInstallMode()
+	packageType := resolveUpdatePackageType(stdRuntime.GOOS, installMode)
+	latestVersion := fmt.Sprintf("0.8.6-test-%d", time.Now().UnixNano())
+	assetName, err := expectedAssetNameForInstallMode(stdRuntime.GOOS, stdRuntime.GOARCH, "v"+latestVersion, installMode)
+	if err != nil {
+		t.Fatalf("expectedAssetNameForInstallMode returned error: %v", err)
+	}
+	workspaceDir := resolveUpdateWorkspaceDirForPlatform(stdRuntime.GOOS, latestVersion, installMode, "", "")
+	t.Cleanup(func() { _ = os.RemoveAll(workspaceDir) })
+	stagedDir := resolveUpdateStagedDirForPlatform(stdRuntime.GOOS, workspaceDir, string(updateChannelLatest), latestVersion)
+	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll staged directory: %v", err)
+	}
+	assetPath := filepath.Join(workspaceDir, assetName)
+	if err := os.WriteFile(assetPath, []byte("12345678"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	published := &stagedUpdate{
+		Channel:      updateChannelLatest,
+		Version:      latestVersion,
+		AssetName:    assetName,
+		WorkspaceDir: workspaceDir,
+		FilePath:     assetPath,
+		StagedDir:    stagedDir,
+		InstallMode:  installMode,
+		PackageType:  packageType,
+		AutoRelaunch: true,
+	}
+	app.updateState.staged = published
+
+	originalVersion := AppVersion
+	AppVersion = "0.8.5"
+	t.Cleanup(func() {
+		AppVersion = originalVersion
+	})
+	restoreStatic := swapUpdateFetchStaticManifest(func(updateChannel) (*githubRelease, error) {
+		return nil, errors.New("static manifest unavailable in test")
+	})
+	defer restoreStatic()
+	restoreRelease := swapUpdateFetchLatestRelease(func() (*githubRelease, error) {
+		return &githubRelease{
+			TagName: "v" + latestVersion,
+			Name:    "v" + latestVersion,
+			HTMLURL: "https://example.com/releases/v" + latestVersion,
+			Assets: []githubAsset{{
+				Name:               assetName,
+				BrowserDownloadURL: "https://example.com/" + assetName,
+				Digest:             "sha256:" + strings.Repeat("a", 64),
+				Size:               8,
+			}},
+		}, nil
+	})
+	defer restoreRelease()
+
+	result := app.CheckForUpdates()
+	if !result.Success {
+		t.Fatalf("CheckForUpdates returned failure: %#v", result)
+	}
+	if published.InstallLogPath != "" {
+		t.Fatalf("published staged update was mutated outside updateMu: %#v", published)
+	}
+	if app.updateState.staged == published {
+		t.Fatal("expected refreshed update state to publish an immutable staged snapshot")
+	}
+	if app.updateState.staged == nil || app.updateState.staged.InstallLogPath == "" {
+		t.Fatalf("expected refreshed snapshot to include install log path, got %#v", app.updateState.staged)
+	}
+}
+
+func TestPublishUpdateCheckSnapshotRejectsStaleRevision(t *testing.T) {
+	app := NewApp()
+	downloaded := &stagedUpdate{
+		Channel:     updateChannelLatest,
+		Version:     "0.8.7",
+		AssetName:   "downloaded.zip",
+		FilePath:    filepath.Join(t.TempDir(), "downloaded.zip"),
+		InstallMode: updateInstallModePortable,
+		PackageType: updatePackageTypePortable,
+	}
+	app.updateState.staged = downloaded
+	app.updateState.revision = 2
+
+	published := app.publishUpdateCheckSnapshot(1, UpdateInfo{
+		Channel:       string(updateChannelLatest),
+		LatestVersion: "0.8.6",
+	}, &stagedUpdate{
+		Channel:   updateChannelLatest,
+		Version:   "0.8.6",
+		FilePath:  filepath.Join(t.TempDir(), "stale.zip"),
+		AssetName: "stale.zip",
+	})
+	if published {
+		t.Fatal("stale update check unexpectedly overwrote newer state")
+	}
+	if app.updateState.staged != downloaded {
+		t.Fatalf("newer downloaded package was replaced: %#v", app.updateState.staged)
+	}
+	if app.updateState.lastCheck != nil {
+		t.Fatalf("stale check published lastCheck: %#v", app.updateState.lastCheck)
+	}
+	if app.updateState.revision != 2 {
+		t.Fatalf("stale publish changed revision to %d", app.updateState.revision)
+	}
+}
+
+func TestCheckForUpdatesRejectsResultWhenStateChangesDuringFetch(t *testing.T) {
+	app := NewApp()
+	app.configDir = t.TempDir()
+	app.SetLanguage("en-US")
+	t.Setenv("GONAVI_DATA_ROOT", t.TempDir())
+
+	installMode := updateResolveInstallMode()
+	assetName, err := expectedAssetNameForInstallMode(stdRuntime.GOOS, stdRuntime.GOARCH, "v0.8.6", installMode)
+	if err != nil {
+		t.Fatalf("expectedAssetNameForInstallMode returned error: %v", err)
+	}
+	originalVersion := AppVersion
+	AppVersion = "0.8.5"
+	t.Cleanup(func() {
+		AppVersion = originalVersion
+	})
+
+	var mutateOnce sync.Once
+	restoreStatic := swapUpdateFetchStaticManifest(func(updateChannel) (*githubRelease, error) {
+		mutateOnce.Do(func() {
+			app.updateMu.Lock()
+			app.updateState.revision++
+			app.updateMu.Unlock()
+		})
+		return &githubRelease{
+			TagName: "v0.8.6",
+			Name:    "v0.8.6",
+			HTMLURL: "https://example.com/releases/v0.8.6",
+			Assets: []githubAsset{{
+				Name:               assetName,
+				BrowserDownloadURL: "https://example.com/" + assetName,
+				Digest:             "sha256:" + strings.Repeat("a", 64),
+				Size:               8,
+			}},
+		}, nil
+	})
+	defer restoreStatic()
+
+	result := app.CheckForUpdates()
+	if result.Success {
+		t.Fatalf("stale update check unexpectedly succeeded: %#v", result)
+	}
+	if !strings.Contains(result.Message, "state changed") {
+		t.Fatalf("expected stale-state message, got %q", result.Message)
+	}
+	if app.updateState.lastCheck != nil || app.updateState.staged != nil {
+		t.Fatalf("stale check changed update state: %#v", app.updateState)
+	}
+}
+
+func TestCheckForUpdatesDoesNotRaceWithInstallSnapshot(t *testing.T) {
+	if stdRuntime.GOOS != "windows" {
+		t.Skip("windows-only updater concurrency coverage")
+	}
+
+	app := NewApp()
+	app.configDir = t.TempDir()
+	app.SetLanguage("en-US")
+	t.Setenv("GONAVI_DATA_ROOT", t.TempDir())
+
+	stagedDir := t.TempDir()
+	assetName := "GoNavi-0.8.6-Windows-Amd64-Portable.zip"
+	assetPath := filepath.Join(stagedDir, assetName)
+	if err := os.WriteFile(assetPath, []byte("12345678"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	published := &stagedUpdate{
+		Channel:        updateChannelLatest,
+		Version:        "0.8.6",
+		AssetName:      assetName,
+		FilePath:       assetPath,
+		StagedDir:      stagedDir,
+		InstallLogPath: filepath.Join(stagedDir, "install.log"),
+		InstallMode:    updateInstallModePortable,
+		PackageType:    updatePackageTypePortable,
+		AutoRelaunch:   true,
+	}
+	app.updateState.staged = published
+
+	originalVersion := AppVersion
+	originalResolveInstallTarget := updateResolveInstallTarget
+	originalResolveInstallMode := updateResolveInstallMode
+	originalAcquireMaintenance := updateAcquireWindowsMaintenance
+	originalFindOtherInstances := updateFindOtherWindowsInstances
+	originalLaunchInstallScript := updateLaunchInstallScript
+	t.Cleanup(func() {
+		AppVersion = originalVersion
+		updateResolveInstallTarget = originalResolveInstallTarget
+		updateResolveInstallMode = originalResolveInstallMode
+		updateAcquireWindowsMaintenance = originalAcquireMaintenance
+		updateFindOtherWindowsInstances = originalFindOtherInstances
+		updateLaunchInstallScript = originalLaunchInstallScript
+	})
+	AppVersion = "0.8.5"
+	updateResolveInstallTarget = func() string {
+		return filepath.Join(stagedDir, "GoNavi.exe")
+	}
+	updateResolveInstallMode = func() updateInstallMode { return updateInstallModePortable }
+	updateAcquireWindowsMaintenance = func(string) (windowsUpdateMaintenanceLease, error) {
+		return windowsUpdateMaintenanceLease{}, nil
+	}
+	updateFindOtherWindowsInstances = func([]string, int) ([]windowsUpdateProcess, error) {
+		return nil, nil
+	}
+
+	installStarted := make(chan struct{})
+	startMutation := make(chan struct{})
+	checkDone := make(chan struct{})
+	launcherErr := errors.New("stop after snapshot race probe")
+	updateLaunchInstallScript = func(staged *stagedUpdate) error {
+		close(installStarted)
+		<-startMutation
+		for {
+			select {
+			case <-checkDone:
+				return launcherErr
+			default:
+				staged.FilePath = assetPath
+				staged.InstallLogPath = filepath.Join(stagedDir, "install.log")
+				stdRuntime.Gosched()
+			}
+		}
+	}
+
+	restoreStatic := swapUpdateFetchStaticManifest(func(updateChannel) (*githubRelease, error) {
+		<-installStarted
+		close(startMutation)
+		return &githubRelease{
+			TagName: "v0.8.6",
+			Name:    "v0.8.6",
+			HTMLURL: "https://example.com/releases/v0.8.6",
+			Assets: []githubAsset{{
+				Name:               assetName,
+				BrowserDownloadURL: "https://example.com/" + assetName,
+				Digest:             "sha256:" + strings.Repeat("a", 64),
+				Size:               8,
+			}},
+		}, nil
+	})
+	defer restoreStatic()
+
+	installResult := make(chan connection.QueryResult, 1)
+	go func() {
+		installResult <- app.InstallUpdateAndRestart(true)
+	}()
+
+	checkResult := app.CheckForUpdates()
+	close(checkDone)
+	if !checkResult.Success {
+		t.Fatalf("CheckForUpdates returned failure: %#v", checkResult)
+	}
+	result := <-installResult
+	if result.Success || !strings.Contains(result.Message, launcherErr.Error()) {
+		t.Fatalf("expected injected installer failure, got %#v", result)
+	}
+	if published.FilePath != assetPath || published.InstallLogPath != filepath.Join(stagedDir, "install.log") {
+		t.Fatalf("published staged update changed during concurrent check/install: %#v", published)
+	}
+}
+
+func TestResolveExecutablePathKeepsOriginalWhenEvalSymlinksFails(t *testing.T) {
+	original := filepath.Join(t.TempDir(), "GoNavi.exe")
+	cases := []struct {
+		name string
+		eval func(string) (string, error)
+	}{
+		{
+			name: "evaluation fails",
+			eval: func(string) (string, error) { return "", errors.New("broken symlink") },
+		},
+		{
+			name: "evaluation is empty",
+			eval: func(string) (string, error) { return "", nil },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveExecutablePath(
+				func() (string, error) { return original, nil },
+				tc.eval,
+			)
+			if err != nil {
+				t.Fatalf("resolveExecutablePath returned error: %v", err)
+			}
+			if got != original {
+				t.Fatalf("resolveExecutablePath = %q, want original %q", got, original)
+			}
+		})
+	}
+}
+
 func TestResolveReusableStagedUpdateForPlatformSkipsLegacyWindowsExeStagedAsset(t *testing.T) {
 	preferredWorkspaceDir := t.TempDir()
 	legacyWorkspaceDir := t.TempDir()
@@ -525,7 +828,7 @@ func TestResolveReusableStagedUpdateForPlatformSkipsLegacyWindowsExeStagedAsset(
 	}
 }
 
-func TestResolveReusableStagedUpdateForPlatformPrefersWindowsExeInInstallDirectory(t *testing.T) {
+func TestResolveReusableStagedUpdateForPlatformPrefersAssetInCacheWorkspace(t *testing.T) {
 	preferredWorkspaceDir := t.TempDir()
 	legacyWorkspaceDir := t.TempDir()
 	info := UpdateInfo{
@@ -554,10 +857,13 @@ func TestResolveReusableStagedUpdateForPlatformPrefersWindowsExeInInstallDirecto
 
 	reused := resolveReusableStagedUpdateForPlatform("windows", preferredWorkspaceDir, legacyWorkspaceDir, info, nil)
 	if reused == nil {
-		t.Fatal("expected install-directory windows exe to be reused")
+		t.Fatal("expected cache workspace windows exe to be reused")
 	}
 	if reused.FilePath != preferredAssetPath {
-		t.Fatalf("expected preferred install-directory asset %q, got %q", preferredAssetPath, reused.FilePath)
+		t.Fatalf("expected preferred cache asset %q, got %q", preferredAssetPath, reused.FilePath)
+	}
+	if reused.WorkspaceDir != preferredWorkspaceDir {
+		t.Fatalf("expected workspace %q, got %q", preferredWorkspaceDir, reused.WorkspaceDir)
 	}
 }
 
@@ -595,7 +901,7 @@ func TestResolveReusableStagedUpdateForPlatformDoesNotReuseCurrentWindowsExeInsi
 	}
 }
 
-func TestResolveReusableStagedUpdateForPlatformReusesPortableZipInsideStagedDir(t *testing.T) {
+func TestResolveReusableStagedUpdateForPlatformReusesPortableZipFromFallbackWorkspaceRoot(t *testing.T) {
 	preferredWorkspaceDir := t.TempDir()
 	legacyWorkspaceDir := t.TempDir()
 	info := UpdateInfo{
@@ -608,23 +914,16 @@ func TestResolveReusableStagedUpdateForPlatformReusesPortableZipInsideStagedDir(
 		AutoRelaunch:  true,
 	}
 
-	stagedDir := filepath.Join(
-		legacyWorkspaceDir,
-		buildUpdateStageDirNameForPlatform("windows", info.Channel, info.LatestVersion),
-	)
-	if err := os.MkdirAll(stagedDir, 0o755); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
-	assetPath := filepath.Join(stagedDir, info.AssetName)
+	assetPath := filepath.Join(legacyWorkspaceDir, info.AssetName)
 	if err := os.WriteFile(assetPath, []byte("12345678"), 0o644); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
 	reused := resolveReusableStagedUpdateForPlatform("windows", preferredWorkspaceDir, legacyWorkspaceDir, info, nil)
 	if reused == nil {
-		t.Fatal("expected staged portable ZIP to be reused")
+		t.Fatal("expected fallback workspace portable ZIP to be reused")
 	}
-	if reused.FilePath != assetPath || reused.PackageType != updatePackageTypePortable {
+	if reused.FilePath != assetPath || reused.WorkspaceDir != legacyWorkspaceDir || reused.PackageType != updatePackageTypePortable {
 		t.Fatalf("unexpected reused portable ZIP: %#v", reused)
 	}
 }
@@ -705,6 +1004,67 @@ func TestInstallUpdateAndRestartFailsBeforeLaunchWhenWindowsTargetDirIsNotWritab
 	}
 }
 
+func TestInstallUpdateAndRestartRejectsUnresolvedWindowsTargetBeforeMaintenance(t *testing.T) {
+	if stdRuntime.GOOS != "windows" {
+		t.Skip("windows-only install target validation")
+	}
+
+	stagedDir := t.TempDir()
+	assetPath := filepath.Join(stagedDir, "GoNavi-0.8.6-Windows-Amd64-Portable.zip")
+	if err := os.WriteFile(assetPath, []byte("12345678"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	app := NewApp()
+	app.SetLanguage("en-US")
+	app.updateState.staged = &stagedUpdate{
+		Channel:      updateChannelLatest,
+		Version:      "0.8.6",
+		AssetName:    filepath.Base(assetPath),
+		FilePath:     assetPath,
+		StagedDir:    stagedDir,
+		InstallMode:  updateInstallModePortable,
+		PackageType:  updatePackageTypePortable,
+		AutoRelaunch: true,
+	}
+
+	originalResolveInstallTarget := updateResolveInstallTarget
+	originalResolveInstallMode := updateResolveInstallMode
+	originalAcquireMaintenance := updateAcquireWindowsMaintenance
+	originalLaunchInstallScript := updateLaunchInstallScript
+	t.Cleanup(func() {
+		updateResolveInstallTarget = originalResolveInstallTarget
+		updateResolveInstallMode = originalResolveInstallMode
+		updateAcquireWindowsMaintenance = originalAcquireMaintenance
+		updateLaunchInstallScript = originalLaunchInstallScript
+	})
+	updateResolveInstallTarget = func() string { return "" }
+	updateResolveInstallMode = func() updateInstallMode { return updateInstallModePortable }
+	maintenanceCalled := false
+	updateAcquireWindowsMaintenance = func(string) (windowsUpdateMaintenanceLease, error) {
+		maintenanceCalled = true
+		return windowsUpdateMaintenanceLease{}, nil
+	}
+	launched := false
+	updateLaunchInstallScript = func(*stagedUpdate) error {
+		launched = true
+		return nil
+	}
+
+	result := app.InstallUpdateAndRestart(true)
+	if result.Success {
+		t.Fatalf("expected unresolved install target failure, got %#v", result)
+	}
+	if maintenanceCalled {
+		t.Fatal("maintenance must not be acquired for an unresolved install target")
+	}
+	if launched {
+		t.Fatal("installer must not launch for an unresolved install target")
+	}
+	if !strings.Contains(result.Message, "Unable to determine") {
+		t.Fatalf("expected localized unresolved target detail, got %q", result.Message)
+	}
+}
+
 func TestInstallUpdateAndRestartMSISkipsPortableTargetWriteProbe(t *testing.T) {
 	if stdRuntime.GOOS != "windows" {
 		t.Skip("windows-only MSI launch validation")
@@ -754,24 +1114,23 @@ func TestInstallUpdateAndRestartMSISkipsPortableTargetWriteProbe(t *testing.T) {
 	}
 }
 
-func TestResolveUpdateWorkspaceDirPrefersCurrentInstallDirectory(t *testing.T) {
-	if stdRuntime.GOOS == "darwin" {
-		t.Skip("macOS keeps update downloads on Desktop")
+func TestResolveUpdateWorkspaceDirUsesVersionedUserCacheDirectory(t *testing.T) {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil || strings.TrimSpace(cacheDir) == "" {
+		t.Skip("user cache directory is unavailable")
 	}
-
-	targetDir := t.TempDir()
-	originalResolveInstallTarget := updateResolveInstallTarget
-	t.Cleanup(func() {
-		updateResolveInstallTarget = originalResolveInstallTarget
-	})
-
-	updateResolveInstallTarget = func() string {
-		return filepath.Join(targetDir, "GoNavi.exe")
-	}
-
 	got := resolveUpdateWorkspaceDir("0.8.2")
-	if got != targetDir {
-		t.Fatalf("expected workspace dir %q, got %q", targetDir, got)
+	want := filepath.Join(cacheDir, "GoNavi", "updates", "0.8.2")
+	if got != want {
+		t.Fatalf("expected workspace dir %q, got %q", want, got)
+	}
+}
+
+func TestSanitizeVersionForPathRejectsDotSegments(t *testing.T) {
+	for _, version := range []string{"", ".", "..", " / "} {
+		if got := sanitizeVersionForPath(version); got != "latest" {
+			t.Fatalf("sanitizeVersionForPath(%q) = %q, want latest", version, got)
+		}
 	}
 }
 
@@ -793,30 +1152,95 @@ func TestShouldStoreUpdateAssetInWorkspaceRoot(t *testing.T) {
 	}
 }
 
-func TestResolveUpdateStagedDirForPlatformUsesLegacyWorkspaceOnWindows(t *testing.T) {
+func TestResolveUpdateStagedDirForPlatformStaysInsideWorkspaceOnWindows(t *testing.T) {
 	workspaceDir := filepath.Join("C:\\GoNavi", "app")
 	got := resolveUpdateStagedDirForPlatform("windows", workspaceDir, "dev", "dev-93dc696")
-	want := filepath.Join(resolveLegacyUpdateWorkspaceDir(), buildUpdateStageDirNameForPlatform("windows", "dev", "dev-93dc696"))
+	want := filepath.Join(workspaceDir, buildUpdateStageDirNameForPlatform("windows", "dev", "dev-93dc696"))
 	if got != want {
 		t.Fatalf("expected windows staged dir %q, got %q", want, got)
 	}
 }
 
-func TestShouldWindowsUpdateLaunchDownloadedAssetDirectly(t *testing.T) {
-	cases := []struct {
-		assetPath string
-		want      bool
-	}{
-		{assetPath: `C:\GoNavi\GoNavi-dev-93dc696-Windows-Amd64-Portable.exe`, want: true},
-		{assetPath: `C:\GoNavi\GoNavi-dev-93dc696-Windows-Amd64-Installer.msi`, want: false},
-		{assetPath: `C:\GoNavi\GoNavi-0.8.2-Windows-Amd64.zip`, want: false},
-		{assetPath: "", want: false},
+func TestPrepareUpdateWorkspaceAndStagingDirsFallsBackWhenPreferredIsUnavailable(t *testing.T) {
+	rootDir := t.TempDir()
+	preferredDir := filepath.Join(rootDir, "unavailable")
+	if err := os.WriteFile(preferredDir, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("WriteFile preferred path: %v", err)
+	}
+	fallbackDir := filepath.Join(rootDir, "GoNavi", "updates", "1.2.3")
+
+	workspaceDir, stagedDir, err := prepareUpdateWorkspaceAndStagingDirs(
+		[]string{preferredDir, fallbackDir},
+		string(updateChannelLatest),
+		"1.2.3",
+	)
+	if err != nil {
+		t.Fatalf("prepareUpdateWorkspaceAndStagingDirs returned error: %v", err)
+	}
+	if workspaceDir != fallbackDir {
+		t.Fatalf("workspace = %q, want fallback %q", workspaceDir, fallbackDir)
+	}
+	if !isUpdatePathStrictlyInsideDir(stagedDir, fallbackDir) {
+		t.Fatalf("staging directory %q must be inside fallback workspace %q", stagedDir, fallbackDir)
+	}
+	if stat, err := os.Stat(stagedDir); err != nil || !stat.IsDir() {
+		t.Fatalf("fallback staging directory was not created: stat=%v err=%v", stat, err)
+	}
+}
+
+func TestValidateStagedUpdateWorkspaceAllowsVersionDirectoryUnderTempRoot(t *testing.T) {
+	workspaceDir := filepath.Join(os.TempDir(), "GoNavi", "updates", "1.2.3")
+	staged := &stagedUpdate{
+		Version:        "1.2.3",
+		WorkspaceDir:   workspaceDir,
+		FilePath:       filepath.Join(workspaceDir, "GoNavi-1.2.3.dmg"),
+		StagedDir:      filepath.Join(workspaceDir, ".gonavi-update-darwin-latest-1.2.3"),
+		InstallLogPath: filepath.Join(workspaceDir, "gonavi-update-macos.log"),
+	}
+	if err := validateStagedUpdateWorkspace(staged); err != nil {
+		t.Fatalf("valid update workspace rejected: %v", err)
+	}
+	wantCleanupDir := filepath.Join(os.TempDir(), "GoNavi", "updates")
+	if got := resolveUpdateCleanupDir(staged.WorkspaceDir); got != wantCleanupDir {
+		t.Fatalf("cleanup directory = %q, want entire updates directory %q", got, wantCleanupDir)
+	}
+}
+
+func TestValidateStagedUpdateWorkspaceRejectsUnsafeCleanupTargets(t *testing.T) {
+	updateRoot := filepath.Join(os.TempDir(), "GoNavi", "updates")
+	validWorkspace := filepath.Join(updateRoot, "1.2.3")
+	newStaged := func(workspaceDir string) *stagedUpdate {
+		return &stagedUpdate{
+			Version:        "1.2.3",
+			WorkspaceDir:   workspaceDir,
+			FilePath:       filepath.Join(workspaceDir, "GoNavi-1.2.3.dmg"),
+			StagedDir:      filepath.Join(workspaceDir, "stage"),
+			InstallLogPath: filepath.Join(workspaceDir, "update.log"),
+		}
 	}
 
+	cases := []struct {
+		name   string
+		staged *stagedUpdate
+	}{
+		{name: "update root itself", staged: newStaged(updateRoot)},
+		{name: "nested version directory", staged: newStaged(filepath.Join(updateRoot, "nested", "1.2.3"))},
+		{name: "desktop directory", staged: newStaged(filepath.Join(os.TempDir(), "Desktop", "GoNavi-1.2.3"))},
+		{name: "empty workspace", staged: newStaged("")},
+	}
+	outsidePackage := newStaged(validWorkspace)
+	outsidePackage.FilePath = filepath.Join(os.TempDir(), "GoNavi-1.2.3.dmg")
+	cases = append(cases, struct {
+		name   string
+		staged *stagedUpdate
+	}{name: "package outside workspace", staged: outsidePackage})
+
 	for _, tc := range cases {
-		if got := shouldWindowsUpdateLaunchDownloadedAssetDirectly(tc.assetPath); got != tc.want {
-			t.Fatalf("shouldWindowsUpdateLaunchDownloadedAssetDirectly(%q) = %v, want %v", tc.assetPath, got, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validateStagedUpdateWorkspace(tc.staged); err == nil {
+				t.Fatalf("unsafe workspace accepted: %#v", tc.staged)
+			}
+		})
 	}
 }
 
@@ -913,22 +1337,31 @@ func TestExpectedAssetNameForExecutableSupportsLinuxArm64(t *testing.T) {
 
 func TestBuildLinuxScriptPrefersTargetExecutableBasename(t *testing.T) {
 	script := buildLinuxScript(
-		"/tmp/GoNavi-0.6.5-Linux-Amd64-WebKit41.tar.gz",
+		"/tmp/GoNavi/updates/0.6.5/GoNavi-0.6.5-Linux-Amd64-WebKit41.tar.gz",
 		"/opt/GoNavi/gonavi-build-linux-amd64-webkit41",
-		"/tmp/.gonavi-update-linux-0.6.5",
+		"/tmp/GoNavi/updates",
+		"/tmp/GoNavi/updates/0.6.5/.gonavi-update-linux-0.6.5",
+		"/tmp/GoNavi/updates/0.6.5/update.log",
 		12345,
 	)
 
 	mustContain := []string{
 		`TARGET_NAME="$(basename "$TARGET")"`,
-		`NEWBIN="$TMPDIR/$TARGET_NAME"`,
-		`NEWBIN=$(find "$TMPDIR" -type f -name "$TARGET_NAME" | head -n 1)`,
-		`NEWBIN=$(find "$TMPDIR" -type f -name "GoNavi" | head -n 1)`,
+		`NEWBIN="$UPDATE_TMP_DIR/$TARGET_NAME"`,
+		`NEWBIN=$(find "$UPDATE_TMP_DIR" -type f -name "$TARGET_NAME" | head -n 1)`,
+		`NEWBIN=$(find "$UPDATE_TMP_DIR" -type f -name "GoNavi" | head -n 1)`,
+		`if ! kill -0 "$NEW_PID" 2>/dev/null; then`,
+		`exec rm -rf "$UPDATES_DIR"`,
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(script, want) {
 			t.Fatalf("linux update script missing required token: %s\nscript:\n%s", want, script)
 		}
+	}
+	launchIdx := strings.Index(script, `"$TARGET" >/dev/null 2>&1 &`)
+	cleanupIdx := strings.Index(script, `exec rm -rf "$UPDATES_DIR"`)
+	if launchIdx < 0 || cleanupIdx < launchIdx {
+		t.Fatalf("linux updates cleanup must follow successful relaunch (launch=%d cleanup=%d)\n%s", launchIdx, cleanupIdx, script)
 	}
 }
 

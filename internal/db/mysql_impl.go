@@ -970,7 +970,10 @@ func (m *MySQLDB) OpenSessionExecer(ctx context.Context) (StatementExecer, error
 	if err != nil {
 		return nil, err
 	}
-	return NewSQLConnStatementExecer(conn), nil
+	// 必须与 QueryContext 的扫描方言一致（mysql_impl.go:938 用 "mysql"）。
+	// 传空串会让 scanDialect 退化，DATE 列在会话路径（流式导出、SQL 编辑器托管事务）
+	// 被格式化成 RFC3339 时间戳，与网格直查的 2006-01-02 不一致，导出文件再导入 DATE 列会被拒绝。
+	return NewSQLConnStatementExecerWithDialect(conn, "mysql"), nil
 }
 
 func (m *MySQLDB) ExecContext(ctx context.Context, query string) (int64, error) {

@@ -1,0 +1,81 @@
+name: Backend Tests
+
+on:
+  pull_request:
+    branches:
+      - dev
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    name: Full backend suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare frontend embed
+        shell: bash
+        run: |
+          mkdir -p frontend/dist
+          printf '<!doctype html><title>GoNavi test</title>\n' > frontend/dist/index.html
+
+      - name: Run backend tests
+        run: go test ./... -count=1 -timeout=30m
+
+  platform-sensitive:
+    name: Platform-sensitive tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Test AI file errors
+        run: go test ./internal/ai/service -run '^(TestMCPClientInstallConfigIOFailuresUseServiceLanguage|TestAISaveSessionUsesCurrentLanguageForStructuredErrors)$' -count=1
+
+      - name: Test Claude CLI timing
+        run: go test ./internal/ai/provider -run '^TestClaudeCLIProvider_(ChatStreamUsesRequestTimeoutWhenNoMeaningfulResponseArrives|ChatStreamAllowsDelayedMeaningfulResponse)$' -count=1
+
+      - name: Test JVM fixtures
+        run: go test ./internal/jvm -run '^(TestAgentProviderRealAgentRoundTrip|TestHTTPProviderRealEndpointRoundTrip|TestJMXProviderRealJMXRoundTrip)$' -count=1 -timeout=5m
+
+      - name: Test optional driver-agent cleanup
+        run: go test ./internal/db -run '^TestOptionalDriverAgentUnresponsiveProcessIsReapedAfterTimeout$' -count=1

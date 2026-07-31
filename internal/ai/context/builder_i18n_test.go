@@ -1,10 +1,8 @@
 package aicontext
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -260,21 +258,3 @@ func TestFormatDatabaseContextCatalogKeysExist(t *testing.T) {
 	}
 }
 
-func TestFormatDatabaseContextSourceUsesI18nShellKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("builder.go")
-	if err != nil {
-		t.Fatalf("read builder.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, legacy := range []string{`"## 当前数据库上下文`, `"### 表结构`, `"| 列名 | 类型 | 可空 | 主键 | 备注 |`, `"**索引:**`, `" (唯一)"`, `"**采样数据`} {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("builder.go still contains legacy database context shell %q", legacy)
-		}
-	}
-	for _, key := range databaseContextShellKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("builder.go does not reference database context shell key %q", key)
-		}
-	}
-}

@@ -1,10 +1,8 @@
 package app
 
 import (
-	"os"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	proxytunnel "GoNavi-Wails/internal/proxy"
 	"GoNavi-Wails/shared/i18n"
@@ -106,39 +104,6 @@ func TestDBProxyHTTPTunnelValidationCatalogKeysExist(t *testing.T) {
 	}
 }
 
-func TestDBProxyHTTPTunnelValidationSourceUsesLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("db_proxy.go")
-	if err != nil {
-		t.Fatalf("read db_proxy.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("HTTP 隧道与普通代理不能同时启用")`,
-		`fmt.Errorf("HTTP 隧道主机不能为空")`,
-		`fmt.Errorf("HTTP 隧道端口无效：%d", config.HTTPTunnel.Port)`,
-		`fmt.Errorf("代理连接 SSH 网关失败：%w", err)`,
-		`fmt.Errorf("目标端口无效：%d", targetPort)`,
-		`fmt.Errorf("解析代理本地转发地址失败：%s", forwarder.LocalAddr)`,
-	} {
-		if strings.Contains(source, rawMessage) {
-			t.Fatalf("db_proxy.go still contains raw HTTP Tunnel validation text %q", rawMessage)
-		}
-	}
-
-	for _, key := range []string{
-		"db.backend.error.http_tunnel_proxy_conflict",
-		"db.backend.error.http_tunnel_host_required",
-		"db.backend.error.http_tunnel_port_invalid",
-		"db.backend.error.proxy_ssh_gateway_connect_failed",
-		"db.backend.error.proxy_target_port_invalid",
-		"db.backend.error.proxy_local_forward_addr_parse_failed",
-	} {
-		if !strings.Contains(source, key) {
-			t.Fatalf("db_proxy.go does not reference DB proxy HTTP Tunnel i18n key %q", key)
-		}
-	}
-}
 
 func TestDBProxyBuildProxyForwardAddressUsesCurrentLanguageForTargetPortValidationError(t *testing.T) {
 	app := NewApp()

@@ -238,8 +238,11 @@ func (p *GeminiProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return err
+	}
 	callback(ai.StreamChunk{Done: true})
-	return scanner.Err()
+	return nil
 }
 
 func (p *GeminiProvider) buildRequest(req ai.ChatRequest) geminiRequest {

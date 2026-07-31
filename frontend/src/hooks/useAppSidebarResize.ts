@@ -9,7 +9,6 @@ type SidebarResizeBounds = { minWidth: number; maxWidth: number };
 type SidebarResizeDragState = SidebarResizeBounds & {
   startX: number;
   startWidth: number;
-  startGuideLeft: number;
 };
 type SidebarResizeListeners = {
   blur: () => void;
@@ -39,6 +38,8 @@ const clampSidebarResizeWidth = (width: number, bounds: SidebarResizeBounds): nu
   Math.max(bounds.minWidth, Math.min(bounds.maxWidth, width))
 );
 
+const SIDEBAR_RESIZE_WIDTH_CSS_VARIABLE = '--gonavi-sidebar-resize-width';
+
 type UseAppSidebarResizeOptions = {
   effectiveUiScale: number;
   setSidebarWidth: (width: number) => void;
@@ -53,7 +54,6 @@ export const useAppSidebarResize = ({
   const sidebarDragRef = useRef<SidebarResizeDragState | null>(null);
   const rafRef = useRef<number | null>(null);
   const clearResizingFrameRef = useRef<number | null>(null);
-  const ghostRef = useRef<HTMLDivElement>(null);
   const siderRef = useRef<HTMLDivElement | null>(null);
   const sidebarDragBodyStyleRef = useRef<{ cursor: string; userSelect: string; webkitUserSelect: string } | null>(null);
   const sidebarResizeListenersRef = useRef<SidebarResizeListeners | null>(null);
@@ -80,6 +80,7 @@ export const useAppSidebarResize = ({
         sider.setAttribute('data-sidebar-resizing', 'true');
       } else {
         sider.removeAttribute('data-sidebar-resizing');
+        sider.style.removeProperty(SIDEBAR_RESIZE_WIDTH_CSS_VARIABLE);
       }
     }
     if (typeof document !== 'undefined') {
@@ -89,6 +90,12 @@ export const useAppSidebarResize = ({
         document.body.removeAttribute('data-sidebar-resizing');
       }
     }
+  }, []);
+
+  const previewSidebarWidth = useCallback((width: number) => {
+    const sider = siderRef.current;
+    if (!(sider instanceof HTMLElement)) return;
+    sider.style.setProperty(SIDEBAR_RESIZE_WIDTH_CSS_VARIABLE, `${width}px`);
   }, []);
 
   const scheduleClearSidebarResizing = useCallback(() => {
@@ -142,21 +149,20 @@ export const useAppSidebarResize = ({
       rafRef.current = null;
     }
 
-    if (ghostRef.current) {
-      ghostRef.current.style.display = 'none';
-    }
     detachSidebarResizeListeners();
     restoreSidebarDragBodyStyles();
 
     if (commit && dragState) {
       const finalMouseX = Number.isFinite(clientX) ? clientX as number : latestMouseX.current;
       const delta = finalMouseX - dragState.startX;
-      // Keep transition disabled across the state commit + first paint.
-      setSidebarResizing(true);
-      setSidebarWidthRef.current(clampSidebarResizeWidth(
+      const finalWidth = clampSidebarResizeWidth(
         dragState.startWidth + delta,
         dragState,
-      ));
+      );
+      // Keep transition disabled across the state commit + first paint.
+      previewSidebarWidth(finalWidth);
+      setSidebarResizing(true);
+      setSidebarWidthRef.current(finalWidth);
       scheduleClearSidebarResizing();
       return;
     }
@@ -166,6 +172,7 @@ export const useAppSidebarResize = ({
   }, [
     cancelClearResizingFrame,
     detachSidebarResizeListeners,
+    previewSidebarWidth,
     restoreSidebarDragBodyStyles,
     scheduleClearSidebarResizing,
     setSidebarResizing,
@@ -183,7 +190,6 @@ export const useAppSidebarResize = ({
 
     finishSidebarResize(undefined, false);
     cancelClearResizingFrame();
-    setSidebarResizing(true);
 
     if (typeof document !== 'undefined') {
       sidebarDragBodyStyleRef.current = {
@@ -197,19 +203,15 @@ export const useAppSidebarResize = ({
     }
 
     const siderRect = siderRef.current?.getBoundingClientRect();
-    const startGuideLeft = siderRect?.right ?? sidebarWidth;
     const startWidth = siderRect?.width ?? sidebarWidth;
     const resizeBounds = resolveSidebarResizeBounds(siderRef.current);
 
-    if (ghostRef.current) {
-      ghostRef.current.style.left = `${startGuideLeft}px`;
-      ghostRef.current.style.display = 'block';
-    }
+    previewSidebarWidth(startWidth);
+    setSidebarResizing(true);
 
     sidebarDragRef.current = {
       startX: e.clientX,
       startWidth,
-      startGuideLeft,
       ...resizeBounds,
     };
     latestMouseX.current = e.clientX;
@@ -225,11 +227,11 @@ export const useAppSidebarResize = ({
 
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
-        if (!sidebarDragRef.current || !ghostRef.current) return;
-        const { startX, startWidth, startGuideLeft, minWidth, maxWidth } = sidebarDragRef.current;
+        if (!sidebarDragRef.current) return;
+        const { startX, startWidth, minWidth, maxWidth } = sidebarDragRef.current;
         const delta = latestMouseX.current - startX;
         const newWidth = clampSidebarResizeWidth(startWidth + delta, { minWidth, maxWidth });
-        ghostRef.current.style.left = `${startGuideLeft + (newWidth - startWidth)}px`;
+        previewSidebarWidth(newWidth);
       });
     };
     const handleUp = (event: MouseEvent) => finishSidebarResize(event.clientX);
@@ -243,7 +245,7 @@ export const useAppSidebarResize = ({
     document.addEventListener('mousemove', handleMove);
     document.addEventListener('mouseup', handleUp);
     window.addEventListener('blur', handleBlur);
-  }, [cancelClearResizingFrame, finishSidebarResize, setSidebarResizing, sidebarWidth]);
+  }, [cancelClearResizingFrame, finishSidebarResize, previewSidebarWidth, setSidebarResizing, sidebarWidth]);
 
   useEffect(() => () => {
     finishSidebarResize(undefined, false);
@@ -251,7 +253,6 @@ export const useAppSidebarResize = ({
   }, [cancelClearResizingFrame, finishSidebarResize]);
 
   return {
-    ghostRef,
     handleSidebarMouseDown,
     sidebarResizeHandleWidth,
     siderRef,

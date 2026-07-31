@@ -28,6 +28,7 @@ optional-driver-agent.exe
 .claude/
 .gemini/
 .playwright-mcp/
+.zcode/
 **/tmpclaude-*
 docs/superpowers/
 docs/需求追踪/

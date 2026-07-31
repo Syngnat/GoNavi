@@ -27,7 +27,7 @@ interface RedisMonitorProps {
 
 // Data point for charts
 interface MetricPoint {
-  time: string;
+  timestamp: number;
   qps: number;
   memory: number; // in MB
   memory_rss: number; // in MB
@@ -40,6 +40,17 @@ interface MetricPoint {
 
 const MAX_HISTORY_POINTS = 60; // Keep up to 60 data points
 const POLL_INTERVAL_MS = 2000;
+const formatMetricTimestamp = (timestamp: unknown) => {
+  const value = Number(timestamp);
+  if (!Number.isFinite(value)) return '';
+
+  return new Date(value).toLocaleTimeString([], {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+};
 
 const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isActive = true }) => {
   const connections = useStore(state => state.connections);
@@ -94,8 +105,7 @@ const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isAc
       const infoMap = res.data as Record<string, string>;
       setCurrentInfo(infoMap);
 
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString([], { hour12: false, second: '2-digit' });
+      const timestamp = Date.now();
       
       // Parse values
       const qps = parseInt(infoMap['instantaneous_ops_per_sec'] || '0', 10);
@@ -118,7 +128,7 @@ const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isAc
       });
 
       const point: MetricPoint = {
-        time: timeStr,
+        timestamp,
         qps,
         memory: parseFloat((memBytes / 1024 / 1024).toFixed(2)),
         memory_rss: parseFloat((memRssBytes / 1024 / 1024).toFixed(2)),
@@ -334,11 +344,22 @@ const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isAc
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                <XAxis dataKey="time" tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={20} />
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={formatMetricTimestamp}
+                  tick={{ fill: chartTextColor, fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={20}
+                />
                 <YAxis tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} />
                 <RechartsTooltip 
                   contentStyle={{ backgroundColor: cardBgColor, border: `1px solid ${chartGridColor}`, borderRadius: 6 }}
                   itemStyle={{ fontWeight: 600 }}
+                  labelFormatter={formatMetricTimestamp}
                 />
                 <Area type="monotone" dataKey="qps" name="QPS" stroke="#52c41a" strokeWidth={2} fillOpacity={1} fill="url(#colorQps)" isAnimationActive={false} />
               </AreaChart>
@@ -356,12 +377,23 @@ const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isAc
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={history} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                <XAxis dataKey="time" tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={20} />
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={formatMetricTimestamp}
+                  tick={{ fill: chartTextColor, fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={20}
+                />
                 <YAxis tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
                 <RechartsTooltip 
                   contentStyle={{ backgroundColor: cardBgColor, border: `1px solid ${chartGridColor}`, borderRadius: 6 }}
                   itemStyle={{ fontWeight: 600 }}
                   formatter={(value: any) => [`${value} MB`]}
+                  labelFormatter={formatMetricTimestamp}
                 />
                 <Legend verticalAlign="top" height={36}/>
                 <Line type="monotone" dataKey="memory" name={tr('redis_monitor.series.used_memory')} stroke="#eb2f96" strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -383,12 +415,23 @@ const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isAc
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={history} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                <XAxis dataKey="time" tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={20} />
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={formatMetricTimestamp}
+                  tick={{ fill: chartTextColor, fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={20}
+                />
                 <YAxis tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} />
                 <RechartsTooltip 
                   contentStyle={{ backgroundColor: cardBgColor, border: `1px solid ${chartGridColor}`, borderRadius: 6 }}
                   itemStyle={{ fontWeight: 600 }}
                   formatter={(value: any) => [`${value} s`]}
+                  labelFormatter={formatMetricTimestamp}
                 />
                 <Legend verticalAlign="top" height={36}/>
                 <Line type="monotone" dataKey="cpuSys" name={tr('redis_monitor.series.system')} stroke="#cf1322" strokeWidth={2} dot={false} isAnimationActive={false} />
@@ -408,12 +451,23 @@ const RedisMonitor: React.FC<RedisMonitorProps> = ({ connectionId, redisDB, isAc
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={history} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartGridColor} />
-                <XAxis dataKey="time" tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} minTickGap={20} />
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  scale="time"
+                  domain={['dataMin', 'dataMax']}
+                  tickFormatter={formatMetricTimestamp}
+                  tick={{ fill: chartTextColor, fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={20}
+                />
                 <YAxis yAxisId="left" tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fill: chartTextColor, fontSize: 12 }} axisLine={false} tickLine={false} />
                 <RechartsTooltip 
                   contentStyle={{ backgroundColor: cardBgColor, border: `1px solid ${chartGridColor}`, borderRadius: 6 }}
                   itemStyle={{ fontWeight: 600 }}
+                  labelFormatter={formatMetricTimestamp}
                 />
                 <Legend verticalAlign="top" height={36}/>
                 <Line yAxisId="left" type="stepAfter" dataKey="clients" name={tr('redis_monitor.series.clients')} stroke="#1677ff" strokeWidth={2} dot={false} isAnimationActive={false} />

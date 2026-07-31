@@ -30,20 +30,21 @@ import (
 )
 
 const (
-	webAuthConfigFileName          = "web_auth.json"
-	webAuthSchemaVersion           = 1
-	webSessionCookieName           = "gonavi_web_session"
-	webSetupTokenTTL               = 10 * time.Minute
-	webLoginFailureWindow          = 10 * time.Minute
-	webLoginFailureLimit           = 5
-	webLoginBlockDuration          = 5 * time.Minute
-	webDefaultSessionIdleMinutes   = 30
-	webDefaultSessionAbsoluteHours = 24 * 7
-	webDefaultSessionRememberDays  = 7
-	webMinPasswordLength           = 6
-	webAuthPasswordEnvName         = "GONAVI_WEB_PASSWORD"
-	webTOTPPeriodSeconds           = 30
-	webTOTPDigits                  = 6
+	webAuthConfigFileName            = "web_auth.json"
+	webAuthSchemaVersion             = 1
+	webSessionCookieName             = "gonavi_web_session"
+	webSetupTokenTTL                 = 10 * time.Minute
+	webLoginFailureWindow            = 10 * time.Minute
+	webLoginFailureLimit             = 5
+	webLoginAttemptTrackerMaxEntries = 4096
+	webLoginBlockDuration            = 5 * time.Minute
+	webDefaultSessionIdleMinutes     = 30
+	webDefaultSessionAbsoluteHours   = 24 * 7
+	webDefaultSessionRememberDays    = 7
+	webMinPasswordLength             = 6
+	webAuthPasswordEnvName           = "GONAVI_WEB_PASSWORD"
+	webTOTPPeriodSeconds             = 30
+	webTOTPDigits                    = 6
 )
 
 var (
@@ -247,10 +248,37 @@ func (t *loginAttemptTracker) recordFailure(ip string, now time.Time) time.Durat
 		state.Failures = nil
 		state.BlockedUntil = now.Add(webLoginBlockDuration)
 		t.attempts[normalized] = state
+		t.sweepExpiredLocked(now)
 		return webLoginBlockDuration
 	}
 	t.attempts[normalized] = state
+	t.sweepExpiredLocked(now)
 	return 0
+}
+
+// sweepExpiredLocked 在条目数超过上限时清理已失效的记录。
+// 条目仅在登录成功或同一 key 再次进入 allow() 时才会被删除，
+// 分布式来源（僵尸网络）下 map 会单向增长，故补一道容量触发的清扫。
+// 调用方必须已持有 t.mu。
+func (t *loginAttemptTracker) sweepExpiredLocked(now time.Time) {
+	if len(t.attempts) <= webLoginAttemptTrackerMaxEntries {
+		return
+	}
+	for key, state := range t.attempts {
+		if state.BlockedUntil.After(now) {
+			continue
+		}
+		fresh := false
+		for _, failureAt := range state.Failures {
+			if now.Sub(failureAt) <= webLoginFailureWindow {
+				fresh = true
+				break
+			}
+		}
+		if !fresh {
+			delete(t.attempts, key)
+		}
+	}
 }
 
 func (t *loginAttemptTracker) recordSuccess(ip string) {
@@ -977,16 +1005,92 @@ func isSecureRequest(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Ssl")), "on")
 }
 
-func clientIP(r *http.Request) string {
+// webTrustedProxiesEnvName 配置可信反向代理的 IP / CIDR 列表（逗号分隔）。
+// 只有当直连对端命中该列表时，X-Forwarded-For 才会被采信。
+const webTrustedProxiesEnvName = "GONAVI_WEB_TRUSTED_PROXIES"
+
+var (
+	trustedProxyOnce sync.Once
+	trustedProxyNets []*net.IPNet
+)
+
+func loadTrustedProxyNets() []*net.IPNet {
+	trustedProxyOnce.Do(func() {
+		raw := strings.TrimSpace(os.Getenv(webTrustedProxiesEnvName))
+		if raw == "" {
+			return
+		}
+		for _, part := range strings.Split(raw, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if _, network, err := net.ParseCIDR(part); err == nil && network != nil {
+				trustedProxyNets = append(trustedProxyNets, network)
+				continue
+			}
+			if ip := net.ParseIP(part); ip != nil {
+				bits := 32
+				if ip.To4() == nil {
+					bits = 128
+				}
+				trustedProxyNets = append(trustedProxyNets, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			}
+		}
+	})
+	return trustedProxyNets
+}
+
+func isTrustedProxyAddr(text string) bool {
+	ip := net.ParseIP(strings.TrimSpace(text))
+	if ip == nil {
+		return false
+	}
+	for _, network := range loadTrustedProxyNets() {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// peerIP 返回不可伪造的直连对端地址。
+func peerIP(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	if forwarded := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-For"), ",")[0]); forwarded != "" {
-		return forwarded
-	}
 	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
 	if err == nil && strings.TrimSpace(host) != "" {
-		return host
+		return strings.TrimSpace(host)
 	}
 	return strings.TrimSpace(r.RemoteAddr)
+}
+
+// clientIP 返回用于登录限流与锁定的客户端标识。
+//
+// 必须以不可伪造的对端地址为准：X-Forwarded-For 完全由客户端控制，原实现无条件采信其首值，
+// 直连攻击者每次请求换一个值即可拿到全新的限流桶，从而彻底绕过 5 次失败锁定
+// （口令下限仅 webMinPasswordLength=6，可在线爆破），并使 attempts map 无界增长；
+// 同时每次尝试都会在校验路径上触发一次 64 MiB 的 Argon2id 推导，形成认证面的 CPU/内存 DoS。
+//
+// 仅当对端 IP 命中 GONAVI_WEB_TRUSTED_PROXIES 时，才从 X-Forwarded-For 里取「最右侧的
+// 非可信跳」作为真实客户端——右侧是代理追加的、可信的部分，左侧可被客户端预先伪造。
+func clientIP(r *http.Request) string {
+	peer := peerIP(r)
+	if peer == "" || !isTrustedProxyAddr(peer) {
+		return peer
+	}
+	parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		candidate := strings.TrimSpace(parts[i])
+		if candidate == "" || isTrustedProxyAddr(candidate) {
+			continue
+		}
+		if net.ParseIP(candidate) == nil {
+			// 非法值不予采信，避免攻击者用任意字符串制造新的限流桶。
+			continue
+		}
+		return candidate
+	}
+	return peer
 }

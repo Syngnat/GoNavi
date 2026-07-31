@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { buildEditableTriggerSql } from './triggerEditSql';
 
@@ -44,18 +43,5 @@ describe('triggerEditSql', () => {
     expect(sql).toContain('CREATE TRIGGER');
     expect(sql).not.toContain('修改触发器');
     expect(sql).not.toContain('请补全 CREATE TRIGGER 语句');
-  });
-
-  it('keeps editable trigger SQL comment copy in catalogs instead of source literals', () => {
-    const source = readFileSync(new URL('./triggerEditSql.ts', import.meta.url), 'utf8');
-
-    expect(source).toContain('trigger_viewer.edit_sql.header');
-    expect(source).toContain('trigger_viewer.edit_sql.replace_hint');
-    expect(source).toContain('trigger_viewer.edit_sql.compatibility_hint');
-    expect(source).toContain('trigger_viewer.edit_sql.empty_definition');
-    expect(source).toContain('trigger_viewer.edit_sql.fragment_definition');
-    expect(source).not.toContain('修改触发器');
-    expect(source).not.toContain('请确认语法兼容当前数据库后执行');
-    expect(source).not.toContain('请补全 CREATE TRIGGER 语句后执行');
   });
 });

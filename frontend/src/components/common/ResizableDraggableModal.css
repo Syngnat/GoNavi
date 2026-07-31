@@ -32,8 +32,57 @@
   height: var(--gn-modal-resized-height);
 }
 
+/* Header/footer stay put; body fills remaining space when modal is resized. */
+.gn-resizable-draggable-modal .ant-modal-header {
+  flex: 0 0 auto;
+}
+
+/* Close alignment is handled in v2-theme.css (content-absolute, top ≈ header center). */
+
 .gn-resizable-draggable-modal .ant-modal-body {
+  flex: 1 1 auto;
+  /* Prefer content size when unresized; only collapse min when height is fixed by resize. */
+  min-height: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.gn-resizable-draggable-modal[data-has-resized-height='true'] .ant-modal-body {
   min-height: 0;
+  overflow: hidden;
+}
+
+.gn-resizable-draggable-modal .ant-modal-footer {
+  flex: 0 0 auto;
+}
+
+/*
+ * Monaco fill host:
+ * - Unresized: explicit min-height so height:100% / abs fill has a real box (avoids 0-height).
+ * - Resized: parent content has fixed height → host flexes and Monaco fills it.
+ */
+.gn-resizable-draggable-modal .gn-modal-fill-body {
+  position: relative;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 450px;
+  height: 450px;
+  overflow: hidden;
+}
+
+.gn-resizable-draggable-modal[data-has-resized-height='true'] .gn-modal-fill-body {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.gn-resizable-draggable-modal .gn-modal-fill-body > .gn-monaco-surface {
+  position: absolute;
+  inset: 0;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
 }
 
 .gn-resizable-draggable-modal[data-draggable='true'] .ant-modal-confirm-title {

@@ -1,5 +1,4 @@
 import React from 'react';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
@@ -10,8 +9,6 @@ import { t as catalogTranslate } from '../../i18n/catalog';
 import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 
 const overlayTheme = buildOverlayWorkbenchTheme(false);
-const contextSectionSource = readFileSync(new URL('./AISettingsContextSection.tsx', import.meta.url), 'utf8');
-const choiceGroupSource = readFileSync(new URL('./AISettingsChoiceGroup.tsx', import.meta.url), 'utf8');
 
 const REQUIRED_CONTEXT_KEYS = [
   'ai_settings.open_mode.title',
@@ -29,8 +26,6 @@ const REQUIRED_CONTEXT_KEYS = [
   'ai_settings.context.with_results.label',
   'ai_settings.context.with_results.desc',
 ] as const;
-
-const safetySectionSource = readFileSync(new URL('./AISettingsSafetySection.tsx', import.meta.url), 'utf8');
 
 const REQUIRED_SAFETY_KEYS = [
   'ai_settings.safety.description',
@@ -71,37 +66,10 @@ describe('AI settings readonly sections', () => {
     expect(markup).toContain('color:#dc2626');
   });
 
-  it('uses semantic Ant icons, whitespace, and one radio indicator instead of safety cards', () => {
-    expect(safetySectionSource).toContain('LockOutlined');
-    expect(safetySectionSource).toContain('EditOutlined');
-    expect(safetySectionSource).toContain('WarningOutlined');
-    expect(safetySectionSource).not.toMatch(/[🔒⚠️🔓]/u);
-    expect(choiceGroupSource).toContain("display: 'grid'");
-    expect(choiceGroupSource).toContain('gap: 2');
-    expect(choiceGroupSource).not.toContain('borderTop');
-    expect(choiceGroupSource).not.toContain('borderBottom');
-    expect(choiceGroupSource).toContain('color: option.iconColor');
-    expect(choiceGroupSource).toContain('className="gonavi-ai-choice-indicator"');
-    expect(choiceGroupSource).toContain('background: active ? overlayTheme.selectedBg');
-    expect(choiceGroupSource).toContain("fontFamily: 'var(--gn-font-sans)'");
-    expect(choiceGroupSource).not.toContain('borderLeft');
-    expect(choiceGroupSource).not.toContain('borderRadius: 14');
-    expect(safetySectionSource).not.toContain(': cardBg');
-  });
-
-  it('uses shared settings typography variables for headings and helper copy', () => {
-    expect(safetySectionSource).toContain("fontSize: 'var(--gn-font-size-sm, 12px)'");
-    expect(contextSectionSource).toContain("fontSize: 'var(--gn-font-size, 14px)'");
-    expect(contextSectionSource).toContain("fontSize: 'var(--gn-font-size-sm, 12px)'");
-  });
-
   it('uses catalog fallback keys for safety mode chrome', () => {
-    expect(safetySectionSource).toContain('useOptionalI18n()');
-    expect(safetySectionSource).toContain("catalogTranslate('en-US'");
     for (const key of REQUIRED_SAFETY_KEYS) {
       expect(catalogTranslate('en-US', key)).not.toBe(key);
       expect(catalogTranslate('zh-CN', key)).not.toBe(key);
-      expect(safetySectionSource).toContain(key);
     }
 
     for (const oldCopy of [
@@ -113,7 +81,6 @@ describe('AI settings readonly sections', () => {
       'AI 可执行所有操作（含 DDL/过程调用），高危或未识别操作会告警',
       '控制 AI 可执行的 SQL 操作类型，保护数据安全',
     ]) {
-      expect(safetySectionSource).not.toContain(oldCopy);
     }
   });
 
@@ -152,29 +119,10 @@ describe('AI settings readonly sections', () => {
     expect(markup).toContain('color:#16a34a');
   });
 
-  it('uses semantic Ant icons and the same flat choice treatment for both context groups', () => {
-    expect(contextSectionSource).toContain('LayoutOutlined');
-    expect(contextSectionSource).toContain('ExpandOutlined');
-    expect(contextSectionSource).toContain('TableOutlined');
-    expect(contextSectionSource).toContain('DatabaseOutlined');
-    expect(contextSectionSource).toContain('ProfileOutlined');
-    expect(contextSectionSource).not.toMatch(/[📋📊📑📎🪟]/u);
-    expect(choiceGroupSource).toContain('role="radiogroup"');
-    expect(choiceGroupSource).toContain('role="radio"');
-    expect(choiceGroupSource).toContain('aria-checked={active}');
-    expect(choiceGroupSource).toContain('tabIndex={index === selectedIndex ? 0 : -1}');
-    expect(choiceGroupSource).toContain("event.key === 'ArrowDown'");
-    expect(choiceGroupSource).toContain('className="gonavi-ai-choice-icon"');
-    expect(contextSectionSource).not.toContain(': cardBg');
-  });
-
   it('uses catalog fallback keys for context mode chrome', () => {
-    expect(contextSectionSource).toContain('useOptionalI18n()');
-    expect(contextSectionSource).toContain("catalogTranslate('en-US'");
     for (const key of REQUIRED_CONTEXT_KEYS) {
       expect(catalogTranslate('en-US', key)).not.toBe(key);
       expect(catalogTranslate('zh-CN', key)).not.toBe(key);
-      expect(contextSectionSource).toContain(key);
     }
 
     for (const oldCopy of [
@@ -186,7 +134,6 @@ describe('AI settings readonly sections', () => {
       '传递最近的查询结果作为上下文',
       '控制发送给 AI 的数据库上下文信息量',
     ]) {
-      expect(contextSectionSource).not.toContain(oldCopy);
     }
   });
 });

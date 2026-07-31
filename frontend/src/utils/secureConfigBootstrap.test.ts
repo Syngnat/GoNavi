@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { t as translate } from '../i18n';
 import { LEGACY_PERSIST_KEY } from './legacyConnectionStorage';
@@ -131,17 +130,6 @@ describe('secureConfigBootstrap', () => {
         message: "Global proxy settings are still saved in the current app's local configuration. After the security update completes, they will be moved to the new secure storage.",
       }),
     ]));
-  });
-
-  it('keeps local legacy security update text out of production source literals', () => {
-    const source = readFileSync(new URL('./secureConfigBootstrap.ts', import.meta.url), 'utf8');
-
-    expect(source).not.toContain('该连接仍保存在当前应用的本地配置中');
-    expect(source).not.toContain('全局代理仍保存在当前应用的本地配置中');
-    expect(source).not.toContain('安全更新能力不可用');
-    expect(source).toContain('security_update.bootstrap.legacy.connection.message');
-    expect(source).toContain('security_update.bootstrap.legacy.global_proxy.message');
-    expect(source).toContain('security_update.error.capability_unavailable');
   });
 
   it('shows intro when legacy sensitive items exist and backend status is pending', async () => {

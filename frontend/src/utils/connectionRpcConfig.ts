@@ -1,7 +1,7 @@
 import { connection } from '../../wailsjs/go/models';
 import {
   deriveLegacyConnectionReadOnlyFlag,
-  normalizeConnectionProtectionConfig,
+  resolveConnectionProtectionConfig,
 } from './connectionReadOnly';
 import {
   OCEANBASE_PROTOCOL_PARAM_KEYS,
@@ -124,7 +124,13 @@ export function buildRpcConnectionConfig(
   const baseId = toStringValue(config.id).trim() || toStringValue(overrides.id).trim() || undefined;
   const timeout = toOptionalInteger(rpcMerged.timeout, toOptionalInteger(config.timeout));
   const redisDB = toOptionalInteger(rpcMerged.redisDB, toOptionalInteger(config.redisDB));
-  const protection = normalizeConnectionProtectionConfig(rpcMerged.protection);
+  const protection = resolveConnectionProtectionConfig({
+    type: toStringValue(rpcMerged.type),
+    driver: rpcMerged.driver,
+    oceanBaseProtocol: rpcMerged.oceanBaseProtocol,
+    readOnly: rpcMerged.readOnly,
+    protection: rpcMerged.protection,
+  });
 
   const rpcConfig = new connection.ConnectionConfig({
     ...rpcPayload,

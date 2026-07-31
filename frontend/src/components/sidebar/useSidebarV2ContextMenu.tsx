@@ -29,6 +29,7 @@ import {
   SIDEBAR_CONTEXT_MENU_FALLBACK_WIDTH,
   resolveSidebarContextMenuPosition,
 } from '../sidebarCoreUtils';
+import { isShortcutMatch, type ShortcutPlatform } from '../../utils/shortcuts';
 
 export type SidebarContextMenuState = {
   x: number;
@@ -46,7 +47,7 @@ export type SidebarContextMenuState = {
 type SidebarV2ContextMenuOptions = {
   connections: SavedConnection[];
   connectionTags: Array<{ id: string; name: string; connectionIds: string[] }>;
-  activeShortcutPlatform: any;
+  activeShortcutPlatform: ShortcutPlatform;
   flattenConnectionNodes: (nodes: TreeNode[]) => TreeNode[];
   v2TreeMetrics: {
     databaseTableCounts: Map<React.Key, number>;
@@ -71,6 +72,39 @@ type SidebarV2ContextMenuOptions = {
   handleV2DatabaseContextMenuAction: (node: any, action: V2DatabaseContextMenuActionKey) => void;
   handleV2ConnectionContextMenuAction: (node: any, action: V2ConnectionContextMenuActionKey) => void;
   handleV2ConnectionGroupContextMenuAction: (group: V2RailConnectionGroup, action: V2ConnectionGroupContextMenuActionKey) => void;
+};
+
+export const handleSidebarV2ContextMenuShortcut = ({
+  event,
+  contextMenu,
+  shortcutPlatform,
+  onTableAction,
+  onClose,
+}: {
+  event: KeyboardEvent;
+  contextMenu: SidebarContextMenuState | null;
+  shortcutPlatform: ShortcutPlatform;
+  onTableAction: (node: any, action: V2TableContextMenuActionKey) => void;
+  onClose: () => void;
+}): boolean => {
+  if (event.key === 'Escape') {
+    onClose();
+    return true;
+  }
+  if (event.defaultPrevented || contextMenu?.kind !== 'v2-table' || !contextMenu.node) {
+    return false;
+  }
+
+  const copyShortcut = shortcutPlatform === 'mac' ? 'Meta+C' : 'Ctrl+C';
+  if (!isShortcutMatch(event, copyShortcut)) {
+    return false;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  onClose();
+  onTableAction(contextMenu.node, 'copy-table-name');
+  return true;
 };
 
 export const useSidebarV2ContextMenu = ({
@@ -408,15 +442,21 @@ export const useSidebarV2ContextMenu = ({
           setContextMenu(null);
       };
       const onKeyDown = (event: KeyboardEvent) => {
-          if (event.key === 'Escape') setContextMenu(null);
+          handleSidebarV2ContextMenuShortcut({
+              event,
+              contextMenu,
+              shortcutPlatform: activeShortcutPlatform,
+              onTableAction: handleV2TableContextMenuAction,
+              onClose: () => setContextMenu(null),
+          });
       };
       document.addEventListener('mousedown', onPointerDown);
-      document.addEventListener('keydown', onKeyDown);
+      document.addEventListener('keydown', onKeyDown, true);
       return () => {
           document.removeEventListener('mousedown', onPointerDown);
-          document.removeEventListener('keydown', onKeyDown);
+          document.removeEventListener('keydown', onKeyDown, true);
       };
-  }, [contextMenu?.kind]);
+  }, [activeShortcutPlatform, contextMenu, handleV2TableContextMenuAction]);
 
   useEffect(() => {
       if (!contextMenu?.kind) return;

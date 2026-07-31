@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -31,8 +30,6 @@ vi.mock('@ant-design/icons', async () => {
     SafetyCertificateOutlined: () => React.createElement('span', null, 'certificate'),
   };
 });
-
-const source = readFileSync(new URL('./SecurityUpdateBanner.tsx', import.meta.url), 'utf8');
 
 const overlayTheme: OverlayWorkbenchTheme = {
   isDark: false,
@@ -92,18 +89,6 @@ const renderBannerText = async (overallStatus: SecurityUpdateStatus['overallStat
 };
 
 describe('SecurityUpdateBanner i18n source guards', () => {
-  it('uses security update banner i18n keys instead of legacy Chinese title and action labels', () => {
-    expect(source).toContain('security_update.banner.title');
-    expect(source).toContain('security_update.banner.action.start_now');
-    expect(source).toContain('security_update.banner.action.view_details');
-    expect(source).toContain('security_update.banner.action.restart_update');
-    expect(source).toContain('security_update.banner.action.retry_check');
-    expect(source).not.toContain('已保存配置可进行安全更新');
-    expect(source).not.toContain('立即更新');
-    expect(source).not.toContain('查看详情');
-    expect(source).not.toContain('重新开始更新');
-    expect(source).not.toContain('重新检查');
-  });
 
   it('localizes the banner title and actions for each visible banner status', async () => {
     const postponedText = await renderBannerText('postponed');

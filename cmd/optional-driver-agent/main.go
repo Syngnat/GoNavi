@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"runtime"
@@ -121,16 +123,42 @@ func main() {
 	debug.SetGCPercent(50)
 	db.InitMemorySoftLimit(db.MemorySoftLimitInitialBytes)
 
-	scanner := bufio.NewScanner(os.Stdin)
-	scanner.Buffer(make([]byte, 0, 16<<10), 8<<20)
 	writer := bufio.NewWriter(os.Stdout)
 	defer writer.Flush()
 
 	runtimeState := &agentRuntime{
 		sessions: make(map[string]db.StatementExecer),
 	}
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	readErr := serveAgentRequests(os.Stdin, writer, runtimeState)
+
+	runtimeState.close()
+
+	if readErr != nil {
+		fmt.Fprintf(os.Stderr, "读取请求失败：%v\n", readErr)
+	}
+}
+
+// serveAgentRequests 是 driver-agent 的 JSON-lines 请求主循环。
+//
+// 用 bufio.Reader 而非 bufio.Scanner：Scanner 有单行长度上限（原为 8 MiB），超限时
+// Scan() 直接返回 false 使主循环退出、进程终止，该连接从此永久不可用（主进程侧随后所有
+// 请求都拿到 EOF，只能手动重连）。而主进程写入端没有任何上限：一个 1000 行的导入批次或
+// 一个大 JSON/CLOB 单元格都能轻易超过 8 MiB。bufio.Reader.ReadString 会按需增长，无单行上限。
+//
+// 返回非 nil 表示读取过程出现了非 EOF 的真实错误。
+func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *agentRuntime) error {
+	reader := bufio.NewReaderSize(input, 16<<10)
+	for {
+		raw, err := reader.ReadString('\n')
+		if err != nil && len(raw) == 0 {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		// err != nil 但 raw 非空：最后一行没有换行符，仍需处理；
+		// 下一轮 ReadString 会立即以 len(raw)==0 返回并结束循环。
+		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
@@ -148,7 +176,7 @@ func main() {
 		if strings.TrimSpace(req.Method) == agentMethodStreamQuery {
 			if err := handleStreamRequest(runtimeState, req, writer); err != nil {
 				fmt.Fprintf(os.Stderr, "写入流式响应失败：%v\n", err)
-				break
+				return nil
 			}
 			continue
 		}
@@ -156,17 +184,11 @@ func main() {
 		resp := handleRequest(runtimeState, req)
 		if err := writeResponse(writer, resp); err != nil {
 			fmt.Fprintf(os.Stderr, "写入响应失败：%v\n", err)
-			break
+			return nil
 		}
 		if strings.TrimSpace(req.Method) == agentMethodQuery {
 			maybeReleaseAgentMemory("query-response", countAgentResponseRows(resp.Data))
 		}
-	}
-
-	runtimeState.close()
-
-	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "读取请求失败：%v\n", err)
 	}
 }
 

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   CUSTOM_THEME_MAX_BYTES,
+  ensureCustomThemeMonacoSurfaceVars,
   extractComputedCustomThemeAntTokens,
   extractCustomThemeAntTokens,
+  sanitizeCustomThemeDefinition,
   sanitizeCustomThemeList,
   validateCustomThemeCss,
 } from './customTheme';
@@ -47,6 +49,39 @@ describe('custom theme CSS validation', () => {
     expect(validateCustomThemeCss(`body { --theme: "${'x'.repeat(CUSTOM_THEME_MAX_BYTES)}"; }`)).toEqual(
       expect.objectContaining({ ok: false, reason: 'too-large' }),
     );
+  });
+
+  it('injects --gn-monaco-bg for hand-written themes that only set theme surfaces', () => {
+    const css = 'body[data-custom-theme] {\n  --gn-bg-panel: #f7faf8;\n  --gn-bg-panel-2: #eef3f0;\n}';
+    const next = ensureCustomThemeMonacoSurfaceVars(css);
+    expect(next).toContain('--gn-monaco-bg: var(--gn-bg-panel-2)');
+    expect(next).toContain('--gn-bg-panel: #f7faf8');
+  });
+
+  it('keeps legacy hand-written themes aligned when they only define panel', () => {
+    const css = 'body[data-custom-theme] {\n  --gn-bg-panel: #f7faf8;\n}';
+    const next = ensureCustomThemeMonacoSurfaceVars(css);
+
+    expect(next).toContain('--gn-monaco-bg: var(--gn-bg-panel)');
+  });
+
+  it('does not override an explicit --gn-monaco-bg in custom theme CSS', () => {
+    const css = 'body[data-custom-theme] {\n  --gn-bg-panel: #111;\n  --gn-monaco-bg: #222;\n}';
+    expect(ensureCustomThemeMonacoSurfaceVars(css)).toBe(css);
+  });
+
+  it('sanitizes custom themes and ensures Monaco surface token', () => {
+    const theme = sanitizeCustomThemeDefinition({
+      schemaVersion: 1,
+      id: 'hand-written',
+      name: 'Hand',
+      sourceFileName: 'hand.css',
+      baseMode: 'dark',
+      css: 'body[data-custom-theme] { --gn-bg-panel: #1d202b; --gn-accent: #8b5cf6; }',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(theme?.css).toContain('--gn-monaco-bg: var(--gn-bg-panel)');
   });
 
   it('extracts safe CSS color tokens for Ant Design without accepting arbitrary values', () => {

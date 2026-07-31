@@ -481,6 +481,8 @@ export interface TabData {
     | "redis-keys"
     | "redis-command"
     | "redis-monitor"
+    | "nacos-config"
+    | "nacos-services"
     | "trigger"
     | "view-def"
     | "event-def"
@@ -511,6 +513,9 @@ export interface TabData {
   resourcePath?: string;
   resourceKind?: string;
   redisDB?: number; // Redis database index for redis tabs
+  nacosNamespaceId?: string; // Nacos namespace id (empty string means public)
+  nacosNamespaceName?: string; // Nacos namespace display name
+  nacosGroup?: string; // Nacos group filter for config or service workbenches
   triggerName?: string; // Trigger name for trigger tabs
   triggerTableName?: string; // Trigger target table for trigger tabs
   viewName?: string; // View name for view definition tabs

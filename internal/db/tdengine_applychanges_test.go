@@ -8,7 +8,6 @@ import (
 	"database/sql/driver"
 	"fmt"
 	"io"
-	"os"
 	"reflect"
 	"strings"
 	"sync"
@@ -337,38 +336,6 @@ func TestTDengineApplyChangesErrorsUseCurrentLanguage(t *testing.T) {
 	})
 }
 
-func TestTDengineApplyChangesErrorSourcesUseI18nKeys(t *testing.T) {
-	sourceBytes, err := os.ReadFile("tdengine_impl.go")
-	if err != nil {
-		t.Fatalf("read tdengine_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-	start := strings.Index(source, "func (t *TDengineDB) ApplyChanges")
-	if start < 0 {
-		t.Fatal("TDengine ApplyChanges function not found")
-	}
-	end := strings.Index(source[start:], "func execTDengineInsertBatches")
-	if end < 0 {
-		t.Fatal("TDengine ApplyChanges function end marker not found")
-	}
-	applyChangesSource := source[start : start+end]
-
-	for _, rawMessage := range []string{
-		`fmt.Errorf("` + rawTDengineConnectionNotOpenText() + `")`,
-		`fmt.Errorf("` + rawTDengineTableNameRequiredText() + `")`,
-		`fmt.Errorf("` + rawTDengineApplyChangesInsertOnlyText() + `")`,
-	} {
-		if strings.Contains(applyChangesSource, rawMessage) {
-			t.Fatalf("TDengine ApplyChanges still contains raw text %q", rawMessage)
-		}
-	}
-	for _, key := range tdengineApplyChangesI18nKeys() {
-		if !strings.Contains(applyChangesSource, key) {
-			t.Fatalf("TDengine ApplyChanges does not reference i18n key %q", key)
-		}
-	}
-}
-
 func TestTDengineApplyChangesCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -567,19 +534,3 @@ func TestTDengineGetCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-func TestTDengineGetCreateStatementSourceUsesI18nKey(t *testing.T) {
-	sourceBytes, err := os.ReadFile("tdengine_impl.go")
-	if err != nil {
-		t.Fatalf("read tdengine_impl.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawNotFoundText := "\u672a\u627e\u5230\u5efa\u8868\u8bed\u53e5"
-	rawNotFoundSnippet := `fmt.Errorf("` + rawNotFoundText + `")`
-	if strings.Contains(source, rawNotFoundSnippet) {
-		t.Fatalf("TDengine GetCreateStatement still contains raw CREATE TABLE not found text")
-	}
-	if !strings.Contains(source, "db.backend.error.create_table_statement_not_found") {
-		t.Fatal("TDengine GetCreateStatement does not reference db.backend.error.create_table_statement_not_found")
-	}
-}

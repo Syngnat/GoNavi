@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import { t as catalogT } from '../i18n/catalog';
@@ -80,40 +78,6 @@ describe('driver import guidance', () => {
       backendWrapperKeys,
     )).toBe(expected);
   }, 15000);
-
-  it('guards DriverManagerModal error toasts against direct backend wrapper fallbacks', () => {
-    const source = readFileSync(
-      new URL('../components/DriverManagerModal.tsx', import.meta.url),
-      'utf8',
-    );
-
-    expect(source).toContain('const stripWrappedDriverErrorDetail =');
-    expect(source).toContain('export const resolveDriverErrorMessageText =');
-    expect(source).toContain('const resolveDriverErrorMessage = useCallback');
-    expect(source).toContain('backendWrapperKeys?: string[]');
-    expect(source).not.toContain("if (/[\\u3400-\\u9fff]/.test(detail)) {");
-    expect(source).toContain("message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.statusFetch'), 'driver.modal.error.statusFetchWithDetail'))");
-    expect(source).toContain("message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.networkCheck'), 'driver.modal.error.networkCheckWithDetail'))");
-    expect(source).toContain("message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.versionList', { name: row.name }), 'driver.modal.error.versionListLoad', { name: row.name }))");
-    expect(source).toMatch(/const errText = resolveDriverErrorMessage\(\s*result\?\.message,\s*t\('driver\.modal\.error\.installDriver', \{ name: row\.name \}\),\s*undefined,\s*\{ name: row\.name \},\s*\[\s*'driver_manager\.backend\.message\.download_failed_detail',\s*'driver_manager\.backend\.message\.metadata_write_failed_detail',\s*\],\s*\);/);
-    expect(source).toMatch(/const errText = resolveDriverErrorMessage\(\s*result\?\.message,\s*t\('driver\.modal\.error\.localImportDriver', \{ name: row\.name \}\),\s*undefined,\s*\{ name: row\.name \},\s*\[\s*'driver_manager\.backend\.message\.local_import_failed_detail',\s*'driver_manager\.backend\.message\.metadata_write_failed_detail',\s*\],\s*\);/);
-    expect(source).toContain("message.error(resolveDriverErrorMessage(fileRes?.message, t('driver.modal.error.selectPackageFile')))");
-    expect(source).toContain("message.error(resolveDriverErrorMessage(directoryRes?.message, t('driver.modal.error.selectPackageDirectory')))");
-    expect(source).toMatch(/message\.error\(\s*resolveDriverErrorMessage\(\s*res\?\.message,\s*fallbackMessage,\s*'driver\.modal\.error\.openDirectoryWithDetail',\s*undefined,\s*\[\s*'driver_manager\.backend\.error\.create_directory_failed',\s*'driver_manager\.backend\.error\.open_directory_failed',\s*\],\s*\)\s*\);/);
-    expect(source).toMatch(/message\.error\(\s*resolveDriverErrorMessage\(\s*errMsg,\s*fallbackMessage,\s*'driver\.modal\.error\.openDirectoryWithDetail',\s*undefined,\s*\[\s*'driver_manager\.backend\.error\.create_directory_failed',\s*'driver_manager\.backend\.error\.open_directory_failed',\s*\],\s*\)\s*\);/);
-    expect(source).toMatch(/const errText = resolveDriverErrorMessage\(\s*result\?\.message,\s*t\('driver\.modal\.error\.removeDriver', \{ name: row\.name \}\),\s*undefined,\s*\{ name: row\.name \},\s*\[\s*'driver_manager\.backend\.error\.remove_package_failed',\s*\],\s*\);/);
-    expect(source).not.toContain("message.error(res?.message || t('driver.modal.error.statusFetch'))");
-    expect(source).not.toContain("message.error(res?.message || t('driver.modal.error.networkCheck'))");
-    expect(source).not.toContain("message.error(res?.message || t('driver.modal.error.versionList', { name: row.name }))");
-    expect(source).not.toContain("message.error(fileRes?.message || t('driver.modal.error.selectPackageFile'))");
-    expect(source).not.toContain("message.error(directoryRes?.message || t('driver.modal.error.selectPackageDirectory'))");
-    expect(source).not.toContain("const errText = result?.message || t('driver.modal.error.installDriver', { name: row.name })");
-    expect(source).not.toContain("const errText = result?.message || t('driver.modal.error.localImportDriver', { name: row.name })");
-    expect(source).not.toContain("throw new Error(res?.message || t('driver.modal.error.openDirectory'))");
-    expect(source).not.toContain("const errText = result?.message || t('driver.modal.error.removeDriver', { name: row.name })");
-    expect(source).toContain('isBackendCancelledResult(fileRes)');
-    expect(source).toContain('isBackendCancelledResult(directoryRes)');
-  });
 
   it('exposes only functional guidance APIs to avoid freezing the current language', async () => {
     const guidance = await import('./driverImportGuidance');

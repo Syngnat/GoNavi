@@ -69,6 +69,56 @@ type QueryEditorToolbarProps = {
 };
 
 const FULL_NAME_TOOLTIP_DELAY_SECONDS = 1;
+const QUERY_EXECUTION_TIMER_INTERVAL_MS = 100;
+
+export const formatQueryExecutionElapsed = (elapsedMs: number): string => {
+  const totalTenths = Math.floor(Math.max(0, Number(elapsedMs) || 0) / 100);
+  const tenths = totalTenths % 10;
+  const totalSeconds = Math.floor(totalTenths / 10);
+  const seconds = totalSeconds % 60;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const minutes = totalMinutes % 60;
+  const hours = Math.floor(totalMinutes / 60);
+  const secondsText = String(seconds).padStart(2, "0");
+  const minutesText = String(minutes).padStart(2, "0");
+
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${minutesText}:${secondsText}.${tenths}`
+    : `${minutesText}:${secondsText}.${tenths}`;
+};
+
+export const resolveQueryExecutionSpeedIcon = (elapsedMs: number): "⚡" | "🐇" | "🐢" => {
+  const normalizedElapsedMs = Math.max(0, Number(elapsedMs) || 0);
+  if (normalizedElapsedMs < 1_000) return "⚡";
+  if (normalizedElapsedMs < 5_000) return "🐇";
+  return "🐢";
+};
+
+export const useQueryExecutionElapsed = (loading: boolean, executionRunToken = 0): number => {
+  const [elapsedMs, setElapsedMs] = React.useState(0);
+  const startedAtRef = React.useRef<number | null>(null);
+
+  React.useEffect(() => {
+    if (!loading) {
+      const startedAt = startedAtRef.current;
+      if (startedAt !== null) {
+        setElapsedMs(Date.now() - startedAt);
+        startedAtRef.current = null;
+      }
+      return;
+    }
+
+    const startedAt = Date.now();
+    startedAtRef.current = startedAt;
+    setElapsedMs(0);
+    const updateElapsed = () => setElapsedMs(Date.now() - startedAt);
+    updateElapsed();
+    const timer = globalThis.setInterval(updateElapsed, QUERY_EXECUTION_TIMER_INTERVAL_MS);
+    return () => globalThis.clearInterval(timer);
+  }, [executionRunToken, loading]);
+
+  return elapsedMs;
+};
 
 const WrapTextIcon: React.FC = () => (
   <svg
@@ -399,7 +449,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           <Tooltip title={t("query_editor.action.stop")}>
             <Button
               aria-label={t("query_editor.action.stop")}
-              className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+              className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-stop-action" : undefined}
               type="primary"
               danger
               icon={<StopOutlined />}

@@ -335,7 +335,7 @@ export const parseV2CommandSearchQuery = (value: unknown): V2CommandSearchQuery 
 
 /**
  * shouldLoadSidebarNodeOnExpand 判断节点展开时是否需要懒加载子节点。
- * 仅 connection/database/external-sql-root/table/jvm-mode/jvm-resource 类型且无已加载 children 时返回 true。
+ * 仅可懒加载的目录类型且无已加载 children 时返回 true。
  */
 export const shouldLoadSidebarNodeOnExpand = (
   node: Pick<SidebarNodeLike, 'type' | 'children' | 'isLeaf'> | null | undefined,
@@ -346,5 +346,7 @@ export const shouldLoadSidebarNodeOnExpand = (
       || node.type === 'external-sql-root'
       || node.type === 'table'
       || node.type === 'jvm-mode'
-      || node.type === 'jvm-resource';
+      || node.type === 'jvm-resource'
+      || node.type === 'nacos-config-entry'
+      || node.type === 'nacos-services-entry';
 };

@@ -41,7 +41,6 @@ func parseMySQLExplain(dbType, sourceSQL, raw string, format connection.ExplainF
 		DBType:    dbType,
 		SourceSQL: sourceSQL,
 	}
-	resetExplainNodeID()
 
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {

@@ -3,7 +3,6 @@ package app
 import (
 	"fmt"
 	"strings"
-	"sync/atomic"
 
 	"GoNavi-Wails/internal/connection"
 )
@@ -12,25 +11,22 @@ import (
 //
 // 本文件只放跨方言共享的辅助函数；每方言解析器在 explain_parse_<db>.go。
 
-// explainNodeIDCounter 是单次解析内的递增节点 ID 生成器。
-// 通过 resetExplainNodeID() 在解析开始时归零；并发安全（同一 query 串行解析）。
-var explainNodeIDCounter uint64
-
-func resetExplainNodeID() {
-	atomic.StoreUint64(&explainNodeIDCounter, 0)
-}
-
-// nextExplainNodeID 返回下一个节点 ID（"n1"、"n2"……）。
-func nextExplainNodeID() string {
-	id := atomic.AddUint64(&explainNodeIDCounter, 1)
-	return fmt.Sprintf("n%d", id)
+// nextExplainNodeIDFor 返回该 result 内的下一个节点 ID（"n1"、"n2"……）。
+//
+// 编号从 result.Nodes 的长度派生，而不是用包级计数器：DiagnoseQuery 是 Wails 绑定方法，
+// 每个前端调用都在独立 goroutine 中派发，两次并发诊断会互相踩踏共享计数器，导致同一份
+// ExplainResult 里出现重复 node ID、Edges 的 From/To 指向歧义节点、前端计划图渲染错乱。
+// 由于 result.Nodes 只在 appendExplainChild 内追加、且调用方从不预设 node.ID，
+// len(result.Nodes)+1 与原先的递增序列完全等价，同时天然做到每次解析相互隔离。
+func nextExplainNodeIDFor(result *connection.ExplainResult) string {
+	return fmt.Sprintf("n%d", len(result.Nodes)+1)
 }
 
 // appendExplainChild 把子节点追加到 result.Nodes，并生成对应的 ExplainEdge。
 // parentID 为空时不生成 Edge（根节点）。
 func appendExplainChild(result *connection.ExplainResult, parentID string, node connection.ExplainNode) (nodeID string) {
 	if node.ID == "" {
-		node.ID = nextExplainNodeID()
+		node.ID = nextExplainNodeIDFor(result)
 	}
 	if parentID != "" {
 		node.ParentID = parentID

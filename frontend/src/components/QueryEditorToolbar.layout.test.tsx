@@ -1,7 +1,13 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { describe, expect, it, vi } from 'vitest';
 import { readV2ThemeCss } from '../test/readV2ThemeCss';
+import {
+  formatQueryExecutionElapsed,
+  resolveQueryExecutionSpeedIcon,
+  useQueryExecutionElapsed,
+} from './QueryEditorToolbar';
 
 describe('QueryEditorToolbar layout', () => {
   it('keeps the v2 toolbar on a single scrollable row in small windows', () => {
@@ -15,9 +21,6 @@ describe('QueryEditorToolbar layout', () => {
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-main {'),
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-selects {'),
     );
-
-    expect(toolbarSource).toContain('gn-v2-query-toolbar-main');
-    expect(toolbarSource).toContain('gn-v2-query-toolbar-actions');
     expect(css).toContain('body[data-ui-version="v2"] .gn-v2-query-toolbar-main');
     expect(toolbarCss).toContain('overflow-x: auto;');
     expect(toolbarCss).toContain('overflow-y: hidden;');
@@ -29,15 +32,146 @@ describe('QueryEditorToolbar layout', () => {
     expect(css).toContain('body[data-ui-version="v2"] .gn-v2-query-toolbar-action-pair {');
   });
 
+  it('shares the active theme surface across the SQL toolbar and Monaco editor', () => {
+    const css = readV2ThemeCss();
+    const defaultMonacoCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"]:not([data-custom-theme]) {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-editor {'),
+    );
+    const editorCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-editor {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-editor-pane {'),
+    );
+    const toolbarCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-main {'),
+    );
+    const toolbarSelectCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar .ant-select-selector {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar .ant-select-selection-item,'),
+    );
+    const monacoStageCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-monaco-stage {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-monaco-stage:has('),
+    );
+
+    expect(defaultMonacoCss).toContain('--gn-monaco-bg: var(--gn-bg-panel-2);');
+    expect(editorCss).toContain('--gn-query-workbench-bg: var(--gn-bg-panel-2);');
+    expect(toolbarCss).toContain('background: var(--gn-query-workbench-bg) !important;');
+    expect(toolbarSelectCss).toContain('background: var(--gn-query-workbench-bg) !important;');
+    expect(monacoStageCss).toContain(
+      'background: var(--gn-monaco-bg, var(--gn-query-workbench-bg));',
+    );
+  });
+
   it('keeps run and stop buttons separated in the v2 toolbar action group', () => {
     const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
     const css = readV2ThemeCss();
-
-    expect(toolbarSource).toContain('gn-v2-query-toolbar-action-group');
-    expect(toolbarSource).not.toContain('Space.Compact');
     expect(css).toContain('body[data-ui-version="v2"] .gn-v2-query-toolbar-action-group {');
     expect(css).not.toContain('.gn-v2-query-toolbar-action-group.ant-btn-group');
     expect(css).toContain('gap: 6px;');
+  });
+
+  it('formats live query execution time with stable tenths-of-a-second precision', () => {
+    expect(formatQueryExecutionElapsed(0)).toBe('00:00.0');
+    expect(formatQueryExecutionElapsed(61_299)).toBe('01:01.2');
+    expect(formatQueryExecutionElapsed(3_661_999)).toBe('01:01:01.9');
+    expect(formatQueryExecutionElapsed(Number.NaN)).toBe('00:00.0');
+  });
+
+  it('uses distinct speed icons at the one- and five-second boundaries', () => {
+    expect(resolveQueryExecutionSpeedIcon(0)).toBe('⚡');
+    expect(resolveQueryExecutionSpeedIcon(999)).toBe('⚡');
+    expect(resolveQueryExecutionSpeedIcon(1_000)).toBe('🐇');
+    expect(resolveQueryExecutionSpeedIcon(4_999)).toBe('🐇');
+    expect(resolveQueryExecutionSpeedIcon(5_000)).toBe('🐢');
+  });
+
+  it('keeps the completed duration until the next execution starts', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    let elapsedMs = -1;
+    let renderer: ReactTestRenderer | null = null;
+
+    const Harness: React.FC<{ loading: boolean; runToken: number }> = ({ loading, runToken }) => {
+      elapsedMs = useQueryExecutionElapsed(loading, runToken);
+      return null;
+    };
+
+    try {
+      act(() => {
+        renderer = create(<Harness loading={false} runToken={0} />);
+      });
+      expect(elapsedMs).toBe(0);
+
+      act(() => {
+        renderer?.update(<Harness loading runToken={1} />);
+      });
+      act(() => {
+        vi.advanceTimersByTime(350);
+      });
+      expect(elapsedMs).toBe(300);
+
+      act(() => {
+        renderer?.update(<Harness loading runToken={2} />);
+      });
+      expect(elapsedMs).toBe(0);
+
+      act(() => {
+        vi.advanceTimersByTime(350);
+      });
+      expect(elapsedMs).toBe(300);
+
+      act(() => {
+        renderer?.update(<Harness loading={false} runToken={2} />);
+      });
+      expect(elapsedMs).toBe(350);
+
+      act(() => {
+        vi.advanceTimersByTime(1_000);
+      });
+      expect(elapsedMs).toBe(350);
+
+      act(() => {
+        renderer?.update(<Harness loading runToken={3} />);
+      });
+      expect(elapsedMs).toBe(0);
+    } finally {
+      act(() => {
+        renderer?.unmount();
+      });
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps live and completed execution time at the editor bottom-left', () => {
+    const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
+    const editorSource = readFileSync(new URL('./QueryEditor.tsx', import.meta.url), 'utf8');
+    const css = readV2ThemeCss();
+    const statusbarCss = css.slice(
+      css.indexOf('.gn-query-execution-statusbar {'),
+      css.indexOf('.gn-query-execution-timer {'),
+    );
+    const elapsedCss = css.slice(
+      css.indexOf('.gn-query-execution-elapsed {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-resizer {'),
+    );
+
+    expect(toolbarSource).toContain('globalThis.setInterval(updateElapsed, QUERY_EXECUTION_TIMER_INTERVAL_MS)');
+    expect(toolbarSource).toContain('startedAtRef.current = null');
+    expect(toolbarSource).not.toContain('gn-query-toolbar-execution-slot');
+    expect(editorSource).toContain('className="gn-query-execution-statusbar"');
+    expect(editorSource).toContain('className="gn-query-execution-timer"');
+    expect(editorSource).toContain('role="timer"');
+    expect(editorSource).toContain('query_editor.execution.elapsed');
+    const statusbarIndex = editorSource.indexOf('className="gn-query-execution-statusbar"');
+    expect(statusbarIndex).toBeGreaterThan(editorSource.indexOf('<Editor'));
+    expect(statusbarIndex).toBeLessThan(editorSource.indexOf('<QueryEditorResultsPanel', statusbarIndex));
+    expect(statusbarCss).toContain('flex: 0 0 22px;');
+    expect(statusbarCss).toContain('padding: 0 10px;');
+    expect(elapsedCss).toContain('min-width: 10ch;');
+    expect(elapsedCss).toContain('font-variant-numeric: tabular-nums;');
+    expect(elapsedCss).toContain('letter-spacing: 0;');
   });
 
   it('optically centers the word-wrap icon in its v2 icon-only action', () => {
@@ -47,10 +181,6 @@ describe('QueryEditorToolbar layout', () => {
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-word-wrap-action.ant-btn,'),
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-action-group {'),
     );
-
-    expect(toolbarSource).toContain('gn-v2-query-toolbar-word-wrap-action');
-    expect(toolbarSource).toContain('gn-query-toolbar-word-wrap-icon');
-    expect(toolbarSource).toContain('{!isV2Ui && t("query_editor.action.word_wrap")}');
     expect(wordWrapCss).toContain('align-items: center;');
     expect(wordWrapCss).toContain('justify-content: center;');
     expect(wordWrapCss).toContain('width: 16px;');
@@ -75,8 +205,10 @@ describe('QueryEditorToolbar layout', () => {
 
     expect(css).toContain('.gn-v2-query-transaction-commit-button:hover');
     expect(css).toContain('.gn-v2-query-transaction-commit-button:focus-visible');
-    expect(commitBaseCss).toContain('background: var(--gn-accent-soft) !important;');
-    expect(commitHoverCss).not.toContain('background: var(--gn-accent-soft) !important;');
+    expect(commitBaseCss).toContain('background: var(--gn-warn) !important;');
+    expect(commitHoverCss).toContain(
+      'background: var(--gn-warn-hover, var(--gn-warn)) !important;',
+    );
     expect(commitHoverCss).toContain('box-shadow:');
     expect(commitKbdHoverCss).toContain('background:');
   });
@@ -108,29 +240,9 @@ describe('QueryEditorToolbar layout', () => {
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-icon-action.ant-btn,'),
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-run-action.ant-btn {'),
     );
-
-    expect(toolbarSource).toContain('EllipsisOutlined');
-    expect(toolbarSource).toContain('gn-v2-query-toolbar-menu-trigger');
-    expect(toolbarSource).toContain('aria-haspopup="menu"');
-    expect(toolbarSource).toContain('aria-expanded={isV2Ui ? openToolbarMenu === "ai" : undefined}');
-    expect(toolbarSource).toContain('aria-expanded={isV2Ui ? openToolbarMenu === "more" : undefined}');
-    expect(toolbarSource).toContain('aria-expanded={isV2Ui ? openToolbarMenu === "format" : undefined}');
     expect(iconActionCss).toContain('width: 34px !important;');
     expect(iconActionCss).toContain('min-width: 34px !important;');
     expect(iconActionCss).toContain('padding: 0 !important;');
-  });
-
-  it('keeps editor search action grouped with formatting actions', () => {
-    const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
-    const formatActionPairStart = toolbarSource.indexOf('SearchOutlined');
-    const formatActionPairEnd = toolbarSource.indexOf('!isV2Ui && (');
-    const formatActionPairSource = toolbarSource.slice(formatActionPairStart, formatActionPairEnd);
-
-    expect(toolbarSource).toContain('SearchOutlined');
-    expect(formatActionPairSource).toContain('query_editor.action.find_in_editor');
-    expect(formatActionPairSource).toContain('query_editor.action.find_in_editor_with_shortcut');
-    expect(formatActionPairSource).toContain('onClick={onFindInEditor}');
-    expect(formatActionPairSource).toContain('FormatPainterOutlined');
   });
 
   it('shows delayed full-name tooltips for truncated connection and database selectors', () => {
@@ -144,16 +256,6 @@ describe('QueryEditorToolbar layout', () => {
       toolbarSource.indexOf('gn-v2-query-toolbar-database-select'),
       toolbarSource.indexOf('gn-v2-query-toolbar-max-rows-select'),
     );
-
-    expect(toolbarSource).toContain('FULL_NAME_TOOLTIP_DELAY_SECONDS = 1');
-    expect(toolbarSource).toContain('mouseEnterDelay={FULL_NAME_TOOLTIP_DELAY_SECONDS}');
-    expect(toolbarSource).toContain('renderFullNameSelectTooltip');
-    expect(toolbarSource).toContain('gn-query-toolbar-select-full-name');
-    expect(toolbarSource).toContain('title: ""');
-    expect(connectionSelectSource).toContain('optionRender={(option) => renderFullNameSelectTooltip(option.data.fullName)}');
-    expect(connectionSelectSource).toContain('labelRender={(option) => renderFullNameSelectTooltip(option.label ?? option.value)}');
-    expect(databaseSelectSource).toContain('optionRender={(option) => renderFullNameSelectTooltip(option.data.fullName)}');
-    expect(databaseSelectSource).toContain('labelRender={(option) => renderFullNameSelectTooltip(option.label ?? option.value)}');
     expect(css).toContain('.gn-query-toolbar-select-full-name {');
     expect(css).toContain('text-overflow: ellipsis;');
     expect(css).toContain('white-space: nowrap;');

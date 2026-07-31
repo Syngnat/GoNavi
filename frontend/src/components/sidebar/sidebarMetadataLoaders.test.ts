@@ -10,6 +10,7 @@ import {
   buildPackagesMetadataQuerySpecs,
   buildSchemasMetadataQuerySpecs,
   buildSequencesMetadataQuerySpecs,
+  buildSidebarTableStatusSQL,
   buildViewsMetadataQuerySpecs,
   getSidebarTableName,
   loadFunctions,
@@ -28,6 +29,21 @@ beforeEach(() => {
 describe("sidebar table metadata", () => {
   it("keeps the table name when SQLite table rows include an exact row count", () => {
     expect(getSidebarTableName({ Rows: "2", Table: "orders" })).toBe("orders");
+  });
+
+  it("loads PostgreSQL partition parents without running an exact row count", () => {
+    const sql = buildSidebarTableStatusSQL(
+      { config: { type: "postgres" } } as any,
+      "analytics",
+    );
+
+    expect(sql).toContain("pg_inherits");
+    expect(sql).toContain("AS partition_parent_table");
+    expect(sql).toContain("c.relkind IN ('r', 'p')");
+    expect(sql).toContain(
+      "CASE WHEN c.relkind = 'p' THEN NULL ELSE c.reltuples::bigint END AS table_rows",
+    );
+    expect(sql).not.toMatch(/COUNT\s*\(/i);
   });
 });
 

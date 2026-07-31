@@ -47,6 +47,7 @@ vi.mock('antd', () => ({
 vi.mock('@ant-design/icons', () => ({
   FilterOutlined: () => <span data-icon="filter" />,
   LinkOutlined: () => <span data-icon="link" />,
+  SearchOutlined: () => <span data-icon="search" />,
 }));
 
 describe('DataGridColumnTitle', () => {
@@ -89,6 +90,7 @@ describe('DataGridColumnTitle', () => {
     expect(markup).toContain('主键 ID');
     expect(markup).toContain('flex-direction:column');
     expect(markup).toContain('align-items:flex-start');
+    expect(markup).toContain('display:inline-flex;width:100%;max-width:100%;min-width:0;overflow:hidden');
   });
 
   it('keeps column metadata tooltip readable in light theme', () => {
@@ -185,6 +187,9 @@ describe('DataGridColumnTitle', () => {
     expect(markup).toContain('data-grid-column-filter-trigger="true"');
     expect(markup).toContain('data-grid-column-filter-active="true"');
     expect(markup).toContain('data-grid-column-filter-popover="true"');
+    expect(markup).toContain('flex:1 1 auto');
+    expect(markup).toContain('display:inline-flex;flex:1 1 auto;max-width:100%;min-width:0;overflow:hidden');
+    expect(markup).toContain('width:100%');
     expect(markup).toContain('Filter status');
     expect(markup).toContain('value="active"');
   });
@@ -308,6 +313,88 @@ describe('DataGridColumnTitle', () => {
       clearButton!.props.onClick();
     });
     expect(onClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('searches current value counts and fills drafts before explicit apply', () => {
+    const onApply = vi.fn(() => true);
+    const translate = (key: string) => ({
+      'data_grid.filter.value_counts.title': 'Current values',
+      'data_grid.filter.value_counts.search_placeholder': 'Search values',
+      'data_grid.filter.value_counts.nullish': '(Null)',
+      'data_grid.filter.value_counts.empty': '(Empty)',
+      'data_grid.filter.value_counts.no_matches': 'No matches',
+    }[key] || key);
+    const renderer = create(
+      <DataGridColumnTitle
+        columnName="status"
+        showColumnType={false}
+        showColumnComment={false}
+        metaFontSize={11}
+        columnMetaHintColor="#999"
+        columnMetaTooltipColor="#fff"
+        darkMode={false}
+        translate={translate}
+        currentValueCounts={[
+          { key: 'string:active', display: 'active', kind: 'value', count: 3 },
+          { key: 'nullish', display: '', kind: 'nullish', count: 2 },
+          { key: 'empty', display: '', kind: 'empty', count: 1 },
+        ]}
+        columnFilter={{
+          active: false,
+          operatorOptions: [
+            { value: '=', label: '=' },
+            { value: 'IS_NULL', label: 'Is null' },
+            { value: 'IS_EMPTY', label: 'Is empty' },
+          ],
+          defaultOperator: '=',
+          filterLabel: 'Filter',
+          applyLabel: 'Apply',
+          clearLabel: 'Clear',
+          valuePlaceholder: 'Value',
+          secondValuePlaceholder: 'End value',
+          listValuePlaceholder: 'List values',
+          noValuePlaceholder: 'No value needed',
+          isNoValueOp: (op) => op === 'IS_NULL' || op === 'IS_EMPTY',
+          isBetweenOp: () => false,
+          isListOp: () => false,
+          onApply,
+          onClear: () => true,
+        }}
+      />,
+    );
+
+    const searchInput = renderer.root.findAllByType('input')
+      .find((input) => input.props.placeholder === 'Search values');
+    expect(searchInput).toBeTruthy();
+    act(() => searchInput!.props.onChange({ target: { value: 'act' } }));
+    expect(renderer.root.findAll((node) => node.props['data-grid-column-value-count-kind']).map((node) => node.props.title)).toEqual(['active']);
+
+    const clickValueCount = (kind: string) => {
+      const button = renderer.root.findAllByType('button')
+        .find((node) => node.props['data-grid-column-value-count-kind'] === kind);
+      expect(button).toBeTruthy();
+      act(() => button!.props.onClick());
+    };
+    const apply = () => {
+      const button = renderer.root.findAllByType('button').find((node) => node.children.includes('Apply'));
+      act(() => button!.props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn() }));
+    };
+
+    clickValueCount('value');
+    expect(onApply).not.toHaveBeenCalled();
+    apply();
+    expect(onApply).toHaveBeenLastCalledWith({ op: '=', value: 'active', value2: '' });
+
+    act(() => searchInput!.props.onChange({ target: { value: '' } }));
+    clickValueCount('nullish');
+    expect(onApply).toHaveBeenCalledTimes(1);
+    apply();
+    expect(onApply).toHaveBeenLastCalledWith({ op: 'IS_NULL', value: '', value2: '' });
+
+    clickValueCount('empty');
+    expect(onApply).toHaveBeenCalledTimes(2);
+    apply();
+    expect(onApply).toHaveBeenLastCalledWith({ op: 'IS_EMPTY', value: '', value2: '' });
   });
 
   it('uses translated tooltip wrappers while preserving raw metadata values', () => {

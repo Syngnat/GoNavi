@@ -30,7 +30,7 @@ func configureSQLConnectionPool(db *sql.DB, dbType string) {
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
 	case "sqlite", "duckdb":
 		return
-	case "oracle", "oceanbase":
+	case "oracle", "oceanbase", "kingbase":
 		db.SetMaxOpenConns(defaultSQLMaxOpenConns)
 		db.SetMaxIdleConns(defaultSQLMaxIdleConns)
 		db.SetConnMaxIdleTime(resolveSQLConnectionPoolMaxIdleTime(dbType))

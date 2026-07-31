@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React, { useRef, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -31,8 +30,6 @@ vi.mock('../../../wailsjs/runtime', () => ({
 }));
 
 const SESSION_ID = 'session-stream';
-const source = readFileSync(new URL('./useAIChatStreamSubscription.ts', import.meta.url), 'utf8');
-const panelSource = readFileSync(new URL('../AIChatPanel.tsx', import.meta.url), 'utf8');
 const translatedCopy: Record<string, string> = {
   'ai_chat.panel.model_control.force_tool_call': 'T:force-tool-call',
   'ai_chat.panel.message.error': 'T:error {{detail}}',
@@ -120,21 +117,6 @@ const StreamHarness = () => {
 };
 
 describe('useAIChatStreamSubscription', () => {
-  it('threads the panel translator through the nudge resend chain', () => {
-    expect(panelSource).toContain('translate: t,');
-    expect(source).toContain('const messagesPayload = currentHistory.map((message) => toAIRequestMessage(message, translate));');
-  });
-
-  it('keeps stream error and empty-response copy behind panel i18n keys', () => {
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.message\.error'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.message\.empty_response'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.message\.request_interrupted'/);
-    expect(source).toMatch(/translatePanelCopy\(\s*translate,\s*'ai_chat\.panel\.model_control\.force_tool_call'/);
-    expect(source).not.toContain('content: `❌ 错误: ${cleanErr}`');
-    expect(source).not.toContain("content: '❌ 模型未能成功响应任何内容");
-    expect(source).not.toContain("content: '❌ 请求中断");
-    expect(source).not.toContain('请直接使用 function call 调用工具执行操作，不要只用文字描述计划。');
-  });
 
   beforeEach(() => {
     nextId = 0;

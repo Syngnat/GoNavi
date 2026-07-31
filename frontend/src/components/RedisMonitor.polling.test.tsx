@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -112,7 +111,6 @@ vi.mock('@ant-design/icons', async () => {
 const renderMonitor = (isActive: boolean) => (
   <RedisMonitor connectionId={connection.id} redisDB={0} isActive={isActive} />
 );
-const workbenchSource = readFileSync(new URL('./WorkbenchTabContent.tsx', import.meta.url), 'utf8');
 
 describe('RedisMonitor polling', () => {
   let renderer: ReactTestRenderer | null = null;
@@ -185,6 +183,40 @@ describe('RedisMonitor polling', () => {
     expect(redisApi.RedisGetServerInfo).toHaveBeenCalledTimes(2);
   });
 
+  it('uses unique chart x values when samples share the same second across minutes', async () => {
+    vi.setSystemTime(new Date('2026-07-27T10:00:22'));
+
+    await act(async () => {
+      renderer = create(renderMonitor(true));
+    });
+    await act(async () => {
+      renderer!.root.findAllByType('button')[0].props.onClick();
+    });
+
+    vi.setSystemTime(new Date('2026-07-27T10:01:22'));
+    await act(async () => {
+      renderer!.root.findAllByType('button')[1].props.onClick();
+    });
+
+    const charts = renderer!.root.findAll(node => Array.isArray(node.props.data));
+    expect(charts).toHaveLength(4);
+
+    const points = charts[0].props.data as Array<{ timestamp?: number }>;
+    expect(points).toHaveLength(2);
+    expect(new Set(points.map(point => point.timestamp))).toHaveLength(2);
+
+    const xAxes = renderer!.root.findAll(node => node.props.dataKey === 'timestamp');
+    expect(xAxes).toHaveLength(4);
+    expect(xAxes.every(node => node.props.type === 'number')).toBe(true);
+
+    const labels = points.map(point => xAxes[0].props.tickFormatter(point.timestamp));
+    expect(labels[0]).not.toBe(labels[1]);
+
+    const tooltips = renderer!.root.findAll(node => typeof node.props.labelFormatter === 'function');
+    expect(tooltips).toHaveLength(4);
+    expect(tooltips[0].props.labelFormatter(points[1].timestamp)).toBe(labels[1]);
+  });
+
   it('discards a pending manual refresh after deactivation and lets a new generation run', async () => {
     const staleRefresh = createDeferred<ReturnType<typeof serverInfoResponse>>();
     redisApi.RedisGetServerInfo
@@ -255,11 +287,5 @@ describe('RedisMonitor polling', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(redisApi.RedisGetServerInfo).toHaveBeenCalledTimes(2);
-  });
-
-  it('receives the active workbench state from the tab host', () => {
-    expect(workbenchSource).toContain(
-      '<RedisMonitor connectionId={tab.connectionId} redisDB={tab.redisDB ?? 0} isActive={isActive} />',
-    );
   });
 });

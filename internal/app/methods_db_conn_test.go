@@ -10,9 +10,12 @@ import (
 )
 
 type releaseRecordingDB struct {
-	closed   int
-	connect  func(config connection.ConnectionConfig) error
-	closeErr error
+	closed            int
+	connect           func(config connection.ConnectionConfig) error
+	closeErr          error
+	pingCalls         int
+	getDatabasesCalls int
+	databases         []string
 }
 
 func (f *releaseRecordingDB) Connect(config connection.ConnectionConfig) error {
@@ -25,12 +28,18 @@ func (f *releaseRecordingDB) Close() error {
 	f.closed++
 	return f.closeErr
 }
-func (f *releaseRecordingDB) Ping() error { return nil }
+func (f *releaseRecordingDB) Ping() error {
+	f.pingCalls++
+	return nil
+}
 func (f *releaseRecordingDB) Query(query string) ([]map[string]interface{}, []string, error) {
 	return nil, nil, nil
 }
-func (f *releaseRecordingDB) Exec(query string) (int64, error)          { return 0, nil }
-func (f *releaseRecordingDB) GetDatabases() ([]string, error)           { return nil, nil }
+func (f *releaseRecordingDB) Exec(query string) (int64, error) { return 0, nil }
+func (f *releaseRecordingDB) GetDatabases() ([]string, error) {
+	f.getDatabasesCalls++
+	return f.databases, nil
+}
 func (f *releaseRecordingDB) GetTables(dbName string) ([]string, error) { return nil, nil }
 func (f *releaseRecordingDB) GetCreateStatement(dbName, tableName string) (string, error) {
 	return "", nil
@@ -72,6 +81,86 @@ func TestNormalizeTestConnectionConfig_ZeroTimeout(t *testing.T) {
 	got := normalizeTestConnectionConfig(cfg)
 	if got.Timeout != testConnectionTimeoutUpperBoundSeconds {
 		t.Fatalf("零值 timeout 应被修正, got=%d", got.Timeout)
+	}
+}
+
+func TestDBGetDatabases_MongoConfiguredDatabaseSkipsEnumeration(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+
+	tests := []struct {
+		name   string
+		config connection.ConnectionConfig
+		want   string
+	}{
+		{
+			name: "database field",
+			config: connection.ConnectionConfig{
+				Type:     "mongodb",
+				Database: " application ",
+			},
+			want: "application",
+		},
+		{
+			name: "database in URI",
+			config: connection.ConnectionConfig{
+				Type: "mongodb",
+				URI:  "mongodb://user:password@localhost:27017/reporting?authSource=admin",
+			},
+			want: "reporting",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := NewApp()
+			database := &releaseRecordingDB{databases: []string{"admin", "other"}}
+			app.dbCache[getCacheKey(test.config)] = cachedDatabase{
+				inst:   database,
+				config: normalizeCacheKeyConfig(test.config),
+			}
+
+			result := app.DBGetDatabases(test.config)
+			if !result.Success {
+				t.Fatalf("expected scoped MongoDB database lookup to succeed, got %q", result.Message)
+			}
+			if database.pingCalls != 1 {
+				t.Fatalf("expected scoped MongoDB lookup to validate the connection, got %d pings", database.pingCalls)
+			}
+			if database.getDatabasesCalls != 0 {
+				t.Fatalf("expected scoped MongoDB lookup to skip database enumeration, got %d calls", database.getDatabasesCalls)
+			}
+			rows, ok := result.Data.([]map[string]string)
+			if !ok {
+				t.Fatalf("expected database rows, got %#v", result.Data)
+			}
+			if len(rows) != 1 || rows[0]["Database"] != test.want {
+				t.Fatalf("expected only configured database %q, got %#v", test.want, rows)
+			}
+		})
+	}
+}
+
+func TestDBGetDatabases_MongoWithoutConfiguredDatabaseStillEnumerates(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+
+	config := connection.ConnectionConfig{Type: "mongodb"}
+	app := NewApp()
+	database := &releaseRecordingDB{databases: []string{"admin", "application"}}
+	app.dbCache[getCacheKey(config)] = cachedDatabase{
+		inst:   database,
+		config: normalizeCacheKeyConfig(config),
+	}
+
+	result := app.DBGetDatabases(config)
+	if !result.Success {
+		t.Fatalf("expected unscoped MongoDB database lookup to succeed, got %q", result.Message)
+	}
+	if database.getDatabasesCalls != 1 {
+		t.Fatalf("expected unscoped MongoDB lookup to enumerate databases once, got %d calls", database.getDatabasesCalls)
+	}
+	rows, ok := result.Data.([]map[string]string)
+	if !ok || len(rows) != 2 || rows[0]["Database"] != "admin" || rows[1]["Database"] != "application" {
+		t.Fatalf("expected enumerated MongoDB databases, got %#v", result.Data)
 	}
 }
 

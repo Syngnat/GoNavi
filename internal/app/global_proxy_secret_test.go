@@ -6,11 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"testing"
-
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -367,19 +365,3 @@ func TestConfigureGlobalProxyUsesCurrentLanguageForSuccessMessage(t *testing.T) 
 	}
 }
 
-func TestBuildProxyURLFromConfigDefensiveErrorsStayInternalEnglish(t *testing.T) {
-	sourceBytes, err := os.ReadFile("global_proxy.go")
-	if err != nil {
-		t.Fatalf("read global_proxy.go: %v", err)
-	}
-	source := string(sourceBytes)
-	for _, literal := range []string{
-		"不支持的代理类型",
-		"代理地址不能为空",
-		"代理端口无效",
-	} {
-		if strings.Contains(source, literal) {
-			t.Fatalf("buildProxyURLFromConfig should not keep raw Chinese defensive error %q", literal)
-		}
-	}
-}

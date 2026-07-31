@@ -38,6 +38,7 @@ export const DataGridJsonView: React.FC<DataGridJsonViewProps> = ({
     <div style={{ flex: 1, minHeight: 0, padding: '8px 10px 10px 10px' }}>
       <Editor
         height="100%"
+        gonaviTypography="data"
         defaultLanguage="json"
         language="json"
         theme={darkMode ? 'transparent-dark' : 'transparent-light'}

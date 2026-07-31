@@ -19,6 +19,7 @@ const (
 	maxConnectionKeepAliveIntervalMinutes     = 1440
 	connectionKeepAliveScanInterval           = 30 * time.Second
 	connectionKeepAliveQueryTimeout           = 30 * time.Second
+	connectionKeepAliveStopTimeout            = 5 * time.Second
 	maxConnectionKeepAliveSQLLength           = 4096
 )
 
@@ -62,6 +63,16 @@ func resolveConnectionKeepAliveSQL(config connection.ConnectionConfig) (string, 
 
 func executeConnectionKeepAlive(ctx context.Context, target cachedDatabaseKeepAliveTarget) error {
 	if strings.TrimSpace(target.sql) == "" {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if pinger, ok := target.inst.(interface {
+			PingContext(context.Context) error
+		}); ok {
+			pingCtx, cancel := context.WithTimeout(ctx, connectionKeepAliveQueryTimeout)
+			defer cancel()
+			return pinger.PingContext(pingCtx)
+		}
 		return target.inst.Ping()
 	}
 	if utf8.RuneCountInString(target.sql) > maxConnectionKeepAliveSQLLength ||
@@ -148,7 +159,13 @@ func (a *App) stopConnectionKeepAliveLoop() {
 		cancel()
 	}
 	if done != nil {
-		<-done
+		timer := time.NewTimer(connectionKeepAliveStopTimeout)
+		defer timer.Stop()
+		select {
+		case <-done:
+		case <-timer.C:
+			logger.Warnf("等待连接保活循环退出超时（%s），继续执行应用关停", connectionKeepAliveStopTimeout)
+		}
 	}
 }
 

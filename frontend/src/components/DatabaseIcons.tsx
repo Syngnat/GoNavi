@@ -56,6 +56,7 @@ const DB_DEFAULT_COLORS: Record<string, string> = {
     mqtt:       '#0EA5A4',
     kafka:      '#F97316',
     rabbitmq:   '#FF6B35',
+    nacos:      '#2E6BE6',
     chroma:     '#7C3AED',
     qdrant:     '#DC244C',
     milvus:     '#00A1EA',
@@ -67,6 +68,24 @@ const DB_DEFAULT_COLORS: Record<string, string> = {
 
 export const getDbDefaultColor = (type: string): string =>
     DB_DEFAULT_COLORS[type?.toLowerCase()] || DB_DEFAULT_COLORS.custom;
+
+/**
+ * 获取数据库图标的静态资源路径（用于直接渲染 img 元素）
+ */
+export const getDbIconAssetSrc = (type: string): string => {
+    const config = BRAND_ASSET_CONFIGS[type?.toLowerCase()];
+    return config?.src || `/db-icons/${type?.toLowerCase()}.svg`;
+};
+
+/**
+ * 获取图标容器建议的背景色。
+ * 部分品牌图标（如 RocketMQ / IoTDB / MQTT / StarRocks）需要深色背景；
+ * 其余大多数图标设计为在白色背景上展示。
+ */
+export const getDbIconContainerBg = (type: string): string => {
+    const config = BRAND_ASSET_CONFIGS[type?.toLowerCase()];
+    return config?.background || '#ffffff';
+};
 
 type BrandAssetConfig = {
     background?: string;
@@ -85,7 +104,7 @@ const BRAND_ASSET_CONFIGS: Record<string, BrandAssetConfig> = {
     redis: { src: '/db-icons/redis.svg' },
     mongodb: { src: '/db-icons/mongodb.svg' },
     elasticsearch: { src: '/db-icons/elasticsearch.svg' },
-    jvm: { src: '/db-icons/jvm.ico', iconScale: 0.72 },
+    jvm: { src: '/db-icons/java.svg', iconScale: 0.68 },
     kingbase: { src: '/db-icons/kingbase.ico', iconScale: 0.72 },
     dameng: { src: '/db-icons/dameng.png', iconScale: 0.72 },
     oracle: { src: '/db-icons/oracle.ico', iconScale: 0.72 },
@@ -120,6 +139,7 @@ const BRAND_ASSET_CONFIGS: Record<string, BrandAssetConfig> = {
     },
     kafka: { src: '/db-icons/kafka.png', iconScale: 0.8 },
     rabbitmq: { src: '/db-icons/rabbitmq.svg', iconScale: 0.74 },
+    nacos: { src: '/db-icons/nacos.svg' },
     chroma: { src: '/db-icons/chroma.svg', iconScale: 0.9 },
     qdrant: { src: '/db-icons/qdrant.svg', iconScale: 0.74 },
     milvus: { src: '/db-icons/milvus.svg', iconScale: 0.74 },
@@ -134,6 +154,13 @@ const BRAND_ASSET_CONFIGS: Record<string, BrandAssetConfig> = {
 };
 
 const BRAND_ASSET_TYPES = new Set(Object.keys(BRAND_ASSET_CONFIGS));
+
+/**
+ * 检查指定数据库类型是否有官方品牌资源配置
+ */
+export const hasDbIconAsset = (type: string): boolean => {
+    return BRAND_ASSET_TYPES.has(type?.toLowerCase());
+};
 
 /** 品牌图标：用 <img> 加载官方 svg/png/ico 资源 */
 const BrandAssetIcon: React.FC<{ type: string; size: number; color?: string }> = ({ type, size, color }) => {
@@ -248,6 +275,32 @@ const KafkaIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
 const RabbitMQIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="rabbitmq" size={size} color={color} />
 );
+const NacosIcon: React.FC<DbIconProps> = ({ size = 16, color }) => {
+    const bg = color || getDbDefaultColor('nacos');
+    return (
+        <IconFrame size={size}>
+            <span
+                style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: size,
+                    height: size,
+                    borderRadius: size * 0.22,
+                    background: bg,
+                    color: '#fff',
+                    fontSize: Math.max(8, Math.round(size * 0.42)),
+                    fontWeight: 700,
+                    letterSpacing: '-0.04em',
+                    lineHeight: 1,
+                    userSelect: 'none',
+                }}
+            >
+                N
+            </span>
+        </IconFrame>
+    );
+};
 const ChromaIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="chroma" size={size} color={color} />
 );
@@ -310,6 +363,7 @@ const DB_ICON_MAP: Record<string, React.FC<DbIconProps>> = {
     mqtt: MQTTIcon,
     kafka: KafkaIcon,
     rabbitmq: RabbitMQIcon,
+    nacos: NacosIcon,
     chroma: ChromaIcon,
     qdrant: QdrantIcon,
     milvus: MilvusIcon,
@@ -321,7 +375,7 @@ const DB_ICON_MAP: Record<string, React.FC<DbIconProps>> = {
 export const DB_ICON_TYPES: string[] = [
     'mysql', 'mariadb', 'oceanbase', 'postgres', 'redis', 'mongodb', 'jvm',
     'oracle', 'sqlserver', 'sqlite', 'duckdb', 'clickhouse', 'starrocks',
-    'kingbase', 'dameng', 'vastbase', 'opengauss', 'gaussdb', 'goldendb', 'highgo', 'iris', 'tdengine', 'iotdb', 'rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'chroma', 'qdrant', 'milvus', 'elasticsearch', 'custom',
+    'kingbase', 'dameng', 'vastbase', 'opengauss', 'gaussdb', 'goldendb', 'highgo', 'iris', 'tdengine', 'iotdb', 'rocketmq', 'mqtt', 'kafka', 'rabbitmq', 'nacos', 'chroma', 'qdrant', 'milvus', 'elasticsearch', 'custom',
 ];
 
 /** 该类型是否有品牌图标资源 */
@@ -355,7 +409,7 @@ export const getDbIconLabel = (type: string, translate?: DbIconLabelTranslator):
         sqlserver: 'SQL Server', clickhouse: 'ClickHouse', sqlite: 'SQLite',
         starrocks: 'StarRocks',
         duckdb: 'DuckDB', kingbase: 'Kingbase', dameng: 'Dameng',
-        vastbase: 'VastBase', opengauss: 'OpenGauss', gaussdb: 'GaussDB', goldendb: 'GoldenDB', highgo: 'HighGo', iris: 'InterSystems IRIS', tdengine: 'TDengine', iotdb: 'Apache IoTDB', rocketmq: 'RocketMQ', mqtt: 'MQTT', kafka: 'Kafka', rabbitmq: 'RabbitMQ',
+        vastbase: 'VastBase', opengauss: 'OpenGauss', gaussdb: 'GaussDB', goldendb: 'GoldenDB', highgo: 'HighGo', iris: 'InterSystems IRIS', tdengine: 'TDengine', iotdb: 'Apache IoTDB', rocketmq: 'RocketMQ', mqtt: 'MQTT', kafka: 'Kafka', rabbitmq: 'RabbitMQ', nacos: 'Nacos',
         chroma: 'Chroma',
         qdrant: 'Qdrant',
         milvus: 'Milvus',

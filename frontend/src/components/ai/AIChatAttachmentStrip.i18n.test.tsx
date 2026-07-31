@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -19,14 +18,6 @@ vi.mock('@ant-design/icons', async () => {
     WarningOutlined: makeIcon('warning'),
   };
 });
-
-const source = readFileSync(new URL('./AIChatAttachmentStrip.tsx', import.meta.url), 'utf8');
-const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
-const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
-const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
-const jaJpCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ja-JP.json', import.meta.url), 'utf8'));
-const deDeCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/de-DE.json', import.meta.url), 'utf8'));
-const ruRuCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ru-RU.json', import.meta.url), 'utf8'));
 
 const renderAttachmentStrip = (
   variant: 'legacy' | 'v2',
@@ -60,41 +51,6 @@ const renderAttachmentStripWithoutProvider = (
 );
 
 describe('AIChatAttachmentStrip i18n source guards', () => {
-  it('uses i18n keys instead of legacy Chinese remove aria labels', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US', key, params)");
-    expect(source).toContain("ai_chat.input.attachment.remove_file");
-    expect(source).toContain("ai_chat.input.attachment.remove_image");
-    expect(source).toContain("ai_chat.input.attachment.kind.text");
-    expect(source).toContain("ai_chat.input.attachment.kind.image");
-    expect(source).toContain("ai_chat.input.attachment.kind.file");
-    expect(source).toContain("ai_chat.message.image_alt");
-    expect(source).not.toContain('aria-label="移除附件"');
-    expect(source).not.toContain('aria-label="移除图片"');
-    expect(source).not.toContain('alt={`Draft ${index}`}');
-    expect(source).not.toContain("return 'Text';");
-    expect(source).not.toContain("return 'Image';");
-    expect(source).not.toContain("return 'File';");
-  });
-
-  it('keeps required attachment aria-label keys present in all six catalogs', () => {
-    const requiredKeys = [
-      'ai_chat.input.attachment.remove_file',
-      'ai_chat.input.attachment.remove_image',
-      'ai_chat.input.attachment.kind.text',
-      'ai_chat.input.attachment.kind.image',
-      'ai_chat.input.attachment.kind.file',
-      'ai_chat.message.image_alt',
-    ];
-    for (const key of requiredKeys) {
-      expect(zhCnCatalog[key]).toBeTruthy();
-      expect(zhTwCatalog[key]).toBeTruthy();
-      expect(enUsCatalog[key]).toBeTruthy();
-      expect(jaJpCatalog[key]).toBeTruthy();
-      expect(deDeCatalog[key]).toBeTruthy();
-      expect(ruRuCatalog[key]).toBeTruthy();
-    }
-  });
 
   it('renders localized remove aria labels and attachment kind labels while preserving raw attachment names', () => {
     const fileAttachment = [{

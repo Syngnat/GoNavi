@@ -1,12 +1,13 @@
 ﻿import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Layout, Button, ConfigProvider, theme, message, Spin, Slider, Progress, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
-import { PlusOutlined, ConsoleSqlOutlined, UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, TagOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined } from '@ant-design/icons';
+import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, TagOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { BrowserOpenURL, Environment, EventsOn, WindowFullscreen, WindowGetPosition, WindowGetSize, WindowIsFullscreen, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMaximise, WindowMinimise, WindowSetDarkTheme, WindowSetLightTheme, WindowSetPosition, WindowSetSize, WindowSetSystemDefaultTheme, WindowUnfullscreen, WindowUnmaximise } from '../wailsjs/runtime';
 import Sidebar from './components/Sidebar';
+import TitleBarPrimaryActions from './components/TitleBarPrimaryActions';
 import TabManager from './components/TabManager';
 import FloatingWorkbenchWindows from './components/FloatingWorkbenchWindows';
 import FloatingAIChatWindow from './components/FloatingAIChatWindow';
@@ -26,12 +27,12 @@ import SecurityUpdateProgressModal from './components/SecurityUpdateProgressModa
 import SecurityUpdateSettingsModal from './components/SecurityUpdateSettingsModal';
 import LanguageSettingsPanel from './components/LanguageSettingsPanel';
 import WebAuthSettingsPanel from './components/WebAuthSettingsPanel';
+import CloudBackupSettings from './components/CloudBackupSettings';
 import BrandIconPicker from './components/BrandIconPicker';
 import {
   resolveBrandAboutSrc,
   resolveBrandDockSrc,
   resolveBrandIconSrc,
-  resolveBrandTitlebarSrc,
   type BrandIconId,
 } from './brand/brandIcons';
 import { composeMacOSDockIconBase64, shouldSyncMacOSDockIcon } from './brand/macDockIcon';
@@ -145,8 +146,8 @@ import {
   isStartupWindowRestorePending,
   markStartupWindowRestorePending,
   resolveDefaultStartupWindowBounds,
+  resolveStartupWindowRestoreMode,
   resolveWorkAreaFillWindowBounds,
-  shouldPreferWindowsStartupMaximise,
 } from './utils/windowStartupLayout';
 import {
   SHORTCUT_ACTION_META,
@@ -239,7 +240,6 @@ import {
   SelectLogDirectory,
   SelectSavedQueryDirectory,
   SetApplicationBrandIcon,
-  SetMacNativeWindowControls,
   SetWindowTranslucency,
 } from '../wailsjs/go/app/App';
 import { getAntdLocale } from './i18n/frameworkLocale';
@@ -550,6 +550,7 @@ type SettingsCenterPaneKey =
   | 'sidebar-objects'
   | 'proxy'
   | 'web-auth'
+  | 'cloud-backup'
   | 'ai'
   | ToolCenterPaneKey
   | 'about-go-navi';
@@ -747,8 +748,9 @@ function App() {
   const setUiScale = useStore(state => state.setUiScale);
   const fontSize = useStore(state => state.fontSize);
   const setFontSize = useStore(state => state.setFontSize);
-  const startupFullscreen = useStore(state => state.startupFullscreen);
-  const setStartupFullscreen = useStore(state => state.setStartupFullscreen);
+  // Keep reading the legacy persisted field; its product meaning is now startup maximise.
+  const startupMaximised = useStore(state => state.startupFullscreen);
+  const setStartupMaximised = useStore(state => state.setStartupFullscreen);
   const autoCheckForUpdates = useStore(state => state.autoCheckForUpdates);
   const setAutoCheckForUpdates = useStore(state => state.setAutoCheckForUpdates);
   const autoCheckForUpdatesIntervalMinutes = useStore(state => state.autoCheckForUpdatesIntervalMinutes);
@@ -1344,16 +1346,9 @@ function App() {
       const maxApplyAttempts = 8;
       const applyRetryDelayMs = 350;
       const settleDelayMs = 180;
-      const useMaximiseForStartup = isWindowsPlatform();
+      const startupRestoreGraceMs = 6000;
 
       const checkStartupPreferenceApplied = async (): Promise<boolean> => {
-          try {
-              if (await WindowIsFullscreen()) {
-                  return true;
-              }
-          } catch (_) {
-              // ignore
-          }
           try {
               if (await WindowIsMaximised()) {
                   return true;
@@ -1364,13 +1359,9 @@ function App() {
           return false;
       };
 
-      const markAppliedMaximisedOrFullscreen = (mode: 'maximised' | 'fullscreen') => {
-          // 启动偏好成功后立刻固化 windowState，避免宽限期内被写成 normal 导致下次半窗
-          if (mode === 'maximised' || useMaximiseForStartup) {
-              useStore.getState().setWindowState('maximized');
-          } else {
-              useStore.getState().setWindowState('fullscreen');
-          }
+      const markStartupMaximised = () => {
+          // 启动偏好成功后立刻同步实际窗口态，避免 settle 宽限期留下瞬态 normal。
+          useStore.getState().setWindowState('maximized');
           clearStartupWindowRestorePending();
       };
 
@@ -1384,7 +1375,7 @@ function App() {
               WindowSetSize(nextBounds.width, nextBounds.height);
               WindowSetPosition(nextBounds.x, nextBounds.y);
               useStore.getState().setWindowBounds(nextBounds);
-              // 仍记为 maximized：视觉上已铺满，下次继续走最大化恢复
+              // 兜底结果视觉上等同最大化，保持标题栏状态与实际窗口一致。
               useStore.getState().setWindowState('maximized');
               void emitWindowDiagnostic('adjust:startup-work-area-fill-fallback', {
                   to: nextBounds,
@@ -1394,11 +1385,9 @@ function App() {
           }
       };
 
-      // mode:
-      // - maximised: 始终最大化（Windows 启动偏好 / 记忆的 maximized / Windows 上的 fullscreen 记忆）
-      // - fullscreen: 非 Windows 优先真全屏，失败再最大化
-      // 第 1 次立即执行（delay=0），避免 Windows 先闪 1024×768 半窗再最大化
-      const applyStartupWindowChrome = (attempt: number, mode: 'maximised' | 'fullscreen') => {
+      // Windows、Linux 与 macOS 的启动偏好都使用普通窗口最大化，不进入系统全屏。
+      // 第 1 次立即执行（delay=0），缩短普通窗口首帧到目标窗口态的过渡。
+      const applyStartupWindowChrome = (attempt: number) => {
           if (startupWindowTimer !== null) {
               window.clearTimeout(startupWindowTimer);
           }
@@ -1410,37 +1399,25 @@ function App() {
               void Promise.resolve()
                   .then(async () => {
                       if (await checkStartupPreferenceApplied()) {
-                          markAppliedMaximisedOrFullscreen(mode);
+                          markStartupMaximised();
                           return;
                       }
                       try {
-                          if (mode === 'maximised') {
-                              await WindowMaximise();
-                              await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
-                          } else {
-                              await WindowFullscreen();
-                              await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
-                              if (await checkStartupPreferenceApplied()) {
-                                  markAppliedMaximisedOrFullscreen(mode);
-                                  return;
-                              }
-                              await WindowMaximise();
-                              await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
-                          }
+                          await WindowMaximise();
+                          await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
                       } catch (e) {
                           console.warn("Wails Window APIs unavailable", e);
                       }
 
                       if (await checkStartupPreferenceApplied()) {
-                          markAppliedMaximisedOrFullscreen(mode);
+                          markStartupMaximised();
                           return;
                       }
                       if (attempt < maxApplyAttempts) {
-                          applyStartupWindowChrome(attempt + 1, mode);
+                          applyStartupWindowChrome(attempt + 1);
                       } else {
                           // 最终仍失败：Windows 铺满工作区兜底，再结束宽限
                           void emitWindowDiagnostic('warn:startup-maximise-failed', {
-                              mode,
                               attempts: attempt,
                           });
                           applyWindowsWorkAreaFillFallback();
@@ -1456,16 +1433,17 @@ function App() {
           x: number;
           y: number;
       }) => {
-          // Windows 可能以原生 Maximised 首帧启动，恢复普通窗前先取消最大化
-          if (isWindowsPlatform()) {
-              try {
-                  if (await WindowIsMaximised()) {
-                      WindowUnmaximise();
-                      await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
-                  }
-              } catch (e) {
-                  console.warn('Failed to unmaximise before restoring normal bounds', e);
+          try {
+              if (await WindowIsFullscreen()) {
+                  WindowUnfullscreen();
+                  await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
               }
+              if (await WindowIsMaximised()) {
+                  WindowUnmaximise();
+                  await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
+              }
+          } catch (e) {
+              console.warn('Failed to restore normal window chrome', e);
           }
           const state = useStore.getState();
           const nextBounds = resolveVisibleStartupWindowBounds(bounds, readCurrentVisibleViewport());
@@ -1479,10 +1457,10 @@ function App() {
                   from: bounds,
                   to: nextBounds,
               });
-              state.setWindowBounds(nextBounds);
           }
           WindowSetSize(nextBounds.width, nextBounds.height);
           WindowSetPosition(nextBounds.x, nextBounds.y);
+          state.setWindowBounds(nextBounds);
           state.setWindowState('normal');
       };
 
@@ -1498,62 +1476,38 @@ function App() {
           restoredOnce = true;
 
           const state = useStore.getState();
-          // 1) 「启动时最大化」开关优先（Windows 按 Maximize 处理）
-          if (state.startupFullscreen) {
-              markStartupWindowRestorePending(3200);
-              applyStartupWindowChrome(1, useMaximiseForStartup ? 'maximised' : 'fullscreen');
+          const restoreMode = resolveStartupWindowRestoreMode(
+              state.startupFullscreen,
+          );
+          if (restoreMode !== 'normal') {
+              markStartupWindowRestorePending(startupRestoreGraceMs);
+              applyStartupWindowChrome(1);
               return;
           }
-          // 2) 记忆用户上次窗口态：最大化/全屏
-          const savedState = state.windowState;
-          if (savedState === 'fullscreen') {
-              // Windows 上记忆的 fullscreen 也走最大化，避免真全屏后标题栏交互困难
-              markStartupWindowRestorePending(3200);
-              applyStartupWindowChrome(1, useMaximiseForStartup ? 'maximised' : 'fullscreen');
-              return;
-          }
-          if (savedState === 'maximized') {
-              // 必须重试：Windows 冷启动 HWND/WebView2 未就绪时单次 Maximise 经常失败，
-              // 会残留 main.go 默认 1024x768 贴左上角；任务栏恢复后才“突然正常”。
-              markStartupWindowRestorePending(3200);
-              applyStartupWindowChrome(1, 'maximised');
-              return;
-          }
-          // 3) 普通窗口：恢复用户调整过的尺寸和位置
-          // Windows：无记忆 / 历史半窗 / 84% 默认小窗 → 直接最大化，而不是再落到浮动半窗
+
+          // The disabled preference is strict: restore a normal window even if
+          // an older build persisted an automatic maximised/fullscreen state.
+          markStartupWindowRestorePending(startupRestoreGraceMs);
           const bounds = state.windowBounds;
           const viewport = readCurrentVisibleViewport();
-          if (isWindowsPlatform() && shouldPreferWindowsStartupMaximise(bounds, viewport)) {
-              markStartupWindowRestorePending(3200);
-              applyStartupWindowChrome(1, 'maximised');
-              void emitWindowDiagnostic('adjust:startup-prefer-maximise', {
-                  from: bounds,
-                  reason: !bounds ? 'missing-bounds' : 'undersized-bounds',
-              });
-              return;
-          }
-          if (!bounds || bounds.width < 400 || bounds.height < 300) {
-              // 非 Windows：无记忆时保持系统默认；Windows 已在上方走最大化
-              if (isWindowsPlatform()) {
-                  try {
+          try {
+              if (!bounds || bounds.width < 400 || bounds.height < 300) {
+                  if (isWindowsPlatform()) {
                       const nextBounds = resolveDefaultStartupWindowBounds(viewport);
-                      WindowSetSize(nextBounds.width, nextBounds.height);
-                      WindowSetPosition(nextBounds.x, nextBounds.y);
-                      state.setWindowBounds(nextBounds);
-                      state.setWindowState('normal');
+                      await restoreNormalWindowBounds(nextBounds);
                       void emitWindowDiagnostic('adjust:startup-default-window-bounds', {
                           to: nextBounds,
                       });
-                  } catch (e) {
-                      console.warn('Failed to apply default Windows startup bounds', e);
+                  } else {
+                      state.setWindowState('normal');
                   }
+                  return;
               }
-              return;
-          }
-          try {
               await restoreNormalWindowBounds(bounds);
           } catch (e) {
               console.warn('Failed to restore window bounds', e);
+          } finally {
+              clearStartupWindowRestorePending();
           }
       };
 
@@ -1564,7 +1518,7 @@ function App() {
           if (cancelled) {
               return;
           }
-          // hydration 完成后再恢复，确保读到 startupFullscreen / windowState / windowBounds
+          // hydration 完成后再恢复，确保读到启动最大化偏好与 windowBounds。
           restoredOnce = false;
           void restoreWindowState();
       });
@@ -1587,7 +1541,7 @@ function App() {
       let lastSaved = '';
 
       const saveWindowState = async () => {
-          if (cancelled || !hydrated) {
+          if (cancelled || !hydrated || isStartupWindowRestorePending()) {
               return;
           }
           try {
@@ -1596,13 +1550,9 @@ function App() {
                   safeWindowRuntimeCall(() => WindowIsMaximised(), false),
               ]);
 
-              // 启动最大化/全屏尚未 settle 时，禁止把状态写回 normal，
-              // 否则下次冷启动会落到默认 1024x768 左上角（Windows 首次打开“只显示一半”）。
+              // 启动窗口恢复尚未 settle 时，不保存中间态和中间尺寸。
               if (isStartupWindowRestorePending()) {
-                  if (!isFs && !isMax) {
-                      return;
-                  }
-                  clearStartupWindowRestorePending();
+                  return;
               }
 
               // 保存窗口状态
@@ -1623,7 +1573,7 @@ function App() {
                   safeWindowRuntimeCall(() => WindowGetSize(), null),
                   safeWindowRuntimeCall(() => WindowGetPosition(), null),
               ]);
-              if (!size || !pos) return;
+              if (!size || !pos || isStartupWindowRestorePending()) return;
               const w = Math.trunc(Number(size.w || 0));
               const h = Math.trunc(Number(size.h || 0));
               const x = Math.trunc(Number(pos.x || 0));
@@ -1659,7 +1609,7 @@ function App() {
           if (cancelled || !hydrated) {
               return;
           }
-          // 启动最大化 settle 期间不要抢跑普通 bounds 校正
+          // 启动窗口恢复期间不要抢跑普通 bounds 校正。
           if (isStartupWindowRestorePending()) {
               return;
           }
@@ -2065,9 +2015,9 @@ function App() {
   const {
       bgContent, bgMain,
       floatingLogButtonBgColor, floatingLogButtonBorderColor, floatingLogButtonShadow, floatingLogButtonTextColor,
-      isSidebarCompact, isSidebarNarrow, isSidebarUltraCompact,
+      isSidebarNarrow, isSidebarUltraCompact,
       overlayTheme, renderUtilityModalTitle,
-      sidebarCreateConnectionActionStyle, sidebarHorizontalPadding, sidebarQueryActionStyle,
+      sidebarHorizontalPadding,
       toolCenterContentPanelStyle, toolCenterDetailBodyStyle, toolCenterDetailPanelStyle,
       toolCenterModalContentStyle, toolCenterModalSplitStyle, toolCenterModalWorkspaceStyle,
       toolCenterNavPanelStyle, toolCenterNavScrollStyle, toolCenterRowDescriptionStyle, toolCenterRowStyle,
@@ -2334,9 +2284,7 @@ function App() {
   }, [connections, openSecurityUpdateSettings, runSecurityUpdateRound, securityUpdateStatus, t]);
   const isMacRuntime = runtimePlatform === 'darwin'
       || (runtimePlatform === '' && /mac/i.test(detectNavigatorPlatform()));
-  const isWindowsRuntime = runtimePlatform === 'windows'
-      || (runtimePlatform === '' && isWindowsPlatform());
-  const useNativeMacWindowControls = isMacRuntime && appearance.useNativeMacWindowControls === true;
+  const useNativeMacWindowControls = isMacRuntime;
   const activeShortcutPlatform = getShortcutPlatform(isMacRuntime);
   const macWindowDiagnosticsEnabled = shouldEnableMacWindowDiagnostics(
       isMacRuntime,
@@ -2366,6 +2314,7 @@ function App() {
       hideUpdateDownloadProgress,
       isAboutOpen,
       isBackgroundProgressForLatestUpdate,
+      isCheckingForUpdates,
       isLatestUpdateDownloaded,
       isUpdateChannelLoading,
       isUpdateChannelSaving,
@@ -2454,17 +2403,6 @@ function App() {
           console.warn('Failed to emit window diagnostic', error);
       }
   }, [macWindowDiagnosticsEnabled, useNativeMacWindowControls]);
-
-  useEffect(() => {
-      if (!isStoreHydrated || !isMacRuntime) {
-          return;
-      }
-      const backendApp = (window as any).go?.app?.App;
-      if (typeof backendApp?.SetMacNativeWindowControls !== 'function') {
-          return;
-      }
-      void safeWindowRuntimeCall(() => SetMacNativeWindowControls(useNativeMacWindowControls), undefined);
-  }, [isMacRuntime, isStoreHydrated, useNativeMacWindowControls]);
 
   useEffect(() => {
       if (!macWindowDiagnosticsEnabled) {
@@ -4241,7 +4179,6 @@ function App() {
   }, [t]);
 
   const {
-      ghostRef,
       handleSidebarMouseDown,
       sidebarResizeHandleWidth,
       siderRef,
@@ -5160,7 +5097,14 @@ function App() {
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="mute" onClick={muteLatestUpdate}>{t('app.about.action.mute_this_version')}</Button>
       ) : null,
-      <Button key="check" icon={<CloudDownloadOutlined />} onClick={() => checkForUpdates(false)}>{t('app.about.action.check_updates')}</Button>,
+      <Button
+          key="check"
+          icon={<CloudDownloadOutlined />}
+          loading={isCheckingForUpdates}
+          onClick={() => checkForUpdates(false)}
+      >
+          {t('app.about.action.check_updates')}
+      </Button>,
       closeAction ?? null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="download" type="primary" icon={<DownloadOutlined />} onClick={() => downloadUpdate(lastUpdateInfo, false)}>{updateDownloadActionLabel}</Button>
@@ -5894,6 +5838,16 @@ function App() {
                                               />
                                           ),
                                       }) : null}
+                                      {renderThemeSettingsRow({
+                                          label: t('app.theme.appearance.single_database_expansion_title'),
+                                          hint: t('app.theme.appearance.single_database_expansion_hint'),
+                                          control: (
+                                              <Switch
+                                                  checked={appearance.sidebarSingleDatabaseExpansion === true}
+                                                  onChange={(checked) => setAppearance({ sidebarSingleDatabaseExpansion: checked })}
+                                              />
+                                          ),
+                                      })}
                                   </>,
                               )}
                               {renderThemeSettingsSection(
@@ -6396,31 +6350,13 @@ function App() {
                                       })}
                                   </>,
                               )}
-                              {isMacRuntime ? renderThemeSettingsSection(
-                                  t('app.theme.mac_window.title'),
-                                  renderThemeSettingsRow({
-                                      label: t('app.theme.mac_window.use_native_controls'),
-                                      hint: t('app.theme.mac_window.restart_hint'),
-                                      control: (
-                                          <Switch
-                                              checked={appearance.useNativeMacWindowControls === true}
-                                              onChange={(checked) => setAppearance({ useNativeMacWindowControls: checked })}
-                                          />
-                                      ),
-                                  }),
-                                  t('app.theme.mac_window.use_native_controls_hint'),
-                              ) : null}
                               {renderThemeSettingsSection(
                                   t('app.theme.startup_window.title'),
                                   renderThemeSettingsRow({
-                                      label: isWindowsRuntime
-                                          ? t('app.theme.startup_window.fullscreen_windows')
-                                          : t('app.theme.startup_window.fullscreen'),
-                                      hint: isWindowsRuntime
-                                          ? t('app.theme.startup_window.windows_hint')
-                                          : t('app.theme.startup_window.hint'),
+                                      label: t('app.theme.startup_window.maximised'),
+                                      hint: t('app.theme.startup_window.hint'),
                                       control: (
-                                          <Switch checked={startupFullscreen} onChange={(checked) => setStartupFullscreen(checked)} />
+                                          <Switch checked={startupMaximised} onChange={(checked) => setStartupMaximised(checked)} />
                                       ),
                                   }),
                               )}
@@ -6702,6 +6638,20 @@ function App() {
                                       </div>
                                   </div>
                               )}
+                              <div style={utilityPanelStyle}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                      <div>
+                                          <div style={{ fontWeight: 500 }}>{t('app.theme.appearance.single_database_expansion_title')}</div>
+                                          <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>
+                                              {t('app.theme.appearance.single_database_expansion_hint')}
+                                          </div>
+                                      </div>
+                                      <Switch
+                                          checked={appearance.sidebarSingleDatabaseExpansion === true}
+                                          onChange={(checked) => setAppearance({ sidebarSingleDatabaseExpansion: checked })}
+                                      />
+                                  </div>
+                              </div>
                               <div style={utilityPanelStyle}>
                                   <div style={{ marginBottom: 10, fontWeight: 500 }}>{t('app.theme.font_family.title')}</div>
                                   <div style={{ display: 'grid', gap: 14 }}>
@@ -7198,32 +7148,14 @@ function App() {
                                       </div>
                                   </div>
                               </div>
-                              {isMacRuntime ? (
-                                  <div style={utilityPanelStyle}>
-                                      <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.mac_window.title')}</div>
-                                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                          <div>
-                                              <div style={{ fontWeight: 500 }}>{t('app.theme.mac_window.use_native_controls')}</div>
-                                              <div style={{ ...utilityMutedTextStyle, marginTop: 4 }}>{t('app.theme.mac_window.use_native_controls_hint')}</div>
-                                          </div>
-                                          <Switch
-                                              checked={appearance.useNativeMacWindowControls === true}
-                                              onChange={(checked) => setAppearance({ useNativeMacWindowControls: checked })}
-                                          />
-                                      </div>
-                                      <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)', marginTop: 8 }}>
-                                          {t('app.theme.mac_window.restart_hint')}
-                                      </div>
-                                  </div>
-                              ) : null}
                               <div style={utilityPanelStyle}>
                                   <div style={{ marginBottom: 8, fontWeight: 500 }}>{t('app.theme.startup_window.title')}</div>
                                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                                      <span>{isWindowsRuntime ? t('app.theme.startup_window.fullscreen_windows') : t('app.theme.startup_window.fullscreen')}</span>
-                                      <Switch checked={startupFullscreen} onChange={(checked) => setStartupFullscreen(checked)} />
+                                      <span>{t('app.theme.startup_window.maximised')}</span>
+                                      <Switch checked={startupMaximised} onChange={(checked) => setStartupMaximised(checked)} />
                                   </div>
                                   <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)', marginTop: 4 }}>
-                                      {isWindowsRuntime ? t('app.theme.startup_window.windows_hint') : t('app.theme.startup_window.hint')}
+                                      {t('app.theme.startup_window.hint')}
                                   </div>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, paddingTop: 8, paddingBottom: 12 }}>
@@ -7331,6 +7263,13 @@ function App() {
                   onClick: () => handleOpenSettingsCenterPane('services', 'web-auth'),
               }] : []),
               {
+                  key: 'cloud-backup',
+                  icon: <CloudDownloadOutlined />,
+                  title: t('app.settings.entry.cloud_backup.title'),
+                  description: t('app.settings.entry.cloud_backup.description'),
+                  onClick: () => handleOpenSettingsCenterPane('services', 'cloud-backup'),
+              },
+              {
                   key: 'ai',
                   icon: <RobotOutlined />,
                   title: t('app.settings.entry.ai.title'),
@@ -7435,6 +7374,11 @@ function App() {
               />
           );
       }
+      if (activeSettingsCenterPane.key === 'cloud-backup') {
+          return (
+              <CloudBackupSettings t={t} />
+          );
+      }
       if (activeSettingsCenterPane.key === 'ai') {
           return (
               <div style={{ height: '100%', minHeight: 0 }}>
@@ -7533,45 +7477,38 @@ function App() {
                 fontSize: tokenFontSize
             } as any}
           >
-              <div
-                data-titlebar-brand-region="true"
-                style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 600, minWidth: 0 }}
-              >
-                  <img
-                    src={resolveBrandTitlebarSrc(brandIconId)}
-                    alt="GoNavi"
-                    width={Math.max(24, Math.round(28 * effectiveUiScale))}
-                    height={Math.max(24, Math.round(28 * effectiveUiScale))}
-                    draggable={false}
-                    style={{
-                      width: Math.max(24, Math.round(28 * effectiveUiScale)),
-                      height: Math.max(24, Math.round(28 * effectiveUiScale)),
-                      objectFit: 'contain',
-                      borderRadius: 8,
-                      flexShrink: 0,
-                      background: 'transparent',
-                    }}
+              <div className="gonavi-titlebar-leading">
+                  <div
+                    data-titlebar-brand-region="true"
+                    style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 600, minWidth: 0 }}
+                  >
+                      <span>GoNavi</span>
+                      {!isV2Ui && (
+                          <Tooltip title={sidebarPanelToggleLabel} placement="bottom" mouseEnterDelay={0.35}>
+                              <Button
+                                ref={sidebarCollapsedToggleRef}
+                                type="text"
+                                size="small"
+                                className="gonavi-sidebar-collapse-trigger"
+                                data-sidebar-collapse-trigger="true"
+                                data-sidebar-toggle-placement="titlebar"
+                                data-no-titlebar-toggle="true"
+                                aria-label={sidebarPanelToggleLabel}
+                                aria-controls="gonavi-sidebar-tree-panel"
+                                aria-expanded={!isSidebarCollapsed}
+                                icon={isSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                                onClick={handleTitlebarSidebarToggle}
+                                style={{ WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}
+                              />
+                          </Tooltip>
+                      )}
+                  </div>
+                  <TitleBarPrimaryActions
+                    newQueryLabel={t('query.new')}
+                    newConnectionLabel={t('connection.new')}
+                    onNewQuery={handleNewQuery}
+                    onNewConnection={handleCreateConnection}
                   />
-                  <span>GoNavi</span>
-                  {!isV2Ui && (
-                      <Tooltip title={sidebarPanelToggleLabel} placement="bottom" mouseEnterDelay={0.35}>
-                          <Button
-                            ref={sidebarCollapsedToggleRef}
-                            type="text"
-                            size="small"
-                            className="gonavi-sidebar-collapse-trigger"
-                            data-sidebar-collapse-trigger="true"
-                            data-sidebar-toggle-placement="titlebar"
-                            data-no-titlebar-toggle="true"
-                            aria-label={sidebarPanelToggleLabel}
-                            aria-controls="gonavi-sidebar-tree-panel"
-                            aria-expanded={!isSidebarCollapsed}
-                            icon={isSidebarCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                            onClick={handleTitlebarSidebarToggle}
-                            style={{ WebkitAppRegion: 'no-drag', '--wails-draggable': 'no-drag' } as any}
-                          />
-                      </Tooltip>
-                  )}
               </div>
               {isWebRuntime ? (
                   <div
@@ -7670,16 +7607,6 @@ function App() {
                                 <Button type="text" icon={item.icon} style={utilityButtonStyle} onClick={item.onClick} />
                             </Tooltip>
                         ))}
-                    </div>
-                </div>
-                <div style={{ padding: `0 ${sidebarHorizontalPadding}px 10px`, borderBottom: 'none', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: isSidebarCompact ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)', gap: 8, width: '100%' }}>
-                        <Button icon={<PlusOutlined />} onClick={handleCreateConnection} title={t('connection.new')} style={sidebarCreateConnectionActionStyle}>
-                            {t('connection.new')}
-                        </Button>
-                        <Button icon={<ConsoleSqlOutlined />} onClick={handleNewQuery} title={t('query.new')} style={sidebarQueryActionStyle}>
-                            {t('query.new')}
-                        </Button>
                     </div>
                 </div>
                 </>
@@ -9030,22 +8957,6 @@ function App() {
                   <div style={{ ...linuxResizeHandleStyleBase, bottom: 0, right: 0, width: 14, height: 14, cursor: 'nwse-resize' }} />
               </>
           )}
-
-          {/* Ghost Resize Line for Sidebar */}
-          <div
-              ref={ghostRef}
-              style={{
-                  position: 'fixed',
-                  top: 0,
-                  bottom: 0,
-                  left: 0,
-                  width: '4px',
-                  background: resizeGuideColor,
-                  zIndex: 9999,
-                  pointerEvents: 'none',
-                  display: 'none'
-              }}
-          />
 
           {/* Ghost Resize Line for Log Panel */}
           <div

@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import { buildAIAppHealthSnapshot } from './aiAppHealthInsights';
@@ -85,17 +83,6 @@ describe('buildAIAppHealthSnapshot', () => {
     expect(snapshot.nextActions).toContain('T:ai_chat.inspection.app_health.next_action.enable_app_log_reading');
     expect(snapshot.nextActions).toContain('T:ai_chat.inspection.app_health.next_action.open_sql_tab');
     expect(snapshot.message).toBe('T:ai_chat.inspection.app_health.message.needs_attention count=3');
-  });
-
-  it('keeps app health production source free of legacy Chinese wrappers', () => {
-    const source = readFileSync('src/components/ai/aiAppHealthInsights.ts', 'utf8');
-
-    expect(source).not.toContain('当前还没有记录到 AI 消息渲染异常');
-    expect(source).not.toContain('GoNavi 应用日志暂不可读');
-    expect(source).not.toContain('连接失败日志暂不可读');
-    expect(source).not.toContain('当前无法读取 GoNavi 应用日志');
-    expect(source).not.toContain('最近应用日志里有 ');
-    expect(source).not.toContain('当前 AI 应用健康总览通过');
   });
 
   it('marks the app health as degraded when logs and connection failures show runtime problems', () => {

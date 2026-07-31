@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { act, create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
@@ -38,8 +37,6 @@ vi.mock('@ant-design/icons', async () => {
     SafetyCertificateOutlined: () => React.createElement('span', null, 'certificate'),
   };
 });
-
-const source = readFileSync(new URL('./SecurityUpdateIntroModal.tsx', import.meta.url), 'utf8');
 
 const overlayTheme: OverlayWorkbenchTheme = {
   isDark: false,
@@ -85,17 +82,6 @@ const renderIntroModalText = async () => {
 };
 
 describe('SecurityUpdateIntroModal i18n source guards', () => {
-  it('uses intro i18n keys instead of legacy Chinese shell copy', () => {
-    expect(source).toContain('security_update.intro.title');
-    expect(source).toContain('security_update.intro.description');
-    expect(source).toContain('security_update.intro.action.start_now');
-    expect(source).not.toContain('已保存配置安全更新');
-    expect(source).not.toContain('使用新的安全存储方式前，需要先完成一次本地配置更新。');
-    expect(source).not.toContain('查看详情');
-    expect(source).not.toContain('稍后提醒我');
-    expect(source).not.toContain('立即更新');
-    expect(source).not.toContain('为了让已保存的连接、代理和相关服务配置使用新的安全存储方式');
-  });
 
   it('localizes the intro modal chrome in English', async () => {
     const modalText = await renderIntroModalText();

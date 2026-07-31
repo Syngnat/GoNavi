@@ -420,6 +420,7 @@ if (
                 DBGetDatabases: async () => ({ success: true, data: ['missav_bot'] }),
                 DBGetTables: async () => ({ success: true, data: cloneBrowserMockValue(mockQueryTables) }),
                 DBGetAllColumns: async () => ({ success: true, data: cloneBrowserMockValue(mockQueryColumns) }),
+                DBGetDatabaseForeignKeys: async () => ({ success: true, data: {} }),
                 DBGetColumns: async (_config: any, _dbName: string, tableName: string) => ({
                     success: true,
                     data: cloneBrowserMockValue(

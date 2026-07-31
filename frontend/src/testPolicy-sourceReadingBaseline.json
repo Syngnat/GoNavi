@@ -1,0 +1,14 @@
+[
+  "App.tool-center.test.ts",
+  "components/ConnectionModal.i18n.test.tsx",
+  "components/DataGrid.ddl.test.tsx",
+  "components/DataGrid.layout.test.tsx",
+  "components/QueryEditor.results-and-drop.test.tsx",
+  "components/QueryEditorToolbar.layout.test.tsx",
+  "components/QueryEditorTransaction.i18n.test.ts",
+  "components/Sidebar.locate-toolbar.test.tsx",
+  "components/TableExportWorkbench.test.tsx",
+  "components/ai/AIMCPServerFormPanel.test.tsx",
+  "i18n/catalog.test.ts",
+  "utils/overlayZIndex.test.ts"
+]

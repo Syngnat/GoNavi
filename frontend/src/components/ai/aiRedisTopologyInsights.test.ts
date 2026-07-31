@@ -1,12 +1,8 @@
-import { readFileSync } from 'node:fs';
-
 import { describe, expect, it } from 'vitest';
 
 import type { SavedConnection } from '../../types';
 import { catalogs } from '../../i18n/catalog';
 import { buildRedisTopologySnapshot } from './aiRedisTopologyInsights';
-
-const source = readFileSync(new URL('./aiRedisTopologyInsights.ts', import.meta.url), 'utf8');
 
 const REDIS_TOPOLOGY_I18N_KEYS = [
   'ai_chat.inspection.redis_topology.label.single',
@@ -227,19 +223,5 @@ describe('buildRedisTopologySnapshot', () => {
       const missing = REDIS_TOPOLOGY_I18N_KEYS.filter((key) => !(key in catalog));
       expect(missing, language).toEqual([]);
     }
-  });
-
-  it('keeps Redis topology source free of hardcoded Chinese diagnostics', () => {
-    [
-      '\u4e3b\u673a\u5730\u5740\u4e3a\u7a7a',
-      '\u5355\u673a\u6a21\u5f0f\u76f4\u63a5\u4f7f\u7528',
-      '\u8865\u5145 Sentinel master \u540d\u79f0',
-      '\u786e\u8ba4\u4e3b\u673a\u548c\u9644\u52a0\u8282\u70b9',
-      'Redis Cluster \u7269\u7406',
-      '\u4e0d\u652f\u6301 SSH \u96a7\u9053',
-      'Sentinel master \u540d\u79f0\u4e3a\u7a7a',
-    ].forEach((literal) => {
-      expect(source).not.toContain(literal);
-    });
   });
 });

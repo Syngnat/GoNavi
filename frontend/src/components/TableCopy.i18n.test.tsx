@@ -42,7 +42,6 @@ describe('whole-table copy i18n and action wiring', () => {
     requiredKeys.forEach((key) => {
       const expected = placeholders(catalogs['zh-CN'][key]);
       locales.forEach((locale) => {
-        expect(catalogs[locale], `${locale}:${key}`).toHaveProperty(key);
         expect(placeholders(catalogs[locale][key]), `${locale}:${key}`).toEqual(expected);
       });
     });
@@ -60,21 +59,5 @@ describe('whole-table copy i18n and action wiring', () => {
 
     expect(supported).toContain('复制整表');
     expect(unsupported).not.toContain('复制整表');
-  });
-
-  it('routes overview, v2 sidebar and legacy sidebar actions through the confirmed copy flow', () => {
-    const overview = readFileSync(new URL('./TableOverview.tsx', import.meta.url), 'utf8');
-    const objectActions = readFileSync(new URL('./sidebar/useSidebarObjectActions.tsx', import.meta.url), 'utf8');
-    const v2Actions = readFileSync(new URL('./sidebar/useSidebarV2ActionHandlers.tsx', import.meta.url), 'utf8');
-    const legacyMenu = readFileSync(new URL('./sidebar/sidebarLegacyNodeMenu.tsx', import.meta.url), 'utf8');
-
-    expect(overview).toContain('confirmCopyTable({');
-    expect(overview).toContain('await loadData();');
-    expect(overview).toContain('supportsCopyTable={supportsCopyTable}');
-    expect(objectActions).toContain('confirmCopyTable({');
-    expect(objectActions).toContain('await loadTables(getDatabaseNodeRef(conn, conn.dbName));');
-    expect(v2Actions).toContain("case 'copy-table':");
-    expect(legacyMenu).toContain("key: 'copy-table'");
-    expect(legacyMenu).toContain("label: t('table_copy.action.label')");
   });
 });

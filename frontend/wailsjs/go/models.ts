@@ -5,11 +5,11 @@ export namespace ai {
 	    temperature?: number;
 	    maxTokens?: number;
 	    thinkingIntensity?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ChatSendOptions(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
@@ -25,11 +25,11 @@ export namespace ai {
 	    configPath?: string;
 	    command?: string;
 	    args?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new MCPClientInstallResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -444,6 +444,267 @@ export namespace ai {
 
 export namespace app {
 	
+	export class CloudBackupConnectionSummary {
+	    id: string;
+	    name: string;
+	    host?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupConnectionSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.host = source["host"];
+	    }
+	}
+	export class CloudBackupCategory {
+	    id: string;
+	    itemCount: number;
+	    files?: string[];
+	    connections?: CloudBackupConnectionSummary[];
+	    restartRequired: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupCategory(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.itemCount = source["itemCount"];
+	        this.files = source["files"];
+	        this.connections = this.convertValues(source["connections"], CloudBackupConnectionSummary);
+	        this.restartRequired = source["restartRequired"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CloudBackupConfig {
+	    enabled: boolean;
+	    provider: string;
+	    webdavEndpoint?: string;
+	    webdavFilePath?: string;
+	    s3Endpoint?: string;
+	    s3Bucket?: string;
+	    s3Region?: string;
+	    s3ObjectKey?: string;
+	    schedule: string;
+	    backupCategories: string[];
+	    hasWebdavCredential?: boolean;
+	    hasS3Credential?: boolean;
+	    hasEncryptionKey?: boolean;
+	    webdavLastSyncAt?: string;
+	    webdavLastSyncSuccess: boolean;
+	    webdavLastSyncError?: string;
+	    webdavRemoteAvailable: boolean;
+	    webdavRemoteUpdatedAt?: string;
+	    s3LastSyncAt?: string;
+	    s3LastSyncSuccess: boolean;
+	    s3LastSyncError?: string;
+	    s3RemoteAvailable: boolean;
+	    s3RemoteUpdatedAt?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.provider = source["provider"];
+	        this.webdavEndpoint = source["webdavEndpoint"];
+	        this.webdavFilePath = source["webdavFilePath"];
+	        this.s3Endpoint = source["s3Endpoint"];
+	        this.s3Bucket = source["s3Bucket"];
+	        this.s3Region = source["s3Region"];
+	        this.s3ObjectKey = source["s3ObjectKey"];
+	        this.schedule = source["schedule"];
+	        this.backupCategories = source["backupCategories"];
+	        this.hasWebdavCredential = source["hasWebdavCredential"];
+	        this.hasS3Credential = source["hasS3Credential"];
+	        this.hasEncryptionKey = source["hasEncryptionKey"];
+	        this.webdavLastSyncAt = source["webdavLastSyncAt"];
+	        this.webdavLastSyncSuccess = source["webdavLastSyncSuccess"];
+	        this.webdavLastSyncError = source["webdavLastSyncError"];
+	        this.webdavRemoteAvailable = source["webdavRemoteAvailable"];
+	        this.webdavRemoteUpdatedAt = source["webdavRemoteUpdatedAt"];
+	        this.s3LastSyncAt = source["s3LastSyncAt"];
+	        this.s3LastSyncSuccess = source["s3LastSyncSuccess"];
+	        this.s3LastSyncError = source["s3LastSyncError"];
+	        this.s3RemoteAvailable = source["s3RemoteAvailable"];
+	        this.s3RemoteUpdatedAt = source["s3RemoteUpdatedAt"];
+	    }
+	}
+	export class CloudBackupConfigInput {
+	    enabled: boolean;
+	    provider: string;
+	    webdavEndpoint?: string;
+	    webdavFilePath?: string;
+	    s3Endpoint?: string;
+	    s3Bucket?: string;
+	    s3Region?: string;
+	    s3ObjectKey?: string;
+	    schedule: string;
+	    backupCategories: string[];
+	    webdavUsername?: string;
+	    webdavPassword?: string;
+	    s3AccessKey?: string;
+	    s3SecretKey?: string;
+	    encryptionPassword?: string;
+	    clearWebdavCredential: boolean;
+	    clearS3Credential: boolean;
+	    clearRemoteSecret: boolean;
+	    clearEncryptionKey: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupConfigInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.provider = source["provider"];
+	        this.webdavEndpoint = source["webdavEndpoint"];
+	        this.webdavFilePath = source["webdavFilePath"];
+	        this.s3Endpoint = source["s3Endpoint"];
+	        this.s3Bucket = source["s3Bucket"];
+	        this.s3Region = source["s3Region"];
+	        this.s3ObjectKey = source["s3ObjectKey"];
+	        this.schedule = source["schedule"];
+	        this.backupCategories = source["backupCategories"];
+	        this.webdavUsername = source["webdavUsername"];
+	        this.webdavPassword = source["webdavPassword"];
+	        this.s3AccessKey = source["s3AccessKey"];
+	        this.s3SecretKey = source["s3SecretKey"];
+	        this.encryptionPassword = source["encryptionPassword"];
+	        this.clearWebdavCredential = source["clearWebdavCredential"];
+	        this.clearS3Credential = source["clearS3Credential"];
+	        this.clearRemoteSecret = source["clearRemoteSecret"];
+	        this.clearEncryptionKey = source["clearEncryptionKey"];
+	    }
+	}
+	
+	export class CloudBackupRestorePoint {
+	    objectKey: string;
+	    lastModified?: string;
+	    size?: number;
+	    etag?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupRestorePoint(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.objectKey = source["objectKey"];
+	        this.lastModified = source["lastModified"];
+	        this.size = source["size"];
+	        this.etag = source["etag"];
+	    }
+	}
+	export class CloudBackupRestorePreview {
+	    createdAt: string;
+	    connectionCount: number;
+	    fileCount: number;
+	    files: string[];
+	    restartRequired: boolean;
+	    categories: CloudBackupCategory[];
+	    confirmationToken?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupRestorePreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.createdAt = source["createdAt"];
+	        this.connectionCount = source["connectionCount"];
+	        this.fileCount = source["fileCount"];
+	        this.files = source["files"];
+	        this.restartRequired = source["restartRequired"];
+	        this.categories = this.convertValues(source["categories"], CloudBackupCategory);
+	        this.confirmationToken = source["confirmationToken"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class CloudBackupRestoreRequest {
+	    confirmationToken: string;
+	    categories: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupRestoreRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.confirmationToken = source["confirmationToken"];
+	        this.categories = source["categories"];
+	    }
+	}
+	export class CloudBackupStatus {
+	    configured: boolean;
+	    enabled: boolean;
+	    provider: string;
+	    lastSyncAt?: string;
+	    lastSyncSuccess: boolean;
+	    lastSyncError?: string;
+	    remoteAvailable: boolean;
+	    remoteUpdatedAt?: string;
+	    dirty: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudBackupStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.configured = source["configured"];
+	        this.enabled = source["enabled"];
+	        this.provider = source["provider"];
+	        this.lastSyncAt = source["lastSyncAt"];
+	        this.lastSyncSuccess = source["lastSyncSuccess"];
+	        this.lastSyncError = source["lastSyncError"];
+	        this.remoteAvailable = source["remoteAvailable"];
+	        this.remoteUpdatedAt = source["remoteUpdatedAt"];
+	        this.dirty = source["dirty"];
+	    }
+	}
 	export class ConnectionExportOptions {
 	    includeSecrets: boolean;
 	    filePassword?: string;
@@ -531,15 +792,321 @@ export namespace app {
 	export class ImportFileOptions {
 	    columnMappings?: Record<string, string>;
 	    jobId?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ImportFileOptions(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.columnMappings = source["columnMappings"];
 	        this.jobId = source["jobId"];
+	    }
+	}
+	export class NacosConfigIdentity {
+	    dataId: string;
+	    group: string;
+	    index?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosConfigIdentity(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.dataId = source["dataId"];
+	        this.group = source["group"];
+	        this.index = source["index"];
+	    }
+	}
+	export class NacosConfigQuery {
+	    namespaceId: string;
+	    dataId?: string;
+	    group?: string;
+	    appName?: string;
+	    pageNo?: number;
+	    pageSize?: number;
+	    search?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosConfigQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.dataId = source["dataId"];
+	        this.group = source["group"];
+	        this.appName = source["appName"];
+	        this.pageNo = source["pageNo"];
+	        this.pageSize = source["pageSize"];
+	        this.search = source["search"];
+	    }
+	}
+	export class NacosCreateNamespacePayload {
+	    id: string;
+	    showName: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosCreateNamespacePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.showName = source["showName"];
+	        this.description = source["description"];
+	    }
+	}
+	export class NacosExportConfigsOptions {
+	    namespaceId: string;
+	    namespaceName?: string;
+	    scope?: string;
+	    items?: NacosConfigIdentity[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosExportConfigsOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.namespaceName = source["namespaceName"];
+	        this.scope = source["scope"];
+	        this.items = this.convertValues(source["items"], NacosConfigIdentity);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NacosHistoryQuery {
+	    namespaceId: string;
+	    dataId: string;
+	    group: string;
+	    pageNo?: number;
+	    pageSize?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosHistoryQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.dataId = source["dataId"];
+	        this.group = source["group"];
+	        this.pageNo = source["pageNo"];
+	        this.pageSize = source["pageSize"];
+	    }
+	}
+	export class NacosImportConfigsOptions {
+	    namespaceId: string;
+	    conflictMode?: string;
+	    file?: string;
+	    scope?: string;
+	    items?: NacosConfigIdentity[];
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosImportConfigsOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.conflictMode = source["conflictMode"];
+	        this.file = source["file"];
+	        this.scope = source["scope"];
+	        this.items = this.convertValues(source["items"], NacosConfigIdentity);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class NacosInstancePayload {
+	    namespaceId: string;
+	    serviceName: string;
+	    groupName?: string;
+	    ip: string;
+	    port: number;
+	    clusterName?: string;
+	    weight?: number;
+	    enabled?: boolean;
+	    healthy?: boolean;
+	    ephemeral?: boolean;
+	    metadata?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosInstancePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.serviceName = source["serviceName"];
+	        this.groupName = source["groupName"];
+	        this.ip = source["ip"];
+	        this.port = source["port"];
+	        this.clusterName = source["clusterName"];
+	        this.weight = source["weight"];
+	        this.enabled = source["enabled"];
+	        this.healthy = source["healthy"];
+	        this.ephemeral = source["ephemeral"];
+	        this.metadata = source["metadata"];
+	    }
+	}
+	export class NacosInstanceQuery {
+	    namespaceId: string;
+	    serviceName: string;
+	    groupName?: string;
+	    clusters?: string;
+	    healthyOnly?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosInstanceQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.serviceName = source["serviceName"];
+	        this.groupName = source["groupName"];
+	        this.clusters = source["clusters"];
+	        this.healthyOnly = source["healthyOnly"];
+	    }
+	}
+	export class NacosPublishConfigPayload {
+	    namespaceId: string;
+	    dataId: string;
+	    group: string;
+	    content: string;
+	    type?: string;
+	    appName?: string;
+	    desc?: string;
+	    betaIps?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosPublishConfigPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.dataId = source["dataId"];
+	        this.group = source["group"];
+	        this.content = source["content"];
+	        this.type = source["type"];
+	        this.appName = source["appName"];
+	        this.desc = source["desc"];
+	        this.betaIps = source["betaIps"];
+	    }
+	}
+	export class NacosServicePayload {
+	    namespaceId: string;
+	    serviceName: string;
+	    groupName?: string;
+	    ephemeral?: boolean;
+	    protectThreshold?: number;
+	    metadata?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosServicePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.serviceName = source["serviceName"];
+	        this.groupName = source["groupName"];
+	        this.ephemeral = source["ephemeral"];
+	        this.protectThreshold = source["protectThreshold"];
+	        this.metadata = source["metadata"];
+	    }
+	}
+	export class NacosServiceQuery {
+	    namespaceId: string;
+	    groupName?: string;
+	    pageNo?: number;
+	    pageSize?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosServiceQuery(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.namespaceId = source["namespaceId"];
+	        this.groupName = source["groupName"];
+	        this.pageNo = source["pageNo"];
+	        this.pageSize = source["pageSize"];
+	    }
+	}
+	export class NacosStartConfigListenPayload {
+	    watchId?: string;
+	    connectionId?: string;
+	    namespaceId: string;
+	    dataId: string;
+	    group: string;
+	    contentMd5?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosStartConfigListenPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.watchId = source["watchId"];
+	        this.connectionId = source["connectionId"];
+	        this.namespaceId = source["namespaceId"];
+	        this.dataId = source["dataId"];
+	        this.group = source["group"];
+	        this.contentMd5 = source["contentMd5"];
+	    }
+	}
+	export class NacosUpdateNamespacePayload {
+	    id: string;
+	    showName: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new NacosUpdateNamespacePayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.showName = source["showName"];
+	        this.description = source["description"];
 	    }
 	}
 	export class RedisExportKeysOptions {
@@ -1305,11 +1872,11 @@ export namespace connection {
 	export class SchemaVisibilityRule {
 	    mode: string;
 	    schemas?: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SchemaVisibilityRule(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
@@ -1482,11 +2049,11 @@ export namespace connection {
 	    parentGroupId: string;
 	    queryIds: string[];
 	    childOrder: string[];
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SavedQueryGroup(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1530,7 +2097,7 @@ export namespace connection {
 		    return a;
 		}
 	}
-
+	
 	export class TestGlobalProxyInput {
 	    proxy: SaveGlobalProxyInput;
 	    url: string;
@@ -1634,16 +2201,16 @@ export namespace jvm {
 }
 
 export namespace nativewindow {
-
+	
 	export class HostStateRequest {
 	    id: string;
 	    revision: number;
 	    storeState: Record<string, any>;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new HostStateRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1660,11 +2227,11 @@ export namespace nativewindow {
 	    y: number;
 	    width: number;
 	    height: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new OpenRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1682,11 +2249,11 @@ export namespace nativewindow {
 	    y: number;
 	    width: number;
 	    height: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WindowBounds(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.x = source["x"];
@@ -1702,11 +2269,11 @@ export namespace nativewindow {
 	    bounds?: WindowBounds;
 	    visibilityRevision?: number;
 	    applied?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new OperationResult(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.success = source["success"];
@@ -1716,7 +2283,7 @@ export namespace nativewindow {
 	        this.visibilityRevision = source["visibilityRevision"];
 	        this.applied = source["applied"];
 	    }
-
+	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
 		        return a;
@@ -1735,7 +2302,7 @@ export namespace nativewindow {
 		    return a;
 		}
 	}
-
+	
 	export class WindowInfo {
 	    id: string;
 	    kind: string;
@@ -1749,11 +2316,11 @@ export namespace nativewindow {
 	    ready: boolean;
 	    closeSent: boolean;
 	    hidden?: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WindowInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1874,7 +2441,7 @@ export namespace resultdiff {
 }
 
 export namespace sqlaudit {
-
+	
 	export class Filter {
 	    search: string;
 	    connectionId: string;
@@ -1888,11 +2455,11 @@ export namespace sqlaudit {
 	    toTimestamp: number;
 	    page: number;
 	    pageSize: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Filter(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.search = source["search"];
@@ -1914,11 +2481,11 @@ export namespace sqlaudit {
 	    captureMode: string;
 	    retentionDays: number;
 	    maxRecords: number;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
@@ -1929,6 +2496,7 @@ export namespace sqlaudit {
 	}
 
 }
+
 export namespace sync {
 	
 	export class TableOptions {
@@ -2037,3 +2605,4 @@ export namespace sync {
 	}
 
 }
+

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import { setCurrentLanguage } from '../i18n';
 import type { SavedQuery, SavedQueryGroup } from '../types';
@@ -188,11 +187,5 @@ describe('saved query persistence', () => {
       savedGroup,
     )).resolves.toEqual(savedGroup);
     expect(SaveSavedQueryGroup).toHaveBeenCalledWith(savedGroup);
-  });
-
-  it('does not hardcode Chinese generated saved query names', () => {
-    const source = readFileSync(new URL('./savedQueryPersistence.ts', import.meta.url), 'utf8');
-    expect(source).not.toContain('`查询-${index + 1}`');
-    expect(source).not.toContain('保存查询缺少 SQL、连接或数据库上下文');
   });
 });

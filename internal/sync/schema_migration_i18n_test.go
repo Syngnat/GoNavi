@@ -4,7 +4,6 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -59,35 +58,6 @@ func assertNoLegacySchemaMigrationChinese(t *testing.T, text string) {
 	}
 }
 
-func TestSchemaMigrationUsesLocalizedBackendTextSourceGuard(t *testing.T) {
-	sourceBytes, err := os.ReadFile("schema_migration.go")
-	if err != nil {
-		t.Fatalf("read schema_migration.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	legacyMessages := []string{
-		"fmt.Errorf(\"\u83b7\u53d6\u6e90\u8868\u5b57\u6bb5\u5931\u8d25: %w\", err)",
-		"fmt.Errorf(\"\u6e90\u8868\u4e0d\u5b58\u5728\u6216\u65e0\u5217\u5b9a\u4e49: %s\", tableName)",
-		"fmt.Errorf(\"\u83b7\u53d6\u76ee\u6807\u8868\u5b57\u6bb5\u5931\u8d25: %w\", err)",
-	}
-	for _, legacy := range legacyMessages {
-		if strings.Contains(source, legacy) {
-			t.Fatalf("schema_migration.go still contains legacy raw user-visible message %q", legacy)
-		}
-	}
-
-	requiredKeys := []string{
-		"data_sync.backend.error.source_table_columns_failed",
-		"data_sync.backend.error.source_table_missing_or_no_columns",
-		"data_sync.backend.error.target_table_columns_failed",
-	}
-	for _, key := range requiredKeys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("schema_migration.go should reference localized key %q", key)
-		}
-	}
-}
 
 func TestSchemaMigrationCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

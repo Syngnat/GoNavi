@@ -148,6 +148,62 @@ func buildDamengColumnsQuery(dbName, tableName string) string {
 		ORDER BY c.column_id`, upperDBName, upperTableName, upperDBName, upperTableName, upperDBName, upperTableName)
 }
 
+// buildDamengColumnCommentsQuery uses Dameng's native comment dictionary as a
+// fallback. Some DM8 deployments expose column metadata through the Oracle-
+// compatible ALL_COL_COMMENTS/USER_COL_COMMENTS views but return empty comment
+// values when those views are joined with the column dictionary.
+func buildDamengColumnCommentsQuery(dbName, tableName string) string {
+	upperTableName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(tableName)), "'", "''")
+	upperDBName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(dbName)), "'", "''")
+
+	schemaPredicate := "SCHNAME = USER"
+	if upperDBName != "" {
+		schemaPredicate = fmt.Sprintf("SCHNAME = '%s'", upperDBName)
+	}
+
+	return fmt.Sprintf(`SELECT COLNAME AS column_name, COMMENT$ AS col_comment
+		FROM SYS.SYSCOLUMNCOMMENTS
+		WHERE %s AND TVNAME = '%s' AND COMMENT$ IS NOT NULL
+		ORDER BY COLNAME`, schemaPredicate, upperTableName)
+}
+
+func buildDamengTableCommentQuery(dbName, tableName string) string {
+	upperTableName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(tableName)), "'", "''")
+	upperDBName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(dbName)), "'", "''")
+	if upperDBName == "" {
+		return fmt.Sprintf(`SELECT comments AS "TABLE_COMMENT"
+			FROM user_tab_comments
+			WHERE table_name = '%s' AND comments IS NOT NULL`, upperTableName)
+	}
+	return fmt.Sprintf(`SELECT comments AS "TABLE_COMMENT"
+		FROM all_tab_comments
+		WHERE owner = '%s' AND table_name = '%s' AND comments IS NOT NULL`, upperDBName, upperTableName)
+}
+
+func appendDamengTableCommentDDL(ddl, dbName, tableName, comment string) string {
+	baseDDL := strings.TrimSpace(ddl)
+	comment = strings.TrimSpace(comment)
+	if baseDDL == "" || comment == "" || strings.Contains(strings.ToUpper(baseDDL), "COMMENT ON TABLE ") {
+		return baseDDL
+	}
+
+	quoteIdentifier := func(value string) string {
+		value = strings.ToUpper(strings.TrimSpace(value))
+		return `"` + strings.ReplaceAll(value, `"`, `""`) + `"`
+	}
+	tableRef := quoteIdentifier(tableName)
+	if strings.TrimSpace(dbName) != "" {
+		tableRef = quoteIdentifier(dbName) + "." + tableRef
+	}
+
+	baseDDL = strings.TrimRight(baseDDL, " \t\r\n")
+	if !strings.HasSuffix(baseDDL, ";") && !strings.HasSuffix(baseDDL, "/") {
+		baseDDL += ";"
+	}
+	escapedComment := strings.ReplaceAll(comment, "'", "''")
+	return fmt.Sprintf("%s\n\nCOMMENT ON TABLE %s IS '%s';", baseDDL, tableRef, escapedComment)
+}
+
 // buildDamengAutoIncrementColumnsQuery reads the stable system-table flag that
 // records both IDENTITY and AUTO_INCREMENT columns. It intentionally remains a
 // separate query so restricted accounts can still load base column metadata.
@@ -186,6 +242,59 @@ func applyDamengAutoIncrementColumns(columns []connection.ColumnDefinition, data
 	}
 
 	return columns
+}
+
+func buildDamengIndexesQuery(dbName, tableName string) string {
+	upperDBName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(dbName)), "'", "''")
+	upperTableName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(tableName)), "'", "''")
+
+	if upperDBName == "" {
+		return fmt.Sprintf(`SELECT c.index_name, c.column_name, i.uniqueness, c.column_position, i.index_type
+			FROM user_ind_columns c
+			JOIN user_indexes i ON i.index_name = c.index_name
+			WHERE c.table_name = '%s'
+			  AND c.column_name IS NOT NULL
+			ORDER BY c.index_name, c.column_position`, upperTableName)
+	}
+
+	return fmt.Sprintf(`SELECT c.index_name, c.column_name, i.uniqueness, c.column_position, i.index_type
+		FROM all_ind_columns c
+		JOIN all_indexes i ON i.owner = c.index_owner AND i.index_name = c.index_name
+		WHERE c.table_owner = '%s'
+		  AND c.table_name = '%s'
+		  AND c.column_name IS NOT NULL
+		ORDER BY c.index_name, c.column_position`, upperDBName, upperTableName)
+}
+
+func buildDamengIndexDefinitions(data []map[string]interface{}) []connection.IndexDefinition {
+	indexes := make([]connection.IndexDefinition, 0, len(data))
+	for _, row := range data {
+		name := getDamengRowString(row, "INDEX_NAME")
+		columnName := getDamengRowString(row, "COLUMN_NAME")
+		if name == "" || columnName == "" {
+			continue
+		}
+
+		nonUnique := 1
+		if strings.EqualFold(getDamengRowString(row, "UNIQUENESS"), "UNIQUE") {
+			nonUnique = 0
+		}
+
+		seqInIndex, _ := getDamengRowInt(row, "COLUMN_POSITION")
+		indexType := getDamengRowString(row, "INDEX_TYPE")
+		if indexType == "" {
+			indexType = "BTREE"
+		}
+
+		indexes = append(indexes, connection.IndexDefinition{
+			Name:       name,
+			ColumnName: columnName,
+			NonUnique:  nonUnique,
+			SeqInIndex: seqInIndex,
+			IndexType:  indexType,
+		})
+	}
+	return indexes
 }
 
 func buildDamengForeignKeysQuery(dbName, tableName string) string {
@@ -301,5 +410,32 @@ func buildDamengColumnDefinitions(data []map[string]interface{}) []connection.Co
 		columns = append(columns, col)
 	}
 
+	return columns
+}
+
+func hasDamengColumnComments(columns []connection.ColumnDefinition) bool {
+	for _, column := range columns {
+		if strings.TrimSpace(column.Comment) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func applyDamengColumnComments(columns []connection.ColumnDefinition, data []map[string]interface{}) []connection.ColumnDefinition {
+	commentsByColumn := make(map[string]string, len(data))
+	for _, row := range data {
+		columnName := strings.ToUpper(strings.TrimSpace(getDamengRowString(row, "COLUMN_NAME", "COLNAME")))
+		if columnName == "" {
+			continue
+		}
+		commentsByColumn[columnName] = getDamengRowString(row, "COL_COMMENT", "COMMENT$", "COMMENT", "COMMENTS")
+	}
+
+	for i := range columns {
+		if comment, ok := commentsByColumn[strings.ToUpper(strings.TrimSpace(columns[i].Name))]; ok {
+			columns[i].Comment = comment
+		}
+	}
 	return columns
 }

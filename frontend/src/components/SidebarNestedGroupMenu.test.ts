@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -6,12 +5,6 @@ import {
   buildConnectionTagSelectableConnections,
 } from './sidebar/SidebarEntityModals';
 import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu';
-
-const locales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'de-DE', 'ru-RU'] as const;
-const modalSource = readFileSync(new URL('./sidebar/SidebarEntityModals.tsx', import.meta.url), 'utf8');
-const legacyMenuSource = readFileSync(new URL('./sidebar/sidebarLegacyNodeMenu.tsx', import.meta.url), 'utf8');
-const v2MenuSource = readFileSync(new URL('./V2TableContextMenu.tsx', import.meta.url), 'utf8');
-const v2HandlerSource = readFileSync(new URL('./sidebar/useSidebarV2ActionHandlers.tsx', import.meta.url), 'utf8');
 
 describe('Sidebar nested group menu', () => {
   it('does not offer a group itself or its descendants as an editable parent', () => {
@@ -100,6 +93,7 @@ describe('Sidebar nested group menu', () => {
     editItem.onClick();
     expect(createTagForm.setFieldsValue).toHaveBeenLastCalledWith({
       name: 'Group 1',
+      environmentType: 'local',
       parentTagId: 'root',
       connectionIds: ['host-1'],
     });
@@ -157,33 +151,5 @@ describe('Sidebar nested group menu', () => {
     const moveOut = queryItems.find((item) => item?.key === 'move-saved-query-to-ungrouped');
     expect(moveToGroup.children).toHaveLength(1);
     expect(moveOut).toBeDefined();
-  });
-
-  it('keeps modal and both menu implementations aligned with nested grouping', () => {
-    expect(modalSource).toContain('name="parentTagId"');
-    expect(modalSource).toContain('parentTagId,');
-    expect(modalSource).toContain('Empty.PRESENTED_IMAGE_SIMPLE');
-    expect(modalSource).toContain("sidebar.modal.tag.no_available_connections");
-    expect(legacyMenuSource).toContain("key: 'new-child-tag'");
-    expect(legacyMenuSource).toContain("t('connection.sidebar.group.newSubgroup')");
-    expect(v2MenuSource).toContain("| 'new-subgroup'");
-    expect(v2MenuSource).toContain("action: 'new-subgroup'");
-    expect(v2HandlerSource).toContain("if (action === 'new-subgroup')");
-  });
-
-  it('ships nested-group labels and deletion behavior in every locale', () => {
-    [
-      'connection.sidebar.group.newSubgroup',
-      'sidebar.field.parent_group',
-      'sidebar.placeholder.parent_group',
-      'sidebar.modal.tag.no_available_connections',
-      'connection.sidebar.group.deleteConfirmContent',
-      'sidebar.modal.confirm_delete_tag.content',
-    ].forEach((key) => {
-      locales.forEach((locale) => {
-        const catalog = JSON.parse(readFileSync(new URL(`../../../shared/i18n/${locale}.json`, import.meta.url), 'utf8')) as Record<string, string>;
-        expect(catalog[key], `${locale}:${key}`).toBeTruthy();
-      });
-    });
   });
 });

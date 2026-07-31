@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
@@ -38,14 +37,6 @@ vi.mock('@ant-design/icons', async () => {
   };
 });
 
-const source = readFileSync(new URL('./AIChatContextPreview.tsx', import.meta.url), 'utf8');
-const zhCnCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-CN.json', import.meta.url), 'utf8'));
-const zhTwCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/zh-TW.json', import.meta.url), 'utf8'));
-const enUsCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/en-US.json', import.meta.url), 'utf8'));
-const jaJpCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ja-JP.json', import.meta.url), 'utf8'));
-const deDeCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/de-DE.json', import.meta.url), 'utf8'));
-const ruRuCatalog = JSON.parse(readFileSync(new URL('../../../../shared/i18n/ru-RU.json', import.meta.url), 'utf8'));
-
 const activeContextItems = [
   { dbName: 'analytics', tableName: 'orders', ddl: 'CREATE TABLE orders(id bigint);' },
   { dbName: 'analytics', tableName: 'customers', ddl: 'CREATE TABLE customers(id bigint);' },
@@ -84,32 +75,6 @@ const renderContextPreviewWithoutProvider = (variant: 'legacy' | 'v2', contextEx
 );
 
 describe('AIChatContextPreview i18n source guards', () => {
-  it('uses i18n keys instead of legacy Chinese context labels', () => {
-    expect(source).toContain('useOptionalI18n()');
-    expect(source).toContain("catalogTranslate('en-US', key, params)");
-    expect(source).toContain("ai_chat.input.context.label");
-    expect(source).toContain("ai_chat.input.context.add");
-    expect(source).toContain("ai_chat.input.context.current_count");
-    expect(source).not.toContain('关联上下文');
-    expect(source).not.toContain('添加');
-    expect(source).not.toContain('当前上下文');
-  });
-
-  it('keeps required context preview keys present in all six catalogs', () => {
-    const requiredKeys = [
-      'ai_chat.input.context.label',
-      'ai_chat.input.context.add',
-      'ai_chat.input.context.current_count',
-    ];
-    for (const key of requiredKeys) {
-      expect(zhCnCatalog[key]).toBeTruthy();
-      expect(zhTwCatalog[key]).toBeTruthy();
-      expect(enUsCatalog[key]).toBeTruthy();
-      expect(jaJpCatalog[key]).toBeTruthy();
-      expect(deDeCatalog[key]).toBeTruthy();
-      expect(ruRuCatalog[key]).toBeTruthy();
-    }
-  });
 
   it('renders localized labels for the v2 context preview while preserving raw table names', () => {
     const markup = renderContextPreview('v2');

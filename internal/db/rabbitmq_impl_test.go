@@ -1,7 +1,10 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -10,6 +13,77 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 )
+
+func TestRabbitMQConnectRejectsAMQPPortsBeforeDial(t *testing.T) {
+	originalTransport := http.DefaultTransport
+	dialAttempts := 0
+	http.DefaultTransport = &http.Transport{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			dialAttempts++
+			return nil, errors.New("unexpected network dial")
+		},
+	}
+	t.Cleanup(func() {
+		http.DefaultTransport = originalTransport
+	})
+
+	testCases := []struct {
+		name               string
+		port               int
+		useSSL             bool
+		uri                string
+		wantProtocol       string
+		wantManagementPort string
+	}{
+		{name: "AMQP", port: 5672, wantProtocol: "AMQP", wantManagementPort: "15672"},
+		{name: "AMQPS", port: 5671, useSSL: true, wantProtocol: "AMQPS", wantManagementPort: "15671"},
+		{name: "rabbitmq URI", port: 5672, uri: "rabbitmq://rabbitmq.local:5672/%2F", wantProtocol: "AMQP", wantManagementPort: "15672"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			client := &RabbitMQDB{}
+			err := client.Connect(connection.ConnectionConfig{
+				Type:   "rabbitmq",
+				Host:   "rabbitmq.local",
+				Port:   testCase.port,
+				UseSSL: testCase.useSSL,
+				URI:    testCase.uri,
+			})
+			if err == nil {
+				t.Fatal("expected RabbitMQ AMQP port validation error")
+			}
+			for _, want := range []string{"Management API", testCase.wantProtocol, testCase.wantManagementPort} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("expected error to contain %q, got %q", want, err)
+				}
+			}
+		})
+	}
+
+	if dialAttempts != 0 {
+		t.Fatalf("RabbitMQ AMQP port validation must fail before network dial, attempts=%d", dialAttempts)
+	}
+}
+
+func TestValidateRabbitMQManagementPortAllowsExplicitHTTPURI(t *testing.T) {
+	testCases := []struct {
+		name string
+		port int
+		uri  string
+	}{
+		{name: "HTTP on AMQP default port", port: 5672, uri: "http://rabbitmq.local:5672"},
+		{name: "HTTPS on AMQPS default port", port: 5671, uri: "https://rabbitmq.local:5671"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if err := validateRabbitMQManagementPort(testCase.port, testCase.uri); err != nil {
+				t.Fatalf("explicit Management API URI should allow custom port: %v", err)
+			}
+		})
+	}
+}
 
 func TestNormalizeRabbitMQConfigParsesURIAndParams(t *testing.T) {
 	config := normalizeRabbitMQConfig(connection.ConnectionConfig{

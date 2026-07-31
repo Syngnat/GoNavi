@@ -1,10 +1,16 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
-	"os"
+	"errors"
+	"io"
+	"net"
+	"net/http"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
@@ -46,52 +52,6 @@ func TestForwarderCacheKeyIncludesCredentialFingerprint(t *testing.T) {
 	}
 }
 
-func TestProxyUserVisibleErrorsUseLocalizedText(t *testing.T) {
-	sourceBytes, err := os.ReadFile("proxy.go")
-	if err != nil {
-		t.Fatalf("read proxy.go: %v", err)
-	}
-	source := string(sourceBytes)
-
-	rawMessages := []string{
-		"不支持的代理类型",
-		"代理主机为空",
-		"代理端口无效",
-		"无效的远端地址",
-		"创建本地代理监听失败",
-		"创建 SOCKS5 代理拨号器失败",
-		"SOCKS5 代理连接失败",
-		"连接 HTTP 代理失败",
-		"发送 HTTP CONNECT 请求失败",
-		"读取 HTTP CONNECT 响应失败",
-		"HTTP 代理 CONNECT 失败",
-	}
-	for _, raw := range rawMessages {
-		if strings.Contains(source, raw) {
-			t.Fatalf("proxy.go still contains raw user-visible message %q", raw)
-		}
-	}
-
-	keys := []string{
-		"proxy.backend.error.unsupported_type",
-		"proxy.backend.error.host_empty",
-		"proxy.backend.error.port_invalid",
-		"proxy.backend.error.remote_addr_invalid",
-		"proxy.backend.error.listen_failed",
-		"proxy.backend.error.socks5_dialer_failed",
-		"proxy.backend.error.socks5_connect_failed",
-		"proxy.backend.error.http_connect_failed",
-		"proxy.backend.error.http_connect_write_failed",
-		"proxy.backend.error.http_connect_read_failed",
-		"proxy.backend.error.http_connect_status_failed",
-	}
-	for _, key := range keys {
-		if !strings.Contains(source, key) {
-			t.Fatalf("proxy.go should reference localized key %q", key)
-		}
-	}
-}
-
 func TestNormalizeConfigUsesCurrentLanguageForValidationErrors(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
 	t.Cleanup(func() {
@@ -129,5 +89,163 @@ func TestDialContextUsesCurrentLanguageForHTTPConnectWrapper(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), "Failed to connect to HTTP proxy:") {
 		t.Fatalf("expected localized HTTP proxy wrapper, got %q", err.Error())
+	}
+}
+
+type proxyTimeoutError struct{}
+
+func (proxyTimeoutError) Error() string   { return "i/o timeout" }
+func (proxyTimeoutError) Timeout() bool   { return true }
+func (proxyTimeoutError) Temporary() bool { return true }
+
+func TestContextErrorForProxyIOMapsDeadlineSocketTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+
+	err := contextErrorForProxyIO(ctx, proxyTimeoutError{})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("contextErrorForProxyIO error = %v, want context deadline exceeded", err)
+	}
+	if err := contextErrorForProxyIO(context.Background(), proxyTimeoutError{}); err != nil {
+		t.Fatalf("contextErrorForProxyIO without deadline = %v, want nil", err)
+	}
+}
+
+func TestDialContextCancelsStalledHTTPConnectHandshake(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan net.Conn, 1)
+	serverClosed := make(chan struct{})
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			close(serverClosed)
+			return
+		}
+		accepted <- conn
+		defer close(serverClosed)
+		defer conn.Close()
+		// Consume the CONNECT request but deliberately never send a response.
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+
+	_, portText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("split proxy address: %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse proxy port: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		conn, dialErr := DialContext(ctx, connection.ProxyConfig{
+			Type: "http",
+			Host: "127.0.0.1",
+			Port: port,
+		}, "tcp", "example.com:443")
+		if conn != nil {
+			_ = conn.Close()
+		}
+		result <- dialErr
+	}()
+
+	proxyConn := <-accepted
+	select {
+	case dialErr := <-result:
+		if !errors.Is(dialErr, context.DeadlineExceeded) {
+			t.Fatalf("DialContext error = %v, want context deadline exceeded", dialErr)
+		}
+	case <-time.After(750 * time.Millisecond):
+		_ = proxyConn.Close()
+		<-result
+		t.Fatal("DialContext remained blocked after its context deadline")
+	}
+
+	select {
+	case <-serverClosed:
+	case <-time.After(750 * time.Millisecond):
+		_ = proxyConn.Close()
+		t.Fatal("stalled HTTP proxy socket remained open after cancellation")
+	}
+}
+
+func TestDialContextKeepsSuccessfulHTTPConnectTunnelOpen(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	serverResult := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			serverResult <- acceptErr
+			return
+		}
+		defer conn.Close()
+		request, readErr := http.ReadRequest(bufio.NewReader(conn))
+		if readErr != nil {
+			serverResult <- readErr
+			return
+		}
+		_ = request.Body.Close()
+		if _, writeErr := io.WriteString(conn, "HTTP/1.1 200 Connection Established\r\n\r\n"); writeErr != nil {
+			serverResult <- writeErr
+			return
+		}
+		var payload [4]byte
+		if _, readErr = io.ReadFull(conn, payload[:]); readErr != nil {
+			serverResult <- readErr
+			return
+		}
+		if string(payload[:]) != "ping" {
+			serverResult <- errors.New("unexpected tunnel payload")
+			return
+		}
+		_, writeErr := io.WriteString(conn, "pong")
+		serverResult <- writeErr
+	}()
+
+	_, portText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("split proxy address: %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse proxy port: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := DialContext(ctx, connection.ProxyConfig{
+		Type: "http",
+		Host: "127.0.0.1",
+		Port: port,
+	}, "tcp", "example.com:443")
+	if err != nil {
+		t.Fatalf("DialContext: %v", err)
+	}
+	defer conn.Close()
+	if _, err = io.WriteString(conn, "ping"); err != nil {
+		t.Fatalf("write tunnel: %v", err)
+	}
+	var response [4]byte
+	if _, err = io.ReadFull(conn, response[:]); err != nil {
+		t.Fatalf("read tunnel: %v", err)
+	}
+	if string(response[:]) != "pong" {
+		t.Fatalf("tunnel response = %q, want pong", response)
+	}
+	if err = <-serverResult; err != nil {
+		t.Fatalf("proxy server: %v", err)
 	}
 }

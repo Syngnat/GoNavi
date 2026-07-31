@@ -33,4 +33,19 @@ COMMENT ON COLUMN "H2"."S_BUSI"."ID" IS '主键';`;
     expect(formatted).toContain('TABLESPACE "H2DB";\n\nCOMMENT ON TABLE "H2"."S_BUSI"');
     expect(formatted).toContain(`COMMENT ON COLUMN "H2"."S_BUSI"."ID" IS '主键';`);
   });
+
+  it('formats Oracle view columns and keeps the trailing read-only clause intact', () => {
+    const raw = `CREATE OR REPLACE FORCE EDITIONABLE VIEW "APP"."V_RISK" ("ID", "ORG_NAME", "PARENT_NAME", "LEVEL_NO") DEFAULT COLLATION "USING_NLS_COMP" AS SELECT a.id,NVL(b.org_name,'-') org_name,DECODE(a.parent_id,NULL,'ROOT',c.org_name) parent_name,LEVEL level_no FROM org a,org_info b,org_info c WHERE a.id=b.org_id(+) AND a.parent_id=c.org_id(+) START WITH a.parent_id IS NULL CONNECT BY PRIOR a.id=a.parent_id WITH READ ONLY;`;
+
+    const formatted = formatDdlForDisplay(raw, 'oracle');
+
+    expect(formatted).toContain(`VIEW "APP"."V_RISK" (
+  "ID",
+  "ORG_NAME",
+  "PARENT_NAME",
+  "LEVEL_NO"
+) DEFAULT COLLATION`);
+    expect(formatted).toContain('\nWITH READ ONLY;');
+    expect(formatted).not.toContain('\nWITH\n  READ ONLY;');
+  });
 });

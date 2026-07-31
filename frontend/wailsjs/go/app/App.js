@@ -58,6 +58,30 @@ export function ClearTables(arg1, arg2, arg3) {
   return window['go']['app']['App']['ClearTables'](arg1, arg2, arg3);
 }
 
+export function CloudBackupGetConfig() {
+  return window['go']['app']['App']['CloudBackupGetConfig']();
+}
+
+export function CloudBackupGetStatus() {
+  return window['go']['app']['App']['CloudBackupGetStatus']();
+}
+
+export function CloudBackupListRestorePoints() {
+  return window['go']['app']['App']['CloudBackupListRestorePoints']();
+}
+
+export function CloudBackupPreviewRestore() {
+  return window['go']['app']['App']['CloudBackupPreviewRestore']();
+}
+
+export function CloudBackupRestore(arg1) {
+  return window['go']['app']['App']['CloudBackupRestore'](arg1);
+}
+
+export function CloudBackupSyncNow() {
+  return window['go']['app']['App']['CloudBackupSyncNow']();
+}
+
 export function ConfigureDriverRuntimeDirectory(arg1) {
   return window['go']['app']['App']['ConfigureDriverRuntimeDirectory'](arg1);
 }
@@ -104,6 +128,10 @@ export function DBGetAllColumns(arg1, arg2) {
 
 export function DBGetColumns(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBGetColumns'](arg1, arg2, arg3);
+}
+
+export function DBGetDatabaseForeignKeys(arg1, arg2) {
+  return window['go']['app']['App']['DBGetDatabaseForeignKeys'](arg1, arg2);
 }
 
 export function DBGetDatabases(arg1) {
@@ -550,6 +578,134 @@ export function MySQLShowCreateTable(arg1, arg2, arg3) {
   return window['go']['app']['App']['MySQLShowCreateTable'](arg1, arg2, arg3);
 }
 
+export function NacosConnect(arg1) {
+  return window['go']['app']['App']['NacosConnect'](arg1);
+}
+
+export function NacosCreateNamespace(arg1, arg2) {
+  return window['go']['app']['App']['NacosCreateNamespace'](arg1, arg2);
+}
+
+export function NacosCreateService(arg1, arg2) {
+  return window['go']['app']['App']['NacosCreateService'](arg1, arg2);
+}
+
+export function NacosDeleteConfig(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['NacosDeleteConfig'](arg1, arg2, arg3, arg4);
+}
+
+export function NacosDeleteNamespace(arg1, arg2) {
+  return window['go']['app']['App']['NacosDeleteNamespace'](arg1, arg2);
+}
+
+export function NacosDeleteService(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['NacosDeleteService'](arg1, arg2, arg3, arg4);
+}
+
+export function NacosDeregisterInstance(arg1, arg2) {
+  return window['go']['app']['App']['NacosDeregisterInstance'](arg1, arg2);
+}
+
+export function NacosExportConfigs(arg1, arg2) {
+  return window['go']['app']['App']['NacosExportConfigs'](arg1, arg2);
+}
+
+export function NacosGetBetaConfig(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['NacosGetBetaConfig'](arg1, arg2, arg3, arg4);
+}
+
+export function NacosGetConfig(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['NacosGetConfig'](arg1, arg2, arg3, arg4);
+}
+
+export function NacosGetConfigHistory(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['App']['NacosGetConfigHistory'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function NacosGetInstance(arg1, arg2) {
+  return window['go']['app']['App']['NacosGetInstance'](arg1, arg2);
+}
+
+export function NacosGetService(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['NacosGetService'](arg1, arg2, arg3, arg4);
+}
+
+export function NacosImportConfigs(arg1, arg2) {
+  return window['go']['app']['App']['NacosImportConfigs'](arg1, arg2);
+}
+
+export function NacosListConfigGroups(arg1, arg2) {
+  return window['go']['app']['App']['NacosListConfigGroups'](arg1, arg2);
+}
+
+export function NacosListConfigHistory(arg1, arg2) {
+  return window['go']['app']['App']['NacosListConfigHistory'](arg1, arg2);
+}
+
+export function NacosListInstances(arg1, arg2) {
+  return window['go']['app']['App']['NacosListInstances'](arg1, arg2);
+}
+
+export function NacosListNamespaces(arg1) {
+  return window['go']['app']['App']['NacosListNamespaces'](arg1);
+}
+
+export function NacosListServices(arg1, arg2) {
+  return window['go']['app']['App']['NacosListServices'](arg1, arg2);
+}
+
+export function NacosPreviewImportConfigs(arg1, arg2) {
+  return window['go']['app']['App']['NacosPreviewImportConfigs'](arg1, arg2);
+}
+
+export function NacosPublishConfig(arg1, arg2) {
+  return window['go']['app']['App']['NacosPublishConfig'](arg1, arg2);
+}
+
+export function NacosRegisterInstance(arg1, arg2) {
+  return window['go']['app']['App']['NacosRegisterInstance'](arg1, arg2);
+}
+
+export function NacosSearchConfigs(arg1, arg2) {
+  return window['go']['app']['App']['NacosSearchConfigs'](arg1, arg2);
+}
+
+export function NacosStartConfigListen(arg1, arg2) {
+  return window['go']['app']['App']['NacosStartConfigListen'](arg1, arg2);
+}
+
+export function NacosStopBetaConfig(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['NacosStopBetaConfig'](arg1, arg2, arg3, arg4);
+}
+
+export function NacosStopConfigListen(arg1) {
+  return window['go']['app']['App']['NacosStopConfigListen'](arg1);
+}
+
+export function NacosTestConnection(arg1) {
+  return window['go']['app']['App']['NacosTestConnection'](arg1);
+}
+
+export function NacosUpdateConfigListenMD5(arg1, arg2) {
+  return window['go']['app']['App']['NacosUpdateConfigListenMD5'](arg1, arg2);
+}
+
+export function NacosUpdateInstance(arg1, arg2) {
+  return window['go']['app']['App']['NacosUpdateInstance'](arg1, arg2);
+}
+
+export function NacosUpdateInstanceHealth(arg1, arg2) {
+  return window['go']['app']['App']['NacosUpdateInstanceHealth'](arg1, arg2);
+}
+
+export function NacosUpdateNamespace(arg1, arg2) {
+  return window['go']['app']['App']['NacosUpdateNamespace'](arg1, arg2);
+}
+
+export function NacosUpdateService(arg1, arg2) {
+  return window['go']['app']['App']['NacosUpdateService'](arg1, arg2);
+}
+
 export function OpenDataRootDirectory() {
   return window['go']['app']['App']['OpenDataRootDirectory']();
 }
@@ -620,6 +776,10 @@ export function RedisFlushDB(arg1) {
 
 export function RedisGetDatabases(arg1) {
   return window['go']['app']['App']['RedisGetDatabases'](arg1);
+}
+
+export function RedisGetListValue(arg1, arg2, arg3) {
+  return window['go']['app']['App']['RedisGetListValue'](arg1, arg2, arg3);
 }
 
 export function RedisGetServerInfo(arg1) {
@@ -784,6 +944,10 @@ export function RetrySecurityUpdateCurrentRound(arg1) {
 
 export function RevealSavedQueryInFolder(arg1) {
   return window['go']['app']['App']['RevealSavedQueryInFolder'](arg1);
+}
+
+export function SaveCloudBackupConfig(arg1) {
+  return window['go']['app']['App']['SaveCloudBackupConfig'](arg1);
 }
 
 export function SaveConnection(arg1) {

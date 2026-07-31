@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/connection"
@@ -13,6 +14,17 @@ import (
 	"GoNavi-Wails/internal/secretstore"
 	"github.com/google/uuid"
 )
+
+// savedConnectionsMu 串行化 connections.json 的「读取→修改→整体重写」序列。
+//
+// 必须是包级锁：savedConnectionRepository() 每次调用都返回一个新实例
+// （methods_saved_connections.go:9-11），实例级锁起不到任何作用。
+// Wails 每个前端调用都在独立 goroutine 中派发，因此批量导入连接包、Navicat 导入、
+// web-server 多请求都会真并发进入这些写路径；无锁时后写者会用自己那份旧列表整体覆盖前写者，
+// 导致已保存的连接静默丢失，或产生「有密码标记但密文已被删除」的僵尸连接。
+//
+// 注意不要把锁下沉进 load()/saveAll()：Save/Delete/Duplicate 内部都会调用它们，会造成重入死锁。
+var savedConnectionsMu sync.Mutex
 
 const (
 	savedConnectionsFileName     = "connections.json"
@@ -319,10 +331,55 @@ func (r *savedConnectionRepository) saveAll(connections []connection.SavedConnec
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(r.connectionsPath(), payload, 0o644)
+	// 原子替换而非 os.WriteFile：后者先把目标文件截断再写，进程在该窗口内被杀
+	// （或并发读者恰好进入）会得到一个空的/半截的 connections.json，全部已保存连接一次性丢失。
+	// 改成临时文件 + Sync + rename 后，读者要么看到旧文件、要么看到完整新文件，
+	// 因此 List/Find 这类只读路径无需加锁。
+	return writeSavedConnectionsFileAtomic(r.connectionsPath(), payload)
+}
+
+// writeSavedConnectionsFileAtomic 以「临时文件 + Sync + 原子替换」写入 connections.json。
+// 复用 replaceSavedQueryTempFile 的替换逻辑（其中包含 Windows 上 rename 失败的回退处理）。
+func writeSavedConnectionsFileAtomic(targetPath string, payload []byte) error {
+	dir := filepath.Dir(targetPath)
+	temp, err := os.CreateTemp(dir, ".connections_*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tempPath)
+		}
+	}()
+
+	if _, err := temp.Write(payload); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	// 保持与原 os.WriteFile 相同的权限位，不在本次修复中顺带调整。
+	if err := os.Chmod(tempPath, 0o644); err != nil {
+		return err
+	}
+	if err := replaceSavedQueryTempFile(tempPath, targetPath); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
 }
 
 func (r *savedConnectionRepository) Save(input connection.SavedConnectionInput) (connection.SavedConnectionView, error) {
+	savedConnectionsMu.Lock()
+	defer savedConnectionsMu.Unlock()
+
 	if strings.TrimSpace(input.ID) == "" && strings.TrimSpace(input.Config.ID) == "" {
 		input.ID = "conn-" + uuid.New().String()[:8]
 	}
@@ -516,6 +573,9 @@ func (r *savedConnectionRepository) List() ([]connection.SavedConnectionView, er
 }
 
 func (r *savedConnectionRepository) Delete(id string) error {
+	savedConnectionsMu.Lock()
+	defer savedConnectionsMu.Unlock()
+
 	connections, err := r.load()
 	if err != nil {
 		return err
@@ -534,6 +594,9 @@ func (r *savedConnectionRepository) Delete(id string) error {
 }
 
 func (r *savedConnectionRepository) Duplicate(id string, unnamedName string, copySuffix string) (connection.SavedConnectionView, error) {
+	savedConnectionsMu.Lock()
+	defer savedConnectionsMu.Unlock()
+
 	connections, err := r.load()
 	if err != nil {
 		return connection.SavedConnectionView{}, err

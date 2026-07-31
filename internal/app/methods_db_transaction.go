@@ -901,6 +901,24 @@ func normalizeSQLTransactionFinishTrigger(trigger string) string {
 }
 
 func (a *App) rollbackPendingSQLTransactionsOnShutdown() {
+	a.rollbackAllPendingSQLTransactions("app_shutdown", "关闭应用时")
+}
+
+// rollbackAbandonedSQLTransactionsOnReload 回滚前端重载后已无法再被引用的托管事务。
+//
+// SQL 编辑器的待提交事务 ID 只存在于 React 组件内存（useSqlEditorTransactionController 的
+// useState/useRef），持久化状态里只有 commitMode/autoCommitDelayMs 这类设置。
+// 因此前端一旦重载，残留在 a.sqlTransactions 中的条目必然是不可能再被提交或回滚的孤儿：
+// 它们会一直占着 pinned 连接与数据库行锁，直到应用退出。
+//
+// 实测后果：执行 DELETE 进入托管事务后不点提交、直接刷新，再执行同一条 DELETE 就会卡满
+// innodb_lock_wait_timeout（默认 50 秒）并报 Error 1205 Lock wait timeout exceeded，
+// 只能重启应用才能恢复。
+func (a *App) rollbackAbandonedSQLTransactionsOnReload() {
+	a.rollbackAllPendingSQLTransactions("frontend_reload", "前端重载后")
+}
+
+func (a *App) rollbackAllPendingSQLTransactions(auditSource string, logPrefix string) {
 	a.sqlTransactionMu.Lock()
 	pending := make([]*managedSQLTransaction, 0, len(a.sqlTransactions))
 	for id, tx := range a.sqlTransactions {
@@ -926,7 +944,7 @@ func (a *App) rollbackPendingSQLTransactionsOnShutdown() {
 			TransactionID: tx.id,
 			EventType:     "transaction_rollback_requested",
 			Status:        "success",
-			Source:        "app_shutdown",
+			Source:        auditSource,
 			CommitMode:    "auto",
 			BoundaryMode:  tx.boundaryMode,
 		})
@@ -935,12 +953,12 @@ func (a *App) rollbackPendingSQLTransactionsOnShutdown() {
 		if tx.transactor != nil {
 			if err := tx.transactor.Rollback(); err != nil {
 				rollbackErr = err
-				logger.Warnf("关闭应用时回滚 SQL 编辑器事务失败：id=%s dbType=%s err=%v", tx.id, tx.dbType, err)
+				logger.Warnf("%s回滚 SQL 编辑器事务失败：id=%s dbType=%s err=%v", logPrefix, tx.id, tx.dbType, err)
 			}
 		} else if strings.TrimSpace(tx.rollbackSQL) != "" && tx.execer != nil {
 			if _, err := tx.execer.ExecContext(ctx, tx.rollbackSQL); err != nil {
 				rollbackErr = err
-				logger.Warnf("关闭应用时回滚 SQL 编辑器事务失败：id=%s dbType=%s err=%v", tx.id, tx.dbType, err)
+				logger.Warnf("%s回滚 SQL 编辑器事务失败：id=%s dbType=%s err=%v", logPrefix, tx.id, tx.dbType, err)
 			}
 		}
 		cancel()
@@ -951,7 +969,7 @@ func (a *App) rollbackPendingSQLTransactionsOnShutdown() {
 		if tx.execer != nil {
 			if err := tx.execer.Close(); err != nil {
 				closeErr = err
-				logger.Warnf("关闭应用时关闭 SQL 编辑器事务会话失败：id=%s dbType=%s err=%v", tx.id, tx.dbType, err)
+				logger.Warnf("%s关闭 SQL 编辑器事务会话失败：id=%s dbType=%s err=%v", logPrefix, tx.id, tx.dbType, err)
 			}
 		}
 		auditErr := rollbackErr
@@ -967,7 +985,7 @@ func (a *App) rollbackPendingSQLTransactionsOnShutdown() {
 			TransactionID: tx.id,
 			EventType:     "transaction_auto_rollback",
 			Status:        status,
-			Source:        "app_shutdown",
+			Source:        auditSource,
 			CommitMode:    "auto",
 			BoundaryMode:  tx.boundaryMode,
 			Duration:      time.Since(startedAt),

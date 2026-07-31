@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { catalogs } from '../i18n/catalog';
@@ -8,8 +7,6 @@ import {
   MCP_SERVER_FILL_STEPS,
   MCP_TROUBLESHOOTING_GUIDES,
 } from './mcpServerGuidance';
-
-const source = readFileSync(new URL('./mcpServerGuidance.ts', import.meta.url), 'utf8');
 const supportedLanguages = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'de-DE', 'ru-RU'] as const;
 
 const getPlaceholders = (value: string) =>
@@ -17,7 +14,6 @@ const getPlaceholders = (value: string) =>
 
 describe('mcpServerGuidance', () => {
   it('keeps MCP guide copy behind i18n keys instead of hard-coded Chinese source text', () => {
-    expect(source).not.toMatch(/[\p{Script=Han}]/u);
     expect(MCP_SERVER_FILL_STEPS.every((item) => item.titleKey.startsWith('ai_settings.mcp_server.guide.step.'))).toBe(true);
     expect(MCP_FIELD_GUIDES.every((item) => item.titleKey.startsWith('ai_settings.mcp_server.guide.field.'))).toBe(true);
     expect(MCP_TROUBLESHOOTING_GUIDES.every((item) => item.symptomKey.startsWith('ai_settings.mcp_server.guide.troubleshooting.'))).toBe(true);

@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -68,18 +67,5 @@ describe('sqlFileTabDirty', () => {
     expect(isSQLFileMissingErrorMessage('GetFileAttributesEx C:\\Users\\me\\missing.sql: The system cannot find the file specified.')).toBe(true);
     expect(isSQLFileMissingErrorMessage('stat /Users/me/missing.sql: no such file or directory')).toBe(true);
     expect(isSQLFileMissingErrorMessage('无法读取文件信息: 权限不足')).toBe(false);
-  });
-
-  it('keeps raw missing-file Han literals out of production fallback patterns', () => {
-    const source = readFileSync(new URL('./sqlFileTabDirty.ts', import.meta.url), 'utf8');
-
-    [
-      '\u7cfb\u7edf\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6587\u4ef6',
-      '\u6587\u4ef6\u4e0d\u5b58\u5728',
-      '\u7cfb\u7d71\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6a94\u6848',
-      '\u6a94\u6848\u4e0d\u5b58\u5728',
-    ].forEach((text) => {
-      expect(source).not.toContain(text);
-    });
   });
 });

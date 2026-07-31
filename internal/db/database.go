@@ -44,6 +44,13 @@ type Database interface {
 	GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error)
 }
 
+// DatabaseForeignKeyProvider is an optional metadata interface for drivers that
+// can load a database-wide foreign-key snapshot more efficiently than one table
+// at a time.
+type DatabaseForeignKeyProvider interface {
+	GetDatabaseForeignKeys(dbName string) (map[string][]connection.ForeignKeyDefinition, error)
+}
+
 // TableRowCounter is an optional metadata interface for drivers that can
 // provide exact table row counts alongside a table list.
 type TableRowCounter interface {

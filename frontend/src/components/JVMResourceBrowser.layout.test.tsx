@@ -1,7 +1,8 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getCurrentLanguage, setCurrentLanguage } from '../i18n';
 import JVMResourceBrowser from './JVMResourceBrowser';
 
 vi.mock('@monaco-editor/react', () => ({
@@ -53,6 +54,17 @@ vi.mock('./jvm/JVMChangePreviewModal', () => ({
 }));
 
 describe('JVMResourceBrowser layout', () => {
+  let previousLanguage: ReturnType<typeof getCurrentLanguage>;
+
+  beforeEach(() => {
+    previousLanguage = getCurrentLanguage();
+    setCurrentLanguage('zh-CN');
+  });
+
+  afterEach(() => {
+    setCurrentLanguage(previousLanguage);
+  });
+
   it('renders a dedicated vertical scroll shell for tall snapshot content', () => {
     const markup = renderToStaticMarkup(
       <JVMResourceBrowser
