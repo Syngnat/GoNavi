@@ -588,7 +588,7 @@ func (a *App) buildCloudBackupPayload(config CloudBackupConfig) ([]byte, error) 
 	connections := connectionPackagePayload{}
 	if _, ok := selected[CloudBackupCategoryConnections]; ok {
 		var err error
-		connections, err = a.buildConnectionPackagePayload(nil)
+		connections, err = a.buildConnectionPackagePayload(nil, nil)
 		if err != nil {
 			return nil, err
 		}

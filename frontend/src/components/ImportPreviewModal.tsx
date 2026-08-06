@@ -14,6 +14,7 @@ import { t as defaultTranslate } from "../i18n";
 import { useOptionalI18n } from "../i18n/provider";
 import { buildRpcConnectionConfig } from "../utils/connectionRpcConfig";
 import { getColumnDefinitionName } from "../utils/columnDefinition";
+import { confirmProductionRisk } from "../utils/productionRiskConfirm";
 interface ImportPreviewModalProps {
   visible: boolean;
   filePath: string;
@@ -21,7 +22,7 @@ interface ImportPreviewModalProps {
   dbName: string;
   tableName: string;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: () => void | Promise<void>;
   onImportingChange?: (importing: boolean) => void;
   presentation?: "modal" | "embedded";
 }
@@ -241,6 +242,14 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   const handleImport = async () => {
     if (!previewData || mappingValidationError) return;
 
+    const approved = await confirmProductionRisk({
+      connection,
+      action: t("connection.production_risk.action.execute_sql"),
+      target: [dbName, tableName].filter(Boolean).join(" / "),
+      translate: t,
+    });
+    if (!approved) return;
+
     const importRequestId = importRequestRef.current + 1;
     const importJobId = createImportJobId();
     importRequestRef.current = importRequestId;
@@ -283,7 +292,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
       } else if (res.success && res.data) {
         setImportResult(res.data);
         if (res.data.failed === 0) {
-          onSuccess();
+          await onSuccess();
         }
       } else {
         setError(res.message || t("import_preview.error.import_failed"));

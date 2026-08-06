@@ -17,6 +17,7 @@ import {
   TableOutlined,
   ThunderboltOutlined,
   DatabaseOutlined,
+  AppstoreOutlined,
   CheckSquareOutlined,
   CloudOutlined,
   ClearOutlined,
@@ -57,6 +58,7 @@ export type V2TableContextMenuActionKey =
   | 'backup-table'
   | 'refresh-stats'
   | 'export-data'
+  | 'batch-tables'
   | 'ai-explain'
   | 'ai-generate-query'
   | 'truncate-table'
@@ -172,6 +174,7 @@ export const V2TableContextMenuView: React.FC<{
   supportsCopyTable?: boolean;
   supportsStarRocksRollup?: boolean;
   supportsMessagePublish?: boolean;
+  supportsBatchTables?: boolean;
   onAction?: (action: V2TableContextMenuActionKey) => void;
 }> = ({
   tableName,
@@ -182,6 +185,7 @@ export const V2TableContextMenuView: React.FC<{
   supportsCopyTable = false,
   supportsStarRocksRollup = false,
   supportsMessagePublish = false,
+  supportsBatchTables = true,
   onAction,
 }) => {
   const renderItems = (items: V2TableContextMenuItemConfig[]) => renderV2ContextMenuItems(
@@ -251,6 +255,11 @@ export const V2TableContextMenuView: React.FC<{
         <div className="gn-v2-context-menu-section-title">{t('sidebar.menu.export_table_data')}</div>
         {renderItems([
           { action: 'export-data', icon: <ExportOutlined />, title: t('sidebar.v2_table_menu.open_export_workbench') },
+          ...(supportsBatchTables ? [{
+            action: 'batch-tables' as const,
+            icon: <AppstoreOutlined />,
+            title: t('sidebar.action.batch_tables'),
+          }] : []),
         ])}
 
         <div className="gn-v2-context-menu-divider" />
@@ -268,6 +277,7 @@ export const V2TableContextMenuView: React.FC<{
 
 export type V2TableGroupContextMenuActionKey =
   | 'new-table'
+  | 'refresh'
   | 'sort-by-name'
   | 'sort-by-frequency';
 
@@ -312,12 +322,25 @@ export const V2TableGroupContextMenuView: React.FC<{
       <div className="gn-v2-context-menu-body">
         {renderItems([
           { action: 'new-table', icon: <TableOutlined />, title: t('sidebar.menu.create_table'), kbd: primaryShortcut('N', shortcutPlatform), featured: true },
+          { action: 'refresh', icon: <ReloadOutlined />, title: t('sidebar.menu.refresh'), kbd: primaryShortcut('R', shortcutPlatform), featured: true },
         ])}
 
         <div className="gn-v2-context-menu-section-title">{t('data_grid.context_menu.sort_section')}</div>
         {renderItems([
-          { action: 'sort-by-name', icon: currentSort === 'name' ? <CheckSquareOutlined /> : <ReloadOutlined />, title: t('sidebar.menu.sort_by_name'), kbd: currentSort === 'name' ? t('data_grid.context_menu.current_marker') : undefined, selected: currentSort === 'name' },
-          { action: 'sort-by-frequency', icon: currentSort === 'frequency' ? <CheckSquareOutlined /> : <ReloadOutlined />, title: t('sidebar.menu.sort_by_frequency'), kbd: currentSort === 'frequency' ? t('data_grid.context_menu.current_marker') : undefined, selected: currentSort === 'frequency' },
+          {
+            action: 'sort-by-name',
+            icon: currentSort === 'name' ? <CheckSquareOutlined /> : <SortAscendingOutlined />,
+            title: t('sidebar.menu.sort_by_name'),
+            kbd: currentSort === 'name' ? t('data_grid.context_menu.current_marker') : undefined,
+            selected: currentSort === 'name',
+          },
+          {
+            action: 'sort-by-frequency',
+            icon: currentSort === 'frequency' ? <CheckSquareOutlined /> : <ClockCircleOutlined />,
+            title: t('sidebar.menu.sort_by_frequency'),
+            kbd: currentSort === 'frequency' ? t('data_grid.context_menu.current_marker') : undefined,
+            selected: currentSort === 'frequency',
+          },
         ])}
       </div>
     </div>
@@ -325,6 +348,8 @@ export const V2TableGroupContextMenuView: React.FC<{
 };
 
 export type V2DatabaseContextMenuActionKey =
+  | 'pin-database'
+  | 'unpin-database'
   | 'copy-database-name'
   | 'new-table'
   | 'new-schema'
@@ -334,6 +359,8 @@ export type V2DatabaseContextMenuActionKey =
   | 'refresh'
   | 'export-db-schema'
   | 'backup-db-sql'
+  | 'batch-tables'
+  | 'batch-databases'
   | 'disconnect-db'
   | 'new-query'
   | 'run-sql'
@@ -356,6 +383,8 @@ export const V2DatabaseContextMenuView: React.FC<{
   supportsStarRocksActions?: boolean;
   supportsRenameDatabase?: boolean;
   supportsDropDatabase?: boolean;
+  supportsBatchWorkbench?: boolean;
+  isPinned?: boolean;
   onAction?: (action: V2DatabaseContextMenuActionKey) => void;
 }> = ({
   dbName,
@@ -366,6 +395,8 @@ export const V2DatabaseContextMenuView: React.FC<{
   supportsStarRocksActions = false,
   supportsRenameDatabase = true,
   supportsDropDatabase = true,
+  supportsBatchWorkbench = true,
+  isPinned = false,
   onAction,
 }) => {
   const renderItems = (items: V2TableContextMenuItemConfig[]) => renderV2ContextMenuItems(
@@ -385,6 +416,7 @@ export const V2DatabaseContextMenuView: React.FC<{
       <div className="gn-v2-context-menu-body">
         {renderItems([
           { action: 'copy-database-name', icon: <CopyOutlined />, title: t('sidebar.menu.copy_database_name'), kbd: primaryShortcut('C', shortcutPlatform), featured: true },
+          { action: isPinned ? 'unpin-database' : 'pin-database', icon: <PushpinOutlined />, title: isPinned ? t('sidebar.action.unpin_database') : t('sidebar.action.pin_database'), kbd: isPinned ? t('sidebar.status.pinned') : undefined, selected: isPinned },
           { action: 'new-table', icon: <TableOutlined />, title: t('sidebar.menu.create_table'), kbd: primaryShortcut('N', shortcutPlatform), featured: true },
           ...(supportsSchemaActions ? [{ action: 'new-schema', icon: <FolderAddOutlined />, title: t('sidebar.v2_database_menu.new_schema') }] : []),
           ...(supportsSchemaVisibility ? [{ action: 'schema-visibility', icon: <FolderOpenOutlined />, title: t('sidebar.schema_visibility.menu.manage') }] : []),
@@ -413,6 +445,10 @@ export const V2DatabaseContextMenuView: React.FC<{
         {renderItems([
           { action: 'export-db-schema', icon: <ExportOutlined />, title: t('sidebar.v2_database_menu.export_all_table_schema_sql') },
           { action: 'backup-db-sql', icon: <SaveOutlined />, title: t('sidebar.v2_database_menu.backup_all_tables_sql') },
+          ...(supportsBatchWorkbench ? [
+            { action: 'batch-tables' as const, icon: <AppstoreOutlined />, title: t('sidebar.action.batch_tables') },
+            { action: 'batch-databases' as const, icon: <DatabaseOutlined />, title: t('sidebar.action.batch_databases') },
+          ] : []),
         ])}
 
         <div className="gn-v2-context-menu-divider" />

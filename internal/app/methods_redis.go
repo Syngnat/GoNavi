@@ -54,6 +54,11 @@ type RedisImportKeysOptions struct {
 	File         string   `json:"file,omitempty"`
 }
 
+type RedisListPushOptions struct {
+	Values   []string `json:"values"`
+	Position string   `json:"position"`
+}
+
 type RedisImportPreview struct {
 	File          string               `json:"file"`
 	ExportedAt    string               `json:"exportedAt,omitempty"`
@@ -1379,14 +1384,31 @@ func (a *App) RedisDeleteHashField(config connection.ConnectionConfig, key strin
 }
 
 // RedisListPush pushes values to a list
-func (a *App) RedisListPush(config connection.ConnectionConfig, key string, values []string) connection.QueryResult {
+func (a *App) RedisListPush(config connection.ConnectionConfig, key string, options RedisListPushOptions) connection.QueryResult {
+	if len(options.Values) == 0 {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("redis.backend.error.argument_required", map[string]any{"name": "values"}),
+		}
+	}
+	if options.Position != "left" && options.Position != "right" {
+		return connection.QueryResult{
+			Success: false,
+			Message: a.appText("redis.backend.error.list_position_invalid", nil),
+		}
+	}
+
 	config.Type = "redis"
 	client, err := a.getRedisClient(config)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	if err := client.ListPush(key, values...); err != nil {
+	push := client.ListPush
+	if options.Position == "left" {
+		push = client.ListPushLeft
+	}
+	if err := push(key, options.Values...); err != nil {
 		logger.Error(err, "RedisListPush 添加失败：key=%s", key)
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -1410,16 +1432,22 @@ func (a *App) RedisListSet(config connection.ConnectionConfig, key string, index
 	return connection.QueryResult{Success: true, Message: a.appText("redis.backend.message.set_success", nil)}
 }
 
-// RedisListRemove removes one matching value from a list.
-func (a *App) RedisListRemove(config connection.ConnectionConfig, key, value string) connection.QueryResult {
+// RedisListRemove removes the expected value at an index in a list.
+func (a *App) RedisListRemove(config connection.ConnectionConfig, key string, index int64, value string) connection.QueryResult {
 	config.Type = "redis"
 	client, err := a.getRedisClient(config)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	if err := client.ListRemove(key, value); err != nil {
-		logger.Error(err, "RedisListRemove 删除失败：key=%s", key)
+	if err := client.ListRemoveAt(key, index, value); err != nil {
+		if errors.Is(err, redis.ErrRedisListItemChanged) {
+			return connection.QueryResult{
+				Success: false,
+				Message: a.appText("redis.backend.error.list_item_changed", nil),
+			}
+		}
+		logger.Error(err, "RedisListRemove 删除失败：key=%s index=%d", key, index)
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 

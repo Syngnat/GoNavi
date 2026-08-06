@@ -367,7 +367,7 @@ body[data-custom-theme] .gonavi-custom-theme-manager.is-legacy {
 }
 
 body[data-custom-theme][data-ui-version="v2"] .ant-btn-primary:not(.ant-btn-dangerous):not(:disabled):not(.ant-btn-disabled) {
-  color: var(--gn-on-accent, #fff) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
 }
 
 body[data-custom-theme][data-ui-version="v2"] .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled) {
@@ -396,27 +396,38 @@ body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-transaction-commit-bu
   color: var(--gn-accent-text, var(--gn-accent)) !important;
 }
 
-/* 「保存」降为次级样式：与 v2-theme.css 保持一致。
-   原先填 --gn-info，而 info 与 accent 在内置主题下的区分度仅 1.05–1.25，
-   两个相邻实心按钮一眼分不清；且 Midnight Navy / Nord Slate 的 accent 本身即蓝青系，
-   靠色相无法拉开，故改用层级区分，只让「执行」保持实心主按钮。 */
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:not(:disabled) {
-  background: transparent !important;
-  border-color: var(--gn-br-3) !important;
-  color: var(--gn-fg-2) !important;
+/* 「保存」与工具栏 default 图标按钮同族（v2 已不用 type=primary）。
+   仅保证图标用 fg-1，避免与终端等按钮混成一摊灰时单独发闷。 */
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled) {
+  background: var(--gn-bg-panel) !important;
+  border-color: var(--gn-br-2) !important;
+  color: var(--gn-fg-1) !important;
   box-shadow: none !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:not(:disabled):hover,
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:not(:disabled):focus-visible {
-  background: var(--gn-bg-hover) !important;
-  border-color: var(--gn-accent) !important;
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled) .anticon {
   color: var(--gn-fg-1) !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:not(:disabled):active {
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):hover,
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):focus-visible {
+  background: var(--gn-bg-hover) !important;
+  border-color: var(--gn-br-3) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):hover .anticon,
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):focus-visible .anticon {
+  color: var(--gn-fg-1) !important;
+}
+
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):active {
   background: var(--gn-bg-active) !important;
-  border-color: var(--gn-accent) !important;
+  border-color: var(--gn-br-3) !important;
+  color: var(--gn-fg-1) !important;
+}
+
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):active .anticon {
   color: var(--gn-fg-1) !important;
 }
 

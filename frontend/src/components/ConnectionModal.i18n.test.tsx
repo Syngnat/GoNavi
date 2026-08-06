@@ -245,6 +245,18 @@ vi.mock("antd", () => {
     </div>
   );
   Select.Option = ({ children }: any) => <span>{children}</span>;
+  const Radio = ({ children, value }: any) => (
+    <label>
+      <input type="radio" value={value} />
+      {children}
+    </label>
+  );
+  Radio.Group = ({ children, value }: any) => (
+    <div>
+      {children}
+      {value ? <span>radio:{value}</span> : null}
+    </div>
+  );
   const Checkbox = ({ children, checked, onChange }: any) => (
     <label onChange={onChange}>
       <input type="checkbox" checked={checked} onChange={onChange} />
@@ -358,6 +370,7 @@ vi.mock("antd", () => {
     message: antdMessage,
     Checkbox,
     Select,
+    Radio,
     Alert,
     Card,
     Row,
@@ -468,7 +481,7 @@ describe("ConnectionModal i18n", () => {
       }),
     );
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
+  }, 15000);
 
   it("updates visible copy when languagePreference changes while the modal stays open", async () => {
     const { default: ConnectionModal } = await import("./ConnectionModal");

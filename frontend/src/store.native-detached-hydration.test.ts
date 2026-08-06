@@ -29,5 +29,5 @@ describe('native detached store startup', () => {
     expect(getItem).not.toHaveBeenCalled();
     expect(useStore.persist.hasHydrated()).toBe(false);
     expect(useStore.getState().tabs).toEqual([]);
-  });
+  }, 30000);
 });

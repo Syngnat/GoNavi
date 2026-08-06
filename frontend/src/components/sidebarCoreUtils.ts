@@ -84,6 +84,8 @@ export const buildConnectionReloadSignature = (conn?: SavedConnection | null): s
   return JSON.stringify({
     config: conn.config || {},
     includeDatabases: conn.includeDatabases || [],
+    includeDatabasePatterns: conn.includeDatabasePatterns || [],
+    excludeDatabasePatterns: conn.excludeDatabasePatterns || [],
     includeRedisDatabases: conn.includeRedisDatabases || [],
     schemaVisibilityByDatabase: conn.schemaVisibilityByDatabase || {},
   });

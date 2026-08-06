@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Dropdown, Tabs, Tooltip, message, type MenuProps } from 'antd';
+import { Button, Dropdown, Segmented, Tag, Tabs, Tooltip, message, type MenuProps } from 'antd';
 import { BugOutlined, ClearOutlined, CloseOutlined, CopyOutlined, EyeInvisibleOutlined, PushpinOutlined, RobotOutlined } from '@ant-design/icons';
 
 import { useStore } from '../store';
@@ -36,7 +36,12 @@ export type QueryEditorResultSet = {
     rows: any[];
     columns: string[];
     messages?: string[];
-    resultType?: 'grid' | 'message';
+    resultType?: 'grid' | 'message' | 'elasticsearch';
+    requestLabel?: string;
+    httpStatus?: number;
+    rawResponse?: string;
+    partialFailure?: boolean;
+    outcomeUnknown?: boolean;
     tableName?: string;
     /** 列类型/注释元数据所属库（跨库 SELECT 时可能与 currentDb 不同） */
     metadataDbName?: string;
@@ -92,8 +97,8 @@ interface QueryEditorResultsPanelProps {
     onCloseAllResultTabs: () => void;
     onResultPinnedChange: (key: string, pinned: boolean) => void;
     onOpenResultInWindow?: (key: string, preferred?: OpenResultInWindowPreferred) => void;
-    onReloadResult: (key: string, sql: string) => void;
-    onResultPageChange: (key: string, page: number, pageSize: number) => void;
+    onReloadResult: (key: string, sql: string) => void | Promise<void>;
+    onResultPageChange: (key: string, page: number, pageSize: number) => void | Promise<void>;
     onResultSort: (key: string, field: string, order: string) => void;
     onRequestResultTotalCount?: (key: string) => void;
     onCancelResultTotalCount?: (key: string) => void;
@@ -169,6 +174,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     const globalHiddenColumns = useGlobalHiddenColumns();
     const [draggingResultKey, setDraggingResultKey] = useState<string | null>(null);
     const [detachDragPreview, setDetachDragPreview] = useState<DetachDragPreviewState | null>(null);
+    const [elasticsearchViewModes, setElasticsearchViewModes] = useState<Record<string, 'table' | 'raw'>>({});
     const resultTabDragRef = useRef<{
         key: string;
         title: string;
@@ -528,7 +534,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 >
                     <Tooltip title={rs.sql}>
                         <span className="query-result-tab-text">
-                            {rs.resultType === 'message'
+                            {rs.resultType === 'elasticsearch' && rs.requestLabel
+                                ? rs.requestLabel
+                                : rs.resultType === 'message'
                                 ? t('query_editor.results_panel.tab.message', { index: idx + 1 })
                                 : t('query_editor.results_panel.tab.result', { index: idx + 1 })}
                         </span>
@@ -574,6 +582,68 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                             fillHeight: true,
                             color: darkMode ? '#d4d4d4' : '#333',
                         })}
+                    </div>
+                );
+            }
+            if (rs.resultType === 'elasticsearch') {
+                const hasTable = Array.isArray(rs.rows) && rs.rows.length > 0 && rs.columns.length > 0;
+                const viewMode = hasTable ? (elasticsearchViewModes[rs.key] || 'table') : 'raw';
+                const status = Number(rs.httpStatus || 0);
+                const statusColor = status >= 200 && status < 300
+                    ? (rs.partialFailure ? 'orange' : 'green')
+                    : 'red';
+                return (
+                    <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        <div style={{
+                            display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
+                            borderBottom: darkMode ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
+                        }}>
+                            <span style={{ fontFamily: 'var(--gn-font-mono)', fontWeight: 600 }}>{rs.requestLabel || rs.sql}</span>
+                            {status > 0 ? <Tag color={statusColor}>HTTP {status}</Tag> : null}
+                            {rs.partialFailure ? <Tag color="orange">{t('query_editor.elasticsearch.partial')}</Tag> : null}
+                            {rs.outcomeUnknown ? <Tag color="red">{t('query_editor.elasticsearch.outcome_unknown')}</Tag> : null}
+                            <span style={{ flex: 1 }} />
+                            {hasTable ? (
+                                <Segmented
+                                    size="small"
+                                    value={viewMode}
+                                    options={[
+                                        { label: t('query_editor.elasticsearch.table'), value: 'table' },
+                                        { label: t('query_editor.elasticsearch.raw'), value: 'raw' },
+                                    ]}
+                                    onChange={(value) => setElasticsearchViewModes((current) => ({
+                                        ...current,
+                                        [rs.key]: value as 'table' | 'raw',
+                                    }))}
+                                />
+                            ) : null}
+                            {toolbarHideButton}
+                        </div>
+                        {viewMode === 'raw' ? (
+                            <div style={{ flex: 1, minHeight: 0, padding: 12, overflow: 'hidden' }}>
+                                {renderMessageBlock({
+                                    text: String(rs.rawResponse || ''),
+                                    title: t('query_editor.elasticsearch.raw_response'),
+                                    fontSize: 'var(--gn-font-size-mono, 13px)',
+                                    fillHeight: true,
+                                    color: darkMode ? '#d4d4d4' : '#333',
+                                })}
+                            </div>
+                        ) : (
+                            <DataGrid
+                                data={rs.rows}
+                                columnNames={resolveVisibleQueryResultColumns(rs.columns, globalHiddenColumns)}
+                                isActive={isActive && resolvedActiveResultKey === rs.key}
+                                loading={loading}
+                                columnPinScope={buildQueryResultColumnPinScope({ sql: rs.sql })}
+                                exportScope="queryResult"
+                                resultSql={rs.sql}
+                                dbName={currentDb}
+                                connectionId={currentConnectionId}
+                                pkColumns={[]}
+                                readOnly
+                            />
+                        )}
                     </div>
                 );
             }
@@ -633,10 +703,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                         editLocator={rs.editLocator}
                         onReload={() => {
                             if (rs.page) {
-                                onResultPageChange(rs.key, rs.page.current, rs.page.pageSize);
-                                return;
+                                return onResultPageChange(rs.key, rs.page.current, rs.page.pageSize);
                             }
-                            onReloadResult(rs.key, rs.sql);
+                            return onReloadResult(rs.key, rs.sql);
                         }}
                         pagination={rs.page ? {
                             current: rs.page.current,

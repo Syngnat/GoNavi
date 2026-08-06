@@ -124,6 +124,13 @@ const matchSingleCondition = (row: Record<string, any>, condition: FilterConditi
   const cell = row?.[column];
   const cellText = normalizeCellText(cell);
 
+  const valueSelection = condition?.valueSelection;
+  if (valueSelection) {
+    return (valueSelection.values || []).some((item) => cellText === String(item))
+      || (!!valueSelection.includeNull && isNullishCell(cell))
+      || (!!valueSelection.includeEmpty && !isNullishCell(cell) && isEmptyCell(cell));
+  }
+
   switch (op) {
     case 'IS_NULL':
       return isNullishCell(cell);

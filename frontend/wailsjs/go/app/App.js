@@ -94,8 +94,8 @@ export function CopyTable(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['CopyTable'](arg1, arg2, arg3, arg4);
 }
 
-export function CreateDatabase(arg1, arg2) {
-  return window['go']['app']['App']['CreateDatabase'](arg1, arg2);
+export function CreateDatabase(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['CreateDatabase'](arg1, arg2, arg3, arg4);
 }
 
 export function CreateSQLDirectory(arg1, arg2) {
@@ -210,6 +210,10 @@ export function DBShowCreateTable(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBShowCreateTable'](arg1, arg2, arg3);
 }
 
+export function DBTableExists(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DBTableExists'](arg1, arg2, arg3);
+}
+
 export function DataSync(arg1) {
   return window['go']['app']['App']['DataSync'](arg1);
 }
@@ -280,6 +284,10 @@ export function DropView(arg1, arg2, arg3) {
 
 export function DuplicateConnection(arg1) {
   return window['go']['app']['App']['DuplicateConnection'](arg1);
+}
+
+export function ExecuteElasticsearchConsole(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['app']['App']['ExecuteElasticsearchConsole'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function ExecuteSQLFile(arg1, arg2, arg3, arg4) {
@@ -470,6 +478,10 @@ export function ImportSavedQueries(arg1) {
   return window['go']['app']['App']['ImportSavedQueries'](arg1);
 }
 
+export function InspectElasticsearchConsole(arg1, arg2, arg3) {
+  return window['go']['app']['App']['InspectElasticsearchConsole'](arg1, arg2, arg3);
+}
+
 export function InstallLocalDriverPackage(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['InstallLocalDriverPackage'](arg1, arg2, arg3, arg4);
 }
@@ -532,6 +544,14 @@ export function JVMStartMonitoring(arg1) {
 
 export function JVMStopMonitoring(arg1, arg2) {
   return window['go']['app']['App']['JVMStopMonitoring'](arg1, arg2);
+}
+
+export function ListDatabaseCharsets(arg1) {
+  return window['go']['app']['App']['ListDatabaseCharsets'](arg1);
+}
+
+export function ListDatabaseCollations(arg1) {
+  return window['go']['app']['App']['ListDatabaseCollations'](arg1);
 }
 
 export function ListInstalledFontFamilies() {
@@ -802,8 +822,8 @@ export function RedisListPush(arg1, arg2, arg3) {
   return window['go']['app']['App']['RedisListPush'](arg1, arg2, arg3);
 }
 
-export function RedisListRemove(arg1, arg2, arg3) {
-  return window['go']['app']['App']['RedisListRemove'](arg1, arg2, arg3);
+export function RedisListRemove(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['RedisListRemove'](arg1, arg2, arg3, arg4);
 }
 
 export function RedisListSet(arg1, arg2, arg3, arg4) {
@@ -864,6 +884,10 @@ export function RedisZSetAdd(arg1, arg2, arg3) {
 
 export function RedisZSetRemove(arg1, arg2, arg3) {
   return window['go']['app']['App']['RedisZSetRemove'](arg1, arg2, arg3);
+}
+
+export function RefreshWebViewBounds() {
+  return window['go']['app']['App']['RefreshWebViewBounds']();
 }
 
 export function RemoveDriverPackage(arg1, arg2) {

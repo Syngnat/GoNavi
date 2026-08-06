@@ -19,10 +19,14 @@ import (
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/ssh"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
-var ErrRedisKeyGone = errors.New("Redis Key 不存在或已过期")
+var (
+	ErrRedisKeyGone         = errors.New("Redis Key 不存在或已过期")
+	ErrRedisListItemChanged = errors.New("Redis 列表项已变化，请刷新后重试")
+)
 
 // RedisClientImpl implements RedisClient using go-redis
 type RedisClientImpl struct {
@@ -49,6 +53,29 @@ const (
 	redisSearchMaxStepCount     int64 = 1000
 	redisSearchMaxResultCount         = 10000
 	redisSearchMaxDuration            = 3 * time.Second
+	redisListRemoveAtScript           = `
+local current = redis.call("LINDEX", KEYS[1], ARGV[1])
+if current == false or current ~= ARGV[2] then
+    return 0
+end
+redis.call("LSET", KEYS[1], ARGV[1], ARGV[3])
+local removed = redis.pcall("LREM", KEYS[1], 1, ARGV[3])
+if type(removed) == "table" and removed.err then
+    local restored = redis.pcall("LSET", KEYS[1], ARGV[1], ARGV[2])
+    if type(restored) == "table" and restored.err then
+        return redis.error_reply(removed.err .. "; rollback failed: " .. restored.err)
+    end
+    return redis.error_reply(removed.err)
+end
+if removed ~= 1 then
+    local restored = redis.pcall("LSET", KEYS[1], ARGV[1], ARGV[2])
+    if type(restored) == "table" and restored.err then
+        return redis.error_reply("Redis list delete rollback failed: " .. restored.err)
+    end
+    return -1
+end
+return 1
+`
 )
 
 var redisDBSwitchConnect = func(client *RedisClientImpl, config connection.ConnectionConfig) error {
@@ -1212,6 +1239,20 @@ func (r *RedisClientImpl) ListPush(key string, values ...string) error {
 	return r.client.RPush(ctx, r.toPhysicalKey(key), args...).Err()
 }
 
+// ListPushLeft pushes values to the start of a list.
+func (r *RedisClientImpl) ListPushLeft(key string, values ...string) error {
+	if r.client == nil {
+		return fmt.Errorf("Redis 客户端未连接")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	args := make([]interface{}, len(values))
+	for i, value := range values {
+		args[i] = value
+	}
+	return r.client.LPush(ctx, r.toPhysicalKey(key), args...).Err()
+}
+
 // ListSet sets the value at an index in a list
 func (r *RedisClientImpl) ListSet(key string, index int64, value string) error {
 	if r.client == nil {
@@ -1222,14 +1263,39 @@ func (r *RedisClientImpl) ListSet(key string, index int64, value string) error {
 	return r.client.LSet(ctx, r.toPhysicalKey(key), index, value).Err()
 }
 
-// ListRemove removes one matching value from a list.
-func (r *RedisClientImpl) ListRemove(key, value string) error {
+// ListRemoveAt removes the expected value at an index atomically.
+// The operation requires Redis scripting permission in addition to list command permissions.
+func (r *RedisClientImpl) ListRemoveAt(key string, index int64, expectedValue string) error {
 	if r.client == nil {
 		return fmt.Errorf("Redis 客户端未连接")
 	}
+	markerID, err := uuid.NewRandom()
+	if err != nil {
+		return fmt.Errorf("生成 Redis 列表删除标记失败: %w", err)
+	}
+	marker := "\x00gonavi:list-remove:" + markerID.String()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return r.client.LRem(ctx, r.toPhysicalKey(key), 1, value).Err()
+	result, err := r.client.Eval(
+		ctx,
+		redisListRemoveAtScript,
+		[]string{r.toPhysicalKey(key)},
+		strconv.FormatInt(index, 10),
+		expectedValue,
+		marker,
+	).Int64()
+	if err != nil {
+		return err
+	}
+	switch result {
+	case 0:
+		return ErrRedisListItemChanged
+	case 1:
+		return nil
+	default:
+		return fmt.Errorf("Redis 列表按索引删除返回异常结果: %d", result)
+	}
 }
 
 // GetSet gets all members of a set

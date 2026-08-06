@@ -122,7 +122,7 @@ export interface UseDataGridDdlViewResult {
   ddlRequestSeqRef: React.MutableRefObject<number>;
   isTableSurfaceActive: boolean;
   handleOpenTableDdl: (options?: { asView?: boolean }) => Promise<void>;
-  handleViewModeChange: (nextMode: GridViewMode) => void;
+  handleViewModeChange: (nextMode: GridViewMode, options?: { textRecordIndex?: number }) => void;
   handleDdlSidebarResizeStart: (event: React.MouseEvent<HTMLDivElement>) => void;
   resetDdlViewState: () => void;
   closeDdlView: () => void;
@@ -291,7 +291,7 @@ export const useDataGridDdlView = ({
     void handleOpenTableDdl({ asView: true });
   }, [canRestoreSharedDdlView, ddlContextKey, handleOpenTableDdl, hasPendingLocalTableViewRequest, isActive]);
 
-  const handleViewModeChange = React.useCallback((nextMode: GridViewMode) => {
+  const handleViewModeChange = React.useCallback((nextMode: GridViewMode, options?: { textRecordIndex?: number }) => {
     setSuppressSharedDdlView(false);
     if ((nextMode === 'fields' || nextMode === 'ddl' || nextMode === 'er' || nextMode === 'sqlLog') && !isV2Ui) {
       setSharedDdlViewOpen(false);
@@ -317,11 +317,17 @@ export const useDataGridDdlView = ({
     }
 
     if (nextMode === 'text') {
-      const selectedKey = selectedRowKeys[0];
-      if (selectedKey !== undefined) {
-        const idx = mergedDisplayDataRef.current.findIndex((row) => rowKeyStr(row?.__gonavi_row_key__) === rowKeyStr(selectedKey));
-        if (idx >= 0) {
-          setTextRecordIndex(idx);
+      const explicitIndex = options?.textRecordIndex;
+      if (explicitIndex !== undefined && Number.isFinite(explicitIndex)) {
+        const maxIndex = Math.max(0, mergedDisplayDataRef.current.length - 1);
+        setTextRecordIndex(Math.max(0, Math.min(Math.trunc(explicitIndex), maxIndex)));
+      } else {
+        const selectedKey = selectedRowKeys[0];
+        if (selectedKey !== undefined) {
+          const idx = mergedDisplayDataRef.current.findIndex((row) => rowKeyStr(row?.__gonavi_row_key__) === rowKeyStr(selectedKey));
+          if (idx >= 0) {
+            setTextRecordIndex(idx);
+          }
         }
       }
     }

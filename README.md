@@ -202,10 +202,23 @@ Each image is a **full GoNavi application window**, scaled proportionally for RE
 | Time-series | Apache IoTDB | Optional driver agent | Storage group / device / timeseries browsing and querying |
 | Columnar Analytics | ClickHouse | Optional driver agent | Analytical query, object browsing, SQL execution |
 | Federated Query | Trino | Optional driver agent | Cross-source SQL via multiple catalogs, `catalog.schema` browsing, SQL execution |
-| Search | Elasticsearch | Optional driver agent | Index browsing, mapping inspection, JSON DSL / query_string search |
+| Search | Elasticsearch | Optional driver agent | Index browsing, mapping inspection, guarded REST console, JSON DSL / query_string search |
 | Extensibility | Custom Driver/DSN | Custom | Extend to more data sources via Driver + DSN |
 
 </details>
+
+### Elasticsearch REST console
+
+Elasticsearch connections reuse the query workspace as a version-aware REST console:
+
+- Write Dev Tools-style `METHOD /path` requests with JSON bodies, or NDJSON for `_bulk` and `_msearch`; run the request at the cursor, the exact selection, or a batch in editor order.
+- Search hits can be viewed as a table while the complete HTTP response remains available as raw JSON or text.
+- A server-side allowlist accepts supported search, document, index, mapping, settings, alias, health, and limited CAT operations. Unknown and high-privilege endpoints are rejected by default.
+- Destructive operations require an expiring one-time confirmation. Connection protection still takes precedence and blocks writes as well as script-bearing reads.
+- Writes are limited to concrete indices and require Elasticsearch `view_index_metadata` (or `manage`) permission so GoNavi can verify the target before sending data; aliases and data streams are not accepted as write targets.
+- Request templates adapt document, mapping, and Bulk paths for Elasticsearch 6, 7, and 8.
+
+> This console targets Elasticsearch 6/7/8. It does not claim OpenSearch compatibility, and intentionally excludes reindex, security, snapshot, node, cluster-settings, template, pipeline, lifecycle, and other unrestricted administration APIs.
 
 ---
 

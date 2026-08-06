@@ -4,6 +4,11 @@ import { ExportQueryWithOptions } from '../../wailsjs/go/app/App';
 import type { CopySqlError } from './dataGridCopyInsert';
 import type { V2CellContextMenuActionKey, V2ColumnHeaderContextMenuActionKey } from './V2TableContextMenu';
 import {
+  buildTabularClipboardPayloadFromTsv,
+  writeClipboardPayloadToEvent,
+  type DataGridClipboardPayload,
+} from './dataGridClipboardPayload';
+import {
   DEFAULT_DATA_EXPORT_FORMAT,
   DEFAULT_XLSX_ROWS_PER_SHEET,
   showDataExportDialog,
@@ -35,7 +40,7 @@ export const useDataGridV2Actions = (ctx: DataGridV2ActionsContext) => {
     buildOrderBySQL,
     buildPaginatedSelectSQL,
     buildRpcConnectionConfig,
-    buildSelectedCellClipboardText,
+    buildSelectedCellClipboardPayload,
     buildTableExportTab,
     buildWhereSQL,
     cellContextMenu,
@@ -270,11 +275,11 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
           .catch(() => message.error(translateDataGrid('data_grid.message.ddl_copy_failed')));
   }, [ddlText, translateDataGrid]);
 
-  const handleCopySelectedCellsToClipboard = useCallback(() => {
+  const buildSelectedCellsClipboardPayload = useCallback((): DataGridClipboardPayload | null => {
       const activeSelection = currentSelectionRef.current.size > 0 ? currentSelectionRef.current : selectedCells;
       if (activeSelection.size === 0) {
           void message.info(translateDataGrid('data_grid.message.drag_select_cells_to_copy'));
-          return;
+          return null;
       }
 
       const parsed = Array.from(activeSelection)
@@ -282,22 +287,37 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
           .filter((item): item is { rowKey: string; colName: string } => !!item);
       if (parsed.length === 0) {
           void message.info(translateDataGrid('data_grid.message.no_copyable_cells'));
-          return;
+          return null;
       }
 
-      const text = buildSelectedCellClipboardText({
+      const payload = buildSelectedCellClipboardPayload({
           selectedCells: parsed,
           rows: mergedDisplayData as Array<Record<string, any>>,
           columnOrder: displayColumnNames,
           rowKeyField: GONAVI_ROW_KEY,
       });
-      if (!text) {
+      if (!payload.plainText) {
           void message.info(translateDataGrid('data_grid.message.selection_no_copyable_content'));
-          return;
+          return null;
       }
 
-      copyToClipboard(text);
-  }, [selectedCells, mergedDisplayData, displayColumnNames, copyToClipboard, translateDataGrid]);
+      return payload;
+  }, [
+      GONAVI_ROW_KEY,
+      buildSelectedCellClipboardPayload,
+      currentSelectionRef,
+      displayColumnNames,
+      mergedDisplayData,
+      selectedCells,
+      splitCellKey,
+      translateDataGrid,
+  ]);
+
+  const handleCopySelectedCellsToClipboard = useCallback(() => {
+      const payload = buildSelectedCellsClipboardPayload();
+      if (!payload) return;
+      copyToClipboard(payload);
+  }, [buildSelectedCellsClipboardPayload, copyToClipboard]);
 
   useEffect(() => {
       if (!isActive || !isTableSurfaceActive || (!cellEditMode && selectedCells.size === 0)) return;
@@ -325,21 +345,35 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
               return;
           }
 
-          const isCopy = (event.ctrlKey || event.metaKey) && !event.altKey && String(event.key || '').toLowerCase() === 'c';
-          if (!isCopy) return;
-
-          if (document.getSelection?.()?.toString()) return;
-
-          const activeSelection = currentSelectionRef.current.size > 0 ? currentSelectionRef.current : selectedCells;
-          if (activeSelection.size === 0) return;
-
-          event.preventDefault();
-          handleCopySelectedCellsToClipboard();
       };
 
       window.addEventListener('keydown', onKeyDown);
       return () => window.removeEventListener('keydown', onKeyDown);
-  }, [cellEditMode, selectedCells, handleCopySelectedCellsToClipboard, resetCellSelection, closeCellEditMode, isActive, isTableSurfaceActive]);
+  }, [cellEditMode, selectedCells, resetCellSelection, closeCellEditMode, isActive, isTableSurfaceActive]);
+
+  useEffect(() => {
+      if (!isActive || !isTableSurfaceActive || selectedCells.size === 0) return;
+
+      const onCopy = (event: ClipboardEvent) => {
+          if (event.defaultPrevented) return;
+          const activeElement = document.activeElement as HTMLElement | null;
+          const eventTarget = event.target instanceof HTMLElement ? event.target : null;
+          const nativeShortcutGuard = 'input, textarea, select, [contenteditable="true"], .ant-modal, .ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .ant-popover, [data-gonavi-close-shortcut-guard]';
+          if (activeElement?.closest(nativeShortcutGuard) || eventTarget?.closest(nativeShortcutGuard)) return;
+          if (document.getSelection?.()?.toString()) return;
+
+          const payload = buildSelectedCellsClipboardPayload();
+          if (!payload) return;
+          if (writeClipboardPayloadToEvent(event, payload)) {
+              void message.success(translateDataGrid('data_grid.message.copied_to_clipboard'));
+              return;
+          }
+          copyToClipboard(payload);
+      };
+
+      window.addEventListener('copy', onCopy);
+      return () => window.removeEventListener('copy', onCopy);
+  }, [buildSelectedCellsClipboardPayload, copyToClipboard, isActive, isTableSurfaceActive, selectedCells.size, translateDataGrid]);
 
   useEffect(() => {
       if (!isActive || !isTableSurfaceActive || (!cellEditMode && selectedCells.size === 0)) return;
@@ -523,7 +557,7 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
           void message.info(translateDataGrid('data_grid.message.current_row_no_copyable_content'));
           return;
       }
-      copyToClipboard(text);
+      copyToClipboard(buildTabularClipboardPayloadFromTsv(text, { firstRowIsHeader: true }));
   }, [columnMetaMap, columnMetaMapByLowerName, copyToClipboard, currentConnConfig, displayOutputColumnNames, getContextMenuTargetRows, translateDataGrid]);
 
   const buildConnConfig = useCallback(() => {

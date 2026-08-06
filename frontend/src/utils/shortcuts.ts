@@ -9,6 +9,7 @@ export type ShortcutAction =
   | 'saveQuery'
   | 'formatSql'
   | 'triggerSqlAiCompletion'
+  | 'acceptSqlAiCompletion'
   | 'toggleQueryResultsPanel'
   | 'sendAIChatMessage'
   | 'focusSidebarSearch'
@@ -111,6 +112,7 @@ export const SHORTCUT_ACTION_ORDER: ShortcutAction[] = [
   'saveQuery',
   'formatSql',
   'triggerSqlAiCompletion',
+  'acceptSqlAiCompletion',
   'toggleQueryResultsPanel',
   'sendAIChatMessage',
   'focusSidebarSearch',
@@ -183,6 +185,13 @@ const SHORTCUT_ACTION_META_DEFINITIONS: Record<ShortcutAction, ShortcutActionMet
     descriptionKey: 'app.shortcuts.action.triggerSqlAiCompletion.description',
     scope: 'queryEditor',
     allowInEditable: true,
+  },
+  acceptSqlAiCompletion: {
+    labelKey: 'app.shortcuts.action.acceptSqlAiCompletion.label',
+    descriptionKey: 'app.shortcuts.action.acceptSqlAiCompletion.description',
+    scope: 'queryEditor',
+    allowInEditable: true,
+    allowWithoutModifier: true,
   },
   toggleQueryResultsPanel: {
     labelKey: 'app.shortcuts.action.toggleQueryResultsPanel.label',
@@ -301,6 +310,10 @@ export const DEFAULT_SHORTCUT_OPTIONS: ShortcutOptions = {
   triggerSqlAiCompletion: {
     mac: { combo: 'Alt+\\', enabled: true },
     windows: { combo: 'Alt+\\', enabled: true },
+  },
+  acceptSqlAiCompletion: {
+    mac: { combo: 'Tab', enabled: true },
+    windows: { combo: 'Tab', enabled: true },
   },
   toggleQueryResultsPanel: {
     mac: { combo: 'Meta+Shift+M', enabled: true },

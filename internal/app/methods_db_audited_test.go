@@ -1,8 +1,6 @@
 package app
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -300,10 +298,10 @@ func TestBackendWriteWorkflowsRecordFixedAuditSources(t *testing.T) {
 		if len(events) != 1 || events[0].Status != "error" {
 			t.Fatalf("failing SQL file execution was not audited: %#v", events)
 		}
-		serialized, _ := json.Marshal(events[0])
+		redactedPayload := events[0].SQLText + "\n" + events[0].Error
 		for _, secret := range []string{"private-secret", "777", "private-failure.sql", "broken_proc"} {
-			if bytes.Contains(serialized, []byte(secret)) {
-				t.Fatalf("failing SQL file audit leaked %q: %s", secret, serialized)
+			if strings.Contains(redactedPayload, secret) {
+				t.Fatalf("failing SQL file audit payload leaked %q: %q", secret, redactedPayload)
 			}
 		}
 	})

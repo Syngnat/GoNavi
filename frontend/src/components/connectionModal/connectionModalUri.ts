@@ -197,6 +197,118 @@ const serializeConnectionParams = (params: URLSearchParams) => {
   return cloned.toString().slice(0, MAX_CONNECTION_PARAMS_LENGTH);
 };
 
+// Oracle 连接定位模式：SID 查询参数。后端白名单与 go-ora 驱动均对参数名做
+// 大小写归一化（oracleConnectionParamNames / ParseConfig 中 strings.ToUpper），
+// 因此这里按大小写不敏感方式读写，避免表单与历史数据大小写不一致导致重复参数。
+
+type OracleConnectionMode = "service" | "sid";
+
+type OracleSIDParamState = {
+  present: boolean;
+  value: string;
+};
+
+const isOracleSIDKey = (key: unknown): boolean =>
+  String(key || "").trim().toUpperCase() === "SID";
+
+const readOracleSIDParam = (rawParams: unknown): OracleSIDParamState => {
+  const text = normalizeConnectionParamsText(rawParams);
+  const params = new URLSearchParams(text);
+  const state: OracleSIDParamState = { present: false, value: "" };
+  params.forEach((value, key) => {
+    if (isOracleSIDKey(key)) {
+      state.present = true;
+      state.value = String(value || "").trim();
+    }
+  });
+  return state;
+};
+
+export const resolveOracleConnectionTarget = (
+  uriParams: unknown,
+  connectionParams?: unknown,
+): { mode: OracleConnectionMode; sid: string } => {
+  const uriSID = readOracleSIDParam(uriParams);
+  const connectionSID = readOracleSIDParam(connectionParams);
+  // 与后端 mergeConnectionParamsFromConfigWithAllowlist 保持一致：
+  // URI 参数先加载，ConnectionParams 中显式存在的 SID（包括空值）后覆盖。
+  const resolvedSID = connectionSID.present ? connectionSID : uriSID;
+  return {
+    mode: resolvedSID.value ? "sid" : "service",
+    sid: resolvedSID.value,
+  };
+};
+
+export const extractOracleSIDParam = (rawParams: unknown): string => {
+  return readOracleSIDParam(rawParams).value;
+};
+
+export const withOracleSIDParam = (
+  rawParams: unknown,
+  sidValue: string,
+): string => {
+  const text = normalizeConnectionParamsText(rawParams);
+  const params = new URLSearchParams(text);
+  const sid = String(sidValue || "").trim();
+  const hasExistingSID = readOracleSIDParam(text).present;
+  if (!hasExistingSID && !sid) return text;
+  const rebuilt = new URLSearchParams();
+  let sidWritten = false;
+  params.forEach((value, key) => {
+    if (isOracleSIDKey(key)) {
+      if (sid && !sidWritten) {
+        rebuilt.append("SID", sid);
+        sidWritten = true;
+      }
+    } else {
+      rebuilt.append(key, value);
+    }
+  });
+  if (!sidWritten && sid) rebuilt.append("SID", sid);
+  return serializeConnectionParams(rebuilt);
+};
+
+export const withoutOracleSIDParam = (rawParams: unknown): string => {
+  const text = normalizeConnectionParamsText(rawParams);
+  if (!text) return "";
+  const params = new URLSearchParams(text);
+  const rebuilt = new URLSearchParams();
+  params.forEach((value, key) => {
+    if (!isOracleSIDKey(key)) {
+      rebuilt.append(key, value);
+    }
+  });
+  return serializeConnectionParams(rebuilt);
+};
+
+// 服务名模式下从连接 URI 中剥离 SID 查询参数（大小写不敏感）。
+// 直接基于 query 分段处理而不是重建 URL 对象，避免对用户粘贴的 URI
+// 引入协议规范化/重新编码等意外差异。
+export const withoutOracleSIDFromURI = (uriText: unknown): string => {
+  const text = String(uriText || "").trim();
+  if (!text) return text;
+  const hashIndex = text.indexOf("#");
+  const beforeHash = hashIndex >= 0 ? text.slice(0, hashIndex) : text;
+  const hash = hashIndex >= 0 ? text.slice(hashIndex) : "";
+  const queryIndex = beforeHash.indexOf("?");
+  if (queryIndex < 0) return text;
+  const base = beforeHash.slice(0, queryIndex);
+  const query = beforeHash.slice(queryIndex + 1);
+  const kept = query.split("&").filter((pair) => {
+    const eq = pair.indexOf("=");
+    const rawKey = (eq >= 0 ? pair.slice(0, eq) : pair).trim();
+    let decodedKey = rawKey;
+    try {
+      decodedKey = decodeURIComponent(rawKey.replace(/\+/g, " "));
+    } catch {
+      // 保留格式异常的原始参数；后端同样不会把无法解析的 query 识别为 SID。
+    }
+    return !isOracleSIDKey(decodedKey);
+  });
+  const rebuilt = kept.length > 0 ? `${base}?${kept.join("&")}` : base;
+  return rebuilt + hash;
+};
+
 export const normalizeOceanBaseConnectionParamsText = (
   rawParams: unknown,
   selectedProtocol: OceanBaseProtocolChoice,
@@ -1012,8 +1124,16 @@ export const parseUriToValues = (
     if (!parsed) {
       return null;
     }
-    if (type === "oracle" && !String(parsed.database || "").trim()) {
-      // Oracle 需要显式 service name，避免 URI 解析后放过必填校验。
+    const oracleTarget =
+      type === "oracle"
+        ? resolveOracleConnectionTarget(parsed.params.toString())
+        : null;
+    if (
+      type === "oracle" &&
+      !String(parsed.database || "").trim() &&
+      !oracleTarget?.sid
+    ) {
+      // Oracle 必须提供 Service Name path 或 SID 查询参数之一。
       return null;
     }
     const parsedValues: Record<string, any> = {
@@ -1021,7 +1141,9 @@ export const parseUriToValues = (
       port: parsed.port,
       user: parsed.username,
       password: parsed.password,
-      database: parsed.database,
+      database:
+        oracleTarget?.mode === "sid" ? oracleTarget.sid : parsed.database,
+      ...(oracleTarget ? { oracleMode: oracleTarget.mode } : {}),
     };
     if (supportsConnectionParamsForType(type)) {
       parsedValues.connectionParams = serializeConnectionParams(parsed.params);
@@ -1624,7 +1746,13 @@ export const buildUriFromValues = (values: any) => {
           ? "https"
           : "http"
         : type;
-  const dbPath = database ? `/${encodeURIComponent(database)}` : "";
+  const oracleSIDMode =
+    type === "oracle" &&
+    String(values.oracleMode || "service")
+      .trim()
+      .toLowerCase() === "sid";
+  const dbPath =
+    !oracleSIDMode && database ? `/${encodeURIComponent(database)}` : "";
   const params = new URLSearchParams();
   if (supportsSSLForType(type) && values.useSSL) {
     const mode = String(values.sslMode || "preferred")
@@ -1691,6 +1819,11 @@ export const buildUriFromValues = (values: any) => {
   if (supportsConnectionParamsForType(type)) {
     mergeConnectionParams(params, values.connectionParams);
   }
-  const query = params.toString();
+  let query = params.toString();
+  if (type === "oracle") {
+    query = oracleSIDMode
+      ? withOracleSIDParam(query, database)
+      : withoutOracleSIDParam(query);
+  }
   return `${scheme}://${encodedAuth}${toAddress(host, port, defaultPort)}${dbPath}${query ? `?${query}` : ""}`;
 };

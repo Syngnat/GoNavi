@@ -23,6 +23,8 @@ export const buildOverlayWorkbenchTheme = (
   options?: {
     disableBackdropFilter?: boolean;
     uiVersion?: 'legacy' | 'v2';
+    /** Resolve V2 surfaces from the document theme variables (used by native detached windows). */
+    useThemeVariables?: boolean;
   },
 ): OverlayWorkbenchTheme => {
   const shellBackdropFilter = resolveTextInputSafeBackdropFilter(
@@ -33,6 +35,52 @@ export const buildOverlayWorkbenchTheme = (
 
   // ─── v2 palette ──────────────────────────────────────────────
   if (uiVersion === 'v2') {
+    if (options?.useThemeVariables) {
+      const fallback = darkMode
+        ? {
+            panel: '#161a21',
+            panel2: '#1b1f27',
+            border1: 'rgba(255,255,255,0.06)',
+            border2: 'rgba(255,255,255,0.10)',
+            fg1: '#f1f3f5',
+            fg4: '#80868f',
+            accent: '#22c55e',
+            accentStrong: '#22c55e',
+            accentSoft: 'rgba(34, 197, 94, 0.16)',
+            hover: 'rgba(255,255,255,0.05)',
+            selected: 'rgba(34, 197, 94, 0.14)',
+          }
+        : {
+            panel: '#ffffff',
+            panel2: '#fafaf8',
+            border1: 'rgba(15,23,42,0.08)',
+            border2: 'rgba(15,23,42,0.12)',
+            fg1: '#0c1322',
+            fg4: '#6b7280',
+            accent: '#15803d',
+            accentStrong: '#15803d',
+            accentSoft: '#dcfce7',
+            hover: 'rgba(15,23,42,0.045)',
+            selected: 'rgba(34, 197, 94, 0.10)',
+          };
+      return {
+        isDark: darkMode,
+        shellBg: `var(--gn-bg-panel, ${fallback.panel})`,
+        shellBorder: `0.5px solid var(--gn-br-1, ${fallback.border1})`,
+        shellShadow: `var(--gn-shadow-lg, ${darkMode ? '0 12px 40px rgba(0,0,0,0.55)' : '0 12px 40px rgba(15,23,42,0.14)'})`,
+        shellBackdropFilter,
+        sectionBg: `var(--gn-bg-panel-2, ${fallback.panel2})`,
+        sectionBorder: `0.5px solid var(--gn-br-2, ${fallback.border2})`,
+        mutedText: `var(--gn-fg-4, ${fallback.fg4})`,
+        titleText: `var(--gn-fg-1, ${fallback.fg1})`,
+        iconBg: `var(--gn-accent-soft, ${fallback.accentSoft})`,
+        iconColor: `var(--gn-accent, ${fallback.accent})`,
+        hoverBg: `var(--gn-bg-hover, ${fallback.hover})`,
+        selectedBg: `var(--gn-bg-selected, ${fallback.selected})`,
+        selectedText: `var(--gn-accent-strong, ${fallback.accentStrong})`,
+        divider: `var(--gn-br-1, ${fallback.border1})`,
+      };
+    }
     if (darkMode) {
       return {
         isDark: true,

@@ -114,6 +114,48 @@ describe('SidebarConnectionRail', () => {
     expect(openDataImport).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the current table locator in the fixed rail when object actions move to the title bar', () => {
+    const locateActiveTab = vi.fn();
+    const noop = vi.fn();
+    const renderer = create(
+      <SidebarConnectionRail
+        labels={{
+          railSystemActions: 'System actions',
+          railObjectActions: 'Object actions',
+          newGroup: 'New group',
+          batchTables: 'Batch tables',
+          batchDatabases: 'Batch databases',
+          dataImport: 'Data import',
+          openExternalSqlFile: 'Open SQL file',
+          locateCurrentTable: 'Locate table',
+          locateCurrentTableUnavailable: 'No table',
+          aiAssistant: 'AI assistant',
+          settings: 'Settings',
+        }}
+        handlers={{
+          openCreateTagModal: noop,
+          openBatchTableExport: noop,
+          openBatchDatabaseExport: noop,
+          openDataImport: noop,
+          openExternalSqlFile: noop,
+          locateActiveTab,
+          toggleAI: noop,
+          openSettings: noop,
+        }}
+        canLocateActiveTab
+        showObjectActions={false}
+      />,
+    );
+
+    const rail = renderer.root.findByProps({ 'data-sidebar-fixed-rail': 'true' });
+    const locateAction = rail.findByProps({ 'data-sidebar-locate-current-tab-action': 'true' });
+
+    expect(rail.findAllByProps({ 'data-sidebar-create-group-action': 'true' })).toHaveLength(0);
+    expect(locateAction.props['aria-label']).toBe('Locate table');
+    locateAction.props.onClick();
+    expect(locateActiveTab).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps workbench actions in the fixed secondary rail above AI and settings', () => {
     const noop = vi.fn();
     const renderer = create(

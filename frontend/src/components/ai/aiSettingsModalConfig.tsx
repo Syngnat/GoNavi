@@ -21,6 +21,7 @@ import {
   QWEN_CODING_PLAN_MODELS,
   resolveProviderPresetKey,
   type ProviderPresetCandidate,
+  type ProviderPresetEndpoint,
 } from '../../utils/aiProviderPresets';
 
 export interface ProviderPreset {
@@ -35,9 +36,17 @@ export interface ProviderPreset {
   fixedApiFormat?: string;
   authMode?: AIProviderAuthMode;
   defaultBaseUrl: string;
+  endpoints?: ProviderPresetEndpoint[];
   defaultModel: string;
   models: string[];
 }
+
+export const MINIMAX_ENDPOINTS: ProviderPresetEndpoint[] = [
+  { backendType: 'anthropic', baseUrl: 'https://api.minimax.io/anthropic' },
+  { backendType: 'anthropic', baseUrl: 'https://api.minimaxi.com/anthropic' },
+  { backendType: 'openai', baseUrl: 'https://api.minimax.io/v1' },
+  { backendType: 'openai', baseUrl: 'https://api.minimaxi.com/v1' },
+];
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { key: 'openai', label: 'OpenAI', labelKey: 'ai_settings.provider_preset.openai.label', icon: <ApiOutlined />, desc: 'GPT-5.4 / 5.3 series', descKey: 'ai_settings.provider_preset.openai.desc', color: '#10b981', backendType: 'openai', defaultBaseUrl: 'https://api.openai.com/v1', defaultModel: 'gpt-4o', models: [] },
@@ -52,7 +61,20 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { key: 'gemini', label: 'Gemini', labelKey: 'ai_settings.provider_preset.gemini.label', icon: <CloudOutlined />, desc: 'Gemini 3.1 / 2.5 series', descKey: 'ai_settings.provider_preset.gemini.desc', color: '#059669', backendType: 'gemini', defaultBaseUrl: 'https://generativelanguage.googleapis.com', defaultModel: 'gemini-2.5-flash', models: [] },
   { key: 'volcengine-ark', label: 'Volcengine Ark', labelKey: 'ai_settings.provider_preset.volcengine_ark.label', icon: <CloudOutlined />, desc: 'Ark general inference / Doubao models', descKey: 'ai_settings.provider_preset.volcengine_ark.desc', color: '#0ea5e9', backendType: 'openai', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: '', models: [] },
   { key: 'volcengine-coding', label: 'Volcengine Coding Plan', labelKey: 'ai_settings.provider_preset.volcengine_coding.label', icon: <CloudOutlined />, desc: 'Ark Code / Coding Plan', descKey: 'ai_settings.provider_preset.volcengine_coding.desc', color: '#0284c7', backendType: 'openai', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3', defaultModel: '', models: [] },
-  { key: 'minimax', label: 'MiniMax', labelKey: 'ai_settings.provider_preset.minimax.label', icon: <ExperimentOutlined />, desc: 'M3 / M2.7 series (Anthropic-compatible)', descKey: 'ai_settings.provider_preset.minimax.desc', color: '#e11d48', backendType: 'anthropic', defaultBaseUrl: 'https://api.minimaxi.com/anthropic', defaultModel: 'MiniMax-M3', models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed'] },
+  {
+    key: 'minimax',
+    label: 'MiniMax',
+    labelKey: 'ai_settings.provider_preset.minimax.label',
+    icon: <ExperimentOutlined />,
+    desc: 'M3 / M2.7 series (Anthropic-compatible)',
+    descKey: 'ai_settings.provider_preset.minimax.desc',
+    color: '#e11d48',
+    backendType: 'anthropic',
+    defaultBaseUrl: MINIMAX_ENDPOINTS[0].baseUrl,
+    endpoints: MINIMAX_ENDPOINTS,
+    defaultModel: 'MiniMax-M3',
+    models: ['MiniMax-M3', 'MiniMax-M2.7', 'MiniMax-M2.7-highspeed'],
+  },
   { key: 'codebuddy', label: 'CodeBuddy', labelKey: 'ai_settings.provider_preset.codebuddy.label', icon: <ApiOutlined />, desc: 'Local CodeBuddy CLI / official login session', descKey: 'ai_settings.provider_preset.codebuddy.desc', color: '#2563eb', backendType: 'custom', fixedApiFormat: 'codebuddy-cli', defaultBaseUrl: '', defaultModel: '', models: [] },
   { key: 'cursor', label: 'Cursor', labelKey: 'ai_settings.provider_preset.cursor.label', icon: <ApiOutlined />, desc: 'Cloud Agents API / official API Key', descKey: 'ai_settings.provider_preset.cursor.desc', color: '#7c3aed', backendType: 'custom', fixedApiFormat: 'cursor-agent', defaultBaseUrl: 'https://api.cursor.com/v1', defaultModel: '', models: [] },
   { key: 'ollama', label: 'Ollama', labelKey: 'ai_settings.provider_preset.ollama.label', icon: <AppstoreOutlined />, desc: 'Locally deployed open-source models', descKey: 'ai_settings.provider_preset.ollama.desc', color: '#78716c', backendType: 'openai', defaultBaseUrl: 'http://localhost:11434/v1', defaultModel: 'llama3', models: [] },

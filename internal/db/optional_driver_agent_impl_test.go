@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -93,6 +94,86 @@ type optionalAgentTestWriteCloser struct {
 }
 
 func (w *optionalAgentTestWriteCloser) Close() error { return nil }
+
+func TestOptionalDriverAgentTableExistsUsesCapabilityMethod(t *testing.T) {
+	var stdin optionalAgentTestWriteCloser
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		reader: bufio.NewReader(strings.NewReader(`{"id":1,"success":true,"data":true}` + "\n")),
+		driver: "elasticsearch",
+	}
+	database := &OptionalDriverAgentDB{driverType: "elasticsearch", client: client}
+
+	exists, err := database.TableExists("analytics", "orders-2026")
+	if err != nil {
+		t.Fatalf("TableExists returned error: %v", err)
+	}
+	if !exists {
+		t.Fatal("TableExists should decode the agent response")
+	}
+
+	var request optionalAgentRequest
+	if err := json.Unmarshal(bytes.TrimSpace(stdin.Bytes()), &request); err != nil {
+		t.Fatalf("decode agent request: %v", err)
+	}
+	if request.Method != optionalAgentMethodTableExists || request.DBName != "analytics" || request.TableName != "orders-2026" {
+		t.Fatalf("unexpected agent request: %#v", request)
+	}
+}
+
+func TestOptionalDriverAgentTableExistsFallsBackForLegacyAgent(t *testing.T) {
+	var stdin optionalAgentTestWriteCloser
+	stdout := strings.Join([]string{
+		`{"id":1,"success":false,"error":"不支持的方法"}`,
+		`{"id":2,"success":true,"data":["dbo.users","audit.Users"]}`,
+	}, "\n") + "\n"
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		reader: bufio.NewReader(strings.NewReader(stdout)),
+		driver: "sqlserver",
+	}
+	database := &OptionalDriverAgentDB{driverType: "sqlserver", client: client}
+
+	exists, err := database.TableExists("main", "dbo.users")
+	if err != nil {
+		t.Fatalf("legacy fallback returned error: %v", err)
+	}
+	if !exists {
+		t.Fatal("legacy fallback should use the exact table list")
+	}
+
+	lines := bytes.Split(bytes.TrimSpace(stdin.Bytes()), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("expected capability probe and fallback request, got %d lines", len(lines))
+	}
+	var first, second optionalAgentRequest
+	if err := json.Unmarshal(lines[0], &first); err != nil {
+		t.Fatalf("decode capability request: %v", err)
+	}
+	if err := json.Unmarshal(lines[1], &second); err != nil {
+		t.Fatalf("decode fallback request: %v", err)
+	}
+	if first.Method != optionalAgentMethodTableExists || second.Method != optionalAgentMethodGetTables {
+		t.Fatalf("unexpected fallback sequence: %q then %q", first.Method, second.Method)
+	}
+}
+
+func TestOptionalDriverAgentTableExistsDoesNotHideCapabilityErrors(t *testing.T) {
+	var stdin optionalAgentTestWriteCloser
+	client := &optionalDriverAgentClient{
+		stdin:  &stdin,
+		reader: bufio.NewReader(strings.NewReader(`{"id":1,"success":false,"error":"metadata permission denied"}` + "\n")),
+		driver: "elasticsearch",
+	}
+	database := &OptionalDriverAgentDB{driverType: "elasticsearch", client: client}
+
+	if _, err := database.TableExists("analytics", "orders-2026"); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("expected capability error without fallback, got %v", err)
+	}
+	if lines := bytes.Count(bytes.TrimSpace(stdin.Bytes()), []byte("\n")); lines != 0 {
+		t.Fatalf("unexpected fallback request after capability error: %q", stdin.String())
+	}
+}
 
 type optionalAgentSignalingWriteCloser struct {
 	writes chan []byte
@@ -594,6 +675,60 @@ func TestOptionalDriverAgentDBQueryWithMessagesParsesAgentMessages(t *testing.T)
 	}
 	if !strings.Contains(stdin.String(), `"method":"query"`) {
 		t.Fatalf("请求未使用 query 方法: %s", stdin.String())
+	}
+}
+
+func TestOptionalDriverAgentDBExecutesElasticsearchConsoleRequest(t *testing.T) {
+	var stdin optionalAgentTestWriteCloser
+	stdout := `{"id":1,"success":true,"data":{"statusCode":400,"contentType":"application/json","rawBody":"{\"error\":{\"type\":\"parsing_exception\"},\"status\":400}","serverMajor":8}}` + "\n"
+	database := &OptionalDriverAgentDB{
+		driverType: "elasticsearch",
+		client: &optionalDriverAgentClient{
+			stdin:  &stdin,
+			reader: bufio.NewReader(strings.NewReader(stdout)),
+			driver: "elasticsearch",
+		},
+	}
+	request := ElasticsearchConsoleRequest{
+		Method:   "POST",
+		Path:     "/orders/_search",
+		Body:     `{"query":`,
+		BodyKind: ElasticsearchConsoleBodyKindJSON,
+	}
+
+	response, err := database.ExecuteElasticsearchConsoleRequest(context.Background(), request)
+	if err != nil {
+		t.Fatalf("execute console request: %v", err)
+	}
+	if response.StatusCode != 400 || response.ServerMajor != 8 {
+		t.Fatalf("unexpected response: %#v", response)
+	}
+	if !strings.Contains(response.RawBody, `"parsing_exception"`) {
+		t.Fatalf("raw response was not preserved: %q", response.RawBody)
+	}
+
+	var wireRequest struct {
+		Method               string                       `json:"method"`
+		ElasticsearchRequest *ElasticsearchConsoleRequest `json:"elasticsearchRequest"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(stdin.Bytes()), &wireRequest); err != nil {
+		t.Fatalf("decode agent request: %v", err)
+	}
+	if wireRequest.Method != optionalAgentMethodElasticsearchConsole {
+		t.Fatalf("unexpected agent method: %q", wireRequest.Method)
+	}
+	if wireRequest.ElasticsearchRequest == nil || *wireRequest.ElasticsearchRequest != request {
+		t.Fatalf("console request was not preserved: %#v", wireRequest.ElasticsearchRequest)
+	}
+}
+
+func TestOptionalDriverAgentDBProvidesCachedElasticsearchServerMajor(t *testing.T) {
+	var provider ElasticsearchServerVersionProvider = &OptionalDriverAgentDB{
+		driverType:  "elasticsearch",
+		serverMajor: 8,
+	}
+	if got := provider.ElasticsearchServerMajor(); got != 8 {
+		t.Fatalf("unexpected cached Elasticsearch server major: %d", got)
 	}
 }
 

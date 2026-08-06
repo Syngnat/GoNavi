@@ -386,6 +386,14 @@ export const buildDataGridCssText = ({
                 .${gridId} .data-grid-row-number-cell {
                     text-align: center !important;
                     overflow: hidden !important;
+                    padding: 0 !important;
+                }
+                .${gridId} .ant-table-tbody-virtual-holder .ant-table-row > .ant-table-cell.data-grid-row-number-cell,
+                .${gridId} .ant-table-tbody .ant-table-row > .ant-table-cell.data-grid-row-number-cell,
+                .${gridId} .ant-table-header th.data-grid-row-number-cell,
+                body[data-ui-version="v2"] .${gridId}.gn-v2-data-grid .ant-table-tbody-virtual-holder .ant-table-row > .ant-table-cell.data-grid-row-number-cell,
+                body[data-ui-version="v2"] .${gridId}.gn-v2-data-grid .ant-table-tbody .ant-table-row > .ant-table-cell.data-grid-row-number-cell {
+                    padding: 0 !important;
                 }
 .${gridId} .ant-table-thead > tr:first-child > th:first-child,
 
@@ -606,6 +614,152 @@ export const buildDataGridCssText = ({
                     background: ${darkMode ? 'rgba(246, 196, 83, 0.42)' : 'rgba(255, 193, 7, 0.42)'};
 
                     color: inherit;
+
+                }
+
+                .${gridId} .data-grid-record-json-field-match {
+
+                    padding: 0 1px;
+
+                    border-radius: 3px;
+
+                    background: ${darkMode ? 'rgba(246, 196, 83, 0.22)' : 'rgba(255, 193, 7, 0.22)'};
+
+                    box-shadow: inset 0 -1px 0 ${darkMode ? 'rgba(246, 196, 83, 0.7)' : 'rgba(181, 132, 0, 0.65)'};
+
+                }
+
+                .${gridId} .data-grid-record-json-field-match-active {
+
+                    background: ${darkMode ? 'rgba(246, 196, 83, 0.48)' : 'rgba(255, 193, 7, 0.48)'};
+
+                    outline: 1px solid ${darkMode ? 'rgba(246, 196, 83, 0.92)' : 'rgba(181, 132, 0, 0.86)'};
+
+                }
+
+                .${gridId} .data-grid-record-field-search {
+
+                    display: inline-flex;
+
+                    align-items: center;
+
+                    gap: 4px;
+
+                    height: 24px;
+
+                    min-height: 24px;
+
+                }
+
+                .${gridId} .data-grid-record-field-search-autocomplete,
+
+                .${gridId} .data-grid-record-field-search-autocomplete .ant-select-selector,
+
+                .${gridId} .data-grid-record-field-search .ant-input-affix-wrapper {
+
+                    height: 24px !important;
+
+                    min-height: 24px !important;
+
+                    box-sizing: border-box !important;
+
+                }
+
+                .${gridId} .data-grid-record-field-search-autocomplete,
+
+                .${gridId} .data-grid-record-field-search .ant-input-affix-wrapper {
+
+                    display: inline-flex !important;
+
+                    align-items: center !important;
+
+                }
+
+                .${gridId} .data-grid-record-field-search .ant-input-affix-wrapper {
+
+                    padding-top: 0 !important;
+
+                    padding-bottom: 0 !important;
+
+                }
+
+                .${gridId} .data-grid-record-field-search .ant-input,
+
+                .${gridId} .data-grid-record-field-search .ant-input::placeholder {
+
+                    font-size: 12px !important;
+
+                }
+
+                .${gridId} .data-grid-record-field-search .ant-input-affix-wrapper-focused,
+
+                .${gridId} .data-grid-record-field-search .ant-input-affix-wrapper:focus,
+
+                .${gridId} .data-grid-record-field-search .ant-input-affix-wrapper:focus-within,
+
+                .${gridId} .data-grid-record-field-search-autocomplete.ant-select-focused,
+
+                .${gridId} .data-grid-record-field-search-autocomplete.ant-select-focused .ant-select-selector,
+
+                .${gridId} .data-grid-record-field-search .ant-input:focus,
+
+                .${gridId} .data-grid-record-field-search .ant-input:focus-visible {
+
+                    outline: none !important;
+
+                    box-shadow: none !important;
+
+                }
+
+                .${gridId} .data-grid-record-field-search-navigation.ant-btn {
+
+                    display: inline-flex !important;
+
+                    align-items: center !important;
+
+                    justify-content: center !important;
+
+                    align-self: center !important;
+
+                    width: 24px !important;
+
+                    min-width: 24px !important;
+
+                    height: 24px !important;
+
+                    min-height: 24px !important;
+
+                    margin: 0 !important;
+
+                    padding: 0 !important;
+
+                    line-height: 1 !important;
+
+                    box-sizing: border-box !important;
+
+                }
+
+                .${gridId} .data-grid-record-field-search-position {
+
+                    display: inline-flex;
+
+                    align-items: center;
+
+                    justify-content: flex-end;
+
+                    min-width: 42px;
+
+                    height: 24px;
+
+                    font-size: 12px;
+
+                    line-height: 24px;
+
+                    opacity: 0.66;
+
+                    white-space: nowrap;
+
+                    text-align: right;
 
                 }
 

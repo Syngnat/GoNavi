@@ -17,6 +17,14 @@ import {
   getDriverLocalImportSingleFileHelp,
 } from '../utils/driverImportGuidance';
 import {
+  createDriverStatusSnapshotRegistry,
+  normalizeDriverStatusRequestKey,
+  restoreDriverNetworkSnapshot,
+  restoreDriverStatusSnapshot,
+  settleLatestDriverRequest,
+  type DriverStatusSnapshot as DriverStatusSnapshotState,
+} from '../utils/driverManagerRequestState';
+import {
   CheckDriverNetworkStatus,
   DownloadDriverPackage,
   GetDriverVersionList,
@@ -129,6 +137,72 @@ type DriverVersionOption = {
 
 const buildVersionOptionKey = (option: DriverVersionOption) => `${option.version}@@${option.downloadUrl}`;
 const buildVersionSizeLoadingKey = (driverType: string, optionKey: string) => `${driverType}@@${optionKey}`;
+const buildFallbackVersionOptions = (row: DriverStatusRow): DriverVersionOption[] => {
+  const pinnedVersion = String(row.pinnedVersion || '').trim();
+  const installedVersion = String(row.installedVersion || '').trim();
+  const version = row.needsUpdate
+    ? pinnedVersion || installedVersion
+    : installedVersion || pinnedVersion;
+  const downloadUrl = String(row.defaultDownloadUrl || '').trim();
+  if (!version && !downloadUrl) {
+    return [];
+  }
+  const recommended = !!version && version === pinnedVersion;
+  const baseLabel = version || t('driver.modal.version.default');
+  return [{
+    version,
+    downloadUrl,
+    recommended,
+    source: 'status-fallback',
+    displayLabel: recommended
+      ? `${baseLabel}${t('driver_manager.version.recommended_suffix')}`
+      : baseLabel,
+  }];
+};
+const mergeFallbackVersionOptions = (
+  row: DriverStatusRow,
+  options: DriverVersionOption[],
+): DriverVersionOption[] => {
+  const fallbackOption = buildFallbackVersionOptions(row)[0];
+  if (!fallbackOption) {
+    return options;
+  }
+  const fallbackVersion = String(fallbackOption.version || '').trim();
+  const fallbackExists = fallbackVersion
+    ? options.some((item) => String(item.version || '').trim() === fallbackVersion)
+    : options.some((item) => buildVersionOptionKey(item) === buildVersionOptionKey(fallbackOption));
+  return fallbackExists ? options : [...options, fallbackOption];
+};
+const resolvePreferredVersionOption = (
+  row: DriverStatusRow,
+  options: DriverVersionOption[],
+  selectedKey?: string,
+): DriverVersionOption | undefined => {
+  if (selectedKey) {
+    const exactMatch = options.find((item) => buildVersionOptionKey(item) === selectedKey);
+    if (exactMatch) {
+      return exactMatch;
+    }
+    const separatorIndex = selectedKey.indexOf('@@');
+    const selectedVersion = separatorIndex >= 0
+      ? selectedKey.slice(0, separatorIndex).trim()
+      : '';
+    if (selectedVersion) {
+      const versionMatch = options.find((item) => String(item.version || '').trim() === selectedVersion);
+      if (versionMatch) {
+        return versionMatch;
+      }
+    }
+  }
+  return (
+    (row.needsUpdate ? options.find((item) => item.version === row.pinnedVersion) : undefined) ||
+    (row.needsUpdate ? options.find((item) => item.recommended) : undefined) ||
+    options.find((item) => item.version === row.installedVersion) ||
+    options.find((item) => item.version === row.pinnedVersion) ||
+    options.find((item) => item.recommended) ||
+    options[0]
+  );
+};
 const DRIVER_STATUS_CACHE_TTL_MS = 60 * 1000;
 const DRIVER_NETWORK_CACHE_TTL_MS = 5 * 60 * 1000;
 const DRIVER_INSTALL_WATCHDOG_MS = 12 * 60 * 1000;
@@ -403,8 +477,45 @@ const createDriverBatchProgress = (total: number, currentMessage: string): Drive
   currentMessage,
 });
 
-let driverStatusSnapshotCache: { rows: DriverStatusRow[]; downloadDir: string; cachedAt: number } | null = null;
+const driverStatusSnapshots = createDriverStatusSnapshotRegistry<DriverStatusRow>();
 let driverNetworkSnapshotCache: { status: DriverNetworkStatus; cachedAt: number } | null = null;
+let driverStatusSnapshotIntentSequence = 0;
+type DriverStatusBackendResult = Awaited<ReturnType<typeof GetDriverStatusList>>;
+type DriverNetworkBackendResult = Awaited<ReturnType<typeof CheckDriverNetworkStatus>>;
+const driverStatusInFlightRequests = new Map<string, Promise<DriverStatusBackendResult>>();
+let driverNetworkInFlightRequest: Promise<DriverNetworkBackendResult> | null = null;
+
+const requestDriverStatusShared = (downloadDir: string): Promise<DriverStatusBackendResult> => {
+  const requestKey = normalizeDriverStatusRequestKey(downloadDir);
+  const pendingRequest = driverStatusInFlightRequests.get(requestKey);
+  if (pendingRequest) {
+    return pendingRequest;
+  }
+  const request = Promise.resolve()
+    .then(() => GetDriverStatusList(downloadDir, ''))
+    .finally(() => {
+      if (driverStatusInFlightRequests.get(requestKey) === request) {
+        driverStatusInFlightRequests.delete(requestKey);
+      }
+    });
+  driverStatusInFlightRequests.set(requestKey, request);
+  return request;
+};
+
+const requestDriverNetworkStatusShared = (): Promise<DriverNetworkBackendResult> => {
+  if (driverNetworkInFlightRequest) {
+    return driverNetworkInFlightRequest;
+  }
+  const request = Promise.resolve()
+    .then(() => CheckDriverNetworkStatus())
+    .finally(() => {
+      if (driverNetworkInFlightRequest === request) {
+        driverNetworkInFlightRequest = null;
+      }
+    });
+  driverNetworkInFlightRequest = request;
+  return request;
+};
 
 const isFreshCache = (cachedAt: number, ttlMs: number): boolean => Date.now() - cachedAt <= ttlMs;
 
@@ -472,12 +583,12 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     () => buildDriverManagerWorkbenchTheme(darkMode, opacity),
     [darkMode, opacity, appearance.uiVersion],
   );
-  const [loading, setLoading] = useState(false);
-  const [downloadDir, setDownloadDir] = useState('');
-  const [networkChecking, setNetworkChecking] = useState(false);
-  const [networkStatus, setNetworkStatus] = useState<DriverNetworkStatus | null>(null);
+  const [loading, setLoading] = useState(() => open && !driverStatusSnapshots.getPreferred());
+  const [downloadDir, setDownloadDir] = useState(() => driverStatusSnapshots.getPreferred()?.downloadDir || '');
+  const [networkChecking, setNetworkChecking] = useState(() => open && !driverNetworkSnapshotCache);
+  const [networkStatus, setNetworkStatus] = useState<DriverNetworkStatus | null>(() => driverNetworkSnapshotCache?.status || null);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [rows, setRows] = useState<DriverStatusRow[]>([]);
+  const [rows, setRows] = useState<DriverStatusRow[]>(() => driverStatusSnapshots.getPreferred()?.rows || []);
   const [actionState, setActionState] = useState<{ driverType: string; kind: DriverActionKind }>({ driverType: '', kind: '' });
   const [batchAction, setBatchAction] = useState<DriverBatchActionKind>('');
   const [batchProgress, setBatchProgress] = useState<DriverBatchProgressState | null>(null);
@@ -493,12 +604,20 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
   const [versionSizeLoadingMap, setVersionSizeLoadingMap] = useState<Record<string, boolean>>({});
   const downloadDirRef = useRef(downloadDir);
   const progressMapRef = useRef<Record<string, DriverProgressState>>({});
+  const versionLoadPromiseMapRef = useRef<Record<string, Promise<DriverVersionOption[]>>>({});
+  const statusRequestGenerationRef = useRef(0);
+  const networkRequestGenerationRef = useRef(0);
   const batchBusy = batchDirectoryImporting || batchAction !== '';
   const installMutatingBusy = batchBusy || actionState.kind !== '';
 
   useEffect(() => {
     downloadDirRef.current = downloadDir;
   }, [downloadDir]);
+
+  useEffect(() => () => {
+    statusRequestGenerationRef.current += 1;
+    networkRequestGenerationRef.current += 1;
+  }, []);
 
   const resolveDriverErrorMessage = useCallback((
     rawMessage: unknown,
@@ -620,12 +739,21 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     toastOnError = true,
     options?: { showLoading?: boolean },
   ) => {
+    const requestGeneration = statusRequestGenerationRef.current + 1;
+    statusRequestGenerationRef.current = requestGeneration;
+    const snapshotIntentSequence = driverStatusSnapshotIntentSequence + 1;
+    driverStatusSnapshotIntentSequence = snapshotIntentSequence;
+    const requestedDownloadDir = downloadDirRef.current;
+    const requestKey = driverStatusSnapshots.beginRequest(requestedDownloadDir, snapshotIntentSequence);
     const showLoading = options?.showLoading ?? true;
     if (showLoading) {
       setLoading(true);
     }
     try {
-      const res = await GetDriverStatusList(downloadDirRef.current, '');
+      const res = await requestDriverStatusShared(requestedDownloadDir);
+      if (requestGeneration !== statusRequestGenerationRef.current) {
+        return;
+      }
       if (!res?.success) {
         if (toastOnError) {
           message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.statusFetch'), 'driver.modal.error.statusFetchWithDetail'));
@@ -637,7 +765,7 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       const resolvedDir = String(data.downloadDir || '').trim();
       const drivers = Array.isArray(data.drivers) ? data.drivers : [];
 
-      const effectiveDownloadDir = resolvedDir || downloadDirRef.current;
+      const effectiveDownloadDir = resolvedDir || requestedDownloadDir;
       if (resolvedDir) {
         setDownloadDir(resolvedDir);
       }
@@ -668,19 +796,23 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
         message: String(item.message || '').trim() || undefined,
       }));
       setRows(nextRows);
-      driverStatusSnapshotCache = {
+      const snapshot: DriverStatusSnapshotState<DriverStatusRow> = {
         rows: nextRows,
         downloadDir: effectiveDownloadDir,
         cachedAt: Date.now(),
+        intentSequence: snapshotIntentSequence,
       };
+      driverStatusSnapshots.write(requestKey, snapshot);
+      const resolvedRequestKey = normalizeDriverStatusRequestKey(effectiveDownloadDir);
+      if (resolvedRequestKey !== requestKey) {
+        driverStatusSnapshots.write(resolvedRequestKey, snapshot);
+      }
     } catch (err: any) {
-      if (toastOnError) {
+      if (requestGeneration === statusRequestGenerationRef.current && toastOnError) {
         message.error(t('driver.modal.error.statusFetchWithDetail', { detail: err?.message || String(err) }));
       }
     } finally {
-      if (showLoading) {
-        setLoading(false);
-      }
+      settleLatestDriverRequest(requestGeneration, statusRequestGenerationRef.current, setLoading);
     }
   }, [resolveDriverErrorMessage]);
 
@@ -688,12 +820,17 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     toastOnError = false,
     options?: { showLoading?: boolean },
   ) => {
+    const requestGeneration = networkRequestGenerationRef.current + 1;
+    networkRequestGenerationRef.current = requestGeneration;
     const showLoading = options?.showLoading ?? true;
     if (showLoading) {
       setNetworkChecking(true);
     }
     try {
-      const res = await CheckDriverNetworkStatus();
+      const res = await requestDriverNetworkStatusShared();
+      if (requestGeneration !== networkRequestGenerationRef.current) {
+        return;
+      }
       if (!res?.success) {
         if (toastOnError) {
           message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.networkCheck'), 'driver.modal.error.networkCheckWithDetail'));
@@ -738,13 +875,11 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
         cachedAt: Date.now(),
       };
     } catch (err: any) {
-      if (toastOnError) {
+      if (requestGeneration === networkRequestGenerationRef.current && toastOnError) {
         message.error(t('driver.modal.error.networkCheckWithDetail', { detail: err?.message || String(err) }));
       }
     } finally {
-      if (showLoading) {
-        setNetworkChecking(false);
-      }
+      settleLatestDriverRequest(requestGeneration, networkRequestGenerationRef.current, setNetworkChecking);
     }
   }, [resolveDriverErrorMessage]);
 
@@ -756,6 +891,17 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     if (!driverType) {
       return [] as DriverVersionOption[];
     }
+    const pendingRequest = versionLoadPromiseMapRef.current[driverType];
+    if (pendingRequest) {
+      return pendingRequest;
+    }
+
+    let settlePendingRequest!: (options: DriverVersionOption[]) => void;
+    const request = new Promise<DriverVersionOption[]>((resolve) => {
+      settlePendingRequest = resolve;
+    });
+    versionLoadPromiseMapRef.current[driverType] = request;
+    let requestResult = buildFallbackVersionOptions(row);
     setVersionLoadingMap((prev) => ({ ...prev, [driverType]: true }));
     try {
       const res = await GetDriverVersionList(driverType, '');
@@ -763,11 +909,11 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
         if (toastOnError) {
           message.error(resolveDriverErrorMessage(res?.message, t('driver.modal.error.versionList', { name: row.name }), 'driver.modal.error.versionListLoad', { name: row.name }));
         }
-        return [] as DriverVersionOption[];
+        return requestResult;
       }
       const data = (res?.data || {}) as any;
       const rawVersions = Array.isArray(data.versions) ? data.versions : [];
-      const options: DriverVersionOption[] = rawVersions
+      const normalizedOptions: DriverVersionOption[] = rawVersions
         .map((item: any) => {
           const version = String(item.version || '').trim();
           const downloadUrl = String(item.downloadUrl || '').trim();
@@ -786,46 +932,33 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
         })
         .filter((item: DriverVersionOption | null): item is DriverVersionOption => !!item);
 
-      if (options.length === 0) {
-        const fallbackVersion = String(row.pinnedVersion || '').trim();
-        const fallbackURL = String(row.defaultDownloadUrl || '').trim();
-        if (fallbackVersion || fallbackURL) {
-          options.push({
-            version: fallbackVersion,
-            downloadUrl: fallbackURL,
-            recommended: true,
-            source: 'fallback',
-            displayLabel: fallbackVersion || t('driver.modal.version.default'),
-          });
-        }
-      }
+      const options = mergeFallbackVersionOptions(row, normalizedOptions);
 
+      requestResult = options;
       setVersionMap((prev) => ({ ...prev, [driverType]: options }));
       setSelectedVersionMap((prev) => {
         const currentKey = prev[driverType];
-        if (currentKey && options.some((option) => buildVersionOptionKey(option) === currentKey)) {
-          return prev;
-        }
-        const preferred =
-          (row.needsUpdate ? options.find((option) => option.version === row.pinnedVersion) : undefined) ||
-          (row.needsUpdate ? options.find((option) => option.recommended) : undefined) ||
-          options.find((option) => option.version === row.installedVersion) ||
-          options.find((option) => option.version === row.pinnedVersion) ||
-          options.find((option) => option.recommended) ||
-          options[0];
+        const preferred = resolvePreferredVersionOption(row, options, currentKey);
         if (!preferred) {
           return prev;
         }
-        return { ...prev, [driverType]: buildVersionOptionKey(preferred) };
+        const preferredKey = buildVersionOptionKey(preferred);
+        return currentKey === preferredKey
+          ? prev
+          : { ...prev, [driverType]: preferredKey };
       });
-      return options;
+      return requestResult;
     } catch (err: any) {
       if (toastOnError) {
         message.error(t('driver.modal.error.versionListLoad', { name: row.name, detail: err?.message || String(err) }));
       }
-      return [] as DriverVersionOption[];
+      return requestResult;
     } finally {
       setVersionLoadingMap((prev) => ({ ...prev, [driverType]: false }));
+      settlePendingRequest(requestResult);
+      if (versionLoadPromiseMapRef.current[driverType] === request) {
+        delete versionLoadPromiseMapRef.current[driverType];
+      }
     }
   }, [resolveDriverErrorMessage]);
 
@@ -904,14 +1037,16 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       return;
     }
 
-    const cachedStatus = driverStatusSnapshotCache;
+    const cachedStatus = driverStatusSnapshots.getPreferred();
     const hasCachedStatus = !!cachedStatus;
-    if (cachedStatus) {
-      setRows(cachedStatus.rows);
-      if (cachedStatus.downloadDir) {
-        setDownloadDir(cachedStatus.downloadDir);
-      }
-    }
+    restoreDriverStatusSnapshot(cachedStatus, {
+      setRows,
+      setLoading,
+      setDownloadDir: (nextDownloadDir) => {
+        downloadDirRef.current = nextDownloadDir;
+        setDownloadDir(nextDownloadDir);
+      },
+    });
     const shouldRefreshStatus = !cachedStatus || !isFreshCache(cachedStatus.cachedAt, DRIVER_STATUS_CACHE_TTL_MS);
     if (shouldRefreshStatus) {
       void refreshStatus(false, { showLoading: !hasCachedStatus });
@@ -919,9 +1054,10 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
 
     const cachedNetwork = driverNetworkSnapshotCache;
     const hasCachedNetwork = !!cachedNetwork;
-    if (cachedNetwork) {
-      setNetworkStatus(cachedNetwork.status);
-    }
+    restoreDriverNetworkSnapshot(cachedNetwork, {
+      setStatus: setNetworkStatus,
+      setLoading: setNetworkChecking,
+    });
     const shouldRefreshNetwork = !cachedNetwork || !isFreshCache(cachedNetwork.cachedAt, DRIVER_NETWORK_CACHE_TTL_MS);
     if (shouldRefreshNetwork) {
       void checkNetworkStatus(false, { showLoading: !hasCachedNetwork });
@@ -968,12 +1104,9 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
   }, [appendOperationLog, updateDriverProgress]);
 
   const resolveLocalImportVersion = useCallback((row: DriverStatusRow) => {
-    const options = versionMap[row.type] || [];
-    const selectedKey = selectedVersionMap[row.type];
-    const selectedOption =
-      options.find((item) => buildVersionOptionKey(item) === selectedKey) ||
-      options.find((item) => item.recommended) ||
-      options[0];
+    const loadedOptions = versionMap[row.type] || [];
+    const options = loadedOptions.length > 0 ? loadedOptions : buildFallbackVersionOptions(row);
+    const selectedOption = resolvePreferredVersionOption(row, options, selectedVersionMap[row.type]);
     return selectedOption?.version || row.pinnedVersion || '';
   }, [selectedVersionMap, versionMap]);
 
@@ -1017,13 +1150,15 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       if (versionOptions.length === 0) {
         versionOptions = await loadVersionOptions(row, true);
       }
-      const selectedKey = selectedVersionMap[row.type];
-      const selectedOption =
-        versionOptions.find((item) => buildVersionOptionKey(item) === selectedKey) ||
-        (row.needsUpdate ? versionOptions.find((item) => item.version === row.pinnedVersion) : undefined) ||
-        (row.needsUpdate ? versionOptions.find((item) => item.recommended) : undefined) ||
-        versionOptions.find((item) => item.recommended) ||
-        versionOptions[0];
+      const fallbackOptions = buildFallbackVersionOptions(row);
+      const fallbackSelectedKey = fallbackOptions[0]
+        ? buildVersionOptionKey(fallbackOptions[0])
+        : undefined;
+      const selectedOption = resolvePreferredVersionOption(
+        row,
+        versionOptions,
+        selectedVersionMap[row.type] || fallbackSelectedKey,
+      );
       const selectedVersion = selectedOption?.version || row.pinnedVersion || '';
       const selectedDownloadURL = selectedOption?.downloadUrl || row.defaultDownloadUrl || '';
 
@@ -1364,6 +1499,9 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     } else if (progress && (progress.status === 'start' || progress.status === 'downloading')) {
       percent = Math.max(1, Math.min(99, Math.round(progress.percent || 0)));
       status = 'active';
+    } else if (progress?.status === 'done') {
+      percent = 100;
+      status = 'success';
     } else if (row.connectable || row.packageInstalled) {
       percent = 100;
       status = 'success';
@@ -1377,15 +1515,29 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       return <Text type="secondary">{t('driver.modal.card.noInstallNeeded')}</Text>;
     }
 
-    const options = versionMap[row.type] || [];
-    const selectedKey = selectedVersionMap[row.type];
+    const loadedOptions = versionMap[row.type] || [];
+    const options = loadedOptions.length > 0 ? loadedOptions : buildFallbackVersionOptions(row);
+    const preferredOption = resolvePreferredVersionOption(row, options, selectedVersionMap[row.type]);
+    const selectedKey = preferredOption ? buildVersionOptionKey(preferredOption) : undefined;
     const selectOptions = buildVersionSelectOptions(options);
     const installedVersion = resolveInstalledDriverVersion(row);
     const versionSwitchPending = isDriverVersionSwitchPending(row);
     const selectedOption = resolveSelectedVersionOption(row);
+    const selectedOptionFromKey = selectedKey
+      ? options.find((item) => buildVersionOptionKey(item) === selectedKey)
+      : undefined;
+    const selectedVersionMatchesInstalled = !!installedVersion
+      && String(selectedOptionFromKey?.version || '').trim() === installedVersion;
+    const showInstalledVersion = !!installedVersion && !selectedVersionMatchesInstalled;
     const mongoHint = row.type === 'mongodb'
       ? t('driver.modal.card.mongodbVersionHint')
       : '';
+    const versionSummaryId = `driver-manager-${row.type}-version-summary`;
+    const versionHintId = `driver-manager-${row.type}-version-hint`;
+    const versionDescription = [
+      (row.packageInstalled || row.connectable) ? versionSummaryId : '',
+      mongoHint ? versionHintId : '',
+    ].filter(Boolean).join(' ');
     return (
       <div className="driver-manager-version-control">
         <Select
@@ -1396,8 +1548,9 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           placeholder={options.length > 0 ? t('driver.modal.card.versionPlaceholder.select') : t('driver.modal.card.versionPlaceholder.load')}
           value={selectedKey}
           options={selectOptions as any}
+          aria-describedby={versionDescription || undefined}
           onOpenChange={(open) => {
-            if (open && options.length === 0 && !versionLoadingMap[row.type]) {
+            if (open && loadedOptions.length === 0 && !versionLoadingMap[row.type]) {
               void loadVersionOptions(row, true);
               return;
             }
@@ -1411,23 +1564,24 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           }}
         />
         {(row.packageInstalled || row.connectable) ? (
-          <Text type="secondary" className="driver-manager-small-text">
+          <Text id={versionSummaryId} type="secondary" className="driver-manager-small-text driver-manager-version-summary">
             {versionSwitchPending
               ? t('driver_manager.version.switch_pending', {
                 installedVersion: installedVersion || t('driver_manager.version.current_fallback'),
                 targetVersion: selectedOption?.version || t('driver_manager.version.target_fallback'),
               })
-              : installedVersion
-                ? t('driver_manager.version.installed_with_version', {
+              : t(
+                showInstalledVersion
+                  ? 'driver_manager.version.installed_with_version'
+                  : 'driver_manager.version.installed',
+                {
                   version: installedVersion,
                   suffix: row.needsUpdate ? t('driver_manager.version.needs_reinstall_suffix') : '',
-                })
-                : t('driver_manager.version.installed', {
-                  suffix: row.needsUpdate ? t('driver_manager.version.needs_reinstall_suffix') : '',
-                })}
+                },
+              )}
           </Text>
         ) : null}
-        {mongoHint ? <Text type="secondary" className="driver-manager-small-text">{mongoHint}</Text> : null}
+        {mongoHint ? <Text id={versionHintId} type="secondary" className="driver-manager-small-text">{mongoHint}</Text> : null}
       </div>
     );
   };
@@ -1516,6 +1670,7 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     }
     return t('driver.modal.summary.total', { count: rows.length });
   }, [filteredRows.length, normalizedSearchKeyword, rows.length]);
+  const initialStatusLoading = loading && rows.length === 0;
   const statusSummary = useMemo(() => {
     const optionalRows = rows.filter((row) => !row.builtIn);
     return {
@@ -1738,8 +1893,8 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
   }, [refreshStatus, removableRows, removeDriver]);
 
   const renderDriverCard = (row: DriverStatusRow) => {
+    const progressState = progressMap[row.type];
     const progress = resolveDriverProgress(row);
-    const hasActiveProgress = !!progressMap[row.type] || row.connectable || row.packageInstalled;
     const statusMessage = formatDriverCardStatusMessage(row);
     const affectedText = row.affectedConnections && row.affectedConnections > 0
       ? t('driver.modal.card.affectedConnections', { count: row.affectedConnections })
@@ -1796,20 +1951,30 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           </div>
 
           <div className="driver-manager-card-controls">
-            <div className="driver-manager-control-block">
+            <div className="driver-manager-control-block driver-manager-version-block">
               <Text type="secondary" className="driver-manager-control-label">{t('driver.modal.card.versionLabel')}</Text>
               {renderVersionControl(row)}
             </div>
-            <div className="driver-manager-control-block">
-              <Text type="secondary" className="driver-manager-control-label">{t('driver.modal.card.progressLabel')}</Text>
-              {row.builtIn ? (
-                <Text type="secondary">{t('driver.modal.card.noInstallNeeded')}</Text>
-              ) : hasActiveProgress ? (
-                <Progress className="driver-manager-progress" percent={progress.percent} status={progress.status} size="small" />
-              ) : (
-                <Progress className="driver-manager-progress" percent={0} size="small" />
-              )}
-            </div>
+            {!row.builtIn && progressState ? (
+              <div className="driver-manager-control-block driver-manager-progress-block">
+                <div className="driver-manager-progress-header">
+                  <Text type="secondary" className="driver-manager-control-label">{t('driver.modal.card.progressLabel')}</Text>
+                  <Text
+                    type={progress.status === 'exception' ? 'danger' : 'secondary'}
+                    className="driver-manager-progress-value"
+                  >
+                    {Math.round(progress.percent)}%
+                  </Text>
+                </div>
+                <Progress
+                  className="driver-manager-progress"
+                  percent={progress.percent}
+                  status={progress.status}
+                  showInfo={false}
+                  size="small"
+                />
+              </div>
+            ) : null}
             {renderDriverActions(row)}
           </div>
         </div>
@@ -1854,19 +2019,19 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           </div>
           <div className="driver-manager-stats">
             <div className="driver-manager-stat" style={managerStatStyle}>
-              <span>{statusSummary.total}</span>
+              <span>{initialStatusLoading ? '—' : statusSummary.total}</span>
               <Text type="secondary">{t('driver.modal.stats.total')}</Text>
             </div>
             <div className="driver-manager-stat" style={managerStatStyle}>
-              <span>{statusSummary.enabled}</span>
+              <span>{initialStatusLoading ? '—' : statusSummary.enabled}</span>
               <Text type="secondary">{t('driver.modal.stats.enabled')}</Text>
             </div>
             <div className="driver-manager-stat driver-manager-stat-warning" style={managerStatStyle}>
-              <span style={{ color: driverManagerTheme.warningText }}>{statusSummary.needsUpdate}</span>
+              <span style={{ color: driverManagerTheme.warningText }}>{initialStatusLoading ? '—' : statusSummary.needsUpdate}</span>
               <Text type="secondary">{t('driver.modal.stats.needsUpdate')}</Text>
             </div>
             <div className="driver-manager-stat" style={managerStatStyle}>
-              <span>{statusSummary.notEnabled}</span>
+              <span>{initialStatusLoading ? '—' : statusSummary.notEnabled}</span>
               <Text type="secondary">{t('driver.modal.stats.notEnabled')}</Text>
             </div>
           </div>
@@ -2056,12 +2221,12 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           </div>
         ) : null}
         <div className="driver-manager-list-head">
-          <Text type="secondary">{filterSummaryText}</Text>
+          {!initialStatusLoading ? <Text type="secondary">{filterSummaryText}</Text> : null}
           {loading ? <Text type="secondary">{t('driver.modal.status.refreshing')}</Text> : null}
         </div>
 
-        <div className="driver-manager-list">
-          {filteredRows.length > 0 ? (
+        <div className="driver-manager-list" aria-busy={initialStatusLoading}>
+          {initialStatusLoading ? null : filteredRows.length > 0 ? (
             filteredRows.map(renderDriverCard)
           ) : (
             <Empty

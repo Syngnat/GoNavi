@@ -146,7 +146,10 @@ func parseNavicatNCXConnectionWithText(item navicatNCXConnection, text navicatTe
 			config.Database = strings.TrimSpace(item.TNS)
 		}
 		if configType == "oracle" && strings.EqualFold(strings.TrimSpace(item.OraServiceNameType), "SID") && strings.TrimSpace(config.Database) != "" {
+			// SID 模式：SID 值仅存于 ConnectionParams（go-ora 的 SID 查询参数），
+			// Database（服务名）置空避免 DSN path 冗余，语义与内置连接表单一致。
 			config.ConnectionParams = "SID=" + strings.TrimSpace(config.Database)
+			config.Database = ""
 		}
 	}
 

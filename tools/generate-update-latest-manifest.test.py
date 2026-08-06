@@ -143,6 +143,40 @@ class GenerateUpdateLatestManifestTest(unittest.TestCase):
                 f"https://github.com/Syngnat/GoNavi/releases/download/dev-latest/{asset_name}",
             )
 
+    def test_embeds_release_notes_from_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            assets = Path(tmp)
+            (assets / "GoNavi-1.2.3-Windows-Amd64-Portable.zip").write_bytes(b"fake")
+            (assets / "SHA256SUMS").write_text(
+                f"{'d' * 64}  GoNavi-1.2.3-Windows-Amd64-Portable.zip\n",
+                encoding="utf-8",
+            )
+            notes = assets / "changelog.md"
+            notes.write_text("## ✨ 新功能\n\n- 示例变更\n", encoding="utf-8")
+            out = assets / "latest.json"
+            subprocess.check_call(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--assets-dir",
+                    str(assets),
+                    "--version",
+                    "1.2.3",
+                    "--tag",
+                    "v1.2.3",
+                    "--channel",
+                    "latest",
+                    "--release-notes-file",
+                    str(notes),
+                    "--output",
+                    str(out),
+                ],
+                cwd=str(ROOT),
+            )
+            data = json.loads(out.read_text(encoding="utf-8"))
+            self.assertIn("releaseNotes", data)
+            self.assertIn("示例变更", data["releaseNotes"])
+
 
 if __name__ == "__main__":
     unittest.main()

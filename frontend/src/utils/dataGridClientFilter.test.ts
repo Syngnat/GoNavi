@@ -73,6 +73,16 @@ describe('filterRowsByGridConditions', () => {
     ]).map((row) => row.id)).toEqual([1]);
   });
 
+  it('filters a structured value selection including null and empty values', () => {
+    const rowsWithEmpty = [...rows, { id: 4, name: 'Dora', status: '' }];
+    expect(filterRowsByGridConditions(rowsWithEmpty, [{
+      column: 'status',
+      op: 'IN',
+      valueSelection: { values: ['active'], includeNull: true, includeEmpty: true },
+      enabled: true,
+    }]).map((row) => row.id)).toEqual([1, 3, 4]);
+  });
+
   it('supports null checks and OR logic', () => {
     expect(filterRowsByGridConditions(rows, [
       { column: 'status', op: 'IS_NULL', enabled: true },

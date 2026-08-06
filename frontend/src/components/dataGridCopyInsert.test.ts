@@ -78,6 +78,50 @@ describe('buildCopyInsertSQL', () => {
     expect(sql).toBe("INSERT INTO `users` (`name`, `id`) VALUES ('Ada', '7');");
   });
 
+  it('emits unquoted MySQL bit literals while keeping ordinary values quoted', () => {
+    const sql = buildCopyInsertSQL({
+      dbType: 'mysql',
+      tableName: 'flags',
+      orderedCols: ['disabled', 'enabled', 'mask', 'note'],
+      record: {
+        disabled: 0,
+        enabled: 1,
+        mask: '0X0F',
+        note: '1',
+      },
+      columnTypesByLowerName: {
+        disabled: 'bit(1)',
+        enabled: 'bit(1)',
+        mask: 'bit(4)',
+        note: 'varchar(16)',
+      },
+    });
+
+    expect(sql).toBe("INSERT INTO `flags` (`disabled`, `enabled`, `mask`, `note`) VALUES (0, 1, 15, '1');");
+  });
+
+  it('normalizes MySQL bit binary and decimal text values', () => {
+    const sql = buildCopyInsertSQL({
+      dbType: 'mysql',
+      tableName: 'flags',
+      orderedCols: ['zero', 'binary_value', 'large_value'],
+      record: {
+        zero: '0',
+        binary_value: "b'101'",
+        large_value: '18446744073709551615',
+      },
+      columnTypesByLowerName: {
+        zero: 'BIT',
+        binary_value: 'bit(8)',
+        large_value: 'bit(64)',
+      },
+    });
+
+    expect(sql).toBe(
+      "INSERT INTO `flags` (`zero`, `binary_value`, `large_value`) VALUES (0, 5, 18446744073709551615);",
+    );
+  });
+
   it('keeps RFC3339-looking text unchanged for non-temporal columns', () => {
     const sql = buildCopyInsertSQL({
       dbType: 'postgres',

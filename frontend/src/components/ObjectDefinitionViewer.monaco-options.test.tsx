@@ -28,6 +28,7 @@ const storeState = vi.hoisted(() => ({
 }));
 
 const backendApp = vi.hoisted(() => ({
+  DBGetTriggers: vi.fn(),
   DBQuery: vi.fn(),
 }));
 

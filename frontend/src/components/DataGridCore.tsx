@@ -59,6 +59,7 @@ import {
 } from './dataGridCopyInsert';
 import { calculateAutoFitColumnWidth } from './dataGridAutoWidth';
 import { buildSelectedCellClipboardText } from './dataGridSelectionCopy';
+import type { DataGridClipboardPayload } from './dataGridClipboardPayload';
 import { buildCopiedRowsForPaste, buildPastedRowsFromCopiedRows } from './dataGridRowClipboard';
 import {
     buildDataGridSelectBaseSql,
@@ -742,6 +743,7 @@ const ResizableTitle = React.forwardRef<HTMLTableCellElement, any>((props, ref) 
             right: 0, // Align to right edge
             bottom: 0,
             top: 0,
+            height: 'auto',
             width: 10,
             cursor: 'col-resize',
             // 必须低于固定列表头 z-index(30)，否则横向滚动时会穿透到勾选/行号上方
@@ -875,7 +877,7 @@ const DataContext = React.createContext<{
     handleCopyJson: (r: any) => void;
     handleCopyCsv: (r: any) => void;
     handleExportSelected: (options: DataExportFileOptions, r: any) => Promise<void>;
-    copyToClipboard: (t: string) => void;
+    copyToClipboard: (t: string | DataGridClipboardPayload) => void;
     tableName?: string;
     enableRowContextMenu: boolean;
     supportsCopyInsert: boolean;
@@ -1344,7 +1346,7 @@ interface DataGridProps {
     editLocator?: EditRowLocator;
     readOnly?: boolean;
     showRowNumberColumn?: boolean;
-    onReload?: () => void;
+    onReload?: () => void | Promise<void>;
     onSort?: (field: string, order: string) => void;
     onPageChange?: (page: number, size: number) => void;
     onLastPage?: (pageSize: number) => void;

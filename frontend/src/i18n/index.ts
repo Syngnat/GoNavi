@@ -112,6 +112,24 @@ const catalogAliases: Record<string, CatalogAlias> = {
   "connection_modal.field.serviceName.help": {
     aliasKey: "connection_modal.help.oracle_service_name",
   },
+  "connection_modal.field.oracleMode.label": {
+    aliasKey: "connection_modal.field.oracle_mode.label",
+  },
+  "connection_modal.field.oracleMode.service": {
+    aliasKey: "connection_modal.field.oracle_mode.service",
+  },
+  "connection_modal.field.oracleMode.sid": {
+    aliasKey: "connection_modal.field.oracle_mode.sid",
+  },
+  "connection_modal.field.sid.label": {
+    aliasKey: "connection_modal.field.sid.label",
+  },
+  "connection_modal.field.sid.required": {
+    aliasKey: "connection_modal.field.sid.required",
+  },
+  "connection_modal.field.sid.placeholder": {
+    aliasKey: "connection_modal.field.sid.placeholder",
+  },
 };
 
 export const resolveLanguage = (

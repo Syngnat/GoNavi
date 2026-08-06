@@ -1,11 +1,16 @@
 import Modal from './common/ResizableDraggableModal';
 import React from 'react';
-import { Button, Checkbox, Input, Typography } from 'antd';
+import { Button, Checkbox, Input, Select, Typography } from 'antd';
 import { useI18n } from '../i18n/provider';
 
 const { Text } = Typography;
 
 type ConnectionPackagePasswordModalMode = 'import' | 'export';
+
+export type ConnectionPackageExportOption = {
+  value: string;
+  label: string;
+};
 
 export interface ConnectionPackagePasswordModalProps {
   open: boolean;
@@ -18,6 +23,11 @@ export interface ConnectionPackagePasswordModalProps {
   confirmLoading?: boolean;
   confirmText?: string;
   cancelText?: string;
+  /** Export only: available connections for selection. */
+  connectionOptions?: ConnectionPackageExportOption[];
+  /** Export only: selected connection ids. Empty means none selected. */
+  selectedConnectionIds?: string[];
+  onSelectedConnectionIdsChange?: (ids: string[]) => void;
   onBack?: () => void;
   embedded?: boolean;
   onIncludeSecretsChange?: (value: boolean) => void;
@@ -38,6 +48,9 @@ export default function ConnectionPackagePasswordModal({
   confirmLoading,
   confirmText,
   cancelText,
+  connectionOptions = [],
+  selectedConnectionIds = [],
+  onSelectedConnectionIdsChange,
   onBack,
   embedded = false,
   onIncludeSecretsChange,
@@ -59,6 +72,9 @@ export default function ConnectionPackagePasswordModal({
     : (useFilePassword
       ? t('app.connection_package.dialog.help.share_file_password_separately')
       : t('app.connection_package.dialog.help.encrypted_passwords_recommend_file_password'));
+  const allConnectionIds = connectionOptions.map((item) => item.value);
+  const selectedCount = selectedConnectionIds.length;
+  const totalCount = connectionOptions.length;
 
   return (
     <Modal
@@ -87,6 +103,51 @@ export default function ConnectionPackagePasswordModal({
     >
       {isExportMode ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
+              <Text type="secondary">
+                {t('app.connection_package.dialog.export_connections_label')}
+              </Text>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Button
+                  size="small"
+                  type="text"
+                  disabled={totalCount === 0 || selectedCount === totalCount}
+                  onClick={() => onSelectedConnectionIdsChange?.(allConnectionIds)}
+                >
+                  {t('data_export.action.select_all')}
+                </Button>
+                <Button
+                  size="small"
+                  type="text"
+                  disabled={selectedCount === 0}
+                  onClick={() => onSelectedConnectionIdsChange?.([])}
+                >
+                  {t('data_export.action.clear')}
+                </Button>
+              </div>
+            </div>
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: '100%' }}
+              placeholder={t('app.connection_package.dialog.export_connections_placeholder')}
+              value={selectedConnectionIds}
+              options={connectionOptions}
+              maxTagCount="responsive"
+              onChange={(next) => onSelectedConnectionIdsChange?.(
+                (Array.isArray(next) ? next : []).map((id) => String(id).trim()).filter(Boolean),
+              )}
+            />
+            <Text type="secondary" style={{ display: 'block', marginTop: 6, fontSize: 12 }}>
+              {t('app.connection_package.dialog.export_connections_summary', {
+                selected: selectedCount,
+                total: totalCount,
+              })}
+            </Text>
+          </div>
           <Checkbox
             checked={includeSecrets}
             onChange={(event) => onIncludeSecretsChange?.(event.target.checked)}
@@ -104,11 +165,12 @@ export default function ConnectionPackagePasswordModal({
       ) : null}
       {showFilePasswordInput ? (
         <Input.Password
-          autoFocus
+          autoFocus={!isExportMode}
           value={password}
           placeholder={placeholder}
           disabled={isExportMode && !useFilePassword}
           onChange={(event) => onPasswordChange(event.target.value)}
+          style={isExportMode ? { marginTop: 12 } : undefined}
         />
       ) : null}
       {isExportMode ? (

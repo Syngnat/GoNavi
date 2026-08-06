@@ -13,6 +13,25 @@ import (
 
 const defaultSyncApplyBatchSize = 1000
 
+type appliedChangeCounts struct {
+	Inserts int
+	Updates int
+	Deletes int
+}
+
+func (counts appliedChangeCounts) total() int {
+	return counts.Inserts + counts.Updates + counts.Deletes
+}
+
+func (counts appliedChangeCounts) addToResult(result *SyncResult) {
+	if result == nil {
+		return
+	}
+	result.RowsInserted += counts.Inserts
+	result.RowsUpdated += counts.Updates
+	result.RowsDeleted += counts.Deletes
+}
+
 // SyncConfig defines the parameters for a synchronization task
 type SyncConfig struct {
 	SourceConfig        connection.ConnectionConfig `json:"sourceConfig"`
@@ -139,7 +158,15 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 	}
 	defer targetDB.Close()
 
+	tableFailures := make([]string, 0)
 	for i, tableName := range config.Tables {
+		tableFailure := ""
+		tableCompleted := false
+		markTableFailure := func(message string) {
+			if tableFailure == "" {
+				tableFailure = strings.TrimSpace(message)
+			}
+		}
 		func() {
 			tableMode := defaultMode
 			s.appendLog(config.JobID, &result, "info", fmt.Sprintf("正在同步表: %s", tableName))
@@ -151,7 +178,9 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 
 			plan, cols, targetCols, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
 			if err != nil {
-				s.appendLog(config.JobID, &result, "error", fmt.Sprintf("生成迁移计划失败：表=%s 错误=%v", tableName, err))
+				message := fmt.Sprintf("生成迁移计划失败：表=%s 错误=%v", tableName, err)
+				s.appendLog(config.JobID, &result, "error", message)
+				markTableFailure(message)
 				return
 			}
 			for _, warning := range plan.Warnings {
@@ -165,7 +194,9 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 			}
 
 			if !plan.TargetTableExists && !plan.AutoCreate {
-				s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("表 %s 目标表不存在，当前策略不允许自动建表，已跳过", tableName))
+				message := fmt.Sprintf("表 %s 目标表不存在，当前策略不允许自动建表，已跳过", tableName)
+				s.appendLog(config.JobID, &result, "warn", message)
+				markTableFailure(message)
 				return
 			}
 
@@ -173,35 +204,48 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 				s.progress(config.JobID, i, totalTables, tableName, "创建目标表")
 				if len(plan.PreDataSQL) > 0 {
 					if err := executeSQLStatements(targetDB.Exec, plan.PreDataSQL); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("预执行建表 SQL 失败：表=%s 错误=%v", tableName, err))
+						message := fmt.Sprintf("预执行建表 SQL 失败：表=%s 错误=%v", tableName, err)
+						s.appendLog(config.JobID, &result, "error", message)
+						markTableFailure(message)
 						return
 					}
 				}
 				if strings.TrimSpace(plan.CreateTableSQL) == "" && len(plan.PreDataSQL) == 0 {
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("表 %s 自动建表失败：建表/建集合 SQL 为空", tableName))
+					message := fmt.Sprintf("表 %s 自动建表失败：建表/建集合 SQL 为空", tableName)
+					s.appendLog(config.JobID, &result, "error", message)
+					markTableFailure(message)
 					return
 				}
 				if strings.TrimSpace(plan.CreateTableSQL) != "" {
 					if _, err := targetDB.Exec(plan.CreateTableSQL); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("创建目标表失败：表=%s 错误=%v", tableName, err))
+						message := fmt.Sprintf("创建目标表失败：表=%s 错误=%v", tableName, err)
+						s.appendLog(config.JobID, &result, "error", message)
+						markTableFailure(message)
 						return
 					}
 				}
 				s.appendLog(config.JobID, &result, "info", fmt.Sprintf("目标对象创建成功：%s", tableName))
 				targetCols, err = targetDB.GetColumns(plan.TargetSchema, plan.TargetTable)
 				if err != nil {
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("创建目标表后获取字段失败：表=%s 错误=%v", tableName, err))
+					message := fmt.Sprintf("创建目标表后获取字段失败：表=%s 错误=%v", tableName, err)
+					s.appendLog(config.JobID, &result, "error", message)
+					markTableFailure(message)
 					return
 				}
 			} else if len(plan.PreDataSQL) > 0 {
 				s.progress(config.JobID, i, totalTables, tableName, "同步表结构")
 				if err := executeSQLStatements(targetDB.Exec, plan.PreDataSQL); err != nil {
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("同步表结构失败：表=%s 错误=%v", tableName, err))
+					message := fmt.Sprintf("同步表结构失败：表=%s 错误=%v", tableName, err)
+					s.appendLog(config.JobID, &result, "error", message)
+					markTableFailure(message)
 					return
 				}
 				targetCols, err = targetDB.GetColumns(plan.TargetSchema, plan.TargetTable)
 				if err != nil {
-					s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("补字段后刷新目标字段失败：表=%s 错误=%v", tableName, err))
+					message := fmt.Sprintf("补字段后刷新目标字段失败：表=%s 错误=%v", tableName, err)
+					s.appendLog(config.JobID, &result, "error", message)
+					markTableFailure(message)
+					return
 				}
 			}
 
@@ -209,11 +253,13 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 				if len(plan.PostDataSQL) > 0 {
 					s.progress(config.JobID, i, totalTables, tableName, "创建索引")
 					if err := executeSQLStatements(targetDB.Exec, plan.PostDataSQL); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err))
+						message := fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err)
+						s.appendLog(config.JobID, &result, "error", message)
+						markTableFailure(message)
 						return
 					}
 				}
-				result.TablesSynced++
+				tableCompleted = true
 				return
 			}
 
@@ -224,6 +270,33 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 			applyTableName := targetTable
 			if shouldUseQualifiedSyncApplyTable(config.TargetConfig) {
 				applyTableName = targetQueryTable
+			}
+
+			opts := TableOptions{Insert: true, Update: true, Delete: false}
+			if config.TableOptions != nil {
+				if configured, ok := config.TableOptions[tableName]; ok {
+					opts = configured
+				}
+			}
+			if !hasEffectiveSyncDataOperation(tableMode, opts) {
+				if tableMode == "insert_update" {
+					s.appendLog(config.JobID, &result, "info", fmt.Sprintf("表 %s 未选择数据变更，按无变更处理", tableName))
+					if len(plan.PostDataSQL) > 0 {
+						s.progress(config.JobID, i, totalTables, tableName, "创建索引")
+						if err := executeSQLStatements(targetDB.Exec, plan.PostDataSQL); err != nil {
+							message := fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err)
+							s.appendLog(config.JobID, &result, "error", message)
+							markTableFailure(message)
+							return
+						}
+					}
+					tableCompleted = true
+					return
+				}
+				message := fmt.Sprintf("表 %s 在 %s 模式下未启用有效数据操作，已拒绝执行", tableName, tableMode)
+				s.appendLog(config.JobID, &result, "warn", message)
+				markTableFailure(message)
+				return
 			}
 
 			sourceColsByLower := make(map[string]connection.ColumnDefinition, len(cols))
@@ -244,34 +317,29 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 			pkCol := ""
 			if requirePK {
 				if len(pkCols) == 0 {
-					s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("表 %s 未找到主键，当前模式需要差异对比，已跳过", tableName))
+					message := fmt.Sprintf("表 %s 未找到主键，当前模式需要差异对比，已跳过", tableName)
+					s.appendLog(config.JobID, &result, "warn", message)
+					markTableFailure(message)
 					return
 				}
 				if len(pkCols) > 1 {
-					s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("表 %s 为复合主键（%s），当前暂不支持差异同步", tableName, strings.Join(pkCols, ",")))
+					message := fmt.Sprintf("表 %s 为复合主键（%s），当前暂不支持差异同步", tableName, strings.Join(pkCols, ","))
+					s.appendLog(config.JobID, &result, "warn", message)
+					markTableFailure(message)
 					return
 				}
 				pkCol = pkCols[0]
 			}
 
-			opts := TableOptions{Insert: true, Update: true, Delete: false}
-			if config.TableOptions != nil {
-				if t, ok := config.TableOptions[tableName]; ok {
-					opts = t
-				}
-			}
-			if !opts.Insert && !opts.Update && !opts.Delete {
-				s.appendLog(config.JobID, &result, "info", fmt.Sprintf("表 %s 未勾选任何操作，已跳过", tableName))
-				return
-			}
-
 			if handled, inserted, err := s.tryApplyDirectImportInPages(config, &result, i, totalTables, tableName, sourceDB, targetDB, plan, cols, targetCols, opts, sourceType, targetType, applyTableName); handled {
+				result.RowsInserted += inserted
 				if err != nil {
 					logger.Error(err, "分页流式导入失败：表=%s", tableName)
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("  -> 分页流式导入失败: %v", err))
+					message := fmt.Sprintf("分页流式导入失败: %v", err)
+					s.appendLog(config.JobID, &result, "error", "  -> "+message)
+					markTableFailure(message)
 					return
 				}
-				result.RowsInserted += inserted
 				if inserted > 0 {
 					s.appendLog(config.JobID, &result, "info", fmt.Sprintf("  -> 分页流式导入完成：插入=%d 行", inserted))
 				} else {
@@ -280,23 +348,27 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 				if len(plan.PostDataSQL) > 0 {
 					s.progress(config.JobID, i, totalTables, tableName, "创建索引")
 					if err := executeSQLStatements(targetDB.Exec, plan.PostDataSQL); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err))
+						message := fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err)
+						s.appendLog(config.JobID, &result, "error", message)
+						markTableFailure(message)
 						return
 					}
 				}
-				result.TablesSynced++
+				tableCompleted = true
 				return
 			}
 
 			if handled, counts, err := s.tryApplyDiffInPages(config, &result, i, totalTables, tableName, sourceDB, targetDB, plan, cols, targetCols, opts, sourceType, targetType, applyTableName, pkCol); handled {
-				if err != nil {
-					logger.Error(err, "分页差异同步失败：表=%s", tableName)
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("  -> 分页差异同步失败: %v", err))
-					return
-				}
 				result.RowsInserted += counts.Inserts
 				result.RowsUpdated += counts.Updates
 				result.RowsDeleted += counts.Deletes
+				if err != nil {
+					logger.Error(err, "分页差异同步失败：表=%s", tableName)
+					message := fmt.Sprintf("分页差异同步失败: %v", err)
+					s.appendLog(config.JobID, &result, "error", "  -> "+message)
+					markTableFailure(message)
+					return
+				}
 				if counts.Inserts > 0 || counts.Updates > 0 || counts.Deletes > 0 {
 					s.appendLog(config.JobID, &result, "info", fmt.Sprintf("  -> 分页差异同步完成：插入=%d 更新=%d 删除=%d", counts.Inserts, counts.Updates, counts.Deletes))
 				} else {
@@ -305,11 +377,13 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 				if len(plan.PostDataSQL) > 0 {
 					s.progress(config.JobID, i, totalTables, tableName, "创建索引")
 					if err := executeSQLStatements(targetDB.Exec, plan.PostDataSQL); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err))
+						message := fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err)
+						s.appendLog(config.JobID, &result, "error", message)
+						markTableFailure(message)
 						return
 					}
 				}
-				result.TablesSynced++
+				tableCompleted = true
 				return
 			}
 
@@ -317,7 +391,9 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 			sourceRows, _, err := sourceDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, sourceQueryTable)))
 			if err != nil {
 				logger.Error(err, "读取源表失败：表=%s", tableName)
-				s.appendLog(config.JobID, &result, "error", fmt.Sprintf("读取源表 %s 失败: %v", tableName, err))
+				message := fmt.Sprintf("读取源表 %s 失败: %v", tableName, err)
+				s.appendLog(config.JobID, &result, "error", message)
+				markTableFailure(message)
 				return
 			}
 
@@ -330,7 +406,9 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 				targetRows, _, err := targetDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable)))
 				if err != nil {
 					logger.Error(err, "读取目标表失败：表=%s", tableName)
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("读取目标表 %s 失败: %v", tableName, err))
+					message := fmt.Sprintf("读取目标表 %s 失败: %v", tableName, err)
+					s.appendLog(config.JobID, &result, "error", message)
+					markTableFailure(message)
 					return
 				}
 
@@ -386,20 +464,6 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 				if !opts.Insert {
 					inserts = nil
 				}
-				if tableMode == "full_overwrite" && plan.TargetTableExists {
-					s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("  -> 全量覆盖模式：即将清空目标表 %s", tableName))
-					s.progress(config.JobID, i, totalTables, tableName, "清空目标表")
-					clearSQL := ""
-					if targetType == "mysql" {
-						clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(targetType, targetQueryTable))
-					} else {
-						clearSQL = fmt.Sprintf("DELETE FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable))
-					}
-					if _, err := targetDB.Exec(clearSQL); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("  -> 清空目标表失败: %v", err))
-						return
-					}
-				}
 			}
 
 			changeSet := connection.ChangeSet{Inserts: inserts, Updates: updates, Deletes: deletes}
@@ -408,7 +472,10 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 			if len(targetColsResolved) == 0 {
 				targetColsResolved, err = targetDB.GetColumns(plan.TargetSchema, plan.TargetTable)
 				if err != nil {
-					s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("  -> 获取目标表字段失败，已跳过字段一致性检查: %v", err))
+					message := fmt.Sprintf("获取目标表字段失败: %v", err)
+					s.appendLog(config.JobID, &result, "error", "  -> "+message)
+					markTableFailure(message)
+					return
 				}
 			}
 			if len(targetColsResolved) > 0 {
@@ -436,15 +503,22 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 							colLower := strings.ToLower(strings.TrimSpace(colName))
 							srcCol, ok := sourceColsByLower[colLower]
 							if !ok {
+								message := fmt.Sprintf("自动补字段失败：未找到源字段元数据，字段=%s", colName)
+								s.appendLog(config.JobID, &result, "error", "  -> "+message)
+								markTableFailure(message)
 								continue
 							}
 							alterSQL, err := buildAddColumnSQLForPair(sourceType, targetType, targetQueryTable, srcCol)
 							if err != nil {
-								s.appendLog(config.JobID, &result, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))
+								message := fmt.Sprintf("自动补字段失败：字段=%s 错误=%v", colName, err)
+								s.appendLog(config.JobID, &result, "error", "  -> "+message)
+								markTableFailure(message)
 								continue
 							}
 							if _, err := targetDB.Exec(alterSQL); err != nil {
-								s.appendLog(config.JobID, &result, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))
+								message := fmt.Sprintf("自动补字段失败：字段=%s 错误=%v", colName, err)
+								s.appendLog(config.JobID, &result, "error", "  -> "+message)
+								markTableFailure(message)
 								continue
 							}
 							added++
@@ -458,20 +532,49 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 					changeSet.Updates = filterUpdateRows(changeSet.Updates, targetColSet)
 				}
 			}
+			if tableFailure != "" {
+				return
+			}
+
+			hasChanges := len(changeSet.Inserts) > 0 || len(changeSet.Updates) > 0 || len(changeSet.Deletes) > 0
+			var applier db.BatchApplier
+			if hasChanges {
+				var ok bool
+				applier, ok = targetDB.(db.BatchApplier)
+				if !ok {
+					message := "目标驱动不支持应用数据变更 (ApplyChanges)."
+					s.appendLog(config.JobID, &result, "warn", "  -> "+message)
+					markTableFailure(message)
+					return
+				}
+			}
+
+			if tableMode == "full_overwrite" && plan.TargetTableExists {
+				s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("  -> 全量覆盖模式：即将清空目标表 %s", tableName))
+				s.progress(config.JobID, i, totalTables, tableName, "清空目标表")
+				clearSQL := ""
+				if targetType == "mysql" {
+					clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(targetType, targetQueryTable))
+				} else {
+					clearSQL = fmt.Sprintf("DELETE FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable))
+				}
+				if _, err := targetDB.Exec(clearSQL); err != nil {
+					message := fmt.Sprintf("清空目标表失败: %v", err)
+					s.appendLog(config.JobID, &result, "error", "  -> "+message)
+					markTableFailure(message)
+					return
+				}
+			}
 
 			s.progress(config.JobID, i, totalTables, tableName, "应用变更")
-			if len(changeSet.Inserts) > 0 || len(changeSet.Updates) > 0 || len(changeSet.Deletes) > 0 {
+			if hasChanges {
 				s.appendLog(config.JobID, &result, "info", fmt.Sprintf("  -> 需插入: %d 行, 需更新: %d 行, 需删除: %d 行", len(changeSet.Inserts), len(changeSet.Updates), len(changeSet.Deletes)))
-				if applier, ok := targetDB.(db.BatchApplier); ok {
-					if err := s.applyChangesInBatches(config.JobID, &result, applyTableName, applier, changeSet); err != nil {
-						s.appendLog(config.JobID, &result, "error", fmt.Sprintf("  -> 应用变更失败: %v", err))
-						return
-					}
-					result.RowsInserted += len(changeSet.Inserts)
-					result.RowsUpdated += len(changeSet.Updates)
-					result.RowsDeleted += len(changeSet.Deletes)
-				} else {
-					s.appendLog(config.JobID, &result, "warn", "  -> 目标驱动不支持应用数据变更 (ApplyChanges).")
+				applied, err := s.applyChangesInBatches(config.JobID, &result, applyTableName, applier, changeSet)
+				applied.addToResult(&result)
+				if err != nil {
+					message := fmt.Sprintf("应用变更失败: %v", err)
+					s.appendLog(config.JobID, &result, "error", "  -> "+message)
+					markTableFailure(message)
 					return
 				}
 			} else {
@@ -481,15 +584,26 @@ func (s *SyncEngine) RunSync(config SyncConfig) SyncResult {
 			if len(plan.PostDataSQL) > 0 {
 				s.progress(config.JobID, i, totalTables, tableName, "创建索引")
 				if err := executeSQLStatements(targetDB.Exec, plan.PostDataSQL); err != nil {
-					s.appendLog(config.JobID, &result, "error", fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err))
+					message := fmt.Sprintf("创建索引失败：表=%s 错误=%v", tableName, err)
+					s.appendLog(config.JobID, &result, "error", message)
+					markTableFailure(message)
 					return
 				}
 			}
 
-			result.TablesSynced++
+			tableCompleted = true
 		}()
+		if tableFailure != "" {
+			tableFailures = append(tableFailures, fmt.Sprintf("%s: %s", tableName, tableFailure))
+		} else if tableCompleted {
+			result.TablesSynced++
+		}
 	}
 
+	if len(tableFailures) > 0 {
+		message := fmt.Sprintf("数据同步未全部完成：成功 %d/%d 个表，失败 %d 个；%s", result.TablesSynced, totalTables, len(tableFailures), strings.Join(tableFailures, "；"))
+		return s.fail(config.JobID, totalTables, result, message)
+	}
 	s.progress(config.JobID, totalTables, totalTables, "", syncCompletedStage)
 	return result
 }
@@ -559,10 +673,11 @@ func (s *SyncEngine) fail(jobID string, totalTables int, res SyncResult, msg str
 	return res
 }
 
-func (s *SyncEngine) applyChangesInBatches(jobID string, res *SyncResult, tableName string, applier db.BatchApplier, changes connection.ChangeSet) error {
+func (s *SyncEngine) applyChangesInBatches(jobID string, res *SyncResult, tableName string, applier db.BatchApplier, changes connection.ChangeSet) (appliedChangeCounts, error) {
+	applied := appliedChangeCounts{}
 	batches := splitChangeSetBatches(changes, defaultSyncApplyBatchSize)
 	if len(batches) == 0 {
-		return nil
+		return applied, nil
 	}
 	if len(batches) > 1 {
 		s.appendLog(jobID, res, "info", fmt.Sprintf("  -> 大批量变更将拆分为 %d 批提交（每批最多 %d 行）", len(batches), defaultSyncApplyBatchSize))
@@ -574,12 +689,21 @@ func (s *SyncEngine) applyChangesInBatches(jobID string, res *SyncResult, tableN
 		}
 		if err := applier.ApplyChanges(tableName, batch); err != nil {
 			if len(batches) > 1 {
-				return fmt.Errorf("批次 %d/%d 失败: %w", idx+1, len(batches), err)
+				if applied.total() > 0 {
+					return applied, fmt.Errorf(
+						"批次 %d/%d 失败（此前已确认完整提交：插入=%d 更新=%d 删除=%d；目标驱动若不支持原子提交，失败批次可能部分落库）: %w",
+						idx+1, len(batches), applied.Inserts, applied.Updates, applied.Deletes, err,
+					)
+				}
+				return applied, fmt.Errorf("批次 %d/%d 失败（目标驱动若不支持原子提交，失败批次可能部分落库）: %w", idx+1, len(batches), err)
 			}
-			return err
+			return applied, fmt.Errorf("数据批次失败（目标驱动若不支持原子提交，失败批次可能部分落库）: %w", err)
 		}
+		applied.Inserts += len(batch.Inserts)
+		applied.Updates += len(batch.Updates)
+		applied.Deletes += len(batch.Deletes)
 	}
-	return nil
+	return applied, nil
 }
 
 func splitChangeSetBatches(changes connection.ChangeSet, batchSize int) []connection.ChangeSet {

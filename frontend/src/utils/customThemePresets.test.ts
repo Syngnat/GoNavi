@@ -72,6 +72,11 @@ describe('built-in custom theme presets', () => {
     expect(comfortDark.css).toContain('--gn-fg-5: #878e98');
     expect(comfortDark.css).toContain('--gn-on-accent: #142019');
     expect(comfortDark.css).toContain('.gn-v2-query-toolbar-save-action');
+    // 保存：default 同族 + fg-1 图标，禁止软绿底/透明底踩 primary 前景
+    expect(comfortDark.css).toContain('color: var(--gn-fg-1) !important');
+    expect(comfortDark.css).not.toMatch(
+      /\.gn-v2-query-toolbar-save-action[\s\S]{0,200}background:\s*transparent\s*!important/,
+    );
     expect(comfortDark.css).toContain('.gn-v2-ai-panel .ai-logo');
     expect(comfortDark.css).toContain('.monaco-editor-background');
     expect(comfortDark.css).not.toContain('background-color: var(--gn-bg-input) !important;');

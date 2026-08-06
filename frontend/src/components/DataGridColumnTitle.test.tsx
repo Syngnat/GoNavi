@@ -35,6 +35,12 @@ vi.mock('antd', () => ({
       ))}
     </select>
   ),
+  Checkbox: ({ children, checked, onChange, ...props }: { children?: React.ReactNode; checked?: boolean; onChange?: () => void }) => (
+    <label {...props}>
+      <input type="checkbox" checked={checked} onChange={onChange} />
+      {children}
+    </label>
+  ),
   Tooltip: ({ children, title, rootClassName }: { children: React.ReactNode; title?: React.ReactNode; rootClassName?: string }) => (
     <>
       <div data-testid="tooltip-title">{title}</div>
@@ -315,7 +321,7 @@ describe('DataGridColumnTitle', () => {
     expect(onClear).toHaveBeenCalledTimes(1);
   });
 
-  it('searches current value counts and fills drafts before explicit apply', () => {
+  it('searches and multi-selects current values before explicit apply', () => {
     const onApply = vi.fn(() => true);
     const translate = (key: string) => ({
       'data_grid.filter.value_counts.title': 'Current values',
@@ -367,34 +373,42 @@ describe('DataGridColumnTitle', () => {
       .find((input) => input.props.placeholder === 'Search values');
     expect(searchInput).toBeTruthy();
     act(() => searchInput!.props.onChange({ target: { value: 'act' } }));
-    expect(renderer.root.findAll((node) => node.props['data-grid-column-value-count-kind']).map((node) => node.props.title)).toEqual(['active']);
+    expect(renderer.root.findAllByType('label')
+      .filter((node) => node.props['data-grid-column-value-count-kind'])
+      .map((node) => node.props.title)).toEqual(['active']);
 
-    const clickValueCount = (kind: string) => {
-      const button = renderer.root.findAllByType('button')
-        .find((node) => node.props['data-grid-column-value-count-kind'] === kind);
-      expect(button).toBeTruthy();
-      act(() => button!.props.onClick());
+    const toggleValueCount = (kind: string) => {
+      const checkbox = renderer.root.findAllByType('label')
+        .filter((node) => node.props['data-grid-column-value-count-kind'] === kind);
+      expect(checkbox).toHaveLength(1);
+      const input = checkbox[0].findByType('input');
+      act(() => input.props.onChange());
     };
     const apply = () => {
       const button = renderer.root.findAllByType('button').find((node) => node.children.includes('Apply'));
       act(() => button!.props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn() }));
     };
 
-    clickValueCount('value');
+    toggleValueCount('value');
     expect(onApply).not.toHaveBeenCalled();
     apply();
-    expect(onApply).toHaveBeenLastCalledWith({ op: '=', value: 'active', value2: '' });
+    expect(onApply).toHaveBeenLastCalledWith({
+      op: 'IN',
+      value: '',
+      value2: '',
+      valueSelection: { values: ['active'] },
+    });
 
     act(() => searchInput!.props.onChange({ target: { value: '' } }));
-    clickValueCount('nullish');
+    toggleValueCount('nullish');
     expect(onApply).toHaveBeenCalledTimes(1);
     apply();
-    expect(onApply).toHaveBeenLastCalledWith({ op: 'IS_NULL', value: '', value2: '' });
-
-    clickValueCount('empty');
-    expect(onApply).toHaveBeenCalledTimes(2);
-    apply();
-    expect(onApply).toHaveBeenLastCalledWith({ op: 'IS_EMPTY', value: '', value2: '' });
+    expect(onApply).toHaveBeenLastCalledWith({
+      op: 'IN',
+      value: '',
+      value2: '',
+      valueSelection: { values: ['active'], includeNull: true },
+    });
   });
 
   it('uses translated tooltip wrappers while preserving raw metadata values', () => {

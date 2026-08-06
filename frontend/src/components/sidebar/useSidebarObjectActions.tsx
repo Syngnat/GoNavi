@@ -1,4 +1,4 @@
-import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { message } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 
@@ -8,6 +8,7 @@ import type { SavedConnection, SavedQuery } from '../../types';
 import { useStore } from '../../store';
 import { t } from '../../i18n';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
+import { confirmProductionMutation } from '../../utils/productionRiskConfirm';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { buildBatchTableExportWorkbenchTab, buildTableExportTab } from '../../utils/tableExportTab';
 import { buildSqlServerObjectDefinitionQueries } from '../../utils/sqlServerObjectDefinition';
@@ -15,6 +16,7 @@ import { buildStarRocksMaterializedViewPreviewSql } from '../tableDesignerSchema
 import type { ExportRunResult, RunExportWithProgressOptions } from '../useExportProgressRunner';
 import { getTableDataDangerActionMeta, type TableDataDangerActionKind } from '../tableDataDangerActions';
 import { confirmCopyTable } from '../tableCopyAction';
+import type { DatabaseCharsetOption, DatabaseCollationOption } from '../../utils/databaseCharset';
 import {
   buildDuckDBMacroDDL,
   escapeSQLLiteral,
@@ -27,6 +29,7 @@ import {
   resolveSidebarDatabaseNameForCopy,
   resolveSidebarTableNameForCopy,
 } from './sidebarHelpers';
+import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
 import { normalizeMySQLViewDDLForEditing } from '../sidebarCoreUtils';
 import {
   DBQuery,
@@ -38,6 +41,8 @@ import {
   DropTable,
   DropView,
   ExportTableWithOptions,
+  ListDatabaseCharsets,
+  ListDatabaseCollations,
   RenameDatabase,
   RenameTable,
   RenameView,
@@ -71,7 +76,14 @@ type UseSidebarObjectActionsArgs = {
   closeTabsByDatabase: (connectionId: string, dbName: string) => void;
   createDbForm: FormInstance;
   targetConnection: any;
+  isCreateDbModalOpen: boolean;
   setIsCreateDbModalOpen: Dispatch<SetStateAction<boolean>>;
+  createDbCharsets: DatabaseCharsetOption[];
+  setCreateDbCharsets: Dispatch<SetStateAction<DatabaseCharsetOption[]>>;
+  createDbCollations: DatabaseCollationOption[];
+  setCreateDbCollations: Dispatch<SetStateAction<DatabaseCollationOption[]>>;
+  loadingCreateDbOptions: boolean;
+  setLoadingCreateDbOptions: Dispatch<SetStateAction<boolean>>;
   createSchemaForm: FormInstance;
   createSchemaTarget: any;
   setCreateSchemaTarget: Dispatch<SetStateAction<any>>;
@@ -102,8 +114,8 @@ type UseSidebarObjectActionsArgs = {
   getDatabaseNodeRef: (connRef: any, dbName: string) => any;
   extractObjectName: (fullName: string) => string;
   isPostgresSchemaDialect: (dialect: string) => boolean;
-  loadDatabases: (node: any) => Promise<void>;
-  loadTables: (node: any) => Promise<void>;
+  loadDatabases: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
+  loadTables: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
   openDesign: (node: any, initialTab: string, readOnly?: boolean) => void;
   onDoubleClick: (event: any, node: any) => void;
   runExportWithProgress: RunExportWithProgress;
@@ -173,7 +185,14 @@ export const useSidebarObjectActions = ({
   closeTabsByDatabase,
   createDbForm,
   targetConnection,
+  isCreateDbModalOpen,
   setIsCreateDbModalOpen,
+  createDbCharsets,
+  setCreateDbCharsets,
+  createDbCollations,
+  setCreateDbCollations,
+  loadingCreateDbOptions,
+  setLoadingCreateDbOptions,
   createSchemaForm,
   createSchemaTarget,
   setCreateSchemaTarget,
@@ -213,6 +232,22 @@ export const useSidebarObjectActions = ({
   addAIContext,
   migrateSchemaVisibilityForRenamedDatabase,
 }: UseSidebarObjectActionsArgs) => {
+  const resolveActionConnection = (connRef: any): SavedConnection | null => {
+    const connectionId = String(connRef?.id || connRef?.connectionId || '').trim();
+    return connections.find((connection) => connection.id === connectionId)
+      || (connRef?.config ? connRef as SavedConnection : null);
+  };
+
+  const confirmSidebarMutation = (
+    connRef: any,
+    target: string,
+  ): Promise<boolean> => confirmProductionMutation(
+    resolveActionConnection(connRef),
+    t('connection.production_risk.action.execute_sql'),
+    target,
+    t,
+  );
+
   const handleCopyStructure = async (node: any) => {
     const { config, dbName, tableName } = node.dataRef;
     const res = await DBShowCreateTable(buildRpcConnectionConfig(config) as any, dbName, tableName);
@@ -239,7 +274,7 @@ export const useSidebarObjectActions = ({
     }
   };
 
-  const handleCopyTable = (node: any) => {
+  const handleCopyTable = async (node: any) => {
     const conn = node?.dataRef;
     const tableName = String(conn?.tableName || node?.title || '').trim();
     if (!conn || !tableName) return;
@@ -248,6 +283,10 @@ export const useSidebarObjectActions = ({
       return;
     }
 
+    if (!await confirmSidebarMutation(
+      conn,
+      [conn.dbName, tableName].filter(Boolean).join(' / '),
+    )) return;
     const config = buildRuntimeConfig(conn, conn.dbName);
     confirmCopyTable({
       config: buildRpcConnectionConfig(config) as any,
@@ -255,7 +294,7 @@ export const useSidebarObjectActions = ({
       sourceSchemaName: String(conn.schemaName || ''),
       sourceTableName: tableName,
       onSuccess: async () => {
-        await loadTables(getDatabaseNodeRef(conn, conn.dbName));
+        await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
       },
     });
   };
@@ -418,13 +457,19 @@ export const useSidebarObjectActions = ({
         useSSH: conn.config.useSSH || false,
         ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
       };
+      if (!await confirmSidebarMutation(conn, values.name)) return;
 
-      const res = await CreateDatabase(buildRpcConnectionConfig(config) as any, values.name);
+      const res = await CreateDatabase(
+        buildRpcConnectionConfig(config) as any,
+        values.name,
+        String(values.charset || ''),
+        String(values.collation || ''),
+      );
       if (res.success) {
-        message.success(t('sidebar.message.database_created'));
         setIsCreateDbModalOpen(false);
         createDbForm.resetFields();
-        loadDatabases(targetConnection);
+        await loadDatabases(targetConnection, { ensureFresh: true });
+        message.success(t('sidebar.message.database_created'));
       } else {
         message.error(t('sidebar.message.operation_create_failed', { error: res.message }));
       }
@@ -432,6 +477,46 @@ export const useSidebarObjectActions = ({
       // Validate failed
     }
   };
+
+  useEffect(() => {
+    if (!isCreateDbModalOpen || !targetConnection?.dataRef?.config) return;
+    if (!getDataSourceCapabilities(targetConnection.dataRef.config).supportsCreateDatabaseCharset) return;
+    let cancelled = false;
+    const conn = targetConnection.dataRef;
+    const config = {
+      ...conn.config,
+      port: Number(conn.config.port),
+      password: conn.config.password || '',
+      database: '',
+      useSSH: conn.config.useSSH || false,
+      ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
+    };
+    setLoadingCreateDbOptions(true);
+    Promise.all([
+      ListDatabaseCharsets(buildRpcConnectionConfig(config) as any),
+      ListDatabaseCollations(buildRpcConnectionConfig(config) as any),
+    ])
+      .then(([charsetsResult, collationsResult]) => {
+        if (cancelled) return;
+        if (charsetsResult?.success) {
+          setCreateDbCharsets(Array.isArray(charsetsResult.data) ? charsetsResult.data : []);
+        }
+        if (collationsResult?.success) {
+          setCreateDbCollations(Array.isArray(collationsResult.data) ? collationsResult.data : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          message.error(t('sidebar.message.create_db_options_load_failed'));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCreateDbOptions(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isCreateDbModalOpen, targetConnection, t]);
 
   const openCreateSchemaModal = (node: any) => {
     const dialect = getMetadataDialect(node?.dataRef as SavedConnection);
@@ -454,14 +539,15 @@ export const useSidebarObjectActions = ({
         message.error(t('sidebar.message.schema_target_missing'));
         return;
       }
+      if (!await confirmSidebarMutation(conn, [dbName, values.name].filter(Boolean).join(' / '))) return;
 
       const res = await CreateSchema(buildRpcConnectionConfig(conn.config, { database: dbName }) as any, dbName, values.name);
       if (res.success) {
-        message.success(t('sidebar.message.schema_created'));
         setIsCreateSchemaModalOpen(false);
         setCreateSchemaTarget(null);
         createSchemaForm.resetFields();
-        await loadTables(node);
+        await loadTables(node, { ensureFresh: true });
+        message.success(t('sidebar.message.schema_created'));
       } else {
         message.error(t('sidebar.message.operation_create_failed', { error: res.message }));
       }
@@ -498,6 +584,7 @@ export const useSidebarObjectActions = ({
         message.warning(t('sidebar.message.schema_name_unchanged'));
         return;
       }
+      if (!await confirmSidebarMutation(conn, [dbName, oldSchemaName, newSchemaName].filter(Boolean).join(' / '))) return;
 
       const res = await (window as any).go.app.App.RenameSchema(
         buildRpcConnectionConfig(conn.config, { database: dbName }) as any,
@@ -506,14 +593,14 @@ export const useSidebarObjectActions = ({
         newSchemaName,
       );
       if (res.success) {
-        message.success(t('sidebar.message.schema_renamed'));
         const schemaKeyPrefix = `${conn.id}-${dbName}-schema-${oldSchemaName || 'default'}`;
         setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
         setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
-        await loadTables(getDatabaseNodeRef(conn, dbName));
+        await loadTables(getDatabaseNodeRef(conn, dbName), { ensureFresh: true });
         setIsRenameSchemaModalOpen(false);
         setRenameSchemaTarget(null);
         renameSchemaForm.resetFields();
+        message.success(t('sidebar.message.schema_renamed'));
       } else {
         message.error(t('sidebar.message.rename_failed', { error: res.message }));
       }
@@ -535,17 +622,18 @@ export const useSidebarObjectActions = ({
       content: t('sidebar.modal.confirm_delete_schema.content', { name: schemaName }),
       okButtonProps: { danger: true },
       onOk: async () => {
+        if (!await confirmSidebarMutation(conn, [dbName, schemaName].filter(Boolean).join(' / '))) return;
         const res = await (window as any).go.app.App.DropSchema(
           buildRpcConnectionConfig(conn.config, { database: dbName }) as any,
           dbName,
           schemaName,
         );
         if (res.success) {
-          message.success(t('sidebar.message.schema_deleted'));
           const schemaKeyPrefix = `${conn.id}-${dbName}-schema-${schemaName || 'default'}`;
           setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
           setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
-          await loadTables(getDatabaseNodeRef(conn, dbName));
+          await loadTables(getDatabaseNodeRef(conn, dbName), { ensureFresh: true });
+          message.success(t('sidebar.message.schema_deleted'));
         } else {
           message.error(t('sidebar.message.delete_failed', { error: res.message }));
         }
@@ -568,6 +656,7 @@ export const useSidebarObjectActions = ({
         message.warning(t('sidebar.message.database_name_unchanged'));
         return;
       }
+      if (!await confirmSidebarMutation(conn, `${oldDbName} -> ${newDbName}`)) return;
 
       const config = buildRuntimeConfig(conn, conn.dbName);
       const res = await RenameDatabase(buildRpcConnectionConfig(config) as any, oldDbName, newDbName);
@@ -577,13 +666,16 @@ export const useSidebarObjectActions = ({
           oldDbName,
           newDbName,
         );
-        message.success(t('sidebar.message.database_renamed'));
         setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${oldDbName}`)));
         setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${oldDbName}`)));
-        await loadDatabases({ key: migratedConnection.id, dataRef: migratedConnection });
+        await loadDatabases(
+          { key: migratedConnection.id, dataRef: migratedConnection },
+          { ensureFresh: true },
+        );
         setIsRenameDbModalOpen(false);
         setRenameDbTarget(null);
         renameDbForm.resetFields();
+        message.success(t('sidebar.message.database_renamed'));
       } else {
         message.error(t('sidebar.message.operation_rename_failed', { error: res.message }));
       }
@@ -600,14 +692,15 @@ export const useSidebarObjectActions = ({
       title: t('sidebar.modal.confirm_delete_database.title'),
       content: t('sidebar.modal.confirm_delete_database.content', { name: dbName }),
       onOk: async () => {
+        if (!await confirmSidebarMutation(conn, dbName)) return;
         const config = buildRuntimeConfig(conn, conn.dbName);
         const res = await DropDatabase(buildRpcConnectionConfig(config) as any, dbName);
         if (res.success) {
-          message.success(t('sidebar.message.database_deleted'));
           closeTabsByDatabase(conn.id, dbName);
           setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${dbName}`)));
           setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${dbName}`)));
-          await loadDatabases(getConnectionNodeRef(conn));
+          await loadDatabases(getConnectionNodeRef(conn), { ensureFresh: true });
+          message.success(t('sidebar.message.database_deleted'));
         } else {
           message.error(t('sidebar.message.operation_drop_failed', { error: res.message }));
         }
@@ -630,14 +723,15 @@ export const useSidebarObjectActions = ({
         message.warning(t('sidebar.message.table_name_unchanged'));
         return;
       }
+      if (!await confirmSidebarMutation(conn, [conn.dbName, `${oldTableName} -> ${newTableName}`].filter(Boolean).join(' / '))) return;
       const config = buildRuntimeConfig(conn, conn.dbName);
       const res = await RenameTable(buildRpcConnectionConfig(config) as any, conn.dbName, oldTableName, newTableName);
       if (res.success) {
-        message.success(t('sidebar.message.table_renamed'));
-        await loadTables(getDatabaseNodeRef(conn, conn.dbName));
+        await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
         setIsRenameTableModalOpen(false);
         setRenameTableTarget(null);
         renameTableForm.resetFields();
+        message.success(t('sidebar.message.table_renamed'));
       } else {
         message.error(t('sidebar.message.rename_failed', { error: res.message }));
       }
@@ -654,11 +748,12 @@ export const useSidebarObjectActions = ({
       title: t('sidebar.modal.confirm_delete_table.title'),
       content: t('sidebar.modal.confirm_delete_table.content', { name: tableName }),
       onOk: async () => {
+        if (!await confirmSidebarMutation(conn, [conn.dbName, tableName].filter(Boolean).join(' / '))) return;
         const config = buildRuntimeConfig(conn, conn.dbName);
         const res = await DropTable(buildRpcConnectionConfig(config) as any, conn.dbName, tableName);
         if (res.success) {
+          await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
           message.success(t('sidebar.message.table_deleted'));
-          await loadTables(getDatabaseNodeRef(conn, conn.dbName));
         } else {
           message.error(t('sidebar.message.delete_failed', { error: res.message }));
         }
@@ -684,6 +779,7 @@ export const useSidebarObjectActions = ({
       });
     });
     if (!confirmed) return;
+    if (!await confirmSidebarMutation(conn, [conn.dbName, tableName].filter(Boolean).join(' / '))) return;
 
     const config = buildRuntimeConfig(conn, conn.dbName);
     const app = (window as any).go.app.App;
@@ -703,7 +799,6 @@ export const useSidebarObjectActions = ({
         : `/* ${label} ${tableName} */`;
 
       if (res.success) {
-        message.success(t('sidebar.message.table_data_action_success', { action: progressLabel }));
         addSqlLog({
           id: Date.now().toString(),
           timestamp: Date.now(),
@@ -714,7 +809,8 @@ export const useSidebarObjectActions = ({
           dbName: conn.dbName,
           affectedRows: res.data?.count || 0,
         });
-        await loadTables(getDatabaseNodeRef(conn, conn.dbName));
+        await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
+        message.success(t('sidebar.message.table_data_action_success', { action: progressLabel }));
         return;
       }
 
@@ -939,11 +1035,12 @@ export const useSidebarObjectActions = ({
       content: t('sidebar.modal.confirm_delete_view.content', { name: viewName }),
       okButtonProps: { danger: true },
       onOk: async () => {
+        if (!await confirmSidebarMutation(conn, [conn.dbName, viewName].filter(Boolean).join(' / '))) return;
         const config = buildRuntimeConfig(conn, conn.dbName);
         const res = await DropView(buildRpcConnectionConfig(config) as any, conn.dbName, viewName);
         if (res.success) {
+          await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
           message.success(t('sidebar.message.view_deleted'));
-          await loadTables(getDatabaseNodeRef(conn, conn.dbName));
         } else {
           message.error(t('sidebar.message.delete_failed', { error: res.message }));
         }
@@ -966,14 +1063,15 @@ export const useSidebarObjectActions = ({
         message.warning(t('sidebar.message.view_name_unchanged'));
         return;
       }
+      if (!await confirmSidebarMutation(conn, [conn.dbName, `${oldViewName} -> ${newViewName}`].filter(Boolean).join(' / '))) return;
       const config = buildRuntimeConfig(conn, conn.dbName);
       const res = await RenameView(buildRpcConnectionConfig(config) as any, conn.dbName, oldViewName, newViewName);
       if (res.success) {
-        message.success(t('sidebar.message.view_renamed'));
-        await loadTables(getDatabaseNodeRef(conn, conn.dbName));
+        await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
         setIsRenameViewModalOpen(false);
         setRenameViewTarget(null);
         renameViewForm.resetFields();
+        message.success(t('sidebar.message.view_renamed'));
       } else {
         message.error(t('sidebar.message.rename_failed', { error: res.message }));
       }
@@ -1354,11 +1452,12 @@ export const useSidebarObjectActions = ({
       content: t('sidebar.modal.confirm_delete_routine.content', { type: typeLabel, name: routineName }),
       okButtonProps: { danger: true },
       onOk: async () => {
+        if (!await confirmSidebarMutation(conn, [conn.dbName, routineName].filter(Boolean).join(' / '))) return;
         const config = buildRuntimeConfig(conn, conn.dbName);
         const res = await DropFunction(buildRpcConnectionConfig(config) as any, conn.dbName, routineName, routineType);
         if (res.success) {
+          await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
           message.success(t('sidebar.message.routine_deleted', { type: typeLabel }));
-          await loadTables(getDatabaseNodeRef(conn, conn.dbName));
         } else {
           message.error(t('sidebar.message.delete_failed', { error: res.message }));
         }

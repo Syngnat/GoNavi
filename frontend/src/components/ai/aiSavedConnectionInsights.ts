@@ -63,6 +63,12 @@ export const buildSavedConnectionsSnapshot = (params: {
       const includeDatabases = Array.isArray(connection.includeDatabases)
         ? connection.includeDatabases.filter(Boolean)
         : [];
+      const includeDatabasePatterns = Array.isArray(connection.includeDatabasePatterns)
+        ? connection.includeDatabasePatterns.filter((item) => typeof item === 'string' && item.trim())
+        : [];
+      const excludeDatabasePatterns = Array.isArray(connection.excludeDatabasePatterns)
+        ? connection.excludeDatabasePatterns.filter((item) => typeof item === 'string' && item.trim())
+        : [];
       const includeRedisDatabases = Array.isArray(connection.includeRedisDatabases)
         ? connection.includeRedisDatabases.filter((item) => typeof item === 'number')
         : [];
@@ -92,6 +98,11 @@ export const buildSavedConnectionsSnapshot = (params: {
         hasOpaqueDSN: connection.hasOpaqueDSN === true,
         hasConnectionParams: Boolean(String(config.connectionParams || '').trim()),
         includeDatabaseCount: includeDatabases.length,
+        includeDatabasePatternCount: includeDatabasePatterns.length,
+        excludeDatabasePatternCount: excludeDatabasePatterns.length,
+        databaseVisibilityRestricted: includeDatabases.length > 0
+          || includeDatabasePatterns.length > 0
+          || excludeDatabasePatterns.length > 0,
         includeRedisDatabaseCount: includeRedisDatabases.length,
       };
     });

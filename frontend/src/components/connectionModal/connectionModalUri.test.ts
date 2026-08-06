@@ -2,10 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildUriFromValues,
+  extractOracleSIDParam,
   getConnectionParamsPlaceholder,
   getUriPlaceholder,
   parseTrinoUriToValues,
   parseUriToValues,
+  resolveOracleConnectionTarget,
+  withOracleSIDParam,
+  withoutOracleSIDFromURI,
+  withoutOracleSIDParam,
 } from './connectionModalUri';
 
 describe('connectionModalUri trino support', () => {
@@ -158,5 +163,167 @@ describe('connectionModalUri Nacos support', () => {
     expect(getConnectionParamsPlaceholder('nacos', 'mysql')).toBe(
       'contextPath=/nacos',
     );
+  });
+});
+
+describe('connectionModalUri Oracle SID support', () => {
+  it('resolves SID using the same URI then connection-params precedence as the backend', () => {
+    expect(resolveOracleConnectionTarget('SID=FROM_URI')).toEqual({
+      mode: 'sid',
+      sid: 'FROM_URI',
+    });
+    expect(
+      resolveOracleConnectionTarget(
+        'SID=FROM_URI',
+        'DBA_PRIVILEGE=SYSDBA',
+      ),
+    ).toEqual({ mode: 'sid', sid: 'FROM_URI' });
+    expect(
+      resolveOracleConnectionTarget('SID=FROM_URI', 'sid=FROM_PARAMS'),
+    ).toEqual({ mode: 'sid', sid: 'FROM_PARAMS' });
+    expect(resolveOracleConnectionTarget('SID=FROM_URI', 'SID=')).toEqual({
+      mode: 'service',
+      sid: '',
+    });
+  });
+
+  it('parses SID-only Oracle URIs and lets SID override a legacy path', () => {
+    expect(
+      parseUriToValues(
+        'oracle://system:secret@db.example.test:1521?SID=ORCL',
+        'oracle',
+      ),
+    ).toMatchObject({
+      host: 'db.example.test',
+      port: 1521,
+      database: 'ORCL',
+      oracleMode: 'sid',
+      connectionParams: 'SID=ORCL',
+    });
+    expect(
+      parseUriToValues(
+        'oracle://system:secret@db.example.test:1521/OLD_SERVICE?SID=ORCL',
+        'oracle',
+      ),
+    ).toMatchObject({ database: 'ORCL', oracleMode: 'sid' });
+    expect(
+      parseUriToValues(
+        'oracle://system:secret@db.example.test:1521/ORCLPDB1',
+        'oracle',
+      ),
+    ).toMatchObject({ database: 'ORCLPDB1', oracleMode: 'service' });
+    expect(
+      parseUriToValues('oracle://system:secret@db.example.test:1521', 'oracle'),
+    ).toBeNull();
+  });
+
+  it('generates Oracle URIs according to the selected connection mode', () => {
+    const sidUri = new URL(
+      buildUriFromValues({
+        type: 'oracle',
+        host: 'db.example.test',
+        port: 1521,
+        user: 'system',
+        password: 'secret',
+        database: 'ORCL',
+        oracleMode: 'sid',
+        connectionParams: 'DBA_PRIVILEGE=SYSDBA&sid=OLD',
+        useSSL: false,
+      }),
+    );
+    expect(sidUri.pathname).toBe('');
+    expect(sidUri.searchParams.get('SID')).toBe('ORCL');
+    expect(sidUri.searchParams.get('DBA_PRIVILEGE')).toBe('SYSDBA');
+
+    const serviceUri = new URL(
+      buildUriFromValues({
+        type: 'oracle',
+        host: 'db.example.test',
+        port: 1521,
+        user: 'system',
+        password: 'secret',
+        database: 'ORCLPDB1',
+        oracleMode: 'service',
+        connectionParams: 'SID=ORCL&DBA_PRIVILEGE=SYSDBA',
+        useSSL: false,
+      }),
+    );
+    expect(serviceUri.pathname).toBe('/ORCLPDB1');
+    expect(serviceUri.searchParams.has('SID')).toBe(false);
+    expect(serviceUri.searchParams.get('DBA_PRIVILEGE')).toBe('SYSDBA');
+  });
+
+  it('keeps SID mode through an Oracle URI parse and generate round trip', () => {
+    const parsed = parseUriToValues(
+      'oracle://system:secret@db.example.test:1521?SID=ORCL&DBA_PRIVILEGE=SYSDBA',
+      'oracle',
+    );
+    expect(parsed).not.toBeNull();
+
+    const rebuilt = buildUriFromValues({ type: 'oracle', ...parsed });
+    const reparsed = parseUriToValues(rebuilt, 'oracle');
+    expect(reparsed).toMatchObject({
+      database: 'ORCL',
+      oracleMode: 'sid',
+    });
+    expect(new URL(rebuilt).pathname).toBe('');
+  });
+
+  it('extracts SID case-insensitively from connection params text', () => {
+    expect(extractOracleSIDParam('')).toBe('');
+    expect(extractOracleSIDParam('DBA_PRIVILEGE=SYSDBA')).toBe('');
+    expect(extractOracleSIDParam('SID=ORCL')).toBe('ORCL');
+    expect(extractOracleSIDParam('sid=orcl&SERVICE_NAME=svc')).toBe('orcl');
+    expect(extractOracleSIDParam('PREFETCH_ROWS=50&SID=ORCLPDB')).toBe('ORCLPDB');
+    expect(extractOracleSIDParam('?SID=ORCL')).toBe('ORCL');
+    expect(extractOracleSIDParam(undefined)).toBe('');
+  });
+
+  it('withOracleSIDParam sets a new SID while preserving other params', () => {
+    expect(withOracleSIDParam('', 'ORCL')).toBe('SID=ORCL');
+    expect(withOracleSIDParam('DBA_PRIVILEGE=SYSDBA', 'ORCL')).toBe(
+      'DBA_PRIVILEGE=SYSDBA&SID=ORCL',
+    );
+    expect(withOracleSIDParam('SID=OLD', 'ORCL')).toBe('SID=ORCL');
+    expect(withOracleSIDParam('SID=OLD&sid=OTHER', 'ORCL')).toBe('SID=ORCL');
+    expect(withOracleSIDParam('sid=old&TRACE FILE=/tmp/x', 'ORCL')).toBe(
+      'SID=ORCL&TRACE+FILE=%2Ftmp%2Fx',
+    );
+    expect(withOracleSIDParam('SID=OLD', '')).toBe('');
+  });
+
+  it('withoutOracleSIDParam removes SID while preserving other params', () => {
+    expect(withoutOracleSIDParam('')).toBe('');
+    expect(withoutOracleSIDParam('SID=ORCL')).toBe('');
+    expect(withoutOracleSIDParam('sid=orcl&DBA_PRIVILEGE=SYSDBA')).toBe(
+      'DBA_PRIVILEGE=SYSDBA',
+    );
+    expect(withoutOracleSIDParam('DBA_PRIVILEGE=SYSDBA')).toBe(
+      'DBA_PRIVILEGE=SYSDBA',
+    );
+  });
+
+  it('withoutOracleSIDFromURI strips SID from a connection URI query', () => {
+    expect(withoutOracleSIDFromURI('')).toBe('');
+    expect(withoutOracleSIDFromURI('oracle://u:p@h:1521/ORCL')).toBe(
+      'oracle://u:p@h:1521/ORCL',
+    );
+    expect(withoutOracleSIDFromURI('oracle://u:p@h:1521/?SID=ORCL')).toBe(
+      'oracle://u:p@h:1521/',
+    );
+    expect(
+      withoutOracleSIDFromURI('oracle://u:p@h:1521/?sid=orcl&DBA_PRIVILEGE=SYSDBA'),
+    ).toBe('oracle://u:p@h:1521/?DBA_PRIVILEGE=SYSDBA');
+    expect(
+      withoutOracleSIDFromURI('oracle://u:p@h:1521/?DBA_PRIVILEGE=SYSDBA&SID=ORCL&TRACE=1'),
+    ).toBe('oracle://u:p@h:1521/?DBA_PRIVILEGE=SYSDBA&TRACE=1');
+    expect(
+      withoutOracleSIDFromURI('oracle://u:p@h:1521/?SID=ORCL#frag'),
+    ).toBe('oracle://u:p@h:1521/#frag');
+    expect(
+      withoutOracleSIDFromURI(
+        'oracle://u:p@h:1521/ORCLPDB1?S%49D=ORCL&TRACE=1',
+      ),
+    ).toBe('oracle://u:p@h:1521/ORCLPDB1?TRACE=1');
   });
 });

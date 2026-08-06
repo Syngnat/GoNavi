@@ -63,6 +63,7 @@ const CONNECTION_READ_ONLY_TYPES = new Set([
   "clickhouse",
   "trino",
   "mongodb",
+  "elasticsearch",
 ]);
 
 const CONNECTION_PROTECTION_TYPES = new Set([
@@ -418,6 +419,7 @@ export const supportsConnectionKeepAliveSQL = (
   const type = resolveConnectionReadOnlyType(config);
   return (
     type !== "mongodb" &&
+    type !== "elasticsearch" &&
     type !== "sqlite" &&
     type !== "duckdb" &&
     CONNECTION_READ_ONLY_TYPES.has(type)
@@ -560,6 +562,17 @@ export const findConnectionMutatingStatements = (
     return [];
   }
   return findSqlStatementRanges(String(sql || ""), resolveConnectionReadOnlyType(config))
+    .map((range) => range.text.trim())
+    .filter((statement) => statement.length > 0)
+    .filter((statement) => !isConnectionReadOnlyStatement(config, statement));
+};
+
+export const findPotentiallyMutatingConnectionStatements = (
+  config: ConnectionReadOnlyLike,
+  sql: string,
+): string[] => {
+  const dbType = resolveConnectionReadOnlyType(config);
+  return findSqlStatementRanges(String(sql || ""), dbType)
     .map((range) => range.text.trim())
     .filter((statement) => statement.length > 0)
     .filter((statement) => !isConnectionReadOnlyStatement(config, statement));

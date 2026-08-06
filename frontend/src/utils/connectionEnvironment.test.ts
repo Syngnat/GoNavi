@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { ConnectionTag, SavedConnection } from '../types';
+import type { SavedConnection } from '../types';
 import {
   getConnectionEnvironmentMeta,
   normalizeConnectionEnvironmentType,
@@ -28,61 +28,18 @@ describe('connectionEnvironment', () => {
     expect(getConnectionEnvironmentMeta(undefined).color).toBe('#8c8c8c');
   });
 
-  it('uses the ungrouped connection environment', () => {
-    expect(resolveConnectionEnvironmentType(connection, [])).toBe('development');
+  it('uses the connection environment', () => {
+    expect(resolveConnectionEnvironmentType(connection)).toBe('development');
   });
 
-  it('lets the direct group environment override the connection environment', () => {
-    const tags: ConnectionTag[] = [
-      {
-        id: 'production-group',
-        name: 'Production',
-        environmentType: 'production',
-        connectionIds: ['conn-1'],
-      },
-    ];
-
-    expect(resolveConnectionEnvironmentType(connection, tags)).toBe('production');
+  it('does not let group membership override the connection environment', () => {
     expect(resolveConnectionEnvironmentPresentation(
       connection,
-      tags,
       (key) => key,
     )).toEqual({
-      type: 'production',
-      color: '#e5484d',
-      label: 'connection.environment.production',
+      type: 'development',
+      color: '#1677ff',
+      label: 'connection.environment.development',
     });
-  });
-
-  it('treats a legacy direct group without metadata as local', () => {
-    const tags: ConnectionTag[] = [
-      {
-        id: 'legacy-group',
-        name: 'Legacy',
-        connectionIds: ['conn-1'],
-      },
-    ];
-
-    expect(resolveConnectionEnvironmentType(connection, tags)).toBe('local');
-  });
-
-  it('does not inherit a parent group environment over the direct group', () => {
-    const tags: ConnectionTag[] = [
-      {
-        id: 'parent',
-        name: 'Production',
-        environmentType: 'production',
-        connectionIds: [],
-      },
-      {
-        id: 'child',
-        name: 'Local child',
-        parentTagId: 'parent',
-        environmentType: 'local',
-        connectionIds: ['conn-1'],
-      },
-    ];
-
-    expect(resolveConnectionEnvironmentType(connection, tags)).toBe('local');
   });
 });

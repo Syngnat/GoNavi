@@ -1213,7 +1213,7 @@ func (a *App) GetDriverStatusList(downloadDir string, manifestURL string) connec
 	effectivePackages, manifestErr := resolveEffectiveDriverPackages(manifestURL)
 	definitions := allDriverDefinitionsWithPackages(effectivePackages)
 	triggerDriverVersionMetadataWarmup(definitions)
-	packageSizeBytesMap := preloadOptionalDriverPackageSizes(definitions)
+	packageSizeBytesMap := readCachedOptionalDriverPackageSizes(definitions)
 	usageCounts := a.savedConnectionDriverUsageCounts()
 	items := make([]driverStatusItem, 0, len(definitions))
 	for _, definition := range definitions {
@@ -2540,14 +2540,14 @@ func triggerDriverVersionMetadataWarmup(definitions []driverDefinition) {
 		return
 	}
 
-	go func(paths []string) {
+	go func(paths []string, warmupDefinitions []driverDefinition) {
 		defer finishDriverVersionMetadataWarmup()
-		// 预热 latest 资产索引，便于版本列表命中大小缓存。
-		_, _, _ = loadReleaseAssetSizesCached("latest", fetchLatestReleaseForDriverAssets)
+		// 包大小和历史版本都属于辅助元数据，不能阻塞驱动状态首屏。
+		_ = preloadOptionalDriverPackageSizes(warmupDefinitions)
 		for _, modulePath := range paths {
 			_ = fetchGoModuleVersionMetasCached(modulePath)
 		}
-	}(append([]string(nil), modulePaths...))
+	}(append([]string(nil), modulePaths...), append([]driverDefinition(nil), definitions...))
 }
 
 func resolveDriverGoModulePaths(driverType string) []string {

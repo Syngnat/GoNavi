@@ -326,6 +326,50 @@ func TestCheckForUpdatesRestoresPersistedGlobalProxyRuntime(t *testing.T) {
 	}
 }
 
+func TestFetchLatestUpdateInfoMapsReleaseNotesFromStaticManifest(t *testing.T) {
+	assetName, err := expectedAssetName(stdRuntime.GOOS, stdRuntime.GOARCH, "1.2.3")
+	if err != nil {
+		t.Fatalf("expectedAssetName returned error: %v", err)
+	}
+
+	originalVersion := AppVersion
+	AppVersion = "1.0.0"
+	defer func() {
+		AppVersion = originalVersion
+	}()
+
+	const notes = "## ✨ 新功能\n\n- in-app release notes"
+	restoreStatic := swapUpdateFetchStaticManifest(func(channel updateChannel) (*githubRelease, error) {
+		return &githubRelease{
+			TagName:     "v1.2.3",
+			Name:        "v1.2.3",
+			HTMLURL:     "https://github.com/Syngnat/GoNavi/releases/tag/v1.2.3",
+			PublishedAt: "2026-07-08T11:15:00Z",
+			Body:        notes + "\n",
+			Assets: []githubAsset{
+				{
+					Name:               assetName,
+					BrowserDownloadURL: "https://example.com/" + assetName,
+					Digest:             "sha256:" + strings.Repeat("a", 64),
+					Size:               4096,
+				},
+			},
+		}, nil
+	})
+	defer restoreStatic()
+
+	info, err := fetchLatestUpdateInfo(updateChannelLatest)
+	if err != nil {
+		t.Fatalf("fetchLatestUpdateInfo returned error: %v", err)
+	}
+	if info.ReleaseNotes != notes {
+		t.Fatalf("expected release notes body, got %#v", info.ReleaseNotes)
+	}
+	if info.ReleaseNotesURL != "https://github.com/Syngnat/GoNavi/releases/tag/v1.2.3" {
+		t.Fatalf("unexpected release notes url: %#v", info.ReleaseNotesURL)
+	}
+}
+
 func TestFetchLatestUpdateInfoForDevChannelUsesReleaseBuildVersion(t *testing.T) {
 	assetName, err := expectedAssetName(stdRuntime.GOOS, stdRuntime.GOARCH, "dev-a1b2c3d")
 	if err != nil {

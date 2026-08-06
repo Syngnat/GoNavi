@@ -54,12 +54,16 @@ import {
   normalizeTemporalLiteralText,
 } from "./dataGridCopyInsert";
 import {
+  buildDataSyncAnalysisFingerprint,
+  buildInitialDataSyncTableOptions,
   buildDataSyncRequest,
   type SourceDatasetMode,
+  validateDataSyncExecutionReadiness,
   validateDataSyncSelection,
 } from "./dataSyncRequest";
 import { t } from "../i18n";
 import { useOptionalI18n } from "../i18n/provider";
+import { confirmProductionMutation } from "../utils/productionRiskConfirm";
 import {
   resolveDataSyncEntryModePresentation,
   type DataSyncEntryMode,
@@ -432,6 +436,7 @@ const DataSyncModal: React.FC<{
   const [showSameTables, setShowSameTables] = useState<boolean>(false);
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [diffTables, setDiffTables] = useState<TableDiffSummary[]>([]);
+  const [analyzedFingerprint, setAnalyzedFingerprint] = useState("");
   const [tableOptions, setTableOptions] = useState<Record<string, TableOps>>(
     {},
   );
@@ -460,8 +465,93 @@ const DataSyncModal: React.FC<{
   });
   const jobIdRef = useRef<string>("");
   const runSyncGuardRef = useRef(false);
+  const analysisRequestSeqRef = useRef(0);
+  const sourceDatabaseRequestSeqRef = useRef(0);
+  const targetDatabaseRequestSeqRef = useRef(0);
+  const tableMetadataRequestSeqRef = useRef(0);
   const logBoxRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+
+  const currentAnalysisFingerprint = useMemo(
+    () =>
+      buildDataSyncAnalysisFingerprint({
+        sourceConnectionId: sourceConnId,
+        targetConnectionId: targetConnId,
+        sourceDatabase: sourceDb,
+        targetDatabase: targetDb,
+        targetSchema,
+        selectedTables,
+        sourceDatasetMode,
+        sourceQuery,
+        syncContent,
+        syncMode,
+        autoAddColumns,
+        targetTableStrategy,
+        createIndexes,
+        mongoCollectionName,
+      }),
+    [
+      sourceConnId,
+      targetConnId,
+      sourceDb,
+      targetDb,
+      targetSchema,
+      selectedTables,
+      sourceDatasetMode,
+      sourceQuery,
+      syncContent,
+      syncMode,
+      autoAddColumns,
+      targetTableStrategy,
+      createIndexes,
+      mongoCollectionName,
+    ],
+  );
+  const currentAnalysisFingerprintRef = useRef(currentAnalysisFingerprint);
+  currentAnalysisFingerprintRef.current = currentAnalysisFingerprint;
+  const currentTableEndpointFingerprint = useMemo(
+    () =>
+      JSON.stringify([
+        sourceDatasetMode,
+        sourceDatasetMode === "query" ? targetConnId : sourceConnId,
+        sourceDatasetMode === "query" ? targetDb : sourceDb,
+        sourceDatasetMode === "query" ? targetSchema : "",
+      ]),
+    [
+      sourceDatasetMode,
+      sourceConnId,
+      targetConnId,
+      sourceDb,
+      targetDb,
+      targetSchema,
+    ],
+  );
+  const currentTableEndpointFingerprintRef = useRef(
+    currentTableEndpointFingerprint,
+  );
+  currentTableEndpointFingerprintRef.current = currentTableEndpointFingerprint;
+  const executionReadiness = useMemo(
+    () =>
+      validateDataSyncExecutionReadiness({
+        requiresAnalysis: syncContent !== "schema",
+        syncContent,
+        syncMode,
+        currentFingerprint: currentAnalysisFingerprint,
+        analyzedFingerprint,
+        selectedTables,
+        analyzedTables: diffTables,
+        tableOptions,
+      }),
+    [
+      analyzedFingerprint,
+      currentAnalysisFingerprint,
+      diffTables,
+      selectedTables,
+      syncContent,
+      syncMode,
+      tableOptions,
+    ],
+  );
 
   const normalizeConnConfig = (conn: SavedConnection, database?: string) =>
     buildRpcConnectionConfig(conn.config, {
@@ -545,6 +635,7 @@ const DataSyncModal: React.FC<{
       setShowSameTables(false);
       setAnalyzing(false);
       setDiffTables([]);
+      setAnalyzedFingerprint("");
       setTableOptions({});
       setPreviewOpen(false);
       setPreviewTable("");
@@ -684,13 +775,19 @@ const DataSyncModal: React.FC<{
   ]);
 
   const handleSourceConnChange = async (connId: string) => {
+    const requestSeq = ++sourceDatabaseRequestSeqRef.current;
     setSourceConnId(connId);
     setSourceDb("");
+    setSourceDbs([]);
+    setDiffTables([]);
+    setAnalyzedFingerprint("");
+    setTableOptions({});
     const conn = connections.find((c) => c.id === connId);
     if (conn) {
       setLoading(true);
       try {
         const res = await DBGetDatabases(normalizeConnConfig(conn) as any);
+        if (requestSeq !== sourceDatabaseRequestSeqRef.current) return;
         if (res.success) {
           const dbRows = Array.isArray(res.data) ? res.data : [];
           setSourceDbs(
@@ -702,27 +799,37 @@ const DataSyncModal: React.FC<{
           );
         }
       } catch (e: any) {
+        if (requestSeq !== sourceDatabaseRequestSeqRef.current) return;
         message.error(
           tr("data_sync.message.fetch_source_databases_failed_detail", {
             detail: e?.message || String(e),
           }),
         );
+      } finally {
+        if (requestSeq === sourceDatabaseRequestSeqRef.current) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     }
   };
 
   const handleTargetConnChange = async (connId: string) => {
+    const requestSeq = ++targetDatabaseRequestSeqRef.current;
     setTargetConnId(connId);
     setTargetDb("");
+    setTargetDbs([]);
     setTargetSchema("");
     setTargetSchemas([]);
     setTargetSchemaLoading(false);
+    setDiffTables([]);
+    setAnalyzedFingerprint("");
+    setTableOptions({});
     const conn = connections.find((c) => c.id === connId);
     if (conn) {
       setLoading(true);
       try {
         const res = await DBGetDatabases(normalizeConnConfig(conn) as any);
+        if (requestSeq !== targetDatabaseRequestSeqRef.current) return;
         if (res.success) {
           const dbRows = Array.isArray(res.data) ? res.data : [];
           setTargetDbs(
@@ -734,13 +841,17 @@ const DataSyncModal: React.FC<{
           );
         }
       } catch (e: any) {
+        if (requestSeq !== targetDatabaseRequestSeqRef.current) return;
         message.error(
           tr("data_sync.message.fetch_target_databases_failed_detail", {
             detail: e?.message || String(e),
           }),
         );
+      } finally {
+        if (requestSeq === targetDatabaseRequestSeqRef.current) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     }
   };
 
@@ -759,6 +870,8 @@ const DataSyncModal: React.FC<{
     if (!ensureTargetSchemaSelected()) return;
 
     setLoading(true);
+    const requestSeq = ++tableMetadataRequestSeqRef.current;
+    const requestFingerprint = currentTableEndpointFingerprint;
     try {
       const connId = isSourceQueryMode ? targetConnId : sourceConnId;
       const dbName = isSourceQueryMode ? targetDb : sourceDb;
@@ -766,6 +879,12 @@ const DataSyncModal: React.FC<{
       if (conn) {
         const config = normalizeConnConfig(conn, dbName);
         const res = await DBGetTables(config as any, dbName);
+        if (
+          requestSeq !== tableMetadataRequestSeqRef.current ||
+          requestFingerprint !== currentTableEndpointFingerprintRef.current
+        ) {
+          return;
+        }
         if (res.success) {
           const tables = normalizeTableNamesFromMetadataRows(res.data);
           const nextTables = (
@@ -793,13 +912,22 @@ const DataSyncModal: React.FC<{
         }
       }
     } catch (e: any) {
+      if (
+        requestSeq !== tableMetadataRequestSeqRef.current ||
+        requestFingerprint !== currentTableEndpointFingerprintRef.current
+      ) {
+        return;
+      }
       message.error(
         tr("data_sync.message.fetch_tables_failed_detail", {
           detail: e?.message || String(e),
         }),
       );
+    } finally {
+      if (requestSeq === tableMetadataRequestSeqRef.current) {
+        setLoading(false);
+      }
     }
-    setLoading(false);
   };
 
   const updateTableOption = (
@@ -833,8 +961,12 @@ const DataSyncModal: React.FC<{
     setLoading(true);
     setAnalyzing(true);
     setDiffTables([]);
+    setAnalyzedFingerprint("");
     setTableOptions({});
     setSyncLogs([]);
+
+    const requestSeq = ++analysisRequestSeqRef.current;
+    const requestFingerprint = currentAnalysisFingerprint;
 
     const sConn = connections.find((c) => c.id === sourceConnId)!;
     const tConn = connections.find((c) => c.id === targetConnId)!;
@@ -859,7 +991,7 @@ const DataSyncModal: React.FC<{
       sourceDatasetMode,
       sourceQuery,
       syncContent,
-      syncMode: "insert_update",
+      syncMode,
       autoAddColumns,
       targetTableStrategy,
       createIndexes,
@@ -869,24 +1001,24 @@ const DataSyncModal: React.FC<{
 
     try {
       const res = await DataSyncAnalyze(config as any);
+      if (
+        requestSeq !== analysisRequestSeqRef.current ||
+        requestFingerprint !== currentAnalysisFingerprintRef.current
+      ) {
+        return;
+      }
       if (res.success) {
         const tables = ((res.data as any)?.tables || []) as TableDiffSummary[];
         setDiffTables(tables);
         const init: Record<string, TableOps> = {};
         tables.forEach((t) => {
-          const can = !!t.canSync;
-          init[t.table] = {
-            insert: can,
-            update: can,
-            delete: false,
-            selectedInsertPks: [],
-            selectedUpdatePks: [],
-            selectedDeletePks: [],
-          };
+          init[t.table] = buildInitialDataSyncTableOptions(t, syncMode);
         });
         setTableOptions(init);
+        setAnalyzedFingerprint(requestFingerprint);
         message.success(tr("data_sync.message.analysis_complete"));
       } else {
+        setAnalyzedFingerprint("");
         message.error(
           res.message
             ? tr("data_sync.message.analysis_failed_detail", {
@@ -896,15 +1028,24 @@ const DataSyncModal: React.FC<{
         );
       }
     } catch (e: any) {
+      if (
+        requestSeq !== analysisRequestSeqRef.current ||
+        requestFingerprint !== currentAnalysisFingerprintRef.current
+      ) {
+        return;
+      }
+      setAnalyzedFingerprint("");
       message.error(
         tr("data_sync.message.analysis_failed_detail", {
           detail: e?.message || String(e),
         }),
       );
+    } finally {
+      if (requestSeq === analysisRequestSeqRef.current) {
+        setLoading(false);
+        setAnalyzing(false);
+      }
     }
-
-    setLoading(false);
-    setAnalyzing(false);
   };
 
   const openPreview = async (table: string) => {
@@ -928,7 +1069,7 @@ const DataSyncModal: React.FC<{
       sourceDatasetMode,
       sourceQuery,
       syncContent,
-      syncMode: "insert_update",
+      syncMode,
       autoAddColumns,
       targetTableStrategy,
       createIndexes,
@@ -971,8 +1112,10 @@ const DataSyncModal: React.FC<{
       return;
     }
     if (!ensureTargetSchemaSelected()) return;
-    if (syncContent !== "schema" && diffTables.length === 0) {
-      message.error(tr("data_sync.message.analyze_before_sync"));
+    if (!executionReadiness.ready) {
+      message.error(
+        executionReadiness.message || tr("data_sync.message.analyze_before_sync"),
+      );
       return;
     }
     if (runSyncGuardRef.current) {
@@ -995,14 +1138,20 @@ const DataSyncModal: React.FC<{
         if (!ok) return;
       }
 
+      const sConn = connections.find((c) => c.id === sourceConnId)!;
+      const tConn = connections.find((c) => c.id === targetConnId)!;
+      if (!await confirmProductionMutation(
+        tConn,
+        tr("connection.production_risk.action.sync_data"),
+        [targetDb, targetSchema, selectedTables.join(', ')].filter(Boolean).join(' / '),
+        tr,
+      )) return;
+
       setLoading(true);
       setSyncing(true);
       setCurrentStep(2);
       setSyncResult(null);
       setSyncLogs([]);
-
-      const sConn = connections.find((c) => c.id === sourceConnId)!;
-      const tConn = connections.find((c) => c.id === targetConnId)!;
 
       const jobId = `sync-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
       jobIdRef.current = jobId;
@@ -2378,7 +2527,7 @@ const DataSyncModal: React.FC<{
                 disabled={
                   selectedTables.length === 0 ||
                   (isSourceQueryMode && !sourceQuery.trim()) ||
-                  (syncContent !== "schema" && diffTables.length === 0)
+                  !executionReadiness.ready
                 }
               >
                 {tr("data_sync.action.start_sync")}

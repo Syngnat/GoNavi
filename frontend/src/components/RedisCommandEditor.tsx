@@ -13,6 +13,7 @@ import {
     resolveAppearanceValues,
 } from '../utils/appearance';
 import { buildRedisWorkbenchTheme } from './redisViewerWorkbenchTheme';
+import { confirmProductionMutation } from '../utils/productionRiskConfirm';
 
 interface RedisCommandEditorProps {
     connectionId: string;
@@ -156,6 +157,23 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
         };
     }, [connection, redisDB]);
 
+    const redisReadOnlyCommands = useMemo(() => new Set([
+        'AUTH', 'COMMAND', 'DBSIZE', 'ECHO', 'EXISTS', 'GET', 'GETBIT', 'GETRANGE', 'HELLO',
+        'HGET', 'HGETALL', 'HEXISTS', 'HKEYS', 'HLEN', 'HMGET', 'HSTRLEN', 'HVALS', 'INFO',
+        'KEYS', 'LASTSAVE', 'LINDEX', 'LLEN', 'LRANGE', 'MGET', 'OBJECT', 'PING',
+        'PTTL', 'RANDOMKEY', 'ROLE', 'SCAN', 'SCARD', 'SDIFF', 'SINTER', 'SISMEMBER',
+        'READONLY', 'READWRITE', 'SELECT', 'SMEMBERS', 'SMISMEMBER', 'SRANDMEMBER', 'STRLEN',
+        'TIME', 'TTL', 'TYPE', 'XLEN',
+        'XINFO', 'XPENDING', 'XRANGE', 'XREAD', 'XREVRANGE', 'ZCARD', 'ZCOUNT', 'ZLEXCOUNT',
+        'ZRANGE', 'ZRANGEBYLEX', 'ZRANGEBYSCORE', 'ZRANK', 'ZREVRANGE', 'ZREVRANGEBYLEX',
+        'ZREVRANGEBYSCORE', 'ZREVRANK', 'ZSCORE',
+    ]), []);
+
+    const commandMayMutate = useCallback((value: string) => {
+        const keyword = String(value || '').trim().match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || '';
+        return !keyword || !redisReadOnlyCommands.has(keyword);
+    }, [redisReadOnlyCommands]);
+
     const handleEditorMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
         editor.addCommand(
@@ -245,6 +263,15 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
         // 2. 智能解析多行命令
         const commands = parseRedisScriptBlocks(cmdToExecute);
         if (commands.length === 0) return;
+        if (commands.some(commandMayMutate)) {
+            const approved = await confirmProductionMutation(
+                connection,
+                tr('connection.production_risk.action.modify_data'),
+                `db${redisDB}`,
+                tr,
+            );
+            if (!approved) return;
+        }
 
         setLoading(true);
         const newResults: CommandResult[] = [];

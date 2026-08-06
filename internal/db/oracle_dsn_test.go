@@ -111,10 +111,24 @@ func TestOracleDSNLogSummaryDoesNotExposePassword(t *testing.T) {
 	if strings.Contains(got, "top-secret") || strings.Contains(got, "sys@tenant") {
 		t.Fatalf("summary should not expose credentials, got %q", got)
 	}
-	for _, want := range []string{"服务名=ORCLPDB1", "DBA_PRIVILEGE=SYSDBA", "AUTH_TYPE=NORMAL"} {
+	for _, want := range []string{"连接模式=服务名", "服务名=ORCLPDB1", "DBA_PRIVILEGE=SYSDBA", "AUTH_TYPE=NORMAL"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected summary to contain %q, got %q", want, got)
 		}
+	}
+}
+
+func TestOracleDSNLogSummaryUsesEffectiveSIDOverLegacyDatabase(t *testing.T) {
+	dsn := "oracle://sys:top-secret@127.0.0.1:1521?SID=ORCL&DBA+PRIVILEGE=SYSDBA"
+	got := oracleDSNLogSummary(connection.ConnectionConfig{Database: "OLD_SERVICE"}, dsn)
+
+	for _, want := range []string{"连接模式=SID", "SID=ORCL", "DBA_PRIVILEGE=SYSDBA"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected summary to contain %q, got %q", want, got)
+		}
+	}
+	if strings.Contains(got, "OLD_SERVICE") || strings.Contains(got, "top-secret") {
+		t.Fatalf("summary should use the effective SID without exposing stale or secret values, got %q", got)
 	}
 }
 

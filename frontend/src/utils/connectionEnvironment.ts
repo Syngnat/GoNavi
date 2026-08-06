@@ -1,8 +1,4 @@
-import type {
-  ConnectionEnvironmentType,
-  ConnectionTag,
-  SavedConnection,
-} from '../types';
+import type { ConnectionEnvironmentType, SavedConnection } from '../types';
 
 type Translate = (key: string, params?: any) => string;
 
@@ -63,31 +59,15 @@ export const getConnectionEnvironmentOptions = (translate: Translate) =>
     color: item.color,
   }));
 
-export const findDirectConnectionTag = (
-  connectionId: string | undefined,
-  connectionTags: ConnectionTag[],
-): ConnectionTag | undefined => {
-  const normalizedConnectionId = String(connectionId || '').trim();
-  if (!normalizedConnectionId) return undefined;
-  return connectionTags.find((tag) => tag.connectionIds.includes(normalizedConnectionId));
-};
-
 export const resolveConnectionEnvironmentType = (
-  connection: Pick<SavedConnection, 'id' | 'environmentType'> | null | undefined,
-  connectionTags: ConnectionTag[],
-): ConnectionEnvironmentType => {
-  const directTag = findDirectConnectionTag(connection?.id, connectionTags);
-  return directTag
-    ? normalizeConnectionEnvironmentType(directTag.environmentType)
-    : normalizeConnectionEnvironmentType(connection?.environmentType);
-};
+  connection: Pick<SavedConnection, 'environmentType'> | null | undefined,
+): ConnectionEnvironmentType => normalizeConnectionEnvironmentType(connection?.environmentType);
 
 export const resolveConnectionEnvironmentPresentation = (
-  connection: Pick<SavedConnection, 'id' | 'environmentType'> | null | undefined,
-  connectionTags: ConnectionTag[],
+  connection: Pick<SavedConnection, 'environmentType'> | null | undefined,
   translate: Translate,
 ) => {
-  const type = resolveConnectionEnvironmentType(connection, connectionTags);
+  const type = resolveConnectionEnvironmentType(connection);
   const meta = getConnectionEnvironmentMeta(type);
   return {
     type,

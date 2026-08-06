@@ -110,6 +110,29 @@ describe('MonacoEditor typography', () => {
     expect(dataMarkup).toContain('&quot;lineHeight&quot;:18');
   });
 
+  it('sizes structured SQL completion rows from the final editor font size', () => {
+    storeState.appearance.sqlEditorFontSizeFollowGlobal = false;
+    storeState.appearance.sqlEditorFontSize = 18;
+
+    const largeMarkup = renderToStaticMarkup(
+      <MonacoEditor gonaviTypography="sql" options={{ minimap: { enabled: false } }} />,
+    );
+
+    expect(largeMarkup).toContain('&quot;suggestLineHeight&quot;:43');
+    expect(largeMarkup).toContain('--gn-query-suggest-name-row-height:25px');
+    expect(largeMarkup).toContain('--gn-query-suggest-row-height:43px');
+  });
+
+  it('sizes structured SQL completion rows from an explicit editor font size', () => {
+    const explicitMarkup = renderToStaticMarkup(
+      <MonacoEditor gonaviTypography="sql" options={{ fontSize: 20 }} />,
+    );
+
+    expect(explicitMarkup).toContain('&quot;suggestLineHeight&quot;:46');
+    expect(explicitMarkup).toContain('--gn-query-suggest-name-row-height:28px');
+    expect(explicitMarkup).toContain('--gn-query-suggest-row-height:46px');
+  });
+
   it('keeps legacy editors on their explicit font settings', () => {
     storeState.appearance.uiVersion = 'legacy';
 

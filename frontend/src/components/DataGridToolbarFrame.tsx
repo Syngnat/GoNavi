@@ -687,25 +687,21 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             }}
           >
             <span
+              data-grid-quick-where-label="true"
               style={{
                 flex: '0 0 auto',
-                minWidth: 58,
-                height: 28,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 999,
-                background: darkMode ? 'rgba(24,144,255,0.18)' : 'rgba(24,144,255,0.10)',
-                border: `1px solid ${darkMode ? 'rgba(24,144,255,0.32)' : 'rgba(24,144,255,0.22)'}`,
-                color: selectionAccentHex,
+                minWidth: 0,
+                color: isV2Ui ? 'var(--gn-fg-3)' : selectionAccentHex,
                 fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: '0.03em',
+                fontWeight: 600,
+                lineHeight: '28px',
+                whiteSpace: 'nowrap',
               }}
             >
-              WHERE
+              {translate('data_grid.filter.manual_query_condition')}
             </span>
             <AutoComplete
+              className={isV2Ui ? 'gn-v2-smart-filter-manual-input' : undefined}
               value={quickWhereDraft}
               options={quickWhereSuggestionOptions}
               onChange={onQuickWhereDraftChange}

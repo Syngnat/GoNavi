@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   clearStartupWindowRestorePending,
+  isStartupMaximisedWindowSettled,
   isStartupWindowRestorePending,
   markStartupWindowRestorePending,
   resolveDefaultStartupWindowBounds,
@@ -104,5 +105,57 @@ describe('windowStartupLayout', () => {
 
   it('maximises the startup window on every desktop platform when enabled', () => {
     expect(resolveStartupWindowRestoreMode(true)).toBe('maximised');
+  });
+
+  it('does not accept a stale Windows WebView surface as a settled maximised window', () => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: true,
+      isWindows: true,
+      surfaceWidth: 1432,
+      surfaceHeight: 892,
+      viewport: {
+        availWidth: 1920,
+        availHeight: 1050,
+      },
+    })).toBe(false);
+  });
+
+  it('accepts a Windows WebView surface that covers the maximised work area', () => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: true,
+      isWindows: true,
+      surfaceWidth: 1912,
+      surfaceHeight: 1042,
+      viewport: {
+        availWidth: 1920,
+        availHeight: 1050,
+      },
+    })).toBe(true);
+  });
+
+  it('keeps state-only maximise detection on non-Windows platforms', () => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: true,
+      isWindows: false,
+      surfaceWidth: 800,
+      surfaceHeight: 600,
+      viewport: {
+        availWidth: 1920,
+        availHeight: 1050,
+      },
+    })).toBe(true);
+  });
+
+  it('never settles when the native window is not maximised', () => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: false,
+      isWindows: true,
+      surfaceWidth: 1920,
+      surfaceHeight: 1050,
+      viewport: {
+        availWidth: 1920,
+        availHeight: 1050,
+      },
+    })).toBe(false);
   });
 });

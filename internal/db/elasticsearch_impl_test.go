@@ -43,9 +43,19 @@ func newTestESDB(t *testing.T, serverURL, defaultIndex string) *ElasticsearchDB 
 	if err != nil {
 		t.Fatalf("创建测试 ES 客户端失败: %v", err)
 	}
+	consoleCfg := cfg
+	consoleCfg.DisableRetry = true
+	consoleCfg.MaxRetries = 0
+	consoleCfg.RetryOnStatus = nil
+	consoleCfg.RetryOnError = nil
+	consoleClient, err := elasticsearch.NewClient(consoleCfg)
+	if err != nil {
+		t.Fatalf("创建测试 ES Console 客户端失败: %v", err)
+	}
 	return &ElasticsearchDB{
-		client:   client,
-		database: defaultIndex,
+		client:        client,
+		consoleClient: consoleClient,
+		database:      defaultIndex,
 	}
 }
 
@@ -437,6 +447,81 @@ func TestElasticsearchGetTables(t *testing.T) {
 	})
 }
 
+func TestElasticsearchTableExistsUsesExactHeadRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		want       bool
+		wantErr    bool
+	}{
+		{name: "existing index", statusCode: http.StatusOK, want: true},
+		{name: "deleted index", statusCode: http.StatusNotFound, want: false},
+		{name: "server failure", statusCode: http.StatusServiceUnavailable, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := newMockESServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodHead || r.URL.Path != "/orders-2026" {
+					t.Fatalf("unexpected existence request: %s %s", r.Method, r.URL.RequestURI())
+				}
+				w.WriteHeader(test.statusCode)
+			})
+
+			database := newTestESDB(t, server.URL, "default-index")
+			exists, err := database.TableExists("analytics", "orders-2026")
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("expected existence check error")
+				}
+				if !strings.Contains(err.Error(), "503") {
+					t.Fatalf("expected status code in error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("TableExists returned error: %v", err)
+			}
+			if exists != test.want {
+				t.Fatalf("TableExists = %v, want %v", exists, test.want)
+			}
+		})
+	}
+}
+
+func TestElasticsearchTableExistsAcceptsAliasHeadResponse(t *testing.T) {
+	server := newMockESServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodHead || r.URL.Path != "/orders-read" {
+			t.Fatalf("unexpected alias existence request: %s %s", r.Method, r.URL.RequestURI())
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	database := newTestESDB(t, server.URL, "orders-2026")
+	exists, err := database.TableExists("orders-2026", "orders-read")
+	if err != nil {
+		t.Fatalf("alias TableExists returned error: %v", err)
+	}
+	if !exists {
+		t.Fatal("alias HEAD 200 should be treated as existing")
+	}
+}
+
+func TestElasticsearchTableExistsRequiresConnectionAndIndex(t *testing.T) {
+	database := &ElasticsearchDB{}
+	if _, err := database.TableExists("orders", "orders"); err == nil || !strings.Contains(err.Error(), "连接未打开") {
+		t.Fatalf("expected connection error, got %v", err)
+	}
+
+	server := newMockESServer(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("empty index must not issue an HTTP request: %s %s", r.Method, r.URL.Path)
+	})
+	database = newTestESDB(t, server.URL, "")
+	if _, err := database.TableExists("", ""); err == nil || !strings.Contains(err.Error(), "未指定索引名") {
+		t.Fatalf("expected missing-index error, got %v", err)
+	}
+}
+
 // TestElasticsearchGetColumns 测试从 mapping 中提取字段定义。
 func TestElasticsearchGetColumns(t *testing.T) {
 	t.Run("正常提取字段", func(t *testing.T) {
@@ -592,25 +677,20 @@ func TestElasticsearchQueryDSL(t *testing.T) {
 		}
 	})
 
-	t.Run("无默认索引时使用通配符", func(t *testing.T) {
-		var capturedPath string
+	t.Run("无默认索引时拒绝纯 JSON DSL", func(t *testing.T) {
+		requestCount := 0
 		server := newMockESServer(t, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/_search") {
-				capturedPath = r.URL.Path
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"hits":{"total":{"value":0},"hits":[]}}`))
-				return
-			}
-			w.WriteHeader(http.StatusNotFound)
+			requestCount++
+			w.WriteHeader(http.StatusInternalServerError)
 		})
 
 		db := newTestESDB(t, server.URL, "")
 		_, _, err := db.Query(`{"query":{"match_all":{}}}`)
-		if err != nil {
-			t.Fatalf("DSL 查询失败：%v", err)
+		if err == nil || !strings.Contains(err.Error(), "default Elasticsearch index") {
+			t.Fatalf("无默认索引的 DSL 应在发送前拒绝，实际错误：%v", err)
 		}
-		if !strings.HasPrefix(capturedPath, "/*/_search") {
-			t.Fatalf("无默认索引时应使用 * 通配符查询，实际路径：%s", capturedPath)
+		if requestCount != 0 {
+			t.Fatalf("无默认索引的 DSL 不应发送请求，实际请求数：%d", requestCount)
 		}
 	})
 
@@ -1824,6 +1904,27 @@ func TestElasticsearchSQLSelectDoesNotRequireXPackSQL(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0]["name"] != "商品A" {
 		t.Fatalf("期望返回 products 命中数据，实际 rows=%#v columns=%v", rows, columns)
+	}
+}
+
+func TestElasticsearchLegacyQueryEntryRejectsURLLikeTargetsBeforeNetwork(t *testing.T) {
+	requestCount := 0
+	server := newMockESServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	database := newTestESDB(t, server.URL, "orders")
+	for _, query := range []string{
+		`SELECT * FROM "orders/_delete_by_query?pretty=true#"`,
+		`SELECT * FROM "remote:index"`,
+		"POST /orders/_refresh?pretty=true#/_search\n{}",
+	} {
+		if _, _, err := database.Query(query); err == nil {
+			t.Fatalf("unsafe legacy query unexpectedly succeeded: %q", query)
+		}
+	}
+	if requestCount != 0 {
+		t.Fatalf("unsafe legacy queries reached Elasticsearch %d times", requestCount)
 	}
 }
 

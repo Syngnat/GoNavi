@@ -26,6 +26,14 @@ vi.mock('antd', () => ({
   },
 }));
 
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 describe('confirmCopyTable', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,7 +45,8 @@ describe('confirmCopyTable', () => {
   });
 
   it('confirms before copying and refreshes with the backend-generated table name', async () => {
-    const onSuccess = vi.fn();
+    const refresh = createDeferred<void>();
+    const onSuccess = vi.fn(() => refresh.promise);
     const config = { type: 'mysql' };
     mocks.copyTable.mockResolvedValue({
       success: true,
@@ -59,11 +68,18 @@ describe('confirmCopyTable', () => {
     expect(options.content).toContain('orders_copy1');
     expect(options.content).toContain('外键、触发器和授权不会复制');
 
-    await options.onOk();
+    const operation = options.onOk();
+
+    await vi.waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith('orders_copy2');
+    });
+    expect(mocks.success).not.toHaveBeenCalled();
+
+    refresh.resolve();
+    await operation;
 
     expect(mocks.copyTable).toHaveBeenCalledWith(config, 'sales', 'reporting', 'orders');
     expect(mocks.success).toHaveBeenCalledWith('整表复制成功：orders_copy2');
-    expect(onSuccess).toHaveBeenCalledWith('orders_copy2');
     expect(mocks.hide).toHaveBeenCalledOnce();
   });
 

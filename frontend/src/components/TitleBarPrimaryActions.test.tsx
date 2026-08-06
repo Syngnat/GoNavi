@@ -1,14 +1,11 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
 import { create } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 
 import TitleBarPrimaryActions from './TitleBarPrimaryActions';
 
-vi.mock('antd', () => ({
-  Button: ({ icon, children, type: _type, ...props }: any) => (
-    <button {...props}>{icon}{children}</button>
-  ),
-}));
+const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
 
 vi.mock('@ant-design/icons', () => {
   const Icon = () => <span data-icon="true" />;
@@ -19,6 +16,32 @@ vi.mock('@ant-design/icons', () => {
 });
 
 describe('TitleBarPrimaryActions', () => {
+  it('matches the elevated primary titlebar action treatment', () => {
+    const match = appCss.match(/\.gonavi-titlebar-primary-action\s*\{(?<body>[^}]*)\}/s);
+    expect(match?.groups?.body).toContain('border-radius: 7px;');
+    expect(match?.groups?.body).toContain('font-weight: 600;');
+    expect(match?.groups?.body).toContain('-webkit-app-region: no-drag;');
+    expect(match?.groups?.body).toMatch(/background:\s*color-mix/);
+  });
+
+  it('keeps the custom window controls borderless under the v2 button theme', () => {
+    const match = appCss.match(
+      /\.titlebar-window-controls > \.ant-btn\.ant-btn-text\s*\{(?<body>[^}]*)\}/s,
+    );
+    expect(match, 'Missing titlebar window-control override').not.toBeNull();
+    const body = match?.groups?.body ?? '';
+    expect(body).toContain('border: 0 !important;');
+    expect(body).toContain('border-radius: 0 !important;');
+    expect(body).toContain('box-shadow: none !important;');
+
+    const closeHoverMatch = appCss.match(
+      /\.titlebar-window-controls > \.titlebar-close-btn\.ant-btn-text:hover\s*\{(?<body>[^}]*)\}/s,
+    );
+    expect(closeHoverMatch, 'Missing close-button hover override').not.toBeNull();
+    expect(closeHoverMatch?.groups?.body).toContain('background-color: #ff4d4f !important;');
+    expect(closeHoverMatch?.groups?.body).toContain('color: #fff !important;');
+  });
+
   it('shows both labels in query-first order and invokes their actions', () => {
     const onNewQuery = vi.fn();
     const onNewConnection = vi.fn();

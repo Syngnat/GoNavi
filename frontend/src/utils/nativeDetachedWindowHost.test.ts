@@ -11,10 +11,12 @@ import {
   shouldApplyNativeDetachedHideRevision,
   syncNativeAIChatHostState,
   syncNativeDetachedShortcutOptions,
+  syncNativeDetachedThemeContext,
   toggleOrFocusNativeAIChatFromMainWindow,
   type NativeDetachedWindowManager,
 } from './nativeDetachedWindowHost';
 import { clearQueryTabDraft, setQueryTabDraft } from './sqlFileTabDrafts';
+import { NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY } from './nativeDetachedWindowClient';
 
 const buildTab = (id: string) => ({
   id,
@@ -547,6 +549,30 @@ describe('nativeDetachedWindowHost', () => {
       expect(request.storeState).toEqual(request.id === 'ai-chat'
         ? expect.objectContaining({ shortcutOptions })
         : { shortcutOptions });
+    }
+  });
+
+  it('pushes the active custom theme context to every detached window kind', async () => {
+    const theme = {
+      schemaVersion: 1 as const,
+      id: 'theme-host-sync',
+      name: 'Host sync',
+      sourceFileName: 'host-sync.css',
+      baseMode: 'light' as const,
+      css: 'body[data-custom-theme] { --gn-bg-panel: #e8f5ee; --gn-monaco-bg: #e8f5ee; }',
+      createdAt: 1,
+      updatedAt: 2,
+    };
+
+    await expect(syncNativeDetachedThemeContext([
+      'workbench:query-1',
+      'query-result:query-1:r1',
+      'ai-chat',
+    ], theme, manager)).resolves.toBe(true);
+
+    expect(manager.SyncHostState).toHaveBeenCalledTimes(3);
+    for (const [request] of vi.mocked(manager.SyncHostState!).mock.calls) {
+      expect(request.storeState[NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]).toEqual(theme);
     }
   });
 

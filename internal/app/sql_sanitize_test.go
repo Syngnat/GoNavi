@@ -295,3 +295,27 @@ func TestShouldTryQueryResultFirst_TreatsDataChangingCTESelectAsQueryFirst(t *te
 		t.Fatal("data-changing CTE ending in SELECT should try query-first to preserve returned rows")
 	}
 }
+
+func TestIsReadOnlySQLQuery_ElasticsearchUsesConsolePolicy(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  bool
+	}{
+		{name: "search", query: `POST /events/_search
+{"query":{"match_all":{}}}`, want: true},
+		{name: "json dsl", query: `{"query":{"term":{"level":"error"}}}`, want: true},
+		{name: "document write", query: `PUT /events/_doc/42
+{"level":"error"}`, want: false},
+		{name: "scripted search", query: `POST /events/_search
+{"script_fields":{"value":{"script":{"source":"1"}}}}`, want: false},
+		{name: "blocked endpoint", query: `GET /_nodes`, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isReadOnlySQLQuery("elasticsearch", test.query); got != test.want {
+				t.Fatalf("isReadOnlySQLQuery(elasticsearch, %q) = %v, want %v", test.query, got, test.want)
+			}
+		})
+	}
+}

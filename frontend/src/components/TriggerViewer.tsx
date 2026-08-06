@@ -4,11 +4,12 @@ import { Button, Spin, Alert } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 import { TabData } from '../types';
 import { useStore } from '../store';
-import { DBQuery } from '../../wailsjs/go/app/App';
+import { DBGetTriggers, DBQuery } from '../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { normalizeOceanBaseProtocol } from '../utils/oceanBaseProtocol';
 import { splitQualifiedNameLast } from '../utils/qualifiedName';
 import { buildEditableTriggerSql } from '../utils/triggerEditSql';
+import { findTriggerDefinitionStatement } from '../utils/triggerDefinition';
 import { buildSqlServerObjectDefinitionQueries } from '../utils/sqlServerObjectDefinition';
 import { useI18n } from '../i18n/provider';
 
@@ -193,6 +194,7 @@ LIMIT 1`];
                 return buildSqlServerObjectDefinitionQueries('trigger', triggerName, dbName, 'trigger_definition');
             }
             case 'oracle':
+                return [];
             case 'dm':
                 if (schema) {
                     return [
@@ -221,6 +223,51 @@ LIMIT 1`];
             default:
                 return [commentLine('trigger_viewer.editor.unsupported.generic')];
         }
+    };
+
+    const buildOracleTriggerTableLookupQuery = (
+        triggerName: string,
+        dbName: string,
+        schemaName?: string,
+    ): string => {
+        const { schema, name } = parseSchemaAndName(triggerName);
+        const owner = String(schema || schemaName || dbName || '').trim();
+        const safeName = escapeSQLLiteral(name);
+        const upperName = safeName.toUpperCase();
+        const namePredicate = safeName === upperName
+            ? `TRIGGER_NAME = '${safeName}'`
+            : `TRIGGER_NAME IN ('${safeName}', '${upperName}')`;
+        if (!owner) {
+            return `SELECT USER AS OWNER, TABLE_OWNER, TABLE_NAME, TRIGGER_NAME FROM USER_TRIGGERS WHERE ${namePredicate}`;
+        }
+        return `SELECT OWNER, TABLE_OWNER, TABLE_NAME, TRIGGER_NAME FROM ALL_TRIGGERS WHERE OWNER = '${escapeSQLLiteral(owner).toUpperCase()}' AND ${namePredicate}`;
+    };
+
+    const extractOracleTriggerTableName = (
+        data: any[],
+        triggerName: string,
+        fallbackOwner: string,
+    ): string => {
+        const targetName = String(parseSchemaAndName(triggerName).name || triggerName || '').trim();
+        const rows = Array.isArray(data)
+            ? data.filter((row): row is Record<string, any> => Boolean(row) && typeof row === 'object')
+            : [];
+        const row = rows.find((candidate) => (
+            String(getCaseInsensitiveRawValue(candidate, ['trigger_name', 'TRIGGER_NAME']) || '').trim() === targetName
+        )) || rows.find((candidate) => (
+            String(getCaseInsensitiveRawValue(candidate, ['trigger_name', 'TRIGGER_NAME']) || '').trim().toLowerCase() === targetName.toLowerCase()
+        )) || rows[0];
+        if (!row) return '';
+
+        const tableName = String(getCaseInsensitiveRawValue(row, ['table_name', 'TABLE_NAME']) || '').trim();
+        if (!tableName) return '';
+        const tableOwner = String(
+            getCaseInsensitiveRawValue(row, ['table_owner', 'TABLE_OWNER', 'owner', 'OWNER'])
+            || fallbackOwner,
+        ).trim();
+        return tableOwner
+            ? `${tableOwner}.${tableName}`
+            : tableName;
     };
 
     const runQueryCandidates = async (
@@ -372,7 +419,7 @@ LIMIT 1`];
         const queries = buildShowTriggerQueries(dialect, triggerName, dbName);
         const sphinxLike = isSphinxConnection(conn) && dialect === 'mysql';
 
-        if (!queries.length || String(queries[0] || '').startsWith('--')) {
+        if (dialect !== 'oracle' && (!queries.length || String(queries[0] || '').startsWith('--'))) {
             return { success: true, definition: String(queries[0] || commentLine('trigger_viewer.editor.unsupported.generic')) };
         }
 
@@ -385,6 +432,50 @@ LIMIT 1`];
                 useSSH: conn.config.useSSH || false,
                 ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' }
             };
+
+            let triggerTableName = String(tab.triggerTableName || '').trim();
+            if (dialect === 'oracle') {
+                if (!triggerTableName) {
+                    const parsedTrigger = parseSchemaAndName(triggerName);
+                    const fallbackOwner = String(parsedTrigger.schema || tab.schemaName || dbName || '').trim();
+                    const tableLookup = await runQueryCandidates(config, dbName, [
+                        buildOracleTriggerTableLookupQuery(triggerName, dbName, tab.schemaName),
+                    ]);
+                    if (!tableLookup.success) {
+                        return {
+                            success: false,
+                            error: tableLookup.message || t('trigger_viewer.error.query_failed'),
+                        };
+                    }
+                    triggerTableName = extractOracleTriggerTableName(
+                        tableLookup.data,
+                        triggerName,
+                        fallbackOwner,
+                    );
+                }
+                if (!triggerTableName) {
+                    return {
+                        success: true,
+                        definition: commentLine('trigger_viewer.editor.definition_not_found'),
+                    };
+                }
+                const result = await DBGetTriggers(
+                    buildRpcConnectionConfig(config) as any,
+                    dbName,
+                    triggerTableName,
+                );
+                if (!result.success) {
+                    return {
+                        success: false,
+                        error: result.message || t('trigger_viewer.error.query_failed'),
+                    };
+                }
+                const definition = findTriggerDefinitionStatement(result.data, triggerName);
+                return {
+                    success: true,
+                    definition: definition || commentLine('trigger_viewer.editor.definition_not_found'),
+                };
+            }
 
             const result = await runQueryCandidates(config, dbName, queries);
 

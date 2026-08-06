@@ -21,6 +21,8 @@ func newConnectionPackageItem(view connection.SavedConnectionView, bundle connec
 		Name:                       view.Name,
 		EnvironmentType:            view.EnvironmentType,
 		IncludeDatabases:           cloneStringSlice(view.IncludeDatabases),
+		IncludeDatabasePatterns:    cloneStringSlice(view.IncludeDatabasePatterns),
+		ExcludeDatabasePatterns:    cloneStringSlice(view.ExcludeDatabasePatterns),
 		IncludeRedisDatabases:      cloneIntSlice(view.IncludeRedisDatabases),
 		SchemaVisibilityByDatabase: cloneSchemaVisibilityByDatabase(view.SchemaVisibilityByDatabase),
 		RedisDbAliases:             cloneStringMap(redisDbAliases),
@@ -93,25 +95,80 @@ func collectRedisDbAliasesFromPackagePayload(payload connectionPackagePayload) m
 	return merged
 }
 
-func (a *App) buildConnectionPackagePayload(redisDbAliases map[string]map[string]string) (connectionPackagePayload, error) {
+func normalizeConnectionExportIDFilter(connectionIDs []string) map[string]struct{} {
+	if len(connectionIDs) == 0 {
+		return nil
+	}
+	filter := make(map[string]struct{}, len(connectionIDs))
+	for _, rawID := range connectionIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		filter[id] = struct{}{}
+	}
+	if len(filter) == 0 {
+		return nil
+	}
+	return filter
+}
+
+func filterRedisDbAliasesByConnectionIDs(
+	aliases map[string]map[string]string,
+	filter map[string]struct{},
+) map[string]map[string]string {
+	if filter == nil || len(aliases) == 0 {
+		return aliases
+	}
+	filtered := make(map[string]map[string]string, len(filter))
+	for connectionID, itemAliases := range aliases {
+		id := strings.TrimSpace(connectionID)
+		if _, ok := filter[id]; !ok {
+			continue
+		}
+		filtered[id] = itemAliases
+	}
+	if len(filtered) == 0 {
+		return nil
+	}
+	return filtered
+}
+
+func (a *App) buildConnectionPackagePayload(
+	redisDbAliases map[string]map[string]string,
+	connectionIDs []string,
+) (connectionPackagePayload, error) {
 	repo := a.savedConnectionRepository()
 	items, err := repo.List()
 	if err != nil {
 		return connectionPackagePayload{}, err
 	}
 
-	aliasesByConnection := sanitizeConnectionPackageRedisDbAliases(redisDbAliases)
+	idFilter := normalizeConnectionExportIDFilter(connectionIDs)
+	aliasesByConnection := filterRedisDbAliasesByConnectionIDs(
+		sanitizeConnectionPackageRedisDbAliases(redisDbAliases),
+		idFilter,
+	)
 	connections := make([]connectionPackageItem, 0, len(items))
 	for _, item := range items {
+		itemID := strings.TrimSpace(item.ID)
+		if idFilter != nil {
+			if _, ok := idFilter[itemID]; !ok {
+				continue
+			}
+		}
 		bundle, bundleErr := repo.loadSecretBundle(item)
 		if bundleErr != nil {
 			return connectionPackagePayload{}, bundleErr
 		}
 		var itemAliases map[string]string
 		if aliasesByConnection != nil {
-			itemAliases = aliasesByConnection[strings.TrimSpace(item.ID)]
+			itemAliases = aliasesByConnection[itemID]
 		}
 		connections = append(connections, newConnectionPackageItem(item, bundle, itemAliases))
+	}
+	if idFilter != nil && len(connections) == 0 {
+		return connectionPackagePayload{}, errors.New(a.appText("app.connection_package.error.no_selected_connections", nil))
 	}
 
 	return connectionPackagePayload{
@@ -122,7 +179,7 @@ func (a *App) buildConnectionPackagePayload(redisDbAliases map[string]map[string
 }
 
 func (a *App) buildExportedConnectionPackage(options ConnectionExportOptions) ([]byte, error) {
-	payload, err := a.buildConnectionPackagePayload(options.RedisDbAliases)
+	payload, err := a.buildConnectionPackagePayload(options.RedisDbAliases, options.ConnectionIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +233,8 @@ func newSavedConnectionInputFromPackageItem(item connectionPackageItem) connecti
 		EnvironmentType:            item.EnvironmentType,
 		Config:                     config,
 		IncludeDatabases:           cloneStringSlice(item.IncludeDatabases),
+		IncludeDatabasePatterns:    cloneStringSlice(item.IncludeDatabasePatterns),
+		ExcludeDatabasePatterns:    cloneStringSlice(item.ExcludeDatabasePatterns),
 		IncludeRedisDatabases:      cloneIntSlice(item.IncludeRedisDatabases),
 		SchemaVisibilityByDatabase: cloneSchemaVisibilityByDatabase(item.SchemaVisibilityByDatabase),
 		IconType:                   item.IconType,

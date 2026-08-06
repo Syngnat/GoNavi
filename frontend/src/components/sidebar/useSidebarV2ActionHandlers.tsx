@@ -7,9 +7,13 @@ import { t } from '../../i18n';
 import type { ConnectionTag, SavedConnection } from '../../types';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../utils/connectionVisual';
-import { normalizeConnectionEnvironmentType } from '../../utils/connectionEnvironment';
-import { resolveTableSelectQuery } from '../../utils/objectQueryTemplates';
+import {
+  buildTableSelectQuery,
+  isElasticsearchDbType,
+  resolveTableSelectQuery,
+} from '../../utils/objectQueryTemplates';
 import { DBReleaseConnection } from '../../../wailsjs/go/app/App';
+import { updateSidebarDatabasePinKeys } from '../../store';
 import { getDbIcon } from '../DatabaseIcons';
 import { getMetadataDialect } from './sidebarMetadataLoaders';
 import {
@@ -20,18 +24,24 @@ import {
   type V2TableGroupContextMenuActionKey,
 } from '../V2TableContextMenu';
 import {
+  applySidebarDatabasePinning,
+  buildV2SidebarDatabaseSectionedChildren,
+  isSidebarDatabasePinned,
   isSidebarTablePinned,
   type SidebarConnectionState,
   type SidebarTreeNode as TreeNode,
   type V2RailConnectionGroup,
 } from '../sidebarV2Utils';
+import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
 
 type UseSidebarV2ActionHandlersArgs = {
   connections: SavedConnection[];
   connectionTags: ConnectionTag[];
   pinnedSidebarTables: any[];
+  pinnedSidebarDatabases: string[];
   loadingNodesRef: MutableRefObject<Set<string>>;
   treeDataRef: MutableRefObject<TreeNode[]>;
+  refreshConnectionResources: (node: any) => Promise<void>;
   findTreeNodeByKeyRef: MutableRefObject<(nodes: TreeNode[], targetKey: React.Key) => TreeNode | null>;
   refreshV2TableContextMenuStatsRef: MutableRefObject<(node: any) => void>;
   setConnectionStates: Dispatch<SetStateAction<Record<string, SidebarConnectionState>>>;
@@ -55,10 +65,11 @@ type UseSidebarV2ActionHandlersArgs = {
   removeConnectionTag: (tagId: string) => void;
   moveConnectionToTag: (connectionId: string, tagId: string | null) => void;
   setSidebarTablePinned: (connectionId: string, dbName: string, tableName: string, schemaName: string, pinned: boolean) => void;
+  setSidebarDatabasePinned: (connectionId: string, dbName: string, pinned: boolean) => void;
   setTableSortPreference: (connectionId: string, dbName: string, sortBy: 'name' | 'frequency') => void;
   replaceTreeNodeChildren: (key: React.Key, children: TreeNode[] | undefined) => void;
-  loadDatabases: (node: any) => Promise<void>;
-  loadTables: (node: any) => Promise<void>;
+  loadDatabases: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
+  loadTables: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
   getDatabaseNodeRef: (connRef: any, dbName: string) => any;
   extractObjectName: (fullName: string) => string;
   openDesign: (node: any, initialTab: string, readOnly?: boolean) => void;
@@ -82,6 +93,8 @@ type UseSidebarV2ActionHandlersArgs = {
   openCreateStarRocksMaterializedView: (node: any) => void;
   openCreateStarRocksExternalCatalog: (node: any) => void;
   handleExportDatabaseSQL: (node: any, includeData: boolean) => Promise<void>;
+  openBatchTableWorkbench: (node?: any) => void;
+  openBatchDatabaseWorkbench: (node?: any) => void;
   handleRunSQLFile: (node: any) => void;
   handleDeleteDatabase: (node: any) => void;
   onCreateConnectionInGroup?: (targetTagId: string) => void;
@@ -96,8 +109,10 @@ export const useSidebarV2ActionHandlers = ({
   connections,
   connectionTags,
   pinnedSidebarTables,
+  pinnedSidebarDatabases,
   loadingNodesRef,
   treeDataRef,
+  refreshConnectionResources,
   findTreeNodeByKeyRef,
   refreshV2TableContextMenuStatsRef,
   setConnectionStates,
@@ -121,6 +136,7 @@ export const useSidebarV2ActionHandlers = ({
   removeConnectionTag,
   moveConnectionToTag,
   setSidebarTablePinned,
+  setSidebarDatabasePinned,
   setTableSortPreference,
   replaceTreeNodeChildren,
   loadDatabases,
@@ -148,6 +164,8 @@ export const useSidebarV2ActionHandlers = ({
   openCreateStarRocksMaterializedView,
   openCreateStarRocksExternalCatalog,
   handleExportDatabaseSQL,
+  openBatchTableWorkbench,
+  openBatchDatabaseWorkbench,
   handleRunSQLFile,
   handleDeleteDatabase,
   onCreateConnectionInGroup,
@@ -230,6 +248,9 @@ export const useSidebarV2ActionHandlers = ({
       case 'export-data':
         void openExportDialog(node);
         return;
+      case 'batch-tables':
+        openBatchTableWorkbench(node);
+        return;
       case 'ai-explain':
         void injectTablePromptToAI(node, 'explain');
         return;
@@ -261,8 +282,48 @@ export const useSidebarV2ActionHandlers = ({
     );
     const shouldPin = pinned ?? !currentlyPinned;
     setSidebarTablePinned(conn.id, dbName, tableName, conn.schemaName || '', shouldPin);
-    void loadTables(getDatabaseNodeRef(conn, dbName));
+    void loadTables(getDatabaseNodeRef(conn, dbName), { ensureFresh: true });
     message.success(shouldPin ? t('sidebar.message.table_pinned') : t('sidebar.message.table_unpinned'));
+  };
+
+  const toggleSidebarDatabasePinned = (node: any, pinned?: boolean) => {
+    const conn = node?.dataRef || {};
+    const connectionId = String(conn.id || '').trim();
+    const dbName = String(conn.dbName || node?.title || '').trim();
+    if (!connectionId || !dbName) return;
+    const currentlyPinned = isSidebarDatabasePinned(
+      pinnedSidebarDatabases,
+      connectionId,
+      dbName,
+    );
+    const shouldPin = pinned ?? !currentlyPinned;
+    const nextPinnedSidebarDatabases = updateSidebarDatabasePinKeys(
+      pinnedSidebarDatabases,
+      connectionId,
+      dbName,
+      shouldPin,
+    );
+    setSidebarDatabasePinned(connectionId, dbName, shouldPin);
+
+    const connectionNode = findTreeNodeByKeyRef.current(treeDataRef.current, connectionId);
+    if (connectionNode?.children?.length) {
+      replaceTreeNodeChildren(
+        connectionId,
+        buildV2SidebarDatabaseSectionedChildren(
+          connectionId,
+          applySidebarDatabasePinning(
+            connectionNode.children,
+            { connectionId, pinnedSidebarDatabases: nextPinnedSidebarDatabases },
+          ),
+        ),
+      );
+    } else {
+      const latestConnection = connections.find((candidate) => candidate.id === connectionId);
+      void loadDatabases({ key: connectionId, dataRef: latestConnection || conn });
+    }
+    message.success(shouldPin
+      ? t('sidebar.message.database_pinned')
+      : t('sidebar.message.database_unpinned'));
   };
 
   const handleTableGroupSortAction = (node: any, sortBy: 'name' | 'frequency') => {
@@ -272,13 +333,26 @@ export const useSidebarV2ActionHandlers = ({
       key: `${groupData.id}-${groupData.dbName}`,
       dataRef: groupData,
     };
-    loadTables(dbNode);
+    loadTables(dbNode, { ensureFresh: true });
+  };
+
+  const handleTableGroupRefreshAction = (node: any) => {
+    const groupData = node.dataRef;
+    if (!groupData?.id || !groupData?.dbName) return;
+    const dbNode = {
+      key: `${groupData.id}-${groupData.dbName}`,
+      dataRef: groupData,
+    };
+    void loadTables(dbNode);
   };
 
   const handleV2TableGroupContextMenuAction = (node: any, action: V2TableGroupContextMenuActionKey) => {
     switch (action) {
       case 'new-table':
         openNewTableDesign(node);
+        return;
+      case 'refresh':
+        handleTableGroupRefreshAction(node);
         return;
       case 'sort-by-name':
         handleTableGroupSortAction(node, 'name');
@@ -310,18 +384,26 @@ export const useSidebarV2ActionHandlers = ({
   };
 
   const openDatabaseQuery = (node: any) => {
+    const dbName = String(node.dataRef?.dbName || node.title || '').trim();
+    const dbType = getMetadataDialect(node.dataRef as SavedConnection);
     addTab({
       id: `query-${Date.now()}`,
       title: t('sidebar.tab.new_query_database', { database: node.title }),
       type: 'query',
       connectionId: node.dataRef.id,
-      dbName: node.title,
-      query: '',
+      dbName,
+      query: isElasticsearchDbType(dbType)
+        ? buildTableSelectQuery(dbType, dbName)
+        : '',
     });
   };
 
   const handleV2DatabaseContextMenuAction = (node: any, action: V2DatabaseContextMenuActionKey) => {
     switch (action) {
+      case 'pin-database':
+      case 'unpin-database':
+        toggleSidebarDatabasePinned(node, action === 'pin-database');
+        return;
       case 'copy-database-name':
         void handleCopyDatabaseName(node);
         return;
@@ -343,13 +425,19 @@ export const useSidebarV2ActionHandlers = ({
         setIsRenameDbModalOpen(true);
         return;
       case 'refresh':
-        loadTables(node);
+        loadTables(node, { ensureFresh: true });
         return;
       case 'export-db-schema':
         void handleExportDatabaseSQL(node, false);
         return;
       case 'backup-db-sql':
         void handleExportDatabaseSQL(node, true);
+        return;
+      case 'batch-tables':
+        openBatchTableWorkbench(node);
+        return;
+      case 'batch-databases':
+        openBatchDatabaseWorkbench(node);
         return;
       case 'disconnect-db':
         closeDatabaseNode(node);
@@ -366,19 +454,6 @@ export const useSidebarV2ActionHandlers = ({
       default:
         return;
     }
-  };
-
-  const refreshConnectionNode = (node: any) => {
-    const connKey = String(node?.key || node?.dataRef?.id || '');
-    if (!connKey) return;
-    setExpandedKeys(prev => prev.filter(k => k !== connKey && !k.toString().startsWith(`${connKey}-`)));
-    setLoadedKeys(prev => prev.filter(k => k !== connKey && !k.toString().startsWith(`${connKey}-`)));
-    Array.from(loadingNodesRef.current).forEach((loadingKey) => {
-      if (loadingKey === `dbs-${connKey}` || loadingKey.startsWith(`tables-${connKey}-`)) {
-        loadingNodesRef.current.delete(loadingKey);
-      }
-    });
-    loadDatabases(node);
   };
 
   const releaseConnectionResources = async (conn: SavedConnection | undefined) => {
@@ -465,7 +540,7 @@ export const useSidebarV2ActionHandlers = ({
         setIsCreateDbModalOpen(true);
         return;
       case 'refresh':
-        refreshConnectionNode(node);
+        void refreshConnectionResources(node);
         return;
       case 'new-query':
         addTab({
@@ -540,7 +615,6 @@ export const useSidebarV2ActionHandlers = ({
     if (action === 'edit-group') {
       createTagForm.setFieldsValue({
         name: tag.name,
-        environmentType: normalizeConnectionEnvironmentType(tag.environmentType),
         parentTagId: tag.parentTagId,
         connectionIds: tag.connectionIds,
       });

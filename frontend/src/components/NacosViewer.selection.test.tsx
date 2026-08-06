@@ -96,6 +96,8 @@ vi.mock('@ant-design/icons', async () => {
   const React = await import('react');
   const Icon = () => React.createElement('span', { 'data-icon': true });
   return {
+    CloseOutlined: Icon,
+    CloudSyncOutlined: Icon,
     DeleteOutlined: Icon,
     DownloadOutlined: Icon,
     ExperimentOutlined: Icon,
@@ -776,16 +778,18 @@ describe('NacosViewer config selection actions', () => {
     expect(antdState.message.info).toHaveBeenCalledTimes(1);
     expect(renderedText(renderer!.toJSON())).not.toContain('Listening');
 
-    const compactBanner = renderer!.root.find(
-      (node) => String(node.type) === 'alert',
-    );
-    expect(compactBanner.props.className).toBe('gn-v2-nacos-banner');
-    expect(renderedText(compactBanner)).toContain('Remote config update detected');
-    expect(renderedText(compactBanner)).toContain('Reload remote');
-    expect(renderedText(compactBanner)).toContain('Dismiss');
-    expect(renderedText(compactBanner)).not.toContain('Local draft is clean');
+    expect(renderer!.root.findAll((node) => String(node.type) === 'alert')).toHaveLength(0);
+    const compactNotice = renderer!.root.findByProps({
+      className: 'gn-v2-nacos-remote-notice',
+    });
+    expect(renderedText(compactNotice)).toContain('Remote config update detected');
+    expect(renderedText(compactNotice)).toContain('Reload remote');
+    expect(renderedText(compactNotice)).not.toContain('Dismiss');
+    expect(renderedText(compactNotice)).not.toContain('Local draft is clean');
+    expect(compactNotice.findByProps({ 'aria-label': 'Dismiss' })).toBeTruthy();
     expect(
-      compactBanner.findByProps({ className: 'gn-v2-nacos-banner__copy' }),
+      renderer!.root.findByProps({ className: 'gn-v2-nacos-detail-pane' })
+        .findByProps({ className: 'gn-v2-nacos-remote-notice' }),
     ).toBeTruthy();
 
     await act(async () => {
@@ -964,7 +968,7 @@ describe('NacosViewer config selection actions', () => {
     });
     await flushEffects();
 
-    expect(antdState.message.success).toHaveBeenCalledWith('Published successfully');
+    expect(antdState.message.success).not.toHaveBeenCalled();
 
     await act(async () => {
       runtimeState.configChangedHandler!({
@@ -992,6 +996,7 @@ describe('NacosViewer config selection actions', () => {
       },
     });
     await flushEffects();
+    expect(antdState.message.success).toHaveBeenCalledWith('Published successfully');
     await act(async () => {
       renderer!.unmount();
     });

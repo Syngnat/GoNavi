@@ -15,6 +15,7 @@ import {
   buildNativeDetachedSyncStoreSnapshot,
   buildNativeDetachedWorkbenchMutableStoreSnapshot,
   buildNativeDetachedWorkbenchPayload,
+  NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY,
   closeCurrentNativeDetachedWindow,
   fetchNativeDetachedWindowBootstrap,
   hideCurrentNativeDetachedWindow,
@@ -26,6 +27,7 @@ import {
   mergeNativeDetachedStoreDelta,
   openNativeDetachedAISettings,
   presentCurrentNativeDetachedWindow,
+  readNativeDetachedThemeContext,
 } from './nativeDetachedWindowClient';
 import {
   clearQueryTabDraft,
@@ -67,6 +69,31 @@ describe('nativeDetachedWindowClient', () => {
     expect((aiBootstrap.storeState.tabs as TabData[])[0]?.query).toBe('select live draft');
     expect((aiHost.activeTab as TabData).query).toBe('select live draft');
     expect(queryTab.query).toBe('select 1');
+  });
+
+  it('carries the resolved custom theme into detached bootstrap and host snapshots', () => {
+    const theme = {
+      schemaVersion: 1 as const,
+      id: 'theme-detached-sync',
+      name: 'Detached sync',
+      sourceFileName: 'detached-sync.css',
+      baseMode: 'light' as const,
+      css: 'body[data-custom-theme] { --gn-bg-panel: #e8f5ee; --gn-monaco-bg: #e8f5ee; --gn-accent: #287a58; }',
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const state = { tabs: [queryTab], activeTabId: queryTab.id };
+
+    const payload = buildNativeDetachedAIChatPayload(state, theme);
+    const hostSnapshot = buildNativeDetachedAIHostStoreSnapshot(state, [], theme);
+
+    expect(payload.storeState[NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]).toEqual(theme);
+    expect(hostSnapshot[NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]).toEqual(theme);
+    expect(readNativeDetachedThemeContext(payload.storeState)).toEqual(theme);
+    expect(readNativeDetachedThemeContext({
+      [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: null,
+    })).toBeNull();
+    expect(readNativeDetachedThemeContext({})).toBeUndefined();
   });
 
   it('builds a workbench payload without Zustand actions or nested functions', () => {
@@ -332,6 +359,11 @@ describe('nativeDetachedWindowClient', () => {
 
   it('keeps main-window AI context sync separate from child-owned conversation state', () => {
     const state = {
+      theme: 'light',
+      themePreference: 'light',
+      appearance: { uiVersion: 'v2' },
+      fontSize: 16,
+      uiScale: 1.15,
       activeContext: { connectionId: 'connection-2', dbName: 'analytics' },
       activeTabId: 'query-2',
       tabs: [queryTab, { ...queryTab, id: 'query-2', connectionId: 'connection-2' }],
@@ -342,6 +374,11 @@ describe('nativeDetachedWindowClient', () => {
 
     const snapshot = buildNativeDetachedAIHostStoreSnapshot(state);
     expect(snapshot).toEqual({
+      theme: 'light',
+      themePreference: 'light',
+      appearance: { uiVersion: 'v2' },
+      fontSize: 16,
+      uiScale: 1.15,
       activeContext: state.activeContext,
       activeTabId: 'query-2',
       activeTab: state.tabs[1],
@@ -351,6 +388,11 @@ describe('nativeDetachedWindowClient', () => {
 
     const current = {
       ...state,
+      theme: 'dark',
+      themePreference: 'dark',
+      appearance: { uiVersion: 'legacy' },
+      fontSize: 12,
+      uiScale: 0.9,
       activeTabId: queryTab.id,
       aiChatHistory: { 'session-1': [{ content: 'current child history' }] },
       closeTab: vi.fn(),
@@ -361,6 +403,11 @@ describe('nativeDetachedWindowClient', () => {
     expect(next.connections).toEqual(state.connections);
     expect(next.aiChatHistory).toEqual(current.aiChatHistory);
     expect(next.closeTab).toBe(current.closeTab);
+    expect(next.theme).toBe('light');
+    expect(next.themePreference).toBe('light');
+    expect(next.appearance).toEqual({ uiVersion: 'v2' });
+    expect(next.fontSize).toBe(16);
+    expect(next.uiScale).toBe(1.15);
 
     let childState = current;
     const childStore = {

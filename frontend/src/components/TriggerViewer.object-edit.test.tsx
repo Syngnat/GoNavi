@@ -27,6 +27,7 @@ const storeState = vi.hoisted(() => ({
 }));
 
 const backendApp = vi.hoisted(() => ({
+  DBGetTriggers: vi.fn(),
   DBQuery: vi.fn(),
 }));
 
@@ -100,6 +101,8 @@ describe('TriggerViewer object edit entry', () => {
     storeState.addTab.mockReset();
     storeState.setActiveContext.mockReset();
     storeState.connections[0].config.type = 'postgres';
+    backendApp.DBGetTriggers.mockReset();
+    backendApp.DBGetTriggers.mockResolvedValue({ success: true, data: [] });
     backendApp.DBQuery.mockReset();
     backendApp.DBQuery.mockResolvedValue({
       success: true,
@@ -131,6 +134,81 @@ describe('TriggerViewer object edit entry', () => {
     }));
   });
 
+  it('loads the complete Oracle trigger definition through metadata instead of the bounded query preview', async () => {
+    storeState.connections[0].config.type = 'oracle';
+    const fullDDL = `CREATE OR REPLACE TRIGGER "AUDIT"."USERS_BI"
+BEFORE INSERT ON "AUDIT"."USERS"
+FOR EACH ROW
+BEGIN
+${'  NULL;\n'.repeat(700)}  -- FULL_TRIGGER_DDL_TAIL
+END;`;
+    backendApp.DBGetTriggers.mockResolvedValue({
+      success: true,
+      data: [{ name: 'USERS_BI', timing: 'BEFORE EACH ROW', event: 'INSERT', statement: fullDDL }],
+    });
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [{ trigger_definition: `[CLOB preview: 4096/${fullDDL.length} bytes] ${fullDDL.slice(0, 4096)}` }],
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(tab));
+      await flushPromises();
+    });
+
+    expect(backendApp.DBGetTriggers).toHaveBeenCalledWith(expect.anything(), 'main', 'audit.users');
+    expect(backendApp.DBQuery).not.toHaveBeenCalled();
+    const editorText = String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''));
+    expect(editorText).toContain('FULL_TRIGGER_DDL_TAIL');
+    expect(editorText).not.toContain('[CLOB preview:');
+
+    const button = renderer.root.findAll((node: any) => node.type === 'button' && findButtonText(node).includes('Edit object'))[0];
+    await act(async () => {
+      await button.props.onClick();
+      await flushPromises();
+    });
+
+    const query = String(storeState.addTab.mock.calls[0][0].query || '');
+    expect(query).toContain('FULL_TRIGGER_DDL_TAIL');
+    expect(query).not.toContain('[CLOB preview:');
+    expect(query).not.toContain('Only a trigger definition fragment was returned');
+  });
+
+  it('resolves the table before loading Oracle metadata for a restored trigger tab', async () => {
+    storeState.connections[0].config.type = 'oracle';
+    const restoredTab: TabData = {
+      ...tab,
+      triggerTableName: undefined,
+    };
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [{ OWNER: 'AUDIT', TABLE_OWNER: 'AUDIT', TABLE_NAME: 'USERS', TRIGGER_NAME: 'USERS_BI' }],
+    });
+    backendApp.DBGetTriggers.mockResolvedValue({
+      success: true,
+      data: [{
+        name: 'USERS_BI',
+        statement: 'CREATE OR REPLACE TRIGGER "AUDIT"."USERS_BI" BEFORE INSERT ON "AUDIT"."USERS" BEGIN NULL; END;',
+      }],
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(restoredTab));
+      await flushPromises();
+    });
+
+    expect(backendApp.DBQuery).toHaveBeenCalledTimes(1);
+    expect(String(backendApp.DBQuery.mock.calls[0][2])).toContain('FROM ALL_TRIGGERS');
+    expect(String(backendApp.DBQuery.mock.calls[0][2])).not.toContain('DBMS_METADATA.GET_DDL');
+    expect(String(backendApp.DBQuery.mock.calls[0][2])).not.toContain('TRIGGER_BODY');
+    expect(backendApp.DBGetTriggers).toHaveBeenCalledWith(expect.anything(), 'main', 'AUDIT.USERS');
+    const editorText = String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''));
+    expect(editorText).toContain('CREATE OR REPLACE TRIGGER');
+    expect(editorText).not.toContain('[CLOB preview:');
+  });
+
   it('uses SQL Server catalog metadata when loading trigger definitions', async () => {
     storeState.connections[0].config.type = 'sqlserver';
     backendApp.DBQuery.mockResolvedValue({
@@ -155,10 +233,11 @@ describe('TriggerViewer object edit entry', () => {
 
   it('adds CREATE OR REPLACE for trigger source snippets returned without ddl prefix', async () => {
     storeState.connections[0].config.type = 'oracle';
-    backendApp.DBQuery.mockResolvedValue({
+    backendApp.DBGetTriggers.mockResolvedValue({
       success: true,
       data: [{
-        TRIGGER_BODY: 'TRIGGER users_bi\nBEFORE INSERT ON audit.users\nFOR EACH ROW\nBEGIN\n  :NEW.created_at := SYSDATE;\nEND;',
+        name: 'users_bi',
+        statement: 'TRIGGER users_bi\nBEFORE INSERT ON audit.users\nFOR EACH ROW\nBEGIN\n  :NEW.created_at := SYSDATE;\nEND;',
       }],
     });
 
@@ -183,10 +262,11 @@ describe('TriggerViewer object edit entry', () => {
 
   it('adds trigger name for trigger body snippets returned without ddl header', async () => {
     storeState.connections[0].config.type = 'oracle';
-    backendApp.DBQuery.mockResolvedValue({
+    backendApp.DBGetTriggers.mockResolvedValue({
       success: true,
       data: [{
-        TRIGGER_BODY: 'BEFORE UPDATE ON audit.users\nFOR EACH ROW\nBEGIN\n  :NEW.updated_at := SYSDATE;\nEND;',
+        name: 'users_bi',
+        statement: 'BEFORE UPDATE ON audit.users\nFOR EACH ROW\nBEGIN\n  :NEW.updated_at := SYSDATE;\nEND;',
       }],
     });
 
@@ -245,37 +325,17 @@ describe('TriggerViewer object edit entry', () => {
     expect(query).not.toContain('请补全 CREATE TRIGGER 语句');
   });
 
-  it('rebuilds oracle trigger ddl from metadata rows when body query returns fragments only', async () => {
+  it('uses the rebuilt Oracle trigger DDL returned by the metadata API', async () => {
     storeState.connections[0].config.type = 'oracle';
-    backendApp.DBQuery
-      .mockResolvedValueOnce({ success: true, data: [] })
-      .mockResolvedValueOnce({
-        success: true,
-        data: [{
-          OWNER: 'AUDIT',
-          TABLE_OWNER: 'AUDIT',
-          TABLE_NAME: 'USERS',
-          TRIGGER_NAME: 'USERS_BU',
-          TRIGGER_TYPE: 'BEFORE EACH ROW',
-          TRIGGERING_EVENT: 'UPDATE',
-          WHEN_CLAUSE: 'NEW.UPDATED_AT IS NULL',
-          TRIGGER_BODY: 'BEGIN\n  :NEW.UPDATED_AT := SYSDATE;\nEND;',
-        }],
-      })
-      .mockResolvedValueOnce({ success: true, data: [] })
-      .mockResolvedValueOnce({
-        success: true,
-        data: [{
-          OWNER: 'AUDIT',
-          TABLE_OWNER: 'AUDIT',
-          TABLE_NAME: 'USERS',
-          TRIGGER_NAME: 'USERS_BU',
-          TRIGGER_TYPE: 'BEFORE EACH ROW',
-          TRIGGERING_EVENT: 'UPDATE',
-          WHEN_CLAUSE: 'NEW.UPDATED_AT IS NULL',
-          TRIGGER_BODY: 'BEGIN\n  :NEW.UPDATED_AT := SYSDATE;\nEND;',
-        }],
-      });
+    backendApp.DBGetTriggers.mockResolvedValue({
+      success: true,
+      data: [{
+        name: 'USERS_BU',
+        timing: 'BEFORE EACH ROW',
+        event: 'UPDATE',
+        statement: 'CREATE OR REPLACE TRIGGER AUDIT.USERS_BU\nBEFORE UPDATE ON AUDIT.USERS\nFOR EACH ROW\nWHEN (NEW.UPDATED_AT IS NULL)\nBEGIN\n  :NEW.UPDATED_AT := SYSDATE;\nEND;',
+      }],
+    });
 
     let renderer: any;
     await act(async () => {

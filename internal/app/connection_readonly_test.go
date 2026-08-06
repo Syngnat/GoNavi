@@ -18,6 +18,9 @@ func TestSupportsConnectionReadOnlyMode(t *testing.T) {
 	if !supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "nacos"}) {
 		t.Fatal("nacos should support connection-level production guard")
 	}
+	if !supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "elasticsearch"}) {
+		t.Fatal("elasticsearch should support connection-level production guard")
+	}
 	if supportsConnectionReadOnlyMode(connection.ConnectionConfig{Type: "redis"}) {
 		t.Fatal("redis should not support connection-level production guard")
 	}

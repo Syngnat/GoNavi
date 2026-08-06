@@ -24,23 +24,41 @@ func requireDuckDBOptionalDriverRuntime(t *testing.T) {
 }
 
 type fakeMetadataRetryDB struct {
-	columns       []connection.ColumnDefinition
-	indexes       []connection.IndexDefinition
-	columnsErr    error
-	indexesErr    error
-	queryResults  []fakeMetadataQueryResult
-	queryRows     []map[string]interface{}
-	queryFields   []string
-	queryErr      error
-	queries       []string
-	columnCalls   int
-	indexCalls    int
-	columnSchema  string
-	columnTable   string
-	indexSchema   string
-	indexTable    string
-	connectCalls  int
-	connectConfig connection.ConnectionConfig
+	tables           []string
+	columns          []connection.ColumnDefinition
+	allColumns       []connection.ColumnDefinitionWithTable
+	indexes          []connection.IndexDefinition
+	createStatement  string
+	columnsErr       error
+	indexesErr       error
+	queryResults     []fakeMetadataQueryResult
+	queryRows        []map[string]interface{}
+	queryFields      []string
+	queryErr         error
+	queries          []string
+	tableCalls       int
+	tableSchema      string
+	columnCalls      int
+	allColumnCalls   int
+	indexCalls       int
+	foreignKeyCalls  int
+	triggerCalls     int
+	databaseFKCalls  int
+	createCalls      int
+	columnSchema     string
+	columnTable      string
+	allColumnSchema  string
+	indexSchema      string
+	indexTable       string
+	foreignKeySchema string
+	foreignKeyTable  string
+	triggerSchema    string
+	triggerTable     string
+	databaseFKSchema string
+	createSchema     string
+	createTable      string
+	connectCalls     int
+	connectConfig    connection.ConnectionConfig
 }
 
 type fakeMetadataQueryResult struct {
@@ -72,10 +90,15 @@ func (f *fakeMetadataRetryDB) Query(query string) ([]map[string]interface{}, []s
 func (f *fakeMetadataRetryDB) Exec(query string) (int64, error) { return 0, nil }
 func (f *fakeMetadataRetryDB) GetDatabases() ([]string, error)  { return nil, nil }
 func (f *fakeMetadataRetryDB) GetTables(dbName string) ([]string, error) {
-	return nil, nil
+	f.tableCalls++
+	f.tableSchema = dbName
+	return f.tables, nil
 }
 func (f *fakeMetadataRetryDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	return "", nil
+	f.createCalls++
+	f.createSchema = dbName
+	f.createTable = tableName
+	return f.createStatement, nil
 }
 func (f *fakeMetadataRetryDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
 	f.columnCalls++
@@ -87,7 +110,9 @@ func (f *fakeMetadataRetryDB) GetColumns(dbName, tableName string) ([]connection
 	return f.columns, nil
 }
 func (f *fakeMetadataRetryDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
-	return nil, nil
+	f.allColumnCalls++
+	f.allColumnSchema = dbName
+	return f.allColumns, nil
 }
 func (f *fakeMetadataRetryDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
 	f.indexCalls++
@@ -99,13 +124,215 @@ func (f *fakeMetadataRetryDB) GetIndexes(dbName, tableName string) ([]connection
 	return f.indexes, nil
 }
 func (f *fakeMetadataRetryDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
+	f.foreignKeyCalls++
+	f.foreignKeySchema = dbName
+	f.foreignKeyTable = tableName
 	return nil, nil
 }
 func (f *fakeMetadataRetryDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
+	f.triggerCalls++
+	f.triggerSchema = dbName
+	f.triggerTable = tableName
 	return nil, nil
+}
+func (f *fakeMetadataRetryDB) GetDatabaseForeignKeys(dbName string) (map[string][]connection.ForeignKeyDefinition, error) {
+	f.databaseFKCalls++
+	f.databaseFKSchema = dbName
+	return map[string][]connection.ForeignKeyDefinition{}, nil
 }
 
 var _ db.Database = (*fakeMetadataRetryDB)(nil)
+var _ db.DatabaseForeignKeyProvider = (*fakeMetadataRetryDB)(nil)
+
+type oceanBaseOracleMetadataFixture struct {
+	app      *App
+	config   connection.ConnectionConfig
+	database *fakeMetadataRetryDB
+	created  int
+}
+
+func newOceanBaseOracleMetadataFixture(t *testing.T, database *fakeMetadataRetryDB) *oceanBaseOracleMetadataFixture {
+	t.Helper()
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	fixture := &oceanBaseOracleMetadataFixture{
+		config: connection.ConnectionConfig{
+			Type:              "oceanbase",
+			Host:              "127.0.0.1",
+			Port:              2881,
+			User:              "SYS@tenant",
+			OceanBaseProtocol: "oracle",
+			ConnectionParams:  "trace=true",
+		},
+		database: database,
+	}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		fixture.created++
+		return fixture.database, nil
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+	fixture.app = NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	if result := fixture.app.DBGetDatabases(fixture.config); !result.Success {
+		t.Fatalf("expected DBGetDatabases success, got failure: %s", result.Message)
+	}
+	return fixture
+}
+
+func (fixture *oceanBaseOracleMetadataFixture) requireBaseConnectionReused(t *testing.T, operation string) {
+	t.Helper()
+	if fixture.created != 1 || fixture.database.connectCalls != 1 {
+		t.Fatalf("expected %s to reuse one base connection, created=%d connected=%d last params=%q", operation, fixture.created, fixture.database.connectCalls, fixture.database.connectConfig.ConnectionParams)
+	}
+	if fixture.database.connectConfig.ConnectionParams != fixture.config.ConnectionParams {
+		t.Fatalf("expected base connection params %q, got %q", fixture.config.ConnectionParams, fixture.database.connectConfig.ConnectionParams)
+	}
+}
+
+func TestDBGetTablesReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{tables: []string{"ORDERS"}}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetTables(fixture.config, "CRH_AC")
+	if !result.Success {
+		t.Fatalf("expected DBGetTables success, got failure: %s", result.Message)
+	}
+	fixture.requireBaseConnectionReused(t, "selected schema table metadata")
+	if dbInst.tableCalls != 1 || dbInst.tableSchema != "CRH_AC" {
+		t.Fatalf("expected table metadata for CRH_AC once, calls=%d schema=%q", dbInst.tableCalls, dbInst.tableSchema)
+	}
+}
+
+func TestDBGetColumnsReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		columns: []connection.ColumnDefinition{{Name: "ID", Key: "PRI"}},
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetColumns(fixture.config, "CRH_AC", "CRH_AC.ORDERS")
+	if !result.Success {
+		t.Fatalf("expected DBGetColumns success, got failure: %s", result.Message)
+	}
+	fixture.requireBaseConnectionReused(t, "selected schema column metadata")
+	if dbInst.columnCalls != 1 || dbInst.columnSchema != "CRH_AC" || dbInst.columnTable != "ORDERS" {
+		t.Fatalf("expected column metadata for CRH_AC.ORDERS once, calls=%d schema=%q table=%q", dbInst.columnCalls, dbInst.columnSchema, dbInst.columnTable)
+	}
+}
+
+func TestDBGetIndexesReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		indexes: []connection.IndexDefinition{{Name: "ORDERS_PK", ColumnName: "ID", NonUnique: 0}},
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetIndexes(fixture.config, "CRH_AC", "CRH_AC.ORDERS")
+	if !result.Success {
+		t.Fatalf("expected DBGetIndexes success, got failure: %s", result.Message)
+	}
+	fixture.requireBaseConnectionReused(t, "selected schema index metadata")
+	if dbInst.indexCalls != 1 || dbInst.indexSchema != "CRH_AC" || dbInst.indexTable != "ORDERS" {
+		t.Fatalf("expected index metadata for CRH_AC.ORDERS once, calls=%d schema=%q table=%q", dbInst.indexCalls, dbInst.indexSchema, dbInst.indexTable)
+	}
+}
+
+func TestDBGetTableDetailsReuseOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		columns:         []connection.ColumnDefinition{{Name: "ID", Key: "PRI"}},
+		createStatement: `CREATE TABLE "CRH_AC"."ORDERS" ("ID" NUMBER PRIMARY KEY)`,
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	if result := fixture.app.DBGetForeignKeys(fixture.config, "CRH_AC", "CRH_AC.ORDERS"); !result.Success {
+		t.Fatalf("expected DBGetForeignKeys success, got failure: %s", result.Message)
+	}
+	if result := fixture.app.DBGetTriggers(fixture.config, "CRH_AC", "CRH_AC.ORDERS"); !result.Success {
+		t.Fatalf("expected DBGetTriggers success, got failure: %s", result.Message)
+	}
+	if result := fixture.app.DBShowCreateTable(fixture.config, "CRH_AC", "CRH_AC.ORDERS"); !result.Success {
+		t.Fatalf("expected DBShowCreateTable success, got failure: %s", result.Message)
+	}
+
+	fixture.requireBaseConnectionReused(t, "selected schema table details")
+	if dbInst.foreignKeyCalls != 1 || dbInst.foreignKeySchema != "CRH_AC" || dbInst.foreignKeyTable != "ORDERS" {
+		t.Fatalf("unexpected foreign-key metadata target: calls=%d schema=%q table=%q", dbInst.foreignKeyCalls, dbInst.foreignKeySchema, dbInst.foreignKeyTable)
+	}
+	if dbInst.triggerCalls != 1 || dbInst.triggerSchema != "CRH_AC" || dbInst.triggerTable != "ORDERS" {
+		t.Fatalf("unexpected trigger metadata target: calls=%d schema=%q table=%q", dbInst.triggerCalls, dbInst.triggerSchema, dbInst.triggerTable)
+	}
+	if dbInst.createCalls != 1 || dbInst.createSchema != "CRH_AC" || dbInst.createTable != "ORDERS" {
+		t.Fatalf("unexpected create-statement metadata target: calls=%d schema=%q table=%q", dbInst.createCalls, dbInst.createSchema, dbInst.createTable)
+	}
+}
+
+func TestDBGetAllColumnsReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetAllColumns(fixture.config, "CRH_AC")
+	if !result.Success {
+		t.Fatalf("expected DBGetAllColumns success, got failure: %s", result.Message)
+	}
+	fixture.requireBaseConnectionReused(t, "selected schema all-column metadata")
+	if dbInst.allColumnCalls != 1 || dbInst.allColumnSchema != "CRH_AC" {
+		t.Fatalf("expected all-column metadata for CRH_AC once, calls=%d schema=%q", dbInst.allColumnCalls, dbInst.allColumnSchema)
+	}
+}
+
+func TestDBTableExistsReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{tables: []string{"CRH_AC.ORDERS"}}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBTableExists(fixture.config, "CRH_AC", "CRH_AC.ORDERS")
+	if !result.Success {
+		t.Fatalf("expected DBTableExists success, got failure: %s", result.Message)
+	}
+	exists, ok := result.Data.(map[string]bool)
+	if !ok || !exists["exists"] {
+		t.Fatalf("expected CRH_AC.ORDERS to exist, got %#v", result.Data)
+	}
+	fixture.requireBaseConnectionReused(t, "selected schema table lookup")
+	if dbInst.tableCalls != 1 || dbInst.tableSchema != "CRH_AC" {
+		t.Fatalf("expected table lookup in CRH_AC once, calls=%d schema=%q", dbInst.tableCalls, dbInst.tableSchema)
+	}
+}
+
+func TestDBGetSchemaMetadataReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		queryResults: []fakeMetadataQueryResult{{
+			match: "FROM all_views",
+			rows: []map[string]interface{}{{
+				"SCHEMA_NAME": "CRH_AC",
+				"OBJECT_NAME": "ACTIVE_ORDERS",
+			}},
+		}},
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	if result := fixture.app.DBGetViews(fixture.config, "CRH_AC"); !result.Success {
+		t.Fatalf("expected DBGetViews success, got failure: %s", result.Message)
+	}
+	if result := fixture.app.DBGetDatabaseForeignKeys(fixture.config, "CRH_AC"); !result.Success {
+		t.Fatalf("expected DBGetDatabaseForeignKeys success, got failure: %s", result.Message)
+	}
+	if result := fixture.app.DBGetObjects(fixture.config, "CRH_AC"); !result.Success {
+		t.Fatalf("expected DBGetObjects success, got failure: %s", result.Message)
+	}
+
+	fixture.requireBaseConnectionReused(t, "selected schema metadata")
+	if dbInst.databaseFKCalls != 1 || dbInst.databaseFKSchema != "CRH_AC" {
+		t.Fatalf("expected database foreign-key metadata for CRH_AC once, calls=%d schema=%q", dbInst.databaseFKCalls, dbInst.databaseFKSchema)
+	}
+	if !strings.Contains(strings.Join(dbInst.queries, "\n"), "FROM all_views WHERE OWNER = 'CRH_AC'") {
+		t.Fatalf("expected explicit CRH_AC owner view query, got %v", dbInst.queries)
+	}
+}
 
 func TestDBGetColumnsRetriesAfterCachedConnectionRefresh(t *testing.T) {
 	originalNewDatabaseFunc := newDatabaseFunc

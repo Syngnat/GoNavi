@@ -14,6 +14,8 @@ describe('duplicateBrowserMockConnection', () => {
           type: 'postgres',
         },
         includeDatabases: ['appdb'],
+        includeDatabasePatterns: ['tenant_%'],
+        excludeDatabasePatterns: ['tenant_archive_%'],
         schemaVisibilityByDatabase: {
           appdb: { mode: 'include', schemas: ['public'] },
         },
@@ -26,6 +28,8 @@ describe('duplicateBrowserMockConnection', () => {
     expect(duplicated.config.id).toBe('conn-2');
     expect(duplicated.name).toBe(`Primary${t('connection.copy_suffix')}`);
     expect(duplicated.includeDatabases).toEqual(['appdb']);
+    expect(duplicated.includeDatabasePatterns).toEqual(['tenant_%']);
+    expect(duplicated.excludeDatabasePatterns).toEqual(['tenant_archive_%']);
     expect(duplicated.schemaVisibilityByDatabase).toEqual({
       appdb: { mode: 'include', schemas: ['public'] },
     });

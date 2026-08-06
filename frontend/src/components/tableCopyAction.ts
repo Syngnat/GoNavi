@@ -68,7 +68,6 @@ export const confirmCopyTable = ({
           throw new Error(t('table_copy.message.target_missing'));
         }
 
-        message.success(t('table_copy.message.success', { target }));
         if (onSuccess) {
           try {
             await onSuccess(target);
@@ -79,6 +78,7 @@ export const confirmCopyTable = ({
             }));
           }
         }
+        message.success(t('table_copy.message.success', { target }));
       } catch (error: any) {
         message.error(t('table_copy.message.failed', {
           error: error?.message || String(error),

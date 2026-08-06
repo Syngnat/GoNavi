@@ -138,3 +138,64 @@ func TestBuildChangePreviewQuotesQualifiedOracleTargetBySegment(t *testing.T) {
 		t.Fatalf("qualified Oracle preview = %#v, want %q", preview.Updates, want)
 	}
 }
+
+func TestResolveChangeTargetTableNamePreservesDamengSchemaContainingDot(t *testing.T) {
+	config := connection.ConnectionConfig{Type: "dameng"}
+	tests := []struct {
+		name      string
+		dbName    string
+		tableName string
+		want      string
+	}{
+		{
+			name:      "flattened metadata name",
+			dbName:    "PEM2.4_V1_1",
+			tableName: "PEM2.4_V1_1.COM_APPROVE_INFO",
+			want:      `"PEM2.4_V1_1"."COM_APPROVE_INFO"`,
+		},
+		{
+			name:      "already quoted target",
+			dbName:    "PEM2.4_V1_1",
+			tableName: `"PEM2.4_V1_1"."COM_APPROVE_INFO"`,
+			want:      `"PEM2.4_V1_1"."COM_APPROVE_INFO"`,
+		},
+		{
+			name:      "unqualified table",
+			dbName:    "PEM2.4_V1_1",
+			tableName: "COM_APPROVE_INFO",
+			want:      `"PEM2.4_V1_1"."COM_APPROVE_INFO"`,
+		},
+		{
+			name:      "table name also contains dot",
+			dbName:    "PEM2.4_V1_1",
+			tableName: "PEM2.4_V1_1.ORDER.ITEM",
+			want:      `"PEM2.4_V1_1"."ORDER.ITEM"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := resolveChangeTargetTableName(config, test.dbName, test.tableName)
+			if got != test.want {
+				t.Fatalf("Dameng change target = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestBuildChangePreviewPreservesDamengSchemaContainingDot(t *testing.T) {
+	preview := buildChangePreview(
+		&fakeBatchWriteDB{},
+		connection.ConnectionConfig{Type: "dameng"},
+		`"PEM2.4_V1_1"."COM_APPROVE_INFO"`,
+		connection.ChangeSet{Updates: []connection.UpdateRow{{
+			Keys:   map[string]interface{}{"ID": 7},
+			Values: map[string]interface{}{"STATUS": "0"},
+		}}},
+	)
+
+	want := `UPDATE "PEM2.4_V1_1"."COM_APPROVE_INFO" SET "STATUS" = '0' WHERE "ID" = 7;`
+	if len(preview.Updates) != 1 || preview.Updates[0] != want {
+		t.Fatalf("Dameng preview = %#v, want %q", preview.Updates, want)
+	}
+}

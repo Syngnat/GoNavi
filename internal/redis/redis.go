@@ -60,8 +60,9 @@ type RedisClient interface {
 	// List operations
 	GetList(key string, start, stop int64) ([]string, error)
 	ListPush(key string, values ...string) error
+	ListPushLeft(key string, values ...string) error
 	ListSet(key string, index int64, value string) error
-	ListRemove(key, value string) error
+	ListRemoveAt(key string, index int64, expectedValue string) error
 
 	// Set operations
 	GetSet(key string) ([]string, error)

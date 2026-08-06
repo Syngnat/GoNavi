@@ -129,26 +129,18 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 		implicitTextTransaction = true
 	}
 
+	ctx, cancel := newQueryExecutionContext(runConfig)
+	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true)
+	defer func() {
+		cancel()
+		cleanupRunningQuery()
+	}()
+
 	dbInst, err := a.getDatabase(runConfig)
 	if err != nil {
 		logger.Error(err, "DBQueryMultiTransactional 获取连接失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 	}
-
-	ctx, cancel := newQueryExecutionContext(runConfig)
-	defer cancel()
-
-	a.queryMu.Lock()
-	a.runningQueries[queryID] = queryContext{
-		cancel:  cancel,
-		started: time.Now(),
-	}
-	a.queryMu.Unlock()
-	defer func() {
-		a.queryMu.Lock()
-		delete(a.runningQueries, queryID)
-		a.queryMu.Unlock()
-	}()
 
 	var (
 		sessionExecer        db.StatementExecer
@@ -344,16 +336,24 @@ func (a *App) DBQueryMultiInTransaction(transactionID string, query string, quer
 	if !ok || tx == nil || tx.execer == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil), QueryID: queryID}
 	}
+
+	runConfig := tx.config
+	if strings.TrimSpace(runConfig.Type) == "" {
+		runConfig.Type = tx.dbType
+	}
+	ctx, cancel := newQueryExecutionContext(runConfig)
+	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true)
+	defer func() {
+		cancel()
+		cleanupRunningQuery()
+	}()
+
 	tx.mu.Lock()
 	defer tx.mu.Unlock()
 	if tx.finished || tx.execer == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("db.backend.error.transaction_not_found", nil), QueryID: queryID}
 	}
 
-	runConfig := tx.config
-	if strings.TrimSpace(runConfig.Type) == "" {
-		runConfig.Type = tx.dbType
-	}
 	var queryExecutionDuration time.Duration
 	defer func() {
 		if !result.Success {
@@ -364,21 +364,6 @@ func (a *App) DBQueryMultiInTransaction(transactionID string, query string, quer
 	}()
 	query = sanitizeSQLForPgLike(tx.dbType, query)
 	statements := splitSQLStatementsForDialect(tx.dbType, query)
-
-	ctx, cancel := newQueryExecutionContext(runConfig)
-	defer cancel()
-
-	a.queryMu.Lock()
-	a.runningQueries[queryID] = queryContext{
-		cancel:  cancel,
-		started: time.Now(),
-	}
-	a.queryMu.Unlock()
-	defer func() {
-		a.queryMu.Lock()
-		delete(a.runningQueries, queryID)
-		a.queryMu.Unlock()
-	}()
 
 	queryStartedAt := time.Now()
 	statementAuditEvents := make([]sqlaudit.Event, 0, len(statements))

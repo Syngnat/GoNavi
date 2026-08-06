@@ -48,7 +48,7 @@ body[data-ui-version="v2"][data-theme="light"] {
   --gn-accent:      #15803d;
   --gn-accent-2:    #166534;
   --gn-accent-soft: #dcfce7;
-  /* 浅色主题的主操作使用深绿填充，白色前景对 #15803d 的对比度为 5.02。 */
+  /* 一般强调面与实心主操作都使用深绿填充，白色前景满足 WCAG AA。 */
   --gn-on-accent:   #ffffff;
   --gn-accent-strong: #15803d;
   --gn-accent-strong-hover: #126634;
@@ -99,11 +99,12 @@ body[data-ui-version="v2"][data-theme="dark"] {
   --gn-accent:      #22c55e;
   --gn-accent-2:    #16a34a;
   --gn-accent-soft: rgba(34, 197, 94, 0.16);
-  /* 同上：白字压在 #22c55e 上仅 2.28，深绿可得 7.21。 */
+  /* 亮绿强调面继续使用深色前景；实心主操作使用更深的三态填充与白色前景。
+     两种语义不能共用前景色，否则徽标或主按钮必有一方达不到 WCAG AA。 */
   --gn-on-accent:   #0a2417;
-  --gn-accent-strong: #22c55e;
-  --gn-accent-strong-hover: #1ca14d;
-  --gn-accent-strong-active: #157a3b;
+  --gn-accent-strong: #15803d;
+  --gn-accent-strong-hover: #126634;
+  --gn-accent-strong-active: #0d4d27;
   --gn-info:        #38bdf8;
   --gn-info-soft:   rgba(56, 189, 248, 0.14);
   --gn-warn:        #f59e0b;
@@ -120,6 +121,11 @@ body[data-ui-version="v2"][data-theme="dark"] {
 
   --gn-kbd-bg: #20242c;
   --gn-kbd-fg: #c7ccd2;
+}
+
+/* 自定义主题可显式提供 --gn-ant-on-primary；未提供时回退到它自己的 --gn-on-accent。 */
+body[data-ui-version="v2"]:not([data-custom-theme]) {
+  --gn-ant-on-primary: #ffffff;
 }
 
 /* ─── Base typography & body ──────────────────────────── */
@@ -150,9 +156,14 @@ body[data-ui-version="v2"] [class*="monospace"] {
    ANT DESIGN OVERRIDES — surfaces & chrome
    ────────────────────────────────────────────────────────── */
 
-body[data-ui-version="v2"] .ant-layout,
-body[data-ui-version="v2"] .ant-layout-content {
+body[data-ui-version="v2"] .ant-layout {
   background: var(--gn-bg-app) !important;
+}
+
+/* 主内容区与左侧 sider 同用 panel-2：原先 app 近黑、panel 更深一档，
+   与 sider 的 panel-2 并排时会出现明显色差（表概览空白区尤其扎眼）。 */
+body[data-ui-version="v2"] .ant-layout-content {
+  background: var(--gn-bg-panel-2) !important;
 }
 
 body[data-ui-version="v2"] .ant-layout-sider {
@@ -292,11 +303,11 @@ body[data-ui-version="v2"] .ant-btn-default:hover {
 /* 主操作按钮用提饱和的 --gn-accent-strong 填充：内置主题的 accent 刻意低饱和
    （Comfort Dark 仅 20%、Deep Ocean 28%），直接填在按钮上读起来"没有颜色"、不像主操作。
    只改按钮填充，侧边栏高亮与文字仍用原 accent，保持主题整体淡雅。
-   前景色改用 --gn-on-accent：硬编码 #fff 在默认深色主题上压 #22c55e 仅 2.28，不满足 AA。 */
+   主按钮前景单独使用 --gn-ant-on-primary，避免与亮色强调面的前景语义冲突。 */
 body[data-ui-version="v2"] .ant-btn-primary {
   background: var(--gn-accent-strong, var(--gn-accent)) !important;
   border-color: var(--gn-accent-strong, var(--gn-accent-2)) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
   font-weight: 600 !important;
   box-shadow: var(--gn-shadow-sm), inset 0 0.5px 0 rgba(255,255,255,0.15) !important;
 }
@@ -304,40 +315,16 @@ body[data-ui-version="v2"] .ant-btn-primary {
 body[data-ui-version="v2"] .ant-btn-primary:hover {
   background: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;
   border-color: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
 }
 
 body[data-ui-version="v2"] .ant-btn-primary:active {
   background: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;
   border-color: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
 }
 
-/* 查询工具栏「保存」降为次级样式：描边 + 中性底。
-   原先它与「执行」一样是实心饱满按钮，而两者在内置主题下的填充色（accent 与 info）
-   区分度仅 1.05–1.25 —— 相邻两个同色实心方块，一眼分不出哪个是执行、哪个是保存。
-   由于 Midnight Navy / Nord Slate 的 accent 本身就是蓝青系，靠拉开色相无法解决，
-   改用层级区分：工具栏里只有「执行」是实心主按钮，其余降级，主操作因此真正突出。 */
-body[data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary {
-  background: transparent !important;
-  border-color: var(--gn-br-3) !important;
-  color: var(--gn-fg-2) !important;
-  font-weight: 600 !important;
-  box-shadow: none !important;
-}
-
-body[data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:hover,
-body[data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:focus-visible {
-  background: var(--gn-bg-hover) !important;
-  border-color: var(--gn-accent) !important;
-  color: var(--gn-fg-1) !important;
-}
-
-body[data-ui-version="v2"] .gn-v2-query-toolbar-save-action.ant-btn-primary:active {
-  background: var(--gn-bg-active) !important;
-  border-color: var(--gn-accent) !important;
-  color: var(--gn-fg-1) !important;
-}
+/* 查询工具栏「保存」在 v2 已改为 default 图标按钮；样式见 v2-theme-workbench.css。 */
 
 body[data-ui-version="v2"] .ant-btn-primary:disabled {
   background: var(--gn-bg-active) !important;
@@ -448,17 +435,47 @@ body[data-ui-version="v2"] .ant-picker-dropdown .ant-picker-panel-container {
 }
 
 body[data-ui-version="v2"] .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title,
 body[data-ui-version="v2"] .ant-select-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0;
   border-radius: 6px !important;
   padding: 6px 10px !important;
   color: var(--gn-fg-1) !important;
-  min-height: 28px !important;
+  min-height: 32px !important;
+  line-height: 1.25 !important;
   font-size: 12.5px !important;
+  /* Flat item surface — no outline/box that makes submenu rows look different */
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Icon + label share one baseline/vertical center (leaf and submenu rows) */
+body[data-ui-version="v2"] .ant-dropdown-menu-title-content {
+  display: inline-flex !important;
+  align-items: center !important;
+  min-width: 0;
+  line-height: 1.25 !important;
 }
 
 body[data-ui-version="v2"] .ant-dropdown-menu-item:hover,
+body[data-ui-version="v2"] .ant-dropdown-menu-item-active,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title:hover,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-active > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-open > .ant-dropdown-menu-submenu-title,
 body[data-ui-version="v2"] .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
   background: var(--gn-bg-active) !important;
+  color: var(--gn-fg-1) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-selected > .ant-dropdown-menu-submenu-title {
+  background: var(--gn-bg-active) !important;
+  color: var(--gn-fg-1) !important;
+  font-weight: 400 !important;
 }
 
 body[data-ui-version="v2"] .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
@@ -473,9 +490,43 @@ body[data-ui-version="v2"] .ant-dropdown-menu-item-divider {
 }
 
 /* Right-click menu items get a tighter, sectioned look */
-body[data-ui-version="v2"] .ant-dropdown-menu-item-icon {
-  color: var(--gn-fg-4);
+body[data-ui-version="v2"] .ant-dropdown-menu-item-icon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title .ant-dropdown-menu-item-icon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-expand-icon {
+  color: var(--gn-fg-4) !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item-icon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title .ant-dropdown-menu-item-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 16px !important;
+  width: 16px !important;
+  height: 16px !important;
+  margin-inline-end: 8px !important;
   margin-right: 8px !important;
+  font-size: 14px !important;
+  line-height: 1 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-item-icon > .anticon,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title .ant-dropdown-menu-item-icon > .anticon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-expand-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  margin-inline-end: 2px !important;
+  height: 16px !important;
+  line-height: 1 !important;
 }
 
 body[data-ui-version="v2"] .ant-dropdown-menu-item-danger {
@@ -484,10 +535,62 @@ body[data-ui-version="v2"] .ant-dropdown-menu-item-danger {
 body[data-ui-version="v2"] .ant-dropdown-menu-item-danger:hover {
   background: rgba(220, 38, 38, 0.08) !important;
 }
-body[data-ui-version="v2"] .ant-dropdown-menu-submenu-title {
-  border-radius: 6px !important;
-  padding: 6px 10px !important;
-  font-size: 12.5px !important;
+
+/* Nested dropdown menus: collapse double border, no glow/halo */
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-popup,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-submenu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-popup {
+  margin-inline-start: -2px !important;
+  padding: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-popup > .ant-dropdown-menu,
+body[data-ui-version="v2"] .ant-dropdown-menu-submenu-popup.ant-dropdown-menu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-submenu .ant-dropdown-menu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-submenu.ant-dropdown-menu {
+  /* Match primary menu border only — strip outer glow that reads as white rim in dark theme */
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-inline-start: none !important;
+  border-radius: 10px !important;
+  border-start-start-radius: 8px !important;
+  border-end-start-radius: 8px !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+/* Title-bar cascade: keep both levels flat (no shadow/halo on either panel) */
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+/* Title-bar more menu: leaf rows and submenu rows share the same hover fill + alignment */
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-item,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-title {
+  display: flex !important;
+  align-items: center !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-height: 32px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-item:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-item-active,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-title:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-active > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-dropdown .ant-dropdown-menu-submenu-open > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-item:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-item-active,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-title:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-active > .ant-dropdown-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-menu .ant-dropdown-menu-submenu-open > .ant-dropdown-menu-submenu-title {
+  background: var(--gn-bg-active) !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 /* ─── Tables (ant-table, used by some legacy panes) ────── */
@@ -1488,12 +1591,15 @@ body[data-ui-version="v2"] .ant-divider {
 body[data-ui-version="v2"] .gn-v2-object-explorer .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected::before {
   content: '';
   position: absolute;
-  left: -6px;
-  top: 4px;
-  bottom: 4px;
-  width: 2px;
+  left: 2px;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
   background: var(--gn-accent);
   border-radius: 2px;
+  display: block;
+  pointer-events: none;
+  z-index: 1;
 }
 
 body[data-ui-version="v2"] .ant-tree .ant-tree-node-content-wrapper {
@@ -1867,7 +1973,7 @@ body[data-ui-version="v2"] .ant-modal-body input[type="number"] {
    inline styles can't reach. */
 
 body[data-ui-version="v2"] .redis-viewer-workbench {
-  background: var(--gn-bg-app) !important;
+  background: var(--gn-bg-panel-2) !important;
   /* the inner cards still read workbenchTheme — those return v2 palette
      once the workbench theme files honor uiVersion */
 }
@@ -1944,9 +2050,10 @@ body[data-ui-version="v2"] .gn-v2-connection-rail {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: calc(4px * var(--gn-v2-rail-scale));
-  padding: calc(8px * var(--gn-v2-rail-scale)) 0;
+  gap: 0;
+  padding: calc(6px * var(--gn-v2-rail-scale)) 0 0;
   border-right: 0.5px solid var(--gn-br-1);
+  /* Match explorer panel — no tint strip (tinted empty rail looked worse) */
   background: transparent;
 }
 
@@ -2081,17 +2188,21 @@ body[data-ui-version="v2"] .gn-v2-rail-secondary-actions {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: calc(6px * var(--gn-v2-rail-scale));
+  gap: calc(4px * var(--gn-v2-rail-scale));
 }
 
+/* Top tool cluster — compact, not floating in empty space */
 body[data-ui-version="v2"] .gn-v2-rail-primary-actions {
-  padding-top: calc(4px * var(--gn-v2-rail-scale));
+  padding: calc(2px * var(--gn-v2-rail-scale)) 0 calc(4px * var(--gn-v2-rail-scale));
 }
 
+/* Bottom system actions — pin to foot with a hairline only, no fill */
 body[data-ui-version="v2"] .gn-v2-rail-secondary-actions {
   margin-top: auto;
   flex: 0 0 auto;
-  padding-bottom: calc(4px * var(--gn-v2-rail-scale));
+  padding: calc(6px * var(--gn-v2-rail-scale)) 0 calc(8px * var(--gn-v2-rail-scale));
+  border-top: 0.5px solid var(--gn-br-1);
+  background: transparent;
 }
 
 body[data-ui-version="v2"] .gn-v2-rail-action-group,
@@ -2142,19 +2253,39 @@ body[data-ui-version="v2"] .gn-v2-rail-tool {
   justify-content: center;
   gap: 0;
   padding: 0;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
+/* Compact square hit target for rail tools (locate / AI / settings) */
 body[data-ui-version="v2"] .gn-v2-rail-tool {
-  width: calc(24px * var(--gn-v2-rail-scale));
-  height: calc(32px * var(--gn-v2-rail-scale));
-  border-radius: calc(8px * var(--gn-v2-rail-scale));
+  width: calc(28px * var(--gn-v2-rail-scale));
+  height: calc(28px * var(--gn-v2-rail-scale));
+  border-radius: calc(7px * var(--gn-v2-rail-scale));
   justify-content: center;
   padding: 0;
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool .anticon {
+  font-size: calc(15px * var(--gn-v2-rail-scale));
+  line-height: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-rail-item:hover,
-body[data-ui-version="v2"] .gn-v2-rail-tool:hover {
+body[data-ui-version="v2"] .gn-v2-rail-tool:hover:not(:disabled) {
   background: var(--gn-bg-hover);
+  color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--gn-accent) 12%, var(--gn-bg-hover));
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-rail-tool:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 1px;
 }
 
 body[data-ui-version="v2"] .gn-v2-rail-item.is-active {
@@ -2320,7 +2451,7 @@ body[data-ui-version="v2"] .gn-v2-active-connection-copy span {
 body[data-ui-version="v2"] .gn-v2-active-connection-copy strong {
   color: var(--gn-fg-1);
   font-size: 13px;
-  font-weight: 400;
+  font-weight: 600;
   line-height: 1.2;
 }
 
@@ -2330,6 +2461,11 @@ body[data-ui-version="v2"] .gn-v2-active-connection-copy span {
   font-size: 11px;
   font-weight: 400;
   line-height: 1.2;
+}
+
+/* Empty database selection: guide tone, not error tone */
+body[data-ui-version="v2"] .gn-v2-active-connection-copy span.is-placeholder {
+  color: var(--gn-fg-5);
 }
 
 body[data-ui-version="v2"] .gn-v2-active-connection-tooltip {
@@ -2360,6 +2496,13 @@ body[data-ui-version="v2"] .gn-v2-active-connection-actions {
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
+  opacity: 0.72;
+  transition: opacity 140ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-active-connection-header:hover .gn-v2-active-connection-actions,
+body[data-ui-version="v2"] .gn-v2-active-connection-header:focus-within .gn-v2-active-connection-actions {
+  opacity: 1;
 }
 
 @container gn-v2-object-explorer (max-width: 440px) {
@@ -2403,7 +2546,7 @@ body[data-ui-version="v2"] .gn-v2-explorer-command-trigger {
   border: 0.5px solid var(--gn-br-2);
   border-radius: 7px;
   padding: 0 8px;
-  background: var(--gn-bg-input);
+  background: var(--gn-bg-panel-2);
   color: var(--gn-fg-4);
   cursor: text;
   font-size: 12px;
@@ -2434,7 +2577,7 @@ body[data-ui-version="v2"] .gn-v2-explorer-filter-action {
   justify-content: center;
   border: 0.5px solid var(--gn-br-2);
   border-radius: 7px;
-  background: var(--gn-bg-input);
+  background: var(--gn-bg-panel-2);
   color: var(--gn-fg-4);
   cursor: pointer;
 }
@@ -2739,7 +2882,7 @@ body[data-ui-version="v2"] .gn-v2-explorer-search .ant-input-affix-wrapper {
   border-radius: 7px !important;
   border: 0.5px solid var(--gn-br-2) !important;
   padding: 0 8px !important;
-  background: var(--gn-bg-input) !important;
+  background: var(--gn-bg-panel-2) !important;
   color: var(--gn-fg-2) !important;
   font-size: 12px !important;
   font-weight: 500 !important;
@@ -2809,19 +2952,26 @@ body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs::-webkit-scrollbar {
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button {
   flex: 0 0 auto;
   height: 22px;
-  padding: 0 6px;
+  padding: 0 7px;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--gn-fg-4);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-fg-2);
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button.is-active {
-  background: var(--gn-bg-active);
-  color: var(--gn-fg-1);
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-panel-2));
+  color: var(--gn-accent);
+  font-weight: 700;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-toolbar {
@@ -2871,6 +3021,21 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder {
   scrollbar-width: thin;
 }
 
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical {
+  visibility: hidden !important;
+  pointer-events: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell.is-vertical-scrolling .ant-tree-list-scrollbar-vertical {
+  visibility: visible !important;
+  pointer-events: auto;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical:has(.ant-tree-list-scrollbar-thumb-moving) {
+  visibility: visible !important;
+  pointer-events: auto;
+}
+
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-horizontal {
   height: 12px !important;
   left: 8px !important;
@@ -2904,6 +3069,11 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode {
   align-items: center;
 }
 
+/* Connection rows sit one step taller than object rows for hierarchy */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) {
+  min-height: 30px !important;
+}
+
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher {
   width: 16px !important;
   min-width: 16px !important;
@@ -2911,6 +3081,10 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher {
   line-height: 26px !important;
   font-size: 12px !important;
   color: var(--gn-fg-4);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-switcher {
+  line-height: 30px !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-indent-unit {
@@ -2921,11 +3095,15 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wra
   min-width: 100%;
   width: max-content !important;
   min-height: 26px !important;
-  padding: 0 6px !important;
+  padding: 0 6px 0 8px !important;
   display: flex !important;
   align-items: center;
   border-radius: 6px !important;
   color: var(--gn-fg-3) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-node-content-wrapper {
+  min-height: 30px !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper:hover {
@@ -2933,9 +3111,10 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wra
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper.ant-tree-node-selected {
-  background: var(--gn-bg-selected) !important;
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-selected)) !important;
   color: var(--gn-fg-1) !important;
   font-weight: 400 !important;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 16%, transparent);
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle {
@@ -3035,6 +3214,8 @@ body[data-ui-version="v2"] .gn-v2-tree-title.is-group {
 body[data-ui-version="v2"] .gn-v2-tree-title.is-connection {
   align-items: center;
   gap: 6px;
+  font-weight: 500 !important;
+  color: var(--gn-fg-1);
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-status {
@@ -3237,9 +3418,7 @@ body[data-ui-version="v2"] .gn-v2-table-pin-indicator {
   color: var(--gn-warn);
 }
 
-body[data-ui-version="v2"] .gn-v2-object-explorer .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected::before {
-  display: none;
-}
+/* Selected accent bar kept on; see rule near Small additions block */
 
 body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="database"] {
   font-weight: 400 !important;
@@ -3741,7 +3920,7 @@ body[data-ui-version="v2"] .gn-v2-workspace-body {
 }
 
 body[data-ui-version="v2"] .gn-v2-workspace-main {
-  background: var(--gn-bg-panel) !important;
+  background: var(--gn-bg-panel-2) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-ai-panel-dock {
@@ -4064,14 +4243,14 @@ body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-frame {
   border-width: 0 0 0.5px !important;
   border-color: var(--gn-br-1) !important;
   border-radius: 0 !important;
-  background: var(--gn-bg-panel) !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll {
   min-height: 44px;
   padding: 7px 12px !important;
   gap: 4px !important;
-  background: var(--gn-bg-panel) !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn {
@@ -4245,17 +4424,37 @@ body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:hov
 }
 
 body[data-ui-version="v2"] .gn-v2-smart-filter-panel {
-  background: var(--gn-bg-panel-2) !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
   border-top: 0.5px solid var(--gn-br-1);
   font-size: var(--gn-font-size, 14px);
 }
 
 body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"] {
   min-height: 38px;
+  padding-inline: 0 !important;
   margin-bottom: 8px !important;
-  border: 0.5px solid var(--gn-br-2) !important;
-  border-radius: 8px !important;
-  background: var(--gn-bg-panel) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+/* Keep manual query entry aligned with the condition checkbox and compact on wide screens. */
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .gn-v2-smart-filter-manual-input {
+  flex: 1 1 360px !important;
+  max-width: 680px !important;
+}
+
+/* Filter controls stay on the result workbench surface instead of the global input well. */
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-textarea,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-select-selector {
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper > input.ant-input,
+body[data-ui-version="v2"] .gn-v2-smart-filter-panel .ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where="true"],
@@ -4289,11 +4488,19 @@ body[data-ui-version="v2"] .gn-v2-smart-filter-panel [data-grid-quick-where-inpu
 body[data-ui-version="v2"] .gn-v2-data-grid-table-shell {
   border: none !important;
   border-radius: 0 !important;
-  background: var(--gn-bg-panel) !important;
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid-table-wrap {
-  background: var(--gn-bg-panel);
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2));
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-container,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-content,
+body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-tbody-virtual-holder,
+body[data-ui-version="v2"] .gn-v2-data-grid .rc-virtual-list-holder {
+  background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead > tr > th {
@@ -4515,19 +4722,8 @@ body[data-ui-version="v2"] .gn-v2-column-title-comment {
   font-weight: 400 !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-data-grid .react-resizable-handle::after {
-  content: '';
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 4px;
-  width: 2px;
-  border-radius: 1px;
-  background: transparent;
-}
-
-body[data-ui-version="v2"] .gn-v2-data-grid .react-resizable-handle:hover::after {
-  background: color-mix(in srgb, var(--gn-info) 42%, transparent);
+body[data-ui-version="v2"] .gn-v2-data-grid .react-resizable-handle {
+  background-image: none !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-tbody > tr > td,
@@ -4571,6 +4767,10 @@ body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-virtual-inline-editing .a
   min-height: 24px !important;
   line-height: 24px !important;
   margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   box-sizing: border-box !important;
   position: static !important;
 }
@@ -4698,9 +4898,25 @@ body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn {
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn-primary {
-  background: var(--gn-bg-active) !important;
-  color: var(--gn-fg-1) !important;
-  border-color: transparent !important;
+  background: var(--gn-accent-strong, var(--gn-accent)) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+  border-color: var(--gn-accent-strong, var(--gn-accent-2)) !important;
+  box-shadow: var(--gn-shadow-sm), inset 0 0.5px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn-primary:hover,
+body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn-primary:focus,
+body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn-primary:focus-visible {
+  background: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+  border-color: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;
+  box-shadow: var(--gn-shadow-sm), inset 0 0.5px 0 rgba(255, 255, 255, 0.15) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn-primary:active {
+  background: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+  border-color: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;
   box-shadow: none !important;
 }
 
@@ -4788,8 +5004,19 @@ body[data-ui-version="v2"] .gn-v2-data-grid-visually-hidden {
   border: 0 !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-data-grid-result-switcher .ant-segmented-item-selected .ant-segmented-item-label {
-  color: var(--gn-fg-1);
+/* Result format is a mode switch, so its selected segment uses the theme accent
+   without a border or floating-card treatment. */
+body[data-ui-version="v2"] .gn-v2-data-grid-result-switcher .ant-segmented-item-selected,
+body[data-ui-version="v2"] .gn-v2-data-grid-result-switcher .ant-segmented-thumb {
+  background: var(--gn-accent-strong, var(--gn-accent)) !important;
+  border: 0 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid-result-switcher .ant-segmented-item-selected .ant-segmented-item-label,
+body[data-ui-version="v2"] .gn-v2-data-grid-result-switcher .ant-segmented-item-selected .anticon {
+  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid-page-find-overlay {

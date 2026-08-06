@@ -1,8 +1,9 @@
 import React from 'react';
-import { Button, Input, Popover, Select, Tooltip } from 'antd';
+import { Button, Checkbox, Input, Popover, Select, Tooltip } from 'antd';
 import { FilterOutlined, LinkOutlined, PushpinOutlined, SearchOutlined } from '@ant-design/icons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
 import type { DataGridColumnValueCount } from '../utils/dataGridClientFilter';
+import type { FilterValueSelection } from '../utils/sql';
 
 export type DataGridColumnTitleTranslate = (key: string, params?: I18nParams) => string;
 
@@ -10,6 +11,7 @@ export type DataGridColumnFilterDraft = {
   op: string;
   value: string;
   value2?: string;
+  valueSelection?: FilterValueSelection;
 };
 
 export interface DataGridColumnFilterConfig {
@@ -19,6 +21,7 @@ export interface DataGridColumnFilterConfig {
   initialOperator?: string;
   initialValue?: string;
   initialValue2?: string;
+  initialValueSelection?: FilterValueSelection;
   filterLabel: string;
   applyLabel: string;
   clearLabel: string;
@@ -62,6 +65,12 @@ export interface DataGridColumnTitleProps {
 const stopColumnHeaderInteraction = (event: React.SyntheticEvent<HTMLElement>) => {
   event.stopPropagation();
 };
+
+const normalizeValueSelection = (selection?: FilterValueSelection): FilterValueSelection => ({
+  values: Array.from(new Set((selection?.values || []).map((value) => String(value)))),
+  ...(selection?.includeNull ? { includeNull: true } : {}),
+  ...(selection?.includeEmpty ? { includeEmpty: true } : {}),
+});
 
 const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
   columnName,
@@ -107,6 +116,9 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
   const [draftFilterValue, setDraftFilterValue] = React.useState(columnFilter?.initialValue || '');
   const [draftFilterValue2, setDraftFilterValue2] = React.useState(columnFilter?.initialValue2 || '');
   const [valueCountSearch, setValueCountSearch] = React.useState('');
+  const [draftValueSelection, setDraftValueSelection] = React.useState<FilterValueSelection>(
+    normalizeValueSelection(columnFilter?.initialValueSelection),
+  );
 
   React.useEffect(() => {
     if (!filterPopoverOpen || !columnFilter) return;
@@ -114,11 +126,13 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
     setDraftFilterValue(columnFilter.initialValue || '');
     setDraftFilterValue2(columnFilter.initialValue2 || '');
     setValueCountSearch('');
+    setDraftValueSelection(normalizeValueSelection(columnFilter.initialValueSelection));
   }, [
     columnFilter?.defaultOperator,
     columnFilter?.initialOperator,
     columnFilter?.initialValue,
     columnFilter?.initialValue2,
+    columnFilter?.initialValueSelection,
     filterPopoverOpen,
   ]);
 
@@ -289,26 +303,54 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
     !normalizedValueCountSearch
     || getValueCountDisplay(item).toLocaleLowerCase().includes(normalizedValueCountSearch)
   ));
-  const selectValueCount = (item: DataGridColumnValueCount) => {
-    if (item.kind === 'nullish') {
-      setDraftFilterOperator('IS_NULL');
-      setDraftFilterValue('');
-    } else if (item.kind === 'empty') {
-      setDraftFilterOperator('IS_EMPTY');
-      setDraftFilterValue('');
-    } else {
-      setDraftFilterOperator('=');
-      setDraftFilterValue(item.display);
-    }
-    setDraftFilterValue2('');
+  const isValueCountSelected = (item: DataGridColumnValueCount) => {
+    if (item.kind === 'nullish') return !!draftValueSelection.includeNull;
+    if (item.kind === 'empty') return !!draftValueSelection.includeEmpty;
+    return draftValueSelection.values.includes(item.display);
+  };
+  const toggleValueCount = (item: DataGridColumnValueCount) => {
+    setDraftValueSelection((current) => {
+      if (item.kind === 'nullish') return { ...current, includeNull: !current.includeNull };
+      if (item.kind === 'empty') return { ...current, includeEmpty: !current.includeEmpty };
+      const values = current.values.includes(item.display)
+        ? current.values.filter((value) => value !== item.display)
+        : [...current.values, item.display];
+      return { ...current, values };
+    });
+  };
+  const selectedValueCount = draftValueSelection.values.length
+    + (draftValueSelection.includeNull ? 1 : 0)
+    + (draftValueSelection.includeEmpty ? 1 : 0);
+  const areAllVisibleValueCountsSelected = filteredValueCounts.length > 0
+    && filteredValueCounts.every((item) => isValueCountSelected(item));
+  const hasVisibleValueCountSelection = filteredValueCounts.some((item) => isValueCountSelected(item));
+  const toggleVisibleValueCounts = () => {
+    setDraftValueSelection((current) => {
+      const nextValues = new Set(current.values);
+      let includeNull = !!current.includeNull;
+      let includeEmpty = !!current.includeEmpty;
+      filteredValueCounts.forEach((item) => {
+        if (item.kind === 'nullish') includeNull = !areAllVisibleValueCountsSelected;
+        else if (item.kind === 'empty') includeEmpty = !areAllVisibleValueCountsSelected;
+        else if (areAllVisibleValueCountsSelected) nextValues.delete(item.display);
+        else nextValues.add(item.display);
+      });
+      return {
+        values: Array.from(nextValues),
+        ...(includeNull ? { includeNull: true } : {}),
+        ...(includeEmpty ? { includeEmpty: true } : {}),
+      };
+    });
   };
   const submitColumnFilter = (event?: React.SyntheticEvent<HTMLElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
+    const appliesValueSelection = selectedValueCount > 0;
     const applied = columnFilter.onApply({
-      op: draftFilterOperator,
-      value: draftFilterValue,
-      value2: draftFilterValue2,
+      op: appliesValueSelection ? 'IN' : draftFilterOperator,
+      value: appliesValueSelection ? '' : draftFilterValue,
+      value2: appliesValueSelection ? '' : draftFilterValue2,
+      valueSelection: appliesValueSelection ? draftValueSelection : undefined,
     });
     if (applied !== false) setFilterPopoverOpen(false);
   };
@@ -417,18 +459,27 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
             placeholder={translate('data_grid.filter.value_counts.search_placeholder')}
             onChange={(event) => setValueCountSearch(event.target.value)}
           />
+          <Checkbox
+            data-grid-column-value-select-all="true"
+            checked={areAllVisibleValueCountsSelected}
+            indeterminate={hasVisibleValueCountSelection && !areAllVisibleValueCountsSelected}
+            disabled={filteredValueCounts.length === 0}
+            onChange={toggleVisibleValueCounts}
+          >
+            {translate('data_grid.filter.value_counts.select_all')}
+          </Checkbox>
           <div
             className="custom-scrollbar"
             data-grid-column-value-counts="true"
             style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}
           >
             {filteredValueCounts.map((item) => (
-              <button
+              <Checkbox
                 key={item.key}
-                type="button"
                 data-grid-column-value-count-kind={item.kind}
                 title={getValueCountDisplay(item)}
-                onClick={() => selectValueCount(item)}
+                checked={isValueCountSelected(item)}
+                onChange={() => toggleValueCount(item)}
                 style={{
                   minHeight: 28,
                   display: 'flex',
@@ -436,21 +487,18 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
                   justifyContent: 'space-between',
                   gap: 12,
                   padding: '3px 6px',
-                  border: 0,
-                  borderRadius: 4,
-                  background: 'transparent',
                   color: darkMode ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.85)',
-                  cursor: 'pointer',
-                  textAlign: 'left',
                 }}
               >
-                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {getValueCountDisplay(item)}
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minWidth: 0, width: '100%' }}>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {getValueCountDisplay(item)}
+                  </span>
+                  <span style={{ flex: 'none', color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.46)' }}>
+                    {item.count}
+                  </span>
                 </span>
-                <span style={{ flex: 'none', color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.46)' }}>
-                  {item.count}
-                </span>
-              </button>
+              </Checkbox>
             ))}
             {filteredValueCounts.length === 0 && (
               <span style={{ padding: '6px 4px', fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.46)' : 'rgba(15,23,42,0.42)' }}>

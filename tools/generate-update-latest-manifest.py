@@ -33,6 +33,11 @@ from urllib.parse import quote
 
 REPO = "Syngnat/GoNavi"
 SCHEMA_VERSION = 1
+# 客户端静态清单体积保护：超过则截断并附 GitHub 完整日志提示。
+RELEASE_NOTES_MAX_BYTES = 64 * 1024
+RELEASE_NOTES_TRUNCATE_SUFFIX = (
+    "\n\n---\n\n> 更新日志过长，已截断。完整内容请查看 GitHub Release 页面。\n"
+)
 SKIP_NAMES = {
     "SHA256SUMS",
     "LICENSE",
@@ -41,6 +46,25 @@ SKIP_NAMES = {
     "latest-dev.json",
     ".DS_Store",
 }
+
+
+def load_release_notes(path: Path | None) -> str:
+    if path is None:
+        return ""
+    if not path.is_file():
+        raise SystemExit(f"release notes file not found: {path}")
+    text = path.read_text(encoding="utf-8", errors="replace").strip()
+    if not text:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= RELEASE_NOTES_MAX_BYTES:
+        return text
+    # 按字节截断，避免切断多字节 UTF-8 字符
+    budget = RELEASE_NOTES_MAX_BYTES - len(RELEASE_NOTES_TRUNCATE_SUFFIX.encode("utf-8"))
+    if budget < 0:
+        budget = 0
+    truncated = encoded[:budget].decode("utf-8", errors="ignore").rstrip()
+    return truncated + RELEASE_NOTES_TRUNCATE_SUFFIX
 
 
 def parse_sha256sums(path: Path) -> dict[str, str]:
@@ -125,6 +149,7 @@ def build_manifest(
     published_at: str | None,
     download_base_url: str = "",
     download_tag: str = "",
+    release_notes: str = "",
 ) -> dict:
     hashes = parse_sha256sums(assets_dir / "SHA256SUMS")
     tag = tag.strip() or f"v{normalize_version(version)}"
@@ -133,7 +158,7 @@ def build_manifest(
     if not assets:
         raise SystemExit(f"no release assets found under {assets_dir}")
 
-    return {
+    payload = {
         "schemaVersion": SCHEMA_VERSION,
         "channel": channel,
         "tagName": tag,
@@ -143,6 +168,10 @@ def build_manifest(
         "publishedAt": (published_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
         "assets": assets,
     }
+    notes = (release_notes or "").strip()
+    if notes:
+        payload["releaseNotes"] = notes
+    return payload
 
 
 def main() -> int:
@@ -173,6 +202,11 @@ def main() -> int:
         default="",
         help="Output path (default: <assets-dir>/latest.json or latest-dev.json)",
     )
+    parser.add_argument(
+        "--release-notes-file",
+        default="",
+        help="Optional Markdown file embedded into releaseNotes for in-app changelog",
+    )
     args = parser.parse_args()
 
     assets_dir = Path(args.assets_dir).resolve()
@@ -190,6 +224,8 @@ def main() -> int:
 
     out_name = "latest-dev.json" if args.channel == "dev" else "latest.json"
     output = Path(args.output).resolve() if args.output else assets_dir / out_name
+    notes_path = Path(args.release_notes_file).resolve() if args.release_notes_file.strip() else None
+    release_notes = load_release_notes(notes_path)
 
     manifest = build_manifest(
         channel=args.channel,
@@ -200,9 +236,11 @@ def main() -> int:
         published_at=args.published_at or None,
         download_base_url=args.download_base_url,
         download_tag=args.download_tag,
+        release_notes=release_notes,
     )
     output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"wrote {output} ({len(manifest['assets'])} assets, version={manifest['version']})")
+    notes_hint = f", notes={len(manifest.get('releaseNotes', ''))} chars" if manifest.get("releaseNotes") else ""
+    print(f"wrote {output} ({len(manifest['assets'])} assets, version={manifest['version']}{notes_hint})")
     return 0
 
 

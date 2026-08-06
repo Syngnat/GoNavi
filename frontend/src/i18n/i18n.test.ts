@@ -292,6 +292,30 @@ const remainingConnectionModalSliceExpectations: LocalizedExpectation[] = [
     key: "connection.modal.field.serviceName.placeholder",
     catalogKey: "connection_modal.field.serviceName.placeholder",
   },
+  {
+    key: "connection.modal.field.oracleMode.label",
+    catalogKey: "connection_modal.field.oracle_mode.label",
+  },
+  {
+    key: "connection.modal.field.oracleMode.service",
+    catalogKey: "connection_modal.field.oracle_mode.service",
+  },
+  {
+    key: "connection.modal.field.oracleMode.sid",
+    catalogKey: "connection_modal.field.oracle_mode.sid",
+  },
+  {
+    key: "connection.modal.field.sid.label",
+    catalogKey: "connection_modal.field.sid.label",
+  },
+  {
+    key: "connection.modal.field.sid.required",
+    catalogKey: "connection_modal.field.sid.required",
+  },
+  {
+    key: "connection.modal.field.sid.placeholder",
+    catalogKey: "connection_modal.field.sid.placeholder",
+  },
 ];
 
 describe("i18n", () => {
@@ -338,4 +362,22 @@ describe("i18n", () => {
       }
     },
   );
+
+  it("resolves the Oracle mode keys in zh-CN and en-US (legacy messages)", () => {
+    expect(
+      t("connection.modal.field.oracleMode.service", undefined, "zh-CN"),
+    ).toBe("服务名称");
+    expect(t("connection.modal.field.oracleMode.sid", undefined, "zh-CN")).toBe(
+      "SID",
+    );
+    expect(
+      t("connection.modal.field.oracleMode.service", undefined, "en-US"),
+    ).toBe("Service name");
+    expect(t("connection.modal.field.oracleMode.sid", undefined, "en-US")).toBe(
+      "SID",
+    );
+    expect(
+      t("connection.modal.field.sid.required", undefined, "zh-CN"),
+    ).toBe("请输入 SID");
+  });
 });

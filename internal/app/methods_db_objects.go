@@ -16,7 +16,7 @@ type objectMetadataQuerySpec struct {
 }
 
 func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) connection.QueryResult {
-	runConfig := normalizeRunConfig(config, dbName)
+	runConfig := normalizeMetadataRunConfig(config, dbName)
 	dbType := resolveDDLDBType(runConfig)
 
 	if strings.EqualFold(strings.TrimSpace(runConfig.Type), "redis") {

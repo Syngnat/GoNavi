@@ -423,12 +423,7 @@ func (d *DamengDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		return `"` + n + `"`
 	}
 
-	schema := ""
-	table := strings.TrimSpace(tableName)
-	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
-		schema = strings.TrimSpace(parts[0])
-		table = strings.TrimSpace(parts[1])
-	}
+	schema, table := SplitSQLQualifiedName(tableName)
 
 	qualifiedTable := ""
 	if schema != "" {

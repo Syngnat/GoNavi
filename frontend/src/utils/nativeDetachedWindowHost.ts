@@ -1,4 +1,5 @@
 import { useStore } from '../store';
+import { useCustomThemeStore } from '../customThemeStore';
 import type { TabData } from '../types';
 import {
   DEFAULT_DETACHED_WINDOW_HEIGHT,
@@ -17,7 +18,9 @@ import {
   buildNativeDetachedAIHostStoreSnapshot,
   buildNativeDetachedStoreSnapshot,
   buildNativeDetachedWorkbenchPayload,
+  NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY,
   NATIVE_DETACHED_HOST_EVENTS_KEY,
+  type NativeDetachedThemeContext,
   type NativeDetachedHostEvent,
   type NativeDetachedHostEventName,
   type NativeDetachedWindowKind,
@@ -25,6 +28,7 @@ import {
 } from './nativeDetachedWindowClient';
 import { peekQueryEditorResultSession } from './queryEditorResultSessionCache';
 import { resolveLiveQueryTabs } from './liveQueryTabs';
+import { resolveAvailableCustomTheme } from './customThemePresets';
 
 export type NativeDetachedWindowOperationResult = {
   success: boolean;
@@ -58,6 +62,11 @@ export type NativeDetachedHostStateRequest = {
   id: string;
   revision: number;
   storeState: Record<string, unknown>;
+};
+
+export const getActiveNativeDetachedThemeContext = (): NativeDetachedThemeContext => {
+  const state = useCustomThemeStore.getState();
+  return resolveAvailableCustomTheme(state.themes, state.activeThemeId);
 };
 
 export type NativeQueryResultWindowInput = Omit<
@@ -119,6 +128,7 @@ const buildNativeDetachedAIChatBootstrapPayload = (
       sqlEditorPendingTransactions: {},
       aiPanelVisible: true,
       aiChatOpenMode: 'detached',
+      [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: getActiveNativeDetachedThemeContext(),
     },
   };
 };
@@ -229,7 +239,11 @@ export const forwardNativeDetachedHostEvent = async (
   const manager = managerOverride ?? resolveNativeDetachedWindowManager();
   if (!manager || typeof manager.SyncHostState !== 'function') return false;
   const storeState = id === 'ai-chat'
-    ? buildNativeDetachedAIHostStoreSnapshot(useStore.getState(), events)
+    ? buildNativeDetachedAIHostStoreSnapshot(
+        useStore.getState(),
+        events,
+        getActiveNativeDetachedThemeContext(),
+      )
     : buildNativeDetachedStoreSnapshot({ [NATIVE_DETACHED_HOST_EVENTS_KEY]: events });
   return syncNativeDetachedHostState(id, storeState, manager);
 };
@@ -392,6 +406,7 @@ export const openNativeWorkbenchTabWindow = async (
       state,
       tab,
       tab.type === 'query' ? peekQueryEditorResultSession(tab.id) : null,
+      getActiveNativeDetachedThemeContext(),
     ),
   };
   const opened = await openOnce(manager, request, (openedBounds) => {
@@ -441,7 +456,7 @@ export const openNativeQueryResultWindow = async (
       ...windowState,
       ...bounds,
       zIndex: Number(windowState.zIndex) || 1201,
-    }),
+    }, getActiveNativeDetachedThemeContext()),
   }, (openedBounds) => {
     const latest = useStore.getState();
     if (!latest.tabs.some((tab) => tab.id === windowState.sourceQueryTabId)) {
@@ -564,7 +579,11 @@ const refreshNativeAIChatWindow = async (
   ));
   return syncNativeDetachedHostState(
     'ai-chat',
-    buildNativeDetachedAIHostStoreSnapshot(useStore.getState(), events),
+    buildNativeDetachedAIHostStoreSnapshot(
+      useStore.getState(),
+      events,
+      getActiveNativeDetachedThemeContext(),
+    ),
     manager,
   );
 };
@@ -579,6 +598,7 @@ export const syncNativeAIChatHostState = async (
     buildNativeDetachedAIHostStoreSnapshot(
       useStore.getState(),
       retainedNativeHostEvents.get('ai-chat') || [],
+      getActiveNativeDetachedThemeContext(),
     ),
     manager,
   );
@@ -601,10 +621,28 @@ export const syncNativeDetachedShortcutOptions = async (
       ? buildNativeDetachedAIHostStoreSnapshot(
           { ...useStore.getState(), shortcutOptions },
           retainedNativeHostEvents.get('ai-chat') || [],
+          getActiveNativeDetachedThemeContext(),
         )
       : shortcutStoreState,
     manager,
   )));
+  return true;
+};
+
+export const syncNativeDetachedThemeContext = async (
+  targetWindowIds: Iterable<string>,
+  themeContext: NativeDetachedThemeContext = getActiveNativeDetachedThemeContext(),
+  managerOverride?: NativeDetachedWindowManager,
+): Promise<boolean> => {
+  const manager = managerOverride ?? resolveNativeDetachedWindowManager();
+  if (!manager || typeof manager.SyncHostState !== 'function') return false;
+  const ids = Array.from(new Set(
+    Array.from(targetWindowIds, (id) => String(id || '').trim()).filter(Boolean),
+  ));
+  const storeState = buildNativeDetachedStoreSnapshot({
+    [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: themeContext,
+  });
+  await Promise.all(ids.map((id) => syncNativeDetachedHostState(id, storeState, manager)));
   return true;
 };
 

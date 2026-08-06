@@ -195,6 +195,20 @@ type DatabaseObject struct {
 	Comment  string `json:"comment,omitempty"`
 }
 
+// DatabaseCharset 描述 MySQL 系数据源可用的字符集（SHOW CHARACTER SET）。
+type DatabaseCharset struct {
+	Name             string `json:"name"`
+	Description      string `json:"description,omitempty"`
+	DefaultCollation string `json:"defaultCollation,omitempty"`
+	MaxLength        int    `json:"maxLength,omitempty"`
+}
+
+// DatabaseCollation 描述 MySQL 系数据源可用的排序规则（SHOW COLLATION）。
+type DatabaseCollation struct {
+	Name    string `json:"name"`
+	Charset string `json:"charset"`
+}
+
 // ColumnDefinition 描述表的一个列定义。
 type ColumnDefinition struct {
 	Name       string  `json:"name"`

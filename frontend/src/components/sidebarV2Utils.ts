@@ -2,6 +2,7 @@ import type { Key, ReactNode } from 'react';
 
 import {
   resolveConnectionTagChildOrder,
+  buildSidebarDatabasePinKey,
   buildSidebarRootConnectionToken,
   buildSidebarRootTagToken,
   buildSidebarTablePinKey,
@@ -36,6 +37,7 @@ export type SidebarTreeNodeType =
   | 'sequence'
   | 'package'
   | 'object-group'
+  | 'v2-database-section'
   | 'v2-table-section'
   | 'queries-folder'
   | 'saved-query'
@@ -186,6 +188,95 @@ export const isSidebarTablePinned = (
 ): boolean => {
   const key = buildSidebarTablePinKey(connectionId, dbName, tableName, schemaName);
   return !!key && pinnedKeys.includes(key);
+};
+
+export const isSidebarDatabasePinned = (
+  pinnedKeys: string[],
+  connectionId: string,
+  dbName: string,
+): boolean => {
+  const key = buildSidebarDatabasePinKey(connectionId, dbName);
+  return !!key && pinnedKeys.includes(key);
+};
+
+export const applySidebarDatabasePinning = (
+  nodes: SidebarTreeNode[],
+  options: {
+    connectionId: string;
+    pinnedSidebarDatabases?: string[];
+  },
+): SidebarTreeNode[] => {
+  const pinnedNodes: Array<{ node: SidebarTreeNode; order: number; index: number }> = [];
+  const regularNodes: Array<{ node: SidebarTreeNode; order: number; index: number }> = [];
+  const pinnedKeys = options.pinnedSidebarDatabases || [];
+
+  nodes.forEach((node, index) => {
+    if (node.type === 'v2-database-section') {
+      return;
+    }
+    if (node.type !== 'database') {
+      regularNodes.push({ node, order: index, index });
+      return;
+    }
+    const dbName = String(node.dataRef?.dbName || node.title || '').trim();
+    const pinned = isSidebarDatabasePinned(pinnedKeys, options.connectionId, dbName);
+    const currentlyPinned = node.dataRef?.pinnedSidebarDatabase === true;
+    const savedOrder = Number(node.dataRef?.sidebarDatabaseOrder);
+    const order = Number.isSafeInteger(savedOrder) && savedOrder >= 0 ? savedOrder : index;
+    let nextNode = node;
+    if (currentlyPinned !== pinned || node.dataRef?.sidebarDatabaseOrder !== order) {
+      const dataRef = { ...(node.dataRef || {}) };
+      dataRef.sidebarDatabaseOrder = order;
+      if (pinned) {
+        dataRef.pinnedSidebarDatabase = true;
+      } else {
+        delete dataRef.pinnedSidebarDatabase;
+      }
+      nextNode = { ...node, dataRef };
+    }
+    (pinned ? pinnedNodes : regularNodes).push({ node: nextNode, order, index });
+  });
+
+  const byOriginalOrder = (
+    left: { order: number; index: number },
+    right: { order: number; index: number },
+  ) => left.order - right.order || left.index - right.index;
+
+  return [
+    ...pinnedNodes.sort(byOriginalOrder),
+    ...regularNodes.sort(byOriginalOrder),
+  ].map(({ node }) => node);
+};
+
+export const buildV2SidebarDatabaseSectionedChildren = (
+  parentKey: string,
+  databaseNodes: SidebarTreeNode[],
+  translate: SidebarV2Translate = translateSidebarV2Current,
+): SidebarTreeNode[] => {
+  const nodesWithoutSections = databaseNodes.some((node) => node.type === 'v2-database-section')
+    ? databaseNodes.filter((node) => node.type !== 'v2-database-section')
+    : databaseNodes;
+  const pinnedDatabases = nodesWithoutSections.filter((node) => node?.dataRef?.pinnedSidebarDatabase);
+  if (pinnedDatabases.length === 0) return nodesWithoutSections;
+
+  const regularDatabases = nodesWithoutSections.filter((node) => !node?.dataRef?.pinnedSidebarDatabase);
+  const buildSectionNode = (kind: 'pinned' | 'all', title: string): SidebarTreeNode => ({
+    title,
+    key: `${parentKey}-v2-${kind}-databases-section`,
+    type: 'v2-database-section',
+    isLeaf: true,
+    selectable: false,
+    dataRef: {
+      sectionKind: kind,
+    },
+  });
+
+  return [
+    buildSectionNode('pinned', translate('table_overview.section.pinned')),
+    ...pinnedDatabases,
+    buildSectionNode('all', translate('table_overview.section.all')),
+    ...regularDatabases,
+  ];
 };
 
 export const sortSidebarTableEntries = <T extends SidebarTableEntryForSort>(
@@ -934,6 +1025,43 @@ export const resolveSidebarConnectionIdFromKey = (
   return sortedIds.find((id) => keyText === id || keyText.startsWith(`${id}-`)) || '';
 };
 
+export const resolveSidebarConnectionRefreshKeys = ({
+  treeData,
+  expandedKeys,
+  connectionId,
+}: {
+  treeData: SidebarTreeNode[];
+  expandedKeys: Key[];
+  connectionId: string;
+}): string[] => {
+  const normalizedConnectionId = String(connectionId || '').trim();
+  if (!normalizedConnectionId) return [];
+
+  const expandedKeySet = new Set(
+    expandedKeys
+      .map((key) => String(key || '').trim())
+      .filter((key) => key === normalizedConnectionId || key.startsWith(`${normalizedConnectionId}-`)),
+  );
+  if (expandedKeySet.size === 0) return [];
+
+  const depthByKey = new Map<string, number>();
+  const collectDepths = (nodes: SidebarTreeNode[], depth: number) => {
+    nodes.forEach((node) => {
+      const key = String(node.key || '').trim();
+      if (key) depthByKey.set(key, depth);
+      if (node.children?.length) collectDepths(node.children, depth + 1);
+    });
+  };
+  collectDepths(treeData, 0);
+
+  return Array.from(expandedKeySet)
+    .filter((key) => depthByKey.has(key))
+    .sort((left, right) => {
+      const depthDifference = (depthByKey.get(left) || 0) - (depthByKey.get(right) || 0);
+      return depthDifference || left.localeCompare(right);
+    });
+};
+
 export const resolveSidebarNodeConnectionId = (
   node: { key?: unknown; dataRef?: Record<string, unknown> } | null | undefined,
   connectionIds: string[],
@@ -1132,7 +1260,7 @@ export const shouldClearSidebarNodeChildrenOnCollapse = (
   if (!node || node.isLeaf === true || !node.children?.length) {
     return false;
   }
-  if (node.type !== 'connection' && node.type !== 'database') {
+  if (node.type !== 'connection') {
     return false;
   }
   return collectSidebarSubtreeKeys(node).length >= SIDEBAR_COLLAPSE_UNLOAD_SUBTREE_LIMIT;

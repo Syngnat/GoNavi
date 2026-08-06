@@ -38,7 +38,6 @@ const FloatingAIChatWindow: React.FC<FloatingAIChatWindowProps> = ({
   onRetryRender,
   renderNonce = 0,
 }) => {
-  const theme = useStore((state) => state.theme);
   const windowState = useStore((state) => state.detachedAIChatWindow);
   const attachAIChatPanel = useStore((state) => state.attachAIChatPanel);
   const setAIPanelVisible = useStore((state) => state.setAIPanelVisible);
@@ -128,7 +127,11 @@ const FloatingAIChatWindow: React.FC<FloatingAIChatWindowProps> = ({
     return null;
   }
 
-  const isDark = theme === 'dark';
+  // `darkMode` is resolved by the host (including system/custom theme rules).
+  // Reading the persisted store theme here can briefly describe a stale mode
+  // while the host is already rendering the panel in the opposite theme.
+  const isDark = darkMode;
+  const windowBackground = bgColor ?? (isDark ? 'rgba(22,24,28,0.98)' : 'rgba(255,255,255,0.98)');
   const bounds = windowState;
 
   const floatingWindow = (
@@ -149,7 +152,7 @@ const FloatingAIChatWindow: React.FC<FloatingAIChatWindowProps> = ({
           min-height: ${DEFAULT_DETACHED_AI_CHAT_MIN_HEIGHT}px;
           border-radius: 12px;
           border: 1px solid ${isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.12)'};
-          background: ${isDark ? 'rgba(22,24,28,0.98)' : 'rgba(255,255,255,0.98)'};
+          background: ${windowBackground};
           box-shadow: ${isDark
             ? '0 0 0 1px rgba(255,214,102,0.2), 0 20px 52px rgba(0,0,0,0.5)'
             : '0 0 0 1px rgba(22,119,255,0.14), 0 20px 52px rgba(15,23,42,0.18)'};

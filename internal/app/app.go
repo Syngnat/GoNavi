@@ -137,6 +137,7 @@ type queryContext struct {
 	cancel          context.CancelFunc
 	started         time.Time
 	retainUntilDone bool
+	registrationID  uint64
 }
 
 type managedSQLTransaction struct {
@@ -175,6 +176,7 @@ type App struct {
 	allowApplicationQuit          bool
 	applicationQuitPromptInFlight bool
 	queryMu                       sync.RWMutex
+	nextQueryRegistrationID       uint64
 	dataRootApplyMu               sync.Mutex
 	configDir                     string
 	secretStore                   secretstore.SecretStore
@@ -198,6 +200,9 @@ type App struct {
 	jvmPreviewTokenMu             sync.Mutex
 	jvmPreviewTokens              map[string]jvmPreviewConfirmationToken
 	jvmPreviewTokenTTL            time.Duration
+	elasticsearchConsoleTokenMu   sync.Mutex
+	elasticsearchConsoleTokens    map[string]elasticsearchConsoleConfirmationToken
+	elasticsearchConsoleTokenTTL  time.Duration
 	keepAliveCancel               context.CancelFunc
 	keepAliveDone                 chan struct{}
 	resultDiffManager             *resultdiff.Manager
@@ -234,19 +239,21 @@ func NewAppWithSecretStore(store secretstore.SecretStore) *App {
 		store = secretstore.NewUnavailableStore("secret store unavailable")
 	}
 	return &App{
-		dbCache:                    make(map[string]cachedDatabase),
-		connectFailures:            make(map[string]cachedConnectFailure),
-		dbConnectFlights:           make(map[uint64]*databaseConnectFlight),
-		runningQueries:             make(map[string]queryContext),
-		sqlTransactions:            make(map[string]*managedSQLTransaction),
-		configDir:                  resolveAppConfigDir(),
-		secretStore:                store,
-		localizer:                  newAppLocalizer(),
-		jvmPreviewTokens:           make(map[string]jvmPreviewConfirmationToken),
-		jvmPreviewTokenTTL:         defaultJVMPreviewConfirmationTokenTTL,
-		cloudBackupRestoreTokens:   make(map[string]cloudBackupRestoreConfirmationToken),
-		cloudBackupRestoreTokenTTL: defaultCloudBackupRestoreConfirmationTokenTTL,
-		resultDiffManager:          resultdiff.NewManager(30 * time.Minute),
+		dbCache:                      make(map[string]cachedDatabase),
+		connectFailures:              make(map[string]cachedConnectFailure),
+		dbConnectFlights:             make(map[uint64]*databaseConnectFlight),
+		runningQueries:               make(map[string]queryContext),
+		sqlTransactions:              make(map[string]*managedSQLTransaction),
+		configDir:                    resolveAppConfigDir(),
+		secretStore:                  store,
+		localizer:                    newAppLocalizer(),
+		jvmPreviewTokens:             make(map[string]jvmPreviewConfirmationToken),
+		jvmPreviewTokenTTL:           defaultJVMPreviewConfirmationTokenTTL,
+		elasticsearchConsoleTokens:   make(map[string]elasticsearchConsoleConfirmationToken),
+		elasticsearchConsoleTokenTTL: defaultElasticsearchConsoleConfirmationTokenTTL,
+		cloudBackupRestoreTokens:     make(map[string]cloudBackupRestoreConfirmationToken),
+		cloudBackupRestoreTokenTTL:   defaultCloudBackupRestoreConfirmationTokenTTL,
+		resultDiffManager:            resultdiff.NewManager(30 * time.Minute),
 	}
 }
 
@@ -418,6 +425,27 @@ func (a *App) ResetWebViewZoom() (result connection.QueryResult) {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	return connection.QueryResult{Success: true, Message: "WebView2 zoom factor reset to 1.0"}
+}
+
+// RefreshWebViewBounds synchronises WebView2 controller bounds with the native
+// Windows client rect. It repairs a startup maximise race without toggling the window.
+func (a *App) RefreshWebViewBounds() (result connection.QueryResult) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logger.Errorf("刷新 WebView2 窗口边界失败：%v", recovered)
+			result = connection.QueryResult{
+				Success: false,
+				Message: fmt.Sprintf("failed to refresh WebView2 bounds: %v", recovered),
+			}
+		}
+	}()
+	if a == nil || a.ctx == nil {
+		return connection.QueryResult{Success: false, Message: "application context is unavailable"}
+	}
+	if err := refreshWebViewBounds(a.ctx); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return connection.QueryResult{Success: true, Message: "WebView2 bounds refreshed"}
 }
 
 // LogWindowDiagnostic 记录前端采集到的窗口诊断信息，便于排查 macOS 原生全屏异常。
@@ -1724,6 +1752,33 @@ func isTransientStartupConnectError(err error) bool {
 // generateQueryID generates a unique ID for a query using UUID v4
 func generateQueryID() string {
 	return "query-" + uuid.New().String()
+}
+
+func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool) func() {
+	a.queryMu.Lock()
+	if a.runningQueries == nil {
+		a.runningQueries = make(map[string]queryContext)
+	}
+	a.nextQueryRegistrationID++
+	if a.nextQueryRegistrationID == 0 {
+		a.nextQueryRegistrationID++
+	}
+	registrationID := a.nextQueryRegistrationID
+	a.runningQueries[queryID] = queryContext{
+		cancel:          cancel,
+		started:         time.Now(),
+		retainUntilDone: retainUntilDone,
+		registrationID:  registrationID,
+	}
+	a.queryMu.Unlock()
+
+	return func() {
+		a.queryMu.Lock()
+		if current, exists := a.runningQueries[queryID]; exists && current.registrationID == registrationID {
+			delete(a.runningQueries, queryID)
+		}
+		a.queryMu.Unlock()
+	}
 }
 
 // CancelQuery cancels a running query by its ID

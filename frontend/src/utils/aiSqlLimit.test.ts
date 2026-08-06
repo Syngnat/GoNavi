@@ -46,9 +46,9 @@ describe('buildAIReadonlyPreviewSQL', () => {
       .toBe('SELECT * FROM events LIMIT 50 OFFSET 0');
   });
 
-  it('limits Dameng readonly SQL with Oracle-compatible ROWNUM syntax', () => {
+  it('limits Dameng readonly SQL with native LIMIT syntax', () => {
     expect(buildAIReadonlyPreviewSQL('dameng', 'SELECT 1 FROM DUAL;', 50))
-      .toBe('SELECT * FROM (SELECT 1 FROM DUAL) WHERE ROWNUM <= 50');
+      .toBe('SELECT 1 FROM DUAL LIMIT 50 OFFSET 0');
   });
 
   it('does not limit non-readonly SQL', () => {

@@ -34,8 +34,10 @@ export const useAppUtilityStyles = ({
     return `rgba(${r}, ${g}, ${b}, ${effectiveOpacity})`;
   };
 
-  const bgMain = getBg('#141414');
-  const bgContent = getBg('#1d1d1d');
+  // v2 / 自定义主题：走 CSS token，主内容与 sider 同为 panel-2，避免并排色差。
+  // legacy 仍用 getBg 做透明度混合。
+  const bgMain = isV2Ui ? 'var(--gn-bg-panel-2)' : getBg('#141414');
+  const bgContent = isV2Ui ? 'var(--gn-bg-panel-2)' : getBg('#1d1d1d');
   const floatingLogButtonBorderColor = darkMode ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.16)';
   const floatingLogButtonTextColor = darkMode ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.82)';
   const floatingLogButtonBgColor = darkMode

@@ -1291,6 +1291,27 @@ jobs:
             --output "$CHANGELOG_FILE"
           echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
 
+      # 将同一份 changelog 写入 latest.json，供应用内「更新日志」弹窗使用（静态清单优先路径）。
+      - name: Embed changelog into latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          CHANGELOG_FILE="${{ steps.changelog.outputs.changelog_file }}"
+          test -s "$CHANGELOG_FILE"
+          test -d release-assets
+          python3 tools/generate-update-latest-manifest.py \
+            --assets-dir release-assets \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --channel latest \
+            --download-base-url https://download.syngnat.top/gonavi/releases/download \
+            --release-notes-file "$CHANGELOG_FILE" \
+            --output release-assets/latest.json
+          jq -e '(.releaseNotes | type == "string" and length > 0)' release-assets/latest.json >/dev/null
+          echo "📄 latest.json releaseNotes embedded ($(jq -r '.releaseNotes | length' release-assets/latest.json) chars)"
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')

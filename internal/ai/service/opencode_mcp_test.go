@@ -195,6 +195,11 @@ func TestUpsertOpenCodeMCPServerConfigPreservesConfigSymlink(t *testing.T) {
 	if err := os.WriteFile(targetPath, []byte("{}\n"), 0o640); err != nil {
 		t.Fatalf("WriteFile target returned error: %v", err)
 	}
+	targetInfoBefore, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("Stat target before upsert returned error: %v", err)
+	}
+	targetModeBefore := targetInfoBefore.Mode().Perm()
 	configPath := filepath.Join(tempDir, "opencode.jsonc")
 	if err := os.Symlink(targetPath, configPath); err != nil {
 		t.Skipf("Symlink is unavailable: %v", err)
@@ -211,8 +216,8 @@ func TestUpsertOpenCodeMCPServerConfigPreservesConfigSymlink(t *testing.T) {
 	if info, err := os.Lstat(configPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("expected config symlink to remain, info=%v err=%v", info, err)
 	}
-	if info, err := os.Stat(targetPath); err != nil || info.Mode().Perm() != 0o640 {
-		t.Fatalf("expected target permissions 0640 to remain, info=%v err=%v", info, err)
+	if info, err := os.Stat(targetPath); err != nil || info.Mode().Perm() != targetModeBefore {
+		t.Fatalf("expected target permissions %04o to remain, info=%v err=%v", targetModeBefore, info, err)
 	}
 	if _, found, err := readOpenCodeMCPServerConfig(targetPath, gonaviMCPServerID); err != nil || !found {
 		t.Fatalf("expected linked target to contain OpenCode MCP config, found=%v err=%v", found, err)

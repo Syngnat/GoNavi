@@ -454,6 +454,26 @@ const sanitizeStringArray = (value: unknown, maxLength = 256): string[] => {
   return result;
 };
 
+const DATABASE_FILTER_PATTERN_LIMIT = 256;
+const utf8Encoder = new TextEncoder();
+
+const sanitizeDatabasePatternArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const entry of value) {
+    const normalized = toTrimmedString(entry);
+    if (!normalized || utf8Encoder.encode(normalized).byteLength > DATABASE_FILTER_PATTERN_LIMIT) {
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+    if (result.length >= DATABASE_FILTER_PATTERN_LIMIT) break;
+  }
+  return result;
+};
+
 const sanitizeSchemaVisibilityByDatabase = (
   value: unknown,
 ): Record<string, SchemaVisibilityRule> | undefined => {
@@ -947,6 +967,12 @@ const sanitizeSavedConnection = (
     : indexedStoreFallback("store.fallback.connection_name", index);
   const name = toTrimmedString(raw.name, fallbackName) || fallbackName;
   const includeDatabases = sanitizeStringArray(raw.includeDatabases, 256);
+  const includeDatabasePatterns = sanitizeDatabasePatternArray(
+    raw.includeDatabasePatterns,
+  );
+  const excludeDatabasePatterns = sanitizeDatabasePatternArray(
+    raw.excludeDatabasePatterns,
+  );
   const includeRedisDatabases = sanitizeNumberArray(
     raw.includeRedisDatabases,
     0,
@@ -973,6 +999,14 @@ const sanitizeSavedConnection = (
     hasOpaqueDSN: raw.hasOpaqueDSN === true,
     includeDatabases:
       includeDatabases.length > 0 ? includeDatabases : undefined,
+    includeDatabasePatterns:
+      includeDatabasePatterns.length > 0
+        ? includeDatabasePatterns
+        : undefined,
+    excludeDatabasePatterns:
+      excludeDatabasePatterns.length > 0
+        ? excludeDatabasePatterns
+        : undefined,
     includeRedisDatabases:
       includeRedisDatabases.length > 0 ? includeRedisDatabases : undefined,
     schemaVisibilityByDatabase,
@@ -1069,7 +1103,6 @@ const normalizeConnectionTagTree = (
     tags.push({
       id,
       name,
-      environmentType: normalizeConnectionEnvironmentType(entry.environmentType),
       parentTagId,
       connectionIds: sanitizeStringArray(entry.connectionIds, 256),
       childOrder: sanitizeSidebarItemOrder(entry.childOrder),
@@ -1155,7 +1188,6 @@ const sanitizeConnectionTags = (value: unknown): ConnectionTag[] => {
     result.push({
       id,
       name,
-      environmentType: normalizeConnectionEnvironmentType(raw.environmentType),
       parentTagId: toTrimmedString(raw.parentTagId) || undefined,
       connectionIds: sanitizeStringArray(raw.connectionIds, 256),
       childOrder: sanitizeSidebarItemOrder(raw.childOrder),
@@ -1796,6 +1828,7 @@ interface AppState {
   tableHiddenColumns: Record<string, string[]>;
   enableHiddenColumnMemory: boolean;
   pinnedSidebarTables: string[];
+  pinnedSidebarDatabases: string[];
   windowBounds: { width: number; height: number; x: number; y: number } | null;
   windowState: "normal" | "fullscreen" | "maximized";
   sidebarWidth: number;
@@ -1994,6 +2027,11 @@ interface AppState {
     dbName: string,
     tableName: string,
     schemaName: string | undefined,
+    pinned: boolean,
+  ) => void;
+  setSidebarDatabasePinned: (
+    connectionId: string,
+    dbName: string,
     pinned: boolean,
   ) => void;
   setTableColumnOrder: (
@@ -3225,6 +3263,31 @@ export const buildSidebarTablePinKey = (
   return parts[0] && parts[1] && parts[3] ? JSON.stringify(parts) : "";
 };
 
+export const buildSidebarDatabasePinKey = (
+  connectionId: string,
+  dbName: string,
+): string => {
+  const parts = [toTrimmedString(connectionId), toTrimmedString(dbName)];
+  return parts[0] && parts[1] ? JSON.stringify(parts) : "";
+};
+
+export const updateSidebarDatabasePinKeys = (
+  pinnedKeys: unknown,
+  connectionId: string,
+  dbName: string,
+  pinned: boolean,
+): string[] => {
+  const current = new Set(sanitizePinnedSidebarTables(pinnedKeys));
+  const key = buildSidebarDatabasePinKey(connectionId, dbName);
+  if (!key) return Array.from(current);
+  if (pinned) {
+    current.add(key);
+  } else {
+    current.delete(key);
+  }
+  return Array.from(current);
+};
+
 // --- AI 会话文件持久化辅助函数 ---
 
 /** 每个 session 独立防抖定时器（2秒） */
@@ -3397,6 +3460,7 @@ const PERSISTED_STATE_DEPENDENCY_KEYS = [
   "tableHiddenColumns",
   "enableHiddenColumnMemory",
   "pinnedSidebarTables",
+  "pinnedSidebarDatabases",
   "windowBounds",
   "windowState",
   "sidebarWidth",
@@ -3459,6 +3523,7 @@ const buildPersistedStateProjection = (
     tableHiddenColumns: state.tableHiddenColumns,
     enableHiddenColumnMemory: state.enableHiddenColumnMemory,
     pinnedSidebarTables: state.pinnedSidebarTables,
+    pinnedSidebarDatabases: state.pinnedSidebarDatabases,
     windowBounds: state.windowBounds,
     windowState: state.windowState,
     sidebarWidth: state.sidebarWidth,
@@ -3583,6 +3648,7 @@ export const useStore = create<AppState>()(
       tableHiddenColumns: {},
       enableHiddenColumnMemory: true,
       pinnedSidebarTables: [],
+      pinnedSidebarDatabases: [],
       windowBounds: null,
       windowState: "normal" as const,
       sidebarWidth: 330,
@@ -3718,9 +3784,6 @@ export const useStore = create<AppState>()(
                   "store.fallback.connection_tag_name",
                   normalized.connectionTags.length,
                 ),
-              environmentType: normalizeConnectionEnvironmentType(
-                tag.environmentType,
-              ),
               parentTagId: toTrimmedString(tag.parentTagId) || undefined,
               connectionIds: directConnectionIds,
               childOrder: sanitizeSidebarItemOrder(tag.childOrder),
@@ -3780,9 +3843,6 @@ export const useStore = create<AppState>()(
               return {
                 ...candidate,
                 name: toTrimmedString(tag.name, candidate.name) || candidate.name,
-                environmentType: normalizeConnectionEnvironmentType(
-                  tag.environmentType ?? candidate.environmentType,
-                ),
                 connectionIds: requestedConnectionIds,
                 childOrder: hasRequestedChildOrder
                   ? sanitizeSidebarItemOrder(tag.childOrder)
@@ -5251,6 +5311,16 @@ export const useStore = create<AppState>()(
           return { pinnedSidebarTables: Array.from(current) };
         }),
 
+      setSidebarDatabasePinned: (connectionId, dbName, pinned) =>
+        set((state) => ({
+          pinnedSidebarDatabases: updateSidebarDatabasePinKeys(
+            state.pinnedSidebarDatabases,
+            connectionId,
+            dbName,
+            pinned,
+          ),
+        })),
+
       setTableColumnOrder: (connectionId, dbName, tableName, order) =>
         set((state) => {
           const key = `${connectionId}-${dbName}-${tableName}`;
@@ -5862,6 +5932,9 @@ export const useStore = create<AppState>()(
         nextState.pinnedSidebarTables = sanitizePinnedSidebarTables(
           state.pinnedSidebarTables,
         );
+        nextState.pinnedSidebarDatabases = sanitizePinnedSidebarTables(
+          state.pinnedSidebarDatabases,
+        );
         nextState.windowBounds = sanitizeWindowBounds(state.windowBounds);
         nextState.windowState = sanitizeWindowState(state.windowState);
         nextState.sidebarWidth = sanitizeSidebarWidth(state.sidebarWidth);
@@ -5960,6 +6033,9 @@ export const useStore = create<AppState>()(
           enableHiddenColumnMemory: state.enableHiddenColumnMemory !== false,
           pinnedSidebarTables: sanitizePinnedSidebarTables(
             state.pinnedSidebarTables,
+          ),
+          pinnedSidebarDatabases: sanitizePinnedSidebarTables(
+            state.pinnedSidebarDatabases,
           ),
           windowBounds: sanitizeWindowBounds(state.windowBounds),
           windowState: sanitizeWindowState(state.windowState),

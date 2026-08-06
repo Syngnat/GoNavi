@@ -177,6 +177,73 @@ describe('DataImportWorkbench', () => {
     expect(mocks.dbGetTables).toHaveBeenCalledWith(expect.anything(), 'app');
   });
 
+  it('applies database include and exclude patterns to import targets', async () => {
+    mocks.storeState.connections[0] = {
+      ...mocks.storeState.connections[0],
+      includeDatabases: undefined,
+      includeDatabasePatterns: ['team_*'],
+      excludeDatabasePatterns: ['*_archive'],
+    };
+    mocks.dbGetDatabases.mockResolvedValue({
+      success: true,
+      data: [
+        { Database: 'team_app' },
+        { Database: 'team_archive' },
+        { Database: 'other_app' },
+      ],
+    });
+
+    const renderer = await renderWorkbench({ dbName: undefined, tableName: undefined });
+    const databaseSelect = renderer.root.findByProps({
+      'data-import-target-field': 'database',
+    });
+
+    expect(databaseSelect.props.options.map((option: any) => option.value)).toEqual(['team_app']);
+  });
+
+  it('invalidates a hidden import target while the filtered database list is reloading', async () => {
+    let resolveReload!: (result: any) => void;
+    mocks.dbGetDatabases
+      .mockResolvedValueOnce({ success: true, data: [{ Database: 'app' }] })
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveReload = resolve;
+      }));
+
+    const renderer = await renderWorkbench();
+    mocks.storeState.connections = [{
+      ...mocks.storeState.connections[0],
+      excludeDatabasePatterns: ['app'],
+    }];
+
+    await act(async () => {
+      renderer.update(<DataImportWorkbench tab={createTab()} />);
+      await Promise.resolve();
+    });
+
+    const selectFileButton = renderer.root.findByProps({
+      'data-import-select-file-action': 'true',
+    });
+    expect(selectFileButton.props.disabled).toBe(true);
+    expect(renderer.root.findByProps({
+      'data-import-target-field': 'database',
+    }).props.value).toBeUndefined();
+
+    await act(async () => {
+      selectFileButton.props.onClick();
+      await Promise.resolve();
+    });
+    expect(mocks.importData).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveReload({ success: true, data: [{ Database: 'app' }] });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findByProps({
+      'data-import-target-field': 'database',
+    }).props.options).toEqual([]);
+  });
+
   it('keeps every target selector within the import target card', async () => {
     const renderer = await renderWorkbench();
 

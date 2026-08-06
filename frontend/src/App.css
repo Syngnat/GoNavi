@@ -11,6 +11,14 @@ html, body, #root {
   background-color: transparent !important; /* CRITICAL: Allow Wails window transparency */
 }
 
+/* Native detached WebViews use the same transparent window composition as the
+   main macOS surface. Paint the resolved app token behind any child content so
+   loading gaps and transparent component pixels never fall back to white. */
+body[data-gonavi-detached='true'],
+body[data-gonavi-detached='true'] #root {
+  background-color: var(--gn-bg-app, transparent) !important;
+}
+
 body, #root {
   border-radius: var(--gonavi-border-radius); /* Slightly rounded app window corners */
 }
@@ -292,6 +300,99 @@ body[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 表候选使用 Monaco 原生 CompletionItemLabel：第一行表名，第二行注释。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) {
+    height: var(--gn-query-suggest-row-height, 36px) !important;
+    min-height: var(--gn-query-suggest-row-height, 36px) !important;
+    max-height: var(--gn-query-suggest-row-height, 36px) !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents {
+    height: var(--gn-query-suggest-row-height, 36px) !important;
+    overflow: visible !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main {
+    display: grid !important;
+    grid-template-columns: 18px minmax(0, 1fr);
+    grid-template-rows: var(--gn-query-suggest-name-row-height, 18px) var(--gn-query-suggest-comment-row-height, 18px);
+    grid-template-areas:
+        "icon name"
+        "comment comment";
+    align-content: center;
+    gap: 0 !important;
+    height: var(--gn-query-suggest-row-height, 36px);
+    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
+    overflow: visible;
+    white-space: normal;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .icon-label.codicon {
+    grid-area: icon;
+    width: 18px;
+    height: 18px;
+    align-self: center;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .left {
+    grid-area: name;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--gn-query-suggest-name-row-height, 18px);
+    min-width: 0;
+    max-width: none;
+    overflow: visible;
+    line-height: var(--gn-query-suggest-name-row-height, 18px) !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .left > .monaco-icon-label {
+    min-width: 0;
+    max-width: 100%;
+    height: var(--gn-query-suggest-name-row-height, 18px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: var(--gn-query-suggest-name-row-height, 18px);
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right {
+    grid-area: comment;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    width: 100%;
+    height: 18px;
+    min-width: 0;
+    max-width: none;
+    overflow: visible;
+    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right > .details-label {
+    display: block !important;
+    width: max-content;
+    min-width: 0;
+    max-width: none;
+    flex: 0 0 auto;
+    margin-left: 0 !important;
+    overflow: visible;
+    color: var(--vscode-editorSuggestWidget-foreground);
+    font-size: 11px !important;
+    line-height: var(--gn-query-suggest-comment-row-height, 18px) !important;
+    opacity: 0.68;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.focused:not(.string-label) > .contents > .main > .right > .details-label {
+    color: var(--vscode-editorSuggestWidget-selectedForeground);
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) > .contents > .main > .right > .readMore {
+    display: none !important;
 }
 
 /* Ensure body background matches theme to avoid white flashes, but kept transparent for window composition */
@@ -1373,12 +1474,14 @@ body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true'
  * 避免 Ant Form.Item 被 flex 拉成「输入框小、盒子很大 / 名称与环境中间留白」。
  */
 .gn-conn-dense {
-    --gn-conn-label-w: 40px;
+    --gn-conn-label-w: 52px;
     --gn-conn-ctrl-h: 32px;
     width: 100%;
 }
 
 .connection-modal-wrap.connection-modal-form .ant-modal-body {
+    display: flex;
+    flex-direction: column;
     padding-left: 0 !important;
     padding-right: 0 !important;
 }
@@ -1405,6 +1508,23 @@ body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true'
     flex-direction: column;
     width: 100%;
     height: 100%;
+    min-height: 0;
+    max-height: none;
+}
+
+/* 默认（未拖拽调高）时同样打通高度链：弹窗内容超过 max-height 后由
+   gn-conn-form-main（overflow: auto）消费剩余空间滚动，避免展开折叠区
+   或新增字段后表单底部超出弹窗上限被截断、滚动条被压出可视区。 */
+.connection-modal-wrap.connection-modal-form .ant-modal-header {
+    flex-shrink: 0;
+}
+
+.connection-modal-wrap.connection-modal-form .gn-conn-studio-form,
+.connection-modal-wrap.connection-modal-form .gn-conn-form-layout {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    width: 100%;
     min-height: 0;
     max-height: none;
 }
@@ -1594,7 +1714,7 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     flex-wrap: wrap;
     gap: 12px 16px;
     align-items: center;
-    padding: 2px 0 2px 48px;
+    padding: 2px 0 2px 60px;
     margin-bottom: 4px;
     font-size: 12px;
 }
@@ -2001,39 +2121,173 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     min-width: 0;
     flex: 1 1 auto;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     overflow: hidden;
 }
 
 .gonavi-titlebar-primary-actions {
     display: inline-flex;
+    position: relative;
     min-width: max-content;
     flex: 0 0 auto;
     align-items: center;
     gap: 5px;
+    margin-right: 0;
+    padding-right: 0;
     -webkit-app-region: no-drag;
     --wails-draggable: no-drag;
 }
 
-.gonavi-titlebar-primary-action.ant-btn {
-    min-width: 0;
-    height: 28px;
-    padding: 0 9px;
-    border: 0.5px solid var(--gn-br-2, var(--ant-color-border-secondary));
-    border-radius: 6px;
-    background: var(--gn-bg-panel, var(--ant-color-bg-container));
-    color: var(--gn-fg-2, var(--ant-color-text));
-    font-size: 12px;
-    font-weight: 500;
-    letter-spacing: 0;
-    box-shadow: none;
+/* Divider sits in the leading flex gap: ~4px | 4px between button groups */
+.gonavi-titlebar-primary-actions::after {
+    content: '';
+    position: absolute;
+    right: -5px;
+    top: 50%;
+    width: 1px;
+    height: 12px;
+    transform: translateY(-50%);
+    background: color-mix(in srgb, var(--gn-br-2, rgba(15, 23, 42, 0.12)) 88%, transparent);
+    pointer-events: none;
 }
 
-.gonavi-titlebar-primary-action.ant-btn:hover,
-.gonavi-titlebar-primary-action.ant-btn:focus-visible {
+.gonavi-titlebar-quick-actions-slot {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    align-items: center;
+    margin-left: 0;
+    -webkit-app-region: drag;
+    --wails-draggable: drag;
+}
+
+/* Primary: elevated capsule so "新建查询/连接" reads first */
+.gonavi-titlebar-primary-action {
+    display: inline-flex;
+    min-width: 0;
+    height: 26px;
+    padding: 0 9px;
+    border: 0.5px solid color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 18%, transparent);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 9%, var(--gn-bg-panel, #fff));
+    color: var(--gn-fg-2, var(--ant-color-text));
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0;
+    box-shadow: none;
+    cursor: pointer;
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
+    transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.gonavi-titlebar-primary-action .anticon {
+    flex: 0 0 auto;
+    font-size: 13px;
+    color: var(--gn-accent, var(--ant-color-primary));
+}
+
+.gonavi-titlebar-primary-action:hover,
+.gonavi-titlebar-primary-action:focus-visible {
     border-color: color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 42%, transparent);
     background: var(--gn-accent-soft, var(--ant-color-primary-bg));
     color: var(--gn-accent, var(--ant-color-primary));
+    outline: none;
+}
+
+.gn-v2-titlebar-quick-actions {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex: 0 1 auto;
+    align-items: center;
+    gap: 2px;
+    margin-left: 0;
+    overflow: hidden;
+    -webkit-app-region: drag;
+    --wails-draggable: drag;
+}
+
+.gn-v2-titlebar-quick-primary {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 2px;
+    overflow: hidden;
+}
+
+/* Secondary tools: ghost text buttons, lower weight than primary */
+.gn-v2-titlebar-quick-action,
+.gn-v2-titlebar-quick-more {
+    display: inline-flex;
+    height: 26px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+    padding: 0 8px;
+    border: 0.5px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--gn-fg-4, var(--ant-color-text-tertiary));
+    cursor: pointer;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
+    transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.gn-v2-titlebar-quick-action:hover,
+.gn-v2-titlebar-quick-action:focus-visible,
+.gn-v2-titlebar-quick-more:hover,
+.gn-v2-titlebar-quick-more:focus-visible {
+    border-color: color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 28%, transparent);
+    background: var(--gn-accent-soft, var(--ant-color-primary-bg));
+    color: var(--gn-accent, var(--ant-color-primary));
+    outline: none;
+}
+
+.gn-v2-titlebar-quick-action .anticon,
+.gn-v2-titlebar-quick-more .anticon {
+    flex: 0 0 auto;
+    font-size: 13px;
+}
+
+/* "更多" shows icon + label like other titlebar quick actions */
+.gn-v2-titlebar-quick-more {
+    position: relative;
+    width: auto;
+    padding: 0 8px;
+    justify-content: center;
+    gap: 5px;
+}
+
+@media (max-width: 1180px) {
+    .gn-v2-titlebar-quick-actions {
+        margin-left: 0;
+    }
+
+    .gn-v2-titlebar-quick-action {
+        padding-inline: 6px;
+    }
+}
+
+@media (max-width: 920px) {
+    .gn-v2-titlebar-quick-primary {
+        display: none;
+    }
+
+    .gn-v2-titlebar-quick-more {
+        padding-inline: 8px;
+    }
 }
 
 @media (max-width: 720px) {
@@ -2045,7 +2299,7 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
         gap: 3px;
     }
 
-    .gonavi-titlebar-primary-action.ant-btn {
+    .gonavi-titlebar-primary-action {
         padding-inline: 6px;
     }
 }
@@ -2054,7 +2308,13 @@ body[data-platform='windows'] .titlebar-window-controls {
     gap: 8px;
 }
 
-.titlebar-close-btn:hover {
+.titlebar-window-controls > .ant-btn.ant-btn-text {
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}
+
+.titlebar-window-controls > .titlebar-close-btn.ant-btn-text:hover {
     background-color: #ff4d4f !important;
     color: #fff !important;
 }
@@ -2180,6 +2440,8 @@ body[data-platform='windows'] .titlebar-window-controls {
     border-radius: 8px;
     background: var(--ant-color-bg-container, #fff);
     overflow: hidden;
+    container-name: driver-card;
+    container-type: inline-size;
 }
 
 .driver-manager-card-warning {
@@ -2192,8 +2454,9 @@ body[data-platform='windows'] .titlebar-window-controls {
 
 .driver-manager-card-main {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 38%);
-    gap: 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+    gap: 16px 20px;
+    align-items: start;
     padding: 16px;
 }
 
@@ -2256,6 +2519,20 @@ body[data-platform='windows'] .titlebar-window-controls {
     min-width: 0;
 }
 
+.driver-manager-progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+}
+
+.driver-manager-progress-value {
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
 .driver-manager-control-label,
 .driver-manager-small-text {
     font-size: 12px;
@@ -2264,6 +2541,11 @@ body[data-platform='windows'] .titlebar-window-controls {
 .driver-manager-version-control {
     display: grid;
     gap: 4px;
+}
+
+.driver-manager-version-summary {
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
 }
 
 .driver-manager-version-lock {
@@ -2425,8 +2707,8 @@ body[data-platform='windows'] .titlebar-window-controls {
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-main {
-    grid-template-columns: minmax(0, 1fr) minmax(270px, 42%);
-    gap: 12px 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
+    gap: 12px 20px;
     padding: 12px 2px;
 }
 
@@ -2475,9 +2757,9 @@ body[data-platform='windows'] .titlebar-window-controls {
 
 .driver-manager-shell.is-embedded .driver-manager-card-controls {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(96px, 0.7fr);
+    grid-template-columns: minmax(0, 1fr);
     align-content: start;
-    gap: 7px 12px;
+    gap: 8px;
 }
 
 .driver-manager-shell.is-embedded .driver-manager-control-block {
@@ -2485,7 +2767,8 @@ body[data-platform='windows'] .titlebar-window-controls {
 }
 
 .driver-manager-shell.is-embedded .driver-manager-card-actions {
-    grid-column: 1 / -1;
+    grid-column: 1;
+    justify-content: flex-start;
     gap: 6px !important;
 }
 
@@ -2497,6 +2780,21 @@ body[data-platform='windows'] .titlebar-window-controls {
     flex: 0 0 auto;
     padding-top: 10px;
     border-top: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
+}
+
+@container driver-card (max-width: 780px) {
+    .driver-manager-card-main,
+    .driver-manager-shell.is-embedded .driver-manager-card-main {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .driver-manager-card-controls {
+        width: min(100%, 520px);
+    }
+
+    .driver-manager-card-actions {
+        justify-content: flex-start;
+    }
 }
 
 @media (max-width: 900px) {
@@ -2662,6 +2960,8 @@ body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] {
 body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'][data-sidebar-resizing='true'],
 body[data-sidebar-resizing='true'] .ant-layout-sider[data-sidebar-panel='true'] {
   transition: none !important;
+  min-width: var(--gonavi-sidebar-resize-width) !important;
+  max-width: var(--gonavi-sidebar-resize-width) !important;
   width: var(--gonavi-sidebar-resize-width) !important;
   flex: 0 0 var(--gonavi-sidebar-resize-width) !important;
 }

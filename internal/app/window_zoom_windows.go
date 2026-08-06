@@ -132,7 +132,7 @@ func isNilReflectValue(value reflect.Value) bool {
 func safeCallInvoke(invoke reflect.Value, fn func()) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
-			err = fmt.Errorf("mainWindow.Invoke panicked while resetting WebView2 zoom factor: %v", value)
+			err = fmt.Errorf("mainWindow.Invoke panicked: %v", value)
 		}
 	}()
 	invoke.Call([]reflect.Value{reflect.ValueOf(fn)})

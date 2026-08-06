@@ -1,6 +1,7 @@
 import { Input, message, type MenuProps } from 'antd';
 import Modal from '../common/ResizableDraggableModal';
 import {
+  AppstoreOutlined,
   CheckSquareOutlined,
   CloudOutlined,
   CodeOutlined,
@@ -44,8 +45,8 @@ import {
 } from '../../utils/redisDbAlias';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { supportsTableTruncateAction } from '../tableDataDangerActions';
-import { normalizeConnectionEnvironmentType } from '../../utils/connectionEnvironment';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
+import { confirmProductionMutation } from '../../utils/productionRiskConfirm';
 import {
   buildNacosServicesTabData,
   resolveNacosNamespaceDiscoveryModeFromTreeNode,
@@ -97,7 +98,7 @@ const openNacosNamespaceFormModal = (options: {
   mode: NacosNamespaceFormMode;
   connection: SavedConnection;
   initial?: { id?: string; showName?: string; description?: string };
-  onSuccess?: () => void;
+  onSuccess?: () => void | Promise<void>;
   isNamespaceManagementBlocked?: () => boolean;
 }) => {
   if (
@@ -168,6 +169,12 @@ const openNacosNamespaceFormModal = (options: {
         throw new Error('namespace name required');
       }
       const rpcConfig = buildRpcConnectionConfig(currentConnection.config as any);
+      if (!await confirmProductionMutation(
+        currentConnection,
+        t('connection.production_risk.action.modify_configuration'),
+        [draft.id.trim(), showName].filter(Boolean).join(' / '),
+        t,
+      )) return;
       if (isEdit) {
         const res = await (window as any).go.app.App.NacosUpdateNamespace(rpcConfig, {
           id: draft.id.trim(),
@@ -178,7 +185,6 @@ const openNacosNamespaceFormModal = (options: {
           message.error(res?.message || 'update failed');
           throw new Error(res?.message || 'update failed');
         }
-        message.success(t('nacos.namespace.message.update_success'));
       } else {
         const res = await (window as any).go.app.App.NacosCreateNamespace(rpcConfig, {
           id: draft.id.trim(),
@@ -189,9 +195,11 @@ const openNacosNamespaceFormModal = (options: {
           message.error(res?.message || 'create failed');
           throw new Error(res?.message || 'create failed');
         }
-        message.success(t('nacos.namespace.message.create_success'));
       }
-      options.onSuccess?.();
+      await options.onSuccess?.();
+      message.success(t(isEdit
+        ? 'nacos.namespace.message.update_success'
+        : 'nacos.namespace.message.create_success'));
     },
   });
 };
@@ -309,6 +317,7 @@ export const buildSidebarLegacyNodeMenuItems = (
     setLoadedKeys,
     loadingNodesRef,
     loadDatabases,
+    refreshConnectionResources: refreshConnectionResourcesFromContext,
     buildConnectionRootRedisCommandTabTitle,
     buildConnectionRootRedisMonitorTabTitle,
     onEditConnection,
@@ -349,6 +358,8 @@ export const buildSidebarLegacyNodeMenuItems = (
     handleTableDataDangerAction,
     handleDeleteTable,
     openExportDialog,
+    openBatchTableWorkbench,
+    openBatchDatabaseWorkbench,
     isSavedQueryUnmatched,
     connections,
     handleRebindSavedQuery,
@@ -375,6 +386,10 @@ export const buildSidebarLegacyNodeMenuItems = (
     handleDeleteExternalSQLFile,
     extractObjectName,
   } = context;
+    const refreshConnectionResources = refreshConnectionResourcesFromContext || ((targetNode: any) => {
+      loadDatabases(targetNode);
+      return Promise.resolve();
+    });
     const conn = node.dataRef as SavedConnection;
     const isRedis = conn?.config?.type === 'redis';
     const isNacos = conn?.config?.type === 'nacos';
@@ -396,7 +411,10 @@ export const buildSidebarLegacyNodeMenuItems = (
                 key: 'refresh-schema',
                 label: t('sidebar.menu.refresh'),
                 icon: <ReloadOutlined />,
-                onClick: () => void loadTables(getDatabaseNodeRef(node.dataRef, node.dataRef.dbName))
+                onClick: () => void loadTables(
+                    getDatabaseNodeRef(node.dataRef, node.dataRef.dbName),
+                    { ensureFresh: true },
+                )
             },
             {
                 key: 'export-schema',
@@ -435,6 +453,18 @@ export const buildSidebarLegacyNodeMenuItems = (
                 icon: <TableOutlined />,
                 onClick: () => openNewTableDesign(node)
             }] : []),
+            {
+                key: 'refresh-tables',
+                label: t('sidebar.menu.refresh'),
+                icon: <ReloadOutlined />,
+                onClick: () => {
+                    const dbNode = {
+                        key: `${groupData.id}-${groupData.dbName}`,
+                        dataRef: groupData,
+                    };
+                    void loadTables(dbNode);
+                },
+            },
             { type: 'divider' },
             {
                 key: 'sort-by-name',
@@ -539,9 +569,6 @@ export const buildSidebarLegacyNodeMenuItems = (
                 onClick: () => {
                     createTagForm.setFieldsValue({
                         name: node.title,
-                        environmentType: normalizeConnectionEnvironmentType(
-                          node.dataRef.environmentType,
-                        ),
                         parentTagId: node.dataRef.parentTagId,
                         connectionIds: node.dataRef.connectionIds,
                     });
@@ -591,15 +618,7 @@ export const buildSidebarLegacyNodeMenuItems = (
                     label: t('sidebar.menu.refresh'),
                     icon: <ReloadOutlined />,
                     onClick: () => {
-                        const connKey = String(node.key);
-                        // 清除子节点的展开/已加载状态，确保刷新后重新展开时能触发 onLoadData
-                        setExpandedKeys((prev: any[]) => prev.filter((k: any) => !k.toString().startsWith(`${connKey}-`)));
-                        setLoadedKeys((prev: any[]) => prev.filter((k: any) => !k.toString().startsWith(`${connKey}-`)));
-                        // 清除 loadingNodesRef 中残留的子节点加载标记
-                        Array.from(loadingNodesRef.current as Set<string>).forEach(lk => {
-                            if (lk.startsWith(`tables-${connKey}-`)) loadingNodesRef.current.delete(lk);
-                        });
-                        loadDatabases(node);
+                        void refreshConnectionResources(node);
                     }
                 },
                 { type: 'divider' },
@@ -680,10 +699,7 @@ export const buildSidebarLegacyNodeMenuItems = (
                     label: t('sidebar.menu.refresh'),
                     icon: <ReloadOutlined />,
                     onClick: () => {
-                        const connKey = String(node.key);
-                        setExpandedKeys((prev: any[]) => prev.filter((k: any) => !k.toString().startsWith(`${connKey}-`)));
-                        setLoadedKeys((prev: any[]) => prev.filter((k: any) => !k.toString().startsWith(`${connKey}-`)));
-                        loadDatabases(node);
+                        void refreshConnectionResources(node);
                     },
                 },
                 {
@@ -701,7 +717,7 @@ export const buildSidebarLegacyNodeMenuItems = (
                         openNacosNamespaceFormModal({
                             mode: 'create',
                             connection: currentConnection,
-                            onSuccess: () => loadDatabases(node),
+                            onSuccess: () => loadDatabases(node, { ensureFresh: true }),
                             isNamespaceManagementBlocked,
                         });
                     },
@@ -770,15 +786,7 @@ export const buildSidebarLegacyNodeMenuItems = (
                 label: t('sidebar.menu.refresh'),
                 icon: <ReloadOutlined />,
                 onClick: () => {
-                    const connKey = String(node.key);
-                    // 清除子节点的展开/已加载状态，确保刷新后重新展开时能触发 onLoadData
-                    setExpandedKeys((prev: any[]) => prev.filter((k: any) => !k.toString().startsWith(`${connKey}-`)));
-                    setLoadedKeys((prev: any[]) => prev.filter((k: any) => !k.toString().startsWith(`${connKey}-`)));
-                    // 清除 loadingNodesRef 中残留的子节点加载标记
-                    Array.from(loadingNodesRef.current as Set<string>).forEach(lk => {
-                        if (lk.startsWith(`tables-${connKey}-`)) loadingNodesRef.current.delete(lk);
-                    });
-                    loadDatabases(node);
+                    void refreshConnectionResources(node);
                 }
             },
             { type: 'divider' },
@@ -919,7 +927,7 @@ export const buildSidebarLegacyNodeMenuItems = (
                             showName: nsName,
                             description: '',
                         },
-                        onSuccess: () => loadDatabases(parentConnectionNode),
+                        onSuccess: () => loadDatabases(parentConnectionNode, { ensureFresh: true }),
                         isNamespaceManagementBlocked,
                     });
                 },
@@ -953,6 +961,12 @@ export const buildSidebarLegacyNodeMenuItems = (
                             );
                             const latestConnection =
                                 assertNacosNamespaceStructureEditable(currentConnection);
+                            if (!await confirmProductionMutation(
+                                latestConnection,
+                                t('connection.production_risk.action.modify_configuration'),
+                                [nacosNamespaceId, nsName].filter(Boolean).join(' / '),
+                                t,
+                            )) return;
                             const rpcConfig = buildRpcConnectionConfig(
                                 latestConnection.config as any,
                             );
@@ -964,8 +978,8 @@ export const buildSidebarLegacyNodeMenuItems = (
                                 message.error(res?.message || 'delete failed');
                                 throw new Error(res?.message || 'delete failed');
                             }
+                            await loadDatabases(parentConnectionNode, { ensureFresh: true });
                             message.success(t('nacos.namespace.message.delete_success'));
-                            loadDatabases(parentConnectionNode);
                         },
                     });
                 },
@@ -1202,6 +1216,20 @@ export const buildSidebarLegacyNodeMenuItems = (
                 icon: <SaveOutlined />,
                 onClick: () => handleV2DatabaseContextMenuAction(node, 'backup-db-sql')
             },
+            ...(capabilities.supportsSqlQueryExport ? [
+                {
+                    key: 'batch-tables',
+                    label: t('sidebar.action.batch_tables'),
+                    icon: <AppstoreOutlined />,
+                    onClick: () => handleV2DatabaseContextMenuAction(node, 'batch-tables'),
+                },
+                {
+                    key: 'batch-databases',
+                    label: t('sidebar.action.batch_databases'),
+                    icon: <DatabaseOutlined />,
+                    onClick: () => handleV2DatabaseContextMenuAction(node, 'batch-databases'),
+                },
+            ] : []),
             { type: 'divider' },
             {
                 key: 'disconnect-db',
@@ -1518,7 +1546,13 @@ export const buildSidebarLegacyNodeMenuItems = (
                 label: t('sidebar.menu.export_table_data'),
                 icon: <ExportOutlined />,
                 onClick: () => openExportDialog(node),
-            }
+            },
+            ...(getDataSourceCapabilities(node.dataRef?.config).supportsSqlQueryExport ? [{
+                key: 'batch-tables',
+                label: t('sidebar.action.batch_tables'),
+                icon: <AppstoreOutlined />,
+                onClick: () => openBatchTableWorkbench?.(node),
+            }] : []),
         ];
     }
 

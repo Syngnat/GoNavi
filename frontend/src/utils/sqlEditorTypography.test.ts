@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   migrateLegacySqlEditorTypographySettings,
   resolveSqlEditorFontSize,
+  resolveSqlEditorSuggestionLayout,
   sanitizeSqlEditorTypographySettings,
 } from './sqlEditorTypography';
 
@@ -37,6 +38,24 @@ describe('SQL editor typography', () => {
     })).toEqual({
       sqlEditorFontSize: 17,
       sqlEditorFontSizeFollowGlobal: false,
+    });
+  });
+
+  it('keeps default completion rows unchanged and grows the table-name row for large fonts', () => {
+    expect(resolveSqlEditorSuggestionLayout(13)).toEqual({
+      nameLineHeight: 18,
+      commentLineHeight: 18,
+      rowHeight: 36,
+    });
+    expect(resolveSqlEditorSuggestionLayout(18)).toEqual({
+      nameLineHeight: 25,
+      commentLineHeight: 18,
+      rowHeight: 43,
+    });
+    expect(resolveSqlEditorSuggestionLayout(20)).toEqual({
+      nameLineHeight: 28,
+      commentLineHeight: 18,
+      rowHeight: 46,
     });
   });
 });

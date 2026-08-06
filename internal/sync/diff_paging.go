@@ -70,13 +70,11 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 		if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
 			return nil
 		}
-		if err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, changeSet); err != nil {
-			return err
-		}
-		applied.Inserts += len(changeSet.Inserts)
-		applied.Updates += len(changeSet.Updates)
-		applied.Deletes += len(changeSet.Deletes)
-		return nil
+		committed, err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, changeSet)
+		applied.Inserts += committed.Inserts
+		applied.Updates += committed.Updates
+		applied.Deletes += committed.Deletes
+		return err
 	})
 	if err != nil {
 		return true, applied, err

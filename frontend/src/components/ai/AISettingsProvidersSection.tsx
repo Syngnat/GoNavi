@@ -6,7 +6,11 @@ import type { FormInstance } from 'antd/es/form';
 import type { AIProviderConfig } from '../../types';
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
-import { isLocalCLISubscriptionProvider, type ProviderPresetCandidate } from '../../utils/aiProviderPresets';
+import {
+  isLocalCLISubscriptionProvider,
+  type ProviderPresetCandidate,
+  type ProviderPresetEndpoint,
+} from '../../utils/aiProviderPresets';
 import { isProviderSecretRequirementSatisfied } from '../../utils/providerSecretDraft';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import {
@@ -23,6 +27,7 @@ export interface AISettingsProviderPresetOption {
   icon: React.ReactNode;
   desc: string;
   defaultBaseUrl: string;
+  endpoints?: ProviderPresetEndpoint[];
   defaultModel?: string;
   models?: string[];
   authMode?: AIProviderConfig['authMode'];
@@ -113,6 +118,7 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const copy = (key: string) => (i18n?.t ?? ((catalogKey) => catalogTranslate('en-US', catalogKey)))(key);
   const presetKeyFromForm = watchedPresetKey || (editingProvider as (AIProviderConfig & { presetKey?: string }) | null)?.presetKey || 'openai';
   const presetFromForm = providerPresets.find((preset) => preset.key === presetKeyFromForm);
+  const endpointOptions = presetFromForm?.endpoints || [];
   const usesLocalCLI = presetFromForm?.authMode === 'local-cli';
   const supportsAdvancedEndpoint = presetKeyFromForm === 'custom' || presetKeyFromForm === 'ollama' || presetKeyFromForm === 'codebuddy' || presetKeyFromForm === 'cursor';
   const supportsModelList = supportsAdvancedEndpoint || usesLocalCLI;
@@ -499,7 +505,31 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
             </Form.Item>
           )}
 
-          {supportsAdvancedEndpoint && (
+          {endpointOptions.length > 0 ? (
+            <Form.Item
+              label={<span style={{ fontWeight: 500, color: overlayTheme.titleText }}>{copy('ai_settings.form.api_endpoint')}</span>}
+              name="baseUrl"
+              rules={[{ required: true, message: copy('ai_settings.form.api_endpoint_required') }]}
+              style={{ marginBottom: 0 }}
+            >
+              <Select
+                showSearch
+                optionFilterProp="label"
+                size="middle"
+                options={endpointOptions.map((endpoint) => ({
+                  label: endpoint.baseUrl,
+                  value: endpoint.baseUrl,
+                }))}
+                onChange={(baseUrl) => {
+                  const endpoint = endpointOptions.find((item) => item.baseUrl === baseUrl);
+                  if (endpoint) {
+                    form.setFieldValue('type', endpoint.backendType);
+                  }
+                }}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          ) : supportsAdvancedEndpoint && (
             <Form.Item
               label={<span style={{ fontWeight: 500, color: overlayTheme.titleText }}>{copy('ai_settings.form.api_endpoint')}</span>}
               name="baseUrl"

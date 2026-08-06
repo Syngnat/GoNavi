@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   findConnectionMutatingStatements,
+  findPotentiallyMutatingConnectionStatements,
   isConnectionDataEditRestricted,
   isConnectionDataImportRestricted,
   isConnectionScriptExecutionRestricted,
@@ -31,6 +32,13 @@ describe('connectionReadOnly', () => {
 
   it('supports Nacos production protection without treating it as a SQL keepalive source', () => {
     const config = { type: 'nacos' } as any;
+
+    expect(supportsConnectionReadOnlyMode(config)).toBe(true);
+    expect(supportsConnectionKeepAliveSQL(config)).toBe(false);
+  });
+
+  it('supports Elasticsearch production protection without treating it as a SQL keepalive source', () => {
+    const config = { type: 'elasticsearch' } as any;
 
     expect(supportsConnectionReadOnlyMode(config)).toBe(true);
     expect(supportsConnectionKeepAliveSQL(config)).toBe(false);
@@ -79,6 +87,19 @@ describe('connectionReadOnly', () => {
         restrictDataEdit: true,
       },
     }, "UPDATE users SET name = 'next';")).toEqual([]);
+  });
+
+  it('detects potentially mutating SQL even when protection is disabled', () => {
+    const config = { type: 'postgres' } as any;
+
+    expect(findPotentiallyMutatingConnectionStatements(
+      config,
+      'SELECT * FROM users;',
+    )).toEqual([]);
+    expect(findPotentiallyMutatingConnectionStatements(
+      config,
+      "SELECT * FROM users; UPDATE users SET name = 'next';",
+    )).toEqual(["UPDATE users SET name = 'next'"]);
   });
 
   it('uses the connection dialect when filtering comment-only statements', () => {

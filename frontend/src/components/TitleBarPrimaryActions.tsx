@@ -1,5 +1,4 @@
 import React from 'react';
-import { Button } from 'antd';
 import { ConsoleSqlOutlined, PlusOutlined } from '@ant-design/icons';
 
 interface TitleBarPrimaryActionsProps {
@@ -21,30 +20,28 @@ const TitleBarPrimaryActions: React.FC<TitleBarPrimaryActionsProps> = ({
     data-no-titlebar-toggle="true"
     onDoubleClick={(event) => event.stopPropagation()}
   >
-    <Button
-      size="small"
-      type="text"
+    <button
+      type="button"
       className="gonavi-titlebar-primary-action"
-      icon={<ConsoleSqlOutlined />}
       aria-label={newQueryLabel}
       title={newQueryLabel}
       data-gonavi-new-query-action="true"
       onClick={onNewQuery}
     >
+      <ConsoleSqlOutlined />
       {newQueryLabel}
-    </Button>
-    <Button
-      size="small"
-      type="text"
+    </button>
+    <button
+      type="button"
       className="gonavi-titlebar-primary-action"
-      icon={<PlusOutlined />}
       aria-label={newConnectionLabel}
       title={newConnectionLabel}
       data-gonavi-create-connection-action="true"
       onClick={onNewConnection}
     >
+      <PlusOutlined />
       {newConnectionLabel}
-    </Button>
+    </button>
   </div>
 );
 

@@ -18,6 +18,19 @@ const MIN_STARTUP_HEIGHT = 600;
 
 export type StartupWindowRestoreMode = 'normal' | 'maximised';
 
+export type StartupWindowSurfaceSnapshot = {
+  surfaceWidth: number;
+  surfaceHeight: number;
+  viewport: StartupVisibleViewport;
+};
+
+export type StartupMaximisedWindowSnapshot = StartupWindowSurfaceSnapshot & {
+  isMaximised: boolean;
+  isWindows: boolean;
+};
+
+const MIN_MAXIMISED_SURFACE_COVERAGE = 0.95;
+
 /**
  * The explicit startup preference is authoritative. A disabled preference must
  * not be overridden by a previously maximised window or a size heuristic.
@@ -25,6 +38,40 @@ export type StartupWindowRestoreMode = 'normal' | 'maximised';
 export const resolveStartupWindowRestoreMode = (
   startupMaximised: boolean,
 ): StartupWindowRestoreMode => startupMaximised ? 'maximised' : 'normal';
+
+/**
+ * Determine whether the native maximised state has also reached the WebView surface.
+ * Windows can expose WS_MAXIMIZE before WebView2 updates its controller bounds, so
+ * state alone is not enough there. Other platforms retain the state-only contract.
+ */
+export const isStartupMaximisedWindowSettled = (
+  snapshot: StartupMaximisedWindowSnapshot,
+): boolean => {
+  if (!snapshot.isMaximised) {
+    return false;
+  }
+  if (!snapshot.isWindows) {
+    return true;
+  }
+
+  return isStartupWindowSurfaceCoveringViewport(snapshot);
+};
+
+export const isStartupWindowSurfaceCoveringViewport = (
+  snapshot: StartupWindowSurfaceSnapshot,
+): boolean => {
+
+  const availWidth = Math.max(0, Math.trunc(Number(snapshot.viewport.availWidth) || 0));
+  const availHeight = Math.max(0, Math.trunc(Number(snapshot.viewport.availHeight) || 0));
+  if (availWidth <= 0 || availHeight <= 0) {
+    return true;
+  }
+
+  const surfaceWidth = Math.max(0, Math.trunc(Number(snapshot.surfaceWidth) || 0));
+  const surfaceHeight = Math.max(0, Math.trunc(Number(snapshot.surfaceHeight) || 0));
+  return surfaceWidth >= Math.trunc(availWidth * MIN_MAXIMISED_SURFACE_COVERAGE)
+    && surfaceHeight >= Math.trunc(availHeight * MIN_MAXIMISED_SURFACE_COVERAGE);
+};
 
 /** Resolve a centered normal window when no persisted bounds exist. */
 export const resolveDefaultStartupWindowBounds = (

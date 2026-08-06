@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveWailsWindowVisibleViewport } from './wailsWindowViewport';
+import { resolveWailsWindowSetPosition, resolveWailsWindowVisibleViewport } from './wailsWindowViewport';
 
 describe('wailsWindowViewport', () => {
   it('keeps browser work-area offsets for platforms that use absolute screen coordinates', () => {
@@ -39,5 +39,21 @@ describe('wailsWindowViewport', () => {
       availLeft: 0,
       availTop: 0,
     });
+  });
+
+  it('converts negative secondary-monitor coordinates to Wails monitor-local input', () => {
+    expect(resolveWailsWindowSetPosition(
+      { x: -1600, y: 80 },
+      { availWidth: 1728, availHeight: 1040, availLeft: -1728, availTop: 40 },
+      { useMonitorLocalOrigin: true },
+    )).toEqual({ x: 128, y: 40 });
+  });
+
+  it('maps an offset work-area origin to local zero without double-applying it', () => {
+    expect(resolveWailsWindowSetPosition(
+      { x: 1920, y: 40 },
+      { availWidth: 1600, availHeight: 900, availLeft: 1920, availTop: 40 },
+      { useMonitorLocalOrigin: true },
+    )).toEqual({ x: 0, y: 0 });
   });
 });

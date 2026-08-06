@@ -554,7 +554,7 @@ const getTabDisplayElementValue = (
     case 'database':
       return String(tab.dbName || '').trim();
     case 'schema':
-      return getSchemaFromTabObjectLabel(rawObjectLabel);
+      return String(tab.schemaName || '').trim() || getSchemaFromTabObjectLabel(rawObjectLabel);
     case 'host':
       return resolveConnectionHostSummary(connection?.config);
     default:

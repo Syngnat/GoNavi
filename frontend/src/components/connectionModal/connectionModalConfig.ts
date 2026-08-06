@@ -39,7 +39,11 @@ import {
   parseClickHouseHTTPUriToValues,
   parseHostPort,
   parseUriToValues,
+  resolveOracleConnectionTarget,
   toAddress,
+  withOracleSIDParam,
+  withoutOracleSIDFromURI,
+  withoutOracleSIDParam,
 } from "./connectionModalUri";
 
 type Translate = (key: string, params?: any) => string;
@@ -116,6 +120,7 @@ type BuildConnectionConfigParams = {
   forPersist: boolean;
   initialValues?: SavedConnection | null;
   nacosNamespaceIdTouched?: boolean;
+  oracleModeTouched?: boolean;
   translate: Translate;
 };
 
@@ -256,6 +261,8 @@ export const buildSavedConnectionInput = ({
       redisSentinelPassword: redisSentinelDraft.value,
     },
     includeDatabases: values.includeDatabases,
+    includeDatabasePatterns: values.includeDatabasePatterns,
+    excludeDatabasePatterns: values.excludeDatabasePatterns,
     includeRedisDatabases: isRedisType
       ? values.includeRedisDatabases
       : undefined,
@@ -350,6 +357,7 @@ export const buildConnectionConfig = async ({
   forPersist,
   initialValues,
   nacosNamespaceIdTouched = false,
+  oracleModeTouched = false,
   translate: t,
 }: BuildConnectionConfigParams): Promise<ConnectionConfig> => {
   const mergedValues = { ...values };
@@ -477,6 +485,40 @@ export const buildConnectionConfig = async ({
     mergedValues.uri,
     mergedValues.type,
   );
+  const isOracleConfig =
+    String(mergedValues.type || "")
+      .trim()
+      .toLowerCase() === "oracle";
+  const parsedOracleMode = String(parsedUriValues?.oracleMode || "")
+    .trim()
+    .toLowerCase();
+  const currentOracleMode =
+    String(mergedValues.oracleMode || "service")
+      .trim()
+      .toLowerCase() === "sid"
+      ? "sid"
+      : "service";
+  const oracleTarget = isOracleConfig
+    ? resolveOracleConnectionTarget(
+        parsedUriValues?.connectionParams,
+        mergedValues.connectionParams,
+      )
+    : null;
+  const resolvedOracleMode = isOracleConfig
+    ? oracleModeTouched || currentOracleMode === "sid"
+      ? currentOracleMode
+      : oracleTarget?.mode || "service"
+    : "";
+  if (isOracleConfig && resolvedOracleMode === "sid") {
+    mergedValues.oracleMode = "sid";
+    if (
+      oracleTarget?.mode === "sid" &&
+      (currentOracleMode !== "sid" ||
+        String(mergedValues.database || "").trim() === "")
+    ) {
+      mergedValues.database = oracleTarget.sid;
+    }
+  }
   const isEmptyField = (value: unknown) =>
     value === undefined ||
     value === null ||
@@ -485,6 +527,14 @@ export const buildConnectionConfig = async ({
     (Array.isArray(value) && value.length === 0);
   if (parsedUriValues) {
     Object.entries(parsedUriValues).forEach(([key, value]) => {
+      if (
+        isOracleConfig &&
+        parsedOracleMode &&
+        parsedOracleMode !== resolvedOracleMode &&
+        (key === "database" || key === "oracleMode")
+      ) {
+        return;
+      }
       if (key === "nacosNamespaceId" && hasExplicitNacosNamespaceId) {
         return;
       }
@@ -873,6 +923,38 @@ export const buildConnectionConfig = async ({
     normalizedConnectionParams = normalizedConnectionParams
       ? `${normalizedConnectionParams}&contextPath=/nacos`
       : "contextPath=/nacos";
+  }
+  if (type === "oracle") {
+    const oracleMode =
+      String(mergedValues.oracleMode || "service")
+        .trim()
+        .toLowerCase() === "sid"
+        ? "sid"
+        : "service";
+    const oracleTargetValue = String(mergedValues.database || "").trim();
+    if (!oracleTargetValue) {
+      throw new Error(
+        t(
+          oracleMode === "sid"
+            ? "connection.modal.field.sid.required"
+            : "connection.modal.field.serviceName.required",
+        ),
+      );
+    }
+    if (oracleMode === "sid") {
+      // SID 模式：表单 database 字段承载 SID 值，写入 connectionParams 的 SID 参数，
+      // Database（服务名）置空避免 DSN path 冗余（后端 getDSN 据此组装 (SID=...)）。
+      normalizedConnectionParams = withOracleSIDParam(
+        normalizedConnectionParams,
+        oracleTargetValue,
+      );
+      mergedValues.database = "";
+    } else {
+      // 服务名模式：清除历史 SID 参数（含 URI query），避免 go-ora 驱动 SID 优先导致连接目标漂移。
+      normalizedConnectionParams =
+        withoutOracleSIDParam(normalizedConnectionParams);
+      mergedValues.uri = withoutOracleSIDFromURI(mergedValues.uri);
+    }
   }
   const supportsProductionGuard = supportsConnectionReadOnlyMode({
     type,

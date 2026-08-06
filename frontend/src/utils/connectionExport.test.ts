@@ -160,13 +160,14 @@ describe('connectionExport', () => {
       password: '  secret-pass  ',
       error: '上一次失败',
       confirmLoading: false,
+      selectedConnectionIds: ['conn-1'],
     };
 
     const canceledResult = resolveConnectionPackageExportResult(staleDialog, { success: false, message: '已取消' });
     expect(canceledResult.kind).toBe('canceled');
     if (canceledResult.kind === 'canceled') {
       expect(typeof canceledResult.nextDialog).toBe('function');
-      expect((canceledResult.nextDialog as (current: typeof staleDialog) => typeof staleDialog)({
+      expect(canceledResult.nextDialog({
         open: false,
         mode: 'export',
         includeSecrets: true,
@@ -174,6 +175,7 @@ describe('connectionExport', () => {
         password: 'secret-pass',
         error: '更新后的错误',
         confirmLoading: true,
+        selectedConnectionIds: ['conn-1'],
       })).toEqual({
         open: false,
         mode: 'export',
@@ -182,6 +184,7 @@ describe('connectionExport', () => {
         password: 'secret-pass',
         error: '',
         confirmLoading: false,
+        selectedConnectionIds: ['conn-1'],
       });
     }
 

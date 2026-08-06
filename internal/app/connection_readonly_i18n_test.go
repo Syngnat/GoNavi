@@ -57,7 +57,7 @@ func TestConnectionReadOnlyUsesCurrentLanguageForBlockedMessages(t *testing.T) {
 
 	readonlyConfig := connection.ConnectionConfig{Type: "postgres", ReadOnly: true}
 
-	createDatabase := app.CreateDatabase(readonlyConfig, "demo")
+	createDatabase := app.CreateDatabase(readonlyConfig, "demo", "", "")
 	expectedCreateDatabase := app.appText("connection.backend.error.readonly_action_blocked", map[string]any{
 		"action": app.appText("connection.backend.action.create_database", nil),
 	})

@@ -263,6 +263,79 @@ func TestOracleDSN_EscapesUserAndPassword(t *testing.T) {
 	}
 }
 
+func TestOracleDSN_SIDModeOmitsPathAndCarriesSIDParam(t *testing.T) {
+	o := &OracleDB{}
+	cfg := connection.ConnectionConfig{
+		Type:             "oracle",
+		Host:             "127.0.0.1",
+		Port:             1521,
+		User:             "system",
+		Password:         "secret",
+		ConnectionParams: "SID=ORCL",
+	}
+
+	if !isOracleSIDMode(cfg) {
+		t.Fatal("expected isOracleSIDMode to be true when SID param present")
+	}
+	if got := oracleConnectionSID(cfg); got != "ORCL" {
+		t.Fatalf("oracleConnectionSID = %q, want ORCL", got)
+	}
+
+	dsn := o.getDSN(cfg)
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse dsn failed: %v", err)
+	}
+	if strings.Trim(parsed.EscapedPath(), "/") != "" {
+		t.Fatalf("SID 模式不应在 URL path 携带服务名，path=%q dsn=%s", parsed.EscapedPath(), dsn)
+	}
+	if got := parsed.Query().Get("SID"); got != "ORCL" {
+		t.Fatalf("SID 参数 = %q, want ORCL（dsn=%s）", got, dsn)
+	}
+	if parsed.Query().Get("PREFETCH_ROWS") == "" {
+		t.Fatalf("SID 模式应保留默认驱动参数，dsn=%s", dsn)
+	}
+}
+
+func TestOracleDSN_SIDModeOverridesLegacyDatabaseField(t *testing.T) {
+	o := &OracleDB{}
+	// 兼容历史数据：Navicat 导入的旧 SID 连接同时存在 Database 与 SID 参数，
+	// SID 优先且 path 不携带服务名，避免冗余与日志误读。
+	cfg := connection.ConnectionConfig{
+		Type:             "oracle",
+		Host:             "db.example.com",
+		Port:             1521,
+		User:             "system",
+		Password:         "secret",
+		Database:         "ORCL",
+		ConnectionParams: "SID=ORCL",
+	}
+
+	dsn := o.getDSN(cfg)
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse dsn failed: %v", err)
+	}
+	if strings.Trim(parsed.EscapedPath(), "/") != "" {
+		t.Fatalf("SID 模式不应在 URL path 携带 Database，path=%q dsn=%s", parsed.EscapedPath(), dsn)
+	}
+	if got := parsed.Query().Get("SID"); got != "ORCL" {
+		t.Fatalf("SID 参数 = %q, want ORCL（dsn=%s）", got, dsn)
+	}
+}
+
+func TestOracleSIDParamParsingIsCaseInsensitive(t *testing.T) {
+	for _, raw := range []string{"sid=ORCL", "Sid=ORCL", "SID=ORCL", "SID =ORCL"} {
+		cfg := connection.ConnectionConfig{
+			Type:             "oracle",
+			ConnectionParams: raw,
+		}
+		if got := oracleConnectionSID(cfg); got != "ORCL" {
+			t.Fatalf("oracleConnectionSID(%q) = %q, want ORCL", raw, got)
+		}
+	}
+}
+
 func TestDamengDSN_KeepsRawPasswordForDriverParser(t *testing.T) {
 	d := &DamengDB{}
 	cfg := connection.ConnectionConfig{

@@ -12,19 +12,25 @@ import (
 )
 
 type capturingRedisClient struct {
-	connectConfig     connection.ConnectionConfig
-	deletedHashKey    string
-	deletedHashFields []string
-	removedListKey    string
-	removedListValue  string
-	valueResult       *redislib.RedisValue
-	listResult        []string
-	listKey           string
-	listStart         int64
-	listStop          int64
-	listCalls         int
-	closed            int
-	closeErr          error
+	connectConfig      connection.ConnectionConfig
+	deletedHashKey     string
+	deletedHashFields  []string
+	listPushKey        string
+	listPushValues     []string
+	listPushLeftKey    string
+	listPushLeftValues []string
+	removedListKey     string
+	removedListIndex   int64
+	removedListValue   string
+	listRemoveErr      error
+	valueResult        *redislib.RedisValue
+	listResult         []string
+	listKey            string
+	listStart          int64
+	listStop           int64
+	listCalls          int
+	closed             int
+	closeErr           error
 }
 
 func (c *capturingRedisClient) Connect(config connection.ConnectionConfig) error {
@@ -86,14 +92,25 @@ func (c *capturingRedisClient) GetList(key string, start, stop int64) ([]string,
 	return append([]string(nil), c.listResult...), nil
 }
 
-func (c *capturingRedisClient) ListPush(key string, values ...string) error { return nil }
+func (c *capturingRedisClient) ListPush(key string, values ...string) error {
+	c.listPushKey = key
+	c.listPushValues = append([]string(nil), values...)
+	return nil
+}
+
+func (c *capturingRedisClient) ListPushLeft(key string, values ...string) error {
+	c.listPushLeftKey = key
+	c.listPushLeftValues = append([]string(nil), values...)
+	return nil
+}
 
 func (c *capturingRedisClient) ListSet(key string, index int64, value string) error { return nil }
 
-func (c *capturingRedisClient) ListRemove(key, value string) error {
+func (c *capturingRedisClient) ListRemoveAt(key string, index int64, value string) error {
 	c.removedListKey = key
+	c.removedListIndex = index
 	c.removedListValue = value
-	return nil
+	return c.listRemoveErr
 }
 
 func (c *capturingRedisClient) GetSet(key string) ([]string, error) { return nil, nil }
@@ -919,7 +936,161 @@ func TestRedisGetListValueDescendingReadsAndReversesTailWindow(t *testing.T) {
 	}
 }
 
-func TestRedisListRemoveDeletesOneValue(t *testing.T) {
+func TestRedisListPushAppendsValuesWithoutChangingThem(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	CloseAllRedisClients()
+	client := &capturingRedisClient{}
+	originalNewRedisClientFunc := newRedisClientFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	defer func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+		CloseAllRedisClients()
+	}()
+	newRedisClientFunc = func() redislib.RedisClient {
+		return client
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	values := []string{"  review  ", "", "\t"}
+	result := app.RedisListPush(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "tasks", RedisListPushOptions{
+		Values:   values,
+		Position: "right",
+	})
+	if !result.Success {
+		t.Fatalf("RedisListPush returned failure: %+v", result)
+	}
+	if client.listPushKey != "tasks" || !reflect.DeepEqual(client.listPushValues, values) {
+		t.Fatalf("unexpected list push call: key=%q values=%#v", client.listPushKey, client.listPushValues)
+	}
+}
+
+func TestRedisListPushPrependsValues(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	CloseAllRedisClients()
+	client := &capturingRedisClient{}
+	originalNewRedisClientFunc := newRedisClientFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	defer func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+		CloseAllRedisClients()
+	}()
+	newRedisClientFunc = func() redislib.RedisClient {
+		return client
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	values := []string{"review", "ship"}
+	result := app.RedisListPush(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "tasks", RedisListPushOptions{
+		Values:   values,
+		Position: "left",
+	})
+	if !result.Success {
+		t.Fatalf("RedisListPush returned failure: %+v", result)
+	}
+	if client.listPushLeftKey != "tasks" || !reflect.DeepEqual(client.listPushLeftValues, values) {
+		t.Fatalf("unexpected left list push call: key=%q values=%#v", client.listPushLeftKey, client.listPushLeftValues)
+	}
+	if client.listPushKey != "" || client.listPushValues != nil {
+		t.Fatalf("right list push must not be used: key=%q values=%#v", client.listPushKey, client.listPushValues)
+	}
+}
+
+func TestRedisListPushRejectsEmptyValues(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	CloseAllRedisClients()
+	client := &capturingRedisClient{}
+	originalNewRedisClientFunc := newRedisClientFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	defer func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+		CloseAllRedisClients()
+	}()
+	newRedisClientFunc = func() redislib.RedisClient {
+		return client
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	result := app.RedisListPush(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "tasks", RedisListPushOptions{Position: "right"})
+	if result.Success {
+		t.Fatalf("RedisListPush should reject empty values: %+v", result)
+	}
+	want := app.appText("redis.backend.error.argument_required", map[string]any{"name": "values"})
+	if result.Message != want {
+		t.Fatalf("unexpected empty values error: got %q want %q", result.Message, want)
+	}
+	if client.listPushKey != "" || client.listPushLeftKey != "" {
+		t.Fatalf("empty values must not be pushed: right=%q left=%q", client.listPushKey, client.listPushLeftKey)
+	}
+}
+
+func TestRedisListPushRejectsInvalidPosition(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	CloseAllRedisClients()
+	client := &capturingRedisClient{}
+	originalNewRedisClientFunc := newRedisClientFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	defer func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+		CloseAllRedisClients()
+	}()
+	newRedisClientFunc = func() redislib.RedisClient {
+		return client
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	result := app.RedisListPush(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "tasks", RedisListPushOptions{
+		Values:   []string{"review"},
+		Position: "LEFT",
+	})
+	if result.Success {
+		t.Fatalf("RedisListPush should reject an invalid position: %+v", result)
+	}
+	want := app.appText("redis.backend.error.list_position_invalid", nil)
+	if result.Message != want {
+		t.Fatalf("unexpected invalid position error: got %q want %q", result.Message, want)
+	}
+	if client.listPushKey != "" || client.listPushLeftKey != "" {
+		t.Fatalf("invalid position must not be pushed: right=%q left=%q", client.listPushKey, client.listPushLeftKey)
+	}
+}
+
+func TestRedisListRemoveDeletesTheSelectedValue(t *testing.T) {
 	app := NewAppWithSecretStore(newFakeAppSecretStore())
 	app.configDir = t.TempDir()
 
@@ -943,12 +1114,48 @@ func TestRedisListRemoveDeletesOneValue(t *testing.T) {
 		Type: "redis",
 		Host: "redis.local",
 		Port: 6379,
-	}, "tasks", "review")
+	}, "tasks", 3, "review")
 	if !result.Success {
 		t.Fatalf("RedisListRemove returned failure: %+v", result)
 	}
-	if client.removedListKey != "tasks" || client.removedListValue != "review" {
-		t.Fatalf("unexpected list remove call: key=%q value=%q", client.removedListKey, client.removedListValue)
+	if client.removedListKey != "tasks" || client.removedListIndex != 3 || client.removedListValue != "review" {
+		t.Fatalf("unexpected list remove call: key=%q index=%d value=%q", client.removedListKey, client.removedListIndex, client.removedListValue)
+	}
+}
+
+func TestRedisListRemoveReportsWhenTheSelectedItemChanged(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	CloseAllRedisClients()
+	client := &capturingRedisClient{
+		listRemoveErr: fmt.Errorf("concurrent update: %w", redislib.ErrRedisListItemChanged),
+	}
+	originalNewRedisClientFunc := newRedisClientFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	defer func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+		CloseAllRedisClients()
+	}()
+	newRedisClientFunc = func() redislib.RedisClient {
+		return client
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	result := app.RedisListRemove(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "tasks", 3, "review")
+	if result.Success {
+		t.Fatalf("RedisListRemove should report a changed item: %+v", result)
+	}
+	want := app.appText("redis.backend.error.list_item_changed", nil)
+	if result.Message != want {
+		t.Fatalf("unexpected changed item error: got %q want %q", result.Message, want)
 	}
 }
 

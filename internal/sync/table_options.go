@@ -11,3 +11,12 @@ type TableOptions struct {
 	SelectedUpdatePKs []string `json:"selectedUpdatePks,omitempty"`
 	SelectedDeletePKs []string `json:"selectedDeletePks,omitempty"`
 }
+
+func hasEffectiveSyncDataOperation(mode string, opts TableOptions) bool {
+	switch normalizeSyncMode(mode) {
+	case "insert_only", "full_overwrite":
+		return opts.Insert
+	default:
+		return opts.Insert || opts.Update || opts.Delete
+	}
+}

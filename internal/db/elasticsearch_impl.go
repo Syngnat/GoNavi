@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/esconsole"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/ssh"
 
@@ -34,15 +35,117 @@ const (
 // ElasticsearchDB 实现 Database 接口，提供 Elasticsearch 数据源连接能力。
 type ElasticsearchDB struct {
 	client           *elasticsearch.Client
+	consoleClient    *elasticsearch.Client
 	database         string // 默认索引名
+	serverMajor      int
 	pingTimeout      time.Duration
 	indexListTimeout time.Duration // 0 表示使用默认索引枚举总超时
 	forwarder        *ssh.LocalForwarder
 }
 
+func (e *ElasticsearchDB) ElasticsearchConsoleTransportUsable() bool {
+	return e.consoleClient != nil
+}
+
+// ExecuteElasticsearchConsoleRequest sends one parsed Elasticsearch REST
+// request and preserves the raw HTTP response, including structured 4xx/5xx
+// payloads. Transport or response-read failures are returned as errors.
+func (e *ElasticsearchDB) ExecuteElasticsearchConsoleRequest(ctx context.Context, request ElasticsearchConsoleRequest) (ElasticsearchConsoleResponse, error) {
+	validatedRequest, err := validateElasticsearchConsoleDriverRequest(request, e.serverMajor)
+	if err != nil {
+		return ElasticsearchConsoleResponse{}, err
+	}
+	request = validatedRequest
+	client := e.consoleClient
+	if client == nil {
+		return ElasticsearchConsoleResponse{}, fmt.Errorf("Elasticsearch Console retry-disabled transport is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	requestBody := request.Body
+	if request.BodyKind == ElasticsearchConsoleBodyKindNDJSON && requestBody != "" {
+		requestBody = strings.TrimRight(requestBody, "\r\n") + "\n"
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, request.Method, request.Path, strings.NewReader(requestBody))
+	if err != nil {
+		return ElasticsearchConsoleResponse{}, fmt.Errorf("构造 Elasticsearch Console 请求失败：%w", err)
+	}
+	if request.Body != "" {
+		switch request.BodyKind {
+		case ElasticsearchConsoleBodyKindNDJSON:
+			httpRequest.Header.Set("Content-Type", "application/x-ndjson")
+		default:
+			httpRequest.Header.Set("Content-Type", "application/json")
+		}
+	}
+
+	httpResponse, err := client.Perform(httpRequest)
+	if err != nil {
+		return ElasticsearchConsoleResponse{}, fmt.Errorf("Elasticsearch Console 请求失败：%w", err)
+	}
+	defer httpResponse.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, maxElasticsearchConsoleResponseBytes+1))
+	if err != nil {
+		return ElasticsearchConsoleResponse{}, fmt.Errorf("读取 Elasticsearch Console 响应失败：%w", err)
+	}
+	if len(body) > maxElasticsearchConsoleResponseBytes {
+		return ElasticsearchConsoleResponse{}, fmt.Errorf("Elasticsearch Console 响应超过 32 MiB 上限")
+	}
+	return ElasticsearchConsoleResponse{
+		StatusCode:  httpResponse.StatusCode,
+		ContentType: httpResponse.Header.Get("Content-Type"),
+		RawBody:     string(body),
+		ServerMajor: e.serverMajor,
+	}, nil
+}
+
+func validateElasticsearchConsoleDriverRequest(request ElasticsearchConsoleRequest, serverMajor int) (ElasticsearchConsoleRequest, error) {
+	source := strings.TrimSpace(request.Method) + " " + strings.TrimSpace(request.Path)
+	if request.Body != "" {
+		source += "\n" + request.Body
+	}
+	batch, err := esconsole.ParseSourceForMajor(source, "", serverMajor)
+	if err != nil {
+		return ElasticsearchConsoleRequest{}, fmt.Errorf("Elasticsearch Console 请求校验失败：%w", err)
+	}
+	if len(batch.Requests) != 1 {
+		return ElasticsearchConsoleRequest{}, fmt.Errorf("Elasticsearch Console driver 仅接受单个请求")
+	}
+	parsed := batch.Requests[0]
+	if parsed.Risk == esconsole.RiskBlocked {
+		return ElasticsearchConsoleRequest{}, fmt.Errorf("Elasticsearch Console 请求被策略拒绝：%s", parsed.BlockReason)
+	}
+	bodyKind := ElasticsearchConsoleBodyKindNone
+	switch parsed.BodyKind {
+	case esconsole.BodyJSON:
+		bodyKind = ElasticsearchConsoleBodyKindJSON
+	case esconsole.BodyNDJSON:
+		bodyKind = ElasticsearchConsoleBodyKindNDJSON
+	case esconsole.BodyNone:
+	default:
+		return ElasticsearchConsoleRequest{}, fmt.Errorf("Elasticsearch Console driver 不支持 body 类型 %s", parsed.BodyKind)
+	}
+	return ElasticsearchConsoleRequest{
+		Method:   parsed.Method,
+		Path:     parsed.Path,
+		Body:     parsed.Body,
+		BodyKind: bodyKind,
+	}, nil
+}
+
 type esHTTPStatusError struct {
 	statusCode int
 	status     string
+}
+
+func (e *ElasticsearchDB) ElasticsearchServerMajor() int {
+	if e == nil {
+		return 0
+	}
+	return e.serverMajor
 }
 
 func (e *esHTTPStatusError) Error() string {
@@ -108,13 +211,38 @@ func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) (err error
 			lastErr = err
 			continue
 		}
+		consoleCfg := esCfg
+		consoleCfg.DisableRetry = true
+		consoleCfg.MaxRetries = 0
+		consoleCfg.RetryOnStatus = nil
+		consoleCfg.RetryOnError = nil
+		consoleClient, err := elasticsearch.NewClient(consoleCfg)
+		if err != nil {
+			logger.Warnf("Elasticsearch 创建 Console 客户端失败：%d/%d 模式=%s 错误=%v", idx+1, len(attempts), sslLabel, err)
+			lastErr = err
+			continue
+		}
 
 		e.client = client
+		e.consoleClient = consoleClient
 		if err := e.Ping(); err != nil {
 			e.client = nil
+			e.consoleClient = nil
 			logger.Warnf("Elasticsearch 连接验证失败：%d/%d 模式=%s 错误=%v", idx+1, len(attempts), sslLabel, err)
 			lastErr = err
 			continue
+		}
+		probeTimeout := e.pingTimeout
+		if probeTimeout <= 0 {
+			probeTimeout = defaultEsPingTimeout
+		}
+		probeCtx, cancelProbe := context.WithTimeout(context.Background(), probeTimeout)
+		major, probeErr := e.probeServerMajor(probeCtx)
+		cancelProbe()
+		if probeErr != nil {
+			logger.Warnf("Elasticsearch 版本探测失败，将使用通用 Console 模板：%v", probeErr)
+		} else {
+			e.serverMajor = major
 		}
 		logger.Infof("Elasticsearch 连接成功：%d/%d 模式=%s", idx+1, len(attempts), sslLabel)
 		if idx > 0 {
@@ -129,6 +257,39 @@ func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) (err error
 	return fmt.Errorf("Elasticsearch 连接失败：无可用连接方案")
 }
 
+func (e *ElasticsearchDB) probeServerMajor(ctx context.Context) (int, error) {
+	if e.client == nil {
+		return 0, localizedDatabaseRuntimeError("db.backend.error.connection_not_open", nil)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+	if err != nil {
+		return 0, err
+	}
+	response, err := e.client.Perform(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return 0, fmt.Errorf("版本端点返回 HTTP %d", response.StatusCode)
+	}
+	var payload struct {
+		Version struct {
+			Number string `json:"number"`
+		} `json:"version"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
+	if err := decoder.Decode(&payload); err != nil {
+		return 0, fmt.Errorf("解析版本响应失败：%w", err)
+	}
+	majorText, _, _ := strings.Cut(strings.TrimSpace(payload.Version.Number), ".")
+	major, err := strconv.Atoi(majorText)
+	if err != nil || major <= 0 {
+		return 0, fmt.Errorf("无效的 Elasticsearch 版本号 %q", payload.Version.Number)
+	}
+	return major, nil
+}
+
 // Close 关闭 Elasticsearch 连接并释放底层资源。
 func (e *ElasticsearchDB) Close() error {
 	if e.forwarder != nil {
@@ -137,14 +298,23 @@ func (e *ElasticsearchDB) Close() error {
 		}
 		e.forwarder = nil
 	}
+	if e.consoleClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := e.consoleClient.Close(ctx); err != nil {
+			logger.Warnf("关闭 Elasticsearch Console 客户端失败：%v", err)
+		}
+		cancel()
+		e.consoleClient = nil
+	}
 	if e.client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
 		if err := e.client.Close(ctx); err != nil {
 			logger.Warnf("关闭 Elasticsearch 客户端失败：%v", err)
 		}
+		cancel()
 		e.client = nil
 	}
+	e.serverMajor = 0
 	return nil
 }
 
@@ -201,18 +371,56 @@ func (e *ElasticsearchDB) queryWithContext(ctx context.Context, query string) ([
 		return []map[string]interface{}{}, []string{}, nil
 	}
 
-	// 优先尝试 DevTools 风格解析
-	if req, ok := parseESConsoleRequest(query); ok {
-		return e.esQueryConsole(ctx, req)
+	// All legacy query entry points are normalized through the same parser and
+	// allowlist as the dedicated console. This keeps JSON DSL, query_string and
+	// simplified SELECT compatibility without allowing an index value to become
+	// URL syntax in go-elasticsearch's WithIndex option.
+	batch, err := esconsole.ParseSourceForMajor(query, e.database, e.serverMajor)
+	if err != nil {
+		return nil, nil, fmt.Errorf("Elasticsearch 查询解析失败：%w", err)
 	}
-
-	// JSON DSL（以 { 开头）
-	if isJSONDSL(query) {
-		return e.esQueryWithDSL(ctx, query)
+	if len(batch.Requests) != 1 {
+		return nil, nil, fmt.Errorf("旧 Elasticsearch 查询入口仅支持一个只读请求")
 	}
-
-	// query_string
-	return e.esQueryWithString(ctx, query)
+	request := batch.Requests[0]
+	if batch.Blocked || request.Risk == esconsole.RiskBlocked {
+		reason := strings.TrimSpace(request.BlockReason)
+		if reason == "" {
+			reason = "请求不在只读端点白名单中"
+		}
+		return nil, nil, fmt.Errorf("Elasticsearch 查询拒绝：%s", reason)
+	}
+	if request.IsWrite || request.Risk != esconsole.RiskRead {
+		return nil, nil, fmt.Errorf("旧 Elasticsearch 查询入口仅允许只读请求")
+	}
+	response, err := e.ExecuteElasticsearchConsoleRequest(ctx, ElasticsearchConsoleRequest{
+		Method:   request.Method,
+		Path:     request.Path,
+		Body:     request.Body,
+		BodyKind: ElasticsearchConsoleBodyKind(request.BodyKind),
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, nil, fmt.Errorf("Elasticsearch 查询错误 (HTTP %d)：%s", response.StatusCode, truncateElasticsearchQueryErrorBody([]byte(response.RawBody)))
+	}
+	if request.Route == "/_search" || request.Route == "/{target}/_search" {
+		return e.parseConsoleSearchResponse([]byte(response.RawBody))
+	}
+	if request.Route == "/_count" || request.Route == "/{target}/_count" {
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(response.RawBody), &payload); err != nil {
+			return nil, nil, fmt.Errorf("解析 Elasticsearch count 响应失败：%w", err)
+		}
+		return []map[string]interface{}{{"count": payload["count"]}}, []string{"count"}, nil
+	}
+	var payload interface{}
+	if err := json.Unmarshal([]byte(response.RawBody), &payload); err != nil {
+		return []map[string]interface{}{{"result": response.RawBody}}, []string{"result"}, nil
+	}
+	formatted, _ := json.MarshalIndent(payload, "", "  ")
+	return []map[string]interface{}{{"result": string(formatted)}}, []string{"result"}, nil
 }
 
 // validateESConsolePath 校验 DevTools 风格请求的路径和方法是否安全。
@@ -296,13 +504,13 @@ func (e *ElasticsearchDB) esQueryConsole(ctx context.Context, req esConsoleReque
 	defer httpRes.Body.Close()
 
 	// 读取响应
-	body, err := io.ReadAll(httpRes.Body)
+	body, err := readElasticsearchQueryResponseBody(httpRes.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取 DevTools 响应失败：%w", err)
 	}
 
 	if httpRes.StatusCode >= 400 {
-		return nil, nil, fmt.Errorf("Elasticsearch DevTools 查询错误：%s", string(body))
+		return nil, nil, fmt.Errorf("Elasticsearch DevTools 查询错误：%s", truncateElasticsearchQueryErrorBody(body))
 	}
 
 	// _search 端点使用标准响应解析
@@ -495,6 +703,43 @@ func (e *ElasticsearchDB) GetTables(dbName string) ([]string, error) {
 	aliases := e.esFetchIndexAliases(target)
 	tables = append(tables, aliases...)
 	return tables, nil
+}
+
+// TableExists checks one concrete index or alias without assuming that the
+// selected index still exists after its metadata was cached.
+func (e *ElasticsearchDB) TableExists(dbName, tableName string) (bool, error) {
+	if e.client == nil {
+		return false, localizedDatabaseRuntimeError("db.backend.error.connection_not_open", nil)
+	}
+
+	indexName := resolveEsIndexName(dbName, tableName, e.database)
+	if indexName == "" {
+		return false, fmt.Errorf("未指定索引名")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultEsPingTimeout)
+	defer cancel()
+	res, err := e.client.Indices.Exists(
+		[]string{indexName},
+		e.client.Indices.Exists.WithContext(ctx),
+		e.client.Indices.Exists.WithExpandWildcards("all"),
+		e.client.Indices.Exists.WithAllowNoIndices(true),
+		e.client.Indices.Exists.WithIgnoreUnavailable(true),
+	)
+	if err != nil {
+		return false, fmt.Errorf("检查索引是否存在失败：%w", err)
+	}
+	defer res.Body.Close()
+	_, _ = io.Copy(io.Discard, res.Body)
+
+	switch res.StatusCode {
+	case http.StatusOK:
+		return true, nil
+	case http.StatusNotFound:
+		return false, nil
+	default:
+		return false, fmt.Errorf("检查索引是否存在失败：%s", res.Status())
+	}
 }
 
 // GetCreateStatement 返回索引的 settings + mappings 组合 JSON。

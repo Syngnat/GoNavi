@@ -44,11 +44,69 @@ type Database interface {
 	GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error)
 }
 
+const maxElasticsearchConsoleResponseBytes = 32 << 20
+
+// ElasticsearchConsoleBodyKind identifies how an Elasticsearch REST request
+// body must be encoded on the wire.
+type ElasticsearchConsoleBodyKind string
+
+const (
+	ElasticsearchConsoleBodyKindNone   ElasticsearchConsoleBodyKind = "none"
+	ElasticsearchConsoleBodyKindJSON   ElasticsearchConsoleBodyKind = "json"
+	ElasticsearchConsoleBodyKindNDJSON ElasticsearchConsoleBodyKind = "ndjson"
+)
+
+// ElasticsearchConsoleRequest is the driver-facing representation of one
+// already parsed and classified Elasticsearch Console request.
+type ElasticsearchConsoleRequest struct {
+	Method   string                       `json:"method"`
+	Path     string                       `json:"path"`
+	Body     string                       `json:"body,omitempty"`
+	BodyKind ElasticsearchConsoleBodyKind `json:"bodyKind"`
+}
+
+// ElasticsearchConsoleResponse preserves the raw Elasticsearch HTTP response
+// so callers can render both successful and structured error payloads.
+type ElasticsearchConsoleResponse struct {
+	StatusCode  int    `json:"statusCode"`
+	ContentType string `json:"contentType,omitempty"`
+	RawBody     string `json:"rawBody"`
+	ServerMajor int    `json:"serverMajor,omitempty"`
+}
+
+// ElasticsearchConsoleExecutor is implemented by drivers that can execute a
+// validated Elasticsearch REST request without converting it into tabular SQL
+// results.
+type ElasticsearchConsoleExecutor interface {
+	ExecuteElasticsearchConsoleRequest(context.Context, ElasticsearchConsoleRequest) (ElasticsearchConsoleResponse, error)
+}
+
+// ElasticsearchConsoleTransportHealth reports whether an executor can safely
+// remain cached after a transport-level console error. Direct HTTP clients
+// normally remain reusable after cancellation; a force-terminated optional
+// driver agent does not.
+type ElasticsearchConsoleTransportHealth interface {
+	ElasticsearchConsoleTransportUsable() bool
+}
+
+// ElasticsearchServerVersionProvider exposes the major version discovered
+// when the driver connected. A zero value means the version is unknown.
+type ElasticsearchServerVersionProvider interface {
+	ElasticsearchServerMajor() int
+}
+
 // DatabaseForeignKeyProvider is an optional metadata interface for drivers that
 // can load a database-wide foreign-key snapshot more efficiently than one table
 // at a time.
 type DatabaseForeignKeyProvider interface {
 	GetDatabaseForeignKeys(dbName string) (map[string][]connection.ForeignKeyDefinition, error)
+}
+
+// TableExistsChecker is an optional point lookup for a table's canonical
+// metadata identity. Callers must pass the exact name returned by driver
+// metadata; this interface does not parse arbitrary SQL identifiers.
+type TableExistsChecker interface {
+	TableExists(dbName, tableName string) (bool, error)
 }
 
 // TableRowCounter is an optional metadata interface for drivers that can

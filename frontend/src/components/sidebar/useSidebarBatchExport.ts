@@ -94,8 +94,9 @@ export const useSidebarBatchExport = ({
     }));
   };
 
-  const openBatchTableWorkbench = () => {
-    const { connectionId, dbName } = resolveBatchWorkbenchContext(selectedNodesRef.current, connections);
+  const openBatchTableWorkbench = (node?: any) => {
+    const selectedNodes = node ? [node] : selectedNodesRef.current;
+    const { connectionId, dbName } = resolveBatchWorkbenchContext(selectedNodes, connections);
     addTab(buildBatchTableExportWorkbenchTab({
       connectionId,
       dbName: dbName || undefined,
@@ -103,8 +104,9 @@ export const useSidebarBatchExport = ({
     }));
   };
 
-  const openBatchDatabaseWorkbench = () => {
-    const { connectionId } = resolveBatchWorkbenchContext(selectedNodesRef.current, connections);
+  const openBatchDatabaseWorkbench = (node?: any) => {
+    const selectedNodes = node ? [node] : selectedNodesRef.current;
+    const { connectionId } = resolveBatchWorkbenchContext(selectedNodes, connections);
     addTab(buildBatchDatabaseExportWorkbenchTab({
       connectionId,
       title: t('sidebar.action.batch_databases'),

@@ -2809,7 +2809,18 @@ type ChangePreview struct {
 
 func resolveChangeTargetTableName(config connection.ConnectionConfig, dbName, tableName string) string {
 	targetTableName := strings.TrimSpace(tableName)
-	if resolveDDLDBType(config) != "oracle" {
+	dbType := resolveDDLDBType(config)
+	if dbType == "dameng" {
+		schemaName, pureTableName := splitDamengChangeTarget(dbName, targetTableName)
+		if strings.TrimSpace(pureTableName) == "" {
+			return targetTableName
+		}
+		if strings.TrimSpace(schemaName) == "" {
+			return quoteIdentByType(dbType, pureTableName)
+		}
+		return quoteIdentByType(dbType, schemaName) + "." + quoteIdentByType(dbType, pureTableName)
+	}
+	if dbType != "oracle" {
 		return targetTableName
 	}
 
@@ -2818,6 +2829,35 @@ func resolveChangeTargetTableName(config connection.ConnectionConfig, dbName, ta
 		return targetTableName
 	}
 	return strings.TrimSpace(schemaName) + "." + strings.TrimSpace(pureTableName)
+}
+
+func splitDamengChangeTarget(dbName, tableName string) (string, string) {
+	schemaName := strings.TrimSpace(dbName)
+	targetTableName := strings.TrimSpace(tableName)
+	if targetTableName == "" {
+		return schemaName, ""
+	}
+
+	// GetTables historically returns OWNER.TABLE_NAME without quoting. The
+	// selected dbName is the authoritative boundary when OWNER itself has dots.
+	if schemaName != "" && len(targetTableName) > len(schemaName) &&
+		strings.EqualFold(targetTableName[:len(schemaName)], schemaName) &&
+		targetTableName[len(schemaName)] == '.' {
+		pureTableName := strings.TrimSpace(targetTableName[len(schemaName)+1:])
+		if parsedSchema, parsedTable := db.SplitSQLQualifiedName(pureTableName); parsedSchema == "" && parsedTable != "" {
+			pureTableName = parsedTable
+		}
+		return schemaName, pureTableName
+	}
+
+	parsedSchema, parsedTable := db.SplitSQLQualifiedName(targetTableName)
+	if parsedTable == "" {
+		return schemaName, targetTableName
+	}
+	if parsedSchema != "" {
+		return parsedSchema, parsedTable
+	}
+	return schemaName, parsedTable
 }
 
 func buildChangePreview(dbInst db.Database, config connection.ConnectionConfig, tableName string, changes connection.ChangeSet) ChangePreview {
@@ -3823,6 +3863,16 @@ func quoteQualifiedIdentByType(dbType string, ident string) string {
 	}
 	if dbType == "kingbase" {
 		schema, table := db.SplitKingbaseQualifiedName(raw)
+		if table == "" {
+			return quoteIdentByType(dbType, raw)
+		}
+		if schema == "" {
+			return quoteIdentByType(dbType, table)
+		}
+		return quoteIdentByType(dbType, schema) + "." + quoteIdentByType(dbType, table)
+	}
+	if dbType == "dameng" {
+		schema, table := db.SplitSQLQualifiedName(raw)
 		if table == "" {
 			return quoteIdentByType(dbType, raw)
 		}
@@ -4999,6 +5049,9 @@ func (a *App) ExportQueryWithOptions(config connection.ConnectionConfig, dbName 
 		options.InsertSQLTargetTable = resolveChangeTargetTableName(runConfig, dbName, options.InsertSQLTargetTable)
 		if options.InsertSQLTargetTable != "" {
 			schemaName, pureTableName := normalizeSchemaAndTable(runConfig, dbName, options.InsertSQLTargetTable)
+			if options.InsertSQLDialect == "dameng" {
+				schemaName, pureTableName = splitDamengChangeTarget(dbName, options.InsertSQLTargetTable)
+			}
 			if defs, colErr := dbInst.GetColumns(schemaName, pureTableName); colErr == nil {
 				options.InsertSQLColumnTypes = buildImportColumnTypeMap(defs)
 				options.InsertSQLTargetColumns = make(map[string]string, len(defs))

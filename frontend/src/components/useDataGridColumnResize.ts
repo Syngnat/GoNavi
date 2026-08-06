@@ -11,10 +11,247 @@ const ROW_NUMBER_MIN_WIDTH = 28;
 const ROW_NUMBER_MAX_WIDTH = 120;
 
 type UseDataGridColumnResizeContext = Record<string, any>;
+type ColumnResizePreviewTargetKind = 'width' | 'width-and-flex' | 'delta-width' | 'table-width' | 'sticky-left';
+type ColumnResizePreviewTarget = {
+  element: HTMLElement;
+  initialWidth: string;
+  initialWidthPriority: string;
+  initialMinWidth: string;
+  initialMinWidthPriority: string;
+  initialFlex: string;
+  initialLeft: string;
+  kind: ColumnResizePreviewTargetKind;
+  baseValue?: number;
+};
+type ColumnResizePreview = {
+  minimumRenderedWidth: number | null;
+  renderedWidth: number | null;
+  targets: ColumnResizePreviewTarget[];
+};
+type ColumnResizeDragState = {
+  startX: number;
+  startWidth: number;
+  minWidth: number;
+  key: string;
+  preview: ColumnResizePreview | null;
+};
 type ColumnResizeListeners = {
   blur: () => void;
   move: (event: MouseEvent) => void;
   up: (event: MouseEvent) => void;
+};
+
+const resolveColumnResizeWidth = (dragState: ColumnResizeDragState, clientX: number): number => {
+  const deltaX = clientX - dragState.startX;
+  const isRowNumberColumn = dragState.key === GONAVI_ROW_NUMBER_COLUMN_KEY;
+  const baseMinWidth = isRowNumberColumn ? ROW_NUMBER_MIN_WIDTH : MIN_DATA_TABLE_COLUMN_WIDTH;
+  const minWidth = Math.max(baseMinWidth, dragState.minWidth);
+  const maxWidth = isRowNumberColumn ? ROW_NUMBER_MAX_WIDTH : Number.POSITIVE_INFINITY;
+  return Math.min(maxWidth, Math.max(minWidth, dragState.startWidth + deltaX));
+};
+
+const parseInlinePixelValue = (value: string, fallback: number): number => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const createColumnResizePreview = (
+  eventTarget: EventTarget | null,
+  key: string,
+): ColumnResizePreview | null => {
+  const handleElement = eventTarget as HTMLElement | null;
+  const headerCell = handleElement?.closest?.('th') as HTMLTableCellElement | null;
+  const sourceTable = headerCell?.closest?.('table') as HTMLTableElement | null;
+  if (!headerCell || !sourceTable || headerCell.cellIndex < 0) return null;
+
+  const renderedWidth = headerCell.getBoundingClientRect?.().width;
+  const tableWrapper = sourceTable.closest('.ant-table-wrapper');
+  const tableRoot = (tableWrapper || sourceTable) as HTMLElement;
+  const targets: ColumnResizePreviewTarget[] = [];
+  const targetKeys = new Map<HTMLElement, Set<ColumnResizePreviewTargetKind>>();
+  const addTarget = (
+    element: HTMLElement | null,
+    kind: ColumnResizePreviewTargetKind,
+    baseValue?: number,
+  ) => {
+    if (!element) return;
+    const kinds = targetKeys.get(element) ?? new Set<ColumnResizePreviewTargetKind>();
+    if (kinds.has(kind)) return;
+    kinds.add(kind);
+    targetKeys.set(element, kinds);
+    targets.push({
+      element,
+      initialWidth: element.style.width,
+      initialWidthPriority: element.style.getPropertyPriority?.('width') ?? '',
+      initialMinWidth: element.style.minWidth,
+      initialMinWidthPriority: element.style.getPropertyPriority?.('min-width') ?? '',
+      initialFlex: element.style.flex,
+      initialLeft: element.style.left,
+      kind,
+      baseValue,
+    });
+  };
+
+  const tables = Array.from(tableRoot.querySelectorAll('table')) as HTMLTableElement[];
+  if (!tables.includes(sourceTable)) tables.push(sourceTable);
+  tables.forEach((table) => {
+    const tableWidth = parseInlinePixelValue(table.style.width, table.getBoundingClientRect?.().width ?? 0);
+    addTarget(table, 'table-width', tableWidth);
+    const columns = Array.from(table.querySelectorAll('colgroup > col')) as HTMLElement[];
+    addTarget(columns[headerCell.cellIndex] ?? null, 'width');
+  });
+
+  const tableSurface = tableWrapper?.closest('.data-grid-table-wrap') as HTMLElement | null;
+  const externalScrollInner = tableSurface?.querySelector(
+    '.data-grid-external-horizontal-scroll-inner',
+  ) as HTMLElement | null;
+  if (externalScrollInner) {
+    const externalWidth = parseInlinePixelValue(
+      externalScrollInner.style.width,
+      externalScrollInner.getBoundingClientRect?.().width ?? 0,
+    );
+    addTarget(externalScrollInner, 'delta-width', externalWidth);
+  }
+
+  const fixedHeaderCells = Array.from(headerCell.parentElement?.children ?? []) as HTMLElement[];
+  const headerCellIndex = fixedHeaderCells.indexOf(headerCell);
+  const hasLaterResizableColumn = headerCellIndex >= 0 && fixedHeaderCells
+    .slice(headerCellIndex + 1)
+    .some((cell) => !!cell.querySelector?.('.react-resizable-handle'));
+  const isViewportFillColumn = !hasLaterResizableColumn
+    && !headerCell.classList?.contains('ant-table-cell-fix-left')
+    && !headerCell.classList?.contains('ant-table-cell-fix-right');
+  if (headerCell.classList?.contains('ant-table-cell-fix-left') && headerCellIndex >= 0) {
+    fixedHeaderCells.slice(headerCellIndex + 1).forEach((cell) => {
+      if (!cell.classList?.contains('ant-table-cell-fix-left')) return;
+      const left = parseInlinePixelValue(cell.style.left, cell.getBoundingClientRect?.().left ?? 0);
+      addTarget(cell, 'sticky-left', left);
+    });
+  }
+
+  const virtualRows = Array.from(
+    tableRoot.querySelectorAll('.ant-table-tbody-virtual .ant-table-row'),
+  ) as HTMLElement[];
+  virtualRows.forEach((row) => {
+    const cells = Array.from(row.children) as HTMLElement[];
+    const targetCell = cells.find((cell) => (
+      key === GONAVI_ROW_NUMBER_COLUMN_KEY
+        ? cell.classList?.contains('data-grid-row-number-cell')
+        : cell.getAttribute?.('data-col-name') === key
+    ));
+    if (!targetCell) return;
+
+    addTarget(targetCell, 'width-and-flex');
+    const rowWidth = parseInlinePixelValue(row.style.width, row.getBoundingClientRect?.().width ?? 0);
+    addTarget(row, 'delta-width', rowWidth);
+
+    if (targetCell.classList?.contains('ant-table-cell-fix-left')) {
+      const targetIndex = cells.indexOf(targetCell);
+      cells.slice(targetIndex + 1).forEach((cell) => {
+        if (!cell.classList?.contains('ant-table-cell-fix-left')) return;
+        const left = parseInlinePixelValue(cell.style.left, cell.getBoundingClientRect?.().left ?? 0);
+        addTarget(cell, 'sticky-left', left);
+      });
+    }
+  });
+
+  const standardRows = Array.from(
+    tableRoot.querySelectorAll('.ant-table-tbody > .ant-table-row'),
+  ) as HTMLElement[];
+  standardRows.forEach((row) => {
+    const cells = Array.from(row.children) as HTMLElement[];
+    const targetCell = cells.find((cell) => (
+      key === GONAVI_ROW_NUMBER_COLUMN_KEY
+        ? cell.classList?.contains('data-grid-row-number-cell')
+        : cell.getAttribute?.('data-col-name') === key
+    ));
+    if (!targetCell?.classList?.contains('ant-table-cell-fix-left')) return;
+
+    const targetIndex = cells.indexOf(targetCell);
+    cells.slice(targetIndex + 1).forEach((cell) => {
+      if (!cell.classList?.contains('ant-table-cell-fix-left')) return;
+      const left = parseInlinePixelValue(cell.style.left, cell.getBoundingClientRect?.().left ?? 0);
+      addTarget(cell, 'sticky-left', left);
+    });
+  });
+
+  if (!targets.some(({ kind }) => kind === 'width')) {
+    addTarget(headerCell, 'width');
+  }
+
+  const resolvedRenderedWidth = Number.isFinite(renderedWidth) && renderedWidth > 0
+    ? renderedWidth
+    : null;
+  const tableWidth = sourceTable.getBoundingClientRect?.().width;
+  const viewportWidth = sourceTable.parentElement?.getBoundingClientRect?.().width;
+  const availableShrink = Number.isFinite(tableWidth) && Number.isFinite(viewportWidth)
+    ? Math.max(0, (tableWidth as number) - (viewportWidth as number))
+    : null;
+
+  return {
+    targets,
+    minimumRenderedWidth: isViewportFillColumn
+      && resolvedRenderedWidth !== null
+      && availableShrink !== null
+      ? Math.max(0, Math.ceil(resolvedRenderedWidth - availableShrink))
+      : null,
+    renderedWidth: resolvedRenderedWidth,
+  };
+};
+
+const applyColumnResizePreview = (
+  preview: ColumnResizePreview | null,
+  width: number,
+  startWidth: number,
+) => {
+  if (!preview) return;
+  const delta = width - startWidth;
+  preview.targets.forEach(({ element, kind, baseValue }) => {
+    if (kind === 'width') {
+      element.style.width = `${width}px`;
+      return;
+    }
+    if (kind === 'width-and-flex') {
+      element.style.width = `${width}px`;
+      element.style.flex = `0 0 ${width}px`;
+      return;
+    }
+    const nextValue = (baseValue ?? 0) + delta;
+    if (kind === 'table-width') {
+      element.style.setProperty('width', `${nextValue}px`, 'important');
+      element.style.setProperty('min-width', `${nextValue}px`, 'important');
+      return;
+    }
+    if (kind === 'delta-width') {
+      element.style.width = `${nextValue}px`;
+      return;
+    }
+    element.style.left = `${nextValue}px`;
+  });
+};
+
+const restoreColumnResizePreview = (preview: ColumnResizePreview | null) => {
+  if (!preview) return;
+  preview.targets.forEach(({
+    element,
+    initialWidth,
+    initialWidthPriority,
+    initialMinWidth,
+    initialMinWidthPriority,
+    initialFlex,
+    initialLeft,
+  }) => {
+    element.style.width = initialWidth;
+    if (initialWidthPriority) {
+      element.style.setProperty('width', initialWidth, initialWidthPriority);
+    }
+    element.style.minWidth = initialMinWidth;
+    if (initialMinWidthPriority) {
+      element.style.setProperty('min-width', initialMinWidth, initialMinWidthPriority);
+    }
+    element.style.flex = initialFlex;
+    element.style.left = initialLeft;
+  });
 };
 
 export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => {
@@ -33,13 +270,7 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
     showColumnType,
   } = ctx;
 
-  const draggingRef = useRef<{
-    startX: number;
-    startWidth: number;
-    key: string;
-    containerLeft: number;
-  } | null>(null);
-  const ghostRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef<ColumnResizeDragState | null>(null);
   const resizeRafRef = useRef<number | null>(null);
   const latestClientXRef = useRef<number | null>(null);
   const isResizingRef = useRef(false);
@@ -47,16 +278,34 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
   const resizeBodyStyleRef = useRef<{ cursor: string; userSelect: string } | null>(null);
   const resizeListenersRef = useRef<ColumnResizeListeners | null>(null);
   const setColumnWidthsRef = useRef(setColumnWidths);
+  const lastPreviewResizeWidthRef = useRef<number | null>(null);
   const autoFitCanvasRef = useRef<HTMLCanvasElement | null>(null);
   setColumnWidthsRef.current = setColumnWidths;
 
-  const flushGhostPosition = useCallback(() => {
-    resizeRafRef.current = null;
-    if (!draggingRef.current || !ghostRef.current) return;
-    if (latestClientXRef.current === null) return;
-    const relativeLeft = latestClientXRef.current - draggingRef.current.containerLeft;
-    ghostRef.current.style.transform = `translateX(${relativeLeft}px)`;
+  const previewResizeWidth = useCallback((dragState: ColumnResizeDragState, clientX: number) => {
+    const newWidth = resolveColumnResizeWidth(dragState, clientX);
+    if (lastPreviewResizeWidthRef.current === newWidth) return newWidth;
+    lastPreviewResizeWidthRef.current = newWidth;
+    applyColumnResizePreview(dragState.preview, newWidth, dragState.startWidth);
+    return newWidth;
   }, []);
+
+  const commitResizeWidth = useCallback((dragState: ColumnResizeDragState, newWidth: number) => {
+    setColumnWidthsRef.current((prev: Record<string, number>) => (
+      prev[dragState.key] === newWidth
+        ? prev
+        : { ...prev, [dragState.key]: newWidth }
+    ));
+  }, []);
+
+  const flushResizeFrame = useCallback(() => {
+    resizeRafRef.current = null;
+    if (!draggingRef.current) return;
+    if (latestClientXRef.current === null) return;
+    const dragState = draggingRef.current;
+    const clientX = latestClientXRef.current;
+    previewResizeWidth(dragState, clientX);
+  }, [previewResizeWidth]);
 
   const detachResizeListeners = useCallback(() => {
     const listeners = resizeListenersRef.current;
@@ -89,9 +338,6 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
       resizeRafRef.current = null;
     }
     latestClientXRef.current = null;
-    if (ghostRef.current) {
-      ghostRef.current.style.display = 'none';
-    }
     detachResizeListeners();
     restoreResizeBodyStyles();
 
@@ -110,14 +356,16 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
 
     if (commit && dragState) {
       const finalClientX = Number.isFinite(clientX) ? clientX as number : latestClientX ?? dragState.startX;
-      const deltaX = finalClientX - dragState.startX;
-      const isRowNumberColumn = dragState.key === GONAVI_ROW_NUMBER_COLUMN_KEY;
-      const minWidth = isRowNumberColumn ? ROW_NUMBER_MIN_WIDTH : MIN_DATA_TABLE_COLUMN_WIDTH;
-      const maxWidth = isRowNumberColumn ? ROW_NUMBER_MAX_WIDTH : Number.POSITIVE_INFINITY;
-      const newWidth = Math.min(maxWidth, Math.max(minWidth, dragState.startWidth + deltaX));
-      setColumnWidthsRef.current((prev: Record<string, number>) => ({ ...prev, [dragState.key]: newWidth }));
+      const finalWidth = resolveColumnResizeWidth(dragState, finalClientX);
+      restoreColumnResizePreview(dragState.preview);
+      if (finalWidth !== dragState.startWidth) {
+        commitResizeWidth(dragState, finalWidth);
+      }
+    } else if (dragState) {
+      restoreColumnResizePreview(dragState.preview);
     }
-  }, [detachResizeListeners, restoreResizeBodyStyles]);
+    lastPreviewResizeWidthRef.current = null;
+  }, [commitResizeWidth, detachResizeListeners, previewResizeWidth, restoreResizeBodyStyles]);
 
   const handleResizeStart = useCallback((key: string) => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -129,21 +377,29 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
     const startX = e.clientX;
     // 序号列默认宽度与数据列不同，不能走 density 默认列宽
     const isRowNumberColumn = key === GONAVI_ROW_NUMBER_COLUMN_KEY;
-    const currentWidth = isRowNumberColumn
+    const declaredWidth = isRowNumberColumn
       ? (typeof columnWidths[key] === 'number' && columnWidths[key] > 0 ? columnWidths[key] : ROW_NUMBER_DEFAULT_WIDTH)
       : resolveDataTableColumnWidth({
           manualWidth: columnWidths[key],
           density: dataTableDensity,
         });
-    const containerLeft = containerRef.current?.getBoundingClientRect().left ?? 0;
-    draggingRef.current = { startX, startWidth: currentWidth, key, containerLeft };
+    const preview = createColumnResizePreview(e.currentTarget, key);
+    const renderedWidth = preview?.renderedWidth;
+    const currentWidth = renderedWidth && renderedWidth > 0 ? renderedWidth : declaredWidth;
+    const baseMinWidth = isRowNumberColumn ? ROW_NUMBER_MIN_WIDTH : MIN_DATA_TABLE_COLUMN_WIDTH;
+    // The last flexible column can absorb unused viewport width. It cannot be
+    // rendered narrower until the declared table width fills the viewport, so
+    // keep that displayed floor during preview to avoid release-time snapping.
+    const minWidth = Math.max(baseMinWidth, preview?.minimumRenderedWidth ?? baseMinWidth);
+    draggingRef.current = {
+      startX,
+      startWidth: currentWidth,
+      minWidth,
+      key,
+      preview,
+    };
+    lastPreviewResizeWidthRef.current = currentWidth;
     latestClientXRef.current = startX;
-
-    if (ghostRef.current && containerRef.current) {
-      const relativeLeft = startX - containerLeft;
-      ghostRef.current.style.transform = `translateX(${relativeLeft}px)`;
-      ghostRef.current.style.display = 'block';
-    }
 
     const handleMove = (event: MouseEvent) => {
       if (!draggingRef.current) return;
@@ -153,7 +409,7 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
         return;
       }
       if (resizeRafRef.current !== null) return;
-      resizeRafRef.current = requestAnimationFrame(flushGhostPosition);
+      resizeRafRef.current = requestAnimationFrame(flushResizeFrame);
     };
     const handleUp = (event: MouseEvent) => finishResize(event.clientX);
     const handleBlur = () => finishResize();
@@ -172,7 +428,7 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
     };
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, [columnWidths, containerRef, dataTableDensity, finishResize, flushGhostPosition]);
+  }, [columnWidths, containerRef, dataTableDensity, finishResize, flushResizeFrame]);
 
   useEffect(() => () => {
     finishResize(undefined, false, false);
@@ -283,7 +539,6 @@ export const useDataGridColumnResize = (ctx: UseDataGridColumnResizeContext) => 
 
   return {
     autoFitColumnWidth,
-    ghostRef,
     handleResizeAutoFit,
     handleResizeStart,
     isResizingRef,

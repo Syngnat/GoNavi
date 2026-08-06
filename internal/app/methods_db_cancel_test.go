@@ -7,7 +7,34 @@ import (
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
 )
+
+type blockingConnectCancelDB struct {
+	db.Database
+	connectStarted  chan struct{}
+	connectRelease  chan struct{}
+	queryContextErr chan error
+}
+
+func (f *blockingConnectCancelDB) Connect(connection.ConnectionConfig) error {
+	close(f.connectStarted)
+	<-f.connectRelease
+	return nil
+}
+
+func (f *blockingConnectCancelDB) Close() error { return nil }
+
+func (f *blockingConnectCancelDB) Ping() error { return nil }
+
+func (f *blockingConnectCancelDB) QueryContext(ctx context.Context, _ string) ([]map[string]interface{}, []string, error) {
+	err := ctx.Err()
+	f.queryContextErr <- err
+	if err != nil {
+		return nil, nil, err
+	}
+	return []map[string]interface{}{{"value": 1}}, []string{"value"}, nil
+}
 
 func TestGenerateQueryID(t *testing.T) {
 	app := NewApp()
@@ -74,6 +101,120 @@ func TestCancelQuery_ValidQuery(t *testing.T) {
 	app.queryMu.Unlock()
 	if exists {
 		t.Fatal("Query should be removed from runningQueries after cancellation")
+	}
+}
+
+func TestDBQueryMulti_CanBeCancelledWhileConnecting(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+
+	database := &blockingConnectCancelDB{
+		connectStarted:  make(chan struct{}),
+		connectRelease:  make(chan struct{}),
+		queryContextErr: make(chan error, 1),
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+
+	app := NewApp()
+	queryID := "cancel-while-connecting"
+	resultCh := make(chan connection.QueryResult, 1)
+	go func() {
+		resultCh <- app.DBQueryMulti(connection.ConnectionConfig{
+			Type:    "mysql",
+			Host:    "cancel-connect.test",
+			Port:    3306,
+			User:    "tester",
+			Timeout: 5,
+		}, "test", "SELECT 1", queryID)
+	}()
+
+	released := false
+	defer func() {
+		if !released {
+			close(database.connectRelease)
+		}
+	}()
+	select {
+	case <-database.connectStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for database connection attempt")
+	}
+
+	firstCancel := app.CancelQuery(queryID)
+	secondCancel := app.CancelQuery(queryID)
+	close(database.connectRelease)
+	released = true
+
+	var result connection.QueryResult
+	select {
+	case result = <-resultCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for cancelled query to return")
+	}
+	var observedContextErr error
+	select {
+	case observedContextErr = <-database.queryContextErr:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for query context observation")
+	}
+
+	if !firstCancel.Success {
+		t.Errorf("first cancellation while connecting should succeed, got: %s", firstCancel.Message)
+	}
+	if !secondCancel.Success {
+		t.Errorf("repeated cancellation should succeed until the query owner exits, got: %s", secondCancel.Message)
+	}
+	if observedContextErr != context.Canceled {
+		t.Errorf("query should receive the cancellation requested during connect, got context error: %v", observedContextErr)
+	}
+	if result.Success {
+		t.Fatalf("query should not execute successfully after cancellation, got: %+v", result)
+	}
+
+	app.queryMu.RLock()
+	_, stillRegistered := app.runningQueries[queryID]
+	app.queryMu.RUnlock()
+	if stillRegistered {
+		t.Fatal("query should be removed from runningQueries after its owner exits")
+	}
+	if thirdCancel := app.CancelQuery(queryID); thirdCancel.Success {
+		t.Fatal("cancellation should fail after the query owner exits")
+	}
+}
+
+func TestRegisterRunningQuery_OldCleanupDoesNotDeleteReplacement(t *testing.T) {
+	app := NewApp()
+	queryID := "reused-query-id"
+
+	firstCtx, firstCancel := context.WithCancel(context.Background())
+	defer firstCancel()
+	cleanupFirst := app.registerRunningQuery(queryID, firstCancel, true)
+
+	secondCtx, secondCancel := context.WithCancel(context.Background())
+	defer secondCancel()
+	cleanupSecond := app.registerRunningQuery(queryID, secondCancel, true)
+	cleanupFirst()
+
+	if result := app.CancelQuery(queryID); !result.Success {
+		t.Fatalf("old cleanup removed the replacement registration: %s", result.Message)
+	}
+	select {
+	case <-secondCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("replacement cancel function was not called")
+	}
+	select {
+	case <-firstCtx.Done():
+		t.Fatal("cancelling the replacement should not cancel the old registration")
+	default:
+	}
+
+	cleanupSecond()
+	app.queryMu.RLock()
+	_, exists := app.runningQueries[queryID]
+	app.queryMu.RUnlock()
+	if exists {
+		t.Fatal("replacement cleanup should remove its own registration")
 	}
 }
 

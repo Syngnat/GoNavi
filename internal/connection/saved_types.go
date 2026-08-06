@@ -14,6 +14,8 @@ type SavedConnectionInput struct {
 	EnvironmentType            string                          `json:"environmentType,omitempty"`
 	Config                     ConnectionConfig                `json:"config"`
 	IncludeDatabases           []string                        `json:"includeDatabases,omitempty"`
+	IncludeDatabasePatterns    []string                        `json:"includeDatabasePatterns,omitempty"`
+	ExcludeDatabasePatterns    []string                        `json:"excludeDatabasePatterns,omitempty"`
 	IncludeRedisDatabases      []int                           `json:"includeRedisDatabases,omitempty"`
 	SchemaVisibilityByDatabase map[string]SchemaVisibilityRule `json:"schemaVisibilityByDatabase,omitempty"`
 	IconType                   string                          `json:"iconType,omitempty"`
@@ -35,6 +37,8 @@ type SavedConnectionView struct {
 	EnvironmentType            string                          `json:"environmentType,omitempty"`
 	Config                     ConnectionConfig                `json:"config"`
 	IncludeDatabases           []string                        `json:"includeDatabases,omitempty"`
+	IncludeDatabasePatterns    []string                        `json:"includeDatabasePatterns,omitempty"`
+	ExcludeDatabasePatterns    []string                        `json:"excludeDatabasePatterns,omitempty"`
 	IncludeRedisDatabases      []int                           `json:"includeRedisDatabases,omitempty"`
 	SchemaVisibilityByDatabase map[string]SchemaVisibilityRule `json:"schemaVisibilityByDatabase,omitempty"`
 	IconType                   string                          `json:"iconType,omitempty"`

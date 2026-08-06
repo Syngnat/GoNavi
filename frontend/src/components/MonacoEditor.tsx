@@ -3,7 +3,10 @@ import Editor, { loader, type BeforeMount, type EditorProps, type OnMount } from
 import { useStore } from '../store';
 import { sanitizeDataTableFontSize } from '../utils/dataGridDisplay';
 import { DEFAULT_MONO_FONT_FAMILY } from '../utils/fontFamilies';
-import { resolveSqlEditorFontSize } from '../utils/sqlEditorTypography';
+import {
+  resolveSqlEditorFontSize,
+  resolveSqlEditorSuggestionLayout,
+} from '../utils/sqlEditorTypography';
 
 export type { BeforeMount, OnMount } from '@monaco-editor/react';
 export type GonaviMonacoTypography = 'code' | 'data' | 'sql';
@@ -16,7 +19,6 @@ export const GONAVI_MONACO_BG_CSS_VAR = '--gn-monaco-bg';
 const DEFAULT_FONT_SIZE = 14;
 const MIN_FONT_SIZE = 12;
 const MAX_FONT_SIZE = 20;
-const QUERY_EDITOR_AI_INLINE_CONTEXT_KEY = 'gonaviAiInlineSuggestionVisible';
 const PRINTABLE_INPUT_FALLBACK_DELAY_MS = 80;
 let monacoConfiguredPromise: Promise<void> | null = null;
 let transparentThemesRegistered = false;
@@ -205,68 +207,6 @@ const installOceanBaseOracleNavigationFallback = (editor: any) => {
   editor.onDidDispose?.(() => {
     editorDomNode.removeEventListener('mousedown', handleMouseDownCapture, true);
   });
-};
-
-const patchQueryEditorAiInlineRightArrowFallback = (editor: any, monaco: any) => {
-  const rawAddCommand = editor?.addCommand;
-  const originalAddCommand = rawAddCommand?.bind?.(editor);
-  if (!originalAddCommand || !monaco?.KeyCode?.RightArrow) {
-    return;
-  }
-  if (editor.__gonaviAiInlineRightArrowFallbackPatched) {
-    return;
-  }
-  Object.defineProperty(editor, '__gonaviAiInlineRightArrowFallbackPatched', {
-    value: true,
-    configurable: true,
-  });
-
-  const patchedAddCommand = (keybinding: any, handler: any, context: any) => {
-    if (
-      keybinding === monaco.KeyCode.RightArrow
-      && context === QUERY_EDITOR_AI_INLINE_CONTEXT_KEY
-      && typeof handler === 'function'
-    ) {
-      return originalAddCommand(keybinding, (...args: any[]) => {
-        const beforePosition = editor.getPosition?.();
-        const beforeValue = String(editor.getValue?.() ?? '');
-        const result = handler(...args);
-        const afterPosition = editor.getPosition?.();
-        const afterValue = String(editor.getValue?.() ?? '');
-        if (beforeValue === afterValue && sameEditorPosition(beforePosition, afterPosition)) {
-          editor.trigger?.('gonavi-ai-inline-fallback', 'cursorRight', null);
-        }
-        return result;
-      }, context);
-    }
-    return originalAddCommand(keybinding, handler, context);
-  };
-
-  if (rawAddCommand?.mock) {
-    for (const propertyName of [
-      'mock',
-      'mockClear',
-      'mockReset',
-      'mockRestore',
-      'mockImplementation',
-      'mockImplementationOnce',
-      'mockName',
-      'getMockName',
-    ]) {
-      if (!(propertyName in rawAddCommand)) {
-        continue;
-      }
-      Object.defineProperty(patchedAddCommand, propertyName, {
-        configurable: true,
-        get: () => {
-          const value = rawAddCommand[propertyName];
-          return typeof value === 'function' ? value.bind(rawAddCommand) : value;
-        },
-      });
-    }
-  }
-
-  editor.addCommand = patchedAddCommand;
 };
 
 const isWebKitImeScrollRuntime = (): boolean => {
@@ -900,31 +840,10 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 
   const handleMount: OnMount = useCallback((editor, monaco) => {
     installOceanBaseOracleNavigationFallback(editor);
-    patchQueryEditorAiInlineRightArrowFallback(editor, monaco);
     installPrintableInputFallback(editor, monaco);
     installWebKitImeScrollStabilizer(editor);
     onMount?.(editor, monaco);
   }, [onMount]);
-
-  // Unified surface: all call sites inherit panel via --gn-monaco-bg (no per-page bg).
-  const surfaceStyle: React.CSSProperties = {
-    height: props.height || '100%',
-    width: props.width || '100%',
-    minHeight: 0,
-    minWidth: 0,
-    background: `var(${GONAVI_MONACO_BG_CSS_VAR}, var(--gn-bg-panel, transparent))`,
-  };
-
-  const loadingFallback = (
-    <div
-      className={GONAVI_MONACO_SURFACE_CLASS}
-      data-monaco-editor-loading="true"
-      aria-busy="true"
-      style={surfaceStyle}
-    >
-      {loading || null}
-    </div>
-  );
 
   const resolvedOptions = useMemo(() => {
     if (uiVersion !== 'v2') {
@@ -955,6 +874,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       10,
       Math.round(Number(options?.fontSize) || resolvedFontSize),
     );
+    const suggestionLayout = gonaviTypography === 'sql'
+      ? resolveSqlEditorSuggestionLayout(effectiveEditorFontSize)
+      : null;
 
     return {
       ...options,
@@ -962,6 +884,7 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
       fontFamily: options?.fontFamily ?? monoFontFamily ?? DEFAULT_MONO_FONT_FAMILY,
       fontSize: options?.fontSize ?? resolvedFontSize,
       lineHeight: options?.lineHeight ?? Math.max(18, Math.round(effectiveEditorFontSize * 1.62)),
+      ...(suggestionLayout ? { suggestLineHeight: suggestionLayout.rowHeight } : {}),
     };
   }, [
     dataTableFontSize,
@@ -974,6 +897,37 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     sqlEditorFontSizeFollowGlobal,
     uiVersion,
   ]);
+
+  const suggestionLayout = uiVersion === 'v2' && gonaviTypography === 'sql'
+    ? resolveSqlEditorSuggestionLayout(resolvedOptions.fontSize)
+    : null;
+
+  // Unified surface: all call sites inherit panel via --gn-monaco-bg (no per-page bg).
+  const surfaceStyle = {
+    height: props.height || '100%',
+    width: props.width || '100%',
+    minHeight: 0,
+    minWidth: 0,
+    background: `var(${GONAVI_MONACO_BG_CSS_VAR}, var(--gn-bg-panel, transparent))`,
+    ...(suggestionLayout
+      ? {
+        '--gn-query-suggest-name-row-height': `${suggestionLayout.nameLineHeight}px`,
+        '--gn-query-suggest-comment-row-height': `${suggestionLayout.commentLineHeight}px`,
+        '--gn-query-suggest-row-height': `${suggestionLayout.rowHeight}px`,
+      }
+      : {}),
+  } as React.CSSProperties;
+
+  const loadingFallback = (
+    <div
+      className={GONAVI_MONACO_SURFACE_CLASS}
+      data-monaco-editor-loading="true"
+      aria-busy="true"
+      style={surfaceStyle}
+    >
+      {loading || null}
+    </div>
+  );
 
   if (!ready) {
     return loadingFallback;

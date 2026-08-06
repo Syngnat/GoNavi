@@ -8,6 +8,10 @@ import { isNativeDetachedWindowRoute } from './nativeDetachedWindowRoute';
 import { resolveLiveQueryTab, resolveLiveQueryTabs } from './liveQueryTabs';
 import { setQueryTabDraft } from './sqlFileTabDrafts';
 import { sanitizeTableAccessCount } from './tableAccessCount';
+import {
+  sanitizeCustomThemeDefinition,
+  type CustomThemeDefinition,
+} from './customTheme';
 
 export const NATIVE_DETACHED_BOOTSTRAP_URL = '/__gonavi/detached/bootstrap';
 export const NATIVE_DETACHED_ACTION_URL = '/__gonavi/detached/action';
@@ -16,6 +20,39 @@ export const NATIVE_DETACHED_WINDOW_COMMAND_EVENT = 'gonavi:native-detached-comm
 export const NATIVE_DETACHED_QUERY_RESULT_REDETACH_EVENT = 'gonavi:redetach-query-result';
 
 export const NATIVE_DETACHED_HOST_EVENTS_KEY = '__gonaviNativeHostEvents';
+/** Reserved snapshot key; it is consumed by the detached document, not hydrated into Zustand. */
+export const NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY = '__gonaviNativeCustomThemeContext';
+
+export type NativeDetachedThemeContext = CustomThemeDefinition | null;
+
+/**
+ * Read a host-owned custom theme from a bootstrap or host-state snapshot.
+ * An absent key means an older host did not provide the context; an explicit
+ * null means the host intentionally has no active custom theme.
+ */
+export const readNativeDetachedThemeContext = (
+  snapshot: object | null | undefined,
+): NativeDetachedThemeContext | undefined => {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return undefined;
+  const source = snapshot as Record<string, unknown>;
+  if (!Object.prototype.hasOwnProperty.call(source, NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY)) {
+    return undefined;
+  }
+  const raw = source[NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY];
+  if (raw === null) return null;
+  return sanitizeCustomThemeDefinition(raw);
+};
+
+const withNativeDetachedThemeContext = (
+  storeState: NativeDetachedStoreSnapshot,
+  themeContext: NativeDetachedThemeContext | undefined,
+): NativeDetachedStoreSnapshot => {
+  if (themeContext === undefined) return storeState;
+  return {
+    ...storeState,
+    [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: themeContext,
+  };
+};
 
 export const NATIVE_DETACHED_HOST_EVENT_NAMES = [
   'gonavi:ai:inject-prompt',
@@ -291,6 +328,7 @@ export const buildNativeDetachedWorkbenchPayload = (
   state: object,
   tab: TabData,
   resultSession?: QueryEditorResultSessionSnapshot | null,
+  themeContext?: NativeDetachedThemeContext,
 ): NativeDetachedWindowPayload => {
   const liveTab = resolveLiveQueryTab(tab);
   const storeState = buildFilteredStoreSnapshot(state, WORKBENCH_BOOTSTRAP_OMITTED_KEYS);
@@ -331,7 +369,7 @@ export const buildNativeDetachedWorkbenchPayload = (
       : {},
   );
   return {
-    storeState,
+    storeState: withNativeDetachedThemeContext(storeState, themeContext),
     tab: liveTab,
     resultSession: resultSession ?? null,
   };
@@ -340,6 +378,7 @@ export const buildNativeDetachedWorkbenchPayload = (
 export const buildNativeDetachedQueryResultPayload = (
   state: object,
   resultWindow: DetachedQueryResultWindow,
+  themeContext?: NativeDetachedThemeContext,
 ): NativeDetachedWindowPayload => {
   const storeState = buildFilteredStoreSnapshot(state, QUERY_RESULT_BOOTSTRAP_OMITTED_KEYS);
   storeState.tabs = [];
@@ -350,7 +389,7 @@ export const buildNativeDetachedQueryResultPayload = (
   storeState.sqlLogs = [];
   storeState.sqlEditorPendingTransactions = {};
   return {
-    storeState,
+    storeState: withNativeDetachedThemeContext(storeState, themeContext),
     resultWindow: {
       ...resultWindow,
       result: buildNativeDetachedQueryResultSnapshot(resultWindow.result),
@@ -360,6 +399,7 @@ export const buildNativeDetachedQueryResultPayload = (
 
 export const buildNativeDetachedAIChatPayload = (
   state: object,
+  themeContext?: NativeDetachedThemeContext,
 ): NativeDetachedWindowPayload => {
   const storeState = buildFilteredStoreSnapshot(state, AI_CHAT_BOOTSTRAP_OMITTED_KEYS);
   const source = state as Record<string, unknown>;
@@ -374,7 +414,7 @@ export const buildNativeDetachedAIChatPayload = (
   storeState.sqlEditorPendingTransactions = {};
   storeState.aiPanelVisible = true;
   storeState.aiChatOpenMode = 'detached';
-  return { storeState };
+  return { storeState: withNativeDetachedThemeContext(storeState, themeContext) };
 };
 
 export const buildNativeDetachedAIChatSyncStoreSnapshot = (
@@ -580,6 +620,7 @@ export const advanceNativeDetachedStoreSource = (
 export const buildNativeDetachedAIHostStoreSnapshot = (
   state: object,
   hostEvents: NativeDetachedHostEvent[] = [],
+  themeContext?: NativeDetachedThemeContext,
 ): NativeDetachedStoreSnapshot => {
   const source = state as Record<string, unknown>;
   const activeTabId = typeof source.activeTabId === 'string' && source.activeTabId
@@ -607,7 +648,14 @@ export const buildNativeDetachedAIHostStoreSnapshot = (
     : null;
   const activeConnectionId = String(activeContext?.connectionId || activeTab?.connectionId || '');
   const activeConnection = resolveArrayRecordById(source.connections, activeConnectionId);
-  return buildNativeDetachedStoreSnapshot({
+  return withNativeDetachedThemeContext(buildNativeDetachedStoreSnapshot({
+    // Presentation state is host-owned. Keep a detached AI window aligned with
+    // the main window when the user changes appearance after it is opened.
+    theme: source.theme,
+    themePreference: source.themePreference,
+    appearance: source.appearance,
+    fontSize: source.fontSize,
+    uiScale: source.uiScale,
     activeContext,
     activeTabId,
     activeTab,
@@ -615,7 +663,7 @@ export const buildNativeDetachedAIHostStoreSnapshot = (
     aiContexts: source.aiContexts,
     shortcutOptions: source.shortcutOptions,
     ...(hostEvents.length > 0 ? { [NATIVE_DETACHED_HOST_EVENTS_KEY]: hostEvents } : {}),
-  });
+  }), themeContext);
 };
 
 export const buildNativeDetachedQueryResultSnapshot = (
@@ -740,6 +788,11 @@ export const applyNativeDetachedHostStateSync = <TState extends object>(
 ): TState => {
   const safe = buildNativeDetachedStoreSnapshot(snapshot);
   const hostStatePatch: NativeDetachedStoreSnapshot = {};
+  for (const key of ['theme', 'themePreference', 'appearance', 'fontSize', 'uiScale'] as const) {
+    if (Object.prototype.hasOwnProperty.call(safe, key)) {
+      hostStatePatch[key] = safe[key];
+    }
+  }
   if (Object.prototype.hasOwnProperty.call(safe, 'activeContext')) {
     hostStatePatch.activeContext = safe.activeContext ?? null;
   }

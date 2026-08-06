@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { resolveDriverErrorMessageText } from '../components/DriverManagerModal';
 import { t as catalogT } from '../i18n/catalog';
 import { t } from '../i18n';
 import {
@@ -68,8 +69,6 @@ describe('driver import guidance', () => {
     backendWrapperKeys,
     expected,
   }) => {
-    const { resolveDriverErrorMessageText } = await import('../components/DriverManagerModal');
-
     expect(resolveDriverErrorMessageText(
       rawMessage,
       fallbackMessage,

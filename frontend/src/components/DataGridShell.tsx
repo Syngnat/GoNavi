@@ -147,7 +147,6 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     formatTextViewValue,
     getTargets,
     getTemporalPickerType,
-    ghostRef,
     gridCssText,
     gridFieldSelectOptions,
     gridId,
@@ -852,7 +851,9 @@ const renderDataTableView = () => (
                 rowCount={mergedDisplayData.length}
                 canModifyData={canModifyData}
                 jsonViewText={jsonViewText}
+                displayOutputColumnNames={displayOutputColumnNames}
                 translate={translateDataGrid}
+                onReturnToTable={() => handleViewModeChange('table')}
                 onOpenJsonEditor={handleOpenJsonEditor}
             />
         ) : (
@@ -868,6 +869,7 @@ const renderDataTableView = () => (
                 showColumnType={showColumnType}
                 showColumnComment={showColumnComment}
                 translate={translateDataGrid}
+                onReturnToTable={() => handleViewModeChange('table')}
                 onPrev={() => setTextRecordIndex((i: number) => Math.max(0, i - 1))}
                 onNext={() => setTextRecordIndex((i: number) => Math.min(textViewRows.length - 1, i + 1))}
                 onEditCurrent={openCurrentViewRowEditor}
@@ -1053,23 +1055,6 @@ const renderDataTableView = () => (
             />
 
 		        <style>{gridCssText}</style>
-       
-       {/* Ghost Resize Line for Columns */}
-       <div
-           ref={ghostRef}
-           style={{
-               position: 'absolute',
-               top: 0,
-               bottom: 0, // Fits container height
-               left: 0,
-               width: '2px',
-               background: selectionAccentHex,
-               zIndex: 9999,
-               display: 'none',
-               pointerEvents: 'none',
-               willChange: 'transform'
-           }}
-       />
 
        {/* Preview SQL Modal */}
        <Modal

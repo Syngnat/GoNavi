@@ -1,5 +1,5 @@
 import React from 'react';
-import type { FilterCondition } from '../utils/sql';
+import type { FilterCondition, FilterValueSelection } from '../utils/sql';
 import { applyNoAutoCapAttributesWithin } from '../utils/inputAutoCap';
 import {
   normalizeQuickWhereCondition,
@@ -20,6 +20,7 @@ export type GridColumnFilterDraft = {
   op: string;
   value?: string;
   value2?: string;
+  valueSelection?: FilterValueSelection;
 };
 
 type GridSortInfo = {
@@ -125,6 +126,11 @@ export const useDataGridFilters = ({
         op,
         value: String(cond?.value ?? ''),
         value2: String(cond?.value2 ?? ''),
+        valueSelection: cond?.valueSelection ? {
+          values: Array.from(new Set((cond.valueSelection.values || []).map((value) => String(value)))),
+          ...(cond.valueSelection.includeNull ? { includeNull: true } : {}),
+          ...(cond.valueSelection.includeEmpty ? { includeEmpty: true } : {}),
+        } : undefined,
       };
     });
   }, [normalizeFilterLogic]);
@@ -378,6 +384,7 @@ export const useDataGridFilters = ({
       op,
       value: isNoValueOp(op) ? '' : String(draft?.value ?? ''),
       value2: isNoValueOp(op) || !isBetweenOp(op) ? '' : String(draft?.value2 ?? ''),
+      valueSelection: draft.valueSelection,
     };
     const nextConditions = [
       ...filterConditions.filter((cond) => !(

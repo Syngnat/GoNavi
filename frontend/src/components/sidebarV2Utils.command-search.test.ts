@@ -116,7 +116,7 @@ describe('sidebarV2 command search performance helpers', () => {
     })).toEqual(['conn-1-db-a', 'conn-1-db-b']);
   });
 
-  it('keeps large table groups loaded on collapse and only unloads reloadable database trees', () => {
+  it('keeps database and table children loaded on collapse', () => {
     const tableChildren = Array.from({ length: 180 }, (_, index) => ({
       key: `table-${index}`,
       title: `table_${index}`,
@@ -138,6 +138,10 @@ describe('sidebarV2 command search performance helpers', () => {
     })).toBe(false);
     expect(shouldClearSidebarNodeChildrenOnCollapse({
       type: 'database',
+      children: tableChildren,
+    })).toBe(false);
+    expect(shouldClearSidebarNodeChildrenOnCollapse({
+      type: 'connection',
       children: tableChildren,
     })).toBe(true);
     expect(shouldClearSidebarNodeChildrenOnCollapse({

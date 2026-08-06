@@ -2,7 +2,7 @@ import { useCallback, useEffect } from 'react';
 import type React from 'react';
 import { message } from 'antd';
 import type { Item } from './DataGridCore';
-import { buildDataGridClipboardPasteRows, parseDataGridClipboardText } from './dataGridClipboardPaste';
+import { buildDataGridClipboardPasteRows, parseDataGridClipboardData } from './dataGridClipboardPaste';
 import { canSelectGridCellForClipboard } from './dataGridSelectionCopy';
 
 type DataGridBatchActionsContext = Record<string, any> & {
@@ -522,8 +522,8 @@ const handleBatchFillCells = useCallback(() => {
       if (activeElement?.closest(nativePasteGuard) || eventTarget?.closest(nativePasteGuard)) return;
 
       const clipboardData = e.clipboardData;
-      if (!clipboardData?.types.includes('text/plain')) return;
-      const matrix = parseDataGridClipboardText(clipboardData.getData('text/plain'));
+      const matrix = parseDataGridClipboardData(clipboardData);
+      if (matrix.length === 0) return;
 
       const currentRows = displayDataRef.current;
       const start = selectionStartRef.current;

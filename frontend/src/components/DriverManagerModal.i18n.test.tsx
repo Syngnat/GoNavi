@@ -351,8 +351,9 @@ describe('DriverManagerModal i18n', () => {
     expect(content).toContain('Size: 12 MB');
     expect(content).toContain('Version: v1.2.3');
     expect(content).toContain('Driver version');
-    expect(content).toContain('Status progress');
-    expect(content).toContain('v1.2.3 (installed)');
+    expect(content).not.toContain('Status progress');
+    expect(content).toContain('Installed');
+    expect(content).not.toContain('v1.2.3 (installed)');
     expect(findButton(renderer!, 'Remove')).toBeTruthy();
     expect(content).toContain('HTTP 403 from GitHub release asset');
   });
@@ -463,6 +464,93 @@ describe('DriverManagerModal i18n', () => {
     const content = textContent(renderer!.toJSON());
     expect(content).toContain('Checking driver download network...');
     expect(content).not.toContain('Network check has not completed');
+  });
+
+  it('shows the status loading state without a false zero-driver empty result', async () => {
+    storeState.appearance.uiVersion = 'v2';
+    let resolveStatus!: (value: unknown) => void;
+    let resolveNetwork!: (value: unknown) => void;
+    backendApp.GetDriverStatusList.mockImplementation(() => new Promise((resolve) => {
+      resolveStatus = resolve;
+    }));
+    backendApp.CheckDriverNetworkStatus.mockImplementation(() => new Promise((resolve) => {
+      resolveNetwork = resolve;
+    }));
+    const { setCurrentLanguage } = await import('../i18n');
+    setCurrentLanguage('en-US');
+    const { default: DriverManagerModal } = await import('./DriverManagerModal');
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+      await Promise.resolve();
+    });
+
+    const loadingContent = textContent(renderer!.toJSON());
+    expect(loadingContent).toContain('Refreshing status...');
+    expect(loadingContent).toContain('Checking driver download network...');
+    expect(loadingContent).not.toContain('0 drivers total');
+    expect(loadingContent).not.toContain('No drivers available');
+
+    await act(async () => {
+      resolveStatus({
+        success: true,
+        data: {
+          downloadDir: 'D:/drivers',
+          drivers: [
+            {
+              type: 'clickhouse',
+              name: 'ClickHouse',
+              builtIn: false,
+              pinnedVersion: 'v1.2.3',
+              runtimeAvailable: false,
+              packageInstalled: false,
+              connectable: false,
+            },
+          ],
+        },
+      });
+      await Promise.resolve();
+    });
+
+    const statusLoadedContent = textContent(renderer!.toJSON());
+    expect(statusLoadedContent).toContain('ClickHouse');
+    expect(statusLoadedContent).toContain('1 drivers total');
+    expect(statusLoadedContent).not.toContain('Refreshing status...');
+    expect(statusLoadedContent).toContain('Checking driver download network...');
+
+    await act(async () => {
+      resolveNetwork(buildNetworkStatusResult());
+      await Promise.resolve();
+    });
+  });
+
+  it('deduplicates concurrent cold status requests across driver manager instances', async () => {
+    let resolveStatus!: (value: unknown) => void;
+    backendApp.GetDriverStatusList.mockClear();
+    backendApp.GetDriverStatusList.mockImplementation(() => new Promise((resolve) => {
+      resolveStatus = resolve;
+    }));
+    const { default: DriverManagerModal } = await import('./DriverManagerModal');
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <>
+          <DriverManagerModal open onClose={vi.fn()} />
+          <DriverManagerModal open onClose={vi.fn()} />
+        </>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(backendApp.GetDriverStatusList).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveStatus({ success: true, data: { downloadDir: 'D:/drivers', drivers: [] } });
+      await Promise.resolve();
+    });
+    renderer!.unmount();
   });
 
   it.each([

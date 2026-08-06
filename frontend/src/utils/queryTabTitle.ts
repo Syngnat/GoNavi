@@ -3,6 +3,7 @@ import { SUPPORTED_LANGUAGES } from '../i18n/resolveLanguage';
 import type { I18nParams } from '../i18n/types';
 
 const UNTITLED_QUERY_DATABASE_PLACEHOLDER = '__GONAVI_QUERY_DATABASE__';
+export const QUERY_TAB_RENAME_REQUEST_EVENT = 'gonavi:request-query-tab-rename';
 const UNTITLED_QUERY_TITLE_KEYS = [
   'query.new',
   'sidebar.tab.new_query',

@@ -148,11 +148,12 @@ describe('DefinitionViewer object edit entry', () => {
     expect(storeState.addTab.mock.calls[0][0].query).toContain('SELECT id, name FROM users;');
   });
 
-  it('formats a one-line Oracle catalog view definition for display and editing', async () => {
+  it('preserves Oracle view DDL formatting for display and editing', async () => {
+    const rawDDL = `CREATE OR REPLACE VIEW APP.V_RISK AS SELECT a.id,NVL(b.org_name,'-') AS org_name FROM org a LEFT JOIN org_info b ON b.org_id=a.id WHERE a.deleted_flag=0`;
     storeState.connections[0].config.type = 'oracle';
     backendApp.DBShowCreateTable.mockResolvedValue({
       success: true,
-      data: `CREATE OR REPLACE VIEW APP.V_RISK AS SELECT a.id,NVL(b.org_name,'-') AS org_name FROM org a LEFT JOIN org_info b ON b.org_id=a.id WHERE a.deleted_flag=0`,
+      data: rawDDL,
     });
 
     let renderer: any;
@@ -170,10 +171,7 @@ describe('DefinitionViewer object edit entry', () => {
     expect(backendApp.DBShowCreateTable).toHaveBeenCalledWith(expect.anything(), 'APP', 'APP.V_RISK');
     expect(backendApp.DBQuery).not.toHaveBeenCalled();
     const editorText = String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''));
-    expect(editorText).toContain('CREATE OR REPLACE VIEW APP.V_RISK AS');
-    expect(editorText).toContain('SELECT\n  a.id,');
-    expect(editorText).toContain('\nFROM\n  org a');
-    expect(editorText).toContain('\nWHERE\n  a.deleted_flag = 0;');
+    expect(editorText).toBe(`${rawDDL};`);
 
     const button = renderer.root.findAll((node: any) => node.type === 'button' && findButtonText(node).includes('Edit object'))[0];
     await act(async () => {
@@ -181,8 +179,7 @@ describe('DefinitionViewer object edit entry', () => {
     });
 
     const query = String(storeState.addTab.mock.calls[0][0].query || '');
-    expect(query).toContain('SELECT\n  a.id,');
-    expect(query).toContain('\nWHERE\n  a.deleted_flag = 0;');
+    expect(query).toContain(`${rawDDL};`);
   });
 
   it('adds CREATE OR REPLACE without duplicating view fragments returned without ddl prefix', async () => {

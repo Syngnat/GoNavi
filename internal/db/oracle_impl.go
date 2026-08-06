@@ -35,23 +35,44 @@ const oracleDefaultPrefetchRows = 25
 var (
 	oracleTriggerCreatePattern = regexp.MustCompile(`(?is)^\s*CREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER\b`)
 	oracleTriggerTimingPattern = regexp.MustCompile(`(?is)^\s*(?:BEFORE|AFTER|INSTEAD\s+OF)\b`)
+	// DBMS_METADATA appends the enabled state as a separate statement; it is not part of the trigger definition.
+	oracleTriggerEnableStatementPattern = regexp.MustCompile(`(?is)(?:\r?\n|;)\s*ALTER\s+TRIGGER\s+[^;]+?\s+ENABLE\s*;?\s*(?:/\s*)?$`)
 )
 
 func oracleRuntimeError(key string, params map[string]any) error {
 	return fmt.Errorf("%s", localizedDriverRuntimeText(key, params))
 }
 
+// oracleConnectionSID 解析连接配置（ConnectionParams / URI）中的 SID 参数。
+// SID 与 Service Name 是 Oracle 两种互斥的连接定位方式：go-ora 驱动在
+// CONNECT_DATA 中优先使用 SID（configurations/connect_config.go），因此
+// SID 模式只需把 SID 值放入 DSN 查询参数，Database（服务名）可留空。
+func oracleConnectionSID(config connection.ConnectionConfig) string {
+	values := url.Values{}
+	mergeConnectionParamsFromConfigWithAllowlist(values, config, oracleConnectionParamNames, "oracle")
+	return oracleQueryValue(values, "SID")
+}
+
+// isOracleSIDMode 报告连接是否以 SID 模式连接（存在 SID 参数时优先于服务名）。
+func isOracleSIDMode(config connection.ConnectionConfig) bool {
+	return oracleConnectionSID(config) != ""
+}
+
 func (o *OracleDB) getDSN(config connection.ConnectionConfig) string {
-	// oracle://user:pass@host:port/service_name
+	// 服务名模式：oracle://user:pass@host:port/service_name
+	// SID 模式：oracle://user:pass@host:port/?SID=sid（go-ora 驱动据此组装 (SID=...)）
 	database := strings.TrimSpace(config.Database)
+	sid := oracleConnectionSID(config)
 
 	u := &url.URL{
 		Scheme: "oracle",
 		Host:   net.JoinHostPort(config.Host, strconv.Itoa(config.Port)),
-		Path:   "/" + database,
+	}
+	if sid == "" {
+		u.Path = "/" + database
+		u.RawPath = "/" + url.PathEscape(database)
 	}
 	u.User = url.UserPassword(config.User, config.Password)
-	u.RawPath = "/" + url.PathEscape(database)
 	q := url.Values{}
 	switch normalizedSSLMode(config) {
 	case sslModeRequired:
@@ -97,18 +118,28 @@ func oracleDSNLogSummary(config connection.ConnectionConfig, dsn string) string 
 		}
 		params = parsed.Query()
 	}
-	if serviceName == "" {
-		serviceName = "(未配置)"
+	sid := oracleQueryValue(params, "SID")
+	mode := "服务名"
+	targetLabel := "服务名"
+	targetValue := serviceName
+	if sid != "" {
+		mode = "SID"
+		targetLabel = "SID"
+		targetValue = sid
 	}
-	return fmt.Sprintf("服务名=%s CONNECT_TIMEOUT=%s READ_TIMEOUT=%s SSL=%s SSL_VERIFY=%s AUTH_TYPE=%s DBA_PRIVILEGE=%s SID=%s",
-		serviceName,
+	if targetValue == "" {
+		targetValue = "(未配置)"
+	}
+	return fmt.Sprintf("连接模式=%s %s=%s CONNECT_TIMEOUT=%s READ_TIMEOUT=%s SSL=%s SSL_VERIFY=%s AUTH_TYPE=%s DBA_PRIVILEGE=%s",
+		mode,
+		targetLabel,
+		targetValue,
 		oracleQueryValueOrDefault(params, "CONNECT TIMEOUT"),
 		oracleQueryValueOrDefault(params, "READ TIMEOUT"),
 		oracleQueryValueOrDefault(params, "SSL"),
 		oracleQueryValueOrDefault(params, "SSL VERIFY"),
 		oracleQueryValueOrDefault(params, "AUTH TYPE"),
 		oracleQueryValueOrDefault(params, "DBA PRIVILEGE"),
-		oracleQueryValueOrDefault(params, "SID"),
 	)
 }
 
@@ -120,7 +151,7 @@ func annotateOracleValidationError(err error) error {
 	if !strings.Contains(message, "use of closed network connection") {
 		return err
 	}
-	return fmt.Errorf("%w（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、Service Name 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）", err)
+	return fmt.Errorf("%w（Oracle 连接在验证阶段被服务端关闭或被驱动超时中断；请检查监听端口是否为 Oracle 协议端口、服务名（Service Name）或 SID 是否正确、认证参数如 DBA_PRIVILEGE/AUTH_TYPE 是否匹配）", err)
 }
 
 func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
@@ -133,8 +164,9 @@ func (o *OracleDB) Connect(config connection.ConnectionConfig) (err error) {
 
 	runConfig := config
 	serviceName := strings.TrimSpace(config.Database)
-	if serviceName == "" {
-		return fmt.Errorf("Oracle 连接缺少服务名（Service Name），请在连接配置中填写，例如 ORCLPDB1")
+	sid := oracleConnectionSID(config)
+	if serviceName == "" && sid == "" {
+		return fmt.Errorf("Oracle 连接缺少服务名（Service Name）或 SID，请在连接配置中填写，例如 ORCLPDB1（服务名）或 ORCL（SID）")
 	}
 
 	if config.UseSSH {
@@ -1038,7 +1070,7 @@ func parseOracleForeignKeys(data []map[string]interface{}) []connection.ForeignK
 
 func (o *OracleDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
 	for _, candidate := range oracleMetadataNamePairs(dbName, tableName) {
-		data, _, err := o.Query(buildOracleTriggersQuery(candidate.schema, candidate.table))
+		data, _, err := o.queryUnbounded(buildOracleTriggersQuery(candidate.schema, candidate.table))
 		if err != nil {
 			return nil, err
 		}
@@ -1100,16 +1132,25 @@ func (o *OracleDB) fetchOracleTriggerDDL(owner string, triggerName string) strin
 			query = fmt.Sprintf("SELECT DBMS_METADATA.GET_DDL('TRIGGER', '%s') as ddl FROM DUAL", metadataTriggerName)
 		}
 
-		data, _, err := o.Query(query)
+		data, _, err := o.queryUnbounded(query)
 		if err != nil || len(data) == 0 {
 			continue
 		}
 		ddl := oracleRowString(data[0], "DDL", "ddl", "TRIGGER_DEFINITION", "trigger_definition")
 		if ddl != "" {
-			return ensureOracleDDLStatementTerminator(ddl)
+			return ensureOracleDDLStatementTerminator(stripOracleTriggerEnableStatement(ddl))
 		}
 	}
 	return ""
+}
+
+func stripOracleTriggerEnableStatement(ddl string) string {
+	trimmed := strings.TrimRight(ddl, " \t\r\n")
+	match := oracleTriggerEnableStatementPattern.FindStringIndex(trimmed)
+	if match == nil || match[1] != len(trimmed) {
+		return trimmed
+	}
+	return strings.TrimRight(trimmed[:match[0]], " \t\r\n")
 }
 
 func buildOracleTriggerDDLFromMetadata(row map[string]interface{}) string {

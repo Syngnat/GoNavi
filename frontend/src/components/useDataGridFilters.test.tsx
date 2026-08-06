@@ -80,4 +80,52 @@ describe('useDataGridFilters', () => {
 
     renderer?.unmount();
   });
+
+  it('preserves earlier value selections when a second column filter is applied', () => {
+    let latest: UseDataGridFiltersResult | undefined;
+    let renderer: ReactTestRenderer | undefined;
+
+    const Harness = () => {
+      const [appliedConditions, setAppliedConditions] = React.useState<Parameters<typeof useDataGridFilters>[0]['appliedFilterConditions']>([]);
+      latest = useDataGridFilters(createFilterHookProps({
+        appliedFilterConditions: appliedConditions,
+        onApplyFilter: setAppliedConditions,
+      }));
+      return null;
+    };
+
+    act(() => {
+      renderer = create(<Harness />);
+    });
+
+    act(() => {
+      latest?.applyColumnFilter({
+        column: 'code',
+        op: 'IN',
+        valueSelection: { values: ['A'] },
+      });
+    });
+    act(() => {
+      latest?.applyColumnFilter({
+        column: 'title',
+        op: 'IN',
+        valueSelection: { values: ['B'] },
+      });
+    });
+
+    expect(latest?.filterConditions).toEqual([
+      expect.objectContaining({
+        column: 'code',
+        op: 'IN',
+        valueSelection: { values: ['A'] },
+      }),
+      expect.objectContaining({
+        column: 'title',
+        op: 'IN',
+        valueSelection: { values: ['B'] },
+      }),
+    ]);
+
+    renderer?.unmount();
+  });
 });

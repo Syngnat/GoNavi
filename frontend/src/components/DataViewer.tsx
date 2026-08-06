@@ -335,6 +335,11 @@ const normalizeViewerFilterConditions = (conditions: FilterCondition[] | undefin
     op: String(cond?.op || '='),
     value: String(cond?.value ?? ''),
     value2: String(cond?.value2 ?? ''),
+    valueSelection: cond?.valueSelection ? {
+      values: Array.from(new Set((cond.valueSelection.values || []).map((value) => String(value)))),
+      ...(cond.valueSelection.includeNull ? { includeNull: true } : {}),
+      ...(cond.valueSelection.includeEmpty ? { includeEmpty: true } : {}),
+    } : undefined,
   }));
 };
 
@@ -1273,7 +1278,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
       totalCountLoading: false,
       totalCountCancelled: false,
     }));
-    fetchData(pagination.current, pagination.pageSize, { refreshTotal: true });
+    return fetchData(pagination.current, pagination.pageSize, { refreshTotal: true });
   }, [fetchData, pagination.current, pagination.pageSize]);
   const handleSort = useCallback((field: string, order: string) => {
     // 支持多字段排序：field 为 JSON 数组字符串时解析为多字段

@@ -79,16 +79,18 @@ type UpdateInfo struct {
 	ReleaseName        string `json:"releaseName"`
 	ReleasePublishedAt string `json:"releasePublishedAt,omitempty"`
 	ReleaseNotesURL    string `json:"releaseNotesUrl"`
-	AssetName          string `json:"assetName"`
-	AssetURL           string `json:"assetUrl"`
-	AssetAPIURL        string `json:"assetApiUrl,omitempty"`
-	AssetSize          int64  `json:"assetSize"`
-	SHA256             string `json:"sha256"`
-	Downloaded         bool   `json:"downloaded"`
-	DownloadPath       string `json:"downloadPath,omitempty"`
-	InstallMode        string `json:"installMode"`
-	PackageType        string `json:"packageType,omitempty"`
-	AutoRelaunch       bool   `json:"autoRelaunch"`
+	// ReleaseNotes 为 Markdown 更新日志正文（来自 latest.json / GitHub release body）。
+	ReleaseNotes string `json:"releaseNotes,omitempty"`
+	AssetName    string `json:"assetName"`
+	AssetURL     string `json:"assetUrl"`
+	AssetAPIURL  string `json:"assetApiUrl,omitempty"`
+	AssetSize    int64  `json:"assetSize"`
+	SHA256       string `json:"sha256"`
+	Downloaded   bool   `json:"downloaded"`
+	DownloadPath string `json:"downloadPath,omitempty"`
+	InstallMode  string `json:"installMode"`
+	PackageType  string `json:"packageType,omitempty"`
+	AutoRelaunch bool   `json:"autoRelaunch"`
 }
 
 type AppInfo struct {
@@ -167,6 +169,7 @@ type githubRelease struct {
 	Name        string        `json:"name"`
 	HTMLURL     string        `json:"html_url"`
 	PublishedAt string        `json:"published_at"`
+	Body        string        `json:"body"`
 	Prerelease  bool          `json:"prerelease"`
 	Assets      []githubAsset `json:"assets"`
 }
@@ -699,6 +702,7 @@ func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool) 
 			ReleaseName:        release.Name,
 			ReleasePublishedAt: strings.TrimSpace(release.PublishedAt),
 			ReleaseNotesURL:    release.HTMLURL,
+			ReleaseNotes:       strings.TrimSpace(release.Body),
 			InstallMode:        string(installMode),
 			PackageType:        string(packageType),
 			AutoRelaunch:       true,
@@ -737,6 +741,7 @@ func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool) 
 		ReleaseName:        release.Name,
 		ReleasePublishedAt: strings.TrimSpace(release.PublishedAt),
 		ReleaseNotesURL:    release.HTMLURL,
+		ReleaseNotes:       strings.TrimSpace(release.Body),
 		AssetName:          asset.Name,
 		AssetURL:           firstNonEmptyString(asset.BrowserDownloadURL, asset.URL),
 		AssetAPIURL:        strings.TrimSpace(asset.URL),

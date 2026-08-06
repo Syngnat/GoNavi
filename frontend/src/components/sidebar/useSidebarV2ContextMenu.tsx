@@ -22,7 +22,12 @@ import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { resolveConnectionIconType } from '../../utils/connectionVisual';
 import { formatSidebarRowCount } from './sidebarHelpers';
-import { isSidebarTablePinned, type SidebarTreeNode as TreeNode, type V2RailConnectionGroup } from '../sidebarV2Utils';
+import {
+  isSidebarDatabasePinned,
+  isSidebarTablePinned,
+  type SidebarTreeNode as TreeNode,
+  type V2RailConnectionGroup,
+} from '../sidebarV2Utils';
 import { getTableDataDangerActionMeta, supportsTableTruncateAction } from '../tableDataDangerActions';
 import {
   SIDEBAR_CONTEXT_MENU_FALLBACK_HEIGHT,
@@ -30,6 +35,7 @@ import {
   resolveSidebarContextMenuPosition,
 } from '../sidebarCoreUtils';
 import { isShortcutMatch, type ShortcutPlatform } from '../../utils/shortcuts';
+import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
 
 export type SidebarContextMenuState = {
   x: number;
@@ -55,11 +61,12 @@ type SidebarV2ContextMenuOptions = {
   };
   tableSortPreference: Record<string, any>;
   pinnedSidebarTables: any[];
+  pinnedSidebarDatabases: string[];
   getConnectionNodeForAction: (conn: SavedConnection) => TreeNode;
   buildRuntimeConfig: (conn: any, overrideDatabase?: string, clearDatabase?: boolean) => any;
   extractObjectName: (fullName: string) => string;
   isPostgresSchemaDialect: (dialect: string) => boolean;
-  loadTables: (node: any) => Promise<void>;
+  loadTables: (node: any, options?: SidebarTreeLoadOptions) => Promise<void>;
   getDatabaseNodeRef: (connRef: any, dbName: string) => any;
   handleExportSchemaSQL: (node: any, includeData: boolean) => Promise<void>;
   handleDeleteSchema: (node: any) => void;
@@ -115,6 +122,7 @@ export const useSidebarV2ContextMenu = ({
   v2TreeMetrics,
   tableSortPreference,
   pinnedSidebarTables,
+  pinnedSidebarDatabases,
   getConnectionNodeForAction,
   buildRuntimeConfig,
   extractObjectName,
@@ -302,6 +310,7 @@ export const useSidebarV2ContextMenu = ({
               supportsCopyTable={supportsCopyTable}
               supportsStarRocksRollup={isStarRocks}
               supportsMessagePublish={supportsMessagePublish}
+              supportsBatchTables={getDataSourceCapabilities(node.dataRef?.config).supportsSqlQueryExport}
               onAction={(action) => {
                   setContextMenu(null);
                   handleV2TableContextMenuAction(node, action);
@@ -331,9 +340,15 @@ export const useSidebarV2ContextMenu = ({
   const renderV2DatabaseContextMenu = (node: any) => {
       const dialect = getMetadataDialect(node.dataRef as SavedConnection);
       const capabilities = getDataSourceCapabilities((node.dataRef as SavedConnection)?.config);
+      const dbName = String(node.dataRef?.dbName || node.title || '');
+      const isPinned = isSidebarDatabasePinned(
+          pinnedSidebarDatabases,
+          String(node.dataRef?.id || ''),
+          dbName,
+      );
       return (
           <V2DatabaseContextMenuView
-              dbName={String(node.dataRef?.dbName || node.title || '')}
+              dbName={dbName}
               shortcutPlatform={activeShortcutPlatform}
               dialect={dialect}
               supportsSchemaActions={isPostgresSchemaDialect(dialect)}
@@ -341,6 +356,8 @@ export const useSidebarV2ContextMenu = ({
               supportsStarRocksActions={dialect === 'starrocks'}
               supportsRenameDatabase={capabilities.supportsRenameDatabase}
               supportsDropDatabase={capabilities.supportsDropDatabase}
+              supportsBatchWorkbench={capabilities.supportsSqlQueryExport}
+              isPinned={isPinned}
               onAction={(action) => {
                   setContextMenu(null);
                   if (action === 'schema-visibility') {
@@ -359,7 +376,10 @@ export const useSidebarV2ContextMenu = ({
               openRenameSchemaModal(node);
               return;
           case 'refresh-schema':
-              void loadTables(getDatabaseNodeRef(node?.dataRef, String(node?.dataRef?.dbName || '').trim()));
+              void loadTables(
+                  getDatabaseNodeRef(node?.dataRef, String(node?.dataRef?.dbName || '').trim()),
+                  { ensureFresh: true },
+              );
               return;
           case 'export-schema':
               void handleExportSchemaSQL(node, false);

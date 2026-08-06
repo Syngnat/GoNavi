@@ -1,6 +1,7 @@
 package app
 
 import (
+	"GoNavi-Wails/internal/esconsole"
 	"strings"
 	"unicode"
 )
@@ -443,6 +444,9 @@ func isReadOnlySQLQuery(dbType string, query string) bool {
 		return isReadOnlyMongoCommand(query)
 	case "milvus":
 		return isReadOnlyMilvusCommand(query)
+	case "elasticsearch":
+		batch, err := esconsole.ParseSource(query, "gonavi-default-index")
+		return err == nil && !batch.Blocked && !batch.ContainsWrite && !batch.ContainsScript
 	}
 
 	keyword, withHasWrite := sqlDataOperationInfo(query)

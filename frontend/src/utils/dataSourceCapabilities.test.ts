@@ -31,6 +31,18 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
+  it('enables create-database charset options only for MySQL-family dialects', () => {
+    expect(getDataSourceCapabilities({ type: 'mysql' }).supportsCreateDatabaseCharset).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'goldendb' }).supportsCreateDatabaseCharset).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'mariadb' }).supportsCreateDatabaseCharset).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'oceanbase', oceanBaseProtocol: 'mysql' }).supportsCreateDatabaseCharset).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'diros' }).supportsCreateDatabaseCharset).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'postgres' }).supportsCreateDatabaseCharset).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'sqlserver' }).supportsCreateDatabaseCharset).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'clickhouse' }).supportsCreateDatabaseCharset).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'starrocks' }).supportsCreateDatabaseCharset).toBe(false);
+  });
+
   it('uses ClickHouse capabilities for a custom ClickHouse JDBC connection', () => {
     expect(getDataSourceCapabilities({ type: 'custom', driver: 'clickhouse' })).toMatchObject({
       type: 'clickhouse',

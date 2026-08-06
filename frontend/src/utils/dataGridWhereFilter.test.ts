@@ -26,11 +26,11 @@ describe('dataGridWhereFilter', () => {
     expect(validateQuickWhereCondition('status = 1')).toEqual({ ok: true });
     expect(validateQuickWhereCondition('status = 1; drop table users')).toEqual({
       ok: false,
-      message: 'WHERE 条件不能包含分号或 SQL 注释',
+      message: '查询条件不能包含分号或 SQL 注释',
     });
     expect(validateQuickWhereCondition('status = 1 -- bypass')).toEqual({
       ok: false,
-      message: 'WHERE 条件不能包含分号或 SQL 注释',
+      message: '查询条件不能包含分号或 SQL 注释',
     });
   });
 
@@ -39,7 +39,7 @@ describe('dataGridWhereFilter', () => {
 
     expect(validateQuickWhereCondition('status = 1 -- bypass')).toEqual({
       ok: false,
-      message: 'WHERE condition cannot contain semicolons or SQL comments',
+      message: 'Query condition cannot contain semicolons or SQL comments',
     });
 
     const [columnSuggestion] = resolveWhereConditionSuggestions({

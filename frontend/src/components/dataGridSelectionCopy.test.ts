@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildSelectedCellClipboardText, canSelectGridCellForClipboard } from './dataGridSelectionCopy';
+import {
+  buildSelectedCellClipboardPayload,
+  buildSelectedCellClipboardText,
+  canSelectGridCellForClipboard,
+} from './dataGridSelectionCopy';
 
 describe('dataGridSelectionCopy helpers', () => {
   it('allows displayed read-only cells while keeping editable expressions out of batch selection', () => {
@@ -57,5 +61,41 @@ describe('dataGridSelectionCopy helpers', () => {
     });
 
     expect(text).toBe('NULL\t{"a":1}\nline1 line2 value\t[1,2]');
+  });
+
+  it('builds a multi-format payload for selected cells', () => {
+    const payload = buildSelectedCellClipboardPayload({
+      selectedCells: [
+        { rowKey: 'row-1', colName: 'name' },
+        { rowKey: 'row-1', colName: 'note' },
+      ],
+      rows: [
+        { __rowKey: 'row-1', name: 'A&B', note: '<owner>' },
+      ],
+      columnOrder: ['name', 'note'],
+      rowKeyField: '__rowKey',
+    });
+
+    expect(payload.plainText).toBe('A&B\t<owner>');
+    expect(payload.csv).toBe('"A&B","<owner>"');
+    expect(payload.html).toContain('<td>A&amp;B</td>');
+    expect(payload.html).toContain('<td>&lt;owner&gt;</td>');
+  });
+
+  it('preserves tabs and newlines in rich selected-cell formats', () => {
+    const payload = buildSelectedCellClipboardPayload({
+      selectedCells: [
+        { rowKey: 'row-1', colName: 'note' },
+      ],
+      rows: [
+        { __rowKey: 'row-1', note: 'left\tright\nnext' },
+      ],
+      columnOrder: ['note'],
+      rowKeyField: '__rowKey',
+    });
+
+    expect(payload.plainText).toBe('left right next');
+    expect(payload.csv).toBe('"left\tright\nnext"');
+    expect(payload.html).toContain('<td>left\tright\nnext</td>');
   });
 });

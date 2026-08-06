@@ -170,6 +170,8 @@ type connectionPackageItem struct {
 	Name                       string                                     `json:"name"`
 	EnvironmentType            string                                     `json:"environmentType,omitempty"`
 	IncludeDatabases           []string                                   `json:"includeDatabases,omitempty"`
+	IncludeDatabasePatterns    []string                                   `json:"includeDatabasePatterns,omitempty"`
+	ExcludeDatabasePatterns    []string                                   `json:"excludeDatabasePatterns,omitempty"`
 	IncludeRedisDatabases      []int                                      `json:"includeRedisDatabases,omitempty"`
 	SchemaVisibilityByDatabase map[string]connection.SchemaVisibilityRule `json:"schemaVisibilityByDatabase,omitempty"`
 	// RedisDbAliases：该连接下 db 序号 → 别名（如 "0"→"cache"），与前端 redisDbAliases 对齐。
@@ -186,6 +188,8 @@ func (i connectionPackageItem) MarshalJSON() ([]byte, error) {
 		Name                       string                                     `json:"name"`
 		EnvironmentType            string                                     `json:"environmentType,omitempty"`
 		IncludeDatabases           []string                                   `json:"includeDatabases,omitempty"`
+		IncludeDatabasePatterns    []string                                   `json:"includeDatabasePatterns,omitempty"`
+		ExcludeDatabasePatterns    []string                                   `json:"excludeDatabasePatterns,omitempty"`
 		IncludeRedisDatabases      []int                                      `json:"includeRedisDatabases,omitempty"`
 		SchemaVisibilityByDatabase map[string]connection.SchemaVisibilityRule `json:"schemaVisibilityByDatabase,omitempty"`
 		RedisDbAliases             map[string]string                          `json:"redisDbAliases,omitempty"`
@@ -200,6 +204,8 @@ func (i connectionPackageItem) MarshalJSON() ([]byte, error) {
 		Name:                       i.Name,
 		EnvironmentType:            i.EnvironmentType,
 		IncludeDatabases:           i.IncludeDatabases,
+		IncludeDatabasePatterns:    i.IncludeDatabasePatterns,
+		ExcludeDatabasePatterns:    i.ExcludeDatabasePatterns,
 		IncludeRedisDatabases:      i.IncludeRedisDatabases,
 		SchemaVisibilityByDatabase: cloneSchemaVisibilityByDatabase(i.SchemaVisibilityByDatabase),
 		RedisDbAliases:             cloneStringMap(i.RedisDbAliases),
@@ -217,6 +223,8 @@ func (i connectionPackageItem) MarshalJSON() ([]byte, error) {
 type ConnectionExportOptions struct {
 	IncludeSecrets bool   `json:"includeSecrets"`
 	FilePassword   string `json:"filePassword,omitempty"`
+	// ConnectionIDs 可选：仅导出指定连接；为空时导出全部连接。
+	ConnectionIDs []string `json:"connectionIds,omitempty"`
 	// RedisDbAliases 由前端传入（appearance.redisDbAliases），导出时写入连接包。
 	RedisDbAliases map[string]map[string]string `json:"redisDbAliases,omitempty"`
 }

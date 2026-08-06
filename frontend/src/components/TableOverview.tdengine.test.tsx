@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import TableOverview from './TableOverview';
 
 const storeSubscribers = vi.hoisted(() => new Set<() => void>());
+const renderedDropdownMenus = vi.hoisted(() => [] as Array<{ items?: any[] }>);
+const countdownConfirm = vi.hoisted(() => vi.fn());
 
 const storeState = vi.hoisted(() => ({
   theme: 'light',
@@ -53,6 +55,7 @@ const backendApp = vi.hoisted(() => ({
 
 const messageApi = vi.hoisted(() => ({
   error: vi.fn(),
+  success: vi.fn(),
 }));
 
 vi.mock('../store', async () => {
@@ -87,9 +90,12 @@ vi.mock('./ExportProgressModal', () => ({
 vi.mock('./V2TableContextMenu', () => ({
   V2TableContextMenuView: () => null,
 }));
+vi.mock('./common/countdownDangerConfirm', () => ({
+  showCountdownDangerConfirm: countdownConfirm,
+}));
 
 vi.mock('@ant-design/icons', () => {
-  const Icon = () => <span />;
+  const Icon = (props: any) => <span {...props} />;
   return {
     TableOutlined: Icon,
     SearchOutlined: Icon,
@@ -116,7 +122,10 @@ vi.mock('antd', () => {
   Input.Search = ({ value, onChange, ...rest }: any) => <input value={value} onChange={onChange} {...rest} />;
   const Spin = ({ children }: any) => <div>{children}</div>;
   const Empty = ({ description }: any) => <div>{description}</div>;
-  const Dropdown = ({ children }: any) => <div>{children}</div>;
+  const Dropdown = ({ children, menu }: any) => {
+    renderedDropdownMenus.push(menu);
+    return <div>{children}</div>;
+  };
   const Tooltip = ({ children }: any) => <div>{children}</div>;
   const Modal: any = ({ children }: any) => <div>{children}</div>;
   Modal.confirm = vi.fn();
@@ -156,10 +165,28 @@ const collectText = (node: any): string => {
   return collectText(node.children || []);
 };
 
+const findMenuItem = (items: any[] | undefined, key: string): any | null => {
+  for (const item of items || []) {
+    if (item?.key === key) return item;
+    const nested = findMenuItem(item?.children, key);
+    if (nested) return nested;
+  }
+  return null;
+};
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
 describe('TableOverview metadata compatibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     storeSubscribers.clear();
+    renderedDropdownMenus.length = 0;
     storeState.appearance = { uiVersion: 'legacy', tableDoubleClickAction: 'open-data' };
     storeState.queryOptions = { tableOverviewViewMode: undefined };
     storeState.setQueryOptions.mockImplementation((options: { tableOverviewViewMode?: 'card' | 'list' | 'table' }) => {
@@ -192,6 +219,104 @@ describe('TableOverview metadata compatibility', () => {
       success: false,
       message: '[0x2600] syntax error near',
     });
+  });
+
+  it('reports a production table deletion only after the table list has refreshed', async () => {
+    const dropResult = createDeferred<{ success: boolean; data?: unknown[] }>();
+    const staleTables = createDeferred<{ success: boolean; data: Array<{ Table: string }> }>();
+    const refreshedTables = createDeferred<{ success: boolean; data: Array<{ Table: string }> }>();
+    storeState.connections = [{
+      id: 'conn-1',
+      name: 'Production',
+      environmentType: 'production',
+      config: {
+        type: 'tdengine',
+        host: '127.0.0.1',
+        port: 6041,
+        user: 'root',
+        password: 'taosdata',
+        database: 'metrics',
+        useSSH: false,
+        ssh: { host: '', port: 22, user: '', password: '', keyPath: '' },
+      },
+    }] as any;
+    backendApp.DBGetTables
+      .mockReset()
+      .mockResolvedValueOnce({ success: true, data: [{ Table: 'meters' }] })
+      .mockImplementationOnce(() => staleTables.promise)
+      .mockImplementationOnce(() => refreshedTables.promise);
+    backendApp.DropTable.mockImplementationOnce(() => dropResult.promise);
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableOverview tab={{
+        id: 'tab-1',
+        title: '表概览 - metrics',
+        type: 'table-overview',
+        connectionId: 'conn-1',
+        dbName: 'metrics',
+      } as any} />);
+    });
+    await flushPromises();
+
+    const dropMenuItem = renderedDropdownMenus
+      .map((menu) => findMenuItem(menu?.items, 'drop-table'))
+      .find(Boolean);
+    const refreshTrigger = renderer!.root.findAllByType('span').find(
+      (candidate) => typeof candidate.props.onClick === 'function'
+        && candidate.props.style?.cursor === 'pointer',
+    );
+    expect(dropMenuItem).toBeTruthy();
+    expect(refreshTrigger).toBeTruthy();
+
+    act(() => {
+      refreshTrigger!.props.onClick();
+    });
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      dropMenuItem.onClick();
+    });
+    const initialConfirm = countdownConfirm.mock.calls[0]?.[0];
+    expect(initialConfirm).toBeTruthy();
+
+    let deleteOperation!: Promise<void>;
+    act(() => {
+      deleteOperation = initialConfirm.onOk();
+    });
+    await flushPromises();
+
+    const productionConfirm = countdownConfirm.mock.calls[1]?.[0];
+    expect(productionConfirm).toBeTruthy();
+    act(() => {
+      productionConfirm.onOk();
+    });
+    await flushPromises();
+
+    expect(backendApp.DropTable).toHaveBeenCalledWith(expect.any(Object), 'metrics', 'meters');
+    expect(messageApi.success).not.toHaveBeenCalled();
+
+    await act(async () => {
+      dropResult.resolve({ success: true });
+      await Promise.resolve();
+    });
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(3);
+    expect(messageApi.success).not.toHaveBeenCalled();
+
+    await act(async () => {
+      refreshedTables.resolve({ success: true, data: [] });
+      await deleteOperation;
+    });
+    expect(messageApi.success).toHaveBeenCalledTimes(1);
+    expect(collectText(renderer!.toJSON())).not.toContain('meters');
+
+    await act(async () => {
+      staleTables.resolve({ success: true, data: [{ Table: 'meters' }] });
+      await Promise.resolve();
+    });
+    const renderedAfterStaleResponse = collectText(renderer!.toJSON());
+    renderer!.unmount();
+    expect(renderedAfterStaleResponse).not.toContain('meters');
   });
 
   it('loads tdengine overview rows through DBGetTables instead of direct metadata SQL', async () => {
@@ -588,6 +713,7 @@ describe('TableOverview metadata compatibility', () => {
     const renderedText = collectText(renderer!.toJSON());
     expect(renderedText).toContain('orders');
     expect(renderedText).toContain('订单表');
+    // 展示统一为 YYYY-MM-DD HH:mm:ss（有小数秒时保留，与侧栏 formatSidebarTableTimestamp 一致）
     expect(renderedText).toContain('2026-06-02 10:30:00');
     expect(renderedText).toContain('2026-05-01 09:00:00');
   });

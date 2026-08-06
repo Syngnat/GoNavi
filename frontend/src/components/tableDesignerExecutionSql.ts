@@ -5,6 +5,7 @@ export const splitSchemaExecutionStatements = (sqlText: string): string[] => (
     .replace(/；/g, ';')
     .split(/;\s*\n/)
     .map(statement => statement.trim())
+    .filter(statement => !statement.startsWith('--'))
     .filter(Boolean)
 );
 

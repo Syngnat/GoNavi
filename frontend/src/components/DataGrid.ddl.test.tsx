@@ -2096,6 +2096,7 @@ describe('DataGrid DDL interactions', () => {
     expect(content).toContain(t('sidebar.v2_table_group_menu.current_database'));
     expect(content).toContain(t('sidebar.v2_table_group_menu.sort_frequency'));
     expect(content).toContain(t('sidebar.menu.create_table'));
+    expect(content).toContain(t('sidebar.menu.refresh'));
     expect(content).toContain(t('data_grid.context_menu.sort_section'));
     expect(content).toContain(t('sidebar.menu.sort_by_name'));
     expect(content).toContain(t('sidebar.menu.sort_by_frequency'));

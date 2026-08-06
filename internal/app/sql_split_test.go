@@ -496,3 +496,11 @@ func TestSplitSQLStatements_TransactionBeginStillSplits(t *testing.T) {
 		t.Errorf("splitSQLStatements(%q) = %#v, want %#v", input, got, want)
 	}
 }
+
+func TestSplitSQLStatementsForDialect_ElasticsearchPreservesConsoleBatch(t *testing.T) {
+	batch := "GET /events/_search\r\n{\"query\":{\"match_all\":{}}}\r\n\r\nPOST /events/_count\r\n{\"query\":{\"term\":{\"level\":\"error\"}}}"
+	want := []string{"GET /events/_search\n{\"query\":{\"match_all\":{}}}\n\nPOST /events/_count\n{\"query\":{\"term\":{\"level\":\"error\"}}}"}
+	if got := splitSQLStatementsForDialect("elasticsearch", batch); !reflect.DeepEqual(got, want) {
+		t.Fatalf("splitSQLStatementsForDialect(elasticsearch) = %#v, want %#v", got, want)
+	}
+}

@@ -12,6 +12,68 @@ export interface FixedVirtualRange {
   offset: number;
 }
 
+const DATA_GRID_FIXED_CELL_SELECTOR = [
+  '.ant-table-tbody-virtual-holder-inner .ant-table-cell-fix-left',
+  '.ant-table-tbody-virtual-holder-inner .ant-table-cell-fix-left-first',
+  '.ant-table-tbody-virtual-holder-inner .ant-table-cell-fix-left-last',
+  '.ant-table-tbody-virtual-holder-inner .ant-table-cell-fix-right',
+  '.ant-table-tbody-virtual-holder-inner .ant-table-cell-fix-right-first',
+  '.ant-table-tbody-virtual-holder-inner .ant-table-cell-fix-right-last',
+  '.ant-table-tbody-virtual-holder-inner .ant-table-selection-column',
+].join(',');
+
+const normalizeHorizontalOffset = (offset: number): number => (
+  Number.isFinite(offset) ? Math.max(0, offset) : 0
+);
+
+const queryDataGridFixedCells = (root: ParentNode): NodeListOf<HTMLElement> => (
+  root.querySelectorAll<HTMLElement>(DATA_GRID_FIXED_CELL_SELECTOR)
+);
+
+/**
+ * Keeps fixed cells visually pinned during a continuous horizontal preview.
+ * Writing the inherited ancestor variable here would invalidate every cell in
+ * the virtual body, so only the currently mounted fixed cells are touched.
+ */
+export const applyDataGridFixedCellPreviewOffset = (
+  root: ParentNode,
+  offset: number,
+): number => {
+  const transform = `translate3d(${normalizeHorizontalOffset(offset)}px, 0, 0)`;
+  const cells = queryDataGridFixedCells(root);
+  cells.forEach((cell) => {
+    if (
+      cell.style.getPropertyValue('transform') !== transform
+      || cell.style.getPropertyPriority('transform') !== 'important'
+    ) {
+      cell.style.setProperty('transform', transform, 'important');
+    }
+  });
+  return cells.length;
+};
+
+/**
+ * Persists the settled offset for rows mounted by later vertical scrolling,
+ * then releases the per-cell preview overrides.
+ */
+export const commitDataGridFixedCellOffset = (
+  root: ParentNode,
+  inner: HTMLElement,
+  offset: number,
+): number => {
+  const scrollVar = `${normalizeHorizontalOffset(offset)}px`;
+  if (inner.style.getPropertyValue('--gn-datagrid-h-scroll') !== scrollVar) {
+    inner.style.setProperty('--gn-datagrid-h-scroll', scrollVar);
+  }
+  const cells = queryDataGridFixedCells(root);
+  cells.forEach((cell) => {
+    if (cell.style.getPropertyValue('transform')) {
+      cell.style.removeProperty('transform');
+    }
+  });
+  return cells.length;
+};
+
 /**
  * Mirrors rc-virtual-list's visible range semantics for a fixed-height list,
  * but calculates the range arithmetically instead of scanning every item.

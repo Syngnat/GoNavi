@@ -201,10 +201,23 @@
 | 时序 | Apache IoTDB | 可选驱动代理 | Storage Group / Device / Timeseries 浏览与查询 |
 | 列式分析 | ClickHouse | 可选驱动代理 | 分析查询、对象浏览、SQL 执行 |
 | 联邦查询 | Trino | 可选驱动代理 | 跨多数据源联邦 SQL、`catalog.schema` 浏览、SQL 执行 |
-| 搜索 | Elasticsearch | 可选驱动代理 | 索引浏览、Mapping 检查、JSON DSL / query_string 查询 |
+| 搜索 | Elasticsearch | 可选驱动代理 | 索引浏览、Mapping 检查、受控 REST 控制台、JSON DSL / query_string 查询 |
 | 扩展接入 | Custom Driver/DSN | 自定义 | 通过 Driver + DSN 接入更多数据源 |
 
 </details>
+
+### Elasticsearch REST 控制台
+
+Elasticsearch 连接复用查询工作区，并按服务端版本提供受控 REST 控制台：
+
+- 支持 Dev Tools 风格的 `METHOD /path` 与 JSON body；`_bulk`、`_msearch` 使用 NDJSON。可运行光标所在请求、完整选区或按编辑器顺序执行整个批次。
+- 搜索命中可切换为表格查看，同时保留完整 HTTP 原始 JSON / 文本响应。
+- 后端白名单仅开放受支持的查询、文档、索引、Mapping、Settings、Alias、健康检查及有限 CAT API；未知端点和高权限端点默认拒绝。
+- 删除等危险操作必须使用有时效的一次性确认；连接保护始终优先，并阻止写请求及包含脚本的只读请求。
+- 写操作仅允许明确的物理索引，并要求 Elasticsearch `view_index_metadata`（或 `manage`）权限，以便 GoNavi 在发送数据前校验真实目标；Alias 与 Data Stream 不能作为写目标。
+- 请求模板会根据 Elasticsearch 6、7、8 自动适配文档、Mapping 与 Bulk 路径。
+
+> 控制台面向 Elasticsearch 6/7/8，不承诺兼容 OpenSearch；同时明确不开放 reindex、安全、快照、节点、集群设置、模板、Pipeline、生命周期及其他无限制管理 API。
 
 ---
 

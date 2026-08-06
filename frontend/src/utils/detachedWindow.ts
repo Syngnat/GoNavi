@@ -21,7 +21,12 @@ export type DetachedQueryResultSnapshot = {
   rows: any[];
   columns: string[];
   messages?: string[];
-  resultType?: 'grid' | 'message';
+  resultType?: 'grid' | 'message' | 'elasticsearch';
+  requestLabel?: string;
+  httpStatus?: number;
+  rawResponse?: string;
+  partialFailure?: boolean;
+  outcomeUnknown?: boolean;
   tableName?: string;
   /** 列类型/注释元数据所属库（跨库 SELECT 时可能与窗口 dbName 不同） */
   metadataDbName?: string;

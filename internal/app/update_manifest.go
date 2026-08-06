@@ -42,9 +42,11 @@ type updateReleaseManifest struct {
 	Name          string                `json:"name,omitempty"`
 	HTMLURL       string                `json:"htmlUrl,omitempty"`
 	PublishedAt   string                `json:"publishedAt,omitempty"`
-	Assets        []updateManifestAsset `json:"assets"`
-	FetchedAt     time.Time             `json:"fetchedAt,omitempty"` // 仅本地缓存写入
-	Source        string                `json:"source,omitempty"`    // static | api | disk-cache
+	// ReleaseNotes 为 Markdown 更新日志（可选；旧清单无此字段时客户端走空态+外链）。
+	ReleaseNotes string                `json:"releaseNotes,omitempty"`
+	Assets       []updateManifestAsset `json:"assets"`
+	FetchedAt    time.Time             `json:"fetchedAt,omitempty"` // 仅本地缓存写入
+	Source       string                `json:"source,omitempty"`    // static | api | disk-cache
 }
 
 type updateManifestAsset struct {
@@ -134,11 +136,12 @@ func releaseFromUpdateManifest(manifest *updateReleaseManifest) *githubRelease {
 		name = tagName
 	}
 	return &githubRelease{
-		TagName:     tagName,
-		Name:        name,
-		HTMLURL:     strings.TrimSpace(manifest.HTMLURL),
-		PublishedAt: strings.TrimSpace(manifest.PublishedAt),
-		Assets:      assets,
+		TagName:      tagName,
+		Name:         name,
+		HTMLURL:      strings.TrimSpace(manifest.HTMLURL),
+		PublishedAt:  strings.TrimSpace(manifest.PublishedAt),
+		Body:         strings.TrimSpace(manifest.ReleaseNotes),
+		Assets:       assets,
 	}
 }
 
@@ -173,6 +176,7 @@ func updateManifestFromGitHubRelease(channel updateChannel, release *githubRelea
 		Name:          strings.TrimSpace(release.Name),
 		HTMLURL:       strings.TrimSpace(release.HTMLURL),
 		PublishedAt:   strings.TrimSpace(release.PublishedAt),
+		ReleaseNotes:  strings.TrimSpace(release.Body),
 		Assets:        assets,
 		FetchedAt:     time.Now().UTC(),
 		Source:        "api",

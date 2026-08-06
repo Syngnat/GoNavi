@@ -99,4 +99,24 @@ describe('useDataGridDdlView i18n', () => {
 
     expect(messageApi.error).toHaveBeenCalledWith('ORA-31603: object "USERS" not found');
   });
+
+  it('honors an explicit text row when opening from the row number', () => {
+    const setTextRecordIndex = vi.fn();
+    renderHook({
+      selectedRowKeys: ['row-10'],
+      mergedDisplayDataRef: {
+        current: [
+          { __gonavi_row_key__: 'row-8' },
+          { __gonavi_row_key__: 'row-10' },
+        ],
+      },
+      setTextRecordIndex,
+    });
+
+    act(() => {
+      controller?.handleViewModeChange('text', { textRecordIndex: 0 });
+    });
+
+    expect(setTextRecordIndex).toHaveBeenCalledWith(0);
+  });
 });

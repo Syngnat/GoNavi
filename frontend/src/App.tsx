@@ -1,6 +1,6 @@
 ﻿import Modal from './components/common/ResizableDraggableModal';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Layout, Button, ConfigProvider, theme, message, Spin, Slider, Progress, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
+import { Layout, Button, ConfigProvider, theme, message, Spin, Slider, Switch, Input, InputNumber, Select, Segmented, Tooltip, Alert } from 'antd';
 import { UploadOutlined, DownloadOutlined, CloudDownloadOutlined, BugOutlined, GlobalOutlined, InfoCircleOutlined, GithubOutlined, SkinOutlined, CheckOutlined, MinusOutlined, BorderOutlined, CloseOutlined, SettingOutlined, LinkOutlined, BgColorsOutlined, AppstoreOutlined, RobotOutlined, FolderOpenOutlined, HddOutlined, SafetyCertificateOutlined, SwitcherOutlined, CodeOutlined, RightOutlined, TableOutlined, MenuOutlined, MenuFoldOutlined, MenuUnfoldOutlined, PoweroffOutlined, TagOutlined, UserOutlined, UpCircleOutlined, MessageOutlined, FileTextOutlined, SyncOutlined, SendOutlined, AuditOutlined } from '@ant-design/icons';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -16,6 +16,16 @@ import NativeDetachedWindowController from './components/NativeDetachedWindowCon
 import ConnectionModal from './components/ConnectionModal';
 import SnippetSettingsModal from './components/SnippetSettingsModal';
 import ConnectionPackagePasswordModal from './components/ConnectionPackagePasswordModal';
+import UpdateReleaseNotesModal from './components/UpdateReleaseNotesModal';
+import {
+  buildReleaseNotesReadKey,
+  isReleaseNotesRead,
+  markReleaseNotesRead,
+} from './utils/updateReleaseNotesReadState';
+import {
+  shouldShowFooterReleaseNotesAction,
+  type AboutUpdateActionsSurface,
+} from './utils/aboutUpdateActions';
 import { type DataSyncEntryMode } from './components/dataSyncEntryMode';
 import DriverManagerModal from './components/DriverManagerModal';
 import LinuxCJKFontBanner from './components/LinuxCJKFontBanner';
@@ -143,6 +153,8 @@ import {
 import { getWindowsScaleFixNudgedWidth, hasWindowsViewportScaleDrift } from './utils/windowsScaleFix';
 import {
   clearStartupWindowRestorePending,
+  isStartupMaximisedWindowSettled,
+  isStartupWindowSurfaceCoveringViewport,
   isStartupWindowRestorePending,
   markStartupWindowRestorePending,
   resolveDefaultStartupWindowBounds,
@@ -191,7 +203,7 @@ import {
   type WindowsScaleCheckTrigger,
 } from './utils/windowStateUi';
 import { resolveVisibleStartupWindowBounds } from './utils/windowRestoreBounds';
-import { resolveWailsWindowVisibleViewport } from './utils/wailsWindowViewport';
+import { resolveWailsWindowSetPosition, resolveWailsWindowVisibleViewport } from './utils/wailsWindowViewport';
 import {
   SIDEBAR_UTILITY_ITEM_KEYS,
   resolveAIEntryPlacement,
@@ -201,6 +213,7 @@ import {
 } from './utils/aiEntryLayout';
 import { DEFAULT_AI_PANEL_WIDTH, resolveOverlayAIPanelWidth, shouldOverlayAIPanel } from './utils/aiPanelLayout';
 import { safeWindowRuntimeCall } from './utils/wailsRuntime';
+import { waitForWindowCondition } from './utils/windowTransition';
 import {
   hasNativeDetachedWindowManager,
   openNativeAIChatWindow,
@@ -632,6 +645,8 @@ type ConnectionPackageDialogState = {
   password: string;
   error: string;
   confirmLoading: boolean;
+  /** Export only: selected connection ids to include in the package. */
+  selectedConnectionIds: string[];
 };
 
 const createClosedConnectionPackageDialogState = (): ConnectionPackageDialogState => ({
@@ -642,6 +657,7 @@ const createClosedConnectionPackageDialogState = (): ConnectionPackageDialogStat
   password: '',
   error: '',
   confirmLoading: false,
+  selectedConnectionIds: [],
 });
 
 type SidebarMetadataSortableRowProps = {
@@ -1347,16 +1363,95 @@ function App() {
       const applyRetryDelayMs = 350;
       const settleDelayMs = 180;
       const startupRestoreGraceMs = 6000;
+      let refreshWebViewBoundsUnavailableLogged = false;
+      let refreshWebViewBoundsDisabled = false;
+      const wait = (delayMs: number) => new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+
+      const waitForMaximisedState = (expected: boolean): Promise<boolean> => waitForWindowCondition({
+          read: async () => (await WindowIsMaximised()) === expected,
+          wait,
+          isCancelled: () => cancelled,
+          maxChecks: 16,
+          intervalMs: 40,
+      });
 
       const checkStartupPreferenceApplied = async (): Promise<boolean> => {
           try {
-              if (await WindowIsMaximised()) {
-                  return true;
-              }
+              const isMaximised = await WindowIsMaximised();
+              return isStartupMaximisedWindowSettled({
+                  isMaximised,
+                  isWindows: isWindowsPlatform(),
+                  surfaceWidth: window.innerWidth,
+                  surfaceHeight: window.innerHeight,
+                  viewport: readCurrentVisibleViewport(),
+              });
           } catch (_) {
               // ignore
           }
           return false;
+      };
+
+      const tryRefreshStartupWebViewBounds = async (): Promise<boolean> => {
+          if (
+              !isWindowsPlatform()
+              || refreshWebViewBoundsDisabled
+              || (window as any).__GONAVI_WEB_RUNTIME__?.buildType === 'web'
+          ) {
+              return false;
+          }
+          const backendApp = (window as any).go?.app?.App;
+          if (typeof backendApp?.RefreshWebViewBounds !== 'function') {
+              refreshWebViewBoundsDisabled = true;
+              if (!refreshWebViewBoundsUnavailableLogged) {
+                  refreshWebViewBoundsUnavailableLogged = true;
+                  console.warn('RefreshWebViewBounds backend is unavailable during startup maximise');
+              }
+              return false;
+          }
+          try {
+              const result = await backendApp.RefreshWebViewBounds();
+              if (result?.success) {
+                  window.dispatchEvent(new Event('resize'));
+                  return true;
+              }
+              refreshWebViewBoundsDisabled = true;
+              if (!refreshWebViewBoundsUnavailableLogged) {
+                  refreshWebViewBoundsUnavailableLogged = true;
+                  console.warn('RefreshWebViewBounds failed during startup maximise:', result?.message);
+              }
+          } catch (error) {
+              refreshWebViewBoundsDisabled = true;
+              if (!refreshWebViewBoundsUnavailableLogged) {
+                  refreshWebViewBoundsUnavailableLogged = true;
+                  console.warn('RefreshWebViewBounds call failed during startup maximise', error);
+              }
+          }
+          return false;
+      };
+
+      const waitForStartupPreferenceApplied = (): Promise<boolean> => waitForWindowCondition({
+          read: checkStartupPreferenceApplied,
+          wait,
+          isCancelled: () => cancelled,
+          maxChecks: 10,
+          intervalMs: 40,
+      });
+
+      const repairStartupMaximisedSurface = async (): Promise<boolean> => {
+          if (!isWindowsPlatform()) {
+              return false;
+          }
+          markStartupWindowRestorePending(startupRestoreGraceMs);
+          WindowUnmaximise();
+          if (!await waitForMaximisedState(false)) {
+              return false;
+          }
+          WindowMaximise();
+          if (!await waitForMaximisedState(true)) {
+              return false;
+          }
+          await tryRefreshStartupWebViewBounds();
+          return waitForStartupPreferenceApplied();
       };
 
       const markStartupMaximised = () => {
@@ -1365,23 +1460,67 @@ function App() {
           clearStartupWindowRestorePending();
       };
 
-      /** Maximise 多次失败时：把窗口铺满工作区，避免残留 1024×768 / 84% 浮动半窗。 */
-      const applyWindowsWorkAreaFillFallback = () => {
+      /** Maximise 多次失败时：退回普通窗口并铺满工作区，避免残留默认半窗。 */
+      const applyWindowsWorkAreaFillFallback = async (): Promise<boolean> => {
           if (!isWindowsPlatform()) {
-              return;
+              return false;
           }
           try {
-              const nextBounds = resolveWorkAreaFillWindowBounds(readCurrentVisibleViewport());
+              markStartupWindowRestorePending(startupRestoreGraceMs);
+              if (await WindowIsMaximised()) {
+                  WindowUnmaximise();
+                  if (!await waitForMaximisedState(false)) {
+                      return false;
+                  }
+              }
+              const viewport = readCurrentVisibleViewport();
+              const nextBounds = resolveWorkAreaFillWindowBounds(viewport);
+              const setPosition = resolveWailsWindowSetPosition(nextBounds, viewport, {
+                  useMonitorLocalOrigin: true,
+              });
+              WindowSetPosition(setPosition.x, setPosition.y);
               WindowSetSize(nextBounds.width, nextBounds.height);
-              WindowSetPosition(nextBounds.x, nextBounds.y);
+              const boundsApplied = await waitForWindowCondition({
+                  read: async () => {
+                      const [size, position] = await Promise.all([
+                          WindowGetSize(),
+                          WindowGetPosition(),
+                      ]);
+                      return Math.abs(Math.trunc(Number(size?.w)) - nextBounds.width) <= 2
+                          && Math.abs(Math.trunc(Number(size?.h)) - nextBounds.height) <= 2
+                          && Math.abs(Math.trunc(Number(position?.x)) - nextBounds.x) <= 2
+                          && Math.abs(Math.trunc(Number(position?.y)) - nextBounds.y) <= 2;
+                  },
+                  wait,
+                  isCancelled: () => cancelled,
+                  maxChecks: 16,
+                  intervalMs: 40,
+              });
+              if (!boundsApplied) {
+                  return false;
+              }
+              await tryRefreshStartupWebViewBounds();
+              const surfaceFilled = await waitForWindowCondition({
+                  read: async () => isStartupWindowSurfaceCoveringViewport({
+                      surfaceWidth: window.innerWidth,
+                      surfaceHeight: window.innerHeight,
+                      viewport: readCurrentVisibleViewport(),
+                  }),
+                  wait,
+                  isCancelled: () => cancelled,
+                  maxChecks: 10,
+                  intervalMs: 40,
+              });
+              if (!surfaceFilled) return false;
               useStore.getState().setWindowBounds(nextBounds);
-              // 兜底结果视觉上等同最大化，保持标题栏状态与实际窗口一致。
-              useStore.getState().setWindowState('maximized');
+              useStore.getState().setWindowState('normal');
               void emitWindowDiagnostic('adjust:startup-work-area-fill-fallback', {
                   to: nextBounds,
               });
+              return true;
           } catch (e) {
               console.warn('Failed to apply Windows work-area fill fallback', e);
+              return false;
           }
       };
 
@@ -1398,29 +1537,42 @@ function App() {
               }
               void Promise.resolve()
                   .then(async () => {
+                      markStartupWindowRestorePending(startupRestoreGraceMs);
                       if (await checkStartupPreferenceApplied()) {
                           markStartupMaximised();
                           return;
                       }
                       try {
-                          await WindowMaximise();
-                          await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
+                          WindowMaximise();
+                          if (await waitForMaximisedState(true)) {
+                              await tryRefreshStartupWebViewBounds();
+                          }
                       } catch (e) {
                           console.warn("Wails Window APIs unavailable", e);
                       }
 
-                      if (await checkStartupPreferenceApplied()) {
+                      if (await waitForStartupPreferenceApplied()) {
                           markStartupMaximised();
                           return;
                       }
                       if (attempt < maxApplyAttempts) {
                           applyStartupWindowChrome(attempt + 1);
                       } else {
+                          // WebView2 controller bounds may remain at the initial 1440x900 even
+                          // after WS_MAXIMIZE is set. Use one cold-start-only native transition
+                          // if the zero-animation bounds refresh could not settle the surface.
+                          if (await repairStartupMaximisedSurface()) {
+                              markStartupMaximised();
+                              return;
+                          }
                           // 最终仍失败：Windows 铺满工作区兜底，再结束宽限
                           void emitWindowDiagnostic('warn:startup-maximise-failed', {
                               attempts: attempt,
                           });
-                          applyWindowsWorkAreaFillFallback();
+                          const fallbackApplied = await applyWindowsWorkAreaFillFallback();
+                          if (!fallbackApplied) {
+                              void emitWindowDiagnostic('error:startup-work-area-fill-fallback-failed');
+                          }
                           clearStartupWindowRestorePending();
                       }
                   });
@@ -1446,7 +1598,8 @@ function App() {
               console.warn('Failed to restore normal window chrome', e);
           }
           const state = useStore.getState();
-          const nextBounds = resolveVisibleStartupWindowBounds(bounds, readCurrentVisibleViewport());
+          const viewport = readCurrentVisibleViewport();
+          const nextBounds = resolveVisibleStartupWindowBounds(bounds, viewport);
           if (
               nextBounds.x !== bounds.x ||
               nextBounds.y !== bounds.y ||
@@ -1459,7 +1612,10 @@ function App() {
               });
           }
           WindowSetSize(nextBounds.width, nextBounds.height);
-          WindowSetPosition(nextBounds.x, nextBounds.y);
+          const setPosition = resolveWailsWindowSetPosition(nextBounds, viewport, {
+              useMonitorLocalOrigin: isWindowsPlatform(),
+          });
+          WindowSetPosition(setPosition.x, setPosition.y);
           state.setWindowBounds(nextBounds);
           state.setWindowState('normal');
       };
@@ -1637,7 +1793,8 @@ function App() {
               if (currentBounds.width <= 0 || currentBounds.height <= 0) {
                   return;
               }
-              const nextBounds = resolveVisibleStartupWindowBounds(currentBounds, readCurrentVisibleViewport());
+              const viewport = readCurrentVisibleViewport();
+              const nextBounds = resolveVisibleStartupWindowBounds(currentBounds, viewport);
               if (
                   nextBounds.x === currentBounds.x &&
                   nextBounds.y === currentBounds.y &&
@@ -1651,7 +1808,10 @@ function App() {
                   to: nextBounds,
               });
               WindowSetSize(nextBounds.width, nextBounds.height);
-              WindowSetPosition(nextBounds.x, nextBounds.y);
+              const setPosition = resolveWailsWindowSetPosition(nextBounds, viewport, {
+                  useMonitorLocalOrigin: isWindowsPlatform(),
+              });
+              WindowSetPosition(setPosition.x, setPosition.y);
               lastSaved = `${nextBounds.width},${nextBounds.height},${nextBounds.x},${nextBounds.y}`;
               useStore.getState().setWindowBounds(nextBounds);
               window.dispatchEvent(new Event('resize'));
@@ -2300,6 +2460,8 @@ function App() {
       close: () => void;
       isOpen: () => boolean;
   } | null>(null);
+  // 手动「检查更新」发现新版本时，由 useAppUpdateManager 触发打开更新日志弹窗
+  const openReleaseNotesOnManualCheckRef = useRef<(() => void) | null>(null);
   const {
       aboutDisplayVersion,
       aboutInfo,
@@ -2333,8 +2495,11 @@ function App() {
       runtimeBuildType,
       t,
       updateCenterBridgeRef,
+      onManualCheckHasUpdateRef: openReleaseNotesOnManualCheckRef,
   });
   const [aboutLastCheckedAt, setAboutLastCheckedAt] = useState('');
+  const [releaseNotesModalOpen, setReleaseNotesModalOpen] = useState(false);
+  const [releaseNotesReadTick, setReleaseNotesReadTick] = useState(0);
   useEffect(() => {
       if (!lastUpdateInfo) {
           return;
@@ -2346,6 +2511,47 @@ function App() {
       lastUpdateInfo?.hasUpdate,
       lastUpdateInfo?.latestVersion,
   ]);
+
+  const releaseNotesReadKey = useMemo(
+      () => buildReleaseNotesReadKey(lastUpdateInfo),
+      [lastUpdateInfo?.channel, lastUpdateInfo?.latestVersion],
+  );
+  // releaseNotesReadTick 强制在 mark 后重算未读态
+  const hasUnreadReleaseNotes = useMemo(() => {
+      void releaseNotesReadTick;
+      if (!lastUpdateInfo || !releaseNotesReadKey) return false;
+      // 有正文或至少有 GitHub 链接时，未读才有提示意义
+      if (!String(lastUpdateInfo.releaseNotes || '').trim() && !String(lastUpdateInfo.releaseNotesUrl || '').trim()) {
+          return false;
+      }
+      return !isReleaseNotesRead(releaseNotesReadKey);
+  }, [lastUpdateInfo, releaseNotesReadKey, releaseNotesReadTick]);
+
+  const openReleaseNotesModal = useCallback(() => {
+      if (!lastUpdateInfo) return;
+      setReleaseNotesModalOpen(true);
+  }, [lastUpdateInfo]);
+
+  const closeReleaseNotesModal = useCallback(() => {
+      setReleaseNotesModalOpen(false);
+      hideUpdateDownloadProgress();
+  }, [hideUpdateDownloadProgress]);
+
+  const handleReleaseNotesModalOpen = useCallback(() => {
+      if (!releaseNotesReadKey) return;
+      if (markReleaseNotesRead(releaseNotesReadKey)) {
+          setReleaseNotesReadTick((value) => value + 1);
+      }
+  }, [releaseNotesReadKey]);
+
+  /** 下载与更新日志同窗：点下载即打开弹窗并开始下载 */
+  const handleDownloadUpdateWithNotes = useCallback(() => {
+      if (!lastUpdateInfo) return;
+      setReleaseNotesModalOpen(true);
+      void downloadUpdate(lastUpdateInfo, false);
+  }, [downloadUpdate, lastUpdateInfo]);
+
+  const releaseNotesModalVisible = releaseNotesModalOpen || updateDownloadProgress.open;
 
   const emitWindowDiagnostic = useCallback(async (stage: string, extra: Record<string, unknown> = {}) => {
       if (!macWindowDiagnosticsEnabled) {
@@ -2776,6 +2982,7 @@ function App() {
                   password: '',
                   error: '',
                   confirmLoading: false,
+                  selectedConnectionIds: [],
               });
               return;
           }
@@ -2845,6 +3052,8 @@ function App() {
           password: '',
           error: '',
           confirmLoading: false,
+          // Default to all connections; user can deselect for partial export.
+          selectedConnectionIds: connections.map((item) => item.id),
       });
   };
 
@@ -2856,6 +3065,17 @@ function App() {
           setConnectionPackageDialog((current) => ({
               ...current,
               error: t('app.connection_package.error.restore_password_required'),
+          }));
+          return;
+      }
+
+      if (
+          connectionPackageDialog.mode === 'export'
+          && connectionPackageDialog.selectedConnectionIds.length === 0
+      ) {
+          setConnectionPackageDialog((current) => ({
+              ...current,
+              error: t('app.connection_package.error.no_selected_connections'),
           }));
           return;
       }
@@ -2900,6 +3120,7 @@ function App() {
                           connectionPackageDialog.includeSecrets
                           && connectionPackageDialog.useFilePassword
                       ) ? password : '',
+                      connectionIds: connectionPackageDialog.selectedConnectionIds,
                       // Redis DB 别名仅存前端，导出时注入连接包
                       redisDbAliases: useStore.getState().appearance.redisDbAliases,
                   });
@@ -3424,6 +3645,14 @@ function App() {
       };
   }, [handleOpenSettingsCenterPane]);
   useEffect(() => {
+      openReleaseNotesOnManualCheckRef.current = () => {
+          setReleaseNotesModalOpen(true);
+      };
+      return () => {
+          openReleaseNotesOnManualCheckRef.current = null;
+      };
+  }, []);
+  useEffect(() => {
       if (!isSettingsAboutPaneOpen) {
           return;
       }
@@ -3436,6 +3665,72 @@ function App() {
       setActiveSettingsCenterPane({ key, group });
       setIsSettingsModalOpen(true);
   }, [clearSettingsCenterTransientPaneState]);
+  /** Title-bar「更多」→ settings/tool center navigation (mirrors 设置 left-nav groups). */
+  const handleTitleBarSettingsNavigation = useCallback((spec: {
+    group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
+    pane?: string;
+    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'sync' | 'sql-audit';
+  }) => {
+      if (spec.action === 'import-connections') {
+          void handleImportConnections('config');
+          return;
+      }
+      if (spec.action === 'export-connections') {
+          void handleExportConnections('config');
+          return;
+      }
+      if (spec.action === 'schema-compare') {
+          handleOpenDataSyncWorkbench('schemaCompare');
+          return;
+      }
+      if (spec.action === 'data-compare') {
+          handleOpenDataSyncWorkbench('dataCompare');
+          return;
+      }
+      if (spec.action === 'sync') {
+          handleOpenDataSyncWorkbench('sync');
+          return;
+      }
+      if (spec.action === 'sql-audit') {
+          handleCancelSettingsCenterPane();
+          addTab(buildSqlAuditWorkbenchTab());
+          return;
+      }
+      if (!spec.pane) {
+          if (isToolCenterGroupKey(spec.group)) {
+              handleOpenToolsModal(spec.group);
+              return;
+          }
+          handleOpenSettingsModal(spec.group);
+          return;
+      }
+      if (isToolCenterGroupKey(spec.group)) {
+          handleOpenToolCenterPane(spec.group, spec.pane as ToolCenterPaneKey);
+          return;
+      }
+      if (spec.group === 'preferences' && spec.pane === 'theme') {
+          setThemeModalSection('theme');
+          handleOpenSettingsCenterPane('preferences', 'theme');
+          return;
+      }
+      if (spec.group === 'services' && spec.pane === 'ai') {
+          setSecurityUpdateRepairSource(null);
+          setFocusedAIProviderId(undefined);
+          handleOpenSettingsCenterPane('services', 'ai');
+          return;
+      }
+      handleOpenSettingsCenterPane(spec.group, spec.pane as SettingsCenterPaneKey);
+  }, [
+      addTab,
+      handleCancelSettingsCenterPane,
+      handleExportConnections,
+      handleImportConnections,
+      handleOpenDataSyncWorkbench,
+      handleOpenSettingsCenterPane,
+      handleOpenSettingsModal,
+      handleOpenToolCenterPane,
+      handleOpenToolsModal,
+  ]);
   const handleReturnToToolCenter = useCallback((closeChild?: () => void) => {
       const returnGroup = toolCenterBackGroupKey ?? 'config';
       closeChild?.();
@@ -4186,6 +4481,7 @@ function App() {
       effectiveUiScale,
       setSidebarWidth,
       sidebarWidth,
+      sidebarCollapsed: isSidebarCollapsed,
   });
 
   useEffect(() => {
@@ -5090,24 +5386,54 @@ function App() {
       : (lastUpdateInfo?.packageType === 'portable'
           ? t('app.about.action.download_portable_update')
           : t('app.about.action.download_update'));
-  const renderAboutUpdateActions = (closeAction?: React.ReactNode) => [
+  const renderReleaseNotesActionButton = (key = 'release-notes') => (
+      lastUpdateInfo ? (
+          <Button
+              key={key}
+              icon={<FileTextOutlined />}
+              onClick={openReleaseNotesModal}
+          >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {t('app.about.release_notes.action.view')}
+                  {hasUnreadReleaseNotes ? (
+                      <span
+                          aria-label={t('app.about.release_notes.unread_badge')}
+                          style={{
+                              width: 7,
+                              height: 7,
+                              borderRadius: 999,
+                              background: darkMode ? '#4ade80' : '#16a34a',
+                              boxShadow: darkMode ? '0 0 0 2px rgba(15,23,42,0.35)' : '0 0 0 2px rgba(255,255,255,0.9)',
+                          }}
+                      />
+                  ) : null}
+              </span>
+          </Button>
+      ) : null
+  );
+
+  const renderAboutUpdateActions = (
+      surface: AboutUpdateActionsSurface,
+      closeAction?: React.ReactNode,
+  ) => [
       isBackgroundProgressForLatestUpdate && !isLatestUpdateDownloaded ? (
           <Button key="progress" icon={<DownloadOutlined />} onClick={showUpdateDownloadProgress}>{t('app.about.action.download_progress')}</Button>
       ) : null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
           <Button key="mute" onClick={muteLatestUpdate}>{t('app.about.action.mute_this_version')}</Button>
       ) : null,
+      shouldShowFooterReleaseNotesAction(surface) ? renderReleaseNotesActionButton() : null,
       <Button
           key="check"
           icon={<CloudDownloadOutlined />}
           loading={isCheckingForUpdates}
-          onClick={() => checkForUpdates(false)}
+          onClick={() => checkForUpdates(false, true)}
       >
           {t('app.about.action.check_updates')}
       </Button>,
       closeAction ?? null,
       lastUpdateInfo?.hasUpdate && !isLatestUpdateDownloaded && !isBackgroundProgressForLatestUpdate ? (
-          <Button key="download" type="primary" icon={<DownloadOutlined />} onClick={() => downloadUpdate(lastUpdateInfo, false)}>{updateDownloadActionLabel}</Button>
+          <Button key="download" type="primary" icon={<DownloadOutlined />} onClick={handleDownloadUpdateWithNotes}>{updateDownloadActionLabel}</Button>
       ) : null,
       isLatestUpdateDownloaded ? (
           <Button key="open-install-directory" onClick={openDownloadedUpdateDirectory}>
@@ -5265,23 +5591,49 @@ function App() {
           ? t('app.about.hero.update_available_version', { version: latestVersionText })
           : (lastUpdateInfo ? t('app.about.hero.no_update') : t('app.about.update_status.not_checked'));
       const currentVersionText = lastUpdateInfo?.currentVersion || aboutDisplayVersion;
-      const releaseNotesText = lastUpdateInfo?.releaseName || (hasUpdate ? t('app.about.release_notes.fallback') : '-');
       const releaseTimeText = formatAboutReleaseTime(lastUpdateInfo?.releasePublishedAt);
+      const canOpenReleaseNotes = Boolean(lastUpdateInfo);
       const packageType = ['portable', 'msi', 'dmg', 'archive'].includes(String(lastUpdateInfo?.packageType || ''))
           ? String(lastUpdateInfo?.packageType)
           : 'unknown';
       const mutedText = utilityMutedTextStyle.color;
       const dividerColor = darkMode ? 'rgba(255,255,255,0.09)' : 'rgba(16,24,40,0.09)';
-      const versionRows = [
+      const versionRows: Array<[string, React.ReactNode]> = [
           [t('app.about.version.current'), currentVersionText],
           [t('app.about.version.latest'), latestVersionText],
           [t('app.about.version.release_time'), releaseTimeText],
-          [t('app.about.version.release_notes'), releaseNotesText],
+          [
+              t('app.about.version.release_notes'),
+              (
+                  <Button
+                      type="link"
+                      size="small"
+                      disabled={!canOpenReleaseNotes}
+                      onClick={openReleaseNotesModal}
+                      style={{ padding: 0, height: 'auto', fontWeight: 600 }}
+                  >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {t('app.about.release_notes.action.view')}
+                          {hasUnreadReleaseNotes ? (
+                              <span
+                                  aria-label={t('app.about.release_notes.unread_badge')}
+                                  style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: 999,
+                                      background: darkMode ? '#4ade80' : '#16a34a',
+                                  }}
+                              />
+                          ) : null}
+                      </span>
+                  </Button>
+              ),
+          ],
           ...(installMode === 'msi' || installMode === 'portable'
-              ? [[t('app.about.version.install_mode'), t(`app.about.install_mode.${installMode}`)]]
+              ? [[t('app.about.version.install_mode'), t(`app.about.install_mode.${installMode}`)] as [string, React.ReactNode]]
               : []),
           ...(hasUpdate && packageType !== 'unknown'
-              ? [[t('app.about.version.package_type'), t(`app.about.package_type.${packageType}`)]]
+              ? [[t('app.about.version.package_type'), t(`app.about.package_type.${packageType}`)] as [string, React.ReactNode]]
               : []),
       ];
 
@@ -5467,7 +5819,7 @@ function App() {
               </span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {renderAboutUpdateActions()}
+              {renderAboutUpdateActions('settings-center')}
           </div>
       </>
   );
@@ -7419,9 +7771,7 @@ function App() {
           );
       }
       if (activeSettingsCenterPane.key === 'about-go-navi') {
-          return (
-              renderSettingsCenterAboutPane()
-          );
+          return renderSettingsCenterAboutPane();
       }
       return null;
   };
@@ -7480,7 +7830,7 @@ function App() {
               <div className="gonavi-titlebar-leading">
                   <div
                     data-titlebar-brand-region="true"
-                    style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 600, minWidth: 0 }}
+                    style={{ display: 'flex', alignItems: 'center', gap: Math.max(6, Math.round(8 * effectiveUiScale)), fontWeight: 700, minWidth: 0, letterSpacing: '-0.01em' }}
                   >
                       <span>GoNavi</span>
                       {!isV2Ui && (
@@ -7509,6 +7859,7 @@ function App() {
                     onNewQuery={handleNewQuery}
                     onNewConnection={handleCreateConnection}
                   />
+                  {isV2Ui && <div id="gonavi-titlebar-quick-actions" className="gonavi-titlebar-quick-actions-slot" />}
               </div>
               {isWebRuntime ? (
                   <div
@@ -7619,6 +7970,9 @@ function App() {
                             onCreateConnectionInGroup={handleCreateConnectionInGroup}
                             onEditConnection={handleEditConnection}
                             onOpenSettings={handleOpenSettingsModal}
+                            onOpenSettingsNavigation={handleTitleBarSettingsNavigation}
+                            isWebRuntime={isWebRuntime}
+                            onOpenDataSyncWorkbench={handleOpenDataSyncWorkbench}
                             onToggleAI={toggleAIPanel}
                             onToggleLogPanel={handleToggleLogPanel}
                             uiVersion={appearance.uiVersion}
@@ -7730,7 +8084,9 @@ function App() {
                 )}
             </div>
           </Sider>
-           <Content style={{ background: bgContent, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+           <Content
+             style={{ background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgContent, overflow: 'hidden', display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}
+           >
              {securityUpdateEntryVisibility.showBanner && !isSecurityUpdateBannerDismissed && (
                 <SecurityUpdateBanner
                   status={securityUpdateStatus}
@@ -7747,7 +8103,7 @@ function App() {
                 />
              )}
              <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'row', position: 'relative' }}>
-               <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: bgContent, marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
+               <div style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: isV2Ui ? 'var(--gn-bg-panel-2)' : bgContent, marginBottom: isLogPanelOpen ? 8 : 0, borderRadius: isLogPanelOpen ? 'var(--gonavi-border-radius)' : 0, clipPath: isLogPanelOpen ? 'inset(0 round var(--gonavi-border-radius))' : 'none' }}>
                   <TabManager onFocusSidebarSearch={handleFocusSidebarSearch} />
                   <FloatingWorkbenchWindows />
                   <FloatingQueryResultWindows />
@@ -8111,6 +8467,15 @@ function App() {
                     password={connectionPackageDialog.password}
                     error={connectionPackageDialog.error}
                     confirmLoading={connectionPackageDialog.confirmLoading}
+                    connectionOptions={connections.map((item) => ({ value: item.id, label: item.name || item.id }))}
+                    selectedConnectionIds={connectionPackageDialog.selectedConnectionIds}
+                    onSelectedConnectionIdsChange={(ids) => {
+                        setConnectionPackageDialog((current) => ({
+                            ...current,
+                            selectedConnectionIds: ids,
+                            error: '',
+                        }));
+                    }}
                     confirmText={connectionPackageDialog.mode === 'export'
                         ? t('app.connection_package.action.start_export')
                         : t('app.connection_package.action.start_import')}
@@ -8796,6 +9161,15 @@ function App() {
             password={connectionPackageDialog.password}
             error={connectionPackageDialog.error}
             confirmLoading={connectionPackageDialog.confirmLoading}
+            connectionOptions={connections.map((item) => ({ value: item.id, label: item.name || item.id }))}
+            selectedConnectionIds={connectionPackageDialog.selectedConnectionIds}
+            onSelectedConnectionIdsChange={(ids) => {
+                setConnectionPackageDialog((current) => ({
+                    ...current,
+                    selectedConnectionIds: ids,
+                    error: '',
+                }));
+            }}
             confirmText={connectionPackageDialog.mode === 'export'
                 ? t('app.connection_package.action.start_export')
                 : t('app.connection_package.action.start_import')}
@@ -8835,11 +9209,101 @@ function App() {
             onCancel={() => setIsAboutOpen(false)}
             styles={{ content: utilityModalShellStyle, header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none', paddingTop: 10, display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'flex-end' } }}
             footer={renderAboutUpdateActions(
+                'legacy-modal',
                 <Button key="close" onClick={() => setIsAboutOpen(false)}>{t('common.close')}</Button>,
             )}
           >
             {renderAboutSettingsContent()}
           </Modal>
+
+          <UpdateReleaseNotesModal
+              open={releaseNotesModalVisible}
+              onClose={closeReleaseNotesModal}
+              onOpen={handleReleaseNotesModalOpen}
+              darkMode={darkMode}
+              version={lastUpdateInfo?.latestVersion || updateDownloadProgress.version}
+              channel={lastUpdateInfo?.channel}
+              releaseName={lastUpdateInfo?.releaseName}
+              releasePublishedAt={lastUpdateInfo?.releasePublishedAt}
+              releaseNotes={lastUpdateInfo?.releaseNotes}
+              releaseNotesUrl={lastUpdateInfo?.releaseNotesUrl || aboutInfo?.releaseUrl}
+              zIndex={settingsChildModalZIndex}
+              downloadProgress={
+                  updateDownloadProgress.status === 'idle'
+                      ? null
+                      : {
+                          status: updateDownloadProgress.status,
+                          percent: updateDownloadProgress.percent,
+                          downloaded: updateDownloadProgress.downloaded,
+                          total: updateDownloadProgress.total,
+                          message: updateDownloadProgress.message,
+                      }
+              }
+              formatBytes={formatBytes}
+              progressHint={
+                  updateInstallAction === 'restart'
+                      ? t('app.about.download_progress.complete_hint')
+                      : t('app.about.download_progress.installer_complete_hint')
+              }
+              footerActions={[
+                  lastUpdateInfo?.releaseNotesUrl || aboutInfo?.releaseUrl ? (
+                      <Button
+                          key="github"
+                          onClick={() => {
+                              const url = lastUpdateInfo?.releaseNotesUrl || aboutInfo?.releaseUrl;
+                              if (!url) return;
+                              try { BrowserOpenURL(url); } catch { window.open(url, '_blank', 'noopener,noreferrer'); }
+                          }}
+                      >
+                          {t('app.about.release_notes.modal.open_github')}
+                      </Button>
+                  ) : null,
+                  (updateDownloadProgress.status === 'start' || updateDownloadProgress.status === 'downloading') ? (
+                      <Button
+                          key="background"
+                          onClick={() => {
+                              markUpdateProgressDismissed();
+                              closeReleaseNotesModal();
+                          }}
+                      >
+                          {t('app.about.action.hide_to_background')}
+                      </Button>
+                  ) : null,
+                  lastUpdateInfo?.hasUpdate
+                      && !isLatestUpdateDownloaded
+                      && updateDownloadProgress.status !== 'start'
+                      && updateDownloadProgress.status !== 'downloading' ? (
+                      <Button
+                          key="download"
+                          type="primary"
+                          icon={<DownloadOutlined />}
+                          onClick={handleDownloadUpdateWithNotes}
+                      >
+                          {updateDownloadActionLabel}
+                      </Button>
+                  ) : null,
+                  isLatestUpdateDownloaded || updateDownloadProgress.status === 'done' ? (
+                      <Button key="open-install-directory" onClick={openDownloadedUpdateDirectory}>
+                          {t('app.about.action.open_install_directory')}
+                      </Button>
+                  ) : null,
+                  isLatestUpdateDownloaded || updateDownloadProgress.status === 'done' ? (
+                      <Button
+                          key="restart"
+                          type="primary"
+                          icon={<SyncOutlined />}
+                          onClick={() => { void handleInstallUpdateRequest(); }}
+                      >
+                          {updateInstallActionLabel}
+                      </Button>
+                  ) : null,
+                  (updateDownloadProgress.status !== 'start' && updateDownloadProgress.status !== 'downloading') ? (
+                      <Button key="close" onClick={closeReleaseNotesModal}>
+                          {t('common.close')}
+                      </Button>
+                  ) : null,
+              ].filter(Boolean) as React.ReactNode[]}
+          />
 
           {isThemeModalOpen && (
           <Modal
@@ -8883,65 +9347,6 @@ function App() {
               {renderProxySettingsContent()}
           </Modal>
           )}
-
-          <Modal
-              title={updateDownloadProgress.version
-                  ? t('app.about.download_progress.title_with_version', { version: updateDownloadProgress.version })
-                  : t('app.about.download_progress.title')}
-              open={updateDownloadProgress.open}
-              zIndex={settingsChildModalZIndex}
-              destroyOnHidden
-              closable
-              maskClosable
-              keyboard
-              onCancel={hideUpdateDownloadProgress}
-              footer={updateDownloadProgress.status === 'start' || updateDownloadProgress.status === 'downloading' ? [
-                  <Button
-                      key="background"
-                      onClick={() => {
-                          markUpdateProgressDismissed();
-                          hideUpdateDownloadProgress();
-                      }}
-                  >
-                      {t('app.about.action.hide_to_background')}
-                  </Button>
-              ] : (updateDownloadProgress.status === 'done' ? [
-                  <Button key="close" onClick={hideUpdateDownloadProgress}>{t('common.close')}</Button>,
-                  <Button key="open-install-directory" onClick={openDownloadedUpdateDirectory}>
-                      {t('app.about.action.open_install_directory')}
-                  </Button>,
-                  <Button key="restart" type="primary" icon={<SyncOutlined />} onClick={() => { void handleInstallUpdateRequest(); }}>
-                      {updateInstallActionLabel}
-                  </Button>
-              ] : (updateDownloadProgress.status === 'error' ? [
-                  <Button key="close" onClick={hideUpdateDownloadProgress}>{t('common.close')}</Button>
-              ] : null))}
-          >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <Progress
-                      percent={Math.round(updateDownloadProgress.percent)}
-                      status={updateDownloadProgress.status === 'error' ? 'exception' : (updateDownloadProgress.status === 'done' ? 'success' : 'active')}
-                  />
-                  <div style={{ fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(16,24,40,0.55)' }}>
-                      {updateDownloadProgress.status === 'done'
-                          ? (updateInstallAction === 'restart'
-                              ? t('app.about.download_progress.complete_hint')
-                              : t('app.about.download_progress.installer_complete_hint'))
-                          : `${formatBytes(updateDownloadProgress.downloaded)} / ${formatBytes(updateDownloadProgress.total)}`}
-                  </div>
-                  {updateDownloadProgress.message ? (
-                      <div style={{
-                          fontSize: 12,
-                          color: updateDownloadProgress.status === 'error'
-                              ? '#ff4d4f'
-                              : (darkMode ? 'rgba(255,255,255,0.65)' : 'rgba(16,24,40,0.65)'),
-                      }}
-                      >
-                          {updateDownloadProgress.message}
-                      </div>
-                  ) : null}
-              </div>
-          </Modal>
 
           {showLinuxResizeHandles && (
               <>

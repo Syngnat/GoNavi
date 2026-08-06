@@ -11,6 +11,7 @@ vi.mock('../../wailsjs/go/app/App', () => ({
 import {
   buildTableSelectQuery,
   extractTableSelectColumnNames,
+  isElasticsearchDbType,
   resolveTableSelectQuery,
 } from './objectQueryTemplates';
 
@@ -45,6 +46,14 @@ describe('buildTableSelectQuery', () => {
 
   it('adds a preview limit for RabbitMQ queue browsing', () => {
     expect(buildTableSelectQuery('rabbitmq', 'orders.events.v1')).toBe('SELECT * FROM "orders.events.v1" LIMIT 100;');
+  });
+
+  it('builds an Elasticsearch match_all request for an index', () => {
+    expect(buildTableSelectQuery('elasticsearch', 'orders-v1')).toBe(
+      'GET /orders-v1/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}\n',
+    );
+    expect(isElasticsearchDbType('elasticsearch')).toBe(true);
+    expect(isElasticsearchDbType('elastic')).toBe(true);
   });
 });
 
@@ -105,6 +114,16 @@ describe('resolveTableSelectQuery', () => {
       tableName: 'logs.app-1',
       connectionConfig: { type: 'kafka' },
     })).resolves.toBe('SELECT * FROM "logs.app-1" LIMIT 100;');
+
+    expect(dbGetColumnsMock).not.toHaveBeenCalled();
+  });
+
+  it('opens an Elasticsearch index with a match_all request without loading SQL columns', async () => {
+    await expect(resolveTableSelectQuery({
+      dbType: 'elasticsearch',
+      tableName: 'orders-v1',
+      connectionConfig: { type: 'elasticsearch' },
+    })).resolves.toBe('GET /orders-v1/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}\n');
 
     expect(dbGetColumnsMock).not.toHaveBeenCalled();
   });

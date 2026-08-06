@@ -27,7 +27,10 @@ import QueryEditorTransactionSettings, {
   type SqlEditorCommitMode,
 } from "./QueryEditorTransactionSettings";
 
-type QueryEditorToolbarProps = {
+export type QueryEditorMode = "sql" | "elasticsearch";
+
+export type QueryEditorToolbarProps = {
+  editorMode?: QueryEditorMode;
   isV2Ui: boolean;
   currentConnectionId: string;
   currentDb: string;
@@ -48,6 +51,7 @@ type QueryEditorToolbarProps = {
   loading: boolean;
   saveMoreMenuItems: MenuProps["items"];
   formatSettingsMenu: MenuProps["items"];
+  templateMenuItems?: MenuProps["items"];
   onConnectionChange: (connectionId: string) => void;
   onDatabaseChange: (dbName: string) => void;
   onMaxRowsChange: (maxRows: number) => void;
@@ -55,6 +59,7 @@ type QueryEditorToolbarProps = {
   onAutoCommitDelayMsChange: (delayMs: number) => void;
   onCaptureEditorCursorPosition: () => void;
   onRun: () => void;
+  onRunAll?: () => void;
   onCancel: () => void;
   onQuickSave: () => void;
   onFindInEditor: () => void;
@@ -141,7 +146,7 @@ type FullNameSelectOption = {
   fullName: string;
 };
 
-type QueryToolbarMenuKey = "ai" | "more" | "format";
+type QueryToolbarMenuKey = "ai" | "more" | "format" | "templates";
 
 const renderFullNameSelectTooltip = (fullName: React.ReactNode) => {
   const fullNameText = String(fullName ?? "");
@@ -163,6 +168,7 @@ const renderFullNameSelectTooltip = (fullName: React.ReactNode) => {
 };
 
 const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
+  editorMode = "sql",
   isV2Ui,
   currentConnectionId,
   currentDb,
@@ -183,6 +189,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   loading,
   saveMoreMenuItems,
   formatSettingsMenu,
+  templateMenuItems,
   onConnectionChange,
   onDatabaseChange,
   onMaxRowsChange,
@@ -190,6 +197,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   onAutoCommitDelayMsChange,
   onCaptureEditorCursorPosition,
   onRun,
+  onRunAll,
   onCancel,
   onQuickSave,
   onFindInEditor,
@@ -203,6 +211,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
 }) => {
   const i18n = useOptionalI18n();
   const t = i18n?.t ?? defaultTranslate;
+  const isElasticsearchMode = editorMode === "elasticsearch";
   const [openToolbarMenu, setOpenToolbarMenu] = React.useState<QueryToolbarMenuKey | null>(null);
   const updateToolbarMenuOpen = (key: QueryToolbarMenuKey, open: boolean) => {
     setOpenToolbarMenu((current) => open ? key : current === key ? null : current);
@@ -242,14 +251,16 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         ? t("query_editor.action.hide_results_panel")
         : t("query_editor.action.show_results_panel");
   const formatSqlTitle =
-    formatSqlShortcutBinding.enabled && formatSqlShortcutBinding.combo
+    !isElasticsearchMode && formatSqlShortcutBinding.enabled && formatSqlShortcutBinding.combo
       ? t("query_editor.action.format_sql_with_shortcut", {
           shortcut: getShortcutDisplayLabel(
             formatSqlShortcutBinding.combo,
             activeShortcutPlatform,
           ),
         })
-      : t("query_editor.action.format_sql");
+      : t(isElasticsearchMode
+          ? "query_editor.elasticsearch.action.format"
+          : "query_editor.action.format_sql");
   const findInEditorShortcutCombo =
     activeShortcutPlatform === "mac" ? "Meta+F" : "Ctrl+F";
   const findInEditorTitle = t(
@@ -269,42 +280,53 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           activeShortcutPlatform,
         )}`
       : t("app.shortcuts.action.triggerSqlAiCompletion.label");
-  const aiMoreTitle = `AI · ${t("query_editor.action.more")}`;
+  const aiMoreTitle = isElasticsearchMode
+    ? t("query_editor.elasticsearch.action.ai")
+    : `AI · ${t("query_editor.action.more")}`;
   const formatSettingsTitle = `${t("query_editor.action.format_sql")} · ${t("settings.title")}`;
-  const aiMenuItems: MenuProps["items"] = [
-    {
-      key: "ai-inline-completion",
-      label: triggerSqlAiCompletionLabel,
-      icon: <RobotOutlined />,
-      onClick: onTriggerSqlAiCompletion,
-    },
-    { type: "divider" as const },
-    {
-      key: "ai-generate",
-      label: t("query_editor.action.ai_text_to_sql_menu"),
-      icon: <RobotOutlined />,
-      onClick: () => onAIAction("generate"),
-    },
-    {
-      key: "ai-explain",
-      label: t("query_editor.action.ai_explain_sql_menu"),
-      icon: <RobotOutlined />,
-      onClick: () => onAIAction("explain"),
-    },
-    {
-      key: "ai-optimize",
-      label: t("query_editor.action.ai_optimize_sql_menu"),
-      icon: <RobotOutlined />,
-      onClick: () => onAIAction("optimize"),
-    },
-    { type: "divider" as const },
-    {
-      key: "ai-schema",
-      label: t("query_editor.action.ai_schema_analysis"),
-      icon: <RobotOutlined />,
-      onClick: () => onAIAction("schema"),
-    },
-  ];
+  const aiMenuItems: MenuProps["items"] = isElasticsearchMode
+    ? [
+        {
+          key: "ai-generate",
+          label: t("query_editor.elasticsearch.action.ai_generate"),
+          icon: <RobotOutlined />,
+          onClick: () => onAIAction("generate"),
+        },
+      ]
+    : [
+        {
+          key: "ai-inline-completion",
+          label: triggerSqlAiCompletionLabel,
+          icon: <RobotOutlined />,
+          onClick: onTriggerSqlAiCompletion,
+        },
+        { type: "divider" as const },
+        {
+          key: "ai-generate",
+          label: t("query_editor.action.ai_text_to_sql_menu"),
+          icon: <RobotOutlined />,
+          onClick: () => onAIAction("generate"),
+        },
+        {
+          key: "ai-explain",
+          label: t("query_editor.action.ai_explain_sql_menu"),
+          icon: <RobotOutlined />,
+          onClick: () => onAIAction("explain"),
+        },
+        {
+          key: "ai-optimize",
+          label: t("query_editor.action.ai_optimize_sql_menu"),
+          icon: <RobotOutlined />,
+          onClick: () => onAIAction("optimize"),
+        },
+        { type: "divider" as const },
+        {
+          key: "ai-schema",
+          label: t("query_editor.action.ai_schema_analysis"),
+          icon: <RobotOutlined />,
+          onClick: () => onAIAction("schema"),
+        },
+      ];
   const moreMenuItems: MenuProps["items"] = isV2Ui
     ? [
         ...baseMoreMenuItems,
@@ -340,6 +362,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
         style={isV2Ui ? undefined : { width: 150 }}
         placeholder={t("query_editor.placeholder.connection")}
         value={currentConnectionId}
+        disabled={isElasticsearchMode && loading}
         onChange={onConnectionChange}
         options={connectionSelectOptions}
         optionFilterProp="label"
@@ -354,43 +377,77 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             : undefined
         }
         style={isV2Ui ? undefined : { width: 200 }}
-        placeholder={t("query_editor.placeholder.database")}
+        placeholder={t(isElasticsearchMode
+          ? "query_editor.elasticsearch.placeholder.index_optional"
+          : "query_editor.placeholder.database")}
         value={currentDb}
-        onChange={onDatabaseChange}
+        disabled={isElasticsearchMode && loading}
+        onChange={(value) => onDatabaseChange(String(value || ""))}
+        allowClear={isElasticsearchMode}
         options={databaseSelectOptions}
         optionFilterProp="label"
         optionRender={(option) => renderFullNameSelectTooltip(option.data.fullName)}
         labelRender={(option) => renderFullNameSelectTooltip(option.label ?? option.value)}
         showSearch
       />
-      <Tooltip title={t("query_editor.max_rows.tooltip")}>
-        <Select
-          className={
-            isV2Ui
-              ? "gn-v2-query-toolbar-select gn-v2-query-toolbar-max-rows-select"
-              : undefined
-          }
-          style={isV2Ui ? undefined : { width: 170 }}
-          value={maxRows}
-          onChange={(val) => onMaxRowsChange(Number(val))}
-          options={[
-            { label: '100', value: 100 },
-            { label: t("query_editor.max_rows.option_500"), value: 500 },
-            { label: t("query_editor.max_rows.option_1000"), value: 1000 },
-            { label: t("query_editor.max_rows.option_5000"), value: 5000 },
-            { label: t("query_editor.max_rows.option_20000"), value: 20000 },
-            { label: t("query_editor.max_rows.option_unlimited"), value: 0 },
-          ]}
-        />
-      </Tooltip>
-      <QueryEditorTransactionSettings
-        isV2Ui={isV2Ui}
-        commitMode={sqlEditorCommitMode}
-        autoCommitDelayMs={sqlEditorAutoCommitDelayMs}
-        onCommitModeChange={onCommitModeChange}
-        onAutoCommitDelayMsChange={onAutoCommitDelayMsChange}
-      />
-      {!isV2Ui && pendingTransactionToolbar}
+      {isElasticsearchMode && Array.isArray(templateMenuItems) && templateMenuItems.length > 0 && (
+        <Tooltip
+          title={isV2Ui ? t("query_editor.elasticsearch.action.templates") : undefined}
+          open={isV2Ui && openToolbarMenu === "templates" ? false : undefined}
+        >
+          <span className={isV2Ui ? "gn-v2-query-toolbar-menu-trigger" : undefined}>
+            <Dropdown
+              menu={{ items: templateMenuItems }}
+              placement="bottomLeft"
+              trigger={["click"]}
+              open={isV2Ui ? openToolbarMenu === "templates" : undefined}
+              onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("templates", open) : undefined}
+            >
+              <Button
+                aria-label={t("query_editor.elasticsearch.action.templates")}
+                className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+                icon={<DownOutlined />}
+                aria-haspopup="menu"
+                aria-expanded={isV2Ui ? openToolbarMenu === "templates" : undefined}
+              >
+                {!isV2Ui && t("query_editor.elasticsearch.action.templates")}
+              </Button>
+            </Dropdown>
+          </span>
+        </Tooltip>
+      )}
+      {!isElasticsearchMode && (
+        <>
+          <Tooltip title={t("query_editor.max_rows.tooltip")}>
+            <Select
+              className={
+                isV2Ui
+                  ? "gn-v2-query-toolbar-select gn-v2-query-toolbar-max-rows-select"
+                  : undefined
+              }
+              style={isV2Ui ? undefined : { width: 170 }}
+              value={maxRows}
+              onChange={(val) => onMaxRowsChange(Number(val))}
+              options={[
+                { label: '100', value: 100 },
+                { label: t("query_editor.max_rows.option_500"), value: 500 },
+                { label: t("query_editor.max_rows.option_1000"), value: 1000 },
+                { label: t("query_editor.max_rows.option_5000"), value: 5000 },
+                { label: t("query_editor.max_rows.option_20000"), value: 20000 },
+                { label: t("query_editor.max_rows.option_unlimited"), value: 0 },
+              ]}
+            />
+          </Tooltip>
+          <QueryEditorTransactionSettings
+            isV2Ui={isV2Ui}
+            commitMode={sqlEditorCommitMode}
+            autoCommitDelayMs={sqlEditorAutoCommitDelayMs}
+            onCommitModeChange={onCommitModeChange}
+            onAutoCommitDelayMsChange={onAutoCommitDelayMsChange}
+          />
+          {!isV2Ui && pendingTransactionToolbar}
+        </>
+      )}
     </div>
   );
 
@@ -410,7 +467,9 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
       >
         <Tooltip
           title={
-            runQueryShortcutBinding.enabled && runQueryShortcutBinding.combo
+            isElasticsearchMode
+              ? t("query_editor.elasticsearch.action.run_current")
+              : runQueryShortcutBinding.enabled && runQueryShortcutBinding.combo
               ? t("query_editor.action.run_with_shortcut", {
                   shortcut: getShortcutDisplayLabel(
                     runQueryShortcutBinding.combo,
@@ -421,7 +480,9 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           }
         >
           <Button
-            aria-label={t("query_editor.action.run")}
+            aria-label={t(isElasticsearchMode
+              ? "query_editor.elasticsearch.action.run_current"
+              : "query_editor.action.run")}
             className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-run-action" : undefined}
             type="primary"
             icon={<PlayCircleOutlined />}
@@ -429,10 +490,26 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
             onClick={onRun}
             loading={loading}
           >
-            {!isV2Ui && t("query_editor.action.run")}
+            {!isV2Ui && t(isElasticsearchMode
+              ? "query_editor.elasticsearch.action.run_current"
+              : "query_editor.action.run")}
           </Button>
         </Tooltip>
-        {showViewDataVerify && onViewDataVerify && (
+        {isElasticsearchMode && onRunAll && (
+          <Tooltip title={t("query_editor.elasticsearch.action.run_all")}>
+            <Button
+              aria-label={t("query_editor.elasticsearch.action.run_all")}
+              className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+              icon={<PlayCircleOutlined />}
+              disabled={loading}
+              onMouseDown={onCaptureEditorCursorPosition}
+              onClick={onRunAll}
+            >
+              {!isV2Ui && t("query_editor.elasticsearch.action.run_all")}
+            </Button>
+          </Tooltip>
+        )}
+        {!isElasticsearchMode && showViewDataVerify && onViewDataVerify && (
           <Tooltip title={t("result_diff.view_verify.toolbar.tooltip")}>
             <Button
               aria-label={t("result_diff.view_verify.toolbar")}
@@ -460,7 +537,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           </Tooltip>
         )}
       </div>
-      {isV2Ui && pendingTransactionToolbar}
+      {!isElasticsearchMode && isV2Ui && pendingTransactionToolbar}
       <div
         className={isV2Ui ? "gn-v2-query-toolbar-action-pair" : undefined}
         style={{ display: "flex", gap: "8px", alignItems: "center" }}
@@ -480,26 +557,16 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
           <Button
             aria-label={t("query_editor.action.save")}
             className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-save-action" : undefined}
-            type="primary"
+            /* v2 与终端等工具按钮同族（default），避免 primary 的 on-accent 前景在暗色下发脏绿；
+               可读性靠 CSS 把图标提到 fg-1。legacy 仍用 primary 实心按钮。 */
+            type={isV2Ui ? "default" : "primary"}
             icon={<SaveOutlined />}
             onClick={onQuickSave}
           >
             {!isV2Ui && t("query_editor.action.save")}
           </Button>
         </Tooltip>
-        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
-          <Tooltip title={triggerSqlAiCompletionLabel}>
-            <Button
-              aria-label={triggerSqlAiCompletionLabel}
-              className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action" : undefined}
-              icon={<RobotOutlined />}
-              style={{ color: "#818cf8" }}
-              onMouseDown={onCaptureEditorCursorPosition}
-              onClick={onTriggerSqlAiCompletion}
-            >
-              {!isV2Ui && "AI"}
-            </Button>
-          </Tooltip>
+        {isElasticsearchMode ? (
           <Tooltip
             title={isV2Ui ? aiMoreTitle : undefined}
             open={isV2Ui && openToolbarMenu === "ai" ? false : undefined}
@@ -513,114 +580,167 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("ai", open) : undefined}
               >
                 <Button
-                  className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
-                  icon={<DownOutlined />}
+                  className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action" : undefined}
+                  icon={<RobotOutlined />}
+                  style={{ color: "#818cf8" }}
                   aria-label={aiMoreTitle}
                   aria-haspopup="menu"
                   aria-expanded={isV2Ui ? openToolbarMenu === "ai" : undefined}
                   onMouseDown={onCaptureEditorCursorPosition}
-                />
+                >
+                  {!isV2Ui && "AI"}
+                </Button>
               </Dropdown>
             </span>
           </Tooltip>
-        </div>
-        <Tooltip
-          title={isV2Ui ? t("query_editor.action.more") : undefined}
-          open={isV2Ui && openToolbarMenu === "more" ? false : undefined}
-        >
-          <span className={isV2Ui ? "gn-v2-query-toolbar-menu-trigger" : undefined}>
-            <Dropdown
-              menu={{ items: moreMenuItems }}
-              placement="bottomRight"
-              trigger={["click"]}
-              open={isV2Ui ? openToolbarMenu === "more" : undefined}
-              onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("more", open) : undefined}
-            >
-              <Button
-                aria-label={t("query_editor.action.more")}
-                className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
-                icon={isV2Ui ? <EllipsisOutlined /> : undefined}
-                aria-haspopup="menu"
-                aria-expanded={isV2Ui ? openToolbarMenu === "more" : undefined}
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+              <Tooltip title={triggerSqlAiCompletionLabel}>
+                <Button
+                  aria-label={triggerSqlAiCompletionLabel}
+                  className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action" : undefined}
+                  icon={<RobotOutlined />}
+                  style={{ color: "#818cf8" }}
+                  onMouseDown={onCaptureEditorCursorPosition}
+                  onClick={onTriggerSqlAiCompletion}
+                >
+                  {!isV2Ui && "AI"}
+                </Button>
+              </Tooltip>
+              <Tooltip
+                title={isV2Ui ? aiMoreTitle : undefined}
+                open={isV2Ui && openToolbarMenu === "ai" ? false : undefined}
               >
-                {!isV2Ui && t("query_editor.action.more")}
-              </Button>
-            </Dropdown>
-          </span>
-        </Tooltip>
+                <span className={isV2Ui ? "gn-v2-query-toolbar-menu-trigger" : undefined}>
+                  <Dropdown
+                    menu={{ items: aiMenuItems }}
+                    placement="bottomRight"
+                    trigger={["click"]}
+                    open={isV2Ui ? openToolbarMenu === "ai" : undefined}
+                    onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("ai", open) : undefined}
+                  >
+                    <Button
+                      className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+                      icon={<DownOutlined />}
+                      aria-label={aiMoreTitle}
+                      aria-haspopup="menu"
+                      aria-expanded={isV2Ui ? openToolbarMenu === "ai" : undefined}
+                      onMouseDown={onCaptureEditorCursorPosition}
+                    />
+                  </Dropdown>
+                </span>
+              </Tooltip>
+            </div>
+            <Tooltip
+              title={isV2Ui ? t("query_editor.action.more") : undefined}
+              open={isV2Ui && openToolbarMenu === "more" ? false : undefined}
+            >
+              <span className={isV2Ui ? "gn-v2-query-toolbar-menu-trigger" : undefined}>
+                <Dropdown
+                  menu={{ items: moreMenuItems }}
+                  placement="bottomRight"
+                  trigger={["click"]}
+                  open={isV2Ui ? openToolbarMenu === "more" : undefined}
+                  onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("more", open) : undefined}
+                >
+                  <Button
+                    aria-label={t("query_editor.action.more")}
+                    className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+                    icon={isV2Ui ? <EllipsisOutlined /> : undefined}
+                    aria-haspopup="menu"
+                    aria-expanded={isV2Ui ? openToolbarMenu === "more" : undefined}
+                  >
+                    {!isV2Ui && t("query_editor.action.more")}
+                  </Button>
+                </Dropdown>
+              </span>
+            </Tooltip>
+          </>
+        )}
       </div>
 
       <div
         className={isV2Ui ? "gn-v2-query-toolbar-action-pair" : undefined}
         style={{ display: "flex", gap: "8px", alignItems: "center" }}
       >
-        <Tooltip title={findInEditorTitle}>
-          <Button
-            aria-label={t("query_editor.action.find_in_editor")}
-            className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
-            icon={<SearchOutlined />}
-            onClick={onFindInEditor}
-          >
-            {!isV2Ui && t("query_editor.action.find_in_editor")}
-          </Button>
-        </Tooltip>
-        <Tooltip
-          title={t(
-            wordWrapEnabled
-              ? "query_editor.action.disable_word_wrap"
-              : "query_editor.action.enable_word_wrap",
-          )}
-        >
-          <Button
-            className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-word-wrap-action" : undefined}
-            type={wordWrapEnabled ? "primary" : "default"}
-            icon={<WrapTextIcon />}
-            aria-label={t(
-              wordWrapEnabled
-                ? "query_editor.action.disable_word_wrap"
-                : "query_editor.action.enable_word_wrap",
-            )}
-            aria-pressed={wordWrapEnabled}
-            onClick={onToggleWordWrap}
-          >
-            {!isV2Ui && t("query_editor.action.word_wrap")}
-          </Button>
-        </Tooltip>
+        {!isElasticsearchMode && (
+          <>
+            <Tooltip title={findInEditorTitle}>
+              <Button
+                aria-label={t("query_editor.action.find_in_editor")}
+                className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+                icon={<SearchOutlined />}
+                onClick={onFindInEditor}
+              >
+                {!isV2Ui && t("query_editor.action.find_in_editor")}
+              </Button>
+            </Tooltip>
+            <Tooltip
+              title={t(
+                wordWrapEnabled
+                  ? "query_editor.action.disable_word_wrap"
+                  : "query_editor.action.enable_word_wrap",
+              )}
+            >
+              <Button
+                className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-word-wrap-action" : undefined}
+                type={wordWrapEnabled ? "primary" : "default"}
+                icon={<WrapTextIcon />}
+                aria-label={t(
+                  wordWrapEnabled
+                    ? "query_editor.action.disable_word_wrap"
+                    : "query_editor.action.enable_word_wrap",
+                )}
+                aria-pressed={wordWrapEnabled}
+                onClick={onToggleWordWrap}
+              >
+                {!isV2Ui && t("query_editor.action.word_wrap")}
+              </Button>
+            </Tooltip>
+          </>
+        )}
         <Tooltip title={formatSqlTitle}>
           <Button
-            aria-label={t("query_editor.action.format_sql")}
+            aria-label={t(isElasticsearchMode
+              ? "query_editor.elasticsearch.action.format"
+              : "query_editor.action.format_sql")}
             className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
             icon={<FormatPainterOutlined />}
             onClick={onFormat}
           >
-            {!isV2Ui && t("query_editor.action.format")}
+            {!isV2Ui && t(isElasticsearchMode
+              ? "query_editor.elasticsearch.action.format"
+              : "query_editor.action.format")}
           </Button>
         </Tooltip>
-        <Tooltip
-          title={isV2Ui ? formatSettingsTitle : undefined}
-          open={isV2Ui && openToolbarMenu === "format" ? false : undefined}
-        >
-          <span className={isV2Ui ? "gn-v2-query-toolbar-menu-trigger" : undefined}>
-            <Dropdown
-              menu={{ items: formatSettingsMenu }}
-              placement="bottomRight"
-              trigger={["click"]}
-              open={isV2Ui ? openToolbarMenu === "format" : undefined}
-              onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("format", open) : undefined}
-            >
-              <Button
-                aria-label={formatSettingsTitle}
-                className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
-                icon={<SettingOutlined />}
-                aria-haspopup="menu"
-                aria-expanded={isV2Ui ? openToolbarMenu === "format" : undefined}
-              />
-            </Dropdown>
-          </span>
-        </Tooltip>
+        {!isElasticsearchMode && (
+          <Tooltip
+            title={isV2Ui ? formatSettingsTitle : undefined}
+            open={isV2Ui && openToolbarMenu === "format" ? false : undefined}
+          >
+            <span className={isV2Ui ? "gn-v2-query-toolbar-menu-trigger" : undefined}>
+              <Dropdown
+                menu={{ items: formatSettingsMenu }}
+                placement="bottomRight"
+                trigger={["click"]}
+                open={isV2Ui ? openToolbarMenu === "format" : undefined}
+                onOpenChange={isV2Ui ? (open) => updateToolbarMenuOpen("format", open) : undefined}
+              >
+                <Button
+                  aria-label={formatSettingsTitle}
+                  className={isV2Ui ? "gn-v2-query-toolbar-icon-action" : undefined}
+                  icon={<SettingOutlined />}
+                  aria-haspopup="menu"
+                  aria-expanded={isV2Ui ? openToolbarMenu === "format" : undefined}
+                />
+              </Dropdown>
+            </span>
+          </Tooltip>
+        )}
       </div>
 
-      {!isV2Ui && (
+      {!isElasticsearchMode && !isV2Ui && (
         <Tooltip title={toggleResultPanelTitle}>
           <Button
             icon={

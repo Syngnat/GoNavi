@@ -10,6 +10,8 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 type damengTransactionRecordingState struct {
@@ -135,5 +137,37 @@ func TestDamengOpenTransactionExecerUsesDriverTransaction(t *testing.T) {
 				t.Fatalf("expected only DML to reach the driver, got %#v", execQueries)
 			}
 		})
+	}
+}
+
+func TestDamengApplyChangesPreservesSchemaContainingDot(t *testing.T) {
+	state := &damengTransactionRecordingState{}
+	dbConn := sql.OpenDB(&damengTransactionConnector{state: state})
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	damengDB := &DamengDB{conn: dbConn}
+	err := damengDB.ApplyChanges(
+		`"PEM2.4_V1_1"."COM_APPROVE_INFO"`,
+		connection.ChangeSet{Updates: []connection.UpdateRow{{
+			Keys:   map[string]interface{}{"ID": 7},
+			Values: map[string]interface{}{"STATUS": "0"},
+		}}},
+	)
+	if err != nil {
+		t.Fatalf("ApplyChanges returned error: %v", err)
+	}
+
+	beginCalls, commitCalls, rollbackCalls, execQueries := state.snapshot()
+	if beginCalls != 1 || commitCalls != 1 || rollbackCalls != 0 {
+		t.Fatalf(
+			"unexpected transaction calls: begin=%d commit=%d rollback=%d",
+			beginCalls,
+			commitCalls,
+			rollbackCalls,
+		)
+	}
+	want := []string{`UPDATE "PEM2.4_V1_1"."COM_APPROVE_INFO" SET "STATUS" = :1 WHERE "ID" = :2`}
+	if !reflect.DeepEqual(execQueries, want) {
+		t.Fatalf("ApplyChanges queries = %#v, want %#v", execQueries, want)
 	}
 }

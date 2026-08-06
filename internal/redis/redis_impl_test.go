@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	goredis "github.com/redis/go-redis/v9"
 	"io"
 	"math"
 	"math/big"
@@ -18,7 +19,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func startRedisProtocolTestServer(t *testing.T, handler func([]string) string) string {
@@ -576,7 +576,6 @@ func TestRedisConnectFailureWrappersUseEnglishPrefixes(t *testing.T) {
 	}
 }
 
-
 func TestRedisExecuteCommandClusterSelectValidationUsesEnglishMessages(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
 	t.Cleanup(func() {
@@ -633,7 +632,6 @@ func TestRedisExecuteCommandClusterSelectValidationUsesEnglishMessages(t *testin
 		})
 	}
 }
-
 
 func TestRedisSelectDBClusterRangeUsesEnglishMessage(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
@@ -704,17 +702,17 @@ func TestRedisGetDatabasesUsesConfiguredDatabaseCountAboveDefault(t *testing.T) 
 	}
 }
 
-func TestListRemoveUsesLRemForOneMatchingValue(t *testing.T) {
-	var commands [][]string
+func TestListPushUsesRPushWithAllValues(t *testing.T) {
+	commandCh := make(chan []string, 1)
 	addr := startRedisProtocolTestServer(t, func(args []string) string {
-		commands = append(commands, append([]string(nil), args...))
 		switch strings.ToUpper(strings.TrimSpace(args[0])) {
 		case "HELLO":
 			return "-ERR unknown command 'HELLO'\r\n"
 		case "CLIENT":
 			return "-ERR unknown subcommand\r\n"
-		case "LREM":
-			return ":1\r\n"
+		case "RPUSH":
+			commandCh <- append([]string(nil), args...)
+			return ":2\r\n"
 		}
 		return "+OK\r\n"
 	})
@@ -729,19 +727,178 @@ func TestListRemoveUsesLRemForOneMatchingValue(t *testing.T) {
 	}
 	defer client.Close()
 
-	if err := client.ListRemove("tasks", "review"); err != nil {
-		t.Fatalf("ListRemove returned error: %v", err)
+	if err := client.ListPush("tasks", "review", "ship"); err != nil {
+		t.Fatalf("ListPush returned error: %v", err)
 	}
 
-	for _, command := range commands {
-		if len(command) == 4 && strings.EqualFold(command[0], "LREM") {
-			if command[1] != "tasks" || command[2] != "1" || command[3] != "review" {
-				t.Fatalf("unexpected LREM command: %v", command)
-			}
-			return
+	select {
+	case command := <-commandCh:
+		if len(command) != 4 || command[1] != "tasks" || command[2] != "review" || command[3] != "ship" {
+			t.Fatalf("unexpected RPUSH command: %v", command)
 		}
+	case <-time.After(time.Second):
+		t.Fatal("expected RPUSH command")
 	}
-	t.Fatalf("expected LREM command, got %v", commands)
+}
+
+func TestListPushLeftUsesLPushWithAllValues(t *testing.T) {
+	commandCh := make(chan []string, 1)
+	addr := startRedisProtocolTestServer(t, func(args []string) string {
+		switch strings.ToUpper(strings.TrimSpace(args[0])) {
+		case "HELLO":
+			return "-ERR unknown command 'HELLO'\r\n"
+		case "CLIENT":
+			return "-ERR unknown subcommand\r\n"
+		case "LPUSH":
+			commandCh <- append([]string(nil), args...)
+			return ":2\r\n"
+		}
+		return "+OK\r\n"
+	})
+
+	rawClient := goredis.NewClient(&goredis.Options{
+		Addr:     addr,
+		Protocol: 2,
+	})
+	client := &RedisClientImpl{
+		client:       rawClient,
+		singleClient: rawClient,
+	}
+	defer client.Close()
+
+	if err := client.ListPushLeft("tasks", "review", "ship"); err != nil {
+		t.Fatalf("ListPushLeft returned error: %v", err)
+	}
+
+	select {
+	case command := <-commandCh:
+		if len(command) != 4 || command[1] != "tasks" || command[2] != "review" || command[3] != "ship" {
+			t.Fatalf("unexpected LPUSH command: %v", command)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected LPUSH command")
+	}
+}
+
+func TestListRemoveAtUsesAtomicEvalWithPhysicalKeyAndExpectedValue(t *testing.T) {
+	commandCh := make(chan []string, 1)
+	addr := startRedisProtocolTestServer(t, func(args []string) string {
+		switch strings.ToUpper(strings.TrimSpace(args[0])) {
+		case "HELLO":
+			return "-ERR unknown command 'HELLO'\r\n"
+		case "CLIENT":
+			return "-ERR unknown subcommand\r\n"
+		case "EVAL":
+			commandCh <- append([]string(nil), args...)
+			return ":1\r\n"
+		}
+		return "+OK\r\n"
+	})
+
+	rawClient := goredis.NewClient(&goredis.Options{
+		Addr:     addr,
+		Protocol: 2,
+	})
+	client := &RedisClientImpl{
+		client:       rawClient,
+		singleClient: rawClient,
+		isCluster:    true,
+		currentDB:    3,
+	}
+	defer client.Close()
+
+	if err := client.ListRemoveAt("tasks", 3, "review"); err != nil {
+		t.Fatalf("ListRemoveAt returned error: %v", err)
+	}
+
+	select {
+	case command := <-commandCh:
+		if len(command) != 7 {
+			t.Fatalf("unexpected EVAL command length: %v", command)
+		}
+		if command[2] != "1" || command[3] != "__gonavi_db_3__:tasks" {
+			t.Fatalf("expected one physical Redis key, got %v", command)
+		}
+		if command[4] != "3" || command[5] != "review" {
+			t.Fatalf("expected index and value arguments, got %v", command)
+		}
+		if !strings.HasPrefix(command[6], "\x00gonavi:list-remove:") {
+			t.Fatalf("expected collision-resistant marker prefix, got %q", command[6])
+		}
+		for _, redisCommand := range []string{"LINDEX", "LSET", "LREM"} {
+			if !strings.Contains(strings.ToUpper(command[1]), redisCommand) {
+				t.Fatalf("expected script to contain %s, got %q", redisCommand, command[1])
+			}
+		}
+		if !strings.Contains(command[1], `redis.pcall("LREM"`) ||
+			!strings.Contains(command[1], `redis.pcall("LSET"`) ||
+			!strings.Contains(command[1], "rollback failed") {
+			t.Fatalf("expected script to restore the selected item after a removal error, got %q", command[1])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected EVAL command")
+	}
+}
+
+func TestListRemoveAtReturnsItemChangedWhenIndexNoLongerMatches(t *testing.T) {
+	addr := startRedisProtocolTestServer(t, func(args []string) string {
+		switch strings.ToUpper(strings.TrimSpace(args[0])) {
+		case "HELLO":
+			return "-ERR unknown command 'HELLO'\r\n"
+		case "CLIENT":
+			return "-ERR unknown subcommand\r\n"
+		case "EVAL":
+			return ":0\r\n"
+		}
+		return "+OK\r\n"
+	})
+
+	rawClient := goredis.NewClient(&goredis.Options{
+		Addr:     addr,
+		Protocol: 2,
+	})
+	client := &RedisClientImpl{
+		client:       rawClient,
+		singleClient: rawClient,
+	}
+	defer client.Close()
+
+	err := client.ListRemoveAt("tasks", 3, "review")
+	if !errors.Is(err, ErrRedisListItemChanged) {
+		t.Fatalf("expected ErrRedisListItemChanged, got %v", err)
+	}
+}
+
+func TestListRemoveAtRejectsUnexpectedScriptResult(t *testing.T) {
+	addr := startRedisProtocolTestServer(t, func(args []string) string {
+		switch strings.ToUpper(strings.TrimSpace(args[0])) {
+		case "HELLO":
+			return "-ERR unknown command 'HELLO'\r\n"
+		case "CLIENT":
+			return "-ERR unknown subcommand\r\n"
+		case "EVAL":
+			return ":2\r\n"
+		}
+		return "+OK\r\n"
+	})
+
+	rawClient := goredis.NewClient(&goredis.Options{
+		Addr:     addr,
+		Protocol: 2,
+	})
+	client := &RedisClientImpl{
+		client:       rawClient,
+		singleClient: rawClient,
+	}
+	defer client.Close()
+
+	err := client.ListRemoveAt("tasks", 3, "review")
+	if err == nil {
+		t.Fatal("expected unexpected script result to fail")
+	}
+	if errors.Is(err, ErrRedisListItemChanged) {
+		t.Fatalf("expected protocol error, got item-changed sentinel: %v", err)
+	}
 }
 
 func TestRedisSearchScanContinuesPastEmptyMatchedPages(t *testing.T) {

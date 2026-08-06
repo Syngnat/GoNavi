@@ -3,6 +3,12 @@ export type QualifiedNameParts = {
   objectName: string;
 };
 
+export type QualifiedNameSegment = {
+  raw: string;
+  value: string;
+  quoted: boolean;
+};
+
 const normalizeIdentifierEscapes = (raw: string): string => {
   let value = String(raw || '').trim();
   for (let i = 0; i < 4; i += 1) {
@@ -34,11 +40,19 @@ export const stripIdentifierQuotes = (part: string): string => {
   return text;
 };
 
-export const splitQualifiedNameSegments = (qualifiedName: string): string[] => {
+const isQuotedIdentifier = (part: string): boolean => {
+  const text = normalizeIdentifierEscapes(part);
+  if (text.length < 2) return false;
+  return (text.startsWith('"') && text.endsWith('"'))
+    || (text.startsWith('`') && text.endsWith('`'))
+    || (text.startsWith('[') && text.endsWith(']'));
+};
+
+export const splitQualifiedNameSegmentsDetailed = (qualifiedName: string): QualifiedNameSegment[] => {
   const text = normalizeIdentifierEscapes(qualifiedName);
   if (!text) return [];
 
-  const segments: string[] = [];
+  const segments: QualifiedNameSegment[] = [];
   let current = '';
   let inDouble = false;
   let inBacktick = false;
@@ -48,7 +62,11 @@ export const splitQualifiedNameSegments = (qualifiedName: string): string[] => {
     const value = current.trim();
     current = '';
     if (!value) return;
-    segments.push(stripIdentifierQuotes(value));
+    segments.push({
+      raw: value,
+      value: stripIdentifierQuotes(value),
+      quoted: isQuotedIdentifier(value),
+    });
   };
 
   for (let i = 0; i < text.length; i += 1) {
@@ -112,6 +130,10 @@ export const splitQualifiedNameSegments = (qualifiedName: string): string[] => {
   flush();
   return segments;
 };
+
+export const splitQualifiedNameSegments = (qualifiedName: string): string[] => (
+  splitQualifiedNameSegmentsDetailed(qualifiedName).map((segment) => segment.value)
+);
 
 export const splitQualifiedName = (qualifiedName: string): QualifiedNameParts => {
   const segments = splitQualifiedNameSegments(qualifiedName);

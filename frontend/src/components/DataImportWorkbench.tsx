@@ -19,6 +19,7 @@ import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import { BACKEND_CANCELLED_MESSAGE } from '../utils/connectionExport';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
+import { filterVisibleDatabaseNames, isDatabaseVisible } from '../utils/databaseVisibility';
 import {
   isConnectionDataImportRestricted,
   isConnectionScriptExecutionRestricted,
@@ -225,8 +226,15 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     }
 
     let alive = true;
+    setDatabaseOptions([]);
     setLoadingDatabases(true);
     setDatabaseError('');
+    if (selectedDbName && !isDatabaseVisible(selectedConnection, selectedDbName)) {
+      setSelectedDbName('');
+      setSelectedTableName('');
+      setTableOptions([]);
+      invalidateFileSelection();
+    }
     DBGetDatabases(buildRpcConnectionConfig(selectedConnectionConfig) as any)
       .then((res) => {
         if (!alive) return;
@@ -241,19 +249,23 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
           }));
           return;
         }
-        let databaseNames = normalizeDatabaseNames(res.data);
-        if (selectedConnection.includeDatabases && selectedConnection.includeDatabases.length > 0) {
-          const included = new Set(selectedConnection.includeDatabases);
-          databaseNames = databaseNames.filter((name) => included.has(name));
-        }
+        const databaseNames = filterVisibleDatabaseNames(
+          selectedConnection,
+          normalizeDatabaseNames(res.data),
+        );
         const nextOptions = toSortedOptions(databaseNames);
         setDatabaseOptions(nextOptions);
         const availableNames = new Set(nextOptions.map((option) => option.value));
-        setSelectedDbName((current) => {
-          if (availableNames.has(current)) return current;
-          const configuredDatabase = String(selectedConnection.config.database || '').trim();
-          return availableNames.has(configuredDatabase) ? configuredDatabase : '';
-        });
+        const configuredDatabase = String(selectedConnection.config.database || '').trim();
+        const nextDbName = availableNames.has(selectedDbName)
+          ? selectedDbName
+          : (availableNames.has(configuredDatabase) ? configuredDatabase : '');
+        if (nextDbName !== selectedDbName) {
+          setSelectedDbName(nextDbName);
+          setSelectedTableName('');
+          setTableOptions([]);
+          invalidateFileSelection();
+        }
       })
       .catch((error: any) => {
         if (!alive) return;
@@ -400,8 +412,9 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   }, [importMode, selectedConnectionId, selectedDbName, selectedTableName, syncWorkbenchTab]);
 
   const handleSelectFile = async () => {
-    if (!selectedConnectionConfig) return;
+    if (!selectedConnectionConfig || !selectedConnection || loadingDatabases || loadingTables) return;
     if (importMode === 'table' && (!selectedDbName || !selectedTableName)) return;
+    if (selectedDbName && !isDatabaseVisible(selectedConnection, selectedDbName)) return;
     const requestId = fileSelectionRequestRef.current + 1;
     fileSelectionRequestRef.current = requestId;
     setSelectingFile(true);
@@ -619,6 +632,8 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                 disabled={
                   importing
                   || !selectedConnectionConfig
+                  || loadingDatabases
+                  || loadingTables
                   || (importMode === 'table' && (!selectedDbName || !selectedTableName))
                 }
                 onClick={() => void handleSelectFile()}
@@ -654,6 +669,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
           {filePath ? (
             importMode === 'database' ? (
               <DatabaseImportExecutionPanel
+                connection={selectedConnection}
                 connectionConfig={selectedConnectionConfig}
                 dbName={selectedDbName}
                 filePath={filePath}

@@ -1,5 +1,11 @@
 import { splitQualifiedNameSegments, stripIdentifierQuotes } from './qualifiedName';
 
+export type FilterValueSelection = {
+  values: string[];
+  includeNull?: boolean;
+  includeEmpty?: boolean;
+};
+
 export type FilterCondition = {
   id?: number;
   enabled?: boolean;
@@ -8,6 +14,7 @@ export type FilterCondition = {
   op?: string;
   value?: string;
   value2?: string;
+  valueSelection?: FilterValueSelection;
 };
 
 const normalizeIdentPart = (ident: string) => stripIdentifierQuotes(ident);
@@ -311,8 +318,7 @@ export const buildPaginatedSelectSQL = (
   }
 
   switch (normalizedType) {
-    case 'oracle':
-    case 'dameng': {
+    case 'oracle': {
       const orderedSql = `${base}${orderBy}`;
       const upperBound = safeOffset + safeLimit;
       if (safeOffset <= 0) {
@@ -369,6 +375,19 @@ export const buildWhereSQL = (dbType: string, conditions: FilterCondition[]) => 
     if (!column) return;
 
     const col = quoteIdentPart(dbType, column);
+    const valueSelection = cond?.valueSelection;
+    if (valueSelection) {
+      const selectedValues = Array.from(new Set((valueSelection.values || []).map((item) => String(item))));
+      const selectionParts: string[] = [];
+      if (selectedValues.length > 0) {
+        selectionParts.push(`${col} IN (${selectedValues.map((item) => `'${escapeLiteral(item)}'`).join(', ')})`);
+      }
+      if (valueSelection.includeNull) selectionParts.push(`${col} IS NULL`);
+      if (valueSelection.includeEmpty) selectionParts.push(`${col} = ''`);
+      if (selectionParts.length === 0) return;
+      appendWherePart(selectionParts.length === 1 ? selectionParts[0] : `(${selectionParts.join(' OR ')})`);
+      return;
+    }
 
     switch (op) {
       case 'IS_NULL':

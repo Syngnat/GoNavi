@@ -7,6 +7,7 @@ import {
   handleTabDragPointerDown,
   resolveTabHoverOpen,
   resolveTabHoverTitle,
+  resolveQueryTabRenameMenuState,
   shouldShowV2ConnectionLabel,
   TabHoverInfo,
   isMiddleMouseButton,
@@ -116,6 +117,21 @@ describe('TabManager hover info', () => {
     expect(isMiddleMouseButton(1)).toBe(true);
     expect(isMiddleMouseButton(0)).toBe(false);
     expect(isMiddleMouseButton(2)).toBe(false);
+  });
+
+  it('shows query rename only for query tabs and disables SQL file tabs', () => {
+    expect(resolveQueryTabRenameMenuState({ type: 'query' })).toEqual({
+      visible: true,
+      disabled: false,
+    });
+    expect(resolveQueryTabRenameMenuState({ type: 'query', filePath: 'D:/queries/report.sql' })).toEqual({
+      visible: true,
+      disabled: true,
+    });
+    expect(resolveQueryTabRenameMenuState({ type: 'table' })).toEqual({
+      visible: false,
+      disabled: false,
+    });
   });
 
   it('keeps the tab workbench as a full-height flex child in legacy and v2 UI', () => {

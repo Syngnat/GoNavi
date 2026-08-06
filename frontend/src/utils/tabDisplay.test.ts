@@ -407,6 +407,27 @@ describe('tabDisplay', () => {
     expect(model.fullTitle).toBe('TABLE events · [PROD]·analytics·SCHEMA:reporting·10.0.0.9');
   });
 
+  it('uses explicit schema metadata for unqualified table names', () => {
+    const tableTab: TabData = {
+      id: 'pg-1-analytics-table-reporting-events',
+      title: 'events',
+      type: 'table',
+      connectionId: 'pg-1',
+      dbName: 'analytics',
+      tableName: 'events',
+      schemaName: 'reporting',
+    };
+
+    const model = buildTabDisplayModel(tableTab, undefined, {
+      layout: 'double',
+      primaryElements: ['object'],
+      secondaryElements: ['schema'],
+    });
+
+    expect(model.primaryText).toBe('events');
+    expect(model.secondaryText).toBe('SCHEMA:reporting');
+  });
+
   it('sanitizes tab display settings with fallback defaults', () => {
     expect(sanitizeTabDisplaySettings({
       layout: 'invalid' as never,

@@ -54,7 +54,7 @@ export function ConfigureGlobalProxy(arg1:boolean,arg2:connection.ProxyConfig):P
 
 export function CopyTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
-export function CreateDatabase(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
+export function CreateDatabase(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
 export function CreateSQLDirectory(arg1:string,arg2:string):Promise<connection.QueryResult>;
 
@@ -112,6 +112,8 @@ export function DBRollbackTransactionWithTrigger(arg1:string,arg2:string):Promis
 
 export function DBShowCreateTable(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function DBTableExists(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
+
 export function DataSync(arg1:sync.SyncConfig):Promise<sync.SyncResult>;
 
 export function DataSyncAnalyze(arg1:sync.SyncConfig):Promise<connection.QueryResult>;
@@ -147,6 +149,8 @@ export function DropTable(arg1:connection.ConnectionConfig,arg2:string,arg3:stri
 export function DropView(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
 export function DuplicateConnection(arg1:string):Promise<connection.SavedConnectionView>;
+
+export function ExecuteElasticsearchConsole(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<app.ElasticsearchConsoleExecutionResult>;
 
 export function ExecuteSQLFile(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
@@ -242,6 +246,8 @@ export function ImportLegacyGlobalProxy(arg1:connection.SaveGlobalProxyInput):Pr
 
 export function ImportSavedQueries(arg1:connection.SavedQueryImportPayload):Promise<Array<connection.SavedQuery>>;
 
+export function InspectElasticsearchConsole(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<app.ElasticsearchConsoleInspection>;
+
 export function InstallLocalDriverPackage(arg1:string,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
 export function InstallUpdateAndRestart(arg1:boolean):Promise<connection.QueryResult>;
@@ -273,6 +279,10 @@ export function JVMStartDiagnosticSession(arg1:connection.ConnectionConfig,arg2:
 export function JVMStartMonitoring(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
 
 export function JVMStopMonitoring(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
+
+export function ListDatabaseCharsets(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
+
+export function ListDatabaseCollations(arg1:connection.ConnectionConfig):Promise<connection.QueryResult>;
 
 export function ListInstalledFontFamilies():Promise<connection.QueryResult>;
 
@@ -406,9 +416,9 @@ export function RedisImportKeys(arg1:connection.ConnectionConfig,arg2:app.RedisI
 
 export function RedisKeyExists(arg1:connection.ConnectionConfig,arg2:string):Promise<connection.QueryResult>;
 
-export function RedisListPush(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<string>):Promise<connection.QueryResult>;
+export function RedisListPush(arg1:connection.ConnectionConfig,arg2:string,arg3:app.RedisListPushOptions):Promise<connection.QueryResult>;
 
-export function RedisListRemove(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
+export function RedisListRemove(arg1:connection.ConnectionConfig,arg2:string,arg3:number,arg4:string):Promise<connection.QueryResult>;
 
 export function RedisListSet(arg1:connection.ConnectionConfig,arg2:string,arg3:number,arg4:string):Promise<connection.QueryResult>;
 
@@ -439,6 +449,8 @@ export function RedisTestConnection(arg1:connection.ConnectionConfig):Promise<co
 export function RedisZSetAdd(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<redis.ZSetMember>):Promise<connection.QueryResult>;
 
 export function RedisZSetRemove(arg1:connection.ConnectionConfig,arg2:string,arg3:Array<string>):Promise<connection.QueryResult>;
+
+export function RefreshWebViewBounds():Promise<connection.QueryResult>;
 
 export function RemoveDriverPackage(arg1:string,arg2:string):Promise<connection.QueryResult>;
 

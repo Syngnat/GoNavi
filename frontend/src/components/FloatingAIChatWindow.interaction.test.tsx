@@ -91,6 +91,7 @@ describe('FloatingAIChatWindow pointer interaction lifecycle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    storeState.theme = 'light';
     storeState.detachedAIChatWindow = {
       x: 120,
       y: 90,
@@ -150,6 +151,26 @@ describe('FloatingAIChatWindow pointer interaction lifecycle', () => {
     });
     return captureTarget;
   };
+
+  it('uses the host-resolved theme instead of a stale store theme', async () => {
+    storeState.theme = 'dark';
+
+    await act(async () => {
+      renderer = create(
+        <FloatingAIChatWindow
+          darkMode={false}
+          bgColor="#ffffff"
+          overlayTheme={{} as OverlayWorkbenchTheme}
+          onOpenSettings={vi.fn()}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    const style = renderer?.root.findByType('style');
+    expect(style?.props.children).toContain('background: #ffffff;');
+    expect(style?.props.children).toContain('border: 1px solid rgba(0,0,0,0.12);');
+  });
 
   it('removes an active instance global pointer listeners before unmounting', async () => {
     await renderWindow();

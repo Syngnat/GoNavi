@@ -36,6 +36,20 @@ describe('extractQueryResultTableRef', () => {
       });
   });
 
+  it('preserves dots inside a quoted Dameng owner for result editing metadata', () => {
+    expect(extractQueryResultTableRef(
+      'SELECT * FROM "PEM2.4_V1_1"."COM_APPROVE_INFO"',
+      'dameng',
+      'PEM2.4_V1_1',
+    )).toEqual({
+      tableName: 'PEM2.4_V1_1.COM_APPROVE_INFO',
+      metadataDbName: 'PEM2.4_V1_1',
+      metadataTableName: 'COM_APPROVE_INFO',
+      ddlDbName: 'PEM2.4_V1_1',
+      ddlTableName: 'COM_APPROVE_INFO',
+    });
+  });
+
   it('uses current schema for unqualified Oracle tables', () => {
     expect(extractQueryResultTableRef('SELECT * FROM EDC_LOG', 'oracle', 'MYCIMLED'))
       .toEqual({

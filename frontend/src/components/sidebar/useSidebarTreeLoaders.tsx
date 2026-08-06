@@ -22,6 +22,7 @@ import type { SavedConnection, SavedQuery, JVMCapability, JVMResourceSummary } f
 import { useStore } from '../../store';
 import { t } from '../../i18n';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
+import { filterVisibleDatabaseNames } from '../../utils/databaseVisibility';
 import { buildRedisDbNodeLabel, getRedisDbAlias } from '../../utils/redisDbAlias';
 import { buildJVMMonitoringActionDescriptors } from '../../utils/jvmSidebarActions';
 import { getSchemaVisibilityRule, isSchemaVisible } from '../../utils/schemaVisibility';
@@ -52,7 +53,9 @@ import {
   supportsDatabaseSequences,
 } from './sidebarMetadataLoaders';
 import {
+  applySidebarDatabasePinning,
   buildSidebarTableChildrenForUi,
+  buildV2SidebarDatabaseSectionedChildren,
   isSidebarTablePinned,
   sortSidebarTableEntries,
   type SidebarConnectionState,
@@ -93,6 +96,57 @@ type SidebarLoadedTableEntry = {
   partitionTables?: SidebarLoadedTableEntry[];
 };
 
+export type SidebarTreeLoadOptions = {
+  ensureFresh?: boolean;
+};
+
+type TrackedSidebarLoad = {
+  promise: Promise<void>;
+  signature?: string;
+};
+
+const scheduleSidebarLoad = (
+  activeLoads: Map<string, TrackedSidebarLoad>,
+  loadKey: string,
+  run: () => Promise<void>,
+  options: SidebarTreeLoadOptions,
+  signature?: string,
+): Promise<void> => {
+  const activeLoad = activeLoads.get(loadKey);
+  const hasDifferentSignature =
+    signature !== undefined
+    && activeLoad?.signature !== undefined
+    && activeLoad.signature !== signature;
+  const shouldStartConcurrent = hasDifferentSignature && !options.ensureFresh;
+
+  if (activeLoad && !shouldStartConcurrent) {
+    if (!options.ensureFresh) {
+      return Promise.resolve();
+    }
+
+    let queuedLoad!: Promise<void>;
+    queuedLoad = activeLoad.promise
+      .catch(() => undefined)
+      .then(run)
+      .finally(() => {
+        if (activeLoads.get(loadKey)?.promise === queuedLoad) {
+          activeLoads.delete(loadKey);
+        }
+      });
+    activeLoads.set(loadKey, { promise: queuedLoad, signature });
+    return queuedLoad;
+  }
+
+  let currentLoad!: Promise<void>;
+  currentLoad = run().finally(() => {
+    if (activeLoads.get(loadKey)?.promise === currentLoad) {
+      activeLoads.delete(loadKey);
+    }
+  });
+  activeLoads.set(loadKey, { promise: currentLoad, signature });
+  return currentLoad;
+};
+
 export const formatSidebarDriverAgentUpdateWarning = (
   driverName: string,
   status: Pick<DriverStatusSnapshot, 'message' | 'updateReason'>,
@@ -113,6 +167,8 @@ const buildConnectionReloadSignature = (conn?: SavedConnection | null): string =
   return JSON.stringify({
     config: conn.config || {},
     includeDatabases: conn.includeDatabases || [],
+    includeDatabasePatterns: conn.includeDatabasePatterns || [],
+    excludeDatabasePatterns: conn.excludeDatabasePatterns || [],
     includeRedisDatabases: conn.includeRedisDatabases || [],
     schemaVisibilityByDatabase: conn.schemaVisibilityByDatabase || {},
   });
@@ -157,6 +213,7 @@ type UseSidebarTreeLoadersOptions = {
   tableSortPreference: Record<string, any>;
   tableAccessCount: Record<string, any>;
   pinnedSidebarTables: any[];
+  pinnedSidebarDatabases: string[];
   isV2Ui: boolean;
   loadingNodesRef: React.MutableRefObject<Set<string>>;
   setConnectionStates: React.Dispatch<React.SetStateAction<Record<string, SidebarConnectionState>>>;
@@ -174,6 +231,7 @@ export const useSidebarTreeLoaders = ({
   tableSortPreference,
   tableAccessCount,
   pinnedSidebarTables,
+  pinnedSidebarDatabases,
   isV2Ui,
   loadingNodesRef,
   setConnectionStates,
@@ -190,11 +248,14 @@ export const useSidebarTreeLoaders = ({
       items: Record<string, DriverStatusSnapshot>;
   } | null>(null);
   const driverUpdateWarningKeysRef = useRef<Set<string>>(new Set());
+  const databaseRequestIdsRef = useRef<Record<string, number>>({});
   const nacosServiceGroupRequestIdsRef = useRef<Record<string, number>>({});
   const nacosNamespaceRequestIdsRef = useRef<Record<string, number>>({});
   const nacosNamespaceActiveRequestsRef = useRef<
       Record<string, { requestId: number; signature: string }>
   >({});
+  const databaseLoadsRef = useRef<Map<string, TrackedSidebarLoad>>(new Map());
+  const tableLoadsRef = useRef<Map<string, TrackedSidebarLoad>>(new Map());
 
 	  const fetchDriverStatusMap = async (): Promise<Record<string, DriverStatusSnapshot>> => {
 	      const cached = driverStatusCacheRef.current;
@@ -252,7 +313,7 @@ export const useSidebarTreeLoaders = ({
 	          console.warn('检查驱动代理更新状态失败', error);
 	      }
 	  };
-	  const loadDatabases = async (node: any) => {
+	  const runLoadDatabases = async (node: any) => {
 		      const conn = node.dataRef as SavedConnection;
 		      const loadKey = `dbs-${conn.id}`;
           let nacosNamespaceRequest:
@@ -572,50 +633,113 @@ export const useSidebarTreeLoaders = ({
               return;
           }
 
+	      const databaseRequestId =
+              (databaseRequestIdsRef.current[conn.id] || 0) + 1;
+          databaseRequestIdsRef.current[conn.id] = databaseRequestId;
+          const databaseRequestSignature = buildConnectionReloadSignature(conn);
+          const resolveCurrentDatabaseRequestConnection = (): SavedConnection | null => {
+              if (databaseRequestIdsRef.current[conn.id] !== databaseRequestId) {
+                  return null;
+              }
+              const currentConnection = useStore.getState().connections.find(
+                  (candidate) => candidate.id === conn.id,
+              );
+              if (
+                  !currentConnection ||
+                  buildConnectionReloadSignature(currentConnection) !== databaseRequestSignature
+              ) {
+                  return null;
+              }
+              return currentConnection;
+          };
+
 	      try {
 	          const res = await DBGetDatabases(buildRpcConnectionConfig(config) as any);
+              const currentConnection = resolveCurrentDatabaseRequestConnection();
+              if (!currentConnection) {
+                  return;
+              }
 	          if (res.success) {
                 const dbRows: any[] = Array.isArray(res.data) ? res.data : [];
-	            let dbs = dbRows.map((row: any) => ({
-	              title: row.Database || row.database,
-              key: `${conn.id}-${row.Database || row.database}`,
+                const databaseNames = filterVisibleDatabaseNames(
+                    currentConnection,
+                    dbRows
+                        .map((row: any) => row.Database || row.database)
+                        .filter((name: unknown): name is string => typeof name === 'string' && name.length > 0),
+                );
+	            let dbs: TreeNode[] = databaseNames.map((databaseName) => ({
+	              title: databaseName,
+              key: `${currentConnection.id}-${databaseName}`,
               icon: <DatabaseOutlined />,
               type: 'database' as const,
-              dataRef: { ...conn, dbName: row.Database || row.database },
+              dataRef: { ...currentConnection, dbName: databaseName },
               isLeaf: false,
             }));
 
-            // Filter databases if configured
-            if (conn.includeDatabases && conn.includeDatabases.length > 0) {
-                dbs = dbs.filter(db => conn.includeDatabases!.includes(db.title));
+            if (isV2Ui) {
+                const currentPinnedSidebarDatabases =
+                    useStore.getState().pinnedSidebarDatabases || pinnedSidebarDatabases;
+                dbs = buildV2SidebarDatabaseSectionedChildren(
+                    String(node.key),
+                    applySidebarDatabasePinning(dbs, {
+                        connectionId: currentConnection.id,
+                        pinnedSidebarDatabases: currentPinnedSidebarDatabases,
+                    }),
+                );
             }
 
             if (dbs.length > 0) {
-                replaceTreeNodeChildren(node.key, dbs, conn);
+                replaceTreeNodeChildren(node.key, dbs, currentConnection);
             } else {
                 // 空列表：清理 loadedKeys 以允许重新加载，不设置 children = []
                 setLoadedKeys(prev => prev.filter(k => k !== node.key));
-                message.warning({ content: t('sidebar.message.no_visible_databases'), key: `conn-${conn.id}-dbs` });
+                message.warning({ content: t('sidebar.message.no_visible_databases'), key: `conn-${currentConnection.id}-dbs` });
             }
             shouldMarkConnectionSuccess = true;
 	          } else {
-	            setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
+	            setConnectionStates(prev => ({ ...prev, [currentConnection.id]: 'error' }));
 	            setLoadedKeys(prev => prev.filter(k => k !== node.key));
-	            message.error({ content: res.message, key: `conn-${conn.id}-dbs` });
+	            message.error({ content: res.message, key: `conn-${currentConnection.id}-dbs` });
 	          }
 	      } catch (e: any) {
-	          setConnectionStates(prev => ({ ...prev, [conn.id]: 'error' }));
+	          const currentConnection = resolveCurrentDatabaseRequestConnection();
+              if (!currentConnection) {
+                  return;
+              }
+	          setConnectionStates(prev => ({ ...prev, [currentConnection.id]: 'error' }));
 	          setLoadedKeys(prev => prev.filter(k => k !== node.key));
 	          message.error({
                 content: t('sidebar.message.connection_failed', { error: e?.message || String(e) }),
-                key: `conn-${conn.id}-dbs`,
+                key: `conn-${currentConnection.id}-dbs`,
             });
 	      } finally {
-	          loadingNodesRef.current.delete(loadKey);
-              if (shouldMarkConnectionSuccess) {
-                  setConnectionStates(prev => ({ ...prev, [conn.id]: 'success' }));
+              if (databaseRequestIdsRef.current[conn.id] === databaseRequestId) {
+	              loadingNodesRef.current.delete(loadKey);
+                  const currentConnection = resolveCurrentDatabaseRequestConnection();
+                  if (shouldMarkConnectionSuccess && currentConnection) {
+                      setConnectionStates(prev => ({
+                          ...prev,
+                          [currentConnection.id]: 'success',
+                      }));
+                  }
               }
 	      }
+  };
+
+  const loadDatabases = (
+      node: any,
+      options: SidebarTreeLoadOptions = {},
+  ): Promise<void> => {
+      const conn = node.dataRef as SavedConnection;
+      const loadKey = `dbs-${conn.id}`;
+      const signature = buildConnectionReloadSignature(conn);
+      return scheduleSidebarLoad(
+          databaseLoadsRef.current,
+          loadKey,
+          () => runLoadDatabases(node),
+          options,
+          signature,
+      );
   };
 
   const loadJVMResources = async (node: any) => {
@@ -668,7 +792,7 @@ export const useSidebarTreeLoaders = ({
       }
   };
 
-	  const loadTables = async (node: any) => {
+	  const runLoadTables = async (node: any) => {
 	      const conn = node.dataRef; // has dbName
 	      const dbName = conn.dbName;
       const key = node.key;
@@ -1354,6 +1478,20 @@ export const useSidebarTreeLoaders = ({
                   setConnectionStates(prev => ({ ...prev, [key as string]: 'success' }));
               }
 	      }
+  };
+
+  const loadTables = (
+      node: any,
+      options: SidebarTreeLoadOptions = {},
+  ): Promise<void> => {
+      const conn = node.dataRef;
+      const loadKey = `tables-${conn.id}-${conn.dbName}`;
+      return scheduleSidebarLoad(
+          tableLoadsRef.current,
+          loadKey,
+          () => runLoadTables(node),
+          options,
+      );
   };
 
 

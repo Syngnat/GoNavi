@@ -33,4 +33,17 @@ describe('buildOverlayWorkbenchTheme', () => {
     expect(lightTheme.iconColor).toBe('#16a34a');
     expect(lightTheme.selectedText).toBe('#15803d');
   });
+
+  it('can resolve V2 overlay colors from the active document theme variables', () => {
+    const detachedTheme = buildOverlayWorkbenchTheme(false, {
+      uiVersion: 'v2',
+      useThemeVariables: true,
+    });
+
+    expect(detachedTheme.shellBg).toBe('var(--gn-bg-panel, #ffffff)');
+    expect(detachedTheme.sectionBg).toBe('var(--gn-bg-panel-2, #fafaf8)');
+    expect(detachedTheme.titleText).toBe('var(--gn-fg-1, #0c1322)');
+    expect(detachedTheme.iconColor).toBe('var(--gn-accent, #15803d)');
+    expect(detachedTheme.selectedBg).toBe('var(--gn-bg-selected, rgba(34, 197, 94, 0.10))');
+  });
 });

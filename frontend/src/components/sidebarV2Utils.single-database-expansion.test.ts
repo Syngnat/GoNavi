@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  resolveSidebarConnectionRefreshKeys,
   resolveSidebarSingleDatabaseExpandedKeys,
   type SidebarTreeNode,
 } from './sidebarV2Utils';
@@ -45,6 +46,24 @@ const treeData: SidebarTreeNode[] = [
 ];
 
 describe('resolveSidebarSingleDatabaseExpandedKeys', () => {
+  it('orders expanded connection resources from parent to child for refresh reloads', () => {
+    expect(resolveSidebarConnectionRefreshKeys({
+      treeData,
+      expandedKeys: [
+        'conn-a-main-tables',
+        'conn-a',
+        'external-sql-root',
+        'conn-a-main',
+        'conn-a-missing',
+      ],
+      connectionId: 'conn-a',
+    })).toEqual([
+      'conn-a',
+      'conn-a-main',
+      'conn-a-main-tables',
+    ]);
+  });
+
   it('keeps the newly expanded database and collapses its siblings only', () => {
     expect(resolveSidebarSingleDatabaseExpandedKeys({
       previousExpandedKeys: [

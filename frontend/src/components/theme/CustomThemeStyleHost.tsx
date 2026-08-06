@@ -20,6 +20,8 @@ export type CustomThemeAntTokenSnapshot = {
 type CustomThemeStyleHostProps = {
   contextKey: string;
   onAntTokensChange: (snapshot: CustomThemeAntTokenSnapshot | null) => void;
+  /** Optional host-owned theme for detached WebViews; undefined keeps local-store behavior. */
+  themeOverride?: CustomThemeDefinition | null;
 };
 
 type CustomThemeRecoveryKeyboardEvent = Pick<
@@ -88,15 +90,17 @@ export const syncCustomThemeStyle = (
 export default function CustomThemeStyleHost({
   contextKey,
   onAntTokensChange,
+  themeOverride,
 }: CustomThemeStyleHostProps) {
   const themes = useCustomThemeStore((state) => state.themes);
   const activeThemeId = useCustomThemeStore((state) => state.activeThemeId);
   const reloadCustomThemes = useCustomThemeStore((state) => state.reloadCustomThemes);
   const selectCustomTheme = useCustomThemeStore((state) => state.selectCustomTheme);
-  const activeTheme = useMemo(
+  const activeThemeFromStore = useMemo(
     () => resolveAvailableCustomTheme(themes, activeThemeId),
     [activeThemeId, themes],
   );
+  const activeTheme = themeOverride === undefined ? activeThemeFromStore : themeOverride;
 
   useLayoutEffect(() => {
     syncCustomThemeStyle(activeTheme);

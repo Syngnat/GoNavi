@@ -1,8 +1,9 @@
-﻿import SidebarConnectionRail from './sidebar/SidebarConnectionRail';
+import SidebarConnectionRail from './sidebar/SidebarConnectionRail';
 import Modal from './common/ResizableDraggableModal';
+import TitleBarQuickActions, { type TitleBarQuickAction } from './TitleBarQuickActions';
+import { type DataSyncEntryMode } from './dataSyncEntryMode';
+import type { DatabaseCharsetOption, DatabaseCollationOption } from '../utils/databaseCharset';
 import SidebarSearchPanel, { type SidebarSearchPanelProps } from './sidebar/SidebarSearchPanel';
-import SlowQueryRailButton from './sidebar/SlowQueryRailButton';
-import SqlAuditRailButton from './sidebar/SqlAuditRailButton';
 import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu';
 import {
   getMetadataDialect,
@@ -72,10 +73,23 @@ import React, { useEffect, useState, useMemo, useRef, useCallback, useDeferredVa
 import { createPortal } from 'react-dom';
 import { Tree, message, Dropdown, MenuProps, Input, Button, Form, Popover, Radio, Select, Tooltip } from 'antd';
 import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
+import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLifecycle';
 	import {
+	  AppstoreOutlined,
+	  AuditOutlined,
 	  CaretDownFilled,
+	  CloudOutlined,
+	  CloudDownloadOutlined,
+	  CodeOutlined,
 	  DatabaseOutlined,
+	  DownloadOutlined,
+	  GlobalOutlined,
+	  HistoryOutlined,
+	  InfoCircleOutlined,
 	  TableOutlined,
+	  ToolOutlined,
+	  SwitcherOutlined,
+	  UploadOutlined,
 	  ConsoleSqlOutlined,
   HddOutlined,
   FolderOutlined,
@@ -105,7 +119,11 @@ import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
   AimOutlined,
   MoreOutlined,
   MenuFoldOutlined,
-  SettingOutlined
+  VerticalAlignTopOutlined,
+  RobotOutlined,
+  SafetyCertificateOutlined,
+  SettingOutlined,
+  SkinOutlined,
 	} from '@ant-design/icons';
 import {
     buildSidebarRootConnectionToken,
@@ -127,6 +145,8 @@ import { useAutoFetchVisibility } from '../utils/autoFetchVisibility';
 import { useWorkbenchTabs } from '../hooks/useWorkbenchTabs';
 import FindInDatabaseModal from './FindInDatabaseModal';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
+import { buildSqlAnalysisWorkbenchTab } from '../utils/sqlAnalysisTab';
+import { buildSqlAuditWorkbenchTab } from '../utils/sqlAuditTab';
 import { resolveDataSourceType } from '../utils/dataSourceCapabilities';
 import { isConnectionStructureEditRestricted } from '../utils/connectionReadOnly';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
@@ -142,7 +162,6 @@ import {
     type SidebarLocateTreeNodeLike,
 } from '../utils/sidebarLocate';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../utils/connectionVisual';
-import { getConnectionEnvironmentMeta } from '../utils/connectionEnvironment';
 import {
   getSavedQueryGroupIdFromToken,
   getSavedQueryGroupOwnerIds,
@@ -179,18 +198,22 @@ import {
 export { resolveSidebarContextMenuPosition } from './sidebarCoreUtils';
 export type { ExternalSQLFileModalMode, SearchScope } from './sidebarCoreUtils';
 import {
+  applySidebarDatabasePinning,
   buildSidebarTableChildrenForUi,
   buildSidebarConnectionTagTree,
   buildV2RailConnectionGroups,
+  buildV2SidebarDatabaseSectionedChildren,
   buildV2SidebarTableSectionedChildren,
   collectSidebarSubtreeKeys,
   estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
   filterV2ExplorerTreeByKind,
+  isSidebarDatabasePinned,
   isSidebarTablePinned,
   isConnectionTagDescendant,
   normalizeSidebarTreeRelativeDropPosition,
   resolveSidebarConnectionIdFromKey,
+  resolveSidebarConnectionRefreshKeys,
   resolveSidebarDropInsertBefore,
   resolveSidebarDropNodeFromDomEvent,
   resolveSidebarDropTargetMetricsFromDomEvent,
@@ -214,18 +237,22 @@ import {
 } from './sidebarV2Utils';
 
 export {
+  applySidebarDatabasePinning,
   buildSidebarTableChildrenForUi,
   buildSidebarConnectionTagTree,
   buildV2RailConnectionGroups,
+  buildV2SidebarDatabaseSectionedChildren,
   buildV2SidebarTableSectionedChildren,
   collectSidebarSubtreeKeys,
   estimateV2TreeHorizontalScrollWidth,
   filterV2CommandSearchTreeItems,
   filterV2ExplorerTreeByKind,
+  isSidebarDatabasePinned,
   isSidebarTablePinned,
   isConnectionTagDescendant,
   normalizeSidebarTreeRelativeDropPosition,
   resolveSidebarConnectionIdFromKey,
+  resolveSidebarConnectionRefreshKeys,
   resolveSidebarDropInsertBefore,
   resolveSidebarDropNodeFromDomEvent,
   resolveSidebarDropTargetMetricsFromDomEvent,
@@ -362,6 +389,8 @@ const buildConnectionReloadSignature = (conn?: SavedConnection | null): string =
   return JSON.stringify({
     config: conn.config || {},
     includeDatabases: conn.includeDatabases || [],
+    includeDatabasePatterns: conn.includeDatabasePatterns || [],
+    excludeDatabasePatterns: conn.excludeDatabasePatterns || [],
     includeRedisDatabases: conn.includeRedisDatabases || [],
     schemaVisibilityByDatabase: conn.schemaVisibilityByDatabase || {},
   });
@@ -546,6 +575,18 @@ const Sidebar: React.FC<{
   onCreateConnectionInGroup?: (targetTagId: string) => void;
   onEditConnection?: (conn: SavedConnection) => void;
   onOpenSettings?: () => void;
+  /**
+   * Open a settings-center group/pane, tool-center entry, or run a settings action
+   * (import/export connections, data-sync, sql audit). Mirrors 设置 left-nav groups.
+   */
+  onOpenSettingsNavigation?: (spec: {
+    group: 'preferences' | 'services' | 'config' | 'workflow' | 'workspace' | 'about';
+    pane?: string;
+    action?: 'import-connections' | 'export-connections' | 'schema-compare' | 'data-compare' | 'sync' | 'sql-audit';
+  }) => void;
+  /** Whether web-only settings entries (e.g. browser auth) should appear. */
+  isWebRuntime?: boolean;
+  onOpenDataSyncWorkbench?: (entryMode: DataSyncEntryMode) => void;
   onToggleAI?: () => void;
   onToggleLogPanel?: () => void;
   uiVersion?: 'legacy' | 'v2';
@@ -561,6 +602,9 @@ const Sidebar: React.FC<{
   onCreateConnectionInGroup,
   onEditConnection,
   onOpenSettings,
+  onOpenSettingsNavigation,
+  isWebRuntime = false,
+  onOpenDataSyncWorkbench,
   onToggleAI,
   onToggleLogPanel,
   uiVersion,
@@ -611,9 +655,11 @@ const Sidebar: React.FC<{
   const tableAccessCount = useStore(state => state.tableAccessCount);
   const tableSortPreference = useStore(state => state.tableSortPreference);
   const pinnedSidebarTables = useStore(state => state.pinnedSidebarTables);
+  const pinnedSidebarDatabases = useStore(state => state.pinnedSidebarDatabases);
   const recordTableAccess = useStore(state => state.recordTableAccess);
   const setTableSortPreference = useStore(state => state.setTableSortPreference);
   const setSidebarTablePinned = useStore(state => state.setSidebarTablePinned);
+  const setSidebarDatabasePinned = useStore(state => state.setSidebarDatabasePinned);
   const queryOptions = useStore(state => state.queryOptions);
   const setQueryOptions = useStore(state => state.setQueryOptions);
   const addSqlLog = useStore(state => state.addSqlLog);
@@ -647,6 +693,13 @@ const Sidebar: React.FC<{
   const isV2Ui = (uiVersion ?? appearance.uiVersion) === 'v2';
   const [treeData, setTreeData] = useState<TreeNode[]>([]);
   const activeTab = useMemo(() => tabs.find(tab => tab.id === activeTabId) || null, [tabs, activeTabId]);
+  const activeTabHasConnection = useMemo(
+    () => Boolean(
+      activeTab?.connectionId
+      && connections.some((connection) => connection.id === activeTab.connectionId),
+    ),
+    [activeTab?.connectionId, connections],
+  );
   const activeTabLocateRequest = useMemo(() => normalizeSidebarLocateObjectRequestFromTab(activeTab), [activeTab]);
   const canLocateActiveTab = !!activeTabLocateRequest;
 
@@ -878,7 +931,9 @@ const Sidebar: React.FC<{
   // Virtual Scroll State
   const [treeHeight, setTreeHeight] = useState(500);
   const [treeViewportWidth, setTreeViewportWidth] = useState(0);
+  const [isTreeScrolling, setIsTreeScrolling] = useState(false);
   const treeContainerRef = useRef<HTMLDivElement>(null);
+  const treeScrollIdleTimerRef = useRef<number | null>(null);
   const treeRef = useRef<any>(null);
   const treeDataRef = useRef<TreeNode[]>([]);
   const externalSQLDirectoryTreesRef = useRef<Record<string, ExternalSQLTreeEntry[]>>({});
@@ -914,14 +969,44 @@ const Sidebar: React.FC<{
 
   useEffect(() => {
       if (!treeContainerRef.current) return;
-      const resizeObserver = new ResizeObserver(entries => {
-          for (let entry of entries) {
-              setTreeHeight(entry.contentRect.height);
-              setTreeViewportWidth(entry.contentRect.width);
-          }
+      const scheduler = createSidebarResizeAwareFrameScheduler(() => {
+          const target = treeContainerRef.current;
+          if (!target) return;
+          const rect = target.getBoundingClientRect();
+          setTreeHeight((current) => current === rect.height ? current : rect.height);
+          setTreeViewportWidth((current) => current === rect.width ? current : rect.width);
       });
+      const resizeObserver = new ResizeObserver(() => scheduler.schedule());
       resizeObserver.observe(treeContainerRef.current);
-      return () => resizeObserver.disconnect();
+      scheduler.schedule();
+      return () => {
+          resizeObserver.disconnect();
+          scheduler.dispose();
+      };
+  }, []);
+
+  const markTreeScrollActivity = useCallback(() => {
+      if (!isV2Ui) return;
+      setIsTreeScrolling(true);
+      if (treeScrollIdleTimerRef.current !== null) {
+          window.clearTimeout(treeScrollIdleTimerRef.current);
+      }
+      treeScrollIdleTimerRef.current = window.setTimeout(() => {
+          treeScrollIdleTimerRef.current = null;
+          setIsTreeScrolling(false);
+      }, 500);
+  }, [isV2Ui]);
+
+  const handleTreeWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+      if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+          markTreeScrollActivity();
+      }
+  }, [markTreeScrollActivity]);
+
+  useEffect(() => () => {
+      if (treeScrollIdleTimerRef.current !== null) {
+          window.clearTimeout(treeScrollIdleTimerRef.current);
+      }
   }, []);
 
   useEffect(() => {
@@ -975,6 +1060,9 @@ const Sidebar: React.FC<{
   const [isCreateDbModalOpen, setIsCreateDbModalOpen] = useState(false);
   const [createDbForm] = Form.useForm();
   const [targetConnection, setTargetConnection] = useState<any>(null);
+  const [createDbCharsets, setCreateDbCharsets] = useState<DatabaseCharsetOption[]>([]);
+  const [createDbCollations, setCreateDbCollations] = useState<DatabaseCollationOption[]>([]);
+  const [loadingCreateDbOptions, setLoadingCreateDbOptions] = useState(false);
   const [isCreateSchemaModalOpen, setIsCreateSchemaModalOpen] = useState(false);
   const [createSchemaForm] = Form.useForm();
   const [createSchemaTarget, setCreateSchemaTarget] = useState<any>(null);
@@ -1033,7 +1121,7 @@ const Sidebar: React.FC<{
       expandedKeys.forEach(key => {
           const node = findTreeNodeByKey(treeData, key);
           if (node && node.type === 'database') {
-              loadTables(node);
+              loadTables(node, { ensureFresh: true });
           }
       });
   }, [autoFetchVisible, savedQueries]);
@@ -1122,7 +1210,6 @@ const Sidebar: React.FC<{
         if (item.kind === 'connection') {
           return buildConnectionNode(item.connection);
         }
-        const environment = getConnectionEnvironmentMeta(item.tag.environmentType);
         return {
           title: item.tag.name,
           key: `tag-${item.tag.id}`,
@@ -1130,10 +1217,8 @@ const Sidebar: React.FC<{
             <span
               className="gn-v2-tree-folder-icon"
               data-sidebar-tree-folder-icon="true"
-              data-connection-environment={environment.type}
-              title={t(environment.labelKey)}
             >
-              <FolderOutlined style={{ color: environment.color }} />
+              <FolderOutlined />
             </span>
           ),
           type: 'tag',
@@ -1592,12 +1677,29 @@ const Sidebar: React.FC<{
           if (!connectionId || !dbName) return;
           const dbNode = findTreeNodeByKeyRef.current(treeDataRef.current, `${connectionId}-${dbName}`);
           if (dbNode) {
-              void loadTables(dbNode);
+              void loadTables(dbNode, { ensureFresh: true });
           }
       };
       window.addEventListener('gonavi:sidebar-table-pin-changed', handleSidebarTablePinChanged as EventListener);
       return () => {
           window.removeEventListener('gonavi:sidebar-table-pin-changed', handleSidebarTablePinChanged as EventListener);
+      };
+  }, []);
+
+  useEffect(() => {
+      const handleSidebarTableCreated = (event: Event) => {
+          const detail = (event as CustomEvent).detail || {};
+          const connectionId = String(detail.connectionId || '').trim();
+          const dbName = String(detail.dbName || '').trim();
+          if (!connectionId || !dbName) return;
+          const dbNode = findTreeNodeByKeyRef.current(treeDataRef.current, `${connectionId}-${dbName}`);
+          if (dbNode) {
+              void loadTables(dbNode, { ensureFresh: true });
+          }
+      };
+      window.addEventListener('gonavi:sidebar-table-created', handleSidebarTableCreated as EventListener);
+      return () => {
+          window.removeEventListener('gonavi:sidebar-table-created', handleSidebarTableCreated as EventListener);
       };
   }, []);
 
@@ -1767,7 +1869,7 @@ const Sidebar: React.FC<{
   };
 
   const onSelect = (keys: React.Key[], info: any) => {
-      if (isV2Ui && info?.node?.type === 'v2-table-section') {
+      if (isV2Ui && (info?.node?.type === 'v2-table-section' || info?.node?.type === 'v2-database-section')) {
           return;
       }
       if (Date.now() < treeDragSelectSuppressUntilRef.current) {
@@ -1872,7 +1974,7 @@ const Sidebar: React.FC<{
           clickTimerRef.current = null;
       }
       const { type, dataRef, key: nodeKey } = node;
-      if (isV2Ui && type === 'v2-table-section') {
+      if (isV2Ui && (type === 'v2-table-section' || type === 'v2-database-section')) {
           return;
       }
       const nodeConnectionId = resolveSidebarNodeConnectionId(node, connectionIds);
@@ -2240,6 +2342,7 @@ const Sidebar: React.FC<{
       tableSortPreference,
       tableAccessCount,
       pinnedSidebarTables,
+      pinnedSidebarDatabases,
       isV2Ui,
       loadingNodesRef,
       setConnectionStates,
@@ -2256,6 +2359,76 @@ const Sidebar: React.FC<{
   });
   loadNacosServiceGroupsRef.current = loadNacosServiceGroups;
   replaceTreeNodeChildrenRef.current = replaceTreeNodeChildren;
+
+  // Rehydrate descendants that were open before the connection loader replaces its tree.
+  const refreshConnectionResources = async (node: any): Promise<void> => {
+      const connectionId = String(node?.key || node?.dataRef?.id || '').trim();
+      if (!connectionId) return;
+
+      const expandedKeysToReload = resolveSidebarConnectionRefreshKeys({
+          treeData: treeDataRef.current,
+          expandedKeys: expandedKeysRef.current,
+          connectionId,
+      });
+
+      setLoadedKeys((previous) => previous.filter((key) => !isConnectionTreeKey(key, connectionId)));
+      Array.from(loadingNodesRef.current).forEach((loadingKey) => {
+          if (loadingKey === `dbs-${connectionId}` || loadingKey.startsWith(`tables-${connectionId}-`)) {
+              loadingNodesRef.current.delete(loadingKey);
+          }
+      });
+
+      await loadDatabases(node);
+
+      const loadedKeysToRestore = new Set<string>();
+      const refreshedConnection = findTreeNodeByKeyRef.current(treeDataRef.current, connectionId);
+      if (refreshedConnection?.children?.length) {
+          loadedKeysToRestore.add(connectionId);
+      }
+
+      for (const key of expandedKeysToReload) {
+          if (key === connectionId) continue;
+          if (!expandedKeysRef.current.some((expandedKey) => String(expandedKey) === key)) {
+              continue;
+          }
+          const currentNode = findTreeNodeByKeyRef.current(treeDataRef.current, key);
+          if (!currentNode) continue;
+
+          await onLoadData(currentNode);
+          const loadedNode = findTreeNodeByKeyRef.current(treeDataRef.current, key);
+          if (loadedNode?.children?.length) {
+              loadedKeysToRestore.add(key);
+          }
+      }
+
+      const availableConnectionKeys = new Set<string>();
+      const collectConnectionKeys = (nodes: TreeNode[]) => {
+          nodes.forEach((treeNode) => {
+              const key = String(treeNode.key || '').trim();
+              if (key && isConnectionTreeKey(key, connectionId)) {
+                  availableConnectionKeys.add(key);
+              }
+              if (treeNode.children?.length) collectConnectionKeys(treeNode.children);
+          });
+      };
+      collectConnectionKeys(treeDataRef.current);
+      const expandedKeysBeforeRefresh = new Set(expandedKeysToReload);
+
+      setExpandedKeys((previous) => previous.filter((key) => {
+          const keyText = String(key);
+          return !isConnectionTreeKey(keyText, connectionId)
+              || !expandedKeysBeforeRefresh.has(keyText)
+              || availableConnectionKeys.has(keyText);
+      }));
+      setLoadedKeys((previous) => {
+          const next = previous.filter((key) => {
+              const keyText = String(key);
+              return !isConnectionTreeKey(keyText, connectionId) || availableConnectionKeys.has(keyText);
+          });
+          loadedKeysToRestore.forEach((key) => next.push(key));
+          return Array.from(new Set(next));
+      });
+  };
 
   useEffect(() => {
       const handleNacosServicesChanged = (event: Event) => {
@@ -2367,6 +2540,8 @@ const Sidebar: React.FC<{
               name: nextConnection.name,
               config: nextConnection.config,
               includeDatabases: nextConnection.includeDatabases,
+              includeDatabasePatterns: nextConnection.includeDatabasePatterns,
+              excludeDatabasePatterns: nextConnection.excludeDatabasePatterns,
               includeRedisDatabases: nextConnection.includeRedisDatabases,
               schemaVisibilityByDatabase: nextConnection.schemaVisibilityByDatabase,
               iconType: nextConnection.iconType,
@@ -2380,14 +2555,17 @@ const Sidebar: React.FC<{
           connectionReloadSignaturesRef.current[persistedConnection.id] =
               buildConnectionReloadSignature(persistedConnection);
           updateConnection(persistedConnection);
-          await loadTables({
-              key: schemaVisibilityTarget.databaseNodeKey,
-              type: 'database',
-              dataRef: {
-                  ...persistedConnection,
-                  dbName: schemaVisibilityTarget.dbName,
+          await loadTables(
+              {
+                  key: schemaVisibilityTarget.databaseNodeKey,
+                  type: 'database',
+                  dataRef: {
+                      ...persistedConnection,
+                      dbName: schemaVisibilityTarget.dbName,
+                  },
               },
-          });
+              { ensureFresh: true },
+          );
           setExpandedKeys((previous) => previous.includes(schemaVisibilityTarget.databaseNodeKey)
               ? previous
               : [...previous, schemaVisibilityTarget.databaseNodeKey]);
@@ -2427,6 +2605,8 @@ const Sidebar: React.FC<{
               name: nextConnection.name,
               config: nextConnection.config,
               includeDatabases: nextConnection.includeDatabases,
+              includeDatabasePatterns: nextConnection.includeDatabasePatterns,
+              excludeDatabasePatterns: nextConnection.excludeDatabasePatterns,
               includeRedisDatabases: nextConnection.includeRedisDatabases,
               schemaVisibilityByDatabase: nextConnection.schemaVisibilityByDatabase,
               iconType: nextConnection.iconType,
@@ -2511,7 +2691,14 @@ const Sidebar: React.FC<{
       closeTabsByDatabase,
       createDbForm,
       targetConnection,
+      isCreateDbModalOpen,
       setIsCreateDbModalOpen,
+      createDbCharsets,
+      setCreateDbCharsets,
+      createDbCollations,
+      setCreateDbCollations,
+      loadingCreateDbOptions,
+      setLoadingCreateDbOptions,
       createSchemaForm,
       createSchemaTarget,
       setCreateSchemaTarget,
@@ -2570,8 +2757,10 @@ const Sidebar: React.FC<{
       connections,
       connectionTags,
       pinnedSidebarTables,
+      pinnedSidebarDatabases,
       loadingNodesRef,
       treeDataRef,
+      refreshConnectionResources,
       findTreeNodeByKeyRef,
       refreshV2TableContextMenuStatsRef,
       setConnectionStates,
@@ -2595,6 +2784,7 @@ const Sidebar: React.FC<{
       removeConnectionTag,
       moveConnectionToTag,
       setSidebarTablePinned,
+      setSidebarDatabasePinned,
       setTableSortPreference,
       replaceTreeNodeChildren,
       loadDatabases,
@@ -2622,6 +2812,8 @@ const Sidebar: React.FC<{
       openCreateStarRocksMaterializedView,
       openCreateStarRocksExternalCatalog,
       handleExportDatabaseSQL,
+      openBatchTableWorkbench,
+      openBatchDatabaseWorkbench,
       handleRunSQLFile,
       handleDeleteDatabase,
       onCreateConnectionInGroup,
@@ -2725,6 +2917,7 @@ const Sidebar: React.FC<{
       v2TreeMetrics,
       tableSortPreference,
       pinnedSidebarTables,
+      pinnedSidebarDatabases,
       getConnectionNodeForAction,
       buildRuntimeConfig,
       extractObjectName,
@@ -2824,6 +3017,7 @@ const Sidebar: React.FC<{
     setLoadedKeys,
     loadingNodesRef,
     loadDatabases,
+    refreshConnectionResources,
     buildConnectionRootRedisCommandTabTitle,
     buildConnectionRootRedisMonitorTabTitle,
     onEditConnection,
@@ -2864,6 +3058,8 @@ const Sidebar: React.FC<{
     handleTableDataDangerAction,
     handleDeleteTable,
     openExportDialog,
+    openBatchTableWorkbench,
+    openBatchDatabaseWorkbench,
     isSavedQueryUnmatched,
     connections,
     handleRebindSavedQuery,
@@ -2999,7 +3195,7 @@ const Sidebar: React.FC<{
   };
 
   const onRightClick = ({ event, node }: any) => {
-      if (isV2Ui && node?.type === 'v2-table-section') {
+      if (isV2Ui && (node?.type === 'v2-table-section' || node?.type === 'v2-database-section')) {
           event.preventDefault();
           event.stopPropagation();
           return;
@@ -3112,9 +3308,17 @@ const Sidebar: React.FC<{
   const v2RailObjectActionsLabel = t('sidebar.rail.object_actions');
   const v2RailSystemActionsLabel = t('sidebar.rail.system_actions');
   const v2NewGroupLabel = t('sidebar.action.new_group');
+  const v2BatchActionsLabel = t('sidebar.action.batch_operations');
   const v2BatchTablesLabel = t('sidebar.action.batch_tables');
   const v2BatchDatabasesLabel = t('sidebar.action.batch_databases');
   const v2DataImportLabel = t('sidebar.action.data_import');
+  const v2DataWorkflowLabel = t('app.tools.group.workflow.title');
+  const v2SchemaCompareLabel = t('app.tools.entry.schema_compare.title');
+  const v2DataCompareLabel = t('app.tools.entry.data_compare.title');
+  const v2DataSyncLabel = t('app.tools.entry.sync.title');
+  const v2SqlToolsLabel = t('sidebar.action.sql_tools');
+  const v2SlowQueryLabel = t('sql_analysis.slow_query.rail.aria_label');
+  const v2SqlAuditLabel = t('sql_audit.rail.aria_label');
   const v2OpenExternalSqlFileLabel = t('sidebar.sql_file_exec.title');
   const v2LocateCurrentTableLabel = t('sidebar.action.locate_current_table');
   const v2LocateCurrentTableUnavailableLabel = t('sidebar.message.locate_current_table_unavailable');
@@ -3123,6 +3327,7 @@ const Sidebar: React.FC<{
   const v2ActiveConnectionHeaderLabel = t('sidebar.active_connection.current_host_database');
   const v2NoDatabaseSelectedLabel = t('sidebar.active_connection.no_database_selected');
   const v2ConnectionActionsLabel = t('sidebar.active_connection.actions');
+  const v2ScrollToTopLabel = t('sidebar.action.scroll_to_top');
   const v2ActiveConnectionTooltipContent = (
     <div className="gn-v2-active-connection-tooltip">
       <strong>{activeConnectionDisplayName}</strong>
@@ -3159,6 +3364,291 @@ const Sidebar: React.FC<{
       { connectionId, dbName, tableName, mode },
     ));
   }, [activeContext?.connectionId, activeContext?.dbName, activeTabId, addTab, tabs]);
+
+  const handleOpenSlowQueryWorkbench = useCallback(() => {
+    if (!activeTabHasConnection || !activeTab?.connectionId) return;
+    addTab(buildSqlAnalysisWorkbenchTab({
+      connectionId: activeTab.connectionId,
+      dbName: activeTab.dbName,
+      view: 'slow-query',
+    }));
+  }, [activeTab?.connectionId, activeTab?.dbName, activeTabHasConnection, addTab]);
+
+  const handleOpenSqlAuditWorkbench = useCallback(() => {
+    addTab(buildSqlAuditWorkbenchTab());
+  }, [addTab]);
+
+  const v2TitlebarQuickActions: TitleBarQuickAction[] = [
+    {
+      key: 'new-group',
+      label: v2NewGroupLabel,
+      icon: <FolderOpenOutlined aria-hidden="true" />,
+      onClick: () => { setRenameViewTarget(null); createTagForm.resetFields(); setIsCreateTagModalOpen(true); },
+      priority: 'secondary',
+    },
+    {
+      key: 'batch-actions',
+      label: v2BatchActionsLabel,
+      icon: <AppstoreOutlined aria-hidden="true" />,
+      menu: [
+        {
+          key: 'batch-tables',
+          label: v2BatchTablesLabel,
+          icon: <TableOutlined aria-hidden="true" />,
+          onClick: openBatchTableWorkbench,
+        },
+        {
+          key: 'batch-databases',
+          label: v2BatchDatabasesLabel,
+          icon: <DatabaseOutlined aria-hidden="true" />,
+          onClick: openBatchDatabaseWorkbench,
+        },
+        {
+          key: 'data-import',
+          label: v2DataImportLabel,
+          icon: <ImportOutlined aria-hidden="true" />,
+          onClick: handleOpenDataImportWorkbench,
+        },
+      ],
+    },
+    {
+      key: 'sql-tools',
+      label: v2SqlToolsLabel,
+      icon: <ToolOutlined aria-hidden="true" />,
+      menu: [
+        {
+          key: 'slow-query',
+          label: v2SlowQueryLabel,
+          icon: <HistoryOutlined aria-hidden="true" />,
+          onClick: handleOpenSlowQueryWorkbench,
+          disabled: !activeTabHasConnection,
+        },
+        {
+          key: 'sql-audit',
+          label: v2SqlAuditLabel,
+          icon: <AuditOutlined aria-hidden="true" />,
+          onClick: handleOpenSqlAuditWorkbench,
+        },
+      ],
+    },
+    {
+      key: 'data-workflow',
+      label: v2DataWorkflowLabel,
+      icon: <SwitcherOutlined aria-hidden="true" />,
+      menu: [
+        {
+          key: 'schema-compare',
+          label: v2SchemaCompareLabel,
+          icon: <AppstoreOutlined aria-hidden="true" />,
+          onClick: () => onOpenDataSyncWorkbench?.('schemaCompare'),
+        },
+        {
+          key: 'data-compare',
+          label: v2DataCompareLabel,
+          icon: <SwitcherOutlined aria-hidden="true" />,
+          onClick: () => onOpenDataSyncWorkbench?.('dataCompare'),
+        },
+        {
+          key: 'data-sync',
+          label: v2DataSyncLabel,
+          icon: <UploadOutlined rotate={90} aria-hidden="true" />,
+          onClick: () => onOpenDataSyncWorkbench?.('sync'),
+        },
+      ],
+    },
+    {
+      key: 'connection-package',
+      label: t('app.tools.group.config.title'),
+      icon: <HddOutlined aria-hidden="true" />,
+      menu: [
+        {
+          key: 'import-connections',
+          label: t('app.tools.entry.import.title'),
+          icon: <UploadOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'config', action: 'import-connections' }),
+        },
+        {
+          key: 'export-connections',
+          label: t('app.tools.entry.export.title'),
+          icon: <DownloadOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'config', action: 'export-connections' }),
+        },
+      ],
+    },
+    {
+      key: 'open-external-sql-file',
+      label: v2OpenExternalSqlFileLabel,
+      icon: <FileAddOutlined aria-hidden="true" />,
+      onClick: () => { void handleOpenSQLFileFromToolbar(); },
+      priority: 'secondary',
+    },
+    // Settings center groups (same order as 设置 left nav)
+    {
+      key: 'settings-preferences',
+      label: t('app.settings.group.preferences.title'),
+      icon: <SettingOutlined aria-hidden="true" />,
+      priority: 'secondary',
+      menu: [
+        {
+          key: 'language',
+          label: t('settings.language.title'),
+          icon: <GlobalOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'language' }),
+        },
+        {
+          key: 'theme',
+          label: t('app.settings.entry.theme.title'),
+          icon: <SkinOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'theme' }),
+        },
+        {
+          key: 'brand-icon',
+          label: t('app.settings.entry.brand_icon.title'),
+          icon: <AppstoreOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'brand-icon' }),
+        },
+        {
+          key: 'sidebar-metadata',
+          label: t('app.settings.sidebar_metadata.title'),
+          icon: <TableOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'sidebar-metadata' }),
+        },
+        {
+          key: 'sidebar-objects',
+          label: t('app.settings.sidebar_objects.title'),
+          icon: <FolderOpenOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'preferences', pane: 'sidebar-objects' }),
+        },
+      ],
+    },
+    {
+      key: 'settings-services',
+      label: t('app.settings.group.services.title'),
+      icon: <GlobalOutlined aria-hidden="true" />,
+      priority: 'secondary',
+      menu: [
+        {
+          key: 'proxy',
+          label: t('app.settings.entry.proxy.title'),
+          icon: <GlobalOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'proxy' }),
+        },
+        ...(isWebRuntime ? [{
+          key: 'web-auth',
+          label: t('app.settings.entry.web_auth.title'),
+          icon: <SafetyCertificateOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'web-auth' }),
+        }] : []),
+        {
+          key: 'cloud-backup',
+          label: t('app.settings.entry.cloud_backup.title'),
+          icon: <CloudDownloadOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'cloud-backup' }),
+        },
+        {
+          key: 'ai',
+          label: t('app.settings.entry.ai.title'),
+          icon: <RobotOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'services', pane: 'ai' }),
+        },
+      ],
+    },
+    {
+      key: 'settings-config',
+      label: t('app.tools.group.config.title'),
+      icon: <SettingOutlined aria-hidden="true" />,
+      priority: 'secondary',
+      menu: [
+        {
+          key: 'data-root',
+          label: t('app.tools.entry.data_root.title'),
+          icon: <HddOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'config', pane: 'data-root' }),
+        },
+        {
+          key: 'security-update',
+          label: t('app.tools.entry.security_update.title'),
+          icon: <SafetyCertificateOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'config', pane: 'security-update' }),
+        },
+      ],
+    },
+    {
+      key: 'settings-workflow',
+      label: t('app.tools.group.workflow.title'),
+      icon: <SwitcherOutlined aria-hidden="true" />,
+      priority: 'secondary',
+      menu: [
+        {
+          key: 'schema-compare',
+          label: t('app.tools.entry.schema_compare.title'),
+          icon: <AppstoreOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'schema-compare' }),
+        },
+        {
+          key: 'data-compare',
+          label: t('app.tools.entry.data_compare.title'),
+          icon: <SwitcherOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'data-compare' }),
+        },
+        {
+          key: 'sync',
+          label: t('app.tools.entry.sync.title'),
+          icon: <UploadOutlined rotate={90} aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workflow', action: 'sync' }),
+        },
+      ],
+    },
+    {
+      key: 'settings-workspace',
+      label: t('app.tools.group.workspace.title'),
+      icon: <CodeOutlined aria-hidden="true" />,
+      priority: 'secondary',
+      menu: [
+        {
+          key: 'drivers',
+          label: t('app.tools.entry.drivers.title'),
+          icon: <SettingOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', pane: 'drivers' }),
+        },
+        {
+          key: 'snippet-settings',
+          label: t('app.tools.entry.snippets.title'),
+          icon: <CodeOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', pane: 'snippet-settings' }),
+        },
+        {
+          key: 'shortcut-settings',
+          label: t('app.tools.entry.shortcuts.title'),
+          icon: <LinkOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', pane: 'shortcut-settings' }),
+        },
+        {
+          key: 'sql-audit',
+          label: t('app.tools.entry.sql_audit.title'),
+          icon: <AuditOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'workspace', action: 'sql-audit' }),
+        },
+      ],
+    },
+    {
+      key: 'settings-about',
+      label: t('app.settings.group.about.title'),
+      icon: <InfoCircleOutlined aria-hidden="true" />,
+      priority: 'secondary',
+      menu: [
+        {
+          key: 'about-go-navi',
+          label: t('app.settings.entry.about.title'),
+          icon: <InfoCircleOutlined aria-hidden="true" />,
+          onClick: () => onOpenSettingsNavigation?.({ group: 'about', pane: 'about-go-navi' }),
+        },
+      ],
+    },
+  ];
+  const v2TitlebarQuickActionsTarget = isV2Ui && typeof document !== 'undefined'
+    ? document.getElementById('gonavi-titlebar-quick-actions')
+    : null;
 
   const v2CommandSearchPanelProps: SidebarSearchPanelProps<V2CommandSearchItem> = {
     isOpen: isV2CommandSearchOpen,
@@ -3219,23 +3709,12 @@ const Sidebar: React.FC<{
       openSettings: onOpenSettings ?? (() => {}),
     },
     canLocateActiveTab,
+    showObjectActions: false,
     sidebarExpandAction: onExpandSidebar && expandSidebarLabel ? {
       label: expandSidebarLabel,
       onClick: onExpandSidebar,
       buttonRef: expandSidebarButtonRef,
     } : undefined,
-    workbenchActions: (
-      <>
-        <SlowQueryRailButton
-          className="gn-v2-rail-tool gn-v2-rail-sql-analysis-button"
-          tooltipPlacement="right"
-        />
-        <SqlAuditRailButton
-          className="gn-v2-rail-tool gn-v2-rail-sql-audit-button"
-          tooltipPlacement="right"
-        />
-      </>
-    ),
   };
 
   return (
@@ -3256,11 +3735,24 @@ const Sidebar: React.FC<{
                             <strong>{activeConnectionDisplayName}</strong>
                         </Tooltip>
                         <Tooltip title={v2ActiveConnectionTooltipContent} placement="bottomLeft" mouseEnterDelay={0.35}>
-                            <span>{activeDatabaseDisplayName || v2NoDatabaseSelectedLabel}</span>
+                            <span className={activeDatabaseDisplayName ? undefined : 'is-placeholder'}>
+                                {activeDatabaseDisplayName || v2NoDatabaseSelectedLabel}
+                            </span>
                         </Tooltip>
                     </div>
                 </div>
                 <div className="gn-v2-active-connection-actions">
+                    <Tooltip title={v2ScrollToTopLabel} placement="bottom" mouseEnterDelay={0.35}>
+                        <Button
+                            size="small"
+                            type="text"
+                            icon={<VerticalAlignTopOutlined />}
+                            aria-label={v2ScrollToTopLabel}
+                            onClick={() => {
+                                treeRef.current?.scrollTo?.({ index: 0, align: 'top' });
+                            }}
+                        />
+                    </Tooltip>
                     <Tooltip title={v2ConnectionActionsLabel}>
                         <Button
                             size="small"
@@ -3526,7 +4018,9 @@ const Sidebar: React.FC<{
 
         <div
             ref={treeContainerRef}
-            className={`sidebar-tree-scroll-shell${isV2Ui ? ' gn-v2-explorer-tree-shell' : ''}`}
+            className={`sidebar-tree-scroll-shell${isV2Ui ? ' gn-v2-explorer-tree-shell' : ''}${isTreeScrolling ? ' is-vertical-scrolling' : ''}`}
+            onWheelCapture={handleTreeWheel}
+            onTouchMoveCapture={markTreeScrollActivity}
             style={{
                 flex: 1,
                 overflow: 'hidden',
@@ -3579,6 +4073,15 @@ const Sidebar: React.FC<{
 
         </div>
         <SidebarSearchPanel {...v2CommandSearchPanelProps} />
+
+        {v2TitlebarQuickActionsTarget && createPortal(
+          <TitleBarQuickActions
+            label={v2RailObjectActionsLabel}
+            moreLabel={t('query_editor.action.more')}
+            actions={v2TitlebarQuickActions}
+          />,
+          v2TitlebarQuickActionsTarget,
+        )}
 
         {contextMenu?.kind && typeof document !== 'undefined' && createPortal(
             <div
@@ -3634,6 +4137,10 @@ const Sidebar: React.FC<{
             setIsCreateDbModalOpen={setIsCreateDbModalOpen}
             createDbForm={createDbForm}
             handleCreateDatabase={handleCreateDatabase}
+            createDbTarget={targetConnection}
+            createDbCharsets={createDbCharsets}
+            createDbCollations={createDbCollations}
+            loadingCreateDbOptions={loadingCreateDbOptions}
             isCreateSchemaModalOpen={isCreateSchemaModalOpen}
             setIsCreateSchemaModalOpen={setIsCreateSchemaModalOpen}
             createSchemaForm={createSchemaForm}

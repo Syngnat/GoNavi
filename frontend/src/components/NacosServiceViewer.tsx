@@ -34,6 +34,7 @@ import { t, type I18nParams } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
 import { parseNacosServiceName } from './nacosServiceName';
+import { confirmProductionMutation } from '../utils/productionRiskConfirm';
 
 type ServicePage = {
   count: number;
@@ -454,6 +455,12 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         !isActiveContext(contextToken)
         || modalGeneration !== serviceModalGenerationRef.current
       ) return;
+      if (!await confirmProductionMutation(
+        connection,
+        tr('connection.production_risk.action.modify_service'),
+        [namespaceId, values.serviceName, values.groupName].filter(Boolean).join(' / '),
+        tr,
+      )) return;
       const res = await (window as any).go.app.App.NacosCreateService(rpcConfig, {
         namespaceId: namespaceId || '',
         serviceName: String(values.serviceName || '').trim(),
@@ -465,18 +472,19 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         message.error(res?.message || 'create service failed');
         return;
       }
-      message.success(tr('nacos_service.message.service_create_success'));
       notifyServiceGroupsChanged();
-      if (!isActiveContext(contextToken)) return;
-      if (modalGeneration === serviceModalGenerationRef.current) {
-        closeServiceModal();
+      if (isActiveContext(contextToken)) {
+        if (modalGeneration === serviceModalGenerationRef.current) {
+          closeServiceModal();
+        }
+        const currentView = serviceViewRef.current;
+        await loadServices(
+          currentView.requestId === sourceView.requestId ? 1 : currentView.page,
+          currentView.group,
+          currentView.pageSize,
+        );
       }
-      const currentView = serviceViewRef.current;
-      await loadServices(
-        currentView.requestId === sourceView.requestId ? 1 : currentView.page,
-        currentView.group,
-        currentView.pageSize,
-      );
+      message.success(tr('nacos_service.message.service_create_success'));
     } catch (error: any) {
       if (error?.errorFields) return;
       message.error(error?.message || String(error));
@@ -493,6 +501,12 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     const sourceTotal = serviceTotal;
     const parsed = parseNacosServiceName(raw);
     try {
+      if (!await confirmProductionMutation(
+        connection,
+        tr('connection.production_risk.action.modify_service'),
+        [namespaceId, parsed.serviceName, parsed.groupName].filter(Boolean).join(' / '),
+        tr,
+      )) return;
       const res = await (window as any).go.app.App.NacosDeleteService(
         rpcConfig,
         namespaceId || '',
@@ -503,26 +517,27 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         message.error(res?.message || 'delete service failed');
         return;
       }
-      message.success(tr('nacos_service.message.service_delete_success'));
       notifyServiceGroupsChanged();
-      if (!isActiveContext(contextToken)) return;
-      if (selectedServiceRawRef.current === raw) {
-        instanceRequestIdRef.current += 1;
-        selectedServiceRawRef.current = null;
-        setSelectedServiceRaw(null);
-        setSelectedServiceDetail(null);
-        setInstances([]);
-        setLoadingInstances(false);
-        closeInstanceModal();
+      if (isActiveContext(contextToken)) {
+        if (selectedServiceRawRef.current === raw) {
+          instanceRequestIdRef.current += 1;
+          selectedServiceRawRef.current = null;
+          setSelectedServiceRaw(null);
+          setSelectedServiceDetail(null);
+          setInstances([]);
+          setLoadingInstances(false);
+          closeInstanceModal();
+        }
+        const currentView = serviceViewRef.current;
+        let refreshPage = currentView.page;
+        if (currentView.requestId === sourceView.requestId) {
+          const remainingTotal = Math.max(0, sourceTotal - 1);
+          const lastRemainingPage = Math.max(1, Math.ceil(remainingTotal / currentView.pageSize));
+          refreshPage = Math.min(sourceView.page, lastRemainingPage);
+        }
+        await loadServices(refreshPage, currentView.group, currentView.pageSize);
       }
-      const currentView = serviceViewRef.current;
-      let refreshPage = currentView.page;
-      if (currentView.requestId === sourceView.requestId) {
-        const remainingTotal = Math.max(0, sourceTotal - 1);
-        const lastRemainingPage = Math.max(1, Math.ceil(remainingTotal / currentView.pageSize));
-        refreshPage = Math.min(sourceView.page, lastRemainingPage);
-      }
-      await loadServices(refreshPage, currentView.group, currentView.pageSize);
+      message.success(tr('nacos_service.message.service_delete_success'));
     } catch (error: any) {
       message.error(error?.message || String(error));
     }
@@ -624,6 +639,12 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
             }
           : {}),
       };
+      if (!await confirmProductionMutation(
+        connection,
+        tr('connection.production_risk.action.modify_service'),
+        [namespaceId, targetService.serviceName, targetService.groupName, values.ip, values.port].filter(Boolean).join(' / '),
+        tr,
+      )) return;
       const res = targetEditingInstance
         ? await (window as any).go.app.App.NacosUpdateInstance(rpcConfig, payload)
         : await (window as any).go.app.App.NacosRegisterInstance(rpcConfig, payload);
@@ -631,21 +652,22 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         message.error(res?.message || 'save instance failed');
         return;
       }
+      if (isActiveContext(contextToken)) {
+        if (
+          modalGeneration === instanceModalGenerationRef.current
+          && instanceModalTargetServiceRawRef.current === targetServiceRaw
+        ) {
+          closeInstanceModal();
+        }
+        if (selectedServiceRawRef.current === targetServiceRaw) {
+          await loadInstances(targetServiceRaw);
+        }
+      }
       message.success(
         targetEditingInstance
           ? tr('nacos_service.message.instance_update_success')
           : tr('nacos_service.message.instance_register_success'),
       );
-      if (!isActiveContext(contextToken)) return;
-      if (
-        modalGeneration === instanceModalGenerationRef.current
-        && instanceModalTargetServiceRawRef.current === targetServiceRaw
-      ) {
-        closeInstanceModal();
-      }
-      if (selectedServiceRawRef.current === targetServiceRaw) {
-        await loadInstances(targetServiceRaw);
-      }
     } catch (error: any) {
       if (error?.errorFields) return;
       message.error(error?.message || String(error));
@@ -661,6 +683,12 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     const contextToken = { connectionId, namespaceId, rpcConfig };
     const targetService = parseNacosServiceName(targetServiceRaw);
     try {
+      if (!await confirmProductionMutation(
+        connection,
+        tr('connection.production_risk.action.modify_service'),
+        [namespaceId, targetService.serviceName, targetService.groupName, inst.ip, inst.port].filter(Boolean).join(' / '),
+        tr,
+      )) return;
       const res = await (window as any).go.app.App.NacosDeregisterInstance(rpcConfig, {
         namespaceId: namespaceId || '',
         serviceName: targetService.serviceName,
@@ -674,13 +702,13 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         message.error(res?.message || 'deregister failed');
         return;
       }
-      message.success(tr('nacos_service.message.instance_deregister_success'));
       if (
         isActiveContext(contextToken)
         && selectedServiceRawRef.current === targetServiceRaw
       ) {
         await loadInstances(targetServiceRaw);
       }
+      message.success(tr('nacos_service.message.instance_deregister_success'));
     } catch (error: any) {
       message.error(error?.message || String(error));
     }
@@ -692,6 +720,12 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     const contextToken = { connectionId, namespaceId, rpcConfig };
     const targetService = parseNacosServiceName(targetServiceRaw);
     try {
+      if (!await confirmProductionMutation(
+        connection,
+        tr('connection.production_risk.action.modify_service'),
+        [namespaceId, targetService.serviceName, targetService.groupName, inst.ip, inst.port].filter(Boolean).join(' / '),
+        tr,
+      )) return;
       const res = await (window as any).go.app.App.NacosUpdateInstanceHealth(rpcConfig, {
         namespaceId: namespaceId || '',
         serviceName: targetService.serviceName,
@@ -705,13 +739,13 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         message.error(res?.message || 'update health failed');
         return;
       }
-      message.success(tr('nacos_service.message.instance_health_success'));
       if (
         isActiveContext(contextToken)
         && selectedServiceRawRef.current === targetServiceRaw
       ) {
         await loadInstances(targetServiceRaw);
       }
+      message.success(tr('nacos_service.message.instance_health_success'));
     } catch (error: any) {
       message.error(error?.message || String(error));
     }

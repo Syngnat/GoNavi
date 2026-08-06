@@ -16,6 +16,12 @@ func splitSQLStatements(sql string) []string {
 // the actual comment and dollar-quote rules of the target database.
 func splitSQLStatementsForDialect(dbType, sql string) []string {
 	text := strings.ReplaceAll(sql, "\r\n", "\n")
+	if normalizeSQLClassifierDBType(dbType) == "elasticsearch" {
+		if source := strings.TrimSpace(text); source != "" {
+			return []string{source}
+		}
+		return nil
+	}
 	var statements []string
 
 	var cur strings.Builder

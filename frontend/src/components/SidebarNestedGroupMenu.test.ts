@@ -93,7 +93,6 @@ describe('Sidebar nested group menu', () => {
     editItem.onClick();
     expect(createTagForm.setFieldsValue).toHaveBeenLastCalledWith({
       name: 'Group 1',
-      environmentType: 'local',
       parentTagId: 'root',
       connectionIds: ['host-1'],
     });

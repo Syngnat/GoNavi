@@ -6,6 +6,7 @@ import { DBQueryAudited } from '../../wailsjs/go/app/App';
 import type { SavedConnection } from '../types';
 import { useI18n } from '../i18n/provider';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
+import { confirmProductionMutation } from '../utils/productionRiskConfirm';
 import {
   buildMessagePublishCommand,
   createDefaultMessagePublishDraft,
@@ -96,6 +97,13 @@ const MessagePublishModal: React.FC<MessagePublishModalProps> = ({
       void message.error(error?.message || t('message_publish_modal.error.build_command_failed'));
       return;
     }
+
+    if (!await confirmProductionMutation(
+      connection,
+      t('connection.production_risk.action.publish_message'),
+      [executionDbName, command.destinationLabel].filter(Boolean).join(' / '),
+      t,
+    )) return;
 
     setSubmitting(true);
     try {

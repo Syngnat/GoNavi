@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +106,43 @@ type fakeAgentTimeoutDB struct {
 	multiResults       []connection.ResultSetData
 	multiMessages      []string
 }
+
+type fakeAgentElasticsearchConsoleDB struct {
+	fakeAgentTimeoutDB
+	request  db.ElasticsearchConsoleRequest
+	response db.ElasticsearchConsoleResponse
+}
+
+type fakeAgentTableExistsDB struct {
+	fakeAgentTimeoutDB
+	dbName    string
+	tableName string
+	exists    bool
+}
+
+type fakeAgentTableListDB struct {
+	fakeAgentTimeoutDB
+	dbName string
+	tables []string
+}
+
+func (f *fakeAgentTableExistsDB) TableExists(dbName, tableName string) (bool, error) {
+	f.dbName = dbName
+	f.tableName = tableName
+	return f.exists, nil
+}
+
+func (f *fakeAgentTableListDB) GetTables(dbName string) ([]string, error) {
+	f.dbName = dbName
+	return append([]string(nil), f.tables...), nil
+}
+
+func (f *fakeAgentElasticsearchConsoleDB) ExecuteElasticsearchConsoleRequest(_ context.Context, request db.ElasticsearchConsoleRequest) (db.ElasticsearchConsoleResponse, error) {
+	f.request = request
+	return f.response, nil
+}
+
+func (f *fakeAgentElasticsearchConsoleDB) ElasticsearchServerMajor() int { return 8 }
 
 func (f *fakeAgentTimeoutDB) Connect(config connection.ConnectionConfig) error { return nil }
 func (f *fakeAgentTimeoutDB) Close() error                                     { return nil }
@@ -373,6 +411,155 @@ func TestHandleRequest_QueryIncludesServerMessages(t *testing.T) {
 	}
 	if len(resp.Messages) != 2 || resp.Messages[0] != "PRINT sql line 1" {
 		t.Fatalf("expected query messages to be preserved, got %#v", resp.Messages)
+	}
+}
+
+func TestHandleRequest_ExecutesElasticsearchConsoleRequest(t *testing.T) {
+	fake := &fakeAgentElasticsearchConsoleDB{
+		response: db.ElasticsearchConsoleResponse{
+			StatusCode:  http.StatusBadRequest,
+			ContentType: "application/json",
+			RawBody:     `{"error":{"type":"parsing_exception"},"status":400}`,
+			ServerMajor: 8,
+		},
+	}
+	runtimeState := &agentRuntime{inst: fake, sessions: make(map[string]db.StatementExecer)}
+	request := db.ElasticsearchConsoleRequest{
+		Method:   http.MethodPost,
+		Path:     "/orders/_search",
+		Body:     `{"query":`,
+		BodyKind: db.ElasticsearchConsoleBodyKindJSON,
+	}
+
+	response := handleRequest(runtimeState, agentRequest{
+		ID:                   21,
+		Method:               agentMethodElasticsearchConsole,
+		ElasticsearchRequest: &request,
+		TimeoutMs:            int64((2 * time.Second).Milliseconds()),
+	})
+	if !response.Success {
+		t.Fatalf("console request failed: %s", response.Error)
+	}
+	if fake.request != request {
+		t.Fatalf("request was not preserved: %#v", fake.request)
+	}
+	got, ok := response.Data.(db.ElasticsearchConsoleResponse)
+	if !ok {
+		t.Fatalf("unexpected response type: %T", response.Data)
+	}
+	if got != fake.response {
+		t.Fatalf("response was not preserved: %#v", got)
+	}
+}
+
+func TestHandleRequest_TableExistsUsesDriverCapability(t *testing.T) {
+	fake := &fakeAgentTableExistsDB{exists: true}
+	runtimeState := &agentRuntime{inst: fake, sessions: make(map[string]db.StatementExecer)}
+
+	response := handleRequest(runtimeState, agentRequest{
+		ID:        24,
+		Method:    agentMethodTableExists,
+		DBName:    "analytics",
+		TableName: "orders-2026",
+	})
+	if !response.Success {
+		t.Fatalf("table existence request failed: %s", response.Error)
+	}
+	if fake.dbName != "analytics" || fake.tableName != "orders-2026" {
+		t.Fatalf("driver capability received %q.%q", fake.dbName, fake.tableName)
+	}
+	exists, ok := response.Data.(bool)
+	if !ok || !exists {
+		t.Fatalf("unexpected existence response: %#v", response.Data)
+	}
+}
+
+func TestHandleRequest_TableExistsFallsBackToExactTableList(t *testing.T) {
+	tests := []struct {
+		name      string
+		tableName string
+		want      bool
+	}{
+		{name: "exact qualified name", tableName: "dbo.users", want: true},
+		{name: "other schema", tableName: "public.users", want: false},
+		{name: "different case", tableName: "audit.users", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fake := &fakeAgentTableListDB{tables: []string{"dbo.users", "audit.Users"}}
+			runtimeState := &agentRuntime{inst: fake, sessions: make(map[string]db.StatementExecer)}
+
+			response := handleRequest(runtimeState, agentRequest{
+				ID:        25,
+				Method:    agentMethodTableExists,
+				DBName:    "main",
+				TableName: test.tableName,
+			})
+			if !response.Success {
+				t.Fatalf("fallback table existence request failed: %s", response.Error)
+			}
+			if fake.dbName != "main" {
+				t.Fatalf("GetTables received database %q", fake.dbName)
+			}
+			exists, ok := response.Data.(bool)
+			if !ok || exists != test.want {
+				t.Fatalf("fallback existence response = %#v, want %v", response.Data, test.want)
+			}
+		})
+	}
+}
+
+func TestHandleRequest_ConnectReturnsElasticsearchServerMajor(t *testing.T) {
+	previousFactory := agentDatabaseFactory
+	previousDriverType := agentDriverType
+	t.Cleanup(func() {
+		agentDatabaseFactory = previousFactory
+		agentDriverType = previousDriverType
+	})
+
+	fake := &fakeAgentElasticsearchConsoleDB{}
+	agentDriverType = "elasticsearch"
+	agentDatabaseFactory = func() db.Database { return fake }
+	runtimeState := &agentRuntime{sessions: make(map[string]db.StatementExecer)}
+	config := connection.ConnectionConfig{Type: "elasticsearch"}
+
+	response := handleRequest(runtimeState, agentRequest{
+		ID:     23,
+		Method: agentMethodConnect,
+		Config: &config,
+	})
+	if !response.Success {
+		t.Fatalf("connect request failed: %s", response.Error)
+	}
+	info, ok := response.Data.(agentConnectionInfo)
+	if !ok {
+		t.Fatalf("unexpected connection info type: %T", response.Data)
+	}
+	if info.ElasticsearchServerMajor != 8 {
+		t.Fatalf("unexpected Elasticsearch server major: %d", info.ElasticsearchServerMajor)
+	}
+}
+
+func TestHandleRequest_RejectsElasticsearchConsoleForUnsupportedDriver(t *testing.T) {
+	fake := &fakeAgentTimeoutDB{}
+	runtimeState := &agentRuntime{inst: fake, sessions: make(map[string]db.StatementExecer)}
+	request := db.ElasticsearchConsoleRequest{
+		Method:   http.MethodGet,
+		Path:     "/_cluster/health",
+		BodyKind: db.ElasticsearchConsoleBodyKindNone,
+	}
+
+	response := handleRequest(runtimeState, agentRequest{
+		ID:                   22,
+		Method:               agentMethodElasticsearchConsole,
+		ElasticsearchRequest: &request,
+	})
+	if response.Success {
+		t.Fatal("unsupported driver must reject Elasticsearch Console requests")
+	}
+	if !strings.Contains(response.Error, "不支持 Elasticsearch Console") {
+		t.Fatalf("unexpected capability error: %q", response.Error)
 	}
 }
 

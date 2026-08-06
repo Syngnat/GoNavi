@@ -37,12 +37,23 @@ describe('applyQueryAutoLimit', () => {
 
   it.each([
     ['oracle'],
-    ['dameng'],
-    ['dm'],
-    ['dm8'],
   ])('adds ROWNUM limit for %s connections', (dbType) => {
     expect(applyQueryAutoLimit('SELECT * FROM MYCIMLED.EDC_LOG', dbType, 500).sql)
       .toBe('SELECT * FROM (SELECT * FROM MYCIMLED.EDC_LOG) WHERE ROWNUM <= 500');
+  });
+
+  it.each([
+    ['dameng'],
+    ['dm'],
+    ['dm8'],
+  ])('uses native LIMIT for %s connections without a derived-table wrapper', (dbType) => {
+    const sql = 'SELECT t.ID, v.ID FROM VULNERABILITY_INFO_T t INNER JOIN VULNERABILITY_DETAIL_T v ON t.CODE = v.VULN_DETAIL';
+
+    expect(applyQueryAutoLimit(sql, dbType, 5000)).toEqual({
+      sql: `${sql} LIMIT 5000 OFFSET 0`,
+      applied: true,
+      maxRows: 5000,
+    });
   });
 
   it.each([
@@ -62,7 +73,7 @@ describe('applyQueryAutoLimit', () => {
 
   it.each([
     ['oracle', 'SELECT * FROM (SELECT * FROM users) WHERE ROWNUM <= 500'],
-    ['dm8', 'SELECT * FROM (SELECT * FROM users) WHERE ROWNUM <= 500'],
+    ['dm8', 'SELECT * FROM users LIMIT 500 OFFSET 0'],
     ['mssql', 'SELECT TOP 500 * FROM users'],
     ['postgresql', 'SELECT * FROM users LIMIT 500'],
     ['gauss-db', 'SELECT * FROM users LIMIT 500'],
@@ -106,6 +117,16 @@ describe('applyQueryAutoLimit', () => {
       .toBe(false);
     expect(applyQueryAutoLimit('SELECT * FROM users FETCH FIRST 10 ROWS ONLY', 'oracle', 500).applied)
       .toBe(false);
+  });
+
+  it('keeps an ordinary Dameng query with an explicit limit unchanged', () => {
+    const sql = 'SELECT ID, NAME FROM VULNERABILITY_INFO_T LIMIT 25';
+
+    expect(applyQueryAutoLimit(sql, 'dameng', 5000)).toEqual({
+      sql,
+      applied: false,
+      maxRows: 5000,
+    });
   });
 
   it('does not wrap Oracle FOR UPDATE queries', () => {

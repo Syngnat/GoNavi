@@ -275,7 +275,7 @@ func TestMethodsDBDatabaseDDLUsesEnglishMessages(t *testing.T) {
 	app.configDir = t.TempDir()
 	app.SetLanguage(string(i18n.LanguageEnUS))
 
-	missingDatabaseName := app.CreateDatabase(connection.ConnectionConfig{Type: "mysql"}, " ")
+	missingDatabaseName := app.CreateDatabase(connection.ConnectionConfig{Type: "mysql"}, " ", "", "")
 	if missingDatabaseName.Success {
 		t.Fatalf("CreateDatabase without name returned success: %+v", missingDatabaseName)
 	}
@@ -338,7 +338,7 @@ func TestMethodsDBDatabaseDDLSuccessUsesEnglishMessages(t *testing.T) {
 	app.configDir = t.TempDir()
 	app.SetLanguage(string(i18n.LanguageEnUS))
 
-	created := app.CreateDatabase(connection.ConnectionConfig{Type: "sqlserver"}, "sales")
+	created := app.CreateDatabase(connection.ConnectionConfig{Type: "sqlserver"}, "sales", "", "")
 	if !created.Success {
 		t.Fatalf("CreateDatabase returned failure: %+v", created)
 	}

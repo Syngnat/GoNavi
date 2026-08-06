@@ -346,6 +346,8 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 presetKey: matchedPreset.key,
                 presetBackendType: matchedPreset.backendType,
                 presetFixedApiFormat: matchedPreset.fixedApiFormat,
+                presetEndpoints: matchedPreset.endpoints,
+                valuesBaseUrl: editableProvider.baseUrl,
                 valuesApiFormat: editableProvider.apiFormat,
             });
             applyProviderEditorSession(buildEditProviderEditorSession({
@@ -412,12 +414,15 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             const finalBaseUrl = resolvePresetBaseURL({
                 presetKey: values.presetKey,
                 presetDefaultBaseUrl: preset.defaultBaseUrl,
+                presetEndpoints: preset.endpoints,
                 valuesBaseUrl: values.baseUrl,
             });
             const resolvedTransport = resolvePresetTransport({
                 presetKey: values.presetKey,
                 presetBackendType: preset.backendType,
                 presetFixedApiFormat: preset.fixedApiFormat,
+                presetEndpoints: preset.endpoints,
+                valuesBaseUrl: finalBaseUrl,
                 valuesApiFormat: values.apiFormat,
             });
             const apiKeyInput = usesLocalCLI ? '' : values.apiKey;
@@ -704,6 +709,7 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             const finalBaseUrl = resolvePresetBaseURL({
                 presetKey: values.presetKey || 'openai',
                 presetDefaultBaseUrl: preset.defaultBaseUrl,
+                presetEndpoints: preset.endpoints,
                 valuesBaseUrl: values.baseUrl,
             });
             const { model: finalModel, models: resolvedModels } = resolvePresetModelSelection({
@@ -717,6 +723,8 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 presetKey: values.presetKey || 'openai',
                 presetBackendType: preset.backendType,
                 presetFixedApiFormat: preset.fixedApiFormat,
+                presetEndpoints: preset.endpoints,
+                valuesBaseUrl: finalBaseUrl,
                 valuesApiFormat: values.apiFormat,
             });
             const allowEmptySecret = values.presetKey === 'codebuddy';
@@ -763,6 +771,8 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             presetKey,
             presetBackendType: preset.backendType,
             presetFixedApiFormat: preset.fixedApiFormat,
+            presetEndpoints: preset.endpoints,
+            valuesBaseUrl: preset.defaultBaseUrl,
             valuesApiFormat: form.getFieldValue('apiFormat'),
         });
         const { model: presetModel, models: presetModels } = resolvePresetModelSelection({

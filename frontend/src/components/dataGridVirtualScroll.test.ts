@@ -2,11 +2,65 @@ import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 
 import {
+  applyDataGridFixedCellPreviewOffset,
   calculateFixedVirtualRange,
+  commitDataGridFixedCellOffset,
   createDataGridIdleCommitScheduler,
   createDataGridVisualFrameGuard,
   type DataGridVisualFrameGuard,
 } from './dataGridVirtualScroll';
+
+const createStyleStub = () => {
+  const values = new Map<string, { value: string; priority: string }>();
+  return {
+    getPropertyPriority: (name: string) => values.get(name)?.priority ?? '',
+    getPropertyValue: (name: string) => values.get(name)?.value ?? '',
+    removeProperty: vi.fn((name: string) => {
+      const previous = values.get(name)?.value ?? '';
+      values.delete(name);
+      return previous;
+    }),
+    setProperty: vi.fn((name: string, value: string, priority = '') => {
+      values.set(name, { value, priority });
+    }),
+  };
+};
+
+describe('fixed cell horizontal preview', () => {
+  it('updates visible fixed cells directly without invalidating their ancestor', () => {
+    const first = { style: createStyleStub() };
+    const second = { style: createStyleStub() };
+    const root = { querySelectorAll: vi.fn(() => [first, second]) };
+
+    expect(applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 640)).toBe(2);
+    expect(first.style.setProperty).toHaveBeenCalledWith(
+      'transform',
+      'translate3d(640px, 0, 0)',
+      'important',
+    );
+    expect(second.style.setProperty).toHaveBeenCalledTimes(1);
+
+    applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 640);
+    expect(first.style.setProperty).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists the settled offset once and releases per-cell preview styles', () => {
+    const first = { style: createStyleStub() };
+    const second = { style: createStyleStub() };
+    const root = { querySelectorAll: vi.fn(() => [first, second]) };
+    const inner = { style: createStyleStub() };
+    applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 480);
+
+    expect(commitDataGridFixedCellOffset(
+      root as unknown as ParentNode,
+      inner as unknown as HTMLElement,
+      480,
+    )).toBe(2);
+    expect(inner.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '480px');
+    expect(first.style.removeProperty).toHaveBeenCalledWith('transform');
+    expect(second.style.removeProperty).toHaveBeenCalledWith('transform');
+  });
+});
 
 describe('calculateFixedVirtualRange', () => {
   const calculateLinearReference = ({
@@ -128,6 +182,9 @@ describe('calculateFixedVirtualRange', () => {
     expect(virtualListPatch).toContain('fixedStartIndex');
     expect(tablePatch).toContain('listItemHeightFixed');
     expect(tablePatch).toContain('itemHeightFixed: listItemHeightFixed');
+    expect(tablePatch).toContain('bodyLinePropsAreEqual');
+    expect(tablePatch).toContain('responseImmutable(BodyLine, bodyLinePropsAreEqual)');
+    expect(tablePatch).toContain('lastForwardedXRef');
     expect(tablePatch).toContain('listItemColumnVirtual');
     expect(tablePatch).toContain('cell-virtual-spacer');
     expect(tablePatch).toContain('if (listItemColumnVirtual)');

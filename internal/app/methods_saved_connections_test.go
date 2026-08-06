@@ -1,8 +1,11 @@
 package app
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
+
 	"GoNavi-Wails/internal/connection"
 )
 
@@ -22,12 +25,14 @@ func TestSaveConnectionMethodReturnsSecretlessView(t *testing.T) {
 	app.configDir = t.TempDir()
 
 	result, err := app.SaveConnection(connection.SavedConnectionInput{
-		ID:               "conn-1",
-		Name:             "Primary",
-		EnvironmentType:  "production",
-		IncludeDatabases: []string{"appdb"},
-		IconType:         "postgres",
-		IconColor:        "#1677ff",
+		ID:                      "conn-1",
+		Name:                    "Primary",
+		EnvironmentType:         "production",
+		IncludeDatabases:        []string{"appdb"},
+		IncludeDatabasePatterns: []string{"app_*"},
+		ExcludeDatabasePatterns: []string{"app_tmp%"},
+		IconType:                "postgres",
+		IconColor:               "#1677ff",
 		Config: connection.ConnectionConfig{
 			ID:       "conn-1",
 			Type:     "postgres",
@@ -49,11 +54,114 @@ func TestSaveConnectionMethodReturnsSecretlessView(t *testing.T) {
 	if !reflect.DeepEqual(result.IncludeDatabases, []string{"appdb"}) {
 		t.Fatalf("expected include databases to be preserved, got %#v", result.IncludeDatabases)
 	}
+	if !reflect.DeepEqual(result.IncludeDatabasePatterns, []string{"app_*"}) {
+		t.Fatalf("expected include database patterns to be preserved, got %#v", result.IncludeDatabasePatterns)
+	}
+	if !reflect.DeepEqual(result.ExcludeDatabasePatterns, []string{"app_tmp%"}) {
+		t.Fatalf("expected exclude database patterns to be preserved, got %#v", result.ExcludeDatabasePatterns)
+	}
 	if result.IconType != "postgres" || result.IconColor != "#1677ff" {
 		t.Fatalf("expected icon metadata to be preserved, got type=%q color=%q", result.IconType, result.IconColor)
 	}
 	if result.EnvironmentType != "production" {
 		t.Fatalf("expected environment type to be preserved, got %q", result.EnvironmentType)
+	}
+}
+
+func TestSaveConnectionSanitizesDatabasePatterns(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	unicodePattern := strings.Repeat("租", 85) // 255 UTF-8 bytes.
+	includePatterns := []string{
+		" team_% ",
+		"team_%",
+		"",
+		unicodePattern,
+	}
+
+	result, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:                      "conn-patterns",
+		Name:                    "Patterns",
+		IncludeDatabasePatterns: includePatterns,
+		ExcludeDatabasePatterns: []string{" tmp_* ", "tmp_*", "   "},
+		Config: connection.ConnectionConfig{
+			ID:   "conn-patterns",
+			Type: "postgres",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(result.IncludeDatabasePatterns, []string{"team_%", unicodePattern}) {
+		t.Fatalf("expected patterns to be trimmed, deduplicated, and preserve valid Unicode, got %#v", result.IncludeDatabasePatterns)
+	}
+	if !reflect.DeepEqual(result.ExcludeDatabasePatterns, []string{"tmp_*"}) {
+		t.Fatalf("expected exclude patterns to be trimmed and deduplicated, got %#v", result.ExcludeDatabasePatterns)
+	}
+
+	saved, err := app.GetSavedConnections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || !reflect.DeepEqual(saved[0].IncludeDatabasePatterns, result.IncludeDatabasePatterns) ||
+		!reflect.DeepEqual(saved[0].ExcludeDatabasePatterns, result.ExcludeDatabasePatterns) {
+		t.Fatalf("expected sanitized patterns to persist, got %#v", saved)
+	}
+}
+
+func TestSaveConnectionRejectsInvalidDatabasePatterns(t *testing.T) {
+	tooManyPatterns := make([]string, maxDatabaseFilterPatterns+1)
+	for index := range tooManyPatterns {
+		tooManyPatterns[index] = fmt.Sprintf("db-%03d", index)
+	}
+
+	tests := []struct {
+		name     string
+		includes []string
+		excludes []string
+		wantText string
+	}{
+		{
+			name:     "include pattern exceeds UTF-8 byte limit",
+			includes: []string{strings.Repeat("租", 86)},
+			wantText: "database include pattern exceeds 256 UTF-8 bytes",
+		},
+		{
+			name:     "exclude pattern exceeds UTF-8 byte limit",
+			excludes: []string{strings.Repeat("x", maxDatabaseFilterPatternBytes+1)},
+			wantText: "database exclude pattern exceeds 256 UTF-8 bytes",
+		},
+		{
+			name:     "too many include patterns",
+			includes: tooManyPatterns,
+			wantText: "too many database include patterns: maximum is 256",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			app := NewAppWithSecretStore(newFakeAppSecretStore())
+			app.configDir = t.TempDir()
+
+			_, err := app.SaveConnection(connection.SavedConnectionInput{
+				ID:                      "conn-invalid-patterns",
+				Name:                    "Invalid patterns",
+				IncludeDatabasePatterns: test.includes,
+				ExcludeDatabasePatterns: test.excludes,
+				Config: connection.ConnectionConfig{
+					ID:   "conn-invalid-patterns",
+					Type: "postgres",
+				},
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantText) {
+				t.Fatalf("expected error containing %q, got %v", test.wantText, err)
+			}
+			if saved, listErr := app.GetSavedConnections(); listErr != nil || len(saved) != 0 {
+				t.Fatalf("expected rejected patterns not to be persisted, saved=%#v err=%v", saved, listErr)
+			}
+		})
 	}
 }
 
@@ -307,10 +415,12 @@ func TestDuplicateConnectionClonesSecretBundle(t *testing.T) {
 	app.SetLanguage("en-US")
 
 	_, err := app.SaveConnection(connection.SavedConnectionInput{
-		ID:                    "conn-1",
-		Name:                  "Primary",
-		IncludeDatabases:      []string{"appdb"},
-		IncludeRedisDatabases: []int{0, 1},
+		ID:                      "conn-1",
+		Name:                    "Primary",
+		IncludeDatabases:        []string{"appdb"},
+		IncludeDatabasePatterns: []string{"app_*"},
+		ExcludeDatabasePatterns: []string{"app_tmp%"},
+		IncludeRedisDatabases:   []int{0, 1},
 		SchemaVisibilityByDatabase: map[string]connection.SchemaVisibilityRule{
 			"appdb": {
 				Mode:    "include",
@@ -345,6 +455,12 @@ func TestDuplicateConnectionClonesSecretBundle(t *testing.T) {
 	if !reflect.DeepEqual(duplicate.IncludeDatabases, []string{"appdb"}) {
 		t.Fatalf("expected include databases to be cloned, got %#v", duplicate.IncludeDatabases)
 	}
+	if !reflect.DeepEqual(duplicate.IncludeDatabasePatterns, []string{"app_*"}) {
+		t.Fatalf("expected include database patterns to be cloned, got %#v", duplicate.IncludeDatabasePatterns)
+	}
+	if !reflect.DeepEqual(duplicate.ExcludeDatabasePatterns, []string{"app_tmp%"}) {
+		t.Fatalf("expected exclude database patterns to be cloned, got %#v", duplicate.ExcludeDatabasePatterns)
+	}
 	if !reflect.DeepEqual(duplicate.IncludeRedisDatabases, []int{0, 1}) {
 		t.Fatalf("expected redis include databases to be cloned, got %#v", duplicate.IncludeRedisDatabases)
 	}
@@ -369,7 +485,6 @@ func TestDuplicateConnectionClonesSecretBundle(t *testing.T) {
 		t.Fatalf("expected duplicated secret bundle, got %q", resolved.Password)
 	}
 }
-
 
 func TestSaveGlobalProxyReturnsSecretlessView(t *testing.T) {
 	app := NewAppWithSecretStore(newFakeAppSecretStore())

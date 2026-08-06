@@ -45,7 +45,22 @@ export interface BuildCreateTablePreviewInput {
   charset?: string;
   collation?: string;
   starRocksOptions?: StarRocksCreateTableOptions;
+  tdengineOptions?: TDengineCreateTableOptions;
   translate?: SchemaSqlTranslator;
+}
+
+export type TDengineTableKind = 'normal' | 'stable' | 'child';
+
+export interface TDengineTagDefinition {
+  name: string;
+  type: string;
+}
+
+export interface TDengineCreateTableOptions {
+  tableKind?: TDengineTableKind;
+  stableName?: string;
+  tagDefinitions?: TDengineTagDefinition[];
+  tagValues?: string;
 }
 
 export type StarRocksTableKind = 'olap' | 'external';
@@ -894,6 +909,38 @@ const buildStarRocksCreateTablePreviewSql = (input: BuildCreateTablePreviewInput
   return [createStatement, ...rollupStatements].join('\n');
 };
 
+const buildTDengineCreateTablePreviewSql = (input: BuildCreateTablePreviewInput): string => {
+  const options = input.tdengineOptions || {};
+  const tableKind = options.tableKind || 'normal';
+  const tableRef = quoteIdentifierPath(input.tableName, 'tdengine');
+
+  if (tableKind === 'child') {
+    const stableRef = quoteIdentifierPath(String(options.stableName || '').trim(), 'tdengine');
+    const tagValues = String(options.tagValues || '').trim().replace(/;+\s*$/, '');
+    return `CREATE TABLE ${tableRef}\nUSING ${stableRef}\nTAGS (${tagValues});`;
+  }
+
+  const colDefs = input.columns.map((column) => buildCreateTableColumnDefinition(column, 'tdengine'));
+  const createPrefix = tableKind === 'stable' ? 'CREATE STABLE' : 'CREATE TABLE';
+  let createSql = `${createPrefix} ${tableRef} (\n  ${colDefs.join(',\n  ')}\n)`;
+
+  if (tableKind === 'stable') {
+    const tagDefs = (Array.isArray(options.tagDefinitions) ? options.tagDefinitions : [])
+      .map((tag) => ({
+        name: String(tag?.name || '').trim(),
+        type: String(tag?.type || '').trim(),
+      }))
+      .filter((tag) => tag.name && tag.type)
+      .map((tag) => `${quoteIdentifierPart(tag.name, 'tdengine')} ${tag.type}`);
+    createSql += `\nTAGS (\n  ${tagDefs.join(',\n  ')}\n)`;
+  }
+
+  const timestampHint = input.columns.some((column) => /^timestamp$/i.test(String(column.type || '').trim()))
+    ? ''
+    : `\n${translateSchemaSqlComment(input.translate, 'table_designer.schema_sql.tdengine.timestamp_hint')}`;
+  return `${createSql};${timestampHint}`;
+};
+
 export const buildStarRocksMaterializedViewPreviewSql = (
   input: BuildStarRocksMaterializedViewPreviewInput,
 ): string => {
@@ -927,6 +974,9 @@ export const buildCreateTablePreviewSql = (input: BuildCreateTablePreviewInput):
   if (dbType === 'starrocks') {
     return buildStarRocksCreateTablePreviewSql({ ...input, dbType });
   }
+  if (dbType === 'tdengine') {
+    return buildTDengineCreateTablePreviewSql({ ...input, dbType });
+  }
 
   const tableRef = quoteIdentifierPath(input.tableName, dbType);
   const colDefs = input.columns.map((column) => buildCreateTableColumnDefinition(column, dbType));
@@ -952,10 +1002,6 @@ export const buildCreateTablePreviewSql = (input: BuildCreateTablePreviewInput):
   }
 
   const suffixComments = comments.length > 0 ? `\n${comments.join('\n')}` : '';
-  if (dbType === 'tdengine' && !input.columns.some((column) => /^timestamp$/i.test(String(column.type || '').trim()))) {
-    return `${createSql};\n${translateSchemaSqlComment(input.translate, 'table_designer.schema_sql.tdengine.timestamp_hint')}${suffixComments}`;
-  }
-
   if (isBacktickIdentifierDialect(dbType) && dbType !== 'mysql' && dbType !== 'mariadb') {
     return `${createSql};${suffixComments}`;
   }

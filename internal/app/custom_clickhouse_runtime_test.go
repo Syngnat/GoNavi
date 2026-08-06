@@ -365,7 +365,7 @@ func TestCustomClickHouseDatabaseDDLConnectsAtServerLevel(t *testing.T) {
 		{
 			name: "create database",
 			run: func(a *App) connection.QueryResult {
-				return a.CreateDatabase(raw, "reporting")
+				return a.CreateDatabase(raw, "reporting", "", "")
 			},
 			wantQuery: "CREATE DATABASE IF NOT EXISTS `reporting`",
 		},

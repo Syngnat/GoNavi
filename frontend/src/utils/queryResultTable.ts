@@ -1,3 +1,5 @@
+import { splitQualifiedNameSegmentsDetailed } from './qualifiedName';
+
 export type QueryResultTableRef = {
   tableName: string;
   metadataDbName: string;
@@ -6,18 +8,6 @@ export type QueryResultTableRef = {
   ddlDbName?: string;
   /** DBShowCreateTable 的表参数；只有能唯一定位单表时才提供。 */
   ddlTableName?: string;
-};
-
-const stripIdentifierQuotes = (part: string): string => {
-  const text = String(part || '').trim();
-  if (!text) return '';
-  if ((text.startsWith('`') && text.endsWith('`')) || (text.startsWith('"') && text.endsWith('"'))) {
-    return text.slice(1, -1).trim();
-  }
-  if (text.startsWith('[') && text.endsWith(']')) {
-    return text.slice(1, -1).trim();
-  }
-  return text;
 };
 
 const isOracleLikeDialect = (dialect: string): boolean => {
@@ -49,24 +39,6 @@ const isPostgresLikeDialect = (dialect: string): boolean => {
     || normalized === 'gauss-db';
 };
 
-const isQuotedIdentifier = (part: string): boolean => {
-  const text = String(part || '').trim();
-  if (!text) return false;
-  return (text.startsWith('`') && text.endsWith('`'))
-    || (text.startsWith('"') && text.endsWith('"'))
-    || (text.startsWith('[') && text.endsWith(']'));
-};
-
-const normalizeIdentifierPart = (part: string, dialect: string): string => {
-  const text = String(part || '').trim();
-  const value = stripIdentifierQuotes(text);
-  if (!value) return '';
-  if (isOracleLikeDialect(dialect) && !isQuotedIdentifier(text)) {
-    return value.toUpperCase();
-  }
-  return value;
-};
-
 const normalizeCurrentDbName = (currentDb: string, dialect: string): string => {
   const value = String(currentDb || '').trim();
   if (!value) return '';
@@ -74,10 +46,19 @@ const normalizeCurrentDbName = (currentDb: string, dialect: string): string => {
 };
 
 const normalizeQualifiedNameParts = (raw: string, dialect: string): string[] => (
-  String(raw || '')
-    .split('.')
-    .map((part) => normalizeIdentifierPart(part, dialect))
+  splitQualifiedNameSegmentsDetailed(raw)
+    .map((segment) => (
+      isOracleLikeDialect(dialect) && !segment.quoted
+        ? segment.value.toUpperCase()
+        : segment.value
+    ))
     .filter(Boolean)
+);
+
+const QUERY_RESULT_IDENTIFIER_PART_PATTERN = '(?:"(?:[^"]|"")*"|`(?:[^`]|``)*`|\\[(?:[^\\]]|\\]\\])*\\]|[A-Za-z_][A-Za-z0-9_$#]*)';
+const QUERY_RESULT_TABLE_REFERENCE_REGEX = new RegExp(
+  `^\\s*(${QUERY_RESULT_IDENTIFIER_PART_PATTERN}(?:\\s*\\.\\s*${QUERY_RESULT_IDENTIFIER_PART_PATTERN}){0,2})\\s*(?:$|[\\s;])`,
+  'i',
 );
 
 const maskNestedAndQuotedSql = (raw: string): string => {
@@ -265,9 +246,7 @@ export const extractQueryResultTableRef = (
   )?.[1] || '';
   if (topLevelFromClause.includes(',') || /\bAPPLY\b/i.test(topLevelFromClause)) return undefined;
 
-  const tableMatch = text.slice(sourceOffset).match(
-    /^\s*((?:[`"\[]?\w+[`"\]]?)(?:\s*\.\s*(?:[`"\[]?\w+[`"\]]?)){0,2})\s*(?:$|[\s;])/i,
-  );
+  const tableMatch = text.slice(sourceOffset).match(QUERY_RESULT_TABLE_REFERENCE_REGEX);
   if (!tableMatch) return undefined;
 
   const parts = normalizeQualifiedNameParts(tableMatch[1], dialect);

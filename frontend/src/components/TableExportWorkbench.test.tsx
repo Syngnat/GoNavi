@@ -1,6 +1,6 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
-import { Button, Checkbox, Select } from 'antd';
+import { Button, Checkbox, Segmented, Select } from 'antd';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +17,7 @@ import {
   DBGetTables,
   DropDatabase,
   DropTable,
+  TruncateTables,
   ExportDatabaseSQLWithOptions,
   ExportDatabasesSQLWithOptions,
   ExportQueryWithOptions,
@@ -36,6 +37,15 @@ const mockRunExportWithProgress = vi.fn();
 const mockAddTab = vi.fn();
 const mockAddSqlLog = vi.fn();
 const mockUseExportProgressRunner = vi.fn();
+
+const switchBatchIntentToDelete = async (renderer: ReactTestRenderer) => {
+  const intentSwitch = renderer.root.findByProps({ 'data-batch-intent-switch': 'true' });
+  const segmented = intentSwitch.findByType(Segmented);
+  await act(async () => {
+    segmented.props.onChange('delete');
+    await Promise.resolve();
+  });
+};
 const createMockStoreState = () => ({
   theme: 'light',
   connections: [
@@ -109,6 +119,7 @@ vi.mock('antd', async () => {
     Empty: component('mock-empty'),
     InputNumber: component('mock-input-number'),
     Progress: component('mock-progress'),
+    Segmented: component('mock-segmented'),
     Select: component('mock-select'),
     Tooltip: component('mock-tooltip'),
     message: {
@@ -150,6 +161,7 @@ vi.mock('../../wailsjs/go/app/App', () => ({
   DBGetTables: vi.fn(),
   DropDatabase: vi.fn(),
   DropTable: vi.fn(),
+  TruncateTables: vi.fn(),
   ExportDatabaseSQLWithOptions: vi.fn(),
   ExportDatabasesSQLWithOptions: vi.fn(),
   ExportQueryWithOptions: vi.fn(),
@@ -190,6 +202,7 @@ describe('TableExportWorkbench', () => {
     vi.mocked(ClearTables).mockReset();
     vi.mocked(DropDatabase).mockReset();
     vi.mocked(DropTable).mockReset();
+    vi.mocked(TruncateTables).mockReset();
     vi.mocked(Modal.confirm).mockReset();
     vi.mocked(loadViews).mockReset();
     vi.mocked(loadViews).mockResolvedValue({ views: [], supported: true });
@@ -502,6 +515,65 @@ describe('TableExportWorkbench', () => {
     renderer.unmount();
   });
 
+  it('invalidates batch table actions while an excluded database list is reloading', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    let resolveReload!: (result: any) => void;
+    vi.mocked(DBGetDatabases)
+      .mockResolvedValueOnce({ success: true, data: [{ Database: 'SYS' }] } as any)
+      .mockReturnValueOnce(new Promise((resolve) => {
+        resolveReload = resolve;
+      }) as any);
+    vi.mocked(DBGetTables).mockResolvedValue({ success: true, data: [{ Name: 'users' }] } as any);
+
+    const tab = {
+      id: 'table-export-batch-tables-conn-1-SYS',
+      title: '批量处理表',
+      type: 'table-export' as const,
+      connectionId: 'conn-1',
+      dbName: 'SYS',
+      exportWorkbenchMode: 'batch-tables' as const,
+      tableExportInitialObjectNames: ['users'],
+    };
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableExportWorkbench tab={tab} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await switchBatchIntentToDelete(renderer);
+    expect(renderer.root.findByProps({ 'data-batch-clear-tables': 'true' }).props.disabled).toBe(false);
+
+    mockStoreState = {
+      ...mockStoreState,
+      connections: [{
+        ...mockStoreState.connections[0],
+        excludeDatabasePatterns: ['SYS'],
+      } as any],
+    };
+    await act(async () => {
+      renderer.update(<TableExportWorkbench tab={tab} />);
+      await Promise.resolve();
+    });
+
+    const clearButton = renderer.root.findByProps({ 'data-batch-clear-tables': 'true' });
+    expect(clearButton.props.disabled).toBe(true);
+    await act(async () => {
+      clearButton.props.onClick();
+      await Promise.resolve();
+    });
+    expect(ClearTables).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveReload({ success: true, data: [{ Database: 'SYS' }] });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(renderer.root.findAllByType(Select).some((node) => node.props.value === 'SYS')).toBe(false);
+
+    renderer.unmount();
+  });
+
   it('clears selected tables after confirmation and records the executed operation', async () => {
     mockProgressRunnerState = createIdleProgressRunnerState();
     vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
@@ -536,6 +608,7 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
     });
 
+    await switchBatchIntentToDelete(renderer);
     const clearButton = renderer.root.findByProps({ 'data-batch-clear-tables': 'true' });
     expect(clearButton.props.disabled).toBe(false);
     await act(async () => {
@@ -591,6 +664,7 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
     });
 
+    await switchBatchIntentToDelete(renderer);
     const deleteButton = renderer.root.findByProps({ 'data-batch-delete-tables': 'true' });
     expect(deleteButton.props.disabled).toBe(false);
     await act(async () => {
@@ -647,16 +721,21 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
     });
 
+    await switchBatchIntentToDelete(renderer);
+    const truncateButton = renderer.root.findByProps({ 'data-batch-truncate-tables': 'true' });
     const clearButton = renderer.root.findByProps({ 'data-batch-clear-tables': 'true' });
     const deleteButton = renderer.root.findByProps({ 'data-batch-delete-tables': 'true' });
+    expect(truncateButton.props.disabled).toBe(true);
     expect(clearButton.props.disabled).toBe(true);
     expect(deleteButton.props.disabled).toBe(true);
     await act(async () => {
+      truncateButton.props.onClick();
       clearButton.props.onClick();
       deleteButton.props.onClick();
       await Promise.resolve();
     });
     expect(Modal.confirm).not.toHaveBeenCalled();
+    expect(TruncateTables).not.toHaveBeenCalled();
     expect(ClearTables).not.toHaveBeenCalled();
     expect(DropTable).not.toHaveBeenCalled();
 
@@ -696,6 +775,7 @@ describe('TableExportWorkbench', () => {
       await Promise.resolve();
     });
 
+    await switchBatchIntentToDelete(renderer);
     const deleteButton = renderer.root.findByProps({ 'data-batch-delete-databases': 'true' });
     expect(deleteButton.props.disabled).toBe(false);
     await act(async () => {

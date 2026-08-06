@@ -54,18 +54,36 @@ export const formatSidebarTableSize = (bytes: number): string => {
 const padSidebarTimestampPart = (value: number): string => String(value).padStart(2, '0');
 
 /**
- * formatSidebarTableTimestamp 把数据库返回的时间值统一压缩成 `YYYY-MM-DD HH:mm`。
- * 若值无法被 Date 可靠解析，则尽量保留原始文本的可读部分。
+ * formatSidebarTableTimestamp 把数据库返回的时间值格式化为
+ * `YYYY-MM-DD HH:mm:ss`；若源值带小数秒（毫秒/微秒），则原样保留小数部分。
+ * 例：
+ *   2026-04-26T18:06:08+08:00     → 2026-04-26 18:06:08
+ *   2026-05-10T09:12:33.456+08:00 → 2026-05-10 09:12:33.456
+ * 若无法被 Date 可靠解析，则尽量保留原始文本的可读部分。
  */
 export const formatSidebarTableTimestamp = (value: unknown): string => {
   const text = String(value ?? '').trim();
   if (!text) return '';
-  const normalizedText = text.replace('T', ' ').replace(/\.\d+$/, '');
+
+  // 优先用正则剥离时区，保留秒与小数秒（避免 Date 丢弃微秒精度）
+  const match = text.match(
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(\.\d+)?(?:\s*(?:Z|[+-]\d{2}:?\d{2})(?:\s+[A-Za-z_\/+-]+)?)?$/i,
+  );
+  if (match) {
+    return `${match[1]} ${match[2]}${match[3] || ''}`;
+  }
+
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) {
-    return normalizedText.length > 16 ? normalizedText.slice(0, 16) : normalizedText;
+    // 无法解析时去掉 T/时区噪音，尽量给出可读截断
+    const fallback = text
+      .replace('T', ' ')
+      .replace(/([+-]\d{2}:?\d{2}|Z)\s*$/i, '')
+      .trim();
+    return fallback.length > 23 ? fallback.slice(0, 23) : fallback;
   }
-  return [
+
+  const base = [
     parsed.getFullYear(),
     '-',
     padSidebarTimestampPart(parsed.getMonth() + 1),
@@ -75,7 +93,15 @@ export const formatSidebarTableTimestamp = (value: unknown): string => {
     padSidebarTimestampPart(parsed.getHours()),
     ':',
     padSidebarTimestampPart(parsed.getMinutes()),
+    ':',
+    padSidebarTimestampPart(parsed.getSeconds()),
   ].join('');
+
+  const ms = parsed.getMilliseconds();
+  if (ms > 0) {
+    return `${base}.${String(ms).padStart(3, '0')}`;
+  }
+  return base;
 };
 
 export interface SidebarTableMetadataDisplayItem {

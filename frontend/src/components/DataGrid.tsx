@@ -35,6 +35,7 @@ import '../styles/v2-theme-workbench.css';
 import { buildOrderBySQL, buildPaginatedSelectSQL, buildWhereSQL, escapeLiteral, hasExplicitSort, quoteIdentPart, withSortBufferTuningSQL, type FilterCondition } from '../utils/sql';
 import { isMacLikePlatform, normalizeOpacityForPlatform, resolveAppearanceValues } from '../utils/appearance';
 import { isConnectionDataImportRestricted } from '../utils/connectionReadOnly';
+import { confirmProductionRisk } from '../utils/productionRiskConfirm';
 import { getDataSourceCapabilities, resolveDataSourceType } from '../utils/dataSourceCapabilities';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { normalizeOceanBaseProtocol } from '../utils/oceanBaseProtocol';
@@ -55,6 +56,8 @@ import {
     resolveExternalHorizontalScrollMetrics,
 } from './dataGridLayout';
 import {
+    applyDataGridFixedCellPreviewOffset,
+    commitDataGridFixedCellOffset,
     createDataGridIdleCommitScheduler,
     createDataGridVisualFrameGuard,
     type DataGridIdleCommitScheduler,
@@ -69,7 +72,7 @@ import {
     type CopySqlError,
 } from './dataGridCopyInsert';
 import { calculateAutoFitColumnWidth } from './dataGridAutoWidth';
-import { buildSelectedCellClipboardText } from './dataGridSelectionCopy';
+import { buildSelectedCellClipboardPayload } from './dataGridSelectionCopy';
 import { buildCopiedRowsForPaste, buildPastedRowsFromCopiedRows } from './dataGridRowClipboard';
 import {
     buildDataGridSelectBaseSql,
@@ -82,6 +85,11 @@ import {
     buildClipboardMarkdown,
     pickRowsForClipboard,
 } from './dataGridClipboardExport';
+import {
+    buildTabularClipboardPayloadFromTsv,
+    writeClipboardPayload,
+    type DataGridClipboardPayload,
+} from './dataGridClipboardPayload';
 import { applyNoAutoCapAttributesWithin, noAutoCapInputProps } from '../utils/inputAutoCap';
 import {
     DEFAULT_SHORTCUT_OPTIONS,
@@ -176,6 +184,7 @@ import { useDataGridMetadata } from './useDataGridMetadata';
 import { useDataGridColumnResize } from './useDataGridColumnResize';
 import { useDataGridPreviewPanel } from './useDataGridPreviewPanel';
 import { buildTableExportTab } from '../utils/tableExportTab';
+import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLifecycle';
 import { buildDataGridCssText } from './dataGridStyles';
 import { formatMongoEditableValue, normalizeMongoDocumentForEditing, parseMongoEditedValue } from '../utils/mongodb';
 
@@ -1517,21 +1526,16 @@ const DataGrid: React.FC<DataGridProps> = ({
       const el = containerRef.current;
       if (!el) return;
 
-      let rafId: number | null = null;
-
-      const resizeObserver = new ResizeObserver(entries => {
-          if (rafId !== null) cancelAnimationFrame(rafId);
-          rafId = requestAnimationFrame(() => {
-              const target = (entries[0]?.target as HTMLElement | undefined) || containerRef.current;
-              recalculateTableMetrics(target);
-          });
+      const scheduler = createSidebarResizeAwareFrameScheduler(() => {
+          recalculateTableMetrics(containerRef.current);
       });
+      const resizeObserver = new ResizeObserver(() => scheduler.schedule());
 
       resizeObserver.observe(el);
-      rafId = requestAnimationFrame(() => recalculateTableMetrics(el));
+      scheduler.schedule();
       return () => {
           resizeObserver.disconnect();
-          if (rafId !== null) cancelAnimationFrame(rafId);
+          scheduler.dispose();
       };
   }, [recalculateTableMetrics]);
 
@@ -1614,14 +1618,18 @@ const DataGrid: React.FC<DataGridProps> = ({
   const getCurrentColumnValueCounts = useMemo(() => {
       const cache = new Map<string, ReturnType<typeof countGridColumnValues>>();
       return (columnName: string) => {
-          if (exportScope !== 'queryResult') return undefined;
           const cached = cache.get(columnName);
           if (cached) return cached;
-          const counts = countGridColumnValues(rowsBeforeClientFilter, columnName);
+          const rowsForValueCounts = exportScope === 'queryResult'
+              ? filterRowsByGridConditions(rowsBeforeClientFilter, filterConditions.filter((condition) => (
+                  String(condition?.column || '') !== columnName
+              )))
+              : rowsBeforeClientFilter;
+          const counts = countGridColumnValues(rowsForValueCounts, columnName);
           cache.set(columnName, counts);
           return counts;
       };
-  }, [exportScope, rowsBeforeClientFilter]);
+  }, [exportScope, filterConditions, rowsBeforeClientFilter]);
   const columnHeaderFilterEnabled = !!onApplyFilter || exportScope === 'queryResult';
   const columnHeaderFilterOpOptions = useMemo(
       () => filterOpOptions.filter((option) => option.value !== 'CUSTOM'),
@@ -1640,6 +1648,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           initialOperator: String(firstCondition?.op || defaultOperator),
           initialValue: String(firstCondition?.value ?? ''),
           initialValue2: String(firstCondition?.value2 ?? ''),
+          initialValueSelection: firstCondition?.valueSelection,
       };
   }, [filterConditions, getColumnFilterType]);
 
@@ -1649,6 +1658,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           op: draft.op,
           value: draft.value,
           value2: draft.value2,
+          valueSelection: draft.valueSelection,
       });
   }, [applyColumnFilter]);
 
@@ -1681,6 +1691,7 @@ const DataGrid: React.FC<DataGridProps> = ({
                   initialOperator: columnFilterState.initialOperator,
                   initialValue: columnFilterState.initialValue,
                   initialValue2: columnFilterState.initialValue2,
+                  initialValueSelection: columnFilterState.initialValueSelection,
                   filterLabel: translateDataGrid('data_grid.toolbar.filter'),
                   applyLabel: translateDataGrid('data_grid.filter.apply'),
                   clearLabel: translateDataGrid('data_grid.filter.clear'),
@@ -2196,7 +2207,6 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const {
       autoFitColumnWidth,
-      ghostRef,
       handleResizeAutoFit,
       handleResizeStart,
       isResizingRef,
@@ -3318,6 +3328,10 @@ const DataGrid: React.FC<DataGridProps> = ({
       return ROW_NUMBER_COLUMN_WIDTH;
   }, [columnWidths]);
 
+  const handleRowNumberDoubleClick = useCallback((index: number) => {
+      handleViewModeChange('text', { textRecordIndex: index });
+  }, [handleViewModeChange]);
+
   const rowNumberColumn = useMemo<ColumnType<any>>(() => ({
       title: (
           <div
@@ -3364,12 +3378,18 @@ const DataGrid: React.FC<DataGridProps> = ({
               minWidth: 28,
           },
       }),
-      onCell: () => ({
+      onCell: (_record: Item, index?: number) => ({
+          'data-grid-row-number-action': 'true',
           style: {
               width: rowNumberColumnWidth,
               minWidth: 28,
-              paddingInline: 2,
+              padding: 0,
               textAlign: 'center' as const,
+            },
+          onDoubleClick: (event: React.MouseEvent<HTMLElement>) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleRowNumberDoubleClick(index ?? 0);
           },
       }),
       render: (_value: unknown, _record: Item, index: number) => {
@@ -3377,12 +3397,31 @@ const DataGrid: React.FC<DataGridProps> = ({
           const pageSize = Math.max(1, Number(pagination?.pageSize) || 0);
           const offset = pageSize > 0 ? (currentPage - 1) * pageSize : 0;
           return (
-              <span className="data-grid-row-number" data-grid-row-number="true">
-                  {offset + index + 1}
-              </span>
+              <Tooltip title={translateDataGrid('data_grid.row_number.double_click_to_view')}>
+                  <span
+                      className="data-grid-row-number"
+                      data-grid-row-number="true"
+                      style={{
+                          display: 'flex',
+                          width: '100%',
+                          height: '100%',
+                          minHeight: 24,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                      }}
+                      onDoubleClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          handleRowNumberDoubleClick(index);
+                      }}
+                  >
+                      {offset + index + 1}
+                  </span>
+              </Tooltip>
           );
       },
-  }), [handleResizeAutoFit, handleResizeStart, pagination?.current, pagination?.pageSize, rowNumberColumnWidth]);
+  }), [handleResizeAutoFit, handleResizeStart, handleRowNumberDoubleClick, pagination?.current, pagination?.pageSize, rowNumberColumnWidth, translateDataGrid]);
 
   const tableColumns = useMemo(() => {
       const baseColumns = resolvedShowRowNumberColumn
@@ -3605,6 +3644,14 @@ const DataGrid: React.FC<DataGridProps> = ({
           useSSH: conn.config.useSSH || false, 
           ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" } 
       };
+
+      const approved = await confirmProductionRisk({
+          connection: conn,
+          action: translateDataGrid('connection.production_risk.action.execute_sql'),
+          target: [dbName, tableName].filter(Boolean).join(' / '),
+          translate: translateDataGrid,
+      });
+      if (!approved) return;
       
       const startTime = Date.now();
       const res = await ApplyChanges(buildRpcConnectionConfig(config) as any, dbName || '', tableName, { inserts, updates, deletes, locatorStrategy: effectiveEditLocator?.strategy } as any);
@@ -3628,14 +3675,14 @@ const DataGrid: React.FC<DataGridProps> = ({
               message: res.message,
               dbName
           });
-          void message.success(source === 'auto'
-              ? translateDataGrid('data_grid.message.auto_commit_success')
-              : translateDataGrid('data_grid.message.transaction_committed'));
           setAddedRows([]);
           setModifiedRows({});
           setDeletedRowKeys(new Set());
           setModifiedColumns({});
-          if (onReload) onReload();
+          await onReload?.();
+          void message.success(source === 'auto'
+              ? translateDataGrid('data_grid.message.auto_commit_success')
+              : translateDataGrid('data_grid.message.transaction_committed'));
       } else {
           addSqlLog({
               id: Date.now().toString(),
@@ -3715,8 +3762,9 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   useEffect(() => clearAutoCommitTimer, [clearAutoCommitTimer]);
 
-  const copyToClipboard = useCallback((text: string) => {
-      navigator.clipboard.writeText(text).catch(console.error);
+  const copyToClipboard = useCallback((value: string | DataGridClipboardPayload) => {
+      const payload = typeof value === 'string' ? { plainText: value } : value;
+      writeClipboardPayload(payload).catch(console.error);
       void message.success(translateDataGrid('data_grid.message.copied_to_clipboard'));
   }, [translateDataGrid]);
 
@@ -3745,7 +3793,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       const text = mergedDisplayData
           .map((row) => normalizeClipboardTsvCell(formatClipboardCellText(row?.[normalizedColumnName], columnType, currentConnConfig)))
           .join('\n');
-      copyToClipboard(text);
+      copyToClipboard(buildTabularClipboardPayloadFromTsv(text));
   }, [columnMetaMap, columnMetaMapByLowerName, copyToClipboard, currentConnConfig, displayOutputColumnNames, mergedDisplayData, translateDataGrid]);
 
   const {
@@ -3786,7 +3834,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     buildOrderBySQL,
     buildPaginatedSelectSQL,
     buildRpcConnectionConfig,
-    buildSelectedCellClipboardText,
+    buildSelectedCellClipboardPayload,
     buildTableExportTab,
     buildWhereSQL,
     cellContextMenu,
@@ -3879,11 +3927,11 @@ const DataGrid: React.FC<DataGridProps> = ({
       }
   };
 
-  const handleImportSuccess = () => {
+  const handleImportSuccess = async () => {
       setImportPreviewVisible(false);
       setImportFilePath('');
+      await onReload?.();
       void message.success(translateDataGrid('data_grid.message.import_done'));
-      if (onReload) onReload();
   };
 
   const queryResultCopyMenu: MenuProps['items'] = [
@@ -4129,8 +4177,8 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   /**
    * 虚拟表横滚视觉同步：
-   * - 表体：filler marginLeft = -offset；固定列用 --gn-datagrid-h-scroll 做 translateX 补偿
-   *   （filler 有 transform:translateY，sticky 在表体不可靠）
+   * - 表体：filler marginLeft = -offset；预览时只移动当前固定单元格，避免修改
+   *   继承变量导致整棵虚拟表体重新计算样式
    * - 表头：真实 scrollLeft + sticky 固定全选/行号（不要对 header table 做 transform，
    *   否则会把全选 checkbox / # 裁没或钉飞）
    */
@@ -4146,18 +4194,13 @@ const DataGrid: React.FC<DataGridProps> = ({
       const clampedOffset = Math.max(0, Math.min(maxScroll, nextOffset));
       const currentOffset = Math.max(0, Math.abs(parseFloat(innerEl.style.marginLeft) || 0));
       const nextMarginLeft = `${-clampedOffset}px`;
-      const scrollVar = `${clampedOffset}px`;
       virtualHorizontalPostCommitGuardRef.current?.update(clampedOffset);
 
       if (innerEl.style.marginLeft !== nextMarginLeft) {
           innerEl.style.marginLeft = nextMarginLeft;
       }
 
-      // 只在固定列的最近公共祖先写一次，避免同一继承变量使整棵表体
-      // 连续发生三次 style invalidation。
-      if (innerEl.style.getPropertyValue('--gn-datagrid-h-scroll') !== scrollVar) {
-          innerEl.style.setProperty('--gn-datagrid-h-scroll', scrollVar);
-      }
+      applyDataGridFixedCellPreviewOffset(tableContainer, clampedOffset);
       if (tableContainer.style.getPropertyValue('--gn-datagrid-h-scroll')) {
           tableContainer.style.removeProperty('--gn-datagrid-h-scroll');
       }
@@ -4172,7 +4215,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
       }
 
-      return { holderEl, clampedOffset, currentOffset };
+      return { holderEl, innerEl, clampedOffset, currentOffset };
   }, [resolveVirtualHorizontalElements, tableScrollX]);
 
   virtualHorizontalPostCommitFrameHandlerRef.current = (offset) => {
@@ -4221,7 +4264,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           return false;
       }
 
-      const { holderEl, clampedOffset, currentOffset } = synced;
+      const { holderEl, innerEl, clampedOffset, currentOffset } = synced;
       const deltaX = clampedOffset - currentOffset;
       if (Math.abs(deltaX) < 0.5 && !options?.forceInternalScroll) {
           scheduleVirtualHorizontalPostCommit(tableContainer, clampedOffset);
@@ -4232,6 +4275,7 @@ const DataGrid: React.FC<DataGridProps> = ({
       if (tableInstance && typeof tableInstance.scrollTo === 'function') {
           // 更新 rc-virtual-list 内部 offsetLeft
           tableInstance.scrollTo({ left: clampedOffset });
+          commitDataGridFixedCellOffset(tableContainer, innerEl, clampedOffset);
           lastCommittedVirtualHorizontalOffsetRef.current = clampedOffset;
           scheduleVirtualHorizontalPostCommit(tableContainer, clampedOffset);
           return true;
@@ -4244,6 +4288,8 @@ const DataGrid: React.FC<DataGridProps> = ({
           bubbles: true,
           cancelable: true,
       }));
+      commitDataGridFixedCellOffset(tableContainer, innerEl, clampedOffset);
+      lastCommittedVirtualHorizontalOffsetRef.current = clampedOffset;
       scheduleVirtualHorizontalPostCommit(tableContainer, clampedOffset);
       return true;
   }, [scheduleVirtualHorizontalPostCommit, syncVirtualHorizontalVisualOffset]);
@@ -4587,6 +4633,12 @@ const DataGrid: React.FC<DataGridProps> = ({
               // rc-virtual-list 内部 offsetLeft，避免大结果集每帧触发行渲染。
               const alreadyCommitted = virtualListItemColumnVirtual
                   && Math.abs(lastCommittedVirtualHorizontalOffsetRef.current - resolvedScrollLeft) < 0.5;
+              if (alreadyCommitted) {
+                  const { innerEl } = resolveVirtualHorizontalElements(tableContainer);
+                  if (innerEl instanceof HTMLElement) {
+                      commitDataGridFixedCellOffset(tableContainer, innerEl, resolvedScrollLeft);
+                  }
+              }
               const applied = alreadyCommitted
                   || applyVirtualHorizontalOffset(tableContainer, resolvedScrollLeft, { forceInternalScroll: true });
               if (applied) {
@@ -4609,7 +4661,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           }
           horizontalSyncSourceRef.current = '';
       });
-  }, [applyVirtualHorizontalOffset, enableVirtual, isExternalScrollbarInteractionActive, readVirtualHorizontalOffset, syncVirtualHorizontalVisualOffset, virtualListItemColumnVirtual]);
+  }, [applyVirtualHorizontalOffset, enableVirtual, isExternalScrollbarInteractionActive, readVirtualHorizontalOffset, resolveVirtualHorizontalElements, syncVirtualHorizontalVisualOffset, virtualListItemColumnVirtual]);
 
   externalIdleCommitHandlerRef.current = (syncSequence) => {
       externalScrollInteractionUntilRef.current = 0;
@@ -4658,7 +4710,7 @@ const DataGrid: React.FC<DataGridProps> = ({
           const requestedExternalScrollLeft = pendingExternalScrollLeftRef.current ?? latestExternalScroll.scrollLeft;
           pendingExternalScrollLeftRef.current = null;
           const tableContainer = tableContainerRef.current;
-          // 用户连续拖动/滚动时，只写 marginLeft、header.scrollLeft 和固定列 CSS 变量。
+          // 用户连续拖动/滚动时，只写 marginLeft、header.scrollLeft 和当前固定单元格。
           // 不在每一帧调用 Table.scrollTo，否则 rc-virtual-list 会随数据量放大渲染开销。
           if (enableVirtual && tableContainer instanceof HTMLElement) {
               if (isExternalScrollbarInteractionActive()) {
@@ -5422,7 +5474,6 @@ const DataGrid: React.FC<DataGridProps> = ({
         formatTextViewValue,
         getTargets,
         getTemporalPickerType,
-        ghostRef,
         gridCssText,
         gridFieldSelectOptions,
         gridId,
@@ -5505,7 +5556,13 @@ const DataGrid: React.FC<DataGridProps> = ({
         onOpenErTable: openTableByName,
         onPageChange,
         onLastPage,
-        onReload,
+        onReload: exportScope === 'queryResult'
+            ? () => {
+                setFilterConditions([]);
+                clearQuickWhereCondition();
+                onReload?.();
+            }
+            : onReload,
         onRequestTotalCount,
         onSort,
         onToggleFilter,

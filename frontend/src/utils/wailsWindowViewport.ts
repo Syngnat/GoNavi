@@ -17,6 +17,11 @@ type ViewportFallback = {
   innerHeight?: number;
 };
 
+type WindowPositionLike = {
+  x?: number;
+  y?: number;
+};
+
 const toFiniteInteger = (value: unknown, fallback = 0): number => {
   const next = Math.trunc(Number(value));
   return Number.isFinite(next) ? next : fallback;
@@ -48,5 +53,26 @@ export const resolveWailsWindowVisibleViewport = (
     // macOS 修复点：Wails 会自己把局部坐标映射到当前 NSScreen.visibleFrame。
     availLeft: useMonitorLocalOrigin ? 0 : toFiniteInteger(screenLike?.availLeft),
     availTop: useMonitorLocalOrigin ? 0 : toFiniteInteger(screenLike?.availTop),
+  };
+};
+
+/**
+ * Convert global screen coordinates to the monitor-local coordinates expected by
+ * Wails WindowSetPosition on Windows. Callers that use global coordinates can keep
+ * comparing WindowGetPosition against the original target.
+ */
+export const resolveWailsWindowSetPosition = (
+  position: WindowPositionLike,
+  viewport: WailsWindowVisibleViewport,
+  options?: { useMonitorLocalOrigin?: boolean },
+): { x: number; y: number } => {
+  const x = toFiniteInteger(position.x);
+  const y = toFiniteInteger(position.y);
+  if (options?.useMonitorLocalOrigin !== true) {
+    return { x, y };
+  }
+  return {
+    x: x - toFiniteInteger(viewport.availLeft),
+    y: y - toFiniteInteger(viewport.availTop),
   };
 };

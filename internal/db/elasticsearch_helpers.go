@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/esconsole"
 	"GoNavi-Wails/internal/logger"
 	proxytunnel "GoNavi-Wails/internal/proxy"
 
@@ -179,41 +180,15 @@ var reESSQLFrom = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"(?:\."([^"]+)")*|
 // 支持多段引号格式（如 "schema"."table"."partition"）和单段格式。
 // 返回提取的索引名（可能含 . 或 *），提取失败返回空串。
 func extractESSQLFromTable(sql string) string {
-	// 补尾部空格以确保正则匹配末尾无空格的输入
-	matches := reESSQLFrom.FindStringSubmatch(sql + " ")
-	if len(matches) < 2 {
+	candidate := strings.TrimSpace(sql)
+	if strings.HasPrefix(strings.ToUpper(candidate), "FROM ") {
+		candidate = "SELECT * " + candidate
+	}
+	parsed, err := esconsole.ParseSimplifiedSelect(candidate)
+	if err != nil {
 		return ""
 	}
-
-	// matches[1] = 第一段引号内容, matches[2] = 最后一段引号内容（可能多次匹配只保留最后），
-	// matches[3] = 无引号标识符
-	if matches[3] != "" {
-		return strings.TrimSpace(matches[3])
-	}
-
-	// 多段引号：从原匹配中提取所有引号段并用 . 拼接
-	fullMatch := matches[0]
-	fromIdx := strings.Index(strings.ToUpper(fullMatch), "FROM")
-	if fromIdx < 0 {
-		return ""
-	}
-	rest := fullMatch[fromIdx+4:]
-	rest = strings.TrimSpace(rest)
-
-	var parts []string
-	for _, seg := range strings.Split(rest, ".") {
-		s := strings.TrimSpace(seg)
-		s = strings.TrimSuffix(s, ";")
-		s = strings.TrimSpace(s)
-		s = strings.Trim(s, `"`)
-		if s != "" {
-			parts = append(parts, s)
-		}
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, ".")
+	return parsed.Target
 }
 
 // ---- SQL → ES _search 转换层 ----
@@ -245,63 +220,18 @@ func trimESTrailingClauseSyntax(s string) string {
 
 // parseESSQL 解析简单 SELECT SQL 为结构化组成部分。
 func parseESSQL(sql string) (esParsedSQL, bool) {
-	upper := strings.ToUpper(strings.TrimSpace(sql))
-	if !strings.HasPrefix(upper, "SELECT") {
+	compatibility, err := esconsole.ParseSimplifiedSelect(sql)
+	if err != nil {
 		return esParsedSQL{}, false
 	}
-
-	parsed := esParsedSQL{}
-
-	// 提取表名
-	parsed.Table = extractESSQLFromTable(sql)
-	if parsed.Table == "" {
-		return esParsedSQL{}, false
-	}
-
-	// 提取 SELECT 列列表
-	selectEnd := strings.Index(upper, " FROM ")
-	if selectEnd > 6 {
-		parsed.Columns = trimESTrailingClauseSyntax(sql[6:selectEnd])
-	} else {
-		parsed.Columns = "*"
-	}
-
-	// 提取 WHERE 子句
-	whereMatch := regexp.MustCompile(`(?i)\bWHERE\s+(.+?)(?:\bORDER\b|\bLIMIT\b|\bOFFSET\b|$)`).FindStringSubmatch(sql)
-	if len(whereMatch) >= 2 {
-		parsed.Where = trimESTrailingClauseSyntax(whereMatch[1])
-	}
-
-	// 提取 ORDER BY
-	orderMatch := reSQLOrderBy.FindStringSubmatch(sql)
-	if len(orderMatch) >= 2 {
-		parsed.OrderBy = trimESTrailingClauseSyntax(orderMatch[1])
-	}
-
-	// 提取 LIMIT
-	limitMatch := reSQLLimit.FindStringSubmatch(sql)
-	if len(limitMatch) >= 2 {
-		if n, err := strconv.Atoi(limitMatch[1]); err == nil {
-			parsed.Limit = n
-		}
-		if len(limitMatch) >= 3 && limitMatch[2] != "" {
-			if n, err := strconv.Atoi(limitMatch[2]); err == nil {
-				parsed.Offset = n
-			}
-		}
-	}
-
-	// 独立 OFFSET（未被 LIMIT 正则捕获时）
-	if parsed.Offset == 0 {
-		offsetMatch := reSQLOffset.FindStringSubmatch(sql)
-		if len(offsetMatch) >= 2 {
-			if n, err := strconv.Atoi(offsetMatch[1]); err == nil {
-				parsed.Offset = n
-			}
-		}
-	}
-
-	return parsed, true
+	return esParsedSQL{
+		Table:   compatibility.Target,
+		Columns: compatibility.Columns,
+		Where:   compatibility.Where,
+		OrderBy: compatibility.OrderBy,
+		Limit:   compatibility.Limit,
+		Offset:  compatibility.Offset,
+	}, true
 }
 
 // convertSQLWhereToESQuery 将简单 SQL WHERE 条件转换为 ES query DSL map。
@@ -965,14 +895,12 @@ func (e *ElasticsearchDB) esCountQuery(ctx context.Context, indexName string, wh
 	}
 	defer res.Body.Close()
 
-	if res.IsError() {
-		respBody, _ := io.ReadAll(res.Body)
-		return nil, nil, fmt.Errorf("Elasticsearch COUNT 查询错误：%s", string(respBody))
-	}
-
-	respBody, err := io.ReadAll(res.Body)
+	respBody, err := readElasticsearchQueryResponseBody(res.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取 COUNT 响应失败：%w", err)
+	}
+	if res.IsError() {
+		return nil, nil, fmt.Errorf("Elasticsearch COUNT 查询错误：%s", truncateElasticsearchQueryErrorBody(respBody))
 	}
 
 	var parsed map[string]interface{}
@@ -1033,16 +961,35 @@ func (e *ElasticsearchDB) esQueryStringFallback(ctx context.Context, queryStr st
 // parseSearchResponse 解析 ES 响应为标准行格式。
 // 使用原始 JSON 解析，兼容 ES 6.x（hits.total 为数字）和 ES 7.x+（hits.total 为对象）。
 func (e *ElasticsearchDB) parseSearchResponse(res *esapi.Response) ([]map[string]interface{}, []string, error) {
-	body, err := io.ReadAll(res.Body)
+	body, err := readElasticsearchQueryResponseBody(res.Body)
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取查询结果失败：%w", err)
 	}
 
 	if res.IsError() {
-		return nil, nil, fmt.Errorf("Elasticsearch 查询错误：%s", string(body))
+		return nil, nil, fmt.Errorf("Elasticsearch 查询错误：%s", truncateElasticsearchQueryErrorBody(body))
 	}
 
 	return parseSearchResponseJSON(body)
+}
+
+func readElasticsearchQueryResponseBody(reader io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, maxElasticsearchConsoleResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxElasticsearchConsoleResponseBytes {
+		return nil, fmt.Errorf("Elasticsearch 响应超过 32 MiB 上限")
+	}
+	return body, nil
+}
+
+func truncateElasticsearchQueryErrorBody(body []byte) string {
+	const maxErrorBytes = 64 << 10
+	if len(body) <= maxErrorBytes {
+		return string(body)
+	}
+	return string(body[:maxErrorBytes]) + "\n… [truncated]"
 }
 
 // parseSearchResponseJSON 从原始 JSON 字节解析 ES _search 响应。

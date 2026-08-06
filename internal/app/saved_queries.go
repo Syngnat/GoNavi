@@ -322,6 +322,17 @@ func (r *savedQueryRepository) hydrateDiskFile(diskFile savedQueriesDiskFile) (s
 			oldPath := filepath.Join(directory, oldFileName)
 			content, err = os.ReadFile(oldPath)
 			if err != nil {
+				if os.IsNotExist(err) {
+					// The referenced SQL file is gone (manually deleted,
+					// moved by the user, or lost during an interrupted
+					// migration). The disk record is an orphan: its content
+					// cannot be recovered. Skip it instead of failing the
+					// whole saved-queries load — a hard failure here blocks
+					// app startup and, critically, the quit/update flow
+					// ("check unsaved SQL" runs the same load).
+					migrated = true
+					continue
+				}
 				return rollback(fmt.Errorf("read saved query sql file %s: %w", oldFileName, err))
 			}
 			oldPaths = append(oldPaths, oldPath)

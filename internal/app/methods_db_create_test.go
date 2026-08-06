@@ -116,7 +116,7 @@ func TestCreateDatabase_SQLServerUsesBracketIdentifiers(t *testing.T) {
 		Type:     "custom",
 		Driver:   "mssql",
 		Database: "master",
-	}, "lg")
+	}, "lg", "", "")
 
 	if !result.Success {
 		t.Fatalf("expected SQL Server create database success, got failure: %s", result.Message)
@@ -185,5 +185,147 @@ func TestCreateSchema_CustomPostgresUsesSelectedDatabase(t *testing.T) {
 	const want = `CREATE SCHEMA "tenant""schema"`
 	if fakeDB.execQueries[0] != want {
 		t.Fatalf("unexpected create schema SQL, want %q got %q", want, fakeDB.execQueries[0])
+	}
+}
+
+func TestBuildCreateDatabaseQuery_MySQLCharsetAndCollation(t *testing.T) {
+	tests := []struct {
+		name      string
+		dbType    string
+		dbName    string
+		charset   string
+		collation string
+		want      string
+		wantErr   bool
+	}{
+		{
+			name:   "mysql with charset and collation",
+			dbType: "mysql", dbName: "app", charset: "utf8mb4", collation: "utf8mb4_unicode_ci",
+			want: "CREATE DATABASE `app` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+		},
+		{
+			name:   "mysql charset only",
+			dbType: "mysql", dbName: "app", charset: "latin1",
+			want: "CREATE DATABASE `app` CHARACTER SET latin1",
+		},
+		{
+			name:   "mysql collation only",
+			dbType: "mysql", dbName: "app", collation: "utf8mb4_general_ci",
+			want: "CREATE DATABASE `app` COLLATE utf8mb4_general_ci",
+		},
+		{
+			name:   "mysql no options uses server default",
+			dbType: "mysql", dbName: "app",
+			want: "CREATE DATABASE `app`",
+		},
+		{
+			name:   "mariadb dialect",
+			dbType: "mariadb", dbName: "app", charset: "utf8mb4",
+			want: "CREATE DATABASE `app` CHARACTER SET utf8mb4",
+		},
+		{
+			name:   "backtick escaping",
+			dbType: "mysql", dbName: "we`ird",
+			want: "CREATE DATABASE `we``ird`",
+		},
+		{
+			name:   "postgres quotes identifiers",
+			dbType: "postgres", dbName: `sa"les`,
+			want: `CREATE DATABASE "sa""les"`,
+		},
+		{
+			name:   "sqlserver brackets",
+			dbType: "sqlserver", dbName: "sales",
+			want: "CREATE DATABASE [sales]",
+		},
+		{
+			name:   "clickhouse if not exists",
+			dbType: "clickhouse", dbName: "reporting",
+			want: "CREATE DATABASE IF NOT EXISTS `reporting`",
+		},
+		{
+			name:    "invalid charset rejected",
+			dbType:  "mysql", dbName: "app", charset: "utf8mb4; DROP TABLE x",
+			wantErr: true,
+		},
+		{
+			name:    "invalid collation rejected",
+			dbType:  "mysql", dbName: "app", collation: "ci` --",
+			wantErr: true,
+		},
+		{
+			name:    "sphinx unsupported",
+			dbType:  "sphinx", dbName: "app",
+			wantErr: true,
+		},
+		{
+			name:    "oracle unsupported",
+			dbType:  "oracle", dbName: "app",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildCreateDatabaseQuery(tt.dbType, tt.dbName, tt.charset, tt.collation)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got query %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("query = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSafeDatabaseOption(t *testing.T) {
+	for _, value := range []string{"utf8mb4", "utf8mb4_unicode_ci", "latin1", "a1_b2"} {
+		if !isSafeDatabaseOption(value) {
+			t.Fatalf("expected %q to be safe", value)
+		}
+	}
+	for _, value := range []string{"", "utf8mb4;", "a b", "a`b", "a-b", "中文"} {
+		if isSafeDatabaseOption(value) {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}
+
+func TestSupportsDatabaseCharsetOptions(t *testing.T) {
+	for _, dbType := range []string{"mysql", "mariadb", "diros", "oceanbase"} {
+		if !supportsDatabaseCharsetOptions(dbType) {
+			t.Fatalf("expected %q to support charset options", dbType)
+		}
+	}
+	for _, dbType := range []string{"postgres", "sqlserver", "clickhouse", "starrocks", "sphinx", "oracle", "tdengine"} {
+		if supportsDatabaseCharsetOptions(dbType) {
+			t.Fatalf("expected %q to not support charset options", dbType)
+		}
+	}
+}
+
+func TestRowValueHelpers(t *testing.T) {
+	row := map[string]interface{}{
+		"Charset":          "utf8mb4",
+		"Description":      "UTF-8 Unicode",
+		"Default collation": "utf8mb4_0900_ai_ci",
+		"Maxlen":           int64(4),
+	}
+	if got := rowStringValue(row, "Charset"); got != "utf8mb4" {
+		t.Fatalf("rowStringValue Charset = %q", got)
+	}
+	if got := rowStringValue(row, "Missing"); got != "" {
+		t.Fatalf("rowStringValue missing = %q", got)
+	}
+	if got := rowIntValue(row, "Maxlen"); got != 4 {
+		t.Fatalf("rowIntValue Maxlen = %d", got)
+	}
+	if got := rowIntValue(row, "Missing"); got != 0 {
+		t.Fatalf("rowIntValue missing = %d", got)
 	}
 }

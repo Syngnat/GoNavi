@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, ConfigProvider, Spin, Tooltip, theme as antdTheme } from 'antd';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button, ConfigProvider, Segmented, Spin, Tag, Tooltip, theme as antdTheme } from 'antd';
 import { CloseOutlined, CompressOutlined } from '@ant-design/icons';
 import { EventsOn } from '../../wailsjs/runtime';
 
@@ -31,6 +31,7 @@ import {
   readyNativeDetachedWindow,
   sendNativeDetachedHostEvent,
   syncNativeDetachedWindow,
+  readNativeDetachedThemeContext,
   type NativeDetachedHostEvent,
   type NativeDetachedHostEventName,
   type NativeDetachedStoreSnapshot,
@@ -39,6 +40,7 @@ import {
   NATIVE_DETACHED_WINDOW_COMMAND_EVENT,
   type NativeDetachedHostStateCommand,
 } from '../utils/nativeDetachedWindowClient';
+import type { CustomThemeDefinition } from '../utils/customTheme';
 import { isMacLikePlatform } from '../utils/appearance';
 import {
   peekQueryEditorResultSession,
@@ -50,6 +52,9 @@ import { buildOverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import { APP_OVERLAY_Z_INDEX_BASE } from '../utils/overlayZIndex';
 import { resolveLiveQueryTab, resolveLiveQueryTabs } from '../utils/liveQueryTabs';
 import { subscribeQueryTabDraftChanges } from '../utils/sqlFileTabDrafts';
+import CustomThemeStyleHost, {
+  type CustomThemeAntTokenSnapshot,
+} from './theme/CustomThemeStyleHost';
 import {
   getShortcutPlatform,
   installGlobalImeCompositionTracking,
@@ -66,6 +71,47 @@ const NativeDetachedWindowController = React.lazy(
 export const NATIVE_DETACHED_SYNC_DEBOUNCE_MS = 180;
 export const NATIVE_DETACHED_PAINT_FALLBACK_MS = 250;
 const NATIVE_DETACHED_CANCEL_CLOSE_ATTEMPTS = 2;
+const NATIVE_DETACHED_MIN_UI_SCALE = 0.8;
+const NATIVE_DETACHED_MAX_UI_SCALE = 1.25;
+const NATIVE_DETACHED_DEFAULT_UI_SCALE = 1;
+const NATIVE_DETACHED_MIN_FONT_SIZE = 12;
+const NATIVE_DETACHED_MAX_FONT_SIZE = 20;
+const NATIVE_DETACHED_DEFAULT_FONT_SIZE = 14;
+
+type NativeDetachedDocument = Pick<Document, 'body' | 'documentElement'>;
+
+export const applyNativeDetachedDocumentAppearance = (
+  themeMode: 'light' | 'dark',
+  uiVersion: 'legacy' | 'v2',
+  fontSize: number,
+  uiScale: number,
+  documentRef: NativeDetachedDocument | null = typeof document === 'undefined' ? null : document,
+): void => {
+  if (!documentRef?.body) return;
+  const resolvedTheme = themeMode === 'dark' ? 'dark' : 'light';
+  const effectiveUiScale = Math.min(
+    NATIVE_DETACHED_MAX_UI_SCALE,
+    Math.max(NATIVE_DETACHED_MIN_UI_SCALE, Number(uiScale) || NATIVE_DETACHED_DEFAULT_UI_SCALE),
+  );
+  const effectiveFontSize = Math.min(
+    NATIVE_DETACHED_MAX_FONT_SIZE,
+    Math.max(NATIVE_DETACHED_MIN_FONT_SIZE, Math.round(Number(fontSize) || NATIVE_DETACHED_DEFAULT_FONT_SIZE)),
+  );
+  const rootStyle = documentRef.documentElement?.style;
+  documentRef.body.setAttribute('data-theme', resolvedTheme);
+  documentRef.body.setAttribute('data-ui-version', uiVersion);
+  documentRef.body.setAttribute('data-gonavi-detached', 'true');
+  documentRef.body.style.backgroundColor = 'transparent';
+  documentRef.body.style.color = resolvedTheme === 'dark' ? '#ffffff' : '#000000';
+  documentRef.body.style.fontSize = `${effectiveFontSize}px`;
+  if (!rootStyle) return;
+  rootStyle.colorScheme = resolvedTheme;
+  rootStyle.setProperty('--gonavi-font-size', `${effectiveFontSize}px`);
+  rootStyle.setProperty('--gn-ui-scale', `${effectiveUiScale}`);
+  rootStyle.setProperty('--gn-font-size', `${effectiveFontSize}px`);
+  rootStyle.setProperty('--gn-font-size-sm', `${Math.max(10, Math.round(effectiveFontSize * 0.86))}px`);
+  rootStyle.setProperty('--gn-font-size-xs', `${Math.max(9, Math.round(effectiveFontSize * 0.76))}px`);
+};
 
 export const waitForNativeDetachedContentPaint = (): Promise<void> => {
   if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -191,6 +237,74 @@ const NativeDetachedQueryResult: React.FC<{
   onDataChange: (rows: Array<Record<string, unknown>>) => void;
 }> = ({ windowState, onDataChange }) => {
   const result = windowState.result;
+  const i18n = useOptionalI18n();
+  const t = i18n?.t ?? defaultTranslate;
+  const themeMode = useStore((state) => state.theme);
+  const [elasticsearchViewMode, setElasticsearchViewMode] = useState<'table' | 'raw'>('table');
+  const isDark = themeMode === 'dark';
+  if (result.resultType === 'elasticsearch') {
+    const hasTable = Array.isArray(result.rows) && result.rows.length > 0 && (result.columns || []).length > 0;
+    const viewMode = hasTable ? elasticsearchViewMode : 'raw';
+    const status = Number(result.httpStatus || 0);
+    const statusColor = status >= 200 && status < 300
+      ? (result.partialFailure ? 'orange' : 'green')
+      : 'red';
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', flex: '0 0 auto',
+          borderBottom: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
+        }}>
+          <span style={{ fontFamily: 'var(--gn-font-mono)', fontWeight: 600 }}>
+            {result.requestLabel || result.sql}
+          </span>
+          {status > 0 ? <Tag color={statusColor}>HTTP {status}</Tag> : null}
+          {result.partialFailure ? <Tag color="orange">{t('query_editor.elasticsearch.partial')}</Tag> : null}
+          {result.outcomeUnknown ? <Tag color="red">{t('query_editor.elasticsearch.outcome_unknown')}</Tag> : null}
+          <span style={{ flex: 1 }} />
+          {hasTable ? (
+            <Segmented
+              size="small"
+              value={viewMode}
+              options={[
+                { label: t('query_editor.elasticsearch.table'), value: 'table' },
+                { label: t('query_editor.elasticsearch.raw'), value: 'raw' },
+              ]}
+              onChange={(value) => setElasticsearchViewMode(value as 'table' | 'raw')}
+            />
+          ) : null}
+        </div>
+        {viewMode === 'raw' ? (
+          <textarea
+            aria-label={t('query_editor.elasticsearch.raw_response')}
+            readOnly
+            spellCheck={false}
+            value={String(result.rawResponse || '')}
+            style={{
+              flex: 1, minHeight: 0, margin: 12, padding: 12, resize: 'none', overflow: 'auto',
+              borderRadius: 6, fontFamily: 'var(--gn-font-mono)', whiteSpace: 'pre',
+              color: isDark ? '#d4d4d4' : '#333',
+              background: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.018)',
+              border: isDark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(0,0,0,0.10)',
+            }}
+          />
+        ) : (
+          <DataGrid
+            data={result.rows || []}
+            columnNames={result.columns || []}
+            loading={false}
+            pkColumns={[]}
+            readOnly
+            connectionId={windowState.connectionId}
+            dbName={result.metadataDbName || windowState.dbName || ''}
+            resultSql={result.sql}
+            exportScope="queryResult"
+            isActive
+          />
+        )}
+      </div>
+    );
+  }
   const isMessage = result.resultType === 'message' || isAffectedRowsResult(result.columns || []);
   const messageText = (result.messages || []).join('\n')
     || (isAffectedRowsResult(result.columns || [])
@@ -231,6 +345,7 @@ const NativeDetachedQueryResult: React.FC<{
 
 const NativeDetachedWindowContent: React.FC<{
   bootstrap: NativeDetachedWindowBootstrap;
+  themeModeOverride?: 'light' | 'dark';
   onContentReady: () => void;
   onAttach: () => void;
   onClose: () => void;
@@ -240,6 +355,7 @@ const NativeDetachedWindowContent: React.FC<{
   interactionDisabled?: boolean;
 }> = ({
   bootstrap,
+  themeModeOverride,
   onContentReady,
   onAttach,
   onClose,
@@ -252,7 +368,8 @@ const NativeDetachedWindowContent: React.FC<{
     ? state.tabs.find((item) => item.id === bootstrap.payload.tab?.id)
     : undefined);
   const tab = tabFromStore || bootstrap.payload.tab;
-  const themeMode = useStore((state) => state.theme);
+  const storeThemeMode = useStore((state) => state.theme);
+  const themeMode = themeModeOverride ?? storeThemeMode;
   const uiVersion = useStore((state) => state.appearance.uiVersion);
 
   if (bootstrap.kind === 'workbench') {
@@ -274,15 +391,19 @@ const NativeDetachedWindowContent: React.FC<{
       : null;
   }
   const isDark = themeMode === 'dark';
+  const aiPanelBackground = isDark
+    ? 'var(--gn-bg-panel, #161a21)'
+    : 'var(--gn-bg-panel, #ffffff)';
   return (
     <div className="gn-native-detached-ai-chat">
       <AIChatPanel
         width={typeof window === 'undefined' ? 440 : window.innerWidth}
         darkMode={isDark}
-        bgColor={isDark ? '#161a21' : '#ffffff'}
+        bgColor={aiPanelBackground}
         overlayTheme={buildOverlayWorkbenchTheme(isDark, {
           disableBackdropFilter: true,
           uiVersion,
+          useThemeVariables: true,
         })}
         presentation="detached"
         onClose={onClose}
@@ -313,6 +434,11 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   const [contentMounted, setContentMounted] = useState(true);
   const [contentReady, setContentReady] = useState(false);
   const [controllerEnabled, setControllerEnabled] = useState(false);
+  // A detached WebView has an independent custom-theme store. The host sends
+  // the resolved definition so it cannot fall back to a different local copy.
+  const [customThemeOverride, setCustomThemeOverride] = useState<
+    CustomThemeDefinition | null | undefined
+  >(undefined);
   const markContentReady = useCallback(() => setContentReady(true), []);
   const [terminalAction, setTerminalAction] = useState<'attach' | 'hide' | 'close' | null>(null);
   const [terminalCloseRecoveryAvailable, setTerminalCloseRecoveryAvailable] = useState(false);
@@ -359,6 +485,16 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   const fontSize = useStore((state) => state.fontSize);
   const uiScale = useStore((state) => state.uiScale);
   const shortcutOptions = useStore((state) => state.shortcutOptions);
+  const [computedCustomThemeAntTokens, setComputedCustomThemeAntTokens] = useState<CustomThemeAntTokenSnapshot | null>(null);
+  const effectiveThemeMode = customThemeOverride?.baseMode === 'dark'
+    ? 'dark'
+    : customThemeOverride?.baseMode === 'light'
+      ? 'light'
+      : themeMode;
+
+  useLayoutEffect(() => {
+    applyNativeDetachedDocumentAppearance(effectiveThemeMode, uiVersion, fontSize, uiScale);
+  }, [effectiveThemeMode, fontSize, uiScale, uiVersion]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -392,6 +528,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
         setContentReady(false);
         setControllerEnabled(false);
         hydrateNativeDetachedStore(useStore, nextBootstrap.payload.storeState);
+        setCustomThemeOverride(readNativeDetachedThemeContext(nextBootstrap.payload.storeState));
         queryResultWindowRef.current = nextBootstrap.payload.resultWindow ?? null;
         previousHostAIContextsRef.current = useStore.getState().aiContexts;
         workbenchStateSourceRef.current = buildNativeDetachedWorkbenchMutableStoreSnapshot(
@@ -430,6 +567,16 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
     return EventsOn(
       NATIVE_DETACHED_WINDOW_COMMAND_EVENT,
       (command: NativeDetachedHostStateCommand) => {
+        const themeContext = readNativeDetachedThemeContext(command?.payload?.storeState);
+        if (themeContext !== undefined) {
+          setCustomThemeOverride((current) => {
+            const currentKey = current ? `${current.id}:${current.updatedAt}:${current.css}` : current;
+            const nextKey = themeContext
+              ? `${themeContext.id}:${themeContext.updatedAt}:${themeContext.css}`
+              : themeContext;
+            return currentKey === nextKey ? current : themeContext;
+          });
+        }
         const isCurrentAIWindow = bootstrap.kind === 'ai-chat'
           && String(command?.id || '') === bootstrap.id;
         const visibilityRevision = Math.trunc(Number(command?.payload?.visibilityRevision));
@@ -567,12 +714,12 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    document.body.setAttribute('data-theme', themeMode === 'dark' ? 'dark' : 'light');
+    document.body.setAttribute('data-theme', effectiveThemeMode === 'dark' ? 'dark' : 'light');
     document.body.setAttribute('data-ui-version', uiVersion);
-    document.body.style.color = themeMode === 'dark' ? '#ffffff' : '#111827';
+    document.body.style.color = effectiveThemeMode === 'dark' ? '#ffffff' : '#111827';
     document.body.style.fontSize = `${Math.max(10, Number(fontSize) || 14)}px`;
-    document.documentElement.style.colorScheme = themeMode === 'dark' ? 'dark' : 'light';
-  }, [fontSize, themeMode, uiVersion]);
+    document.documentElement.style.colorScheme = effectiveThemeMode === 'dark' ? 'dark' : 'light';
+  }, [effectiveThemeMode, fontSize, uiVersion]);
 
   const readCurrentTab = useCallback((): TabData | undefined => {
     const bootstrapTab = bootstrap?.payload.tab;
@@ -1172,23 +1319,76 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
         : translate('query_editor.results_panel.detached.close'),
   }), [bootstrap?.kind, translate]);
 
-  const isDark = themeMode === 'dark';
+  const isDark = effectiveThemeMode === 'dark';
+  const customThemeStyleContextKey = `${effectiveThemeMode}:${uiVersion}`;
+  const customThemeAntTokens = computedCustomThemeAntTokens?.contextKey === customThemeStyleContextKey
+    ? computedCustomThemeAntTokens.tokens
+    : {};
+  const v2PrimaryColor = customThemeAntTokens.primary ?? (isDark ? '#22c55e' : '#16a34a');
+  const v2PrimaryContrastColor = customThemeAntTokens.primaryContrast ?? '#ffffff';
+  const v2PrimaryHoverColor = customThemeAntTokens.primaryHover ?? (isDark ? '#4ade80' : '#15803d');
+  const v2PrimaryActiveColor = customThemeAntTokens.primaryActive ?? (isDark ? '#16a34a' : '#166534');
+  const v2PrimaryBgColor = customThemeAntTokens.primaryBg ?? (isDark ? 'rgba(34, 197, 94, 0.20)' : '#dcfce7');
+  const v2PrimaryBgHoverColor = customThemeAntTokens.primaryBgHover ?? (isDark ? 'rgba(34, 197, 94, 0.28)' : '#bbf7d0');
+  const v2PrimaryBorderColor = customThemeAntTokens.primaryBorder ?? (isDark ? 'rgba(34, 197, 94, 0.42)' : '#86efac');
+  const v2PrimaryBorderHoverColor = customThemeAntTokens.primaryBorderHover ?? (isDark ? 'rgba(74, 222, 128, 0.58)' : '#4ade80');
+  const v2ControlActiveBg = customThemeAntTokens.controlActiveBg ?? (isDark ? 'rgba(34, 197, 94, 0.16)' : 'rgba(34, 197, 94, 0.10)');
+  const v2ControlActiveHoverBg = customThemeAntTokens.controlActiveHoverBg ?? (isDark ? 'rgba(34, 197, 94, 0.24)' : 'rgba(34, 197, 94, 0.16)');
+  const v2ControlOutline = customThemeAntTokens.controlOutline ?? (isDark ? 'rgba(34, 197, 94, 0.42)' : 'rgba(22, 163, 74, 0.22)');
   const componentSize = uiScale <= 0.92 ? 'small' : (uiScale >= 1.12 ? 'large' : 'middle');
   return (
-    <ConfigProvider
-      locale={getAntdLocale(i18n?.language ?? 'en-US')}
-      componentSize={componentSize}
-      theme={{
-        algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-        token: {
-          fontSize: Math.max(10, Number(fontSize) || 14),
-          zIndexPopupBase: APP_OVERLAY_Z_INDEX_BASE,
-          colorPrimary: uiVersion === 'v2'
-            ? (isDark ? '#22c55e' : '#16a34a')
-            : (isDark ? '#f6c453' : '#1677ff'),
-        },
-      }}
-    >
+    <>
+      <CustomThemeStyleHost
+        contextKey={customThemeStyleContextKey}
+        onAntTokensChange={setComputedCustomThemeAntTokens}
+        themeOverride={customThemeOverride}
+      />
+      <ConfigProvider
+        locale={getAntdLocale(i18n?.language ?? 'en-US')}
+        componentSize={componentSize}
+        theme={{
+          algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+          token: {
+            fontSize: Math.max(10, Number(fontSize) || 14),
+            zIndexPopupBase: APP_OVERLAY_Z_INDEX_BASE,
+            ...(uiVersion === 'v2' && customThemeAntTokens.bgContainer ? {
+              colorBgContainer: customThemeAntTokens.bgContainer,
+            } : {}),
+            ...(uiVersion === 'v2' && customThemeAntTokens.bgElevated ? {
+              colorBgElevated: customThemeAntTokens.bgElevated,
+            } : {}),
+            ...(uiVersion === 'v2' && customThemeAntTokens.fillAlter ? {
+              colorFillAlter: customThemeAntTokens.fillAlter,
+            } : {}),
+            ...(uiVersion === 'v2' && customThemeAntTokens.textPrimary ? {
+              colorText: customThemeAntTokens.textPrimary,
+            } : {}),
+            ...(uiVersion === 'v2' && customThemeAntTokens.textSecondary ? {
+              colorTextSecondary: customThemeAntTokens.textSecondary,
+            } : {}),
+            ...(uiVersion === 'v2' && customThemeAntTokens.border ? {
+              colorBorder: customThemeAntTokens.border,
+              colorBorderSecondary: customThemeAntTokens.border,
+            } : {}),
+            colorPrimary: uiVersion === 'v2'
+              ? v2PrimaryColor
+              : (isDark ? '#f6c453' : '#1677ff'),
+            colorTextLightSolid: uiVersion === 'v2' ? v2PrimaryContrastColor : '#ffffff',
+            colorPrimaryHover: uiVersion === 'v2' ? v2PrimaryHoverColor : (isDark ? '#ffd666' : '#4096ff'),
+            colorPrimaryActive: uiVersion === 'v2' ? v2PrimaryActiveColor : (isDark ? '#d8a93b' : '#0958d9'),
+            colorInfo: uiVersion === 'v2'
+              ? (customThemeAntTokens.info ?? v2PrimaryColor)
+              : (isDark ? '#f6c453' : '#1677ff'),
+            colorPrimaryBg: uiVersion === 'v2' ? v2PrimaryBgColor : (isDark ? 'rgba(246, 196, 83, 0.22)' : '#e6f4ff'),
+            colorPrimaryBgHover: uiVersion === 'v2' ? v2PrimaryBgHoverColor : (isDark ? 'rgba(246, 196, 83, 0.30)' : '#bae0ff'),
+            colorPrimaryBorder: uiVersion === 'v2' ? v2PrimaryBorderColor : (isDark ? 'rgba(246, 196, 83, 0.45)' : '#91caff'),
+            colorPrimaryBorderHover: uiVersion === 'v2' ? v2PrimaryBorderHoverColor : (isDark ? 'rgba(246, 196, 83, 0.60)' : '#69b1ff'),
+            controlItemBgActive: uiVersion === 'v2' ? v2ControlActiveBg : (isDark ? 'rgba(246, 196, 83, 0.20)' : 'rgba(22, 119, 255, 0.12)'),
+            controlItemBgActiveHover: uiVersion === 'v2' ? v2ControlActiveHoverBg : (isDark ? 'rgba(246, 196, 83, 0.28)' : 'rgba(22, 119, 255, 0.18)'),
+            controlOutline: uiVersion === 'v2' ? v2ControlOutline : (isDark ? 'rgba(246, 196, 83, 0.50)' : 'rgba(5, 145, 255, 0.24)'),
+          },
+        }}
+      >
       {bootstrap && controllerEnabled ? (
         <React.Suspense fallback={null}>
           <NativeDetachedWindowController currentWindowId={bootstrap.id} />
@@ -1368,6 +1568,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
             >
               <NativeDetachedWindowContent
                 bootstrap={bootstrap}
+                themeModeOverride={effectiveThemeMode}
                 onContentReady={markContentReady}
                 onAttach={() => requestTerminalAction('attach')}
                 onClose={requestWindowClose}
@@ -1382,7 +1583,8 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
           ) : null}
         </div>
       </div>
-    </ConfigProvider>
+      </ConfigProvider>
+    </>
   );
 };
 

@@ -49,6 +49,47 @@ func TestDBGetTablesIncludesSQLiteRowCounts(t *testing.T) {
 	t.Fatalf("orders table missing from SQLite table list: %#v", tables)
 }
 
+func TestDBTableExistsUsesExactSQLiteTableName(t *testing.T) {
+	app := newSQLAuditTestApp(t)
+	databasePath := filepath.Join(t.TempDir(), "table-exists.sqlite")
+	config := connection.ConnectionConfig{
+		Type:     "custom",
+		Driver:   "sqlite",
+		DSN:      databasePath,
+		Database: databasePath,
+	}
+	t.Cleanup(func() { app.DBReleaseConnection(config) })
+
+	result := app.DBQueryMulti(config, databasePath, `CREATE TABLE "CaseSensitive" (id INTEGER PRIMARY KEY)`, "sqlite-table-exists")
+	if !result.Success {
+		t.Fatalf("create table returned failure: %s", result.Message)
+	}
+
+	for _, test := range []struct {
+		name      string
+		tableName string
+		want      bool
+	}{
+		{name: "existing exact name", tableName: "CaseSensitive", want: true},
+		{name: "different case", tableName: "casesensitive", want: false},
+		{name: "missing table", tableName: "missing", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := app.DBTableExists(config, databasePath, test.tableName)
+			if !result.Success {
+				t.Fatalf("DBTableExists returned failure: %s", result.Message)
+			}
+			data, ok := result.Data.(map[string]bool)
+			if !ok {
+				t.Fatalf("DBTableExists data type = %T, want map[string]bool", result.Data)
+			}
+			if data["exists"] != test.want {
+				t.Fatalf("DBTableExists(%q) = %v, want %v", test.tableName, data["exists"], test.want)
+			}
+		})
+	}
+}
+
 func TestDBQueryMultiReturnsSQLiteRows(t *testing.T) {
 	app := newSQLAuditTestApp(t)
 	databasePath := filepath.Join(t.TempDir(), "query-results.sqlite")

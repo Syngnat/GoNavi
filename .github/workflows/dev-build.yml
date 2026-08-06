@@ -1103,6 +1103,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          # dev 更新日志需要 prev..HEAD 提交范围
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -1231,26 +1234,6 @@ jobs:
           DEV_VERSION="dev-${SHORT_SHA}"
           echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
 
-      # 静态更新清单：dev 通道读
-      # https://github.com/Syngnat/GoNavi/releases/download/dev-latest/latest-dev.json
-      - name: Generate static update manifest (latest-dev.json)
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEV_VERSION="${{ steps.version.outputs.version }}"
-          python3 tools/generate-update-latest-manifest.py \
-            --assets-dir release-assets \
-            --version "$DEV_VERSION" \
-            --tag dev-latest \
-            --channel dev \
-            --name "Dev Build (${DEV_VERSION})" \
-            --download-base-url "https://download.syngnat.top/gonavi/dev/releases/download" \
-            --download-tag "$DEV_VERSION" \
-            --output release-assets/latest-dev.json
-          test -s release-assets/latest-dev.json
-          echo "📄 latest-dev.json ready:"
-          head -n 40 release-assets/latest-dev.json
-
       - name: Format Build Time
         id: build_time
         shell: bash
@@ -1264,6 +1247,115 @@ jobs:
           formatted = dt.astimezone(china_tz).strftime("%Y-%m-%d %H:%M:%S")
           print(f"display={formatted}")
           PY
+
+      # 解析上一版 dev 基线（线上 latest-dev.json 的 version → 短 SHA），用于生成相对变更日志。
+      - name: Resolve previous dev baseline
+        id: prev_dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREV_SHA=""
+          for url in \
+            "https://download.syngnat.top/gonavi/dev/releases/latest/latest-dev.json" \
+            "https://github.com/${{ github.repository }}/releases/download/dev-latest/latest-dev.json"
+          do
+            if curl -fsSL --max-time 20 "$url" -o "$RUNNER_TEMP/prev-latest-dev.json"; then
+              PREV_VERSION="$(jq -r '.version // empty' "$RUNNER_TEMP/prev-latest-dev.json" 2>/dev/null || true)"
+              if [[ "$PREV_VERSION" =~ ^dev-([0-9a-fA-F]{7,40})$ ]]; then
+                CANDIDATE="${BASH_REMATCH[1]}"
+                if git rev-parse --verify "${CANDIDATE}^{commit}" >/dev/null 2>&1; then
+                  PREV_SHA="$(git rev-parse "${CANDIDATE}^{commit}")"
+                  echo "resolved previous dev baseline: version=${PREV_VERSION} sha=${PREV_SHA:0:12} (from ${url})"
+                  break
+                fi
+              fi
+            fi
+          done
+          echo "sha=${PREV_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Dev Changelog
+        id: changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_VERSION="${{ steps.version.outputs.version }}"
+          BUILD_TIME="${{ steps.build_time.outputs.display }}"
+          PREV_SHA="${{ steps.prev_dev.outputs.sha }}"
+          CHANGELOG_FILE="$RUNNER_TEMP/dev-changelog.md"
+          BODY_FILE="$RUNNER_TEMP/dev-release-body.md"
+          NOTES_CORE="$RUNNER_TEMP/dev-changelog-core.md"
+
+          HEADER_FILE="$RUNNER_TEMP/dev-changelog-header.md"
+          cat > "$HEADER_FILE" <<EOF
+          ## 🧪 测试版本 (Dev Build)
+
+          **版本**: \`${DEV_VERSION}\`
+          **分支**: \`dev\`
+          **提交**: [\`${{ github.sha }}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          **构建时间**: ${BUILD_TIME}
+
+          > ⚠️ 这是开发测试版本，仅供内部测试使用，不建议用于生产环境。
+          > 每次 push 到 \`dev\` 分支会自动覆盖此 release。
+
+          EOF
+
+          if [[ -n "$PREV_SHA" ]]; then
+            python3 tools/generate-release-notes.py \
+              --repo "${{ github.repository }}" \
+              --tag "${{ github.sha }}" \
+              --previous-tag "$PREV_SHA" \
+              --max-commits 100 \
+              --repository-url "${{ github.server_url }}/${{ github.repository }}" \
+              --output "$NOTES_CORE" || {
+                echo "warning: generate-release-notes failed; falling back to empty commit list" >&2
+                echo "（未能生成提交变更列表）" > "$NOTES_CORE"
+              }
+          else
+            cat > "$NOTES_CORE" <<EOF
+          ## 📝 变更说明
+
+          - 未能解析上一测试版基线，本次仅发布当前构建。
+          - 当前提交：\`${{ github.sha }}\`
+          EOF
+          fi
+
+          {
+            cat "$HEADER_FILE"
+            echo "## 更新日志（相对上一测试版）"
+            echo
+            cat "$NOTES_CORE"
+          } > "$BODY_FILE"
+
+          # 应用内弹窗使用完整 body（含 dev 警告头）
+          cp "$BODY_FILE" "$CHANGELOG_FILE"
+          echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
+          echo "body_file=$BODY_FILE" >> "$GITHUB_OUTPUT"
+          echo "📄 dev changelog ready ($(wc -c < "$BODY_FILE") bytes)"
+
+      # 静态更新清单：dev 通道读
+      # https://github.com/Syngnat/GoNavi/releases/download/dev-latest/latest-dev.json
+      - name: Generate static update manifest (latest-dev.json)
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEV_VERSION="${{ steps.version.outputs.version }}"
+          CHANGELOG_FILE="${{ steps.changelog.outputs.changelog_file }}"
+          python3 tools/generate-update-latest-manifest.py \
+            --assets-dir release-assets \
+            --version "$DEV_VERSION" \
+            --tag dev-latest \
+            --channel dev \
+            --name "Dev Build (${DEV_VERSION})" \
+            --download-base-url "https://download.syngnat.top/gonavi/dev/releases/download" \
+            --download-tag "$DEV_VERSION" \
+            --release-notes-file "$CHANGELOG_FILE" \
+            --output release-assets/latest-dev.json
+          test -s release-assets/latest-dev.json
+          jq -e '(.releaseNotes | type == "string" and length > 0)' release-assets/latest-dev.json >/dev/null
+          echo "📄 latest-dev.json ready:"
+          head -n 40 release-assets/latest-dev.json
 
       # 删除旧的 dev pre-release（保持只有最新一个）
       - name: Reset Previous Dev Release
@@ -1393,16 +1485,7 @@ jobs:
           files: release-assets/*
           prerelease: true
           draft: false
-          body: |
-            ## 🧪 测试版本 (Dev Build)
-
-            **版本**: `${{ steps.version.outputs.version }}`
-            **分支**: `dev`
-            **提交**: [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
-            **构建时间**: ${{ steps.build_time.outputs.display }}
-
-            > ⚠️ 这是开发测试版本，仅供内部测试使用，不建议用于生产环境。
-            > 每次 push 到 `dev` 分支会自动覆盖此 release。
+          body_path: ${{ steps.changelog.outputs.body_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

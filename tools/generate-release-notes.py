@@ -154,15 +154,18 @@ def warn_if_release_history_diverged(previous_tag: str, tag: str) -> None:
         )
 
 
-def read_commits(tag: str, previous_tag: str) -> list[Commit]:
+def read_commits(tag: str, previous_tag: str, max_commits: int = 0) -> list[Commit]:
     revision_range = f"{previous_tag}..{tag}" if previous_tag else tag
-    output = run_git(
+    git_args = [
         "log",
         revision_range,
         "--no-merges",
         "-z",
         "--pretty=format:%H%x00%s%x00%an%x00%ae",
-    )
+    ]
+    if max_commits > 0:
+        git_args.insert(2, f"-n{max_commits}")
+    output = run_git(*git_args)
     if not output:
         return []
     fields = output.split("\x00")
@@ -416,7 +419,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--previous-tag",
         default="",
-        help="Previous tag (default: preceding v* tag by creation date)",
+        help="Previous git ref/tag/commit (default: preceding v* tag by creation date)",
+    )
+    parser.add_argument(
+        "--max-commits",
+        type=int,
+        default=0,
+        help="Optional max commit count in the range (0 = unlimited; useful for dense dev builds)",
     )
     parser.add_argument("--repository-url", required=True, help="Repository web URL")
     parser.add_argument(
@@ -428,6 +437,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[^/\s]+/[^/\s]+", args.repo):
         parser.error("--repo must use owner/name format")
+    if args.max_commits < 0:
+        parser.error("--max-commits must be >= 0")
     return args
 
 
@@ -436,7 +447,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     previous_tag = args.previous_tag.strip() or resolve_previous_tag(args.tag)
     warn_if_release_history_diverged(previous_tag, args.tag)
     revision_range = f"{previous_tag}..{args.tag}" if previous_tag else args.tag
-    commits = read_commits(args.tag, previous_tag)
+    commits = read_commits(args.tag, previous_tag, max_commits=args.max_commits)
     attributions = collect_attributions(
         commits=commits,
         repository=args.repo,

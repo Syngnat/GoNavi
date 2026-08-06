@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readV2ThemeCss } from '../test/readV2ThemeCss';
 
 import Sidebar, {
+  applySidebarDatabasePinning,
   buildAllSavedQueriesTreeNode,
   buildSidebarConnectionTagTree,
   buildSidebarTableChildrenForUi,
+  buildV2SidebarDatabaseSectionedChildren,
   buildV2SidebarTableSectionedChildren,
   buildSQLFileExecutionFooter,
   buildV2RailConnectionGroups,
@@ -16,6 +18,7 @@ import Sidebar, {
   filterV2ExplorerTreeByKind,
   getV2RailConnectionGroupBadgeText,
   hasSidebarLazyChildren,
+  isSidebarDatabasePinned,
   isConnectionTagDescendant,
   normalizeSidebarTreeRelativeDropPosition,
   parseV2CommandSearchQuery,
@@ -53,6 +56,7 @@ import {
   V2_EXPLORER_FILTER_OPTIONS as V2_UTILS_EXPLORER_FILTER_OPTIONS,
 } from './sidebarV2Utils';
 import {
+  buildSidebarDatabasePinKey,
   buildSidebarRootConnectionToken,
   buildSidebarRootTagToken,
   buildSidebarTablePinKey,
@@ -132,6 +136,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../store', () => ({
+  buildSidebarDatabasePinKey: (
+    connectionId: string,
+    dbName: string,
+  ) => JSON.stringify([connectionId.trim(), dbName.trim()]),
   buildSidebarRootConnectionToken: (connectionId: string) => `connection:${connectionId.trim()}`,
   buildSidebarRootTagToken: (tagId: string) => `tag:${tagId.trim()}`,
   resolveConnectionTagChildOrder: (
@@ -193,6 +201,18 @@ vi.mock('../store', () => ({
     schemaName.trim(),
     tableName.trim(),
   ]),
+  updateSidebarDatabasePinKeys: (
+    pinnedKeys: string[],
+    connectionId: string,
+    dbName: string,
+    pinned: boolean,
+  ) => {
+    const key = JSON.stringify([connectionId.trim(), dbName.trim()]);
+    const next = new Set(pinnedKeys);
+    if (pinned) next.add(key);
+    else next.delete(key);
+    return Array.from(next);
+  },
   useStore: (selector: (state: any) => any) => selector({
     connections: mocks.state.connections,
     savedQueries: [],
@@ -231,9 +251,11 @@ vi.mock('../store', () => ({
     tableAccessCount: {},
     tableSortPreference: {},
     pinnedSidebarTables: [],
+    pinnedSidebarDatabases: [],
     recordTableAccess: mocks.noop,
     setTableSortPreference: mocks.noop,
     setSidebarTablePinned: mocks.noop,
+    setSidebarDatabasePinned: mocks.noop,
     queryOptions: { showSidebarTableComment: false },
     setQueryOptions: mocks.noop,
     addSqlLog: mocks.noop,
@@ -839,9 +861,10 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('data-sidebar-legacy-toolbar-item="true"');
   });
 
-  it('renders the fixed v2 rail, explorer filters and workbench actions', () => {
+  it('renders the fixed v2 rail, titlebar quick actions, explorer filters and workbench actions', () => {
     const markup = renderSidebarMarkup({ uiVersion: 'v2', onCreateConnection: mocks.noop });
     const source = readSidebarSource();
+    const titlebarQuickActionsSource = readSourceFile('./TitleBarQuickActions.tsx');
 
     expect(markup).toContain('gn-v2-sidebar-redesign');
     expect(markup).toContain('gn-v2-connection-rail');
@@ -865,21 +888,33 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('视图');
     expect(markup).toContain('函数');
     expect(markup).toContain('aria-pressed="true"');
-    expect(markup).toContain('gn-v2-rail-workbench-actions');
-    expect(markup).toContain('data-sidebar-sql-analysis-action="true"');
-    expect(markup).toContain('data-sidebar-sql-audit-action="true"');
+    expect(markup).not.toContain('gn-v2-rail-workbench-actions');
+    expect(markup).not.toContain('data-sidebar-sql-analysis-action="true"');
+    expect(markup).not.toContain('data-sidebar-sql-audit-action="true"');
     expect(markup).not.toContain('gn-v2-sidebar-log-footer');
     expect(markup).not.toContain('gn-v2-sidebar-slow-query-button');
     expect(markup).not.toContain('gn-v2-sidebar-log-button');
     expect(markup).not.toContain('SQL 执行日志');
     expect(markup).not.toContain('2,341');
     expect(markup).toContain('gn-v2-rail-items');
-    expect(markup).toContain('data-sidebar-create-group-action="true"');
-    expect(markup).toContain('data-sidebar-batch-table-action="true"');
-    expect(markup).toContain('data-sidebar-batch-database-action="true"');
-    expect(markup).toContain('data-sidebar-data-import-action="true"');
-    expect(markup).toContain('data-sidebar-open-external-sql-file-action="true"');
+    expect(markup).not.toContain('data-sidebar-create-group-action="true"');
+    expect(markup).not.toContain('data-sidebar-batch-table-action="true"');
+    expect(markup).not.toContain('data-sidebar-batch-database-action="true"');
+    expect(markup).not.toContain('data-sidebar-data-import-action="true"');
+    expect(markup).not.toContain('data-sidebar-open-external-sql-file-action="true"');
     expect(markup).toContain('data-sidebar-locate-current-tab-action="true"');
+    expect(titlebarQuickActionsSource).toContain('data-titlebar-quick-actions');
+    expect(source).toContain("key: 'batch-actions'");
+    expect(source).toContain("sidebar.action.batch_operations");
+    expect(source).toContain("key: 'sql-tools'");
+    expect(source).toContain("sidebar.action.sql_tools");
+    expect(source).toContain("key: 'data-workflow'");
+    expect(source).toContain("app.tools.group.workflow.title");
+    expect(source).toContain("onOpenDataSyncWorkbench?.('schemaCompare')");
+    expect(source).toContain("onOpenDataSyncWorkbench?.('dataCompare')");
+    expect(source).toContain("onOpenDataSyncWorkbench?.('sync')");
+    expect(source).toContain('showObjectActions: false');
+    expect(source).not.toContain("key: 'locate-current-table'");
     expect(markup).not.toContain('data-gonavi-new-query-action="true"');
     expect(markup).not.toContain('data-gonavi-create-connection-action="true"');
     expect(markup).toContain('aria-label="AI 助手"');
@@ -1040,8 +1075,8 @@ describe('Sidebar locate toolbar', () => {
     expect(css).toContain('--gn-v2-rail-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));');
     expect(css).toMatch(/\.gn-v2-connection-rail \{[^}]*width: calc\(38px \* var\(--gn-v2-rail-scale\)\);[^}]*flex: 0 0 calc\(38px \* var\(--gn-v2-rail-scale\)\);/s);
     expect(css).toMatch(/body\[data-ui-version="v2"\] \.gn-v2-rail-item,\s*body\[data-ui-version="v2"\] \.gn-v2-rail-tool \{[^}]*width: calc\(36px \* var\(--gn-v2-rail-scale\)\);[^}]*height: calc\(38px \* var\(--gn-v2-rail-scale\)\);[^}]*font-size: calc\(var\(--gn-font-size-sm, 12px\) \* var\(--gn-sidebar-rail-scale, 1\)\);/s);
-    expect(css).toMatch(/\.gn-v2-rail-tool \{[^}]*height: calc\(32px \* var\(--gn-v2-rail-scale\)\);/s);
-    expect(css).toMatch(/\.gn-v2-rail-tool \{[^}]*width: calc\(24px \* var\(--gn-v2-rail-scale\)\);/s);
+    expect(css).toMatch(/\.gn-v2-rail-tool \{[^}]*height: calc\(28px \* var\(--gn-v2-rail-scale\)\);/s);
+    expect(css).toMatch(/\.gn-v2-rail-tool \{[^}]*width: calc\(28px \* var\(--gn-v2-rail-scale\)\);/s);
     expect(css).toMatch(/\.gn-v2-active-connection-trigger \{[^}]*height: 34px;[^}]*border: 0;[^}]*background: transparent;/s);
     expect(css).toMatch(/\.gn-v2-active-connection-tooltip \{[^}]*display: flex;[^}]*flex-direction: column;[^}]*gap: 2px;[^}]*max-width: min\(320px, calc\(100vw - 24px\)\);[^}]*overflow-wrap: anywhere;/s);
     expect(css).toMatch(/\.gn-v2-object-explorer \{[^}]*container-type: inline-size;[^}]*container-name: gn-v2-object-explorer;/s);
@@ -1138,6 +1173,37 @@ describe('Sidebar locate toolbar', () => {
     expect(css).toMatch(/\.gn-v2-tree-title\.is-mono \.gn-v2-tree-label \{[^}]*flex: 0 0 auto;[^}]*overflow: visible;[^}]*text-overflow: clip;/s);
     expect(css).toMatch(/\.gn-v2-tree-folder-icon \{[^}]*width: 22px;[^}]*height: 22px;[^}]*flex: 0 0 22px;/s);
     expect(css).not.toContain('.gn-v2-tree-connection-meta');
+  });
+
+  it('shows the v2 tree vertical scrollbar only during user scrolling', () => {
+    const css = readV2ThemeCss();
+    const source = readSourceFile('./Sidebar.tsx');
+
+    expect(source).toContain("isTreeScrolling ? ' is-vertical-scrolling' : ''");
+    expect(source).toContain('onWheelCapture={handleTreeWheel}');
+    expect(source).toContain('onTouchMoveCapture={markTreeScrollActivity}');
+    expect(source).toContain('setIsTreeScrolling(false)');
+
+    const idleScrollbarCss = readCssRuleBlock(
+      css,
+      'body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical',
+    );
+    expect(idleScrollbarCss).toContain('visibility: hidden !important;');
+    expect(idleScrollbarCss).toContain('pointer-events: none;');
+
+    const activeScrollbarCss = readCssRuleBlock(
+      css,
+      'body[data-ui-version="v2"] .gn-v2-explorer-tree-shell.is-vertical-scrolling .ant-tree-list-scrollbar-vertical',
+    );
+    expect(activeScrollbarCss).toContain('visibility: visible !important;');
+    expect(activeScrollbarCss).toContain('pointer-events: auto;');
+
+    const movingScrollbarCss = readCssRuleBlock(
+      css,
+      'body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-scrollbar-vertical:has(.ant-tree-list-scrollbar-thumb-moving)',
+    );
+    expect(movingScrollbarCss).toContain('visibility: visible !important;');
+    expect(movingScrollbarCss).toContain('pointer-events: auto;');
   });
 
   it('estimates a v2 tree scroll width only when content is wider than the viewport', () => {
@@ -1260,7 +1326,7 @@ describe('Sidebar locate toolbar', () => {
     const markup = renderSidebarMarkup({ uiVersion: 'v2' });
 
     expect(markup).toMatch(new RegExp(`<strong aria-describedby="[^"]+">${t('sidebar.active_connection.no_host_selected')}</strong>`));
-    expect(markup).toMatch(new RegExp(`<span aria-describedby="[^"]+">${t('sidebar.active_connection.no_database_selected')}</span>`));
+    expect(markup).toMatch(new RegExp(`<span class="is-placeholder" aria-describedby="[^"]+">${t('sidebar.active_connection.no_database_selected')}</span>`));
     expect(markup).not.toContain(`title="${t('sidebar.active_connection.no_host_selected')}"`);
     expect(markup).not.toContain(`title="${t('sidebar.active_connection.no_database_selected')}"`);
     expect(markup).not.toContain('<strong>本地</strong>');
@@ -1552,6 +1618,7 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('刷新统计信息');
     expect(markup).toContain('导出表数据');
     expect(markup).toContain('打开导出工作台…');
+    expect(markup).toContain('批量处理表');
     expect(markup).not.toContain('Excel · .xlsx');
     expect(markup).not.toContain('CSV · .csv');
     expect(markup).not.toContain('JSON · .json');
@@ -1575,6 +1642,134 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('取消置顶');
     expect(markup).toContain('已置顶');
     expect(markup).not.toContain('置顶表');
+  });
+
+  it('renders the v2 database context menu pin and unpin states', () => {
+    const unpinnedMarkup = renderToStaticMarkup(
+      <V2DatabaseContextMenuView dbName="analytics" />,
+    );
+    const pinnedMarkup = renderToStaticMarkup(
+      <V2DatabaseContextMenuView dbName="analytics" isPinned />,
+    );
+
+    expect(unpinnedMarkup).toContain('置顶数据库');
+    expect(unpinnedMarkup).not.toContain('取消置顶数据库');
+    expect(pinnedMarkup).toContain('取消置顶数据库');
+    expect(pinnedMarkup).toContain('已置顶');
+  });
+
+  it('wires database pin actions to persistence and in-memory tree reordering', () => {
+    const actionSource = readSourceFile('./sidebar/useSidebarV2ActionHandlers.tsx');
+    const contextMenuSource = readSourceFile('./sidebar/useSidebarV2ContextMenu.tsx');
+    const loaderSource = readSourceFile('./sidebar/useSidebarTreeLoaders.tsx');
+
+    expect(actionSource).toContain("case 'pin-database':");
+    expect(actionSource).toContain("case 'unpin-database':");
+    expect(actionSource).toContain('setSidebarDatabasePinned(connectionId, dbName, shouldPin);');
+    expect(actionSource).toContain('applySidebarDatabasePinning(');
+    expect(actionSource).toContain('buildV2SidebarDatabaseSectionedChildren(');
+    expect(loaderSource).toContain('buildV2SidebarDatabaseSectionedChildren(');
+    expect(contextMenuSource).toContain('isSidebarDatabasePinned(');
+    expect(contextMenuSource).toContain('isPinned={isPinned}');
+  });
+
+  it('moves pinned databases first while preserving loaded database children', () => {
+    const pinnedSidebarDatabases = [
+      buildSidebarDatabasePinKey('conn-1', 'analytics'),
+    ];
+    const loadedChildren = [{ title: 'Tables', key: 'analytics-tables', type: 'object-group' as const }];
+    const nodes = [
+      { title: 'archive', key: 'conn-1-archive', type: 'database' as const, dataRef: { id: 'conn-1', dbName: 'archive' } },
+      { title: 'analytics', key: 'conn-1-analytics', type: 'database' as const, dataRef: { id: 'conn-1', dbName: 'analytics' }, children: loadedChildren },
+      { title: 'system', key: 'conn-1-system', type: 'database' as const, dataRef: { id: 'conn-1', dbName: 'system' } },
+    ];
+
+    expect(isSidebarDatabasePinned(pinnedSidebarDatabases, 'conn-1', 'analytics')).toBe(true);
+    const result = applySidebarDatabasePinning(nodes, {
+      connectionId: 'conn-1',
+      pinnedSidebarDatabases,
+    });
+
+    expect(result.map((node) => node.title)).toEqual(['analytics', 'archive', 'system']);
+    expect(result[0].dataRef?.pinnedSidebarDatabase).toBe(true);
+    expect(result[0].children).toBe(loadedChildren);
+    expect(result[1].dataRef?.pinnedSidebarDatabase).toBeUndefined();
+  });
+
+  it('restores a database to its original position after unpinning', () => {
+    const pinKey = buildSidebarDatabasePinKey('conn-1', 'analytics');
+    const loadedChildren = [{ title: 'Tables', key: 'analytics-tables', type: 'object-group' as const }];
+    const nodes = [
+      { title: 'archive', key: 'conn-1-archive', type: 'database' as const, dataRef: { id: 'conn-1', dbName: 'archive' } },
+      { title: 'analytics', key: 'conn-1-analytics', type: 'database' as const, dataRef: { id: 'conn-1', dbName: 'analytics' }, children: loadedChildren },
+      { title: 'system', key: 'conn-1-system', type: 'database' as const, dataRef: { id: 'conn-1', dbName: 'system' } },
+    ];
+
+    const pinned = applySidebarDatabasePinning(nodes, {
+      connectionId: 'conn-1',
+      pinnedSidebarDatabases: [pinKey],
+    });
+    const unpinned = applySidebarDatabasePinning(pinned, {
+      connectionId: 'conn-1',
+      pinnedSidebarDatabases: [],
+    });
+
+    expect(pinned.map((node) => node.title)).toEqual(['analytics', 'archive', 'system']);
+    expect(unpinned.map((node) => node.title)).toEqual(['archive', 'analytics', 'system']);
+    expect(unpinned[1].children).toBe(loadedChildren);
+    expect(unpinned[1].dataRef?.pinnedSidebarDatabase).toBeUndefined();
+  });
+
+  it('splits pinned databases into pinned and all sections', () => {
+    setCurrentLanguage('en-US');
+    const databaseNodes = [
+      { title: 'analytics', key: 'conn-1-analytics', type: 'database' as const, dataRef: { pinnedSidebarDatabase: true } },
+      { title: 'archive', key: 'conn-1-archive', type: 'database' as const, dataRef: {} },
+    ];
+
+    const children = buildV2SidebarDatabaseSectionedChildren('conn-1', databaseNodes);
+
+    expect(children.map((node) => node.title)).toEqual(['Pinned', 'analytics', 'All', 'archive']);
+    expect(children.map((node) => node.type)).toEqual([
+      'v2-database-section',
+      'database',
+      'v2-database-section',
+      'database',
+    ]);
+    expect(children[0]).toMatchObject({
+      key: 'conn-1-v2-pinned-databases-section',
+      isLeaf: true,
+      selectable: false,
+      dataRef: { sectionKind: 'pinned' },
+    });
+    expect(children[2]).toMatchObject({
+      key: 'conn-1-v2-all-databases-section',
+      isLeaf: true,
+      selectable: false,
+      dataRef: { sectionKind: 'all' },
+    });
+    const sectionMarkup = renderToStaticMarkup(renderSidebarV2TreeTitle({
+      node: children[0],
+      hoverTitle: 'Pinned',
+      statusBadge: null,
+      getV2TreeMetaText: () => '',
+      sidebarTableMetadataFields: [],
+      snapshotTreeSelectionBeforeDrag: vi.fn(),
+      restoreTreeSelectionAfterDrag: vi.fn(),
+      treeDragSelectSuppressUntilRef: { current: 0 },
+      setIsTreeDragging: vi.fn(),
+    }));
+    expect(sectionMarkup).toContain('class="gn-v2-tree-section-title"');
+    expect(sectionMarkup).toContain('data-section-kind="pinned"');
+    expect(sectionMarkup).toContain('Pinned');
+    expect(buildV2SidebarDatabaseSectionedChildren('conn-1', children).map((node) => node.title))
+      .toEqual(['Pinned', 'analytics', 'All', 'archive']);
+
+    const unpinnedNodes = databaseNodes.map((node) => ({
+      ...node,
+      dataRef: {},
+    }));
+    expect(buildV2SidebarDatabaseSectionedChildren('conn-1', unpinnedNodes)).toBe(unpinnedNodes);
   });
 
   it('sorts sidebar table names in natural numeric order', () => {
@@ -1652,6 +1847,36 @@ describe('Sidebar locate toolbar', () => {
     expect(pinnedMarkup).not.toContain('aria-pressed');
     expect(css).toMatch(/\.gn-v2-table-pin-indicator \{[^}]*pointer-events: none;[^}]*cursor: default;[^}]*color: var\(--gn-warn\);/s);
     expect(css).not.toContain('.gn-v2-table-pin-action');
+  });
+
+  it('renders the same non-interactive pin indicator for pinned databases', () => {
+    const baseOptions = {
+      hoverTitle: 'analytics',
+      statusBadge: null,
+      getV2TreeMetaText: () => '',
+      sidebarTableMetadataFields: [],
+      snapshotTreeSelectionBeforeDrag: vi.fn(),
+      restoreTreeSelectionAfterDrag: vi.fn(),
+      treeDragSelectSuppressUntilRef: { current: 0 },
+      setIsTreeDragging: vi.fn(),
+    };
+    const renderDatabaseTitle = (pinnedSidebarDatabase: boolean) => renderToStaticMarkup(
+      renderSidebarV2TreeTitle({
+        ...baseOptions,
+        node: {
+          type: 'database',
+          title: 'analytics',
+          key: 'conn-1-analytics',
+          dataRef: { id: 'conn-1', dbName: 'analytics', pinnedSidebarDatabase },
+        },
+      }),
+    );
+
+    expect(renderDatabaseTitle(false)).not.toContain('data-v2-sidebar-database-pin-indicator');
+    const pinnedMarkup = renderDatabaseTitle(true);
+    expect(pinnedMarkup).toContain('data-v2-sidebar-database-pin-indicator="true"');
+    expect(pinnedMarkup).toContain('gn-v2-database-pin-indicator');
+    expect(pinnedMarkup).toContain(`aria-label="${t('sidebar.status.pinned')}"`);
   });
 
   it('splits v2 sidebar pinned tables into a dedicated table section', () => {
@@ -1909,6 +2134,8 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain(t('sidebar.v2_database_menu.export_backup_section'));
     expect(markup).toContain(t('sidebar.v2_database_menu.export_all_table_schema_sql'));
     expect(markup).toContain(t('sidebar.v2_database_menu.backup_all_tables_sql'));
+    expect(markup).toContain(t('sidebar.action.batch_tables'));
+    expect(markup).toContain(t('sidebar.action.batch_databases'));
     expect(markup).toContain(t('sidebar.v2_table_menu.item_with_suffix', { label: t('sidebar.menu.delete_database'), suffix: 'DROP' }));
   });
 
@@ -1965,6 +2192,8 @@ describe('Sidebar locate toolbar', () => {
     expect(markup).toContain('Export and backup');
     expect(markup).toContain('Export all table schemas · SQL');
     expect(markup).toContain('Back up all tables · schema + data SQL');
+    expect(markup).toContain('Batch tables');
+    expect(markup).toContain('Batch databases');
     expect(markup).toContain('Delete database · DROP');
     expect(markup).toContain('StarRocks');
     expect(markup).toContain('Catalog');
@@ -2113,58 +2342,7 @@ describe('Sidebar locate toolbar', () => {
     });
   });
 
-  it('localizes v2 saved-query and external SQL root shell copy', () => {
-    const source = readSidebarSource();
-    const externalSqlWorkflowSource = readSourceFile('./sidebar/SidebarExternalSqlWorkflow.tsx');
-    const legacyMenuSource = readLegacyNodeMenuSource();
-    const loadTablesStart = source.indexOf('const loadTables = async (node: any) => {');
-    const loadTablesEnd = source.indexOf('const config = {', loadTablesStart);
-    const loadTablesSource = source.slice(loadTablesStart, loadTablesEnd);
-    const externalSqlFlowStart = externalSqlWorkflowSource.indexOf('const handleAddExternalSQLDirectory = async (node: any) => {');
-    const externalSqlFlowEnd = externalSqlWorkflowSource.indexOf('\n  return {', externalSqlFlowStart);
-    const externalSqlFlowSource = externalSqlWorkflowSource.slice(externalSqlFlowStart, externalSqlFlowEnd);
-    const treeTitleSource = readSourceFile('./sidebar/SidebarTreeTitle.tsx');
-    const treeTitleStart = 0;
-    const treeTitleEnd = treeTitleSource.length;
-    const externalSqlMenuStart = legacyMenuSource.indexOf("if (node.type === 'external-sql-root') {", legacyMenuSource.indexOf('// 已存查询节点的右键菜单'));
-    const externalSqlMenuEnd = legacyMenuSource.indexOf("if (node.type === 'external-sql-directory') {", externalSqlMenuStart);
-    const externalSqlMenuSource = legacyMenuSource.slice(externalSqlMenuStart, externalSqlMenuEnd);
-    const externalSqlDirectoryMenuStart = externalSqlMenuEnd;
-    const externalSqlDirectoryMenuEnd = legacyMenuSource.indexOf("if (node.type === 'external-sql-file') {", externalSqlDirectoryMenuStart);
-    const externalSqlDirectoryMenuSource = legacyMenuSource.slice(externalSqlDirectoryMenuStart, externalSqlDirectoryMenuEnd);
-    const externalSqlFileMenuStart = externalSqlDirectoryMenuEnd;
-    const externalSqlFileMenuEnd = legacyMenuSource.indexOf('return [];', externalSqlFileMenuStart);
-    const externalSqlFileMenuSource = legacyMenuSource.slice(externalSqlFileMenuStart, externalSqlFileMenuEnd);
-    const titleRenderSource = readSourceFile('./sidebar/useSidebarTitleRender.tsx');
-    const titleRenderStart = titleRenderSource.indexOf('export const useSidebarTitleRender =');
-    const titleRenderEnd = titleRenderSource.length;
-
-    [
-      loadTablesStart,
-      loadTablesEnd,
-      externalSqlFlowStart,
-      externalSqlFlowEnd,
-      treeTitleStart,
-      treeTitleEnd,
-      externalSqlMenuStart,
-      externalSqlMenuEnd,
-      externalSqlDirectoryMenuStart,
-      externalSqlDirectoryMenuEnd,
-      externalSqlFileMenuStart,
-      externalSqlFileMenuEnd,
-      titleRenderStart,
-      titleRenderEnd,
-    ].forEach((index) => expect(index).toBeGreaterThanOrEqual(0));
-    [
-      '选择 SQL 目录失败',
-      '未获取到有效的 SQL 目录路径',
-      '外部 SQL 目录已添加',
-      '未找到可移除的 SQL 目录',
-      '外部 SQL 目录已移除',
-      '外部 SQL 目录已刷新',
-    ].forEach((rawSnippet) => {
-    });
-
+  it('resolves saved-query and external SQL localization keys for every supported language', () => {
     [
       'sidebar.tree.saved_queries',
       'sidebar.external_sql.root',
@@ -2314,6 +2492,7 @@ describe('Sidebar locate toolbar', () => {
       sort: t('sidebar.v2_table_group_menu.sort_frequency'),
     }));
     expect(markup).toContain(t('sidebar.menu.create_table'));
+    expect(markup).toContain(t('sidebar.menu.refresh'));
     expect(markup).toContain(t('data_grid.context_menu.sort_section'));
     expect(markup).toContain(t('sidebar.menu.sort_by_name'));
     expect(markup).toContain(t('sidebar.menu.sort_by_frequency'));
@@ -2406,14 +2585,14 @@ describe('Sidebar locate toolbar', () => {
     expect(visibleSuffixMarkup).toContain('用户表');
     expect(visibleSuffixMarkup).toContain(t('sidebar.v2_table_group_menu.metadata_value.rows', { count: '7' }));
     expect(visibleSuffixMarkup).toContain('4 KB');
-    expect(visibleSuffixMarkup).toContain(t('sidebar.v2_table_group_menu.metadata_value.created_at', { time: '2026-07-02 10:11' }));
-    expect(visibleSuffixMarkup).toContain(t('sidebar.v2_table_group_menu.metadata_value.updated_at', { time: '2026-07-03 11:12' }));
+    expect(visibleSuffixMarkup).toContain(t('sidebar.v2_table_group_menu.metadata_value.created_at', { time: '2026-07-02 10:11:12' }));
+    expect(visibleSuffixMarkup).toContain(t('sidebar.v2_table_group_menu.metadata_value.updated_at', { time: '2026-07-03 11:12:13' }));
 
     const sortedSuffixMarkup = renderToStaticMarkup(renderSidebarV2TreeTitle({
       ...baseOptions,
       sidebarTableMetadataFields: ['updatedAt', 'size', 'rows', 'comment', 'createdAt'],
     }));
-    expect(sortedSuffixMarkup.indexOf(t('sidebar.v2_table_group_menu.metadata_value.updated_at', { time: '2026-07-03 11:12' })))
+    expect(sortedSuffixMarkup.indexOf(t('sidebar.v2_table_group_menu.metadata_value.updated_at', { time: '2026-07-03 11:12:13' })))
       .toBeLessThan(sortedSuffixMarkup.indexOf('4 KB'));
     expect(sortedSuffixMarkup.indexOf('4 KB'))
       .toBeLessThan(sortedSuffixMarkup.indexOf(t('sidebar.v2_table_group_menu.metadata_value.rows', { count: '7' })));

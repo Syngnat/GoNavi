@@ -39,6 +39,7 @@ var desktopOnlyAppMethods = map[string]struct{}{
 	"SetMacNativeWindowControls":    {},
 	"SetApplicationBrandIcon":       {},
 	"ResetWebViewZoom":              {},
+	"RefreshWebViewBounds":          {},
 	"SelectDataRootDirectory":       {},
 	"GetDataRootDirectoryInfo":      {},
 	"ApplyDataRootDirectory":        {},

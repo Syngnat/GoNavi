@@ -12,6 +12,12 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 	if !supportsPagedSourceQuery(sourceType) || !supportsPagedDiffPKLookup(ctx.TargetType) {
 		return false, pagedDiffCounts{}, nil
 	}
+	// 源是任意 SQL，无法可靠判断它是否引用了目标表。同一物理服务上边分页读取边写入
+	// 可能让 OFFSET 结果集发生收缩/扩张；full_overwrite 还会在首批后清空源查询所依赖的表。
+	// 因此统一退回先完整读取、再写入的非分页路径。
+	if isSamePhysicalSyncServer(config, sourceType, ctx.TargetType) {
+		return false, pagedDiffCounts{}, nil
+	}
 	if strings.TrimSpace(buildSourceQueryPageSQL(sourceType, config.SourceQuery, ctx.PKColumn, defaultSyncReadPageSize, 0)) == "" {
 		return false, pagedDiffCounts{}, nil
 	}
@@ -36,13 +42,11 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 			if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
 				return nil
 			}
-			if err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, changeSet); err != nil {
-				return err
-			}
-			counts.Inserts += len(changeSet.Inserts)
-			counts.Updates += len(changeSet.Updates)
-			counts.Deletes += len(changeSet.Deletes)
-			return nil
+			committed, err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, changeSet)
+			counts.Inserts += committed.Inserts
+			counts.Updates += committed.Updates
+			counts.Deletes += committed.Deletes
+			return err
 		})
 		if err != nil {
 			return true, counts, err
@@ -56,15 +60,6 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 			return fmt.Errorf("清空目标表失败: %w", err)
 		}
 		return nil
-	}
-
-	if tableMode == "full_overwrite" {
-		// 源是任意 SQL，无法可靠判断它是否引用了目标表。只要源与目标是同一物理端点就退回
-		// 非分页路径（该路径先把源行全部读入内存、之后才清空目标，语义安全）。
-		// 分页 + 自表覆盖本质上不可行：清空之后的分页会读到空表，目标最终只剩第一页数据。
-		if isSameSyncEndpoint(config, sourceType, ctx.TargetType) {
-			return false, pagedDiffCounts{}, nil
-		}
 	}
 
 	if !opts.Insert {
@@ -98,11 +93,9 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 		if len(insertRows) == 0 {
 			return nil
 		}
-		if err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, connection.ChangeSet{Inserts: insertRows}); err != nil {
-			return err
-		}
-		counts.Inserts += len(insertRows)
-		return nil
+		committed, err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, connection.ChangeSet{Inserts: insertRows})
+		counts.Inserts += committed.Inserts
+		return err
 	}
 
 	if len(firstRows) == 0 {

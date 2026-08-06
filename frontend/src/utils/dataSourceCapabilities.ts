@@ -205,6 +205,7 @@ export type DataSourceCapabilities = {
   supportsCopyInsert: boolean;
   supportsCopyTable: boolean;
   supportsCreateDatabase: boolean;
+  supportsCreateDatabaseCharset: boolean;
   supportsRenameDatabase: boolean;
   supportsDropDatabase: boolean;
   supportsMessagePublish: boolean;
@@ -231,6 +232,15 @@ const CREATE_DATABASE_TYPES = new Set([
   'sqlserver',
   'tdengine',
   'clickhouse',
+]);
+
+// MySQL 系方言支持在建库时指定字符集与排序规则。
+const CREATE_DATABASE_CHARSET_TYPES = new Set([
+  'mysql',
+  'goldendb',
+  'mariadb',
+  'oceanbase',
+  'diros',
 ]);
 
 const RENAME_DATABASE_TYPES = new Set([
@@ -278,6 +288,8 @@ export const getDataSourceCapabilities = (config: ConnectionLike): DataSourceCap
       !structureEditRestricted &&
       COPY_TABLE_TYPES.has(type),
     supportsCreateDatabase: !structureEditRestricted && CREATE_DATABASE_TYPES.has(type),
+    supportsCreateDatabaseCharset:
+      !structureEditRestricted && CREATE_DATABASE_CHARSET_TYPES.has(type),
     supportsRenameDatabase: !structureEditRestricted && RENAME_DATABASE_TYPES.has(type),
     supportsDropDatabase: !structureEditRestricted && DROP_DATABASE_TYPES.has(type),
     supportsMessagePublish: !dataEditRestricted && MESSAGE_PUBLISH_TYPES.has(type),

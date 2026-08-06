@@ -245,7 +245,6 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.environment.test": "测试环境",
     "connection.environment.development": "开发环境",
     "connection.environment.local": "本地环境",
-    "sidebar.field.environment_type": "预设分组类型",
     "connection.modal.field.name.placeholder.default": "例如：本地测试库",
     "connection.modal.field.name.placeholder.jvm":
       "例如：本地 JVM / 订单服务 JVM",
@@ -289,6 +288,12 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.field.oceanBaseServiceName.help":
       "Oracle 租户必须填写监听器注册的 SERVICE_NAME；用户名仍按 OceanBase 租户格式填写。",
     "connection.modal.field.serviceName.placeholder": "例如：ORCLPDB1",
+    "connection.modal.field.oracleMode.label": "连接模式",
+    "connection.modal.field.oracleMode.service": "服务名称",
+    "connection.modal.field.oracleMode.sid": "SID",
+    "connection.modal.field.sid.label": "SID",
+    "connection.modal.field.sid.required": "请输入 SID",
+    "connection.modal.field.sid.placeholder": "例如：ORCL",
     "connection.modal.jvm.unsupportedMode.saveTest":
       "当前连接包含未支持的 JVM 模式；请先调整为 JMX、Endpoint 或 Agent 后再测试或保存",
     "connection.modal.jvm.unsupportedTransport.saveTest":
@@ -523,9 +528,20 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.field.redisPassword.retained": "已保存 Redis 密码",
     "connection.modal.field.displayDatabases.label":
       "显示数据库 (留空显示全部)",
-    "connection.modal.field.displayDatabases.help": "连接测试成功后可选择",
+    "connection.modal.field.displayDatabases.help":
+      "精确库名，连接测试成功后可选择；与通配包含规则取并集",
     "connection.modal.field.displayDatabases.placeholder":
       "选择显示的数据库",
+    "connection.modal.field.includeDatabasePatterns.help":
+      "匹配后会自动显示当前和以后新增的数据库",
+    "connection.modal.field.includeDatabasePatterns.placeholder":
+      "例如：tenant_%、reporting*",
+    "connection.modal.field.excludeDatabasePatterns.help":
+      "排除规则优先于固定包含和通配包含规则",
+    "connection.modal.field.excludeDatabasePatterns.placeholder":
+      "例如：*_archive、test_%",
+    "connection.modal.field.databasePatterns.help":
+      "* 和 % 匹配任意长度，_ 匹配单个字符，\\ 用于转义；排除规则优先。",
     "connection.modal.field.displayRedisDatabases.placeholder":
       "选择显示的数据库 (0-15)",
     "connection.modal.field.username.label": "用户名",
@@ -1125,7 +1141,6 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.environment.test": "Test environment",
     "connection.environment.development": "Development environment",
     "connection.environment.local": "Local environment",
-    "sidebar.field.environment_type": "Preset group type",
     "connection.modal.field.name.placeholder.default":
       "For example: local test database",
     "connection.modal.field.name.placeholder.jvm":
@@ -1171,6 +1186,12 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.field.oceanBaseServiceName.help":
       "Oracle tenants require the SERVICE_NAME registered with the listener. Keep using the OceanBase tenant format for the username.",
     "connection.modal.field.serviceName.placeholder": "For example: ORCLPDB1",
+    "connection.modal.field.oracleMode.label": "Connection mode",
+    "connection.modal.field.oracleMode.service": "Service name",
+    "connection.modal.field.oracleMode.sid": "SID",
+    "connection.modal.field.sid.label": "SID",
+    "connection.modal.field.sid.required": "Please enter the SID",
+    "connection.modal.field.sid.placeholder": "For example: ORCL",
     "connection.modal.jvm.unsupportedMode.saveTest":
       "This connection contains unsupported JVM modes. Change them to JMX, Endpoint, or Agent before testing or saving.",
     "connection.modal.jvm.unsupportedTransport.saveTest":
@@ -1422,9 +1443,19 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.field.redisPassword.retained": "saved Redis password",
     "connection.modal.field.displayDatabases.label": "Visible databases",
     "connection.modal.field.displayDatabases.help":
-      "Available after a successful connection test",
+      "Exact names available after a successful connection test; combined with include masks",
     "connection.modal.field.displayDatabases.placeholder":
       "Select visible databases",
+    "connection.modal.field.includeDatabasePatterns.help":
+      "Matching current and newly created databases are shown automatically",
+    "connection.modal.field.includeDatabasePatterns.placeholder":
+      "For example: tenant_%, reporting*",
+    "connection.modal.field.excludeDatabasePatterns.help":
+      "Exclude masks take precedence over exact names and include masks",
+    "connection.modal.field.excludeDatabasePatterns.placeholder":
+      "For example: *_archive, test_%",
+    "connection.modal.field.databasePatterns.help":
+      "* and % match any text, _ matches one character, and \\ escapes a wildcard. Excludes win.",
     "connection.modal.field.displayRedisDatabases.placeholder":
       "Select visible databases (0-15)",
     "connection.modal.field.username.label": "Username",

@@ -2,6 +2,8 @@ import type { SavedConnection } from '../../types';
 import { t as translateCatalog, type I18nParams } from '../../i18n';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { buildAIReadonlyPreviewSQL } from '../../utils/aiSqlLimit';
+import { findPotentiallyMutatingConnectionStatements } from '../../utils/connectionReadOnly';
+import { confirmProductionRisk } from '../../utils/productionRiskConfirm';
 import { resolveAITableSchemaToolResult } from '../../utils/aiTableSchemaTool';
 import type { AILocalToolRuntime, AIToolContextEntry } from './aiLocalToolRuntime';
 import {
@@ -529,6 +531,27 @@ export async function executeDatabaseToolCall(
           resolved.connection.config?.driver || '',
           { oceanBaseProtocol: resolved.connection.config?.oceanBaseProtocol },
         );
+        if (
+          findPotentiallyMutatingConnectionStatements(
+            resolved.connection.config,
+            finalSql,
+          ).length > 0
+        ) {
+          const translateRisk = translate || translateCatalog;
+          const approved = await confirmProductionRisk({
+            connection: resolved.connection,
+            action: translateRisk('connection.production_risk.action.execute_sql'),
+            target: safeDbName,
+            translate: translateRisk,
+          });
+          if (!approved) {
+            return {
+              content: translateRisk('connection.production_risk.cancelled'),
+              success: false,
+              countsAsProbeFailure: false,
+            };
+          }
+        }
         const result = await runtime.query(buildRpcConnectionConfig(resolved.connection.config) as any, safeDbName, finalSql);
         if (result?.success) {
           const affectedRows = Number((result.data as Record<string, unknown> | null | undefined)?.affectedRows);

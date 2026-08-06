@@ -61,7 +61,7 @@ func TestBuildConnectionPackagePayloadIncludesSecretBundles(t *testing.T) {
 		t.Fatalf("SaveConnection returned error: %v", err)
 	}
 
-	payload, err := app.buildConnectionPackagePayload(nil)
+	payload, err := app.buildConnectionPackagePayload(nil, nil)
 	if err != nil {
 		t.Fatalf("buildConnectionPackagePayload returned error: %v", err)
 	}
@@ -109,8 +109,10 @@ func TestBuildExportedConnectionPackageWithoutSecretsUsesV2AppManagedAndImportsW
 	app.configDir = t.TempDir()
 
 	_, err := app.SaveConnection(connection.SavedConnectionInput{
-		ID:   "conn-v2-no-secrets",
-		Name: "Primary",
+		ID:                      "conn-v2-no-secrets",
+		Name:                    "Primary",
+		IncludeDatabasePatterns: []string{"team_%", "archive*"},
+		ExcludeDatabasePatterns: []string{"team_tmp%"},
 		Config: connection.ConnectionConfig{
 			ID:       "conn-v2-no-secrets",
 			Type:     "postgres",
@@ -145,6 +147,15 @@ func TestBuildExportedConnectionPackageWithoutSecretsUsesV2AppManagedAndImportsW
 	if strings.Contains(string(raw), `"secrets"`) {
 		t.Fatalf("expected exported JSON to omit secrets when IncludeSecrets=false, got %s", string(raw))
 	}
+	if len(file.Connections) != 1 {
+		t.Fatalf("expected one exported connection, got %d", len(file.Connections))
+	}
+	if !reflect.DeepEqual(file.Connections[0].IncludeDatabasePatterns, []string{"team_%", "archive*"}) {
+		t.Fatalf("expected include database patterns in package, got %#v", file.Connections[0].IncludeDatabasePatterns)
+	}
+	if !reflect.DeepEqual(file.Connections[0].ExcludeDatabasePatterns, []string{"team_tmp%"}) {
+		t.Fatalf("expected exclude database patterns in package, got %#v", file.Connections[0].ExcludeDatabasePatterns)
+	}
 
 	importApp := NewAppWithSecretStore(newFakeAppSecretStore())
 	importApp.configDir = t.TempDir()
@@ -159,6 +170,12 @@ func TestBuildExportedConnectionPackageWithoutSecretsUsesV2AppManagedAndImportsW
 	}
 	if imported[0].HasPrimaryPassword {
 		t.Fatal("expected imported connection to keep empty password when secrets are excluded")
+	}
+	if !reflect.DeepEqual(imported[0].IncludeDatabasePatterns, []string{"team_%", "archive*"}) {
+		t.Fatalf("expected imported include database patterns, got %#v", imported[0].IncludeDatabasePatterns)
+	}
+	if !reflect.DeepEqual(imported[0].ExcludeDatabasePatterns, []string{"team_tmp%"}) {
+		t.Fatalf("expected imported exclude database patterns, got %#v", imported[0].ExcludeDatabasePatterns)
 	}
 
 	resolved, err := importApp.resolveConnectionSecrets(imported[0].Config)
@@ -1088,7 +1105,7 @@ func TestBuildExportedConnectionPackageCarriesRedisDbAliases(t *testing.T) {
 	}
 
 	// payload 内连接项也应携带别名（便于单项迁移）
-	payload, err := app.buildConnectionPackagePayload(aliases)
+	payload, err := app.buildConnectionPackagePayload(aliases, nil)
 	if err != nil {
 		t.Fatalf("buildConnectionPackagePayload returned error: %v", err)
 	}
@@ -1097,6 +1114,53 @@ func TestBuildExportedConnectionPackageCarriesRedisDbAliases(t *testing.T) {
 	}
 	if payload.RedisDbAliases["redis-1"]["1"] != "sessions" {
 		t.Fatalf("expected top-level alias sessions, got %#v", payload.RedisDbAliases)
+	}
+}
+
+func TestBuildConnectionPackagePayloadFiltersByConnectionIDs(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	for _, item := range []connection.SavedConnectionInput{
+		{
+			ID:   "conn-a",
+			Name: "A",
+			Config: connection.ConnectionConfig{
+				ID:   "conn-a",
+				Type: "mysql",
+				Host: "127.0.0.1",
+				Port: 3306,
+			},
+		},
+		{
+			ID:   "conn-b",
+			Name: "B",
+			Config: connection.ConnectionConfig{
+				ID:   "conn-b",
+				Type: "mysql",
+				Host: "127.0.0.1",
+				Port: 3307,
+			},
+		},
+	} {
+		if _, err := app.SaveConnection(item); err != nil {
+			t.Fatalf("SaveConnection %s: %v", item.ID, err)
+		}
+	}
+
+	payload, err := app.buildConnectionPackagePayload(nil, []string{"conn-b"})
+	if err != nil {
+		t.Fatalf("buildConnectionPackagePayload returned error: %v", err)
+	}
+	if len(payload.Connections) != 1 {
+		t.Fatalf("expected 1 connection, got %d", len(payload.Connections))
+	}
+	if payload.Connections[0].ID != "conn-b" {
+		t.Fatalf("expected conn-b, got %q", payload.Connections[0].ID)
+	}
+
+	if _, err := app.buildConnectionPackagePayload(nil, []string{"missing-id"}); err == nil {
+		t.Fatal("expected error when filter matches no connections")
 	}
 }
 

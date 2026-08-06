@@ -1,12 +1,12 @@
 package app
 
 import (
-	"errors"
-	"strings"
-	"testing"
 	"GoNavi-Wails/internal/connection"
 	redislib "GoNavi-Wails/internal/redis"
 	"GoNavi-Wails/shared/i18n"
+	"errors"
+	"strings"
+	"testing"
 )
 
 func redisFunctionSource(t *testing.T, source string, signature string) string {
@@ -22,7 +22,6 @@ func redisFunctionSource(t *testing.T, source string, signature string) string {
 	}
 	return source[start : start+len(signature)+end]
 }
-
 
 func TestRedisBackendOperationMessageCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -44,6 +43,8 @@ func TestRedisBackendOperationMessageCatalogKeysExist(t *testing.T) {
 		"redis.backend.error.command_required",
 		"redis.backend.error.argument_required",
 		"redis.backend.error.argument_invalid_type",
+		"redis.backend.error.list_item_changed",
+		"redis.backend.error.list_position_invalid",
 		"redis.backend.error.export_no_keys",
 		"redis.backend.error.import_no_keys_selected",
 		"redis.backend.error.import_payload_invalid",

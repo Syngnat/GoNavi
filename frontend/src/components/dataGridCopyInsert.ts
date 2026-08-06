@@ -1,6 +1,6 @@
 import type { IndexDefinition } from '../types';
 import { escapeLiteral, quoteIdentPart, quoteQualifiedIdent } from '../utils/sql';
-import { isOracleLikeDialect } from '../utils/sqlDialect';
+import { isMysqlFamilyDialect, isOracleLikeDialect } from '../utils/sqlDialect';
 
 type BuildCopyInsertSQLParams = {
   dbType: string;
@@ -212,9 +212,70 @@ const formatOracleTemporalLiteral = (value: any, columnType?: string): string | 
   return `TO_DATE('${escaped}', 'YYYY-MM-DD HH24:MI:SS')`;
 };
 
+const isMySQLBitColumnType = (columnType?: string): boolean => {
+  const normalized = String(columnType || '').trim().toLowerCase();
+  return /^bit(?:\s*\(\s*\d+\s*\))?$/.test(normalized);
+};
+
+const formatMySQLBitLiteral = (value: any): string | null => {
+  if (typeof value === 'boolean') {
+    return value ? '1' : '0';
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) return null;
+    return BigInt(value).toString(10);
+  }
+
+  if (typeof value === 'bigint') {
+    if (value < 0n) return null;
+    return value.toString(10);
+  }
+
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+
+  const binaryLiteral = raw.match(/^[bB]['"]([01]+)['"]$/);
+  if (binaryLiteral) {
+    try {
+      return BigInt(`0b${binaryLiteral[1]}`).toString(10);
+    } catch {
+      return null;
+    }
+  }
+
+  let numericText = raw;
+  let radix = 10;
+  if (/^0[bB][01]+$/.test(raw)) {
+    numericText = raw.slice(2);
+    radix = 2;
+  } else if (/^0x[0-9a-f]+$/i.test(raw)) {
+    numericText = raw.slice(2);
+    radix = 16;
+  } else if (!/^\d+$/.test(raw)) {
+    if (/^(true|false)$/i.test(raw)) {
+      return raw.toLowerCase() === 'true' ? '1' : '0';
+    }
+    return null;
+  }
+
+  try {
+    return BigInt(radix === 10 ? raw : `${radix === 2 ? '0b' : '0x'}${numericText}`).toString(10);
+  } catch {
+    return null;
+  }
+};
+
 const formatCopySqlLiteral = (value: any, columnType?: string, dbType = ''): string => {
   if (value === null || value === undefined) {
     return 'NULL';
+  }
+  if (isMysqlFamilyDialect(dbType) && isMySQLBitColumnType(columnType)) {
+    const mysqlBitLiteral = formatMySQLBitLiteral(value);
+    if (mysqlBitLiteral) {
+      return mysqlBitLiteral;
+    }
   }
   if (isOracleLikeDialect(dbType)) {
     const oracleTemporalLiteral = formatOracleTemporalLiteral(value, columnType);

@@ -9,6 +9,8 @@ import {
 import { CancelSQLFileExecution, ImportDatabaseSQL } from '../../wailsjs/go/app/App';
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
+import type { SavedConnection } from '../types';
+import { confirmProductionRisk } from '../utils/productionRiskConfirm';
 import {
   useSQLFileExecutionRunner,
   type SQLFileExecutionRunnerStatus,
@@ -17,6 +19,7 @@ import {
 const { Paragraph, Text, Title } = Typography;
 
 type DatabaseImportExecutionPanelProps = {
+  connection?: SavedConnection;
   connectionConfig: Record<string, unknown> | null;
   dbName?: string;
   filePath: string;
@@ -40,6 +43,7 @@ const resolveProgressStatus = (
 };
 
 const DatabaseImportExecutionPanel: React.FC<DatabaseImportExecutionPanelProps> = ({
+  connection,
   connectionConfig,
   dbName = '',
   filePath,
@@ -76,6 +80,13 @@ const DatabaseImportExecutionPanel: React.FC<DatabaseImportExecutionPanelProps> 
 
   const startImport = useCallback(async () => {
     if (!connectionConfig || !String(filePath || '').trim() || taskRunning) return;
+    const approved = await confirmProductionRisk({
+      connection,
+      action: t('connection.production_risk.action.execute_sql'),
+      target: [dbName, getFileName(filePath)].filter(Boolean).join(' / '),
+      translate: t,
+    });
+    if (!approved) return;
     setExecutionPending(true);
     setCancelRequested(false);
     try {
@@ -100,11 +111,13 @@ const DatabaseImportExecutionPanel: React.FC<DatabaseImportExecutionPanelProps> 
     }
   }, [
     connectionConfig,
+    connection,
     dbName,
     filePath,
     fileSizeMB,
     runSQLFileExecutionWithProgress,
     taskRunning,
+    t,
   ]);
 
   const requestCancel = useCallback(async () => {

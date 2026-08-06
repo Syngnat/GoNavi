@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -144,21 +145,20 @@ func RunChild(parentCtx context.Context, assetFS fs.FS, args []string) error {
 	control := newControl(bridge)
 	bridge.setReadyHandler(control.markFrontendReady)
 	minWidth, minHeight := detachedWindowMinimumSize(childOptions.Kind)
+	visuals := resolveDetachedWindowVisualOptions(runtime.GOOS)
 	err = runDetachedChildApplication(&options.App{
-		Title:       childOptions.Title,
-		Width:       childOptions.Width,
-		Height:      childOptions.Height,
-		MinWidth:    minWidth,
-		MinHeight:   minHeight,
-		StartHidden: true,
-		Frameless:   true,
-		AssetServer: &assetserver.Options{Handler: proxy},
-		BackgroundColour: &options.RGBA{
-			R: 255,
-			G: 255,
-			B: 255,
-			A: 255,
-		},
+		Title:            childOptions.Title,
+		Width:            childOptions.Width,
+		Height:           childOptions.Height,
+		MinWidth:         minWidth,
+		MinHeight:        minHeight,
+		StartHidden:      true,
+		Frameless:        true,
+		AssetServer:      &assetserver.Options{Handler: proxy},
+		BackgroundColour: visuals.backgroundColour,
+		Windows:          visuals.windows,
+		Mac:              visuals.mac,
+		Linux:            visuals.linux,
 		OnStartup: func(ctx context.Context) {
 			InitializeBridge(bridge, ctx)
 			InitializeControl(control, ctx)

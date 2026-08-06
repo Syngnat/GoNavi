@@ -1,0 +1,92 @@
+diff --git a/node_modules/rc-resize-observer/es/utils/observerUtil.js b/node_modules/rc-resize-observer/es/utils/observerUtil.js
+index 37298cc..4c5d8ab 100644
+--- a/node_modules/rc-resize-observer/es/utils/observerUtil.js
++++ b/node_modules/rc-resize-observer/es/utils/observerUtil.js
+@@ -1,12 +1,36 @@
+ import ResizeObserver from 'resize-observer-polyfill';
+ // =============================== Const ===============================
+ var elementListeners = new Map();
++var deferredSidebarResizeTargets = new Set();
++var SIDEBAR_RESIZING_ATTRIBUTE = 'data-sidebar-resizing';
++var SIDEBAR_TRANSITIONING_ATTRIBUTE = 'data-sidebar-transitioning';
++var SIDEBAR_RESIZE_SETTLED_EVENT = 'gonavi:sidebar-resize-settled';
++function isSidebarResizeActive() {
++  return typeof document !== 'undefined' && document.body && (document.body.getAttribute(SIDEBAR_RESIZING_ATTRIBUTE) === 'true' || document.body.getAttribute(SIDEBAR_TRANSITIONING_ATTRIBUTE) === 'true');
++}
++function notifyTarget(target) {
++  var _elementListeners$get;
++  (_elementListeners$get = elementListeners.get(target)) === null || _elementListeners$get === void 0 || _elementListeners$get.forEach(function (listener) {
++    return listener(target);
++  });
++}
++function flushDeferredSidebarResizeTargets() {
++  if (isSidebarResizeActive()) return;
++  var targets = Array.from(deferredSidebarResizeTargets);
++  deferredSidebarResizeTargets.clear();
++  targets.forEach(notifyTarget);
++}
++if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
++  window.addEventListener(SIDEBAR_RESIZE_SETTLED_EVENT, flushDeferredSidebarResizeTargets);
++}
+ function onResize(entities) {
+-  entities.forEach(function (entity) {
+-    var _elementListeners$get;
+-    var target = entity.target;
+-    (_elementListeners$get = elementListeners.get(target)) === null || _elementListeners$get === void 0 || _elementListeners$get.forEach(function (listener) {
+-      return listener(target);
++  if (isSidebarResizeActive()) {
++    entities.forEach(function (entity) {
++      deferredSidebarResizeTargets.add(entity.target);
+     });
++    return;
++  }
++  entities.forEach(function (entity) {
++    notifyTarget(entity.target);
+   });
+ }
+diff --git a/node_modules/rc-resize-observer/lib/utils/observerUtil.js b/node_modules/rc-resize-observer/lib/utils/observerUtil.js
+index cc090a1..4afd637 100644
+--- a/node_modules/rc-resize-observer/lib/utils/observerUtil.js
++++ b/node_modules/rc-resize-observer/lib/utils/observerUtil.js
+@@ -10,12 +10,36 @@ exports.unobserve = unobserve;
+ var _resizeObserverPolyfill = _interopRequireDefault(require("resize-observer-polyfill"));
+ // =============================== Const ===============================
+ var elementListeners = new Map();
++var deferredSidebarResizeTargets = new Set();
++var SIDEBAR_RESIZING_ATTRIBUTE = 'data-sidebar-resizing';
++var SIDEBAR_TRANSITIONING_ATTRIBUTE = 'data-sidebar-transitioning';
++var SIDEBAR_RESIZE_SETTLED_EVENT = 'gonavi:sidebar-resize-settled';
++function isSidebarResizeActive() {
++  return typeof document !== 'undefined' && document.body && (document.body.getAttribute(SIDEBAR_RESIZING_ATTRIBUTE) === 'true' || document.body.getAttribute(SIDEBAR_TRANSITIONING_ATTRIBUTE) === 'true');
++}
++function notifyTarget(target) {
++  var _elementListeners$get;
++  (_elementListeners$get = elementListeners.get(target)) === null || _elementListeners$get === void 0 || _elementListeners$get.forEach(function (listener) {
++    return listener(target);
++  });
++}
++function flushDeferredSidebarResizeTargets() {
++  if (isSidebarResizeActive()) return;
++  var targets = Array.from(deferredSidebarResizeTargets);
++  deferredSidebarResizeTargets.clear();
++  targets.forEach(notifyTarget);
++}
++if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
++  window.addEventListener(SIDEBAR_RESIZE_SETTLED_EVENT, flushDeferredSidebarResizeTargets);
++}
+ function onResize(entities) {
+-  entities.forEach(function (entity) {
+-    var _elementListeners$get;
+-    var target = entity.target;
+-    (_elementListeners$get = elementListeners.get(target)) === null || _elementListeners$get === void 0 || _elementListeners$get.forEach(function (listener) {
+-      return listener(target);
++  if (isSidebarResizeActive()) {
++    entities.forEach(function (entity) {
++      deferredSidebarResizeTargets.add(entity.target);
+     });
++    return;
++  }
++  entities.forEach(function (entity) {
++    notifyTarget(entity.target);
+   });
+ }

@@ -34,6 +34,7 @@ const redisBackend = vi.hoisted(() => ({
   RedisScanKeys: vi.fn(),
   RedisGetValue: vi.fn(),
   RedisGetListValue: vi.fn(),
+  RedisListPush: vi.fn(),
   RedisListRemove: vi.fn(),
   RedisListSet: vi.fn(),
   RedisExportKeys: vi.fn(),
@@ -44,6 +45,7 @@ const redisBackend = vi.hoisted(() => ({
 const antdState = vi.hoisted(() => ({
   treeProps: null as any,
   tableProps: [] as any[],
+  modalConfirm: vi.fn(),
   message: {
     error: vi.fn(),
     success: vi.fn(),
@@ -133,7 +135,7 @@ vi.mock('antd', async () => {
         onOk ? React.createElement('button', { key: 'ok', onClick: onOk, disabled: okButtonProps?.disabled }, 'modal-ok') : null,
         onCancel ? React.createElement('button', { key: 'cancel', onClick: onCancel }, 'modal-cancel') : null,
       ]);
-    }, { confirm: vi.fn() }),
+    }, { confirm: antdState.modalConfirm }),
     Form: FormComponent,
     InputNumber: ({ ...props }: any) => React.createElement('input', props),
     Popconfirm: passthrough('span'),
@@ -206,6 +208,7 @@ describe('RedisViewer tree interactions', () => {
     vi.clearAllMocks();
     antdState.treeProps = null;
     antdState.tableProps = [];
+    antdState.modalConfirm.mockImplementation(() => ({ update: vi.fn(), destroy: vi.fn() }));
     storeState.connections = [
       {
         id: 'redis-1',
@@ -238,6 +241,7 @@ describe('RedisViewer tree interactions', () => {
       success: true,
       data: { key: 'app:user:1', type: 'list', ttl: -1, value: [], length: 0 },
     });
+    redisBackend.RedisListPush.mockResolvedValue({ success: true });
     redisBackend.RedisListRemove.mockResolvedValue({ success: true });
     redisBackend.RedisListSet.mockResolvedValue({ success: true });
     redisBackend.RedisExportKeys.mockResolvedValue({
@@ -467,10 +471,14 @@ describe('RedisViewer tree interactions', () => {
     });
 
     expect(renderer!.root.findByProps({ 'data-redis-active-key': 'true' }).children).toEqual(['app:user:1']);
-    expect(renderer!.root.findByProps({ 'data-redis-value-loading-overlay': 'true' }).props.style).toMatchObject({
-      gridColumn: 3,
-      gridRow: '1 / 3',
+    const loadingOverlay = renderer!.root.findByProps({ 'data-redis-value-loading-overlay': 'true' });
+    expect(loadingOverlay.parent?.props.className).toBe('gn-v2-redis-value-pane');
+    expect(loadingOverlay.props.style).toMatchObject({
+      position: 'absolute',
+      inset: 0,
     });
+    expect(loadingOverlay.props.style).not.toHaveProperty('gridColumn');
+    expect(loadingOverlay.props.style).not.toHaveProperty('gridRow');
 
     await act(async () => {
       resolveRefresh({
@@ -1179,10 +1187,13 @@ describe('RedisViewer tree interactions', () => {
     renderer!.unmount();
   });
 
-  it('removes one selected List value', async () => {
+  it.each([
+    { buttonText: 'Push to tail', inputId: 'new-list-value', value: 'tail-item', position: 'right' },
+    { buttonText: 'Push to head', inputId: 'new-list-value-left', value: 'head-item', position: 'left' },
+  ] as const)('pushes a List value through the $buttonText action', async ({ buttonText, inputId, value, position }) => {
     redisBackend.RedisGetValue.mockResolvedValue({
       success: true,
-      data: { key: 'app:user:1', type: 'list', ttl: -1, value: ['todo', 'review'], length: 2 },
+      data: { key: 'app:user:1', type: 'list', ttl: -1, value: ['existing'], length: 1 },
     });
 
     let renderer: ReactTestRenderer;
@@ -1197,15 +1208,73 @@ describe('RedisViewer tree interactions', () => {
     });
     await flushEffects();
 
-    const listTables = antdState.tableProps.filter((props) =>
-      Array.isArray(props.dataSource) && props.dataSource[0]?.value === 'todo',
+    const pushButton = findButtonByText(renderer!, buttonText);
+    expect(pushButton).toBeTruthy();
+    await act(async () => {
+      pushButton!.props.onClick?.();
+    });
+
+    expect(antdState.modalConfirm).toHaveBeenCalledTimes(1);
+    const modalConfig = antdState.modalConfirm.mock.calls[0][0];
+    const getElementById = vi.fn((id: string) => id === inputId ? { value } : null);
+    vi.stubGlobal('document', { getElementById });
+    await act(async () => {
+      await modalConfig.onOk();
+    });
+    await flushEffects();
+
+    expect(getElementById).toHaveBeenCalledWith(inputId);
+    expect(redisBackend.RedisListPush).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'redis', host: '127.0.0.1', port: 6379, redisDB: 0 }),
+      'app:user:1',
+      { values: [value], position },
     );
+
+    renderer!.unmount();
+  });
+
+  it('removes the selected duplicate List value by its original index after descending sort', async () => {
+    redisBackend.RedisGetValue.mockResolvedValue({
+      success: true,
+      data: { key: 'app:user:1', type: 'list', ttl: -1, value: ['duplicate', 'middle', 'duplicate'], length: 3 },
+    });
+    redisBackend.RedisGetListValue.mockResolvedValue({
+      success: true,
+      data: { key: 'app:user:1', type: 'list', ttl: -1, value: ['duplicate', 'middle', 'duplicate'], length: 3 },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    const leafNode = findFirstLeafNode(antdState.treeProps.treeData);
+    await act(async () => {
+      antdState.treeProps.onSelect?.([leafNode.key]);
+    });
+    await flushEffects();
+
+    const listTables = antdState.tableProps.filter((props) => Array.isArray(props.dataSource)
+      && props.dataSource[0]?.value === 'duplicate'
+      && props.dataSource[0]?.index === 0);
     const listTable = listTables[listTables.length - 1];
     expect(listTable).toBeTruthy();
-    const actionColumn = listTable.columns.find((column: any) => column.key === 'action');
+
+    await act(async () => {
+      listTable.onChange?.({}, {}, { columnKey: 'index', order: 'descend' });
+    });
+    await flushEffects();
+
+    const descendingTables = antdState.tableProps.filter((props) => Array.isArray(props.dataSource)
+      && props.dataSource[0]?.value === 'duplicate'
+      && props.dataSource[0]?.index === 2);
+    const descendingTable = descendingTables[descendingTables.length - 1];
+    expect(descendingTable).toBeTruthy();
+    const actionColumn = descendingTable.columns.find((column: any) => column.key === 'action');
     let actionRenderer: ReactTestRenderer;
     await act(async () => {
-      actionRenderer = create(actionColumn.render(null, { index: 1, value: 'review' }));
+      actionRenderer = create(actionColumn.render(null, descendingTable.dataSource[0]));
     });
     const confirmation = actionRenderer!.root
       .findAllByType('span')
@@ -1220,7 +1289,8 @@ describe('RedisViewer tree interactions', () => {
     expect(redisBackend.RedisListRemove).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'redis', host: '127.0.0.1', port: 6379, redisDB: 0 }),
       'app:user:1',
-      'review',
+      2,
+      'duplicate',
     );
     expect(antdState.message.success).toHaveBeenCalledWith('Deleted');
 

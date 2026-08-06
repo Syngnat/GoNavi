@@ -466,6 +466,65 @@ describe('tableDesignerSchemaSql', () => {
     expect(tdengineSql).not.toContain('AFTER');
   });
 
+  it('builds a TDengine normal table without relational primary key syntax', () => {
+    const sql = buildCreateTablePreviewSql({
+      dbType: 'tdengine',
+      tableName: 'power.meters',
+      columns: [
+        baseColumn({ _key: 'ts', name: 'ts', type: 'TIMESTAMP', nullable: 'NO', key: 'PRI' }),
+        baseColumn({ _key: 'current', name: 'current', type: 'FLOAT', nullable: 'YES' }),
+      ],
+      tdengineOptions: { tableKind: 'normal' },
+    });
+
+    expect(sql).toContain('CREATE TABLE `power`.`meters`');
+    expect(sql).toContain('`ts` TIMESTAMP');
+    expect(sql).not.toContain('CREATE STABLE');
+    expect(sql).not.toContain('PRIMARY KEY');
+    expect(sql).not.toContain('\nTAGS (');
+  });
+
+  it('builds a TDengine supertable with structured tag definitions', () => {
+    const sql = buildCreateTablePreviewSql({
+      dbType: 'tdengine',
+      tableName: 'power.meters',
+      columns: [
+        baseColumn({ _key: 'ts', name: 'ts', type: 'TIMESTAMP', nullable: 'NO' }),
+        baseColumn({ _key: 'current', name: 'current', type: 'FLOAT', nullable: 'YES' }),
+      ],
+      tdengineOptions: {
+        tableKind: 'stable',
+        tagDefinitions: [
+          { name: 'location', type: 'BINARY(64)' },
+          { name: 'group_id', type: 'INT' },
+        ],
+      },
+    });
+
+    expect(sql).toContain('CREATE STABLE `power`.`meters`');
+    expect(sql).toContain('`ts` TIMESTAMP');
+    expect(sql).toContain('TAGS (\n  `location` BINARY(64),\n  `group_id` INT\n);');
+    expect(sql).not.toContain('PRIMARY KEY');
+  });
+
+  it('builds a TDengine child table from a supertable without local columns', () => {
+    const sql = buildCreateTablePreviewSql({
+      dbType: 'tdengine',
+      tableName: 'power.meter_001',
+      columns: [],
+      tdengineOptions: {
+        tableKind: 'child',
+        stableName: 'power.meters',
+        tagValues: "'Shanghai', 1",
+      },
+    });
+
+    expect(sql).toBe(
+      'CREATE TABLE `power`.`meter_001`\nUSING `power`.`meters`\nTAGS (\'Shanghai\', 1);',
+    );
+    expect(sql).not.toContain('()');
+  });
+
   it('keeps freely entered MySQL spatial type attributes in schema SQL', () => {
     const location = baseColumn({
       _key: 'location',

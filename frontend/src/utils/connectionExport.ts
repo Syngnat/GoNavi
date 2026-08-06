@@ -10,6 +10,8 @@ export type ConnectionPackageDialogSnapshot = {
   password: string;
   error: string;
   confirmLoading: boolean;
+  /** 导出时必选；导入弹窗可为空数组。始终为 string[]，避免 setState 类型不兼容。 */
+  selectedConnectionIds: string[];
 };
 export type ConnectionPackageDialogUpdater = (
   current: ConnectionPackageDialogSnapshot,

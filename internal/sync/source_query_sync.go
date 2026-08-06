@@ -519,10 +519,14 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 			opts = configured
 		}
 	}
-	if !opts.Insert && !opts.Update && !opts.Delete {
-		s.appendLog(config.JobID, &result, "info", fmt.Sprintf("目标表 %s 未勾选任何操作，已跳过", tableName))
-		s.progress(config.JobID, totalTables, totalTables, tableName, "同步完成")
-		return result
+	if !hasEffectiveSyncDataOperation(tableMode, opts) {
+		if tableMode == "insert_update" {
+			s.appendLog(config.JobID, &result, "info", fmt.Sprintf("目标表 %s 未选择数据变更，按无变更处理", tableName))
+			result.TablesSynced++
+			s.progress(config.JobID, totalTables, totalTables, tableName, "同步完成")
+			return result
+		}
+		return s.fail(config.JobID, totalTables, result, fmt.Sprintf("目标表 %s 在 %s 模式下未启用有效数据操作，已拒绝执行", tableName, tableMode))
 	}
 
 	needTargetRows := tableMode == "insert_update"
@@ -541,13 +545,13 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 	}
 
 	if handled, counts, err := s.tryApplySourceQueryInPages(config, &result, tableName, sourceDB, targetDB, ctx, opts, tableMode, applyTableName); handled {
+		result.RowsInserted += counts.Inserts
+		result.RowsUpdated += counts.Updates
+		result.RowsDeleted += counts.Deletes
 		if err != nil {
 			return s.fail(config.JobID, totalTables, result, "分页同步 SQL 结果集失败: "+err.Error())
 		}
 		result.TablesSynced++
-		result.RowsInserted += counts.Inserts
-		result.RowsUpdated += counts.Updates
-		result.RowsDeleted += counts.Deletes
 		if counts.Inserts == 0 && counts.Updates == 0 && counts.Deletes == 0 {
 			s.appendLog(config.JobID, &result, "info", "SQL 结果集与目标表一致，无需应用变更")
 		} else {
@@ -571,16 +575,6 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		if !opts.Insert {
 			inserts = nil
 		}
-		if tableMode == "full_overwrite" {
-			s.progress(config.JobID, 0, totalTables, tableName, "清空目标表")
-			clearSQL := fmt.Sprintf("DELETE FROM %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
-			if ctx.TargetType == "mysql" {
-				clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
-			}
-			if _, err := targetDB.Exec(clearSQL); err != nil {
-				return s.fail(config.JobID, totalTables, result, "清空目标表失败: "+err.Error())
-			}
-		}
 	}
 
 	changeSet := applyQuerySourceColumnFilter(connection.ChangeSet{
@@ -588,25 +582,41 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		Updates: updates,
 		Deletes: deletes,
 	}, ctx.TargetCols)
-	if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
+	hasChanges := len(changeSet.Inserts) > 0 || len(changeSet.Updates) > 0 || len(changeSet.Deletes) > 0
+	var applier db.BatchApplier
+	if hasChanges {
+		var ok bool
+		applier, ok = targetDB.(db.BatchApplier)
+		if !ok {
+			return s.fail(config.JobID, totalTables, result, "目标驱动不支持应用数据变更 (ApplyChanges)")
+		}
+	}
+
+	if tableMode == "full_overwrite" {
+		s.progress(config.JobID, 0, totalTables, tableName, "清空目标表")
+		clearSQL := fmt.Sprintf("DELETE FROM %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
+		if ctx.TargetType == "mysql" {
+			clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
+		}
+		if _, err := targetDB.Exec(clearSQL); err != nil {
+			return s.fail(config.JobID, totalTables, result, "清空目标表失败: "+err.Error())
+		}
+	}
+
+	if !hasChanges {
 		s.appendLog(config.JobID, &result, "info", "SQL 结果集与目标表一致，无需应用变更")
 		result.TablesSynced++
 		s.progress(config.JobID, totalTables, totalTables, tableName, "同步完成")
 		return result
 	}
 
-	applier, ok := targetDB.(db.BatchApplier)
-	if !ok {
-		return s.fail(config.JobID, totalTables, result, "目标驱动不支持应用数据变更 (ApplyChanges)")
-	}
-	if err := s.applyChangesInBatches(config.JobID, &result, applyTableName, applier, changeSet); err != nil {
+	applied, err := s.applyChangesInBatches(config.JobID, &result, applyTableName, applier, changeSet)
+	applied.addToResult(&result)
+	if err != nil {
 		return s.fail(config.JobID, totalTables, result, "应用 SQL 结果集变更失败: "+err.Error())
 	}
 
 	result.TablesSynced++
-	result.RowsInserted += len(changeSet.Inserts)
-	result.RowsUpdated += len(changeSet.Updates)
-	result.RowsDeleted += len(changeSet.Deletes)
 	s.appendLog(config.JobID, &result, "info", fmt.Sprintf("SQL 结果集同步完成：插入=%d 更新=%d 删除=%d", len(changeSet.Inserts), len(changeSet.Updates), len(changeSet.Deletes)))
 	s.progress(config.JobID, totalTables, totalTables, tableName, "同步完成")
 	return result

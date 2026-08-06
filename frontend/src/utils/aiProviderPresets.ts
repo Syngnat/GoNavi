@@ -33,9 +33,15 @@ export interface ResolvePresetModelSelectionResult {
   models: string[];
 }
 
+export interface ProviderPresetEndpoint {
+  backendType: AIProviderType;
+  baseUrl: string;
+}
+
 export interface ResolvePresetBaseURLInput {
   presetKey: string;
   presetDefaultBaseUrl: string;
+  presetEndpoints?: ProviderPresetEndpoint[];
   valuesBaseUrl?: string;
 }
 
@@ -43,6 +49,8 @@ export interface ResolvePresetTransportInput {
   presetKey?: string;
   presetBackendType: AIProviderType;
   presetFixedApiFormat?: string;
+  presetEndpoints?: ProviderPresetEndpoint[];
+  valuesBaseUrl?: string;
   valuesApiFormat?: string;
 }
 
@@ -55,6 +63,7 @@ export interface ProviderPresetMatcher {
   key: string;
   backendType: AIProviderType;
   defaultBaseUrl: string;
+  endpoints?: ProviderPresetEndpoint[];
   fixedApiFormat?: string;
   authMode?: AIProviderAuthMode;
 }
@@ -166,12 +175,17 @@ export const resolveProviderPresetKey = (
     return formatOnlyPreset.key;
   }
 
-  const exactPreset = presets.find((preset) =>
-    preset.backendType === provider.type
-    && fingerprint !== ''
-    && fingerprint === getProviderFingerprint(preset.defaultBaseUrl)
-    && (!preset.fixedApiFormat || preset.fixedApiFormat === provider.apiFormat),
-  );
+  const exactPreset = presets.find((preset) => {
+    const matchesDefaultEndpoint = preset.backendType === provider.type
+      && fingerprint === getProviderFingerprint(preset.defaultBaseUrl);
+    const matchesConfiguredEndpoint = preset.endpoints?.some((endpoint) =>
+      endpoint.backendType === provider.type
+      && fingerprint === getProviderFingerprint(endpoint.baseUrl),
+    );
+    return fingerprint !== ''
+      && (matchesDefaultEndpoint || matchesConfiguredEndpoint)
+      && (!preset.fixedApiFormat || preset.fixedApiFormat === provider.apiFormat);
+  });
   if (exactPreset) {
     return exactPreset.key;
   }
@@ -228,9 +242,18 @@ export const resolvePresetModelSelection = ({
 export const resolvePresetBaseURL = ({
   presetKey,
   presetDefaultBaseUrl,
+  presetEndpoints,
   valuesBaseUrl,
 }: ResolvePresetBaseURLInput): string => {
   if (CUSTOM_LIKE_PRESET_KEYS.has(presetKey)) {
+    return valuesBaseUrl || presetDefaultBaseUrl;
+  }
+  const valuesFingerprint = getProviderFingerprint(valuesBaseUrl);
+  const matchesConfiguredEndpoint = presetEndpoints?.some((endpoint) =>
+    valuesFingerprint !== ''
+    && valuesFingerprint === getProviderFingerprint(endpoint.baseUrl),
+  );
+  if (matchesConfiguredEndpoint) {
     return valuesBaseUrl || presetDefaultBaseUrl;
   }
   return presetDefaultBaseUrl;
@@ -240,8 +263,22 @@ export const resolvePresetTransport = ({
   presetKey,
   presetBackendType,
   presetFixedApiFormat,
+  presetEndpoints,
+  valuesBaseUrl,
   valuesApiFormat,
 }: ResolvePresetTransportInput): ResolvePresetTransportResult => {
+  const valuesFingerprint = getProviderFingerprint(valuesBaseUrl);
+  const selectedEndpoint = presetEndpoints?.find((endpoint) =>
+    valuesFingerprint !== ''
+    && valuesFingerprint === getProviderFingerprint(endpoint.baseUrl),
+  );
+  if (selectedEndpoint) {
+    return {
+      type: selectedEndpoint.backendType,
+      apiFormat: undefined,
+    };
+  }
+
   if (presetFixedApiFormat) {
     return {
       type: presetBackendType,

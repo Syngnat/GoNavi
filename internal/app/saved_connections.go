@@ -27,12 +27,14 @@ import (
 var savedConnectionsMu sync.Mutex
 
 const (
-	savedConnectionsFileName     = "connections.json"
-	savedConnectionSecretKind    = "connection"
-	defaultConnectionEnvironment = "local"
-	maxSchemaVisibilityDatabases = 128
-	maxSchemaVisibilitySchemas   = 256
-	maxSchemaVisibilityNameBytes = 256
+	savedConnectionsFileName      = "connections.json"
+	savedConnectionSecretKind     = "connection"
+	defaultConnectionEnvironment  = "local"
+	maxSchemaVisibilityDatabases  = 128
+	maxSchemaVisibilitySchemas    = 256
+	maxSchemaVisibilityNameBytes  = 256
+	maxDatabaseFilterPatterns     = 256
+	maxDatabaseFilterPatternBytes = 256
 )
 
 func normalizeConnectionEnvironmentType(value string) string {
@@ -168,6 +170,47 @@ func cloneStringSlice(input []string) []string {
 	return cloned
 }
 
+func sanitizeDatabasePatterns(input []string) []string {
+	if len(input) == 0 {
+		return nil
+	}
+
+	result := make([]string, 0, len(input))
+	seen := make(map[string]struct{}, cap(result))
+	for _, pattern := range input {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		if _, exists := seen[pattern]; exists {
+			continue
+		}
+		seen[pattern] = struct{}{}
+		result = append(result, pattern)
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func validateDatabasePatterns(kind string, input []string) error {
+	patterns := sanitizeDatabasePatterns(input)
+	if len(patterns) > maxDatabaseFilterPatterns {
+		return fmt.Errorf("too many database %s patterns: maximum is %d", kind, maxDatabaseFilterPatterns)
+	}
+	for _, pattern := range patterns {
+		if len(pattern) > maxDatabaseFilterPatternBytes {
+			return fmt.Errorf(
+				"database %s pattern exceeds %d UTF-8 bytes",
+				kind,
+				maxDatabaseFilterPatternBytes,
+			)
+		}
+	}
+	return nil
+}
+
 func cloneIntSlice(input []int) []int {
 	if len(input) == 0 {
 		return nil
@@ -274,6 +317,8 @@ func splitConnectionSecrets(input connection.SavedConnectionInput) (connection.S
 		EnvironmentType:            normalizeConnectionEnvironmentType(input.EnvironmentType),
 		Config:                     meta,
 		IncludeDatabases:           cloneStringSlice(input.IncludeDatabases),
+		IncludeDatabasePatterns:    sanitizeDatabasePatterns(input.IncludeDatabasePatterns),
+		ExcludeDatabasePatterns:    sanitizeDatabasePatterns(input.ExcludeDatabasePatterns),
 		IncludeRedisDatabases:      cloneIntSlice(input.IncludeRedisDatabases),
 		SchemaVisibilityByDatabase: sanitizeSchemaVisibilityByDatabase(input.SchemaVisibilityByDatabase),
 		IconType:                   strings.TrimSpace(input.IconType),
@@ -318,6 +363,18 @@ func (r *savedConnectionRepository) load() ([]connection.SavedConnectionView, er
 	for index := range file.Connections {
 		file.Connections[index].EnvironmentType = normalizeConnectionEnvironmentType(
 			file.Connections[index].EnvironmentType,
+		)
+		if err := validateDatabasePatterns("include", file.Connections[index].IncludeDatabasePatterns); err != nil {
+			return nil, fmt.Errorf("invalid saved connection %q: %w", file.Connections[index].ID, err)
+		}
+		if err := validateDatabasePatterns("exclude", file.Connections[index].ExcludeDatabasePatterns); err != nil {
+			return nil, fmt.Errorf("invalid saved connection %q: %w", file.Connections[index].ID, err)
+		}
+		file.Connections[index].IncludeDatabasePatterns = sanitizeDatabasePatterns(
+			file.Connections[index].IncludeDatabasePatterns,
+		)
+		file.Connections[index].ExcludeDatabasePatterns = sanitizeDatabasePatterns(
+			file.Connections[index].ExcludeDatabasePatterns,
 		)
 	}
 	return file.Connections, nil
@@ -379,6 +436,12 @@ func writeSavedConnectionsFileAtomic(targetPath string, payload []byte) error {
 func (r *savedConnectionRepository) Save(input connection.SavedConnectionInput) (connection.SavedConnectionView, error) {
 	savedConnectionsMu.Lock()
 	defer savedConnectionsMu.Unlock()
+	if err := validateDatabasePatterns("include", input.IncludeDatabasePatterns); err != nil {
+		return connection.SavedConnectionView{}, err
+	}
+	if err := validateDatabasePatterns("exclude", input.ExcludeDatabasePatterns); err != nil {
+		return connection.SavedConnectionView{}, err
+	}
 
 	if strings.TrimSpace(input.ID) == "" && strings.TrimSpace(input.Config.ID) == "" {
 		input.ID = "conn-" + uuid.New().String()[:8]
@@ -618,6 +681,8 @@ func (r *savedConnectionRepository) Duplicate(id string, unnamedName string, cop
 	duplicate.ID = "conn-" + uuid.New().String()[:8]
 	duplicate.Config.ID = duplicate.ID
 	duplicate.Name = buildDuplicateConnectionName(original.Name, connections, unnamedName, copySuffix)
+	duplicate.IncludeDatabasePatterns = cloneStringSlice(original.IncludeDatabasePatterns)
+	duplicate.ExcludeDatabasePatterns = cloneStringSlice(original.ExcludeDatabasePatterns)
 	duplicate.SchemaVisibilityByDatabase = cloneSchemaVisibilityByDatabase(original.SchemaVisibilityByDatabase)
 
 	bundle, err := r.loadSecretBundle(original)

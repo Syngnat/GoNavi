@@ -106,7 +106,7 @@ vi.mock('antd', () => {
     </button>
   );
   const Space = ({ children, ...rest }: any) => <div {...rest}>{children}</div>;
-  const Text = ({ children }: any) => <span>{children}</span>;
+  const Text = ({ children, className, id }: any) => <span className={className} id={id}>{children}</span>;
   const Paragraph = ({ children }: any) => <div>{children}</div>;
   const Typography = { Paragraph, Text };
   const Alert = ({ children, message, description }: any) => <div>{children}{message}{description}</div>;
@@ -213,6 +213,7 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(openDirButtonBefore.props.disabled).toBeFalsy();
     expect(importDirButtonBefore.props.disabled).toBeFalsy();
     expect(installAllButtonBefore.props.disabled).toBeFalsy();
+    expect(renderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
 
     await act(async () => {
       installButton.props.onClick();
@@ -226,6 +227,7 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(openDirButtonAfter.props.disabled).toBeFalsy();
     expect(importDirButtonAfter.props.disabled).toBeFalsy();
     expect(installAllButtonAfter.props.disabled).toBe(true);
+    expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.className).toBe('driver-manager-progress');
   });
 
   it('uses the compact flat driver list only inside the embedded settings view', async () => {
@@ -245,7 +247,7 @@ describe('DriverManagerModal toolbar actions', () => {
       background: 'transparent',
     });
     expect(findButton(embeddedRenderer!, t('driver.modal.card.action.install')).props.size).toBe('small');
-    expect(embeddedRenderer!.root.findByProps({ 'data-progress': 'true' }).props.className).toBe('driver-manager-progress');
+    expect(embeddedRenderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
 
     let modalRenderer: ReactTestRenderer;
     await act(async () => {
@@ -272,6 +274,49 @@ describe('DriverManagerModal toolbar actions', () => {
       expect(titleText).toContain('DuckDB');
       expect(titleText).not.toContain('duckdb');
     }
+  });
+
+  it('shows the pinned version while the full version list is still loading', async () => {
+    let resolveVersionList!: (value: unknown) => void;
+    backendApp.GetDriverVersionList.mockReturnValue(new Promise((resolve) => {
+      resolveVersionList = resolve;
+    }));
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    const refreshButton = findButton(renderer!, t('driver.modal.footer.refresh'));
+    await act(async () => {
+      await refreshButton.props.onClick();
+    });
+    await flushPromises();
+
+    const versionSelect = renderer!.root.findByType('select');
+    expect(textContent(versionSelect)).toContain('2.5.6');
+
+    await act(async () => {
+      versionSelect.props.onFocus();
+      versionSelect.props.onFocus();
+      await Promise.resolve();
+    });
+
+    expect(backendApp.GetDriverVersionList).toHaveBeenCalledTimes(1);
+    const loadingVersionSelect = renderer!.root.findByType('select');
+    expect(loadingVersionSelect.props['data-select-loading']).toBe('true');
+    expect(textContent(loadingVersionSelect)).toContain('2.5.6');
+
+    await act(async () => {
+      resolveVersionList({
+        success: true,
+        data: {
+          versions: [{ version: '2.5.6', downloadUrl: 'builtin://activate/duckdb', recommended: true }],
+        },
+      });
+      await Promise.resolve();
+    });
   });
 
   it('releases install action when the driver install watchdog expires', async () => {
@@ -347,6 +392,7 @@ describe('DriverManagerModal toolbar actions', () => {
       });
       await flushPromises();
 
+      expect(renderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
       const reinstallButton = findButton(renderer!, t('driver.modal.card.action.reinstall'));
       await act(async () => {
         await reinstallButton.props.onClick();
@@ -361,6 +407,114 @@ describe('DriverManagerModal toolbar actions', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('installs the historical version shown by the fallback selection', async () => {
+    backendApp.GetDriverStatusList.mockResolvedValue({
+      success: true,
+      data: {
+        downloadDir: 'D:/drivers',
+        drivers: [
+          {
+            type: 'tdengine',
+            name: 'TDengine',
+            builtIn: false,
+            pinnedVersion: '3.7.8',
+            installedVersion: '3.3.1',
+            runtimeAvailable: false,
+            packageInstalled: true,
+            connectable: false,
+            defaultDownloadUrl: 'builtin://activate/tdengine',
+            message: '待启用',
+          },
+        ],
+      },
+    });
+    backendApp.GetDriverVersionList.mockResolvedValue({
+      success: true,
+      data: {
+        versions: [
+          { version: '3.7.8', downloadUrl: 'builtin://activate/tdengine', recommended: true },
+          { version: '3.3.1', downloadUrl: 'builtin://activate/tdengine?channel=history&version=3.3.1' },
+        ],
+      },
+    });
+    backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    const refreshButton = findButton(renderer!, t('driver.modal.footer.refresh'));
+    await act(async () => {
+      await refreshButton.props.onClick();
+    });
+    await flushPromises();
+
+    expect(textContent(renderer!.root.findByType('select'))).toContain('3.3.1');
+    const installButton = findButton(renderer!, t('driver.modal.card.action.install'));
+    await act(async () => {
+      await installButton.props.onClick();
+    });
+
+    expect(backendApp.DownloadDriverPackage).toHaveBeenCalledWith(
+      'tdengine',
+      '3.3.1',
+      'builtin://activate/tdengine?channel=history&version=3.3.1',
+      'D:/drivers',
+    );
+  });
+
+  it('keeps the fallback version when the full version list fails to load', async () => {
+    backendApp.GetDriverStatusList.mockResolvedValue({
+      success: true,
+      data: {
+        downloadDir: 'D:/drivers',
+        drivers: [
+          {
+            type: 'tdengine',
+            name: 'TDengine',
+            builtIn: false,
+            pinnedVersion: '3.7.8',
+            installedVersion: '3.3.1',
+            runtimeAvailable: false,
+            packageInstalled: true,
+            connectable: false,
+            defaultDownloadUrl: 'builtin://activate/tdengine',
+            message: '待启用',
+          },
+        ],
+      },
+    });
+    backendApp.GetDriverVersionList.mockResolvedValue({ success: false, message: 'offline' });
+    backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    const refreshButton = findButton(renderer!, t('driver.modal.footer.refresh'));
+    await act(async () => {
+      await refreshButton.props.onClick();
+    });
+    await flushPromises();
+
+    expect(textContent(renderer!.root.findByType('select'))).toContain('3.3.1');
+    const installButton = findButton(renderer!, t('driver.modal.card.action.install'));
+    await act(async () => {
+      await installButton.props.onClick();
+    });
+
+    expect(backendApp.DownloadDriverPackage).toHaveBeenCalledWith(
+      'tdengine',
+      '3.3.1',
+      'builtin://activate/tdengine',
+      'D:/drivers',
+    );
   });
 
   it('allows switching installed TDengine drivers to a historical compatible version', async () => {
@@ -389,6 +543,7 @@ describe('DriverManagerModal toolbar actions', () => {
       data: {
         versions: [
           { version: '3.7.8', downloadUrl: 'builtin://activate/tdengine', recommended: true },
+          { version: '', downloadUrl: 'builtin://activate/tdengine?channel=default' },
           { version: '3.3.1', downloadUrl: 'builtin://activate/tdengine?channel=history&version=3.3.1' },
         ],
       },
@@ -407,6 +562,11 @@ describe('DriverManagerModal toolbar actions', () => {
     });
     await flushPromises();
 
+    const unloadedVersionSummary = renderer!.root.findByProps({
+      className: 'driver-manager-small-text driver-manager-version-summary',
+    });
+    expect(textContent(unloadedVersionSummary)).toBe(t('driver_manager.version.installed', { suffix: '' }));
+
     const versionSelect = renderer!.root.findByType('select');
     await act(async () => {
       versionSelect.props.onFocus();
@@ -414,11 +574,34 @@ describe('DriverManagerModal toolbar actions', () => {
     await flushPromises();
     expect(backendApp.GetDriverVersionList).toHaveBeenCalledWith('tdengine', '');
 
+    const installedVersionSummary = renderer!.root.findByProps({
+      className: 'driver-manager-small-text driver-manager-version-summary',
+    });
+    expect(textContent(installedVersionSummary)).toBe(t('driver_manager.version.installed', { suffix: '' }));
+    expect(textContent(installedVersionSummary)).not.toContain('3.7.8');
+
+    const loadedVersionSelect = renderer!.root.findByType('select');
+    await act(async () => {
+      loadedVersionSelect.props.onChange({ target: { value: '@@builtin://activate/tdengine?channel=default' } });
+    });
+    await flushPromises();
+
+    const defaultVersionSummary = renderer!.root.findByProps({
+      className: 'driver-manager-small-text driver-manager-version-summary',
+    });
+    expect(textContent(defaultVersionSummary)).toContain('3.7.8');
+
     const reloadedVersionSelect = renderer!.root.findByType('select');
     await act(async () => {
       reloadedVersionSelect.props.onChange({ target: { value: '3.3.1@@builtin://activate/tdengine?channel=history&version=3.3.1' } });
     });
     await flushPromises();
+
+    const switchVersionSummary = renderer!.root.findByProps({
+      className: 'driver-manager-small-text driver-manager-version-summary',
+    });
+    expect(textContent(switchVersionSummary)).toContain('3.7.8');
+    expect(textContent(switchVersionSummary)).toContain('3.3.1');
 
     const switchButtons = renderer!.root.findAll((node) => node.type === 'button' && textContent(node).includes(t('driver_manager.action.switch_version')));
     expect(switchButtons).toHaveLength(1);

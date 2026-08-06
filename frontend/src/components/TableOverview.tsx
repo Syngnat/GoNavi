@@ -32,6 +32,8 @@ import { extractTableNameFromMetadataRow } from '../utils/tableMetadataRows';
 import { V2TableContextMenuView, type V2TableContextMenuActionKey } from './V2TableContextMenu';
 import { confirmCopyTable } from './tableCopyAction';
 import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
+import { formatSidebarTableTimestamp } from './sidebar/sidebarHelpers';
+import { confirmProductionMutation } from '../utils/productionRiskConfirm';
 
 interface TableOverviewProps {
     tab: TabData;
@@ -292,9 +294,16 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const supportsDesignWrite = !getDataSourceCapabilities(connection?.config).forceReadOnlyStructureDesigner;
     const supportsCopyTable = getDataSourceCapabilities(connection?.config).supportsCopyTable;
     const autoFetchVisible = useAutoFetchVisibility();
+    const loadDataRequestIdRef = useRef(0);
 
     const loadData = useCallback(async () => {
-        if (!connection) return;
+        const requestId = loadDataRequestIdRef.current + 1;
+        loadDataRequestIdRef.current = requestId;
+        const isLatestRequest = () => loadDataRequestIdRef.current === requestId;
+        if (!connection) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
             const config = {
@@ -314,6 +323,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 metadataDialect === 'milvus-db'
             ) {
                 const res = await DBGetTables(buildRpcConnectionConfig(config) as any, tab.dbName || '');
+                if (!isLatestRequest()) return;
                 if (res.success && Array.isArray(res.data)) {
                     setTables(parseTableStats(metadataDialect, res.data));
                 } else {
@@ -325,6 +335,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             }
             const sql = buildTableStatusSQL(metadataDialect, tab.dbName || '', schemaName);
             const res = await DBQuery(buildRpcConnectionConfig(config) as any, tab.dbName || '', sql);
+            if (!isLatestRequest()) return;
             if (res.success && Array.isArray(res.data)) {
                 setTables(parseTableStats(metadataDialect, res.data));
             } else {
@@ -333,11 +344,14 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 }));
             }
         } catch (e: any) {
+            if (!isLatestRequest()) return;
             message.error(t('table_overview.message.load_tables_failed', {
                 detail: e?.message || String(e),
             }));
         } finally {
-            setLoading(false);
+            if (isLatestRequest()) {
+                setLoading(false);
+            }
         }
     }, [connection, metadataDialect, schemaName, t, tab.dbName]);
 
@@ -598,13 +612,19 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         }
     }, [t]);
 
-    const handleCopyTable = useCallback((tableName: string) => {
+    const handleCopyTable = useCallback(async (tableName: string) => {
         if (!supportsCopyTable) {
             message.warning(t('table_copy.message.unsupported'));
             return;
         }
         const config = buildConfig();
         if (!config) return;
+        if (!await confirmProductionMutation(
+            connection,
+            t('connection.production_risk.action.execute_sql'),
+            [tab.dbName, tableName].filter(Boolean).join(' / '),
+            t,
+        )) return;
         confirmCopyTable({
             config: buildRpcConnectionConfig(config) as any,
             dbName: tab.dbName || '',
@@ -614,7 +634,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 await loadData();
             },
         });
-    }, [buildConfig, loadData, schemaName, supportsCopyTable, t, tab.dbName]);
+    }, [buildConfig, connection, loadData, schemaName, supportsCopyTable, t, tab.dbName]);
 
     const openTableSQLExportWorkbench = useCallback(async (tableName: string, mode: 'backup' | 'dataOnly') => {
         const normalizedTableName = String(tableName || '').trim();
@@ -655,16 +675,22 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             title: t('table_overview.modal.delete_table.title'),
             content: t('table_overview.modal.delete_table.content', { table: tableName }),
             onOk: async () => {
+                if (!await confirmProductionMutation(
+                    connection,
+                    t('connection.production_risk.action.execute_sql'),
+                    [tab.dbName, tableName].filter(Boolean).join(' / '),
+                    t,
+                )) return;
                 const res = await DropTable(buildRpcConnectionConfig(config) as any, tab.dbName || '', tableName);
                 if (res.success) {
+                    await loadData();
                     message.success(t('table_overview.message.delete_table_success'));
-                    loadData();
                 } else {
                     message.error(t('table_overview.message.delete_table_failed', { detail: res.message }));
                 }
             },
         });
-    }, [buildConfig, loadData, t, tab.dbName]);
+    }, [buildConfig, connection, loadData, t, tab.dbName]);
 
     const handleTableDataDangerAction = useCallback((tableName: string, action: TableDataDangerActionKind) => {
         const config = buildConfig();
@@ -681,6 +707,12 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             cancelText: t('common.cancel'),
             okButtonProps: { danger: true },
             onOk: async () => {
+                if (!await confirmProductionMutation(
+                    connection,
+                    t('connection.production_risk.action.execute_sql'),
+                    [tab.dbName, tableName].filter(Boolean).join(' / '),
+                    t,
+                )) return;
                 const app = (window as any).go.app.App;
                 const methodName = action === 'truncate' ? 'TruncateTables' : 'ClearTables';
                 const hide = message.loading(t('table_overview.message.table_data_action_loading', {
@@ -691,8 +723,8 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     const res = await app[methodName](buildRpcConnectionConfig(config) as any, tab.dbName || '', [tableName]);
                     hide();
                     if (res.success) {
+                        await loadData();
                         message.success(t('table_overview.message.table_data_action_success', { action: actionLabel }));
-                        loadData();
                     } else {
                         message.error(t('table_overview.message.table_data_action_failed', { action: actionLabel, detail: res.message }));
                         return Promise.reject();
@@ -707,7 +739,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 }
             },
         });
-    }, [buildConfig, loadData, t, tab.dbName]);
+    }, [buildConfig, connection, loadData, t, tab.dbName]);
 
     const toggleOverviewTablePinned = useCallback((tableName: string, pinned?: boolean) => {
         if (!connection?.id || !tab.dbName || !tableName) return;
@@ -749,16 +781,22 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 const trimmed = newName.trim();
                 if (!trimmed) { message.error(t('table_overview.validation.table_name_required')); return Promise.reject(); }
                 if (trimmed === tableName) { message.warning(t('table_overview.validation.table_name_unchanged')); return; }
+                if (!await confirmProductionMutation(
+                    connection,
+                    t('connection.production_risk.action.execute_sql'),
+                    [tab.dbName, `${tableName} -> ${trimmed}`].filter(Boolean).join(' / '),
+                    t,
+                )) return;
                 const res = await RenameTable(buildRpcConnectionConfig(config) as any, tab.dbName || '', tableName, trimmed);
                 if (res.success) {
+                    await loadData();
                     message.success(t('table_overview.message.rename_table_success'));
-                    loadData();
                 } else {
                     message.error(t('table_overview.message.rename_table_failed', { detail: res.message }));
                 }
             },
         });
-    }, [buildConfig, loadData, t, tab.dbName]);
+    }, [buildConfig, connection, loadData, t, tab.dbName]);
 
     const openCreateStarRocksRollup = useCallback((tableName: string) => {
         if (!connection) return;
@@ -816,14 +854,15 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     }, [addAIContext, buildConfig, connection?.id, setAIPanelVisible, tab.dbName]);
 
     // --- Theme ---
-    const cardBg = darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
+    // v2 背景/边框/强调色交给 CSS token（跟自定义主题）；legacy 仍用 darkMode 近似色。
+    const cardBg = isV2Ui ? undefined : (darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)');
     const cardHoverBg = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)';
-    const cardBorder = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
-    const textPrimary = darkMode ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.88)';
-    const textSecondary = darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)';
-    const textMuted = darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
-    const accentColor = '#1677ff';
-    const containerBg = darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.01)';
+    const cardBorder = isV2Ui ? undefined : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
+    const textPrimary = isV2Ui ? 'var(--gn-fg-1)' : (darkMode ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.88)');
+    const textSecondary = isV2Ui ? 'var(--gn-fg-3)' : (darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)');
+    const textMuted = isV2Ui ? 'var(--gn-fg-4)' : (darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)');
+    const accentColor = isV2Ui ? 'var(--gn-accent)' : '#1677ff';
+    const containerBg = isV2Ui ? undefined : (darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.01)');
 
     const toggleSort = (field: SortField) => {
         if (sortField === field) {
@@ -1065,17 +1104,24 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         );
     };
 
+    const formatOverviewTimestamp = useCallback((value?: string): string => {
+        if (!value) return '';
+        return formatSidebarTableTimestamp(value) || value;
+    }, []);
+
     const renderTableOverviewMetaBadges = useCallback((table: TableStatRow, compact = false) => {
         const items = [
             ...(table.updateTime ? [{
                 key: 'updated',
                 label: t('table_overview.metric.updated_at'),
-                value: table.updateTime,
+                raw: table.updateTime,
+                value: formatOverviewTimestamp(table.updateTime),
             }] : []),
             ...(table.createTime ? [{
                 key: 'created',
                 label: t('table_overview.metric.created_at'),
-                value: table.createTime,
+                raw: table.createTime,
+                value: formatOverviewTimestamp(table.createTime),
             }] : []),
         ];
         if (items.length === 0) return null;
@@ -1090,7 +1136,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 }}
             >
                 {items.map((item) => (
-                    <Tooltip key={item.key} title={`${item.label}: ${item.value}`} mouseEnterDelay={0.4}>
+                    <Tooltip key={item.key} title={`${item.label}: ${item.raw}`} mouseEnterDelay={0.4}>
                         <span
                             style={{
                                 display: 'inline-flex',
@@ -1099,7 +1145,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                 maxWidth: '100%',
                                 padding: compact ? '1px 7px' : '2px 8px',
                                 borderRadius: 999,
-                                background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                                background: isV2Ui
+                                    ? 'var(--gn-bg-active)'
+                                    : (darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
                                 color: textSecondary,
                                 fontSize: compact ? 10 : 11,
                                 lineHeight: compact ? '16px' : '18px',
@@ -1115,7 +1163,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 ))}
             </div>
         );
-    }, [darkMode, t, textPrimary, textSecondary]);
+    }, [darkMode, formatOverviewTimestamp, isV2Ui, t, textPrimary, textSecondary]);
 
     const renderCardTableContent = (table: TableStatRow) => (
         <div
@@ -1123,8 +1171,10 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             onDoubleClick={() => openTableByDefaultAction(table.name)}
             onContextMenu={isV2Ui ? (event) => openV2OverviewContextMenu(event, table) : undefined}
             style={{
-                background: cardBg,
-                border: `1px solid ${cardBorder}`,
+                ...(isV2Ui ? {} : {
+                    background: cardBg,
+                    border: `1px solid ${cardBorder}`,
+                }),
                 borderRadius: 10,
                 padding: '14px 16px',
                 cursor: 'pointer',
@@ -1132,7 +1182,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 userSelect: 'none',
             }}
             onMouseEnter={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardHoverBg; (e.currentTarget as HTMLDivElement).style.borderColor = accentColor; }}
-            onMouseLeave={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardBg; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder; }}
+            onMouseLeave={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardBg || ''; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder || ''; }}
         >
             <div className={isV2Ui ? 'gn-v2-table-card-name' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <TableOutlined style={{ fontSize: 14, color: accentColor }} />
@@ -1182,7 +1232,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         const combinedSize = getCombinedTableSize(table);
         const sizeRatio = maxCombinedSize > 0 && hasKnownTableSize(table) ? combinedSize / maxCombinedSize : 0;
         const fillWidth = maxCombinedSize > 0 && hasKnownTableSize(table) ? `${Math.max(10, Math.round(sizeRatio * 100))}%` : '0%';
-        const fillColor = darkMode ? 'rgba(22,119,255,0.18)' : 'rgba(22,119,255,0.12)';
+        const fillColor = isV2Ui
+            ? 'var(--gn-accent-soft, rgba(34, 197, 94, 0.16))'
+            : (darkMode ? 'rgba(22,119,255,0.18)' : 'rgba(22,119,255,0.12)');
         const rowSecondary = table.comment || (table.engine
             ? t('table_overview.row.engine_table', { engine: table.engine })
             : t('table_overview.row.open_hint'));
@@ -1195,15 +1247,17 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     style={{
                         position: 'relative',
                         overflow: 'hidden',
-                        borderRadius: 10,
-                        border: `1px solid ${cardBorder}`,
-                        background: cardBg,
+                        borderRadius: isV2Ui ? undefined : 10,
+                        ...(isV2Ui ? {} : {
+                            border: `1px solid ${cardBorder}`,
+                            background: cardBg,
+                        }),
                         cursor: 'pointer',
                         transition: isV2Ui ? undefined : 'all 0.15s ease',
                         userSelect: 'none',
                     }}
                     onMouseEnter={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardHoverBg; (e.currentTarget as HTMLDivElement).style.borderColor = accentColor; }}
-                    onMouseLeave={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardBg; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder; }}
+                    onMouseLeave={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardBg || ''; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder || ''; }}
                 >
                     <div
                         style={{
@@ -1244,7 +1298,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                             borderRadius: 999,
                                             fontSize: 11,
                                             color: textMuted,
-                                            background: darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)',
+                                            background: isV2Ui
+                                                ? 'var(--gn-bg-active)'
+                                                : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)'),
                                         }}
                                     >
                                         {table.engine}
@@ -1379,11 +1435,16 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     alignItems: 'center',
                     minWidth: 1120,
                     minHeight: 32,
-                    borderBottom: `1px solid ${cardBorder}`,
-                    background: cardBg,
-                    color: textPrimary,
-                    cursor: 'pointer',
-                    userSelect: 'none',
+                    ...(isV2Ui ? {
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                    } : {
+                        borderBottom: `1px solid ${cardBorder}`,
+                        background: cardBg,
+                        color: textPrimary,
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                    }),
                 }}
             >
                 <div className="gn-table-overview-compact-name" role="cell" title={table.name}>
@@ -1395,8 +1456,20 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.dataSize >= 0 ? String(table.dataSize) : undefined}>{formatSize(table.dataSize)}</div>
                 <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.indexSize >= 0 ? String(table.indexSize) : undefined}>{formatSize(table.indexSize)}</div>
                 <div className="gn-table-overview-compact-cell" role="cell" title={table.engine || undefined}>{table.engine || '—'}</div>
-                <div className="gn-table-overview-compact-cell" role="cell" title={table.updateTime || undefined}>{table.updateTime || '—'}</div>
-                <div className="gn-table-overview-compact-cell" role="cell" title={table.createTime || undefined}>{table.createTime || '—'}</div>
+                <div
+                    className="gn-table-overview-compact-cell"
+                    role="cell"
+                    title={table.updateTime || undefined}
+                >
+                    {table.updateTime ? formatOverviewTimestamp(table.updateTime) : '—'}
+                </div>
+                <div
+                    className="gn-table-overview-compact-cell"
+                    role="cell"
+                    title={table.createTime || undefined}
+                >
+                    {table.createTime ? formatOverviewTimestamp(table.createTime) : '—'}
+                </div>
             </div>
         );
 
@@ -1421,6 +1494,12 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             </div>
         );
     }
+
+    const viewSwitchBtnClass = (mode: ViewMode) => (
+        isV2Ui
+            ? `gn-v2-table-overview-view-switch-btn${viewMode === mode ? ' is-active' : ''}`
+            : undefined
+    );
 
     return (
         <div className={isV2Ui ? 'gn-table-overview gn-v2-table-overview' : 'gn-table-overview'} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: containerBg, overflow: 'hidden' }}>
@@ -1447,15 +1526,19 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 <Dropdown menu={{ items: sortMenuItems }} trigger={['click']}>
                     <Tooltip title={t('table_overview.tooltip.sort')}><SortAscendingOutlined style={{ fontSize: 16, color: textSecondary, cursor: 'pointer' }} /></Tooltip>
                 </Dropdown>
-                <div style={{ display: 'flex', gap: 2, padding: 2, borderRadius: 6, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                <div
+                    className={isV2Ui ? 'gn-v2-table-overview-view-switch' : undefined}
+                    style={isV2Ui ? undefined : { display: 'flex', gap: 2, padding: 2, borderRadius: 6, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
+                >
                     <Tooltip title={t('table_overview.tooltip.card_view')}>
                         <button
                             type="button"
+                            className={viewSwitchBtnClass('card')}
                             data-table-overview-view-mode="card"
                             aria-label={t('table_overview.tooltip.card_view')}
                             aria-pressed={viewMode === 'card'}
                             onClick={() => setViewMode('card')}
-                            style={{
+                            style={isV2Ui ? undefined : {
                                 width: 28, height: 24, padding: 0, border: 0, borderRadius: 5, cursor: 'pointer', transition: 'all 0.15s',
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: 'inherit',
                                 background: viewMode === 'card' ? (darkMode ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
@@ -1469,11 +1552,12 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     <Tooltip title={t('table_overview.tooltip.list_view')}>
                         <button
                             type="button"
+                            className={viewSwitchBtnClass('list')}
                             data-table-overview-view-mode="list"
                             aria-label={t('table_overview.tooltip.list_view')}
                             aria-pressed={viewMode === 'list'}
                             onClick={() => setViewMode('list')}
-                            style={{
+                            style={isV2Ui ? undefined : {
                                 width: 28, height: 24, padding: 0, border: 0, borderRadius: 5, cursor: 'pointer', transition: 'all 0.15s',
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: 'inherit',
                                 background: viewMode === 'list' ? (darkMode ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
@@ -1487,11 +1571,12 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     <Tooltip title={t('table_overview.tooltip.table_view')}>
                         <button
                             type="button"
+                            className={viewSwitchBtnClass('table')}
                             data-table-overview-view-mode="table"
                             aria-label={t('table_overview.tooltip.table_view')}
                             aria-pressed={viewMode === 'table'}
                             onClick={() => setViewMode('table')}
-                            style={{
+                            style={isV2Ui ? undefined : {
                                 width: 28, height: 24, padding: 0, border: 0, borderRadius: 5, cursor: 'pointer', transition: 'all 0.15s',
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: 'inherit',
                                 background: viewMode === 'table' ? (darkMode ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
@@ -1509,7 +1594,11 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             {/* Content Area */}
             <div
                 className={isV2Ui ? 'gn-v2-table-overview-content' : undefined}
-                style={{
+                data-view-mode={isV2Ui ? viewMode : undefined}
+                style={isV2Ui ? {
+                    flex: 1,
+                    minHeight: 0,
+                } : {
                     flex: 1,
                     minHeight: 0,
                     overflow: viewMode === 'table' ? 'hidden' : 'auto',
@@ -1520,7 +1609,15 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             >
                 {sortedFiltered.length > 0 && (isSearchPending || visibleOverview.hiddenCount > 0 || deferredSearchText.trim()) && (
                     <div
-                        style={{
+                        className={isV2Ui ? 'gn-v2-table-overview-filter-bar' : undefined}
+                        style={isV2Ui ? {
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            fontSize: 12,
+                            flexShrink: 0,
+                        } : {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
@@ -1581,7 +1678,10 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                         {section.rows.map(renderCardTable)}
                                     </div>
                                 ) : (
-                                    <div className={isV2Ui ? 'gn-v2-table-row-list' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    <div
+                                        className={isV2Ui ? 'gn-v2-table-row-list' : undefined}
+                                        style={{ display: 'flex', flexDirection: 'column', gap: isV2Ui ? 0 : 10 }}
+                                    >
                                         {section.rows.map(renderListTable)}
                                     </div>
                                 )}

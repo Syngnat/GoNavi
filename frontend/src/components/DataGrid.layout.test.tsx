@@ -17,6 +17,7 @@ import DataGridPreviewPanel from './DataGridPreviewPanel';
 import { DataGridJsonView, DataGridTextView } from './DataGridRecordViews';
 import DataGridResultViewSwitcher from './DataGridResultViewSwitcher';
 import DataGridSecondaryActions from './DataGridSecondaryActions';
+import { buildDataGridCssText } from './dataGridStyles';
 import { DataGridV2DdlSideWorkspace, DataGridV2DdlView } from './DataGridV2DdlWorkspace';
 import { DataGridV2ErView, DataGridV2FieldsView } from './DataGridV2MetadataViews';
 import { I18nProvider } from '../i18n/provider';
@@ -462,6 +463,36 @@ describe('DataGrid layout', () => {
     expect(css).not.toMatch(/\.gn-v2-data-grid-page-find\s*\{[^}]*max-width:\s*214px\s*!important;/s);
     expect(css).not.toMatch(/\.gn-v2-data-grid-page-find [^{]*\.gn-v2-data-grid-page-find-input[^{]*\{[^}]*width:\s*160px\s*!important;/s);
     expect(css).not.toContain('.gn-v2-data-grid-page-find-row');
+  });
+
+  it('does not render a full-height guide line while resizing columns', () => {
+    const source = readDataGridShellSource();
+
+    expect(source).not.toContain('Ghost Resize Line for Columns');
+    expect(source).not.toContain('ghostRef');
+  });
+
+  it('keeps the V2 column resize hit target visually transparent', () => {
+    const css = readV2ThemeCss();
+
+    expect(css).toMatch(
+      /\.gn-v2-data-grid \.react-resizable-handle\s*\{[^}]*background-image:\s*none\s*!important;/s,
+    );
+    expect(css).not.toContain('.react-resizable-handle::after');
+    expect(css).not.toContain('.react-resizable-handle:hover::after');
+  });
+
+  it('uses the table cell as the only V2 inline edit frame', () => {
+    const css = readV2ThemeCss();
+    const inlineEditorCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-virtual-inline-editing .ant-input,'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-statusbar'),
+    );
+
+    expect(inlineEditorCss).toContain('border: 0 !important;');
+    expect(inlineEditorCss).toContain('border-radius: 0 !important;');
+    expect(inlineEditorCss).toContain('background: transparent !important;');
+    expect(inlineEditorCss).toContain('box-shadow: none !important;');
   });
 
   it('avoids duplicating legacy pagination page text beside the pager', () => {
@@ -916,10 +947,18 @@ describe('DataGrid layout', () => {
         'data_grid.record_view.empty': 'No rows label',
         'data_grid.record_view.json_record_count': `${params?.count} JSON rows label`,
         'data_grid.record_view.edit_json': 'Edit JSON label',
+        'data_grid.record_view.back_to_table': 'Back to table label',
+        'data_grid.record_view.field': 'Field label',
+        'data_grid.record_view.value': 'Value label',
+        'data_grid.record_view.comment': 'Comment label',
+        'data_grid.record_view.type': 'Type label',
+        'data_grid.record_view.copy_value': 'Copy value label',
         'data_grid.record_view.previous': 'Previous label',
         'data_grid.record_view.next': 'Next label',
         'data_grid.record_view.record_position': `Record label ${params?.current} of ${params?.total}`,
         'data_grid.record_view.edit_current': 'Edit current label',
+        'data_grid.record_view.field_or_comment_search_placeholder': 'Search field or comment label',
+        'data_grid.column_quick_find.placeholder': 'Search field label',
         'data_grid.column.type_tooltip': `TYPE ${params?.type}`,
         'data_grid.column.comment_tooltip': `COMMENT ${params?.comment}`,
         'data_grid.preview_panel.no_cell_title': 'Select cell title',
@@ -1037,10 +1076,16 @@ describe('DataGrid layout', () => {
         jsonViewText="[]"
         translate={translate}
         onOpenJsonEditor={() => {}}
+        onReturnToTable={() => {}}
       />,
     );
     expect(jsonRecordMarkup).toContain('5 JSON rows label');
     expect(jsonRecordMarkup).toContain('Edit JSON label');
+    expect(jsonRecordMarkup).toContain('Back to table label');
+    expect(jsonRecordMarkup).toContain('Search field label');
+    expect(jsonRecordMarkup).toContain('data-grid-record-field-search="true"');
+    expect(jsonRecordMarkup).toContain('data-grid-record-field-search--navigation');
+    expect(jsonRecordMarkup).toContain('data-grid-record-field-search-navigation');
     expect(jsonRecordMarkup).not.toContain('data_grid.record_view');
 
     const textRecordMarkup = renderToStaticMarkup(
@@ -1059,6 +1104,7 @@ describe('DataGrid layout', () => {
         onPrev={() => {}}
         onNext={() => {}}
         onEditCurrent={() => {}}
+        onReturnToTable={() => {}}
         formatTextViewValue={(value) => String(value)}
       />,
     );
@@ -1066,11 +1112,43 @@ describe('DataGrid layout', () => {
     expect(textRecordMarkup).toContain('Next label');
     expect(textRecordMarkup).toContain('Record label 1 of 2');
     expect(textRecordMarkup).toContain('Edit current label');
+    expect(textRecordMarkup).toContain('Back to table label');
+    expect(textRecordMarkup).toContain('Search field or comment label');
+    expect(textRecordMarkup).toContain('data-grid-record-field-search="true"');
+    expect(textRecordMarkup).toContain('Field label');
+    expect(textRecordMarkup).toContain('Value label');
+    expect(textRecordMarkup).toContain('Comment label');
+    expect(textRecordMarkup).toContain('Type label');
+    expect(textRecordMarkup).toContain('data-grid-text-view-header="field"');
+    expect(textRecordMarkup).toContain('data-grid-text-view-header="value"');
+    expect(textRecordMarkup.indexOf('data-grid-text-view-header="field"'))
+      .toBeLessThan(textRecordMarkup.indexOf('data-grid-text-view-header="type"'));
+    expect(textRecordMarkup.indexOf('data-grid-text-view-header="type"'))
+      .toBeLessThan(textRecordMarkup.indexOf('data-grid-text-view-header="comment"'));
+    expect(textRecordMarkup.indexOf('data-grid-text-view-header="comment"'))
+      .toBeLessThan(textRecordMarkup.indexOf('data-grid-text-view-header="value"'));
+    expect(textRecordMarkup).toContain('data-grid-text-value-copy="true"');
+    expect(textRecordMarkup).toContain('aria-label="Copy value label"');
+    expect(textRecordMarkup).toContain('grid-template-columns:180px 140px 240px minmax(260px, 1fr)');
+    expect(textRecordMarkup).toContain('text-overflow:ellipsis');
     expect(textRecordMarkup).toContain('raw_sql');
-    expect(textRecordMarkup).toContain('TYPE varchar(128)');
-    expect(textRecordMarkup).toContain('COMMENT SQL text payload');
+    expect(textRecordMarkup).toContain('varchar(128)');
+    expect(textRecordMarkup).toContain('SQL text payload');
     expect(textRecordMarkup).toContain('GitHub release HTTP 500 checksum abc123');
     expect(textRecordMarkup).not.toContain('data_grid.record_view');
+
+    const recordSearchCss = buildDataGridCssText({
+      darkMode: false,
+      densityParams: { dataFontSize: 12 },
+      gridId: 'record-grid',
+    });
+    expect(recordSearchCss).toContain('.record-grid .data-grid-record-field-search-navigation.ant-btn');
+    expect(recordSearchCss).toContain('.record-grid .data-grid-record-field-search .ant-input-affix-wrapper-focused');
+    expect(recordSearchCss).toContain('.record-grid .data-grid-record-field-search-autocomplete.ant-select-focused .ant-select-selector');
+    expect(recordSearchCss).toContain('.record-grid .data-grid-record-field-search .ant-input::placeholder');
+    expect(recordSearchCss).toContain('font-size: 12px !important;');
+    expect(recordSearchCss).toContain('height: 24px !important;');
+    expect(recordSearchCss).toContain('box-shadow: none !important;');
 
     const hiddenTextRecordMarkup = renderToStaticMarkup(
       <DataGridTextView
@@ -1088,6 +1166,7 @@ describe('DataGrid layout', () => {
         onPrev={() => {}}
         onNext={() => {}}
         onEditCurrent={() => {}}
+        onReturnToTable={() => {}}
         formatTextViewValue={(value) => String(value)}
       />,
     );
@@ -1327,6 +1406,14 @@ describe('DataGrid layout', () => {
       css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled {'),
       css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button .gn-v2-toolbar-kbd {'),
     );
+    const viewTabSelectionCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-view-tabs .ant-btn-primary {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-statusbar .gn-v2-data-grid-toolbar-action.ant-btn {'),
+    );
+    const resultViewSelectionCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-result-switcher .ant-segmented-item-selected,'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-page-find-overlay {'),
+    );
     expect(iconActionCss).toContain('width: 28px !important;');
     expect(iconActionCss).toContain('min-width: 28px !important;');
     expect(iconActionCss).toContain('padding-inline: 0 !important;');
@@ -1336,6 +1423,16 @@ describe('DataGrid layout', () => {
     expect(commitDisabledCss).toContain('background: var(--gn-bg-active) !important;');
     expect(commitDisabledCss).toContain('color: var(--gn-fg-5) !important;');
     expect(commitDisabledCss).not.toContain('var(--gn-accent-soft)');
+    expect(viewTabSelectionCss).toContain('background: var(--gn-accent-strong, var(--gn-accent)) !important;');
+    expect(viewTabSelectionCss).toContain('color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;');
+    expect(viewTabSelectionCss).not.toContain('background: var(--gn-bg-active) !important;');
+    expect(viewTabSelectionCss).toContain(':focus-visible');
+    expect(viewTabSelectionCss).toContain('background: var(--gn-accent-strong-hover, var(--gn-accent-2)) !important;');
+    expect(viewTabSelectionCss).toContain('background: var(--gn-accent-strong-active, var(--gn-accent-2)) !important;');
+    expect(resultViewSelectionCss).toContain('background: var(--gn-accent-strong, var(--gn-accent)) !important;');
+    expect(resultViewSelectionCss).toContain('border: 0 !important;');
+    expect(resultViewSelectionCss).toContain('box-shadow: none !important;');
+    expect(resultViewSelectionCss).toContain('color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;');
     expect(css).toContain(
       'body[data-ui-version="v2"] .gn-v2-data-grid-statusbar .gn-v2-data-grid-toolbar-action.ant-btn {',
     );
@@ -1380,9 +1477,13 @@ describe('DataGrid layout', () => {
       expect(markup).toContain('align-items:center');
       expect(markup).toContain('min-height:var(--gonavi-header-min-height, 40px)');
       expect(markup).toContain('text-align:center');
-      expect(markup).toContain('padding-inline:2');
+      expect(markup).toContain('padding:0');
       expect(markup).toContain('vertical-align:middle');
       expect(markup).toContain('data-grid-row-number="true"');
+      expect(markup).toContain('data-grid-row-number-action="true"');
+      expect(markup).toContain('display:flex');
+      expect(markup).toContain('width:100%');
+      expect(markup).toContain('height:100%');
       expect(markup).toContain('width:36');
       // ant Table fixed 列会渲染 fix 相关 class
       expect(markup.includes('ant-table-cell-fix') || markup.includes('fixed')).toBe(true);
@@ -1654,7 +1755,7 @@ describe('DataGrid layout', () => {
     expect(markup.match(/data-grid-query-copy-action="true"/g)?.length).toBe(1);
   });
 
-  it('renders a quick WHERE condition editor when table filters are visible', () => {
+  it('renders a manual query condition editor when table filters are visible', () => {
     const markup = renderDataGridWithI18n(
       <DataGrid
         data={[
@@ -1675,7 +1776,11 @@ describe('DataGrid layout', () => {
 
     expect(markup).toContain('data-grid-quick-where="true"');
     expect(markup).toContain('data-grid-quick-where-input="true"');
-    expect(markup).toContain('WHERE');
+    expect(markup).toContain('data-grid-quick-where-label="true"');
+    expect(markup).toContain('手动查询条件');
+    const manualConditionLabel = markup.match(/<span data-grid-quick-where-label="true"([^>]*)>/)?.[1] ?? '';
+    expect(manualConditionLabel).not.toContain('border');
+    expect(manualConditionLabel).not.toContain('background');
     const englishMarkup = renderDataGridWithI18n(
       <DataGrid
         data={[
@@ -1695,8 +1800,10 @@ describe('DataGrid layout', () => {
       { preference: 'en-US' },
     );
 
-    expect(englishMarkup).toContain('Enter the condition after WHERE');
-    expect(englishMarkup).not.toContain('输入 WHERE 后面的条件');
+    expect(englishMarkup).toContain('Manual query condition');
+    expect(englishMarkup).toContain('Enter a query condition');
+    expect(englishMarkup).not.toContain('Enter the condition after WHERE');
+    expect(englishMarkup).not.toContain('输入查询条件');
   });
 
   it('keeps quick WHERE input clipboard editing isolated from grid shortcuts', () => {
@@ -1706,6 +1813,35 @@ describe('DataGrid layout', () => {
     expect(css).toContain('[data-grid-quick-where-input="true"]');
     expect(css).toContain('font-size: var(--gn-font-size, 14px) !important;');
     expect(css).toContain('user-select: text !important;');
+  });
+
+  it('keeps V2 filter controls on the query workbench theme surface', () => {
+    const css = readV2ThemeCss();
+    const toolbarCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-frame'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-title'),
+    );
+    const filterCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-smart-filter-panel'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-table-shell'),
+    ).replace(/\r\n/g, '\n');
+    const tableSurfaceCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid-table-shell'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .ant-table-thead'),
+    );
+
+    expect(toolbarCss).toContain('background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;');
+    expect(filterCss).toContain('background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;');
+    expect(filterCss).toContain('padding-inline: 0 !important;');
+    expect(filterCss).toContain('.gn-v2-smart-filter-manual-input');
+    expect(filterCss).toContain('max-width: 680px !important;');
+    expect(filterCss).toContain('.gn-v2-smart-filter-panel .ant-select-selector');
+    expect(filterCss).toContain('.gn-v2-smart-filter-panel .ant-input-affix-wrapper');
+    expect(filterCss).not.toContain('background: var(--gn-bg-input)');
+    expect(filterCss).toContain('[data-grid-quick-where="true"] {\n  min-height: 38px;\n  padding-inline: 0 !important;\n  margin-bottom: 8px !important;\n  border: 0 !important;\n  border-radius: 0 !important;');
+    expect(tableSurfaceCss).toContain('background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;');
+    expect(tableSurfaceCss).toContain('.gn-v2-data-grid .ant-table-container');
+    expect(tableSurfaceCss).toContain('.gn-v2-data-grid .ant-table-tbody-virtual-holder');
   });
 
   it('keeps DataGrid scroll synchronization throttled to animation frames', () => {

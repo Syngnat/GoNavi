@@ -46,6 +46,10 @@ export interface SidebarConnectionRailProps {
     openSettings: () => void;
   };
   canLocateActiveTab: boolean;
+  /** General object actions are rendered in the title bar for the V2 layout. */
+  showObjectActions?: boolean;
+  /** Workbench actions can be moved to a wider host when the rail is compact. */
+  showWorkbenchActions?: boolean;
   sidebarExpandAction?: {
     label: string;
     onClick: () => void;
@@ -54,102 +58,114 @@ export interface SidebarConnectionRailProps {
   workbenchActions?: React.ReactNode;
 }
 
-const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({ labels, handlers, canLocateActiveTab, sidebarExpandAction, workbenchActions }) => (
+const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
+  labels,
+  handlers,
+  canLocateActiveTab,
+  showObjectActions = true,
+  showWorkbenchActions = true,
+  sidebarExpandAction,
+  workbenchActions,
+}) => (
   <div className="gn-v2-connection-rail" data-sidebar-fixed-rail="true" aria-label={labels.railSystemActions}>
     <div className="gn-v2-rail-items">
       <div className="gn-v2-rail-primary-actions" aria-label={labels.railObjectActions}>
-      {sidebarExpandAction && (
-        <div className="gn-v2-rail-sidebar-toggle-slot">
-          <Tooltip title={sidebarExpandAction.label} placement="right" mouseEnterDelay={0.35}>
+        {sidebarExpandAction && (
+          <div className="gn-v2-rail-sidebar-toggle-slot">
+            <Tooltip title={sidebarExpandAction.label} placement="right" mouseEnterDelay={0.35}>
+              <button
+                ref={sidebarExpandAction.buttonRef}
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-sidebar-toggle"
+                data-sidebar-collapse-trigger="true"
+                data-sidebar-toggle-placement="fixed-rail"
+                aria-label={sidebarExpandAction.label}
+                aria-controls="gonavi-sidebar-tree-panel"
+                aria-expanded={false}
+                onClick={sidebarExpandAction.onClick}
+              >
+                <MenuUnfoldOutlined />
+              </button>
+            </Tooltip>
+          </div>
+        )}
+        {showObjectActions && (
+          <>
+            <Tooltip title={labels.newGroup} placement="right">
+              <button
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-action"
+                onClick={handlers.openCreateTagModal}
+                aria-label={labels.newGroup}
+                data-sidebar-create-group-action="true"
+              >
+                <FolderOpenOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title={labels.batchTables} placement="right">
+              <button
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-action"
+                onClick={handlers.openBatchTableExport}
+                aria-label={labels.batchTables}
+                data-sidebar-batch-table-action="true"
+              >
+                <TableOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title={labels.batchDatabases} placement="right">
+              <button
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-action"
+                onClick={handlers.openBatchDatabaseExport}
+                aria-label={labels.batchDatabases}
+                data-sidebar-batch-database-action="true"
+              >
+                <DatabaseOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title={labels.dataImport} placement="right">
+              <button
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-action"
+                onClick={handlers.openDataImport}
+                aria-label={labels.dataImport}
+                data-sidebar-data-import-action="true"
+              >
+                <ImportOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title={labels.openExternalSqlFile} placement="right">
+              <button
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-action"
+                onClick={handlers.openExternalSqlFile}
+                aria-label={labels.openExternalSqlFile}
+                data-sidebar-open-external-sql-file-action="true"
+              >
+                <FileAddOutlined />
+              </button>
+            </Tooltip>
+          </>
+        )}
+        <Tooltip title={canLocateActiveTab ? labels.locateCurrentTable : labels.locateCurrentTableUnavailable} placement="right">
+          <span className="gn-v2-rail-action-wrap">
             <button
-              ref={sidebarExpandAction.buttonRef}
               type="button"
-              className="gn-v2-rail-tool gn-v2-rail-sidebar-toggle"
-              data-sidebar-collapse-trigger="true"
-              data-sidebar-toggle-placement="fixed-rail"
-              aria-label={sidebarExpandAction.label}
-              aria-controls="gonavi-sidebar-tree-panel"
-              aria-expanded={false}
-              onClick={sidebarExpandAction.onClick}
+              className="gn-v2-rail-tool gn-v2-rail-action"
+              onClick={handlers.locateActiveTab}
+              aria-label={labels.locateCurrentTable}
+              data-sidebar-locate-current-tab-action="true"
+              disabled={!canLocateActiveTab}
             >
-              <MenuUnfoldOutlined />
+              <AimOutlined />
             </button>
-          </Tooltip>
-        </div>
-      )}
-      <Tooltip title={labels.newGroup} placement="right">
-        <button
-          type="button"
-          className="gn-v2-rail-tool gn-v2-rail-action"
-          onClick={handlers.openCreateTagModal}
-          aria-label={labels.newGroup}
-          data-sidebar-create-group-action="true"
-        >
-          <FolderOpenOutlined />
-        </button>
-      </Tooltip>
-      <Tooltip title={labels.batchTables} placement="right">
-        <button
-          type="button"
-          className="gn-v2-rail-tool gn-v2-rail-action"
-          onClick={handlers.openBatchTableExport}
-          aria-label={labels.batchTables}
-          data-sidebar-batch-table-action="true"
-        >
-          <TableOutlined />
-        </button>
-      </Tooltip>
-      <Tooltip title={labels.batchDatabases} placement="right">
-        <button
-          type="button"
-          className="gn-v2-rail-tool gn-v2-rail-action"
-          onClick={handlers.openBatchDatabaseExport}
-          aria-label={labels.batchDatabases}
-          data-sidebar-batch-database-action="true"
-        >
-          <DatabaseOutlined />
-        </button>
-      </Tooltip>
-      <Tooltip title={labels.dataImport} placement="right">
-        <button
-          type="button"
-          className="gn-v2-rail-tool gn-v2-rail-action"
-          onClick={handlers.openDataImport}
-          aria-label={labels.dataImport}
-          data-sidebar-data-import-action="true"
-        >
-          <ImportOutlined />
-        </button>
-      </Tooltip>
-      <Tooltip title={labels.openExternalSqlFile} placement="right">
-        <button
-          type="button"
-          className="gn-v2-rail-tool gn-v2-rail-action"
-          onClick={handlers.openExternalSqlFile}
-          aria-label={labels.openExternalSqlFile}
-          data-sidebar-open-external-sql-file-action="true"
-        >
-          <FileAddOutlined />
-        </button>
-      </Tooltip>
-      <Tooltip title={canLocateActiveTab ? labels.locateCurrentTable : labels.locateCurrentTableUnavailable} placement="right">
-        <span className="gn-v2-rail-action-wrap">
-          <button
-            type="button"
-            className="gn-v2-rail-tool gn-v2-rail-action"
-            onClick={handlers.locateActiveTab}
-            aria-label={labels.locateCurrentTable}
-            data-sidebar-locate-current-tab-action="true"
-            disabled={!canLocateActiveTab}
-          >
-            <AimOutlined />
-          </button>
-        </span>
-      </Tooltip>
+          </span>
+        </Tooltip>
       </div>
     </div>
     <div className="gn-v2-rail-secondary-actions" aria-label={labels.railSystemActions}>
-      {workbenchActions && (
+      {showWorkbenchActions && workbenchActions && (
         <div className="gn-v2-rail-workbench-actions">
           {workbenchActions}
         </div>

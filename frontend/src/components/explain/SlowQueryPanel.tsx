@@ -29,6 +29,8 @@ import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities'
 import { useI18n } from '../../i18n/provider'
 import type { ConnectionConfig } from '../../types'
 import { formatMs, formatNumber } from '../../utils/explainTypes'
+import { useStore } from '../../store'
+import { confirmProductionMutation } from '../../utils/productionRiskConfirm'
 import {
   buildSlowQuerySummary,
   filterSlowQueryRecords,
@@ -81,6 +83,9 @@ export function SlowQueryPanelContent({
   const deferredKeyword = useDeferredValue(keyword)
   const requestSequenceRef = useRef(0)
   const supportsDiagnosis = getDataSourceCapabilities(config).supportsExplainDiagnosis
+  const connection = useStore((state) => (
+    state.connections.find((item) => item.id === config.id) || null
+  ))
 
   const reload = useCallback(async () => {
     const requestSequence = ++requestSequenceRef.current
@@ -138,6 +143,12 @@ export function SlowQueryPanelContent({
       cancelText: t('common.cancel'),
       okButtonProps: { danger: true },
       onOk: async () => {
+        if (!await confirmProductionMutation(
+          connection,
+          t('connection.production_risk.action.modify_data'),
+          dbName,
+          t,
+        )) return
         setClearing(true)
         try {
           const result = await ClearSlowQueries(buildRpcConnectionConfig(config), dbName)
@@ -158,7 +169,7 @@ export function SlowQueryPanelContent({
         }
       },
     })
-  }, [config, dbName, t])
+  }, [config, connection, dbName, t])
 
   const filteredRecords = useMemo(
     () => filterSlowQueryRecords(records, deferredKeyword),

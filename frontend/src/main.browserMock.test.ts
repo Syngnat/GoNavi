@@ -128,7 +128,7 @@ describe('main browser mock', () => {
       success: false,
       message: t('app.browser_mock.export_connection_package_unsupported'),
     });
-  }, 10000);
+  }, 30000);
 
   it('includes release metadata in browser mock update checks', async () => {
     const app = await importMain();

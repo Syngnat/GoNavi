@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SavedConnection } from '../../types';
+import { buildSidebarDatabasePinKey } from '../../store';
 import { useSidebarTreeLoaders } from './useSidebarTreeLoaders';
 
 const mocks = vi.hoisted(() => ({
@@ -17,8 +18,22 @@ const mocks = vi.hoisted(() => ({
     tableSortPreference: {} as Record<string, string>,
     tableAccessCount: {} as Record<string, number>,
     pinnedSidebarTables: [] as string[],
+    pinnedSidebarDatabases: [] as string[],
   },
 }));
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
+
+const deferred = <T,>(): Deferred<T> => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+};
 
 vi.mock('antd', () => ({
   message: {
@@ -49,15 +64,182 @@ describe('useSidebarTreeLoaders PostgreSQL partitions', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.storeState.connections = [];
     mocks.storeState.tableSortPreference = {};
     mocks.storeState.tableAccessCount = {};
     mocks.storeState.pinnedSidebarTables = [];
+    mocks.storeState.pinnedSidebarDatabases = [];
     mocks.replaceTreeNodeChildren.mockImplementation((_key, children) => children || []);
   });
 
   afterEach(() => {
     act(() => renderer?.unmount());
     renderer = null;
+  });
+
+  it('loads pinned databases first from the latest persisted pin state', async () => {
+    const connection = {
+      id: 'conn-mysql',
+      name: 'MySQL',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+      },
+    } as SavedConnection;
+    mocks.storeState.connections = [connection];
+    mocks.storeState.pinnedSidebarDatabases = [
+      buildSidebarDatabasePinKey(connection.id, 'analytics'),
+    ];
+    mocks.dbGetDatabases.mockResolvedValue({
+      success: true,
+      data: [
+        { Database: 'archive' },
+        { Database: 'analytics' },
+        { Database: 'system' },
+      ],
+    });
+
+    let loaders: ReturnType<typeof useSidebarTreeLoaders> | undefined;
+    const Harness = () => {
+      loaders = useSidebarTreeLoaders({
+        savedQueries: [],
+        tableSortPreference: {},
+        tableAccessCount: {},
+        pinnedSidebarTables: [],
+        pinnedSidebarDatabases: [],
+        isV2Ui: true,
+        loadingNodesRef: { current: new Set<string>() },
+        setConnectionStates: vi.fn(),
+        setLoadedKeys: vi.fn(),
+        replaceTreeNodeChildren: mocks.replaceTreeNodeChildren,
+        buildRuntimeConfig: (conn) => conn.config,
+        buildJVMRuntimeConfig: (conn) => conn.config,
+        buildJVMDiagnosticTreeNodes: () => [],
+        resolveSavedQueryDisplayName: (name) => String(name || ''),
+      });
+      return null;
+    };
+
+    act(() => {
+      renderer = create(<Harness />);
+    });
+    await act(async () => {
+      await loaders?.loadDatabases({ key: connection.id, dataRef: connection });
+    });
+
+    const [, databaseNodes] = mocks.replaceTreeNodeChildren.mock.calls[0];
+    expect(databaseNodes.map((node: any) => node.type)).toEqual([
+      'v2-database-section',
+      'database',
+      'v2-database-section',
+      'database',
+      'database',
+    ]);
+    expect(databaseNodes
+      .filter((node: any) => node.type === 'database')
+      .map((node: any) => node.title)).toEqual([
+      'analytics',
+      'archive',
+      'system',
+    ]);
+    expect(databaseNodes[1].dataRef.pinnedSidebarDatabase).toBe(true);
+    expect(databaseNodes[3].dataRef.pinnedSidebarDatabase).toBeUndefined();
+  });
+
+  it('discards an older database response and keeps the latest visibility rules', async () => {
+    const staleResponse = deferred<any>();
+    const currentResponse = deferred<any>();
+    mocks.dbGetDatabases
+      .mockReturnValueOnce(staleResponse.promise)
+      .mockReturnValueOnce(currentResponse.promise);
+
+    const staleConnection = {
+      id: 'conn-race',
+      name: 'MySQL',
+      includeDatabasePatterns: ['old%'],
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+      },
+    } as SavedConnection;
+    const currentConnection = {
+      ...staleConnection,
+      includeDatabasePatterns: ['new%'],
+      excludeDatabasePatterns: ['new_archive'],
+    } as SavedConnection;
+    mocks.storeState.connections = [staleConnection];
+
+    let loaders: ReturnType<typeof useSidebarTreeLoaders> | undefined;
+    const loadingNodesRef = { current: new Set<string>() };
+    const Harness = () => {
+      loaders = useSidebarTreeLoaders({
+        savedQueries: [],
+        tableSortPreference: {},
+        tableAccessCount: {},
+        pinnedSidebarTables: [],
+        pinnedSidebarDatabases: [],
+        isV2Ui: false,
+        loadingNodesRef,
+        setConnectionStates: vi.fn(),
+        setLoadedKeys: vi.fn(),
+        replaceTreeNodeChildren: mocks.replaceTreeNodeChildren,
+        buildRuntimeConfig: (conn) => conn.config,
+        buildJVMRuntimeConfig: (conn) => conn.config,
+        buildJVMDiagnosticTreeNodes: () => [],
+        resolveSavedQueryDisplayName: (name) => String(name || ''),
+      });
+      return null;
+    };
+
+    act(() => {
+      renderer = create(<Harness />);
+    });
+
+    const staleLoad = loaders!.loadDatabases({
+      key: staleConnection.id,
+      dataRef: staleConnection,
+    });
+    mocks.storeState.connections = [currentConnection];
+    // Connection signature invalidation clears the old marker before reloading.
+    loadingNodesRef.current.delete(`dbs-${staleConnection.id}`);
+    const currentLoad = loaders!.loadDatabases({
+      key: currentConnection.id,
+      dataRef: currentConnection,
+    });
+
+    staleResponse.resolve({
+      success: true,
+      data: [{ Database: 'old_db' }, { Database: 'new_db' }],
+    });
+    await act(async () => {
+      await staleLoad;
+    });
+
+    expect(mocks.replaceTreeNodeChildren).not.toHaveBeenCalled();
+    expect(loadingNodesRef.current.has(`dbs-${currentConnection.id}`)).toBe(true);
+
+    currentResponse.resolve({
+      success: true,
+      data: [
+        { Database: 'old_db' },
+        { Database: 'new_db' },
+        { Database: 'new_archive' },
+      ],
+    });
+    await act(async () => {
+      await currentLoad;
+    });
+
+    expect(mocks.replaceTreeNodeChildren).toHaveBeenCalledTimes(1);
+    const [, databaseNodes, persistedConnection] = mocks.replaceTreeNodeChildren.mock.calls[0];
+    expect(databaseNodes.map((node: any) => node.title)).toEqual(['new_db']);
+    expect(databaseNodes[0].dataRef.includeDatabasePatterns).toEqual(['new%']);
+    expect(persistedConnection).toBe(currentConnection);
+    expect(loadingNodesRef.current.size).toBe(0);
   });
 
   it('builds a Partitions group with clickable table nodes and hides the parent row count', async () => {
@@ -113,6 +295,7 @@ describe('useSidebarTreeLoaders PostgreSQL partitions', () => {
         tableSortPreference: {},
         tableAccessCount: {},
         pinnedSidebarTables: [],
+        pinnedSidebarDatabases: [],
         isV2Ui: true,
         loadingNodesRef: { current: new Set<string>() },
         setConnectionStates: vi.fn(),
@@ -168,5 +351,81 @@ describe('useSidebarTreeLoaders PostgreSQL partitions', () => {
 
     const executedSql = mocks.dbQuery.mock.calls.map((call) => String(call[2] || '')).join('\n');
     expect(executedSql).not.toMatch(/COUNT\s*\(/i);
+  });
+
+  it('waits for an in-flight table load before running an ensureFresh load', async () => {
+    const staleResponse = deferred<any>();
+    const freshResponse = deferred<any>();
+    mocks.dbGetTables
+      .mockReturnValueOnce(staleResponse.promise)
+      .mockReturnValueOnce(freshResponse.promise);
+    mocks.dbQuery.mockResolvedValue({ success: false, data: [] });
+
+    const connection = {
+      id: 'conn-mysql',
+      name: 'MySQL',
+      dbName: 'app',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+        database: 'app',
+      },
+    } as SavedConnection & { dbName: string };
+    mocks.storeState.connections = [connection];
+
+    let loaders: ReturnType<typeof useSidebarTreeLoaders> | undefined;
+    const loadingNodesRef = { current: new Set<string>() };
+    const Harness = () => {
+      loaders = useSidebarTreeLoaders({
+        savedQueries: [],
+        tableSortPreference: {},
+        tableAccessCount: {},
+        pinnedSidebarTables: [],
+        pinnedSidebarDatabases: [],
+        isV2Ui: true,
+        loadingNodesRef,
+        setConnectionStates: vi.fn(),
+        setLoadedKeys: vi.fn(),
+        replaceTreeNodeChildren: mocks.replaceTreeNodeChildren,
+        buildRuntimeConfig: (conn) => conn.config,
+        buildJVMRuntimeConfig: (conn) => conn.config,
+        buildJVMDiagnosticTreeNodes: () => [],
+        resolveSavedQueryDisplayName: (name) => String(name || ''),
+      });
+      return null;
+    };
+
+    act(() => {
+      renderer = create(<Harness />);
+    });
+
+    const node = { key: 'conn-mysql-app', dataRef: connection };
+    const staleLoad = loaders!.loadTables(node);
+    let freshLoadResolved = false;
+    const freshLoad = loaders!.loadTables(node, { ensureFresh: true }).then(() => {
+      freshLoadResolved = true;
+    });
+
+    expect(mocks.dbGetTables).toHaveBeenCalledTimes(1);
+    expect(freshLoadResolved).toBe(false);
+
+    staleResponse.resolve({ success: true, data: [{ Table: 'old_table' }] });
+    await act(async () => {
+      await staleLoad;
+      await Promise.resolve();
+    });
+
+    expect(mocks.dbGetTables).toHaveBeenCalledTimes(2);
+    expect(freshLoadResolved).toBe(false);
+
+    freshResponse.resolve({ success: true, data: [{ Table: 'new_table' }] });
+    await act(async () => {
+      await freshLoad;
+    });
+
+    expect(freshLoadResolved).toBe(true);
+    expect(loadingNodesRef.current.size).toBe(0);
   });
 });

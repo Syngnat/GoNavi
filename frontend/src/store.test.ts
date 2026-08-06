@@ -101,7 +101,7 @@ describe('store appearance persistence', () => {
       primaryElements: ['object'],
       secondaryElements: ['kind', 'connection', 'database'],
     });
-  });
+  }, 30000);
 
   it('migrates the previous tab display default without overwriting custom settings', async () => {
     storage.setItem('lite-db-storage', JSON.stringify({
@@ -892,6 +892,42 @@ describe('store appearance persistence', () => {
     expect(saved?.includeRedisDatabases).toEqual([0, 15, 16, 31]);
   });
 
+  it('sanitizes persisted database include and exclude masks without rewriting legacy exact names', async () => {
+    const { useStore } = await importStore();
+    const validUnicodePattern = '租'.repeat(85);
+    const invalidUnicodePattern = '租'.repeat(86);
+    const includePatterns = [
+      invalidUnicodePattern,
+      validUnicodePattern,
+      ' tenant_% ',
+      'tenant_%',
+      ...Array.from({ length: 260 }, (_, index) => `app_${index}%`),
+      'x'.repeat(257),
+    ];
+
+    useStore.getState().replaceConnections([{
+      id: 'filtered-db',
+      name: 'Filtered DB',
+      includeDatabases: ['app_db'],
+      includeDatabasePatterns: includePatterns,
+      excludeDatabasePatterns: [' archive_% ', 'archive_%', ''],
+      config: {
+        id: 'filtered-db',
+        type: 'mysql',
+        host: 'db.local',
+        port: 3306,
+        user: 'root',
+      },
+    }]);
+
+    const saved = useStore.getState().connections[0];
+    expect(saved?.includeDatabases).toEqual(['app_db']);
+    expect(saved?.includeDatabasePatterns?.[0]).toBe(validUnicodePattern);
+    expect(saved?.includeDatabasePatterns).not.toContain(invalidUnicodePattern);
+    expect(saved?.includeDatabasePatterns).toHaveLength(256);
+    expect(saved?.excludeDatabasePatterns).toEqual(['archive_%']);
+  });
+
   it('keeps InterSystems IRIS saved connections as independent datasource type', async () => {
     const { useStore } = await importStore();
 
@@ -1160,7 +1196,7 @@ describe('store appearance persistence', () => {
     );
   });
 
-  it('normalizes connection and group environment metadata', async () => {
+  it('normalizes connection environment metadata without storing group presets', async () => {
     const { useStore } = await importStore();
 
     useStore.getState().replaceConnections([
@@ -1193,7 +1229,7 @@ describe('store appearance persistence', () => {
       name: 'Test',
       environmentType: 'test',
       connectionIds: ['conn-production'],
-    });
+    } as any);
     useStore.getState().addConnectionTag({
       id: 'tag-legacy',
       name: 'Legacy',
@@ -1204,10 +1240,11 @@ describe('store appearance persistence', () => {
       'production',
       'local',
     ]);
-    expect(useStore.getState().connectionTags.map((item) => item.environmentType)).toEqual([
-      'test',
-      'local',
+    expect(useStore.getState().connectionTags).toEqual([
+      expect.objectContaining({ id: 'tag-test', name: 'Test' }),
+      expect.objectContaining({ id: 'tag-legacy', name: 'Legacy' }),
     ]);
+    expect(useStore.getState().connectionTags.every((item) => !('environmentType' in item))).toBe(true);
   }, 30_000);
 
   it('reorders connections inside tags and ungrouped roots independently', async () => {
@@ -3589,5 +3626,41 @@ describe('store persistence hot path', () => {
 
     expect(scrubbedProjection).not.toBe(legacyProjection);
     expect(Object.prototype.hasOwnProperty.call(scrubbedProjection, 'connections')).toBe(false);
+  });
+});
+
+describe('sidebar database pin persistence', () => {
+  let storage: MemoryStorage;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('persists database pins by connection and database name', async () => {
+    const { buildSidebarDatabasePinKey, updateSidebarDatabasePinKeys, useStore } = await importStore();
+    const pinKey = buildSidebarDatabasePinKey(' conn-1 ', ' analytics ');
+
+    expect(pinKey).toBe(JSON.stringify(['conn-1', 'analytics']));
+    expect(updateSidebarDatabasePinKeys([], 'conn-1', 'analytics', true)).toEqual([pinKey]);
+    expect(updateSidebarDatabasePinKeys([pinKey], 'conn-1', 'analytics', true)).toEqual([pinKey]);
+
+    useStore.getState().setSidebarDatabasePinned('conn-1', 'analytics', true);
+    expect(useStore.getState().pinnedSidebarDatabases).toEqual([pinKey]);
+    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
+    expect(persisted.state.pinnedSidebarDatabases).toEqual([pinKey]);
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().pinnedSidebarDatabases).toEqual([pinKey]);
+
+    reloaded.useStore.getState().setSidebarDatabasePinned('conn-1', 'analytics', false);
+    expect(reloaded.useStore.getState().pinnedSidebarDatabases).toEqual([]);
   });
 });

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { QWEN_CODING_PLAN_ANTHROPIC_BASE_URL } from '../../utils/aiProviderPresets';
+import {
+  QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
+  resolvePresetBaseURL,
+  resolvePresetTransport,
+} from '../../utils/aiProviderPresets';
 import { t as translateCatalog } from '../../i18n/catalog';
 import {
   EMPTY_MCP_SERVER,
   EMPTY_SKILL,
+  MINIMAX_ENDPOINTS,
   PROVIDER_PRESETS,
   findPreset,
   localizeProviderPresets,
@@ -46,6 +51,42 @@ describe('aiSettingsModalConfig', () => {
     });
 
     expect(preset.key).toBe('cursor');
+  });
+
+  it('supports every configured MiniMax region and protocol endpoint', () => {
+    const preset = findPreset('minimax');
+
+    expect(preset.defaultBaseUrl).toBe('https://api.minimax.io/anthropic');
+    expect(MINIMAX_ENDPOINTS).toEqual([
+      { backendType: 'anthropic', baseUrl: 'https://api.minimax.io/anthropic' },
+      { backendType: 'anthropic', baseUrl: 'https://api.minimaxi.com/anthropic' },
+      { backendType: 'openai', baseUrl: 'https://api.minimax.io/v1' },
+      { backendType: 'openai', baseUrl: 'https://api.minimaxi.com/v1' },
+    ]);
+
+    for (const endpoint of MINIMAX_ENDPOINTS) {
+      expect(matchProviderPreset({
+        type: endpoint.backendType,
+        baseUrl: endpoint.baseUrl,
+      }).key).toBe('minimax');
+    }
+
+    const selectedBaseUrl = 'https://api.minimaxi.com/v1';
+    expect(resolvePresetBaseURL({
+      presetKey: preset.key,
+      presetDefaultBaseUrl: preset.defaultBaseUrl,
+      presetEndpoints: preset.endpoints,
+      valuesBaseUrl: selectedBaseUrl,
+    })).toBe(selectedBaseUrl);
+    expect(resolvePresetTransport({
+      presetKey: preset.key,
+      presetBackendType: preset.backendType,
+      presetEndpoints: preset.endpoints,
+      valuesBaseUrl: selectedBaseUrl,
+    })).toEqual({
+      type: 'openai',
+      apiFormat: undefined,
+    });
   });
 
   it('matches local Codex and Claude subscriptions without confusing Qwen Claude CLI', () => {

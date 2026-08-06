@@ -239,6 +239,9 @@ func TestImportConnectionsPayloadNavicatNCXMapsOracleSIDAndRedisDB(t *testing.T)
 	if oracleConn.Config.Type != "oracle" || oracleConn.Config.ConnectionParams != "SID=ORCL" {
 		t.Fatalf("expected oracle SID connection params, got %#v", oracleConn.Config)
 	}
+	if oracleConn.Config.Database != "" {
+		t.Fatalf("expected oracle SID import to leave Database empty (SID only in ConnectionParams), got %q", oracleConn.Config.Database)
+	}
 	resolvedOracle, err := app.resolveConnectionSecrets(oracleConn.Config)
 	if err != nil {
 		t.Fatalf("resolveConnectionSecrets for oracle returned error: %v", err)

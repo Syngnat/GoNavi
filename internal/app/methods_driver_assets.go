@@ -1277,12 +1277,7 @@ func scaleProgress(downloaded, total, start, end int64) (int64, int64) {
 	return start + ((downloaded * span) / total), 100
 }
 
-func preloadOptionalDriverPackageSizes(definitions []driverDefinition) map[string]int64 {
-	result := make(map[string]int64)
-	if len(definitions) == 0 {
-		return result
-	}
-
+func optionalDriverTypesForPackageSizes(definitions []driverDefinition) []string {
 	needed := make([]string, 0, len(definitions))
 	for _, definition := range definitions {
 		normalizedType := normalizeDriverType(definition.Type)
@@ -1297,38 +1292,63 @@ func preloadOptionalDriverPackageSizes(definitions []driverDefinition) map[strin
 		}
 		needed = append(needed, normalizedType)
 	}
-	if len(needed) == 0 {
+	return needed
+}
+
+func fillOptionalDriverPackageSizes(result map[string]int64, sizeByAsset map[string]int64, driverTypes []string) []string {
+	missing := make([]string, 0, len(driverTypes))
+	for _, driverType := range driverTypes {
+		sizeBytes := resolveOptionalDriverAssetSize(sizeByAsset, driverType)
+		if sizeBytes > 0 {
+			result[driverType] = sizeBytes
+			continue
+		}
+		missing = append(missing, driverType)
+	}
+	return missing
+}
+
+func readCachedOptionalDriverPackageSizes(definitions []driverDefinition) map[string]int64 {
+	result := make(map[string]int64)
+	pending := optionalDriverTypesForPackageSizes(definitions)
+	if len(pending) == 0 {
+		return result
+	}
+
+	if tag := currentDriverReleaseTag(); tag != "" {
+		if sizeByAsset, _, ok := readReleaseAssetSizesFromCache("tag:" + tag); ok {
+			pending = fillOptionalDriverPackageSizes(result, sizeByAsset, pending)
+		}
+	}
+	if len(pending) == 0 {
+		return result
+	}
+	if sizeByAsset, _, ok := readReleaseAssetSizesFromCache("latest"); ok {
+		_ = fillOptionalDriverPackageSizes(result, sizeByAsset, pending)
+	}
+	return result
+}
+
+func preloadOptionalDriverPackageSizes(definitions []driverDefinition) map[string]int64 {
+	result := make(map[string]int64)
+	pending := optionalDriverTypesForPackageSizes(definitions)
+	if len(pending) == 0 {
 		return result
 	}
 
 	tag := currentDriverReleaseTag()
-
-	fillFromSizes := func(sizeByAsset map[string]int64, driverTypes []string) []string {
-		missing := make([]string, 0, len(driverTypes))
-		for _, driverType := range driverTypes {
-			sizeBytes := resolveOptionalDriverAssetSize(sizeByAsset, driverType)
-			if sizeBytes > 0 {
-				result[driverType] = sizeBytes
-				continue
-			}
-			missing = append(missing, driverType)
-		}
-		return missing
-	}
-
-	pending := needed
 	if tag != "" {
 		if sizeByAsset, _, err := loadReleaseAssetSizesCached("tag:"+tag, func() (*githubRelease, error) {
 			return fetchReleaseByTag(tag)
 		}); err == nil {
-			pending = fillFromSizes(sizeByAsset, pending)
+			pending = fillOptionalDriverPackageSizes(result, sizeByAsset, pending)
 		}
 	}
 	if len(pending) == 0 {
 		return result
 	}
 	if sizeByAsset, _, err := loadReleaseAssetSizesCached("latest", fetchLatestReleaseForDriverAssets); err == nil {
-		_ = fillFromSizes(sizeByAsset, pending)
+		_ = fillOptionalDriverPackageSizes(result, sizeByAsset, pending)
 	}
 	return result
 }

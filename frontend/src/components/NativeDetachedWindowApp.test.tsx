@@ -7,10 +7,13 @@ import type {
   NativeDetachedWindowActionPayload,
   NativeDetachedWindowBootstrap,
 } from '../utils/nativeDetachedWindowClient';
+import { NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY } from '../utils/nativeDetachedWindowClient';
 import { clearQueryTabDraft, setQueryTabDraft } from '../utils/sqlFileTabDrafts';
 
 const {
   aiTerminalGuard,
+  aiChatRenderProps,
+  customThemeStyleHostProps,
   detachedResultAutoReport,
   detachedResultDataChangeHandlers,
   detachedResultGridProps,
@@ -18,6 +21,16 @@ const {
   flushAIChatSessionPersistence,
 } = vi.hoisted(() => ({
   aiTerminalGuard: vi.fn(async (): Promise<boolean> => true),
+  aiChatRenderProps: {
+    current: null as { darkMode?: boolean; bgColor?: string; presentation?: string } | null,
+  },
+  customThemeStyleHostProps: {
+    current: null as {
+      contextKey?: string;
+      onAntTokensChange?: (snapshot: unknown) => void;
+      themeOverride?: unknown;
+    } | null,
+  },
   detachedResultAutoReport: { current: false },
   detachedResultDataChangeHandlers: {
     current: [] as Array<((rows: Array<Record<string, unknown>>) => void) | undefined>,
@@ -122,7 +135,13 @@ vi.mock('antd', () => ({
     <button {...props}>{icon}</button>
   ),
   ConfigProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Segmented: ({ value, onChange }: { value: string; onChange?: (value: string) => void }) => (
+    <button data-component="segmented" type="button" onClick={() => onChange?.(value === 'table' ? 'raw' : 'table')}>
+      {value}
+    </button>
+  ),
   Spin: () => <span data-component="spin" />,
+  Tag: ({ children }: { children: React.ReactNode }) => <span data-component="tag">{children}</span>,
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   theme: {
     darkAlgorithm: 'dark',
@@ -172,6 +191,8 @@ vi.mock('./DataGrid', () => ({
 
 vi.mock('./AIChatPanel', () => ({
   default: ({
+    darkMode,
+    bgColor,
     presentation,
     onAttach,
     onClose,
@@ -179,31 +200,52 @@ vi.mock('./AIChatPanel', () => ({
     onRegisterTerminalGuard,
     interactionDisabled,
   }: {
+    darkMode?: boolean;
+    bgColor?: string;
     presentation?: string;
     onAttach?: () => void;
     onClose?: () => void;
     onOpenSettings?: () => void;
     onRegisterTerminalGuard?: (guard: (() => Promise<boolean>) | null) => void;
     interactionDisabled?: boolean;
-  }) => (
-    <div
-      data-ai-chat-presentation={presentation}
-      data-ai-chat-interaction-disabled={interactionDisabled ? 'true' : 'false'}
-      ref={() => onRegisterTerminalGuard?.(aiTerminalGuard)}
-    >
-      <button data-ai-chat-attach type="button" onClick={onAttach} />
-      <button data-ai-chat-close type="button" onClick={onClose} />
-      <button data-ai-chat-settings type="button" onClick={onOpenSettings} />
-    </div>
-  ),
+  }) => {
+    aiChatRenderProps.current = { darkMode, bgColor, presentation };
+    return (
+      <div
+        data-ai-chat-presentation={presentation}
+        data-ai-chat-interaction-disabled={interactionDisabled ? 'true' : 'false'}
+        ref={() => onRegisterTerminalGuard?.(aiTerminalGuard)}
+      >
+        <button data-ai-chat-attach type="button" onClick={onAttach} />
+        <button data-ai-chat-close type="button" onClick={onClose} />
+        <button data-ai-chat-settings type="button" onClick={onOpenSettings} />
+      </div>
+    );
+  },
 }));
 
 vi.mock('./NativeDetachedWindowController', () => ({
   default: () => null,
 }));
 
+vi.mock('./theme/CustomThemeStyleHost', () => ({
+  default: ({
+    contextKey,
+    onAntTokensChange,
+    themeOverride,
+  }: {
+    contextKey?: string;
+    onAntTokensChange?: (snapshot: unknown) => void;
+    themeOverride?: unknown;
+  }) => {
+    customThemeStyleHostProps.current = { contextKey, onAntTokensChange, themeOverride };
+    return null;
+  },
+}));
+
 import NativeDetachedWindowApp, {
   NATIVE_DETACHED_PAINT_FALLBACK_MS,
+  applyNativeDetachedDocumentAppearance,
   waitForNativeDetachedContentPaint,
 } from './NativeDetachedWindowApp';
 
@@ -221,6 +263,8 @@ describe('NativeDetachedWindowApp', () => {
     flushAIChatSessionPersistence.mockResolvedValue(undefined);
     aiTerminalGuard.mockReset();
     aiTerminalGuard.mockResolvedValue(true);
+    aiChatRenderProps.current = null;
+    customThemeStyleHostProps.current = null;
     detachedResultAutoReport.current = false;
     detachedResultDataChangeHandlers.current = [];
     detachedResultGridProps.current = null;
@@ -231,8 +275,10 @@ describe('NativeDetachedWindowApp', () => {
       activeContext: null,
       connections: [],
       theme: 'light',
+      themePreference: 'light',
       appearance: { uiVersion: 'v2' },
       fontSize: 14,
+      uiScale: 1,
       aiPanelVisible: false,
       aiChatHistory: {},
       aiChatSessions: [],
@@ -246,6 +292,33 @@ describe('NativeDetachedWindowApp', () => {
       },
       updateQueryTabDraft: vi.fn(),
     };
+  });
+
+  it('applies the host theme context to the detached document before paint', () => {
+    const setAttribute = vi.fn();
+    const setProperty = vi.fn();
+    const documentRef = {
+      body: {
+        style: { backgroundColor: '', color: '', fontSize: '' },
+        setAttribute,
+      },
+      documentElement: {
+        style: { colorScheme: '', setProperty },
+      },
+    } as any;
+
+    applyNativeDetachedDocumentAppearance('dark', 'v2', 24, 0.5, documentRef);
+
+    expect(setAttribute).toHaveBeenCalledWith('data-theme', 'dark');
+    expect(setAttribute).toHaveBeenCalledWith('data-ui-version', 'v2');
+    expect(documentRef.body.style).toEqual({
+      backgroundColor: 'transparent',
+      color: '#ffffff',
+      fontSize: '20px',
+    });
+    expect(documentRef.documentElement.style.colorScheme).toBe('dark');
+    expect(setProperty).toHaveBeenCalledWith('--gn-ui-scale', '0.8');
+    expect(setProperty).toHaveBeenCalledWith('--gn-font-size', '20px');
   });
 
   it('falls back when a visible WebView temporarily throttles animation frames', async () => {
@@ -352,6 +425,52 @@ describe('NativeDetachedWindowApp', () => {
     expect(client.closeCurrentWindow).toHaveBeenCalledOnce();
     await act(async () => renderer!.unmount());
     clearQueryTabDraft(queryTab.id);
+  });
+
+  it('uses the host custom theme definition in the detached style host', async () => {
+    const theme = {
+      schemaVersion: 1 as const,
+      id: 'theme-detached-app',
+      name: 'Detached app',
+      sourceFileName: 'detached-app.css',
+      baseMode: 'light' as const,
+      css: 'body[data-custom-theme] { --gn-bg-panel: #e8f5ee; --gn-monaco-bg: #e8f5ee; }',
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const bootstrap: NativeDetachedWindowBootstrap = {
+      id: 'native-themed-window',
+      kind: 'workbench',
+      title: queryTab.title,
+      payload: {
+        storeState: {
+          tabs: [queryTab],
+          theme: 'light',
+          appearance: { uiVersion: 'v2' },
+          [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: theme,
+        },
+        tab: queryTab,
+      },
+    };
+    const client = {
+      load: vi.fn(async () => bootstrap),
+      present: vi.fn(async () => undefined),
+      ready: vi.fn(async () => undefined),
+      sync: vi.fn(async () => undefined),
+      attach: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      openAISettings: vi.fn(async () => undefined),
+      closeCurrentWindow: vi.fn(async () => undefined),
+    };
+
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<NativeDetachedWindowApp client={client} />);
+      await flushEffects();
+    });
+
+    expect(customThemeStyleHostProps.current?.themeOverride).toEqual(theme);
+    await act(async () => renderer!.unmount());
   });
 
   it('signals ready only after committed native content crosses a paint frame', async () => {
@@ -515,6 +634,7 @@ describe('NativeDetachedWindowApp', () => {
 
     expect(renderer!.root.findByProps({ 'data-ai-chat-presentation': 'detached' })).toBeTruthy();
     expect(client.ready).toHaveBeenCalledWith({ id: 'ai-chat', kind: 'ai-chat' });
+    expect(customThemeStyleHostProps.current?.contextKey).toBe('dark:v2');
 
     await act(async () => {
       runtimeEventListeners.get('gonavi:native-detached-command')?.({
@@ -523,6 +643,11 @@ describe('NativeDetachedWindowApp', () => {
         payload: {
           revision: 2,
           storeState: {
+            theme: 'light',
+            themePreference: 'light',
+            appearance: { uiVersion: 'v2' },
+            fontSize: 16,
+            uiScale: 1.1,
             activeContext: { connectionId: 'connection-2', dbName: 'analytics' },
             activeTabId: 'query-native-2',
             activeTab: { ...queryTab, id: 'query-native-2', connectionId: 'connection-2' },
@@ -536,6 +661,17 @@ describe('NativeDetachedWindowApp', () => {
     expect(storeState.tabs).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'query-native-2', connectionId: 'connection-2' }),
     ]));
+    expect(storeState.theme).toBe('light');
+    expect(storeState.themePreference).toBe('light');
+    expect(storeState.appearance).toEqual({ uiVersion: 'v2' });
+    expect(storeState.fontSize).toBe(16);
+    expect(storeState.uiScale).toBe(1.1);
+    expect(aiChatRenderProps.current).toEqual(expect.objectContaining({
+      presentation: 'detached',
+      darkMode: false,
+      bgColor: 'var(--gn-bg-panel, #ffffff)',
+    }));
+    expect(customThemeStyleHostProps.current?.contextKey).toBe('light:v2');
 
     await act(async () => {
       renderer!.root.findByProps({ 'data-ai-chat-attach': true }).props.onClick();
@@ -626,6 +762,71 @@ describe('NativeDetachedWindowApp', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('renders detached Elasticsearch raw responses with status metadata', async () => {
+    const rawResponse = '{"errors":true,"items":[]}';
+    const bootstrap: NativeDetachedWindowBootstrap = {
+      id: 'query-result:query-native-1:es-r1',
+      kind: 'query-result',
+      title: 'POST /_bulk',
+      payload: {
+        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        resultWindow: {
+          id: 'query-result:query-native-1:es-r1',
+          sourceQueryTabId: queryTab.id,
+          connectionId: queryTab.connectionId,
+          dbName: 'events',
+          title: 'POST /_bulk',
+          x: 0,
+          y: 0,
+          width: 800,
+          height: 600,
+          zIndex: 1201,
+          result: {
+            key: 'es-r1',
+            sql: 'POST /_bulk',
+            rows: [],
+            columns: [],
+            resultType: 'elasticsearch',
+            requestLabel: 'POST /_bulk',
+            httpStatus: 200,
+            rawResponse,
+            partialFailure: true,
+            outcomeUnknown: true,
+            pkColumns: [],
+            readOnly: true,
+          },
+        },
+      },
+    };
+    const client = {
+      load: vi.fn(async () => bootstrap),
+      ready: vi.fn(async () => undefined),
+      sync: vi.fn(async () => undefined),
+      attach: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      openAISettings: vi.fn(async () => undefined),
+      closeCurrentWindow: vi.fn(async () => undefined),
+    };
+
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<NativeDetachedWindowApp client={client} />);
+      await flushEffects();
+    });
+
+    const raw = renderer!.root.findByProps({
+      'aria-label': 'query_editor.elasticsearch.raw_response',
+    });
+    expect(raw.props.value).toBe(rawResponse);
+    expect(renderer!.root.findAllByProps({ 'data-component': 'data-grid' })).toHaveLength(0);
+    expect(renderer!.root.findAllByProps({ 'data-component': 'tag' }).map((tag) => tag.children.join('')))
+      .toEqual(expect.arrayContaining([
+        'HTTP 200',
+        'query_editor.elasticsearch.partial',
+        'query_editor.elasticsearch.outcome_unknown',
+      ]));
   });
 
   it('keeps query-result data reporting stable across unrelated parent renders', async () => {

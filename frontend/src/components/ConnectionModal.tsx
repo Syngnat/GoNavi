@@ -88,6 +88,7 @@ import {
   parseClickHouseHTTPUriToValues,
   parseHostPort,
   parseUriToValues,
+  resolveOracleConnectionTarget,
   toAddress,
   type ClickHouseProtocolChoice,
   type OceanBaseProtocolChoice,
@@ -391,6 +392,7 @@ const ConnectionModal: React.FC<{
   const testInFlightRef = useRef(false);
   const testTimerRef = useRef<number | null>(null);
   const testRunIdRef = useRef(0);
+  const oracleModeTouchedRef = useRef(false);
   const addConnection = useStore((state) => state.addConnection);
   const updateConnection = useStore((state) => state.updateConnection);
   const savedConnections = useStore((state) => state.connections) ?? [];
@@ -406,6 +408,7 @@ const ConnectionModal: React.FC<{
   );
   const disableLocalBackdropFilter = isMacLikePlatform();
   const mysqlTopology = Form.useWatch("mysqlTopology", form) || "single";
+  const oracleMode = Form.useWatch("oracleMode", form) || "service";
   const rocketmqTopology = Form.useWatch("rocketmqTopology", form) || "single";
   const mqttTopology = Form.useWatch("mqttTopology", form) || "single";
   const kafkaTopology = Form.useWatch("kafkaTopology", form) || "single";
@@ -1383,6 +1386,7 @@ const ConnectionModal: React.FC<{
   useEffect(() => {
     testRunIdRef.current += 1;
     if (open) {
+      oracleModeTouchedRef.current = false;
       setSaving(false);
       setTestingConnection(false);
       testInFlightRef.current = false;
@@ -1504,6 +1508,14 @@ const ConnectionModal: React.FC<{
           (hasStoredConnectionParams ? config.connectionParams : "") ||
           parsedInitialUri?.connectionParams ||
           "";
+        // 与后端保持相同的合并顺序：URI 参数先加载，ConnectionParams 后覆盖。
+        const oracleTarget =
+          configType === "oracle"
+            ? resolveOracleConnectionTarget(
+                parsedInitialUri?.connectionParams,
+                config.connectionParams,
+              )
+            : null;
         const nacosConnectionScope =
           configType === "nacos"
             ? extractNacosConnectionScope(initialConnectionParams)
@@ -1526,7 +1538,11 @@ const ConnectionModal: React.FC<{
           port: primaryPort,
           user: config.user,
           password: config.password,
-          database: config.database,
+          database:
+            oracleTarget?.mode === "sid"
+              ? oracleTarget.sid
+              : config.database,
+          oracleMode: oracleTarget?.mode || "service",
           restrictDataEdit: protection.restrictDataEdit === true,
           restrictStructureEdit: protection.restrictStructureEdit === true,
           restrictScriptExecution:
@@ -1545,6 +1561,8 @@ const ConnectionModal: React.FC<{
               ? resolveOceanBaseProtocolForConfig(config)
               : "mysql",
           includeDatabases: initialValues.includeDatabases,
+          includeDatabasePatterns: initialValues.includeDatabasePatterns,
+          excludeDatabasePatterns: initialValues.excludeDatabasePatterns,
           includeRedisDatabases: initialValues.includeRedisDatabases,
           useSSL: !!config.useSSL,
           sslMode: config.sslMode || "preferred",
@@ -1781,6 +1799,7 @@ const ConnectionModal: React.FC<{
         initialValues,
         nacosNamespaceIdTouched:
           form.isFieldTouched?.("nacosNamespaceId") === true,
+        oracleModeTouched: oracleModeTouchedRef.current,
         translate: t,
       });
       const payload = buildSavedConnectionInput({
@@ -1935,6 +1954,7 @@ const ConnectionModal: React.FC<{
         initialValues,
         nacosNamespaceIdTouched:
           form.isFieldTouched?.("nacosNamespaceId") === true,
+        oracleModeTouched: oracleModeTouchedRef.current,
         translate: t,
       });
       if (!isCurrentTestRun()) return;
@@ -2119,6 +2139,7 @@ const ConnectionModal: React.FC<{
         values,
         forPersist: false,
         initialValues,
+        oracleModeTouched: oracleModeTouchedRef.current,
         translate: t,
       });
       if (initialValues?.id) {
@@ -2233,6 +2254,8 @@ const ConnectionModal: React.FC<{
         uri: "",
         connectionParams: "",
         includeDatabases: undefined,
+        includeDatabasePatterns: undefined,
+        excludeDatabasePatterns: undefined,
         includeRedisDatabases: undefined,
         mysqlTopology: "single",
         rocketmqTopology: "single",
@@ -2747,6 +2770,9 @@ const ConnectionModal: React.FC<{
         handleGenerateURI,
         handleJvmModeCardSelect,
         handleJvmModeToggle,
+        handleOracleModeChange: () => {
+          oracleModeTouchedRef.current = true;
+        },
         handleParseURI,
         handleSelectCertificateFile,
         handleSelectDatabaseFile,
@@ -2781,6 +2807,7 @@ const ConnectionModal: React.FC<{
         normalizedJvmAllowedModes,
         oceanBaseProtocol,
         onOpenDriverManager,
+        oracleMode,
         primaryPasswordVisible,
         proxyType,
         redisDbList,

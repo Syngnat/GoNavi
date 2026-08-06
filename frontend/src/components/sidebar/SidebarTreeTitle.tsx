@@ -123,7 +123,7 @@ export const renderSidebarV2TreeTitle = ({
   const rawTitle = String(node.title ?? '');
   const groupKey = String(node?.dataRef?.groupKey || '');
   const dragText = resolveSidebarObjectDragText(node);
-  if (node.type === 'v2-table-section') {
+  if (node.type === 'v2-table-section' || node.type === 'v2-database-section') {
     return (
       <span
         className="gn-v2-tree-section-title"
@@ -176,13 +176,19 @@ export const renderSidebarV2TreeTitle = ({
     node.type === 'redis-db' ? 'is-redis-db' : '',
     node.type === 'table' && node?.dataRef?.pinnedSidebarTable ? 'is-pinned-table' : '',
   ].filter(Boolean).join(' ');
-  const tablePinIndicator = node.type === 'table' && node?.dataRef?.pinnedSidebarTable ? (
+  const pinnedNodeType = node.type === 'table' && node?.dataRef?.pinnedSidebarTable
+    ? 'table'
+    : node.type === 'database' && node?.dataRef?.pinnedSidebarDatabase
+      ? 'database'
+      : null;
+  const pinIndicator = pinnedNodeType ? (
     <span
-      className="gn-v2-table-pin-indicator"
+      className={`gn-v2-table-pin-indicator${pinnedNodeType === 'database' ? ' gn-v2-database-pin-indicator' : ''}`}
       title={t('sidebar.status.pinned')}
       role="img"
       aria-label={t('sidebar.status.pinned')}
-      data-v2-sidebar-table-pin-indicator="true"
+      data-v2-sidebar-table-pin-indicator={pinnedNodeType === 'table' ? 'true' : undefined}
+      data-v2-sidebar-database-pin-indicator={pinnedNodeType === 'database' ? 'true' : undefined}
     >
       <StarFilled aria-hidden="true" />
     </span>
@@ -268,7 +274,7 @@ export const renderSidebarV2TreeTitle = ({
   return (
     <>
       {wrappedTitleNode}
-      {tablePinIndicator}
+      {pinIndicator}
     </>
   );
 };

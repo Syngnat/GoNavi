@@ -9,6 +9,10 @@ const isMessageQueueDbType = (dbType: string): boolean => (
   MESSAGE_QUEUE_DB_TYPES.has(String(dbType || '').trim().toLowerCase())
 );
 
+export const isElasticsearchDbType = (dbType: string): boolean => (
+  ['elastic', 'elasticsearch'].includes(String(dbType || '').trim().toLowerCase())
+);
+
 export const extractTableSelectColumnNames = (columns: unknown): string[] => {
   if (!Array.isArray(columns)) return [];
   const names: string[] = [];
@@ -29,7 +33,14 @@ export const buildTableSelectQuery = (
 ): string => {
   const normalizedTableName = String(tableName || '').trim();
   if (!normalizedTableName) {
+    if (isElasticsearchDbType(dbType)) {
+      return '';
+    }
     return 'SELECT * FROM ';
+  }
+
+  if (isElasticsearchDbType(dbType)) {
+    return `GET /${normalizedTableName}/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}\n`;
   }
 
   const quotedTable = quoteQualifiedIdent(dbType, normalizedTableName);
@@ -71,7 +82,7 @@ export const resolveTableSelectQuery = async ({
   }
 
   // Message-queue "tables" are topics/queues; column expansion is not meaningful.
-  if (isMessageQueueDbType(dbType) || !connectionConfig) {
+  if (isElasticsearchDbType(dbType) || isMessageQueueDbType(dbType) || !connectionConfig) {
     return buildTableSelectQuery(dbType, normalizedTableName);
   }
 

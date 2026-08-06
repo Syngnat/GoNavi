@@ -21,15 +21,16 @@ import (
 )
 
 type agentRequest struct {
-	ID        int64                        `json:"id"`
-	Method    string                       `json:"method"`
-	SessionID string                       `json:"sessionId,omitempty"`
-	Config    *connection.ConnectionConfig `json:"config,omitempty"`
-	Query     string                       `json:"query,omitempty"`
-	TimeoutMs int64                        `json:"timeoutMs,omitempty"`
-	DBName    string                       `json:"dbName,omitempty"`
-	TableName string                       `json:"tableName,omitempty"`
-	Changes   *connection.ChangeSet        `json:"changes,omitempty"`
+	ID                   int64                           `json:"id"`
+	Method               string                          `json:"method"`
+	SessionID            string                          `json:"sessionId,omitempty"`
+	Config               *connection.ConnectionConfig    `json:"config,omitempty"`
+	Query                string                          `json:"query,omitempty"`
+	TimeoutMs            int64                           `json:"timeoutMs,omitempty"`
+	DBName               string                          `json:"dbName,omitempty"`
+	TableName            string                          `json:"tableName,omitempty"`
+	Changes              *connection.ChangeSet           `json:"changes,omitempty"`
+	ElasticsearchRequest *db.ElasticsearchConsoleRequest `json:"elasticsearchRequest,omitempty"`
 }
 
 type agentResponse struct {
@@ -43,29 +44,35 @@ type agentResponse struct {
 	RowsAffected int64       `json:"rowsAffected,omitempty"`
 }
 
+type agentConnectionInfo struct {
+	ElasticsearchServerMajor int `json:"elasticsearchServerMajor,omitempty"`
+}
+
 const (
-	agentMethodConnect             = "connect"
-	agentMethodClose               = "close"
-	agentMethodMetadata            = "metadata"
-	agentMethodPing                = "ping"
-	agentMethodOpenSession         = "openSession"
-	agentMethodCloseSession        = "closeSession"
-	agentMethodOpenTransaction     = "openTransaction"
-	agentMethodCommitTransaction   = "commitTransaction"
-	agentMethodRollbackTransaction = "rollbackTransaction"
-	agentMethodQuery               = "query"
-	agentMethodQueryMulti          = "queryMulti"
-	agentMethodStreamQuery         = "streamQuery"
-	agentMethodExec                = "exec"
-	agentMethodGetDatabases        = "getDatabases"
-	agentMethodGetTables           = "getTables"
-	agentMethodGetCreateStmt       = "getCreateStatement"
-	agentMethodGetColumns          = "getColumns"
-	agentMethodGetAllColumns       = "getAllColumns"
-	agentMethodGetIndexes          = "getIndexes"
-	agentMethodGetForeignKey       = "getForeignKeys"
-	agentMethodGetTriggers         = "getTriggers"
-	agentMethodApplyChanges        = "applyChanges"
+	agentMethodConnect              = "connect"
+	agentMethodClose                = "close"
+	agentMethodMetadata             = "metadata"
+	agentMethodPing                 = "ping"
+	agentMethodOpenSession          = "openSession"
+	agentMethodCloseSession         = "closeSession"
+	agentMethodOpenTransaction      = "openTransaction"
+	agentMethodCommitTransaction    = "commitTransaction"
+	agentMethodRollbackTransaction  = "rollbackTransaction"
+	agentMethodQuery                = "query"
+	agentMethodQueryMulti           = "queryMulti"
+	agentMethodStreamQuery          = "streamQuery"
+	agentMethodExec                 = "exec"
+	agentMethodElasticsearchConsole = "executeElasticsearchConsoleRequest"
+	agentMethodGetDatabases         = "getDatabases"
+	agentMethodGetTables            = "getTables"
+	agentMethodTableExists          = "tableExists"
+	agentMethodGetCreateStmt        = "getCreateStatement"
+	agentMethodGetColumns           = "getColumns"
+	agentMethodGetAllColumns        = "getAllColumns"
+	agentMethodGetIndexes           = "getIndexes"
+	agentMethodGetForeignKey        = "getForeignKeys"
+	agentMethodGetTriggers          = "getTriggers"
+	agentMethodApplyChanges         = "applyChanges"
 )
 
 const legacyClickHouseDefaultTimeout = 2 * time.Hour
@@ -210,6 +217,9 @@ func handleRequest(runtimeState *agentRuntime, req agentRequest) agentResponse {
 			return fail(resp, err.Error())
 		}
 		runtimeState.inst = next
+		if versionProvider, ok := next.(db.ElasticsearchServerVersionProvider); ok {
+			resp.Data = agentConnectionInfo{ElasticsearchServerMajor: versionProvider.ElasticsearchServerMajor()}
+		}
 		return resp
 	case agentMethodClose:
 		if runtimeState.inst != nil {
@@ -352,6 +362,25 @@ func handleRequest(runtimeState *agentRuntime, req agentRequest) agentResponse {
 			return fail(resp, err.Error())
 		}
 		resp.RowsAffected = affected
+	case agentMethodElasticsearchConsole:
+		if req.ElasticsearchRequest == nil {
+			return fail(resp, "Elasticsearch Console 请求为空")
+		}
+		executor, ok := runtimeState.inst.(db.ElasticsearchConsoleExecutor)
+		if !ok {
+			return fail(resp, "当前驱动不支持 Elasticsearch Console")
+		}
+		executeCtx := context.Background()
+		var cancel context.CancelFunc
+		if req.TimeoutMs > 0 {
+			executeCtx, cancel = context.WithTimeout(executeCtx, time.Duration(req.TimeoutMs)*time.Millisecond)
+			defer cancel()
+		}
+		data, err := executor.ExecuteElasticsearchConsoleRequest(executeCtx, *req.ElasticsearchRequest)
+		if err != nil {
+			return fail(resp, err.Error())
+		}
+		resp.Data = data
 	case agentMethodGetDatabases:
 		data, err := runtimeState.inst.GetDatabases()
 		if err != nil {
@@ -364,6 +393,28 @@ func handleRequest(runtimeState *agentRuntime, req agentRequest) agentResponse {
 			return fail(resp, err.Error())
 		}
 		resp.Data = data
+	case agentMethodTableExists:
+		if checker, ok := runtimeState.inst.(db.TableExistsChecker); ok {
+			exists, err := checker.TableExists(req.DBName, req.TableName)
+			if err != nil {
+				return fail(resp, err.Error())
+			}
+			resp.Data = exists
+			break
+		}
+		tables, err := runtimeState.inst.GetTables(req.DBName)
+		if err != nil {
+			return fail(resp, err.Error())
+		}
+		target := strings.TrimSpace(req.TableName)
+		exists := false
+		for _, table := range tables {
+			if strings.TrimSpace(table) == target {
+				exists = true
+				break
+			}
+		}
+		resp.Data = exists
 	case agentMethodGetCreateStmt:
 		data, err := runtimeState.inst.GetCreateStatement(req.DBName, req.TableName)
 		if err != nil {
