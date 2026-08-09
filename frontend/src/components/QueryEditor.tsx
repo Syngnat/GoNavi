@@ -198,6 +198,7 @@ import {
     resolveQueryEditorNavigationDecorations,
     resolveQueryEditorNavigationTarget,
     rankQueryEditorCompletionCandidate,
+    resolveQueryEditorCompletionFilterText,
     resolveQueryLocatorPlan,
     rewriteLeadingSelectTableReference,
     selectUnqualifiedCompletionSynonyms,
@@ -5385,13 +5386,20 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                       dbQualifiedLabel,
                   };
               };
-              const buildTableSuggestion = (label: string, prefix: string, comment?: string) => ({
+              const buildTableSuggestion = (
+                  label: string,
+                  detailPrefix: string,
+                  comment?: string,
+                  filterPrefix = '',
+                  filterCandidates: readonly string[] = [label],
+              ) => ({
                   label: buildQueryEditorTableSuggestionLabel(
                       label,
-                      appendCommentToDetail(prefix, comment),
+                      appendCommentToDetail(detailPrefix, comment),
                       useStructuredCompletionLabel,
                   ),
-                  filterText: normalizeQueryEditorTableSuggestionText(label),
+                  filterText: resolveQueryEditorCompletionFilterText(filterPrefix, filterCandidates)
+                      || normalizeQueryEditorTableSuggestionText(label),
               });
               const normalizeRoutineType = (routineType: string) => (
                   String(routineType || '').trim().toUpperCase().includes('PROC') ? 'PROCEDURE' : 'FUNCTION'
@@ -5698,16 +5706,17 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                   const suggestions = buildBoundedQueryEditorCompletionSuggestions({
                       candidates: cols,
                       prefix: colPrefix,
-                      getMatchRank: (column, prefix) => rankQueryEditorCompletionCandidate(prefix, [column.name], false),
-                      getSelectionKey: (column) => '0' + column.name,
+                      getMatchRank: (column, prefix) => rankQueryEditorCompletionCandidate(prefix, [column.name]),
+                      getSelectionKey: (column, _prefix, matchRank) => `0${matchRank}${column.name}`,
                       buildSuggestion: (column) => ({
                           label: column.name,
                           kind: monaco.languages.CompletionItemKind.Field,
                           insertText: quoteCompletionPart(column.name),
                           detail: buildColumnCompletionDetail(column),
                           documentation: buildColumnCompletionDocumentation(column),
+                          filterText: resolveQueryEditorCompletionFilterText(colPrefix, [column.name]) || column.name,
                           range,
-                          sortText: '0' + column.name,
+                          sortText: `0${rankQueryEditorCompletionCandidate(colPrefix, [column.name]) ?? 9}${column.name}`,
                       }),
                   });
                   return { suggestions };
@@ -5956,16 +5965,17 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                       const suggestions = buildBoundedQueryEditorCompletionSuggestions({
                           candidates: cols,
                           prefix,
-                          getMatchRank: (column, normalizedPrefix) => rankQueryEditorCompletionCandidate(normalizedPrefix, [column.name], false),
-                          getSelectionKey: (column) => '0' + column.name,
+                          getMatchRank: (column, normalizedPrefix) => rankQueryEditorCompletionCandidate(normalizedPrefix, [column.name]),
+                          getSelectionKey: (column, _prefix, matchRank) => `0${matchRank}${column.name}`,
                           buildSuggestion: (column) => ({
                               label: column.name,
                               kind: monaco.languages.CompletionItemKind.Field,
                               insertText: quoteCompletionPart(column.name),
                               detail: buildColumnCompletionDetail(column),
                               documentation: buildColumnCompletionDocumentation(column),
+                              filterText: resolveQueryEditorCompletionFilterText(prefix, [column.name]) || column.name,
                               range,
-                              sortText: '0' + column.name,
+                              sortText: `0${rankQueryEditorCompletionCandidate(prefix, [column.name]) ?? 9}${column.name}`,
                           }),
                       });
                       return { suggestions };
@@ -6099,7 +6109,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                       if (!foundTables.has(fullIdent) && !foundTables.has(shortIdent) && (!pureIdent || !foundTables.has(pureIdent))) {
                           return null;
                       }
-                      return rankQueryEditorCompletionCandidate(normalizedPrefix, [column.name], false);
+                      return rankQueryEditorCompletionCandidate(normalizedPrefix, [column.name]);
                   },
                   getSelectionKey: (column) => (
                       isCurrentCompletionDatabase(column.dbName || '')
@@ -6114,6 +6124,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                           insertText: quoteCompletionPart(column.name),
                           detail: buildColumnCompletionDetail(column),
                           documentation: buildColumnCompletionDocumentation(column),
+                          filterText: resolveQueryEditorCompletionFilterText(wordPrefix, [column.name]) || column.name,
                           range,
                           sortText: isCurrentDb ? sortGroups.columnCurrent + column.name : sortGroups.columnOther + column.name,
                       };
@@ -6166,6 +6177,8 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                                   label,
                                   `${translate('query_editor.object_info.table')} (${table.dbName})`,
                                   table.comment,
+                                  wordPrefix,
+                                  [label, table.tableName || '', pureTable],
                               ),
                               kind: monaco.languages.CompletionItemKind.Class,
                               insertText: quoteCompletionPath(label),
@@ -6183,6 +6196,8 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                               label,
                               `${translate('query_editor.object_info.table')}${schemaInfo}`,
                               table.comment,
+                              wordPrefix,
+                              [label, table.tableName || '', pureTable],
                           ),
                           kind: monaco.languages.CompletionItemKind.Class,
                           insertText: quoteCompletionPath(hasDuplicate ? table.tableName : pureTable),
@@ -6224,6 +6239,10 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                               kind: monaco.languages.CompletionItemKind.Class,
                               insertText: meta.insertText,
                               detail: `${getViewTypeLabel(materialized)} (${getViewSuggestionScope(view, meta)})`,
+                              filterText: resolveQueryEditorCompletionFilterText(
+                                  wordPrefix,
+                                  [meta.dbQualifiedLabel, meta.displayName, meta.objectName, view.viewName || ''],
+                              ) || label,
                               range,
                               sortText: (isCurrentDb ? sortGroups.tableCurrent : sortGroups.tableOther)
                                   + '1'

@@ -11,6 +11,7 @@ import {
     isOracleBaseTableReference,
     materializeBoundedQueryEditorCompletionBatches,
     rankQueryEditorCompletionCandidate,
+    resolveQueryEditorCompletionFilterText,
     resolveOracleLikeDefaultSchemaName,
     resolveOracleLikeExecutionSchemaName,
     resolveOracleLikeLookupSchemaCandidates,
@@ -19,6 +20,20 @@ import {
     selectUnqualifiedCompletionSynonyms,
     shouldHandleQueryEditorRunShortcutFallback,
 } from './QueryEditorHelpers';
+
+describe('QueryEditor fuzzy completion matching', () => {
+    it('ranks substring matches after exact and prefix matches', () => {
+        expect(rankQueryEditorCompletionCandidate('new', ['new'])).toBe(0);
+        expect(rankQueryEditorCompletionCandidate('new', ['new_table'])).toBe(1);
+        expect(rankQueryEditorCompletionCandidate('new', ['tabel_new_1'])).toBe(2);
+    });
+
+    it('returns Monaco filter text that preserves a substring match', () => {
+        expect(resolveQueryEditorCompletionFilterText('new', ['tabel_new_1'])).toBe('new_1');
+        expect(resolveQueryEditorCompletionFilterText('NEW', ['tabel_new_1'])).toBe('new_1');
+        expect(resolveQueryEditorCompletionFilterText('missing', ['tabel_new_1'])).toBeUndefined();
+    });
+});
 
 describe('QueryEditor result merge identity', () => {
     it('keeps zero-based Elasticsearch request indexes distinct', () => {

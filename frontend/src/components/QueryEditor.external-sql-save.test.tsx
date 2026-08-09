@@ -3444,7 +3444,10 @@ describe('QueryEditor external SQL save', () => {
     backendApp.DBGetTables.mockResolvedValueOnce({ success: true, data: [{ Tables_in_main: 'fs_org_auth_application' }] });
     backendApp.DBGetAllColumns.mockResolvedValueOnce({
       success: true,
-      data: [{ tableName: 'fs_org_auth_application', name: 'orgi', type: 'varchar(32)' }],
+      data: [
+        { tableName: 'fs_org_auth_application', name: 'orgi', type: 'varchar(32)' },
+        { tableName: 'fs_org_auth_application', name: 'auth_code', type: 'varchar(32)' },
+      ],
     });
 
     await act(async () => {
@@ -3466,6 +3469,24 @@ describe('QueryEditor external SQL save', () => {
 
     expect(labels).toContain('fs_org_auth_application');
     expect(labels).not.toContain('orgi');
+
+    editorState.value = 'SELECT * FROM auth';
+    editorState.latestOnChange?.(editorState.value);
+    const fuzzyTableResult = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    const fuzzyTable = fuzzyTableResult.suggestions.find((item: any) => item.label === 'fs_org_auth_application');
+    expect(fuzzyTable).toMatchObject({ filterText: 'auth_application' });
+
+    editorState.value = 'SELECT * FROM fs_org_auth_application WHERE code';
+    editorState.latestOnChange?.(editorState.value);
+    const fuzzyColumnResult = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    const fuzzyColumn = fuzzyColumnResult.suggestions.find((item: any) => item.label === 'auth_code');
+    expect(fuzzyColumn).toMatchObject({ filterText: 'code' });
     await act(async () => {
       renderer.unmount();
     });

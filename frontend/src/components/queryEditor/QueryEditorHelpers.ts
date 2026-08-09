@@ -83,6 +83,27 @@ export const rankQueryEditorCompletionCandidate = (
     return null;
 };
 
+/**
+ * Monaco applies its own fuzzy filter after a completion provider returns.
+ * Expose the matching portion so a candidate matched in the middle of its
+ * name remains visible (for example `new` in `tabel_new_1`).
+ */
+export const resolveQueryEditorCompletionFilterText = (
+    prefix: string,
+    candidates: readonly string[],
+): string | undefined => {
+    const normalizedPrefix = String(prefix || '').trim().toLowerCase();
+    if (!normalizedPrefix) return undefined;
+    for (const candidate of candidates) {
+        const value = String(candidate || '').trim();
+        const matchIndex = value.toLowerCase().indexOf(normalizedPrefix);
+        if (matchIndex >= 0) {
+            return value.slice(matchIndex);
+        }
+    }
+    return undefined;
+};
+
 type RankedQueryEditorCompletionCandidate<Candidate> = {
     candidate: Candidate;
     selectionKey: string;
