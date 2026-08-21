@@ -58,9 +58,14 @@ var (
 	updateQuitSleep                    = time.Sleep
 	updateExitProcess                  = os.Exit
 	updateDownloadFileWithExpectedSize = downloadFileWithHashWithExpectedSize
+	updateResolveDispatcherCandidates  = func(rawURL string) ([]string, error) {
+		client := newStrictHTTPClientWithGlobalProxy(downloadCandidateProbeTimeout)
+		return resolveDispatcherDownloadCandidatesFailOpen(client, rawURL)
+	}
 )
 
 var errUpdateChecksumMismatch = errors.New("update package checksum mismatch")
+var errUpdateSizeMismatch = errors.New("update package size mismatch")
 
 type updateState struct {
 	lastCheck   *UpdateInfo
@@ -408,10 +413,6 @@ func updateAssetIdentityChanged(previous, current UpdateInfo) bool {
 }
 
 func isExpiredUpdateAssetError(err error) bool {
-	var currentAssetMismatch downloadCurrentAssetMismatchError
-	if errors.As(err, &currentAssetMismatch) {
-		return true
-	}
 	var localized localizedUpdateError
 	if !errors.As(err, &localized) {
 		return false
@@ -720,8 +721,10 @@ func downloadUpdateAssetWithFallback(
 
 	expectedHash := strings.TrimSpace(expectedSHA256)
 	var lastErr error
-	for index, candidate := range urls {
-		candidate, requiresCurrentDevAsset := prepareUpdateDownloadCandidate(candidate, index == 0)
+	expandedDispatcher := make(map[string]struct{})
+	for index := 0; index < len(urls); index++ {
+		candidate := urls[index]
+		candidate = strings.TrimSpace(candidate)
 		_ = os.Remove(assetPath)
 		actualHash, err := updateDownloadFileWithExpectedSize(candidate, assetPath, onProgress, expectedSize)
 		if err == nil && expectedSize > 0 {
@@ -729,7 +732,7 @@ func downloadUpdateAssetWithFallback(
 			if statErr != nil {
 				err = statErr
 			} else if stat.Size() != expectedSize {
-				err = fmt.Errorf("update package size mismatch: expected=%d actual=%d", expectedSize, stat.Size())
+				err = fmt.Errorf("%w: expected=%d actual=%d", errUpdateSizeMismatch, expectedSize, stat.Size())
 			}
 		}
 		if err == nil && expectedHash != "" && !strings.EqualFold(expectedHash, actualHash) {
@@ -738,10 +741,18 @@ func downloadUpdateAssetWithFallback(
 		if err == nil {
 			return actualHash, nil
 		}
-		var currentAssetMismatch downloadCurrentAssetMismatchError
-		if requiresCurrentDevAsset || errors.As(err, &currentAssetMismatch) {
-			_ = os.Remove(assetPath)
-			return "", err
+		// The fast path intentionally starts with the legacy Dispatcher redirect.
+		// If that redirect reaches an unavailable edge (not only a bad payload),
+		// expand the JSON response once so Bero is attempted before GitHub.
+		if _, ok := downloadDispatcherAssetPath(candidate); ok {
+			if _, alreadyExpanded := expandedDispatcher[candidate]; !alreadyExpanded {
+				expandedDispatcher[candidate] = struct{}{}
+				if resolved, resolveErr := updateResolveDispatcherCandidates(candidate); resolveErr == nil {
+					urls = insertUniqueUpdateDownloadCandidates(urls, index+1, resolved, seen)
+				} else {
+					logger.Warnf("更新包 Dispatcher 候选解析失败：url=%s err=%v", redactDownloadURL(candidate), resolveErr)
+				}
+			}
 		}
 		lastErr = err
 		if index+1 < len(urls) {
@@ -752,13 +763,35 @@ func downloadUpdateAssetWithFallback(
 	return "", lastErr
 }
 
-func prepareUpdateDownloadCandidate(rawURL string, primary bool) (string, bool) {
-	candidate := strings.TrimSpace(rawURL)
-	if !primary {
-		return candidate, false
+func insertUniqueUpdateDownloadCandidates(urls []string, index int, candidates []string, seen map[string]struct{}) []string {
+	if len(candidates) == 0 {
+		return urls
 	}
-	candidate = downloadDispatcherURLRequiringCurrentDevAsset(candidate)
-	return candidate, dispatcherURLRequiresCurrentDevAsset(candidate)
+	inserted := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		trimmed := strings.TrimSpace(candidate)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		inserted = append(inserted, trimmed)
+	}
+	if len(inserted) == 0 {
+		return urls
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index > len(urls) {
+		index = len(urls)
+	}
+	urls = append(urls, make([]string, len(inserted))...)
+	copy(urls[index+len(inserted):], urls[index:len(urls)-len(inserted)])
+	copy(urls[index:], inserted)
+	return urls
 }
 
 func fetchLatestUpdateInfo(channel updateChannel) (UpdateInfo, error) {

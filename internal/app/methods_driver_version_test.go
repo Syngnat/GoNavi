@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -501,6 +502,7 @@ func TestOptionalDriverAgentDownloadAndBuildErrorsUseI18nWrappers(t *testing.T) 
 	functionNames := []string{
 		"ensureOptionalDriverAgentBinary",
 		"downloadOptionalDriverAgentBinary",
+		"downloadOptionalDriverAgentBinaryCandidate",
 		"downloadOptionalDriverAgentFromBundle",
 		"buildOptionalDriverAgentFromSource",
 	}
@@ -1618,6 +1620,200 @@ func TestDownloadOptionalDriverAgentBinaryPreservesMongoSelectedVersion(t *testi
 	}
 	if string(installed) != "mongodb-v1-agent" {
 		t.Fatalf("unexpected installed MongoDB v1 agent: %q", string(installed))
+	}
+}
+
+func TestDownloadOptionalDriverAgentBinaryTriesBeroAfterDispatcherRevisionFailure(t *testing.T) {
+	disableGlobalProxyForTest(t)
+	originalResolver := resolveDriverDispatcherCandidates
+	originalValidate := validateOptionalDriverAgentExecutableFunc
+	originalProbe := optionalDriverAgentMetadataProbe
+	t.Cleanup(func() {
+		resolveDriverDispatcherCandidates = originalResolver
+		validateOptionalDriverAgentExecutableFunc = originalValidate
+		optionalDriverAgentMetadataProbe = originalProbe
+	})
+	validateOptionalDriverAgentExecutableFunc = func(string, string) error { return nil }
+	driverType := "sqlserver"
+	expectedRevision := db.OptionalDriverAgentRevision(driverType)
+	if expectedRevision == "" {
+		t.Fatalf("expected %s driver-agent revision", driverType)
+	}
+	optionalDriverAgentMetadataProbe = func(driverType string, executablePath string) (db.OptionalDriverAgentMetadata, error) {
+		content, err := os.ReadFile(executablePath)
+		if err != nil {
+			return db.OptionalDriverAgentMetadata{}, err
+		}
+		revision := expectedRevision
+		if string(content) == "dmit" {
+			revision = "src-stale-dmit"
+		}
+		return db.OptionalDriverAgentMetadata{DriverType: driverType, AgentRevision: revision}, nil
+	}
+
+	selectedVersion := "1.0.0"
+	entryName := optionalDriverBundleEntryPathForVersion(driverType, selectedVersion)
+	makeZip := func(content string) []byte {
+		var payload bytes.Buffer
+		writer := zip.NewWriter(&payload)
+		entry, err := writer.Create(entryName)
+		if err != nil {
+			t.Fatalf("create driver ZIP entry: %v", err)
+		}
+		if _, err := entry.Write([]byte(content)); err != nil {
+			t.Fatalf("write driver ZIP entry: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatalf("close driver ZIP: %v", err)
+		}
+		return payload.Bytes()
+	}
+	assets := map[string][]byte{
+		"/dmit.zip":   makeZip("dmit"),
+		"/bero.zip":   makeZip("bero"),
+		"/github.zip": makeZip("github"),
+	}
+	githubHits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/github.zip" {
+			githubHits++
+		}
+		payload, ok := assets[request.URL.Path]
+		if !ok {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/zip")
+		_, _ = writer.Write(payload)
+	}))
+	defer server.Close()
+
+	assetName := optionalDriverReleaseZipAssetName(optionalDriverReleaseAssetNameForType(driverType, runtime.GOOS, runtime.GOARCH))
+	dispatcherURL := downloadDispatcherURLForPath("/drivers/releases/download/v1/" + assetName)
+	resolveDriverDispatcherCandidates = func(rawURL string) ([]string, error) {
+		if rawURL != dispatcherURL {
+			t.Fatalf("Dispatcher resolver URL = %q, want %q", rawURL, dispatcherURL)
+		}
+		return []string{server.URL + "/dmit.zip", server.URL + "/bero.zip", server.URL + "/github.zip"}, nil
+	}
+	target := filepath.Join(t.TempDir(), optionalDriverExecutableBaseNameForType(driverType))
+	hash, err := downloadOptionalDriverAgentBinary(
+		nil,
+		driverDefinition{Type: driverType, Name: "SQL Server"},
+		dispatcherURL,
+		target,
+		selectedVersion,
+	)
+	if err != nil {
+		t.Fatalf("download driver agent with Bero fallback: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read installed driver agent: %v", err)
+	}
+	if string(content) != "bero" {
+		t.Fatalf("installed driver agent = %q, want Bero payload", content)
+	}
+	if hash != fmt.Sprintf("%x", sha256.Sum256(content)) {
+		t.Fatalf("installed driver hash = %q, want hash of Bero payload", hash)
+	}
+	if githubHits != 0 {
+		t.Fatalf("GitHub attempts = %d, want 0", githubHits)
+	}
+}
+
+func TestDownloadOptionalDriverAgentBinaryUsesStaticBeroFallbackWhenDispatcherResolverFails(t *testing.T) {
+	disableGlobalProxyForTest(t)
+	originalResolver := resolveDriverDispatcherCandidates
+	originalStaticCandidates := staticDriverDispatcherCandidatesFunc
+	originalValidate := validateOptionalDriverAgentExecutableFunc
+	originalProbe := optionalDriverAgentMetadataProbe
+	t.Cleanup(func() {
+		resolveDriverDispatcherCandidates = originalResolver
+		staticDriverDispatcherCandidatesFunc = originalStaticCandidates
+		validateOptionalDriverAgentExecutableFunc = originalValidate
+		optionalDriverAgentMetadataProbe = originalProbe
+	})
+	validateOptionalDriverAgentExecutableFunc = func(string, string) error { return nil }
+	optionalDriverAgentMetadataProbe = func(driverType string, executablePath string) (db.OptionalDriverAgentMetadata, error) {
+		return db.OptionalDriverAgentMetadata{DriverType: driverType, AgentRevision: db.OptionalDriverAgentRevision(driverType)}, nil
+	}
+
+	driverType := "sqlserver"
+	selectedVersion := "1.0.0"
+	entryName := optionalDriverBundleEntryPathForVersion(driverType, selectedVersion)
+	var payload bytes.Buffer
+	writer := zip.NewWriter(&payload)
+	entry, err := writer.Create(entryName)
+	if err != nil {
+		t.Fatalf("create Bero driver ZIP entry: %v", err)
+	}
+	if _, err := entry.Write([]byte("bero-static")); err != nil {
+		t.Fatalf("write Bero driver ZIP entry: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close Bero driver ZIP: %v", err)
+	}
+
+	assetName := optionalDriverReleaseZipAssetName(optionalDriverReleaseAssetNameForType(driverType, runtime.GOOS, runtime.GOARCH))
+	dispatcherURL := downloadDispatcherURLForPath("/drivers/releases/download/v1/" + assetName)
+	var dmitHits, beroHits, githubHits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/dmit.zip":
+			dmitHits.Add(1)
+			http.Error(writer, "DMIT unavailable", http.StatusServiceUnavailable)
+		case "/bero.zip":
+			beroHits.Add(1)
+			writer.Header().Set("Content-Type", "application/zip")
+			_, _ = writer.Write(payload.Bytes())
+		case "/github.zip":
+			githubHits.Add(1)
+			http.Error(writer, "GitHub should not be reached", http.StatusInternalServerError)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	resolveDriverDispatcherCandidates = func(rawURL string) ([]string, error) {
+		if rawURL != dispatcherURL {
+			t.Fatalf("Dispatcher resolver URL = %q, want %q", rawURL, dispatcherURL)
+		}
+		return nil, fmt.Errorf("dispatcher control plane unavailable")
+	}
+	staticDriverDispatcherCandidatesFunc = func(rawURL string) ([]string, error) {
+		if rawURL != dispatcherURL {
+			t.Fatalf("static Dispatcher URL = %q, want %q", rawURL, dispatcherURL)
+		}
+		return []string{server.URL + "/dmit.zip", server.URL + "/bero.zip", server.URL + "/github.zip"}, nil
+	}
+
+	target := filepath.Join(t.TempDir(), optionalDriverExecutableBaseNameForType(driverType))
+	if _, err := downloadOptionalDriverAgentBinary(
+		nil,
+		driverDefinition{Type: driverType, Name: "SQL Server"},
+		dispatcherURL,
+		target,
+		selectedVersion,
+	); err != nil {
+		t.Fatalf("download driver agent with static Bero fallback: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read installed Bero driver agent: %v", err)
+	}
+	if string(content) != "bero-static" {
+		t.Fatalf("installed driver agent = %q, want static Bero payload", content)
+	}
+	if dmitHits.Load() == 0 {
+		t.Fatal("expected static DMIT candidate to be attempted")
+	}
+	if beroHits.Load() == 0 {
+		t.Fatal("expected static Bero candidate to be attempted after DMIT failure")
+	}
+	if githubHits.Load() != 0 {
+		t.Fatalf("GitHub attempts = %d, want 0", githubHits.Load())
 	}
 }
 

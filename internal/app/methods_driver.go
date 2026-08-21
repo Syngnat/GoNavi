@@ -449,6 +449,11 @@ var optionalDriverSourceBuildTimeout = 8 * time.Minute
 
 var validateOptionalDriverAgentExecutableFunc = db.ValidateOptionalDriverAgentExecutable
 var resolveOptionalDriverAgentExecutablePathFunc = db.ResolveOptionalDriverAgentExecutablePath
+var resolveDriverDispatcherCandidates = func(rawURL string) ([]string, error) {
+	client := newStrictHTTPClientWithGlobalProxy(downloadCandidateProbeTimeout)
+	return resolveDispatcherDownloadCandidatesFailOpen(client, rawURL)
+}
+var staticDriverDispatcherCandidatesFunc = staticDispatcherDownloadCandidates
 
 type driverVersionWarmupState struct {
 	Running     bool
@@ -4329,6 +4334,64 @@ func isOptionalDriverDownloadZipURL(urlText string) bool {
 
 func downloadOptionalDriverAgentBinary(a *App, definition driverDefinition, urlText string, executablePath string, selectedVersion string) (string, error) {
 	driverType := normalizeDriverType(definition.Type)
+	trimmedURL := strings.TrimSpace(urlText)
+	if trimmedURL == "" {
+		return "", newLocalizedDriverBackendError("driver_manager.backend.error.download_url_empty", nil, nil)
+	}
+	if _, isDispatcher := downloadDispatcherAssetPath(trimmedURL); isDispatcher {
+		candidates, resolveErr := resolveDriverDispatcherCandidates(trimmedURL)
+		if resolveErr != nil || len(candidates) == 0 {
+			// The Dispatcher URL already contains the complete immutable asset
+			// path. Keep downloads available when its control-plane JSON/KV lookup
+			// is unavailable by deriving the fixed DMIT -> Bero -> GitHub chain.
+			if staticCandidates, staticErr := staticDriverDispatcherCandidatesFunc(trimmedURL); staticErr == nil && len(staticCandidates) > 0 {
+				candidates = staticCandidates
+				resolveErr = nil
+			}
+		}
+		if len(candidates) > 0 {
+			expectedSize, expectedHash, hasMetadata := expectedDriverReleaseAssetMetadata(trimmedURL)
+			failures := make([]error, 0, len(candidates))
+			seen := make(map[string]struct{}, len(candidates))
+			for _, candidate := range candidates {
+				candidate = strings.TrimSpace(candidate)
+				if candidate == "" {
+					continue
+				}
+				if _, ok := seen[candidate]; ok {
+					continue
+				}
+				seen[candidate] = struct{}{}
+				hash, err := downloadOptionalDriverAgentBinaryCandidate(a, definition, candidate, executablePath, selectedVersion, expectedSize, expectedHash, hasMetadata)
+				if err == nil {
+					if _, revisionErr := verifyInstalledOptionalDriverAgentRevision(driverType, executablePath, selectedVersion); revisionErr != nil {
+						cleanupOptionalDriverAgentCandidate(definition, executablePath)
+						failures = append(failures, fmt.Errorf("%s: %w", redactDownloadURL(candidate), revisionErr))
+						continue
+					}
+					return hash, nil
+				}
+				failures = append(failures, fmt.Errorf("%s: %w", redactDownloadURL(candidate), err))
+				cleanupOptionalDriverAgentCandidate(definition, executablePath)
+			}
+			if len(failures) > 0 {
+				return "", errors.Join(failures...)
+			}
+		}
+	}
+	expectedSize, expectedHash, hasMetadata := expectedDriverReleaseAssetMetadata(trimmedURL)
+	return downloadOptionalDriverAgentBinaryCandidate(a, definition, trimmedURL, executablePath, selectedVersion, expectedSize, expectedHash, hasMetadata)
+}
+
+func cleanupOptionalDriverAgentCandidate(definition driverDefinition, executablePath string) {
+	_ = os.Remove(executablePath)
+	for _, supportName := range optionalDriverSupportFileNames(normalizeDriverType(definition.Type)) {
+		_ = os.Remove(filepath.Join(filepath.Dir(executablePath), supportName))
+	}
+}
+
+func downloadOptionalDriverAgentBinaryCandidate(a *App, definition driverDefinition, urlText string, executablePath string, selectedVersion string, expectedSize int64, expectedHash string, hasMetadata bool) (string, error) {
+	driverType := normalizeDriverType(definition.Type)
 	displayName := resolveDriverDisplayName(definition)
 	trimmedURL := strings.TrimSpace(urlText)
 	if trimmedURL == "" {
@@ -4338,7 +4401,13 @@ func downloadOptionalDriverAgentBinary(a *App, definition driverDefinition, urlT
 		tempPath := executablePath + ".download.zip"
 		_ = os.Remove(tempPath)
 
-		downloadHash, err := downloadFileWithHash(trimmedURL, tempPath, func(downloaded, total int64) {
+		downloadFunc := downloadFileWithHash
+		if expectedSize > 0 {
+			downloadFunc = func(rawURL, filePath string, onProgress func(downloaded, total int64)) (string, error) {
+				return downloadFileWithHashWithExpectedSize(rawURL, filePath, onProgress, expectedSize)
+			}
+		}
+		downloadHash, err := downloadFunc(trimmedURL, tempPath, func(downloaded, total int64) {
 			if a == nil {
 				return
 			}
@@ -4349,7 +4418,7 @@ func downloadOptionalDriverAgentBinary(a *App, definition driverDefinition, urlT
 			_ = os.Remove(tempPath)
 			return "", newLocalizedDriverBackendError("driver_manager.backend.error.download_failed", nil, err)
 		}
-		if expectedSize, expectedHash, ok := expectedDriverReleaseAssetMetadata(trimmedURL); ok {
+		if hasMetadata {
 			if metadataErr := validateDownloadedDriverAssetMetadata(tempPath, downloadHash, expectedSize, expectedHash); metadataErr != nil {
 				_ = os.Remove(tempPath)
 				return "", newLocalizedDriverBackendError(

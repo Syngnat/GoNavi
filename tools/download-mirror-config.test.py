@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import unittest
 from pathlib import Path
 
@@ -105,89 +104,42 @@ class DownloadMirrorConfigTest(unittest.TestCase):
         self.assertIn('PUB_SSH_RETENTION_COMMAND_TIMEOUT_SECONDS="${PUB_SSH_RETENTION_COMMAND_TIMEOUT_SECONDS:-120}"', publication)
         self.assertIn('PUB_RSYNC_COMMAND_TIMEOUT_SECONDS="${PUB_RSYNC_COMMAND_TIMEOUT_SECONDS:-900}"', publication)
         self.assertIn('PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS="${PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS:-120}"', publication)
-        self.assertIn('PUB_KV_REQUEST_TIMEOUT_SECONDS="${PUB_KV_REQUEST_TIMEOUT_SECONDS:-30}"', publication)
         self.assertIn('run_timed "${PUB_PREPARE_COMMAND_TIMEOUT_SECONDS}"', publication)
         self.assertIn('--max-time "${PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS}"', publication)
-        self.assertIn('--max-time "${PUB_KV_REQUEST_TIMEOUT_SECONDS}"', publication)
+        self.assertNotIn("KV", action)
+        self.assertNotIn("PUB_CLOUDFLARE", action)
+        self.assertNotIn("PUB_ROUTING_STATE", action)
+        self.assertNotIn("CLOUDFLARE_KV_API_TOKEN", stable_workflow)
+        self.assertNotIn("CLOUDFLARE_KV_API_TOKEN", dev_workflow)
+        self.assertNotIn("ROUTING_STATE_KV_ID", stable_workflow)
+        self.assertNotIn("ROUTING_STATE_KV_ID", dev_workflow)
         self.assertIn('timeout-minutes: 120', stable_workflow)
         self.assertIn('timeout-minutes: 120', dev_workflow)
         self.assertIn('echo "[${node}] uploading payload"', publication)
         self.assertIn('echo "[${node}] verifying immutable Range"', publication)
 
-    def test_publication_control_contains_dmit_and_bero(self) -> None:
-        publication = (ROOT / "tools/publish-edge-release.sh").read_text(encoding="utf-8")
-        filter_start = publication.index("'{schemaVersion:1") + 1
-        filter_end = publication.index("}'", filter_start) + 1
-        jq_filter = publication[filter_start:filter_end]
-        result = subprocess.run(
-            [
-                "jq",
-                "-n",
-                "--arg",
-                "channel",
-                "dev",
-                "--arg",
-                "generation",
-                "dev-test-1",
-                "--arg",
-                "appTag",
-                "dev-abc123",
-                "--arg",
-                "driverTag",
-                "driver-abc123",
-                "--arg",
-                "verifiedAt",
-                "2026-08-13T06:00:00Z",
-                "--arg",
-                "probePath",
-                "/gonavi/dev/releases/download/dev-abc123/GoNavi.zip",
-                "--argjson",
-                "probeSize",
-                "1024",
-                "--arg",
-                "probeSha256",
-                "a" * 64,
-                "--arg",
-                "dmitBase",
-                "https://download.syngnat.top",
-                "--arg",
-                "beroBase",
-                "https://origin.example:8443",
-                jq_filter,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        control = json.loads(result.stdout)
-        self.assertEqual(control["nodes"], {
-            "dmit": {"baseUrl": "https://download.syngnat.top", "enabled": True},
-            "bero": {"baseUrl": "https://origin.example:8443", "enabled": True},
-        })
-        self.assertEqual(control["appTag"], "dev-abc123")
-        self.assertEqual(control["driverTag"], "driver-abc123")
-        self.assertEqual(control["verifiedAt"], "2026-08-13T06:00:00Z")
-
-    def test_publication_commits_control_to_kv_without_object_storage(self) -> None:
+    def test_publication_does_not_require_remote_routing_control(self) -> None:
         action = (ROOT / ".github/actions/publish-vps-mirror/action.yml").read_text(encoding="utf-8")
         publication = (ROOT / "tools/publish-edge-release.sh").read_text(encoding="utf-8")
         dispatcher = (ROOT / "deploy/download-dispatcher/src/core.ts").read_text(encoding="utf-8")
         stable_workflow = (ROOT / ".github/workflows/publish-release.yml").read_text(encoding="utf-8")
         dev_workflow = (ROOT / ".github/workflows/dev-build.yml").read_text(encoding="utf-8")
+        deploy_workflow = (ROOT / ".github/workflows/deploy-download-dispatcher.yml").read_text(encoding="utf-8")
 
         combined = "\n".join((action, publication, dispatcher, stable_workflow, dev_workflow)).lower()
         self.assertNotIn("r2", combined)
-        self.assertIn("PUB_ROUTING_STATE_KV_ID", publication)
-        self.assertIn('encoded_key="${key//:/%3A}"', publication)
-        self.assertIn('put_kv_control "control:history:', publication)
-        self.assertIn('put_kv_control "control:${PUB_CHANNEL}"', publication)
-        self.assertIn('verified_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"', publication)
-        self.assertIn('verifiedAt:$verifiedAt', publication)
-        self.assertIn('env.ROUTING_STATE.get(`control:${channel}`', dispatcher)
+        self.assertNotIn("kv", combined)
+        self.assertNotIn("cloudflare.com/client/v4", publication)
+        self.assertNotIn("put_kv_control", publication)
+        self.assertNotIn("control_file", publication)
+        self.assertNotIn("ROUTING_STATE", combined)
+        self.assertNotIn("wrangler.production.jsonc", deploy_workflow)
+        self.assertNotIn("Apply production bindings", deploy_workflow)
+        self.assertIn("--config wrangler.jsonc", deploy_workflow)
         self.assertEqual(stable_workflow.count("group: gonavi-download-publication"), 1)
         self.assertEqual(dev_workflow.count("group: gonavi-download-publication"), 1)
 
-    def test_dispatcher_cron_stays_within_free_kv_write_budget(self) -> None:
+    def test_dispatcher_has_no_remote_routing_state_or_refresh_schedule(self) -> None:
         config = json.loads((ROOT / "deploy/download-dispatcher/wrangler.jsonc").read_text(encoding="utf-8"))
         dispatcher = (ROOT / "deploy/download-dispatcher/src/core.ts").read_text(encoding="utf-8")
 
@@ -195,15 +147,10 @@ class DownloadMirrorConfigTest(unittest.TestCase):
             config["routes"],
             [{"pattern": "download-dispatch.syngnat.top", "custom_domain": True}],
         )
-        self.assertEqual(config["triggers"]["crons"], ["*/5 * * * *"])
-        interval_minutes = 5
-        channel_count = 2
-        daily_routing_writes = 24 * 60 // interval_minutes * channel_count
-        self.assertEqual(daily_routing_writes, 576)
-        self.assertLess(daily_routing_writes, 1_000)
-        self.assertIn("ROUTING_STATE_MAX_AGE_MS = 12 * 60 * 1000", dispatcher)
-        self.assertIn("SUCCESS_THRESHOLD = 2", dispatcher)
-        self.assertIn("FAILURE_THRESHOLD = 3", dispatcher)
+        self.assertNotIn("kv_namespaces", config)
+        self.assertNotIn("triggers", config)
+        self.assertNotIn("ROUTING_STATE", dispatcher)
+        self.assertNotIn("scheduled", dispatcher)
 
 
 if __name__ == "__main__":

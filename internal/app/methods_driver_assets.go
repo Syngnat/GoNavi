@@ -1450,7 +1450,7 @@ func fetchDriverBundleAssetIndex(release *githubRelease) (driverBundleAssetIndex
 	}
 
 	client := newStrictHTTPClientWithGlobalProxy(driverReleaseAssetSizeProbeTimeout)
-	candidates, resolveErr := resolveDispatcherDownloadCandidates(client, indexURL)
+	candidates, resolveErr := resolveDispatcherDownloadCandidatesFailOpen(client, indexURL)
 	if resolveErr != nil {
 		candidates = []string{indexURL}
 	}

@@ -1944,6 +1944,3 @@ jobs:
           bero-ssh-private-key: ${{ secrets.CDN_BERO_SSH_PRIVATE_KEY }}
           bero-ssh-known-hosts: ${{ secrets.CDN_BERO_SSH_KNOWN_HOSTS }}
           bero-base-url: ${{ vars.CDN_BERO_BASE_URL }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_KV_API_TOKEN }}
-          routing-state-kv-id: ${{ vars.ROUTING_STATE_KV_ID }}

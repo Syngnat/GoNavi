@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publish one prepared generation to the DMIT static edge and Bero origin,
-# then commit their routing control to Cloudflare KV.
+# Publish one prepared generation to the DMIT static edge and Bero origin.
 # Secrets are consumed only from the environment and are never printed.
 
 require_value() {
@@ -12,14 +11,11 @@ require_value() {
 
 for name in \
   PUB_CHANNEL PUB_APP_TAG PUB_APP_DIR PUB_APP_MANIFEST PUB_DRIVER_ENABLED \
-  PUB_GENERATION PUB_CLOUDFLARE_ACCOUNT_ID PUB_CLOUDFLARE_API_TOKEN \
-  PUB_ROUTING_STATE_KV_ID; do
+  PUB_GENERATION; do
   require_value "${name}"
 done
 [[ "${PUB_CHANNEL}" == stable || "${PUB_CHANNEL}" == dev ]] || { echo "Invalid publication channel" >&2; exit 1; }
 [[ "${PUB_GENERATION}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { echo "Invalid publication generation" >&2; exit 1; }
-[[ "${PUB_CLOUDFLARE_ACCOUNT_ID}" =~ ^[0-9a-f]{32}$ ]] || { echo "Invalid Cloudflare account ID" >&2; exit 1; }
-[[ "${PUB_ROUTING_STATE_KV_ID}" =~ ^[0-9a-f]{32}$ ]] || { echo "Invalid routing KV namespace ID" >&2; exit 1; }
 PUB_THROUGHPUT_WARN_MBPS="${PUB_THROUGHPUT_WARN_MBPS:-20}"
 [[ "${PUB_THROUGHPUT_WARN_MBPS}" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "Invalid throughput warning threshold" >&2; exit 1; }
 EDGE_DMIT_MAX_BYTES="${EDGE_DMIT_MAX_BYTES:-9000000000}"
@@ -47,7 +43,6 @@ PUB_RSYNC_COMMAND_TIMEOUT_SECONDS="${PUB_RSYNC_COMMAND_TIMEOUT_SECONDS:-900}"
 PUB_HTTP_CONNECT_TIMEOUT_SECONDS="${PUB_HTTP_CONNECT_TIMEOUT_SECONDS:-10}"
 PUB_HTTP_REQUEST_TIMEOUT_SECONDS="${PUB_HTTP_REQUEST_TIMEOUT_SECONDS:-60}"
 PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS="${PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS:-120}"
-PUB_KV_REQUEST_TIMEOUT_SECONDS="${PUB_KV_REQUEST_TIMEOUT_SECONDS:-30}"
 for name in \
   PUB_TIMEOUT_KILL_AFTER_SECONDS PUB_PREPARE_COMMAND_TIMEOUT_SECONDS \
   PUB_SSH_CONNECT_TIMEOUT_SECONDS PUB_SSH_SERVER_ALIVE_INTERVAL_SECONDS \
@@ -55,7 +50,7 @@ for name in \
   PUB_SSH_TRANSACTION_COMMAND_TIMEOUT_SECONDS PUB_SSH_RETENTION_COMMAND_TIMEOUT_SECONDS \
   PUB_RSYNC_IO_TIMEOUT_SECONDS PUB_RSYNC_COMMAND_TIMEOUT_SECONDS \
   PUB_HTTP_CONNECT_TIMEOUT_SECONDS PUB_HTTP_REQUEST_TIMEOUT_SECONDS \
-  PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS PUB_KV_REQUEST_TIMEOUT_SECONDS; do
+  PUB_THROUGHPUT_REQUEST_TIMEOUT_SECONDS; do
   [[ "${!name}" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid positive timeout: ${name}" >&2; exit 1; }
 done
 command -v timeout >/dev/null || { echo "GNU timeout is required for edge publication" >&2; exit 1; }
@@ -292,10 +287,6 @@ for node in dmit bero; do
   }
 done
 
-probe_path="/$(jq -r '.probePath' "${stage_dir}/deployment.json")"
-probe_size="$(jq -r '.probeSize' "${stage_dir}/deployment.json")"
-probe_sha="$(jq -r '.probeSha256' "${stage_dir}/deployment.json")"
-
 activate_node() (
   set -euo pipefail
   local node="$1" host port user private_key known_hosts root base_url max_bytes reserve_free_bytes ssh_dir remote remote_stage
@@ -366,44 +357,5 @@ for node in dmit bero; do
     exit 1
   }
 done
-
-control_file="${stage_dir}/control-${PUB_CHANNEL}.json"
-verified_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-jq -n \
-  --arg channel "${PUB_CHANNEL}" --arg generation "${PUB_GENERATION}" \
-  --arg appTag "${PUB_APP_TAG}" --arg driverTag "${effective_driver_tag}" \
-  --arg verifiedAt "${verified_at}" \
-  --arg probePath "${probe_path}" --argjson probeSize "${probe_size}" --arg probeSha256 "${probe_sha}" \
-  --arg dmitBase "$(node_value dmit BASE_URL)" \
-  --arg beroBase "$(node_value bero BASE_URL)" \
-  '{schemaVersion:1,channel:$channel,generation:$generation,appTag:$appTag,driverTag:$driverTag,verifiedAt:$verifiedAt,probePath:$probePath,probeSize:$probeSize,probeSha256:$probeSha256,nodes:{dmit:{baseUrl:$dmitBase,enabled:true},bero:{baseUrl:$beroBase,enabled:true}}}' \
-  > "${control_file}"
-
-put_kv_control() {
-  local key="$1" file="$2" encoded_key response_file http_status
-  encoded_key="${key//:/%3A}"
-  response_file="${status_root}/kv-response.json"
-  if ! http_status="$(curl --silent --show-error --proto '=https' --tlsv1.2 \
-    --connect-timeout "${PUB_HTTP_CONNECT_TIMEOUT_SECONDS}" --max-time "${PUB_KV_REQUEST_TIMEOUT_SECONDS}" \
-    --output "${response_file}" --write-out '%{http_code}' \
-    --request PUT \
-    --header "Authorization: Bearer ${PUB_CLOUDFLARE_API_TOKEN}" \
-    --header 'Content-Type: application/json' \
-    --data-binary "@${file}" \
-    "https://api.cloudflare.com/client/v4/accounts/${PUB_CLOUDFLARE_ACCOUNT_ID}/storage/kv/namespaces/${PUB_ROUTING_STATE_KV_ID}/values/${encoded_key}")"; then
-    echo "Cloudflare KV request failed for ${key}" >&2
-    return 1
-  fi
-  if [[ "${http_status}" != 200 ]] || ! jq -e '.success == true' "${response_file}" >/dev/null; then
-    echo "Cloudflare KV write failed for ${key} (HTTP ${http_status})" >&2
-    jq -c '{success,errors}' "${response_file}" >&2 || true
-    return 1
-  fi
-}
-
-# Preserve an immutable audit value before atomically replacing the channel's
-# current control key. The retired object-storage service is never accessed.
-put_kv_control "control:history:${PUB_CHANNEL}:${PUB_GENERATION}" "${control_file}"
-put_kv_control "control:${PUB_CHANNEL}" "${control_file}"
 
 echo "Published generation ${PUB_GENERATION}: dmit=true bero=true"

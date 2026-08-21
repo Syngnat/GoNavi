@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,19 +77,22 @@ func TestValidatedHTTPSDownloadCandidatesAcceptsPublicIPTLSURL(t *testing.T) {
 	}
 }
 
-func TestDownloadDispatcherURLRequiringCurrentDevAsset(t *testing.T) {
+func TestDevDispatcherURLIsRecognizedWithoutCurrentQuery(t *testing.T) {
 	devAsset := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi-dev-abc1234-Windows-Amd64-Portable.zip"
-	parsed, err := url.Parse(downloadDispatcherURLRequiringCurrentDevAsset(devAsset))
+	parsed, err := url.Parse(devAsset)
 	if err != nil {
-		t.Fatalf("parse gated dev URL: %v", err)
+		t.Fatalf("parse dev URL: %v", err)
 	}
-	if parsed.Query().Get("require-current") != "1" {
-		t.Fatalf("gated dev URL = %q", parsed.String())
+	if parsed.Query().Get("require-current") != "" {
+		t.Fatalf("dev URL unexpectedly carries current-gating query: %q", parsed.String())
+	}
+	if !isDevDispatcherAssetURL(devAsset) {
+		t.Fatal("dev Dispatcher asset was not recognized")
 	}
 
 	stableAsset := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Freleases%2Fdownload%2Fv1.2.3%2FGoNavi-1.2.3-Windows-Amd64-Portable.zip"
-	if got := downloadDispatcherURLRequiringCurrentDevAsset(stableAsset); got != stableAsset {
-		t.Fatalf("stable URL changed: %q", got)
+	if isDevDispatcherAssetURL(stableAsset) {
+		t.Fatalf("stable URL incorrectly recognized as dev asset: %q", stableAsset)
 	}
 }
 
@@ -106,17 +111,241 @@ func TestDownloadRangeClientSetsResponseHeaderTimeoutForStandardTransport(t *tes
 	}
 }
 
-func TestShouldResolveDispatcherFallbackRejectsGatedDevAsset(t *testing.T) {
-	gated := downloadDispatcherURLRequiringCurrentDevAsset(
-		"https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip",
-	)
-	if shouldResolveDispatcherFallback(gated, parallelDownloadMinimumSize, errors.New("DMIT unavailable")) {
-		t.Fatal("gated dev asset must not resolve JSON fallback candidates")
+func TestShouldResolveDispatcherFallbackAllowsDevAsset(t *testing.T) {
+	dev := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip"
+	if !shouldResolveDispatcherFallback(dev, parallelDownloadMinimumSize, errors.New("DMIT unavailable")) {
+		t.Fatal("dev asset must resolve JSON fallback candidates")
 	}
 
 	stable := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Freleases%2Fdownload%2Fv1.2.3%2FGoNavi.zip"
 	if !shouldResolveDispatcherFallback(stable, parallelDownloadMinimumSize, errors.New("DMIT unavailable")) {
 		t.Fatal("stable dispatcher asset should retain JSON fallback candidates")
+	}
+}
+
+func TestStaticDispatcherDownloadCandidatesKeepFixedMirrorOrder(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		want []string
+	}{
+		{
+			name: "stable app",
+			path: "/gonavi/releases/download/v1.2.3/GoNavi-Windows.zip",
+			want: []string{
+				"https://download.syngnat.top/gonavi/releases/download/v1.2.3/GoNavi-Windows.zip",
+				"https://origin-download.syngnat.top:8443/gonavi/releases/download/v1.2.3/GoNavi-Windows.zip",
+				"https://github.com/Syngnat/GoNavi/releases/download/v1.2.3/GoNavi-Windows.zip",
+			},
+		},
+		{
+			name: "development driver",
+			path: "/drivers/dev/releases/download/dev-a1b2c3/pg-driver-agent.zip",
+			want: []string{
+				"https://download.syngnat.top/drivers/dev/releases/download/dev-a1b2c3/pg-driver-agent.zip",
+				"https://origin-download.syngnat.top:8443/drivers/dev/releases/download/dev-a1b2c3/pg-driver-agent.zip",
+				"https://github.com/Syngnat/GoNavi-DriverAgents/releases/download/dev-latest/pg-driver-agent.zip",
+			},
+		},
+		{
+			name: "stable app manifest",
+			path: "/gonavi/releases/latest/latest.json",
+			want: []string{
+				"https://download.syngnat.top/gonavi/releases/latest/latest.json",
+				"https://origin-download.syngnat.top:8443/gonavi/releases/latest/latest.json",
+				"https://github.com/Syngnat/GoNavi/releases/latest/download/latest.json",
+			},
+		},
+		{
+			name: "development app manifest",
+			path: "/gonavi/dev/releases/latest/latest-dev.json",
+			want: []string{
+				"https://download.syngnat.top/gonavi/dev/releases/latest/latest-dev.json",
+				"https://origin-download.syngnat.top:8443/gonavi/dev/releases/latest/latest-dev.json",
+				"https://github.com/Syngnat/GoNavi/releases/download/dev-latest/latest-dev.json",
+			},
+		},
+		{
+			name: "stable driver index",
+			path: "/drivers/releases/latest/GoNavi-DriverAgents-Index.json",
+			want: []string{
+				"https://download.syngnat.top/drivers/releases/latest/GoNavi-DriverAgents-Index.json",
+				"https://origin-download.syngnat.top:8443/drivers/releases/latest/GoNavi-DriverAgents-Index.json",
+				"https://github.com/Syngnat/GoNavi-DriverAgents/releases/latest/download/GoNavi-DriverAgents-Index.json",
+			},
+		},
+		{
+			name: "development driver index",
+			path: "/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json",
+			want: []string{
+				"https://download.syngnat.top/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json",
+				"https://origin-download.syngnat.top:8443/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json",
+				"https://github.com/Syngnat/GoNavi-DriverAgents/releases/download/dev-latest/GoNavi-DriverAgents-Index.json",
+			},
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := staticDispatcherDownloadCandidates(downloadDispatcherURLForPath(test.path))
+			if err != nil {
+				t.Fatalf("static Dispatcher candidates: %v", err)
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("static Dispatcher candidates = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestKnownDispatcherPathUsesStaticCandidatesWithoutControlPlane(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		// This is the response an older Worker can produce when its KV control
+		// state is empty. It must not influence the local fixed source chain.
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"candidates":[{"source":"github","url":"https://github.com/Syngnat/GoNavi/releases/download/v1.2.3/GoNavi-Windows.zip"}]}`)
+	}))
+	defer server.Close()
+	client := localDispatcherClient(t, server.URL)
+	rawURL := downloadDispatcherURLForPath("/gonavi/releases/download/v1.2.3/GoNavi-Windows.zip")
+	candidates, err := resolveDispatcherDownloadCandidatesFailOpen(client, rawURL)
+	if err != nil {
+		t.Fatalf("resolve static Dispatcher candidates: %v", err)
+	}
+	want, err := staticDispatcherDownloadCandidates(rawURL)
+	if err != nil {
+		t.Fatalf("static Dispatcher candidates: %v", err)
+	}
+	if !reflect.DeepEqual(candidates, want) {
+		t.Fatalf("static candidates = %#v, want %#v", candidates, want)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("known Dispatcher path performed %d control-plane requests", requests.Load())
+	}
+}
+
+func TestDispatcherFailureResolvesAndTriesBeroThenGitHubCandidates(t *testing.T) {
+	payload := []byte("fallback candidate payload")
+	expectedSize := int64(len(payload))
+	expectedHash := fmt.Sprintf("%x", sha256.Sum256(payload))
+	dev := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip"
+
+	var requestsMu sync.Mutex
+	requests := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestsMu.Lock()
+		switch request.URL.Path {
+		case downloadDispatcherPath:
+			requests["dispatcher"]++
+		case "/dmit/asset.zip":
+			requests["dmit"]++
+		case "/bero/asset.zip":
+			requests["bero"]++
+		case "/github/asset.zip":
+			requests["github"]++
+		}
+		requestsMu.Unlock()
+
+		switch request.URL.Path {
+		case downloadDispatcherPath:
+			if request.URL.Query().Get("format") != "json" {
+				http.Error(writer, "DMIT unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if request.URL.Query().Get("require-current") != "" {
+				http.Error(writer, "legacy current-gating query must be absent", http.StatusBadRequest)
+				return
+			}
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, `{"candidates":[`+
+				`{"source":"dmit","url":"https://dmit.test/dmit/asset.zip"},`+
+				`{"source":"bero","url":"https://bero.test/bero/asset.zip"},`+
+				`{"source":"github","url":"https://github.test/github/asset.zip"}`+
+				`]}`)
+		case "/dmit/asset.zip", "/bero/asset.zip":
+			http.Error(writer, "edge unavailable", http.StatusServiceUnavailable)
+		case "/github/asset.zip":
+			if request.Header.Get("Range") != "" {
+				t.Fatalf("small fallback candidate unexpectedly used a range request: %q", request.Header.Get("Range"))
+			}
+			writer.Header().Set("Content-Length", strconv.FormatInt(expectedSize, 10))
+			_, _ = writer.Write(payload)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse local candidate server URL: %v", err)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			forwarded := request.Clone(request.Context())
+			rewritten := *request.URL
+			rewritten.Scheme = target.Scheme
+			rewritten.Host = target.Host
+			forwarded.URL = &rewritten
+			forwarded.Host = ""
+			return transport.RoundTrip(forwarded)
+		}),
+	}
+
+	targetPath := filepath.Join(t.TempDir(), "fallback.zip")
+	_, firstErr := downloadFileWithHashFromCandidatesWithExpectedSize(
+		client,
+		[]string{dev},
+		targetPath,
+		nil,
+		nil,
+		expectedSize,
+	)
+	if firstErr == nil {
+		t.Fatal("expected the initial DMIT Dispatcher request to fail")
+	}
+	if !shouldResolveDispatcherFallback(dev, expectedSize, firstErr) {
+		t.Fatalf("Dispatcher failure must resolve JSON fallback candidates: %v", firstErr)
+	}
+
+	candidates, err := resolveDispatcherDownloadCandidates(client, dev)
+	if err != nil {
+		t.Fatalf("resolve Dispatcher candidates: %v", err)
+	}
+	wantCandidates := []string{
+		"https://dmit.test/dmit/asset.zip",
+		"https://bero.test/bero/asset.zip",
+		"https://github.test/github/asset.zip",
+	}
+	if !reflect.DeepEqual(candidates, wantCandidates) {
+		t.Fatalf("resolved candidates = %#v, want %#v", candidates, wantCandidates)
+	}
+
+	gotHash, err := downloadFileWithHashFromCandidatesWithExpectedSize(
+		client,
+		candidates,
+		targetPath,
+		nil,
+		firstErr,
+		expectedSize,
+	)
+	if err != nil {
+		t.Fatalf("fallback candidates download: %v", err)
+	}
+	if gotHash != expectedHash {
+		t.Fatalf("fallback hash = %q, want %q", gotHash, expectedHash)
+	}
+	requestsMu.Lock()
+	defer requestsMu.Unlock()
+	if requests["dispatcher"] != 2 {
+		t.Fatalf("Dispatcher requests = %d, want initial 302 path plus JSON resolution", requests["dispatcher"])
+	}
+	if requests["dmit"] != 1 || requests["bero"] != 1 || requests["github"] != 1 {
+		t.Fatalf("candidate requests = %#v, want one DMIT, Bero, and GitHub attempt", requests)
 	}
 }
 
@@ -319,10 +548,10 @@ func TestDownloadFileWithHashFromCandidatesExpectedSizePreservesNotFoundStatus(t
 	}
 }
 
-func TestDownloadFileWithHashFromCandidatesExpectedSizePreservesGatedCurrentAssetMismatch(t *testing.T) {
+func TestDownloadFileWithHashFromCandidatesExpectedSizeKeepsConflictAsHTTPError(t *testing.T) {
 	var rangeRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != downloadDispatcherPath || request.URL.Query().Get("require-current") != "1" {
+		if request.URL.Path != downloadDispatcherPath || request.URL.Query().Get("require-current") != "" {
 			http.Error(writer, "unexpected Dispatcher request", http.StatusBadRequest)
 			return
 		}
@@ -334,13 +563,11 @@ func TestDownloadFileWithHashFromCandidatesExpectedSizePreservesGatedCurrentAsse
 	}))
 	defer server.Close()
 	client := localDispatcherClient(t, server.URL)
-	gated := downloadDispatcherURLRequiringCurrentDevAsset(
-		"https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip",
-	)
+	dev := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip"
 
 	_, err := downloadFileWithHashFromCandidatesWithExpectedSize(
 		client,
-		[]string{gated},
+		[]string{dev},
 		filepath.Join(t.TempDir(), "missing.zip"),
 		nil,
 		nil,
@@ -349,19 +576,19 @@ func TestDownloadFileWithHashFromCandidatesExpectedSizePreservesGatedCurrentAsse
 	if err == nil {
 		t.Fatal("expected superseded expected-size asset to fail")
 	}
-	var mismatch downloadCurrentAssetMismatchError
-	if !errors.As(err, &mismatch) {
-		t.Fatalf("expected current dev asset mismatch, got %T %v", err, err)
+	var localized localizedUpdateError
+	if !errors.As(err, &localized) || localized.httpStatus != http.StatusConflict {
+		t.Fatalf("expected HTTP conflict, got %T %v", err, err)
 	}
 	if got := rangeRequests.Load(); got == 0 {
-		t.Fatal("expected at least one gated range request")
+		t.Fatal("expected at least one range request")
 	}
 }
 
-func TestDownloadFileWithHashFromCandidatesSequentialGatedCurrentAssetMismatch(t *testing.T) {
+func TestDownloadFileWithHashFromCandidatesSequentialConflictAsHTTPError(t *testing.T) {
 	var sequentialRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != downloadDispatcherPath || request.URL.Query().Get("require-current") != "1" {
+		if request.URL.Path != downloadDispatcherPath || request.URL.Query().Get("require-current") != "" {
 			http.Error(writer, "unexpected Dispatcher request", http.StatusBadRequest)
 			return
 		}
@@ -372,13 +599,11 @@ func TestDownloadFileWithHashFromCandidatesSequentialGatedCurrentAssetMismatch(t
 		http.Error(writer, "current dev asset changed", http.StatusConflict)
 	}))
 	defer server.Close()
-	gated := downloadDispatcherURLRequiringCurrentDevAsset(
-		"https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip",
-	)
+	dev := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip"
 
 	_, err := downloadFileWithHashFromCandidatesWithExpectedSize(
 		localDispatcherClient(t, server.URL),
-		[]string{gated},
+		[]string{dev},
 		filepath.Join(t.TempDir(), "superseded-small.zip"),
 		nil,
 		nil,
@@ -387,16 +612,16 @@ func TestDownloadFileWithHashFromCandidatesSequentialGatedCurrentAssetMismatch(t
 	if err == nil {
 		t.Fatal("expected superseded sequential asset to fail")
 	}
-	var mismatch downloadCurrentAssetMismatchError
-	if !errors.As(err, &mismatch) {
-		t.Fatalf("expected current dev asset mismatch, got %T %v", err, err)
+	var localized localizedUpdateError
+	if !errors.As(err, &localized) || localized.httpStatus != http.StatusConflict {
+		t.Fatalf("expected HTTP conflict, got %T %v", err, err)
 	}
 	if got := sequentialRequests.Load(); got != 1 {
 		t.Fatalf("sequential requests = %d, want 1", got)
 	}
 }
 
-func TestDownloadFileWithHashFromCandidatesKeepsUngatedConflictAsHTTPError(t *testing.T) {
+func TestDownloadFileWithHashFromCandidatesKeepsConflictAsHTTPError(t *testing.T) {
 	var sequentialRequests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Query().Get("require-current") != "" {
@@ -410,11 +635,11 @@ func TestDownloadFileWithHashFromCandidatesKeepsUngatedConflictAsHTTPError(t *te
 		http.Error(writer, "ordinary conflict", http.StatusConflict)
 	}))
 	defer server.Close()
-	ungated := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip"
+	dev := "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Fdownload%2Fdev-abc1234%2FGoNavi.zip"
 
 	_, err := downloadFileWithHashFromCandidatesWithExpectedSize(
 		localDispatcherClient(t, server.URL),
-		[]string{ungated},
+		[]string{dev},
 		filepath.Join(t.TempDir(), "ordinary-conflict.zip"),
 		nil,
 		nil,
@@ -422,10 +647,6 @@ func TestDownloadFileWithHashFromCandidatesKeepsUngatedConflictAsHTTPError(t *te
 	)
 	if err == nil {
 		t.Fatal("expected ordinary conflict to fail")
-	}
-	var mismatch downloadCurrentAssetMismatchError
-	if errors.As(err, &mismatch) {
-		t.Fatalf("ungated conflict incorrectly became current asset mismatch: %v", err)
 	}
 	var localized localizedUpdateError
 	if !errors.As(err, &localized) {

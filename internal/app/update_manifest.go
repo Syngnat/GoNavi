@@ -273,7 +273,7 @@ func fetchStaticUpdateManifestPayloadFromURL(channel updateChannel, manifestURL 
 			failures = append(failures, fmt.Errorf("%s: %w", redactDownloadURL(rawURL), directErr))
 		}
 	}
-	candidates, resolveErr := resolveDispatcherDownloadCandidates(client, rawURL)
+	candidates, resolveErr := resolveDispatcherDownloadCandidatesFailOpen(client, rawURL)
 	if resolveErr != nil {
 		candidates = []string{rawURL}
 		failures = append(failures, resolveErr)

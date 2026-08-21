@@ -32,15 +32,11 @@ const (
 	downloadCandidateProbeTimeout = 15 * time.Second
 	downloadCandidateCacheTTL     = 6 * time.Hour
 	downloadRegionalBiasRatio     = 1.20
+	downloadDMITBaseURL           = "https://download.syngnat.top"
+	downloadBeroBaseURL           = "https://origin-download.syngnat.top:8443"
 )
 
 var errParallelRangeUnsupported = errors.New("download source does not support validated byte ranges")
-
-type downloadCurrentAssetMismatchError struct{}
-
-func (downloadCurrentAssetMismatchError) Error() string {
-	return "download dispatcher reports that the dev asset is no longer current"
-}
 
 type dispatcherDownloadCandidate struct {
 	Source string `json:"source"`
@@ -71,36 +67,13 @@ func downloadDispatcherAssetPath(rawURL string) (string, bool) {
 	return assetPath, strings.HasPrefix(assetPath, "/")
 }
 
-func downloadDispatcherURLRequiringCurrentDevAsset(rawURL string) string {
+func isDevDispatcherAssetURL(rawURL string) bool {
 	assetPath, ok := downloadDispatcherAssetPath(rawURL)
-	if !ok || !strings.HasPrefix(assetPath, "/gonavi/dev/releases/download/") {
-		return strings.TrimSpace(rawURL)
-	}
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return strings.TrimSpace(rawURL)
-	}
-	query := parsed.Query()
-	query.Set("require-current", "1")
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
+	return ok && strings.HasPrefix(assetPath, "/gonavi/dev/releases/download/")
 }
 
-func dispatcherURLRequiresCurrentDevAsset(rawURL string) bool {
-	assetPath, ok := downloadDispatcherAssetPath(rawURL)
-	if !ok || !strings.HasPrefix(assetPath, "/gonavi/dev/releases/download/") {
-		return false
-	}
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	return err == nil && parsed.Query().Get("require-current") == "1"
-}
-
-func shouldResolveDispatcherFallback(rawURL string, expectedSize int64, downloadErr error) bool {
-	if expectedSize <= 0 || dispatcherURLRequiresCurrentDevAsset(rawURL) {
-		return false
-	}
-	var currentAssetMismatch downloadCurrentAssetMismatchError
-	if errors.As(downloadErr, &currentAssetMismatch) {
+func shouldResolveDispatcherFallback(rawURL string, expectedSize int64, _ error) bool {
+	if expectedSize <= 0 {
 		return false
 	}
 	_, isDispatcher := downloadDispatcherAssetPath(rawURL)
@@ -163,6 +136,113 @@ func resolveDispatcherDownloadCandidates(client *http.Client, rawURL string) ([]
 		return nil, errors.New("download dispatcher returned no valid HTTPS candidates")
 	}
 	return candidates, nil
+}
+
+// staticDispatcherDownloadCandidates keeps downloads fail-open when the
+// Dispatcher control plane is unavailable. The asset path is already present
+// in the signed manifest URL, so derive the fixed mirror chain locally and
+// keep GitHub as the final fallback.
+func staticDispatcherDownloadCandidates(rawURL string) ([]string, error) {
+	assetPath, ok := downloadDispatcherAssetPath(rawURL)
+	if !ok {
+		return nil, errors.New("invalid download dispatcher URL")
+	}
+	parts := strings.Split(strings.Trim(assetPath, "/"), "/")
+	if len(parts) != 4 && len(parts) != 5 && len(parts) != 6 {
+		return nil, errors.New("invalid download dispatcher asset path")
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.Contains(part, "\\") {
+			return nil, errors.New("invalid download dispatcher asset path segment")
+		}
+	}
+	isDriver := parts[0] == "drivers"
+	isDev := len(parts) == 6 && parts[1] == "dev"
+	githubRepo := "Syngnat/GoNavi"
+	githubTag := ""
+	githubLatest := false
+	asset := strings.TrimSpace(parts[len(parts)-1])
+	if asset == "" {
+		return nil, errors.New("download dispatcher asset coordinates are incomplete")
+	}
+
+	// Mutable manifest/index paths have no release tag in the URL. Keep their
+	// exact coordinate mapping in sync with the Worker so a control-plane
+	// failure can still reach both mirrors and the matching GitHub release.
+	switch assetPath {
+	case "/gonavi/releases/latest/latest.json":
+		githubTag = "latest"
+		githubLatest = true
+	case "/gonavi/dev/releases/latest/latest-dev.json":
+		githubTag = "dev-latest"
+	case "/drivers/releases/latest/GoNavi-DriverAgents-Index.json":
+		isDriver = true
+		githubRepo = "Syngnat/GoNavi-DriverAgents"
+		githubTag = "latest"
+		githubLatest = true
+	case "/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json":
+		isDriver = true
+		githubRepo = "Syngnat/GoNavi-DriverAgents"
+		githubTag = "dev-latest"
+	default:
+		if parts[0] != "gonavi" && !isDriver {
+			return nil, errors.New("unsupported download dispatcher asset path")
+		}
+		if isDev {
+			if parts[2] != "releases" || parts[3] != "download" {
+				return nil, errors.New("invalid development download dispatcher asset path")
+			}
+		} else if len(parts) != 5 || parts[1] != "releases" || parts[2] != "download" {
+			return nil, errors.New("invalid stable download dispatcher asset path")
+		}
+		tagIndex := 3
+		if isDev {
+			tagIndex = 4
+		}
+		tag := strings.TrimSpace(parts[tagIndex])
+		if tag == "" {
+			return nil, errors.New("download dispatcher asset coordinates are incomplete")
+		}
+		if isDriver {
+			githubRepo = "Syngnat/GoNavi-DriverAgents"
+		}
+		githubTag = tag
+		if isDev {
+			githubTag = "dev-latest"
+		}
+	}
+	if githubTag == "" {
+		return nil, errors.New("unsupported download dispatcher asset path")
+	}
+	encodedParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		encodedParts = append(encodedParts, url.PathEscape(part))
+	}
+	relativePath := "/" + strings.Join(encodedParts, "/")
+	githubURL := "https://github.com/" + githubRepo + "/releases/download/" + url.PathEscape(githubTag) + "/" + url.PathEscape(asset)
+	if githubLatest {
+		githubURL = "https://github.com/" + githubRepo + "/releases/latest/download/" + url.PathEscape(asset)
+	}
+	return []string{
+		downloadDMITBaseURL + relativePath,
+		downloadBeroBaseURL + relativePath,
+		githubURL,
+	}, nil
+}
+
+func resolveDispatcherDownloadCandidatesFailOpen(client *http.Client, rawURL string) ([]string, error) {
+	staticCandidates, staticErr := staticDispatcherDownloadCandidates(rawURL)
+	if staticErr == nil {
+		// Known app, driver, and mutable index paths have a fixed public source
+		// chain. Derive it locally instead of accepting a legacy Dispatcher JSON
+		// response whose KV state may contain only GitHub (or be stale).
+		return staticCandidates, nil
+	}
+	candidates, err := resolveDispatcherDownloadCandidates(client, rawURL)
+	if err == nil {
+		return candidates, nil
+	}
+	return nil, errors.Join(staticErr, err)
 }
 
 type validatedDownloadRange struct {
@@ -486,9 +566,6 @@ func downloadOneValidatedRange(
 				if status == http.StatusOK {
 					return errParallelRangeUnsupported
 				}
-				if status == http.StatusConflict && dispatcherURLRequiresCurrentDevAsset(rawURL) {
-					return downloadCurrentAssetMismatchError{}
-				}
 				if status == http.StatusNotFound || status == http.StatusGone || status == http.StatusConflict {
 					return classifyGitHubUpdateHTTPError(status, body, resp.Header, false)
 				} else {
@@ -665,11 +742,9 @@ func (session *persistentRangeDownload) attempt(client *http.Client, rawURL stri
 			// so the caller can perform the sequential fallback.
 			unsupportedErr = errParallelRangeUnsupported
 		}
-		var mismatch downloadCurrentAssetMismatchError
 		var localized localizedUpdateError
-		if errors.As(outcome.err, &mismatch) ||
-			(errors.As(outcome.err, &localized) &&
-				(localized.httpStatus == http.StatusNotFound || localized.httpStatus == http.StatusGone)) {
+		if errors.As(outcome.err, &localized) &&
+			(localized.httpStatus == http.StatusNotFound || localized.httpStatus == http.StatusGone) {
 			// Cancellation races must not hide an expired or superseded dev asset.
 			terminalAssetError = outcome.err
 		}
@@ -751,9 +826,6 @@ func downloadFileWithHashSequential(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusConflict && dispatcherURLRequiresCurrentDevAsset(rawURL) {
-			return "", downloadCurrentAssetMismatchError{}
-		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return "", classifyGitHubUpdateHTTPError(resp.StatusCode, body, resp.Header, false)
 	}
@@ -825,7 +897,7 @@ func downloadFileWithHashParallelAwareAndExpectedSize(
 		// separate 256 KiB probe on the healthy path.
 		candidates = []string{strings.TrimSpace(rawURL)}
 	} else {
-		candidates, dispatcherErr = resolveDispatcherDownloadCandidates(client, rawURL)
+		candidates, dispatcherErr = resolveDispatcherDownloadCandidatesFailOpen(client, rawURL)
 		if dispatcherErr != nil {
 			// The 302 endpoint remains a compatibility fallback when JSON resolution
 			// is temporarily unavailable. It still uses normal TLS.
@@ -842,7 +914,7 @@ func downloadFileWithHashParallelAwareAndExpectedSize(
 	// Older cached manifests may omit AssetAPIURL. Only pay for the dispatcher
 	// JSON fallback after the zero-probe path fails, so GitHub remains available
 	// without adding latency to healthy DMIT downloads.
-	fallbackCandidates, resolveErr := resolveDispatcherDownloadCandidates(client, candidates[0])
+	fallbackCandidates, resolveErr := resolveDispatcherDownloadCandidatesFailOpen(client, candidates[0])
 	if resolveErr != nil {
 		return result, errors.Join(err, resolveErr)
 	}

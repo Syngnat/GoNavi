@@ -1,5 +1,5 @@
 name: Publish verified download edges
-description: Publish immutable assets to the DMIT edge and Bero origin before mutable pointers and KV control
+description: Publish immutable assets to the DMIT edge and Bero origin before promoting verified mutable pointers
 
 inputs:
   channel: { required: true, description: stable or dev }
@@ -22,9 +22,6 @@ inputs:
   bero-ssh-private-key: { required: true, description: Bero origin deployment key }
   bero-ssh-known-hosts: { required: true, description: Pinned Bero origin host key }
   bero-base-url: { required: true, description: HTTPS Cloudflare-proxied Bero origin base URL }
-  cloudflare-account-id: { required: true, description: Cloudflare account ID }
-  cloudflare-api-token: { required: true, description: Token restricted to Workers KV Storage Write }
-  routing-state-kv-id: { required: true, description: Download dispatcher routing KV namespace ID }
   throughput-warning-mbps: { required: false, default: '20', description: Observability-only public eight-Range warning threshold }
   dmit-max-bytes: { required: false, default: '9000000000', description: Maximum DMIT mirror bytes }
   dmit-reserve-free-bytes: { required: false, default: '2000000000', description: Minimum free bytes preserved on DMIT }
@@ -57,7 +54,7 @@ runs:
           --download-dispatcher-url "https://download-dispatch.syngnat.top/v1/resolve" \
           --download-path-prefix "${download_path_prefix}"
 
-    - name: Publish verified static edges and KV control
+    - name: Publish verified static edges
       shell: bash
       env:
         PUB_CHANNEL: ${{ inputs.channel }}
@@ -70,9 +67,6 @@ runs:
         PUB_DRIVER_VERSION_INDEX: ${{ inputs.driver-version-index }}
         PUB_DRIVER_LATEST_INDEX: ${{ inputs.driver-latest-index }}
         PUB_GENERATION: ${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
-        PUB_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
-        PUB_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
-        PUB_ROUTING_STATE_KV_ID: ${{ inputs.routing-state-kv-id }}
         PUB_THROUGHPUT_WARN_MBPS: ${{ inputs.throughput-warning-mbps }}
         EDGE_DMIT_HOST: ${{ inputs.dmit-ssh-host }}
         EDGE_DMIT_PORT: ${{ inputs.dmit-ssh-port }}
