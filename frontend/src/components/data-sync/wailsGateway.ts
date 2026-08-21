@@ -6,6 +6,7 @@ import type {
   DataSyncApprovalChallenge,
   DataSyncApprovalGrant,
   DataSyncCheckpointSummary,
+  DataSyncPreflightSnapshot,
   DataSyncRouteCapability,
   DataSyncRunRecord,
   DataSyncTaskDefinition,
@@ -113,9 +114,11 @@ type GatewayOptions = {
 };
 
 type CachedPreflight = {
+  taskId: string;
   taskRevision: number;
   taskSignature: string;
   definitionHash: string;
+  status: DataSyncPreflightSnapshot['status'];
   approvalRequired: boolean;
   canExecute: boolean;
   definition: WailsDataSyncJobDefinition;
@@ -123,6 +126,8 @@ type CachedPreflight = {
 
 type ApprovalToken = {
   token: string;
+  taskId: string;
+  taskRevision: number;
   expiresAt: string;
   definitionHash: string;
   taskSignature: string;
@@ -130,6 +135,8 @@ type ApprovalToken = {
 
 type ApprovalChallenge = {
   challenge: string;
+  taskId: string;
+  taskRevision: number;
   notBefore: string;
   expiresAt: string;
   definitionHash: string;
@@ -189,6 +196,7 @@ const isCurrentPreflight = (
 ): cached is CachedPreflight =>
   Boolean(
     cached &&
+      cached.taskId === task.id &&
       cached.taskRevision === task.revision &&
       cached.taskSignature === taskSignature(task, previous),
   );
@@ -214,6 +222,25 @@ export const createWailsDataSyncWorkbenchGateway = (
     return value.map((run) => decodeRunRecord(run, taskNames));
   };
 
+  const discardAuthorization = (taskId: string) => {
+    approvalChallenges.delete(taskId);
+    approvalTokens.delete(taskId);
+  };
+
+  const requirePreflightTaskBinding = (
+    task: DataSyncTaskDefinition,
+    preflight: DataSyncPreflightSnapshot,
+    operation: string,
+  ) => {
+    if (preflight.taskId !== task.id || preflight.taskRevision !== task.revision) {
+      discardAuthorization(task.id);
+      throw new DataSyncGatewayProtocolError(
+        operation,
+        'preflight does not match the current task',
+      );
+    }
+  };
+
   const takeApprovalToken = (
     task: DataSyncTaskDefinition,
     preflight: CachedPreflight,
@@ -221,11 +248,13 @@ export const createWailsDataSyncWorkbenchGateway = (
     const approval = approvalTokens.get(task.id);
     if (
       !approval ||
+      approval.taskId !== task.id ||
+      approval.taskRevision !== task.revision ||
       approval.definitionHash !== preflight.definitionHash ||
       approval.taskSignature !== preflight.taskSignature ||
       Date.parse(approval.expiresAt) <= now()
     ) {
-      approvalTokens.delete(task.id);
+      discardAuthorization(task.id);
       return '';
     }
     // The backend token is one-time. Remove it before crossing the boundary so
@@ -240,6 +269,7 @@ export const createWailsDataSyncWorkbenchGateway = (
     const previous = wireJobs.get(task.id);
     const cached = preflights.get(task.id);
     if (!isCurrentPreflight(cached, task, previous)) {
+      discardAuthorization(task.id);
       throw new DataSyncGatewayProtocolError(
         'data sync preflight',
         'task definition changed; run preflight again',
@@ -247,6 +277,14 @@ export const createWailsDataSyncWorkbenchGateway = (
     }
     return cached;
   };
+
+  const preflightMatchesCache = (
+    cached: CachedPreflight,
+    preflight: DataSyncPreflightSnapshot,
+  ): boolean =>
+    cached.status === preflight.status &&
+    cached.definitionHash === preflight.definitionHash &&
+    cached.approvalRequired === preflight.approvalRequired;
 
   const getCheckpoint = async (
     taskId: string,
@@ -418,6 +456,7 @@ export const createWailsDataSyncWorkbenchGateway = (
       }
       const previous = wireJobs.get(task.id);
       const input = encodeDataSyncJobDefinition(task, previous);
+      const inputSignature = JSON.stringify(input);
       const decoded = decodeDataSyncPreflightQuery(
         await api.DataSyncJobPreflight(asJobDefinition(input)),
         task,
@@ -433,12 +472,27 @@ export const createWailsDataSyncWorkbenchGateway = (
         });
       }
       const definition = sanitizedWireDefinition(decoded.definition);
+      const approved = approvalTokens.get(task.id);
       approvalChallenges.delete(task.id);
-      approvalTokens.delete(task.id);
+      if (
+        !approved ||
+        approved.taskId !== task.id ||
+        approved.taskRevision !== task.revision ||
+        decoded.snapshot.status === 'blocked' ||
+        !decoded.snapshot.approvalRequired ||
+        !decoded.capability.canExecute ||
+        approved.definitionHash !== decoded.snapshot.definitionHash ||
+        approved.taskSignature !== inputSignature ||
+        Date.parse(approved.expiresAt) <= now()
+      ) {
+        approvalTokens.delete(task.id);
+      }
       preflights.set(task.id, {
+        taskId: task.id,
         taskRevision: task.revision,
-        taskSignature: JSON.stringify(input),
+        taskSignature: inputSignature,
         definitionHash: decoded.snapshot.definitionHash,
+        status: decoded.snapshot.status,
         approvalRequired: decoded.snapshot.approvalRequired,
         canExecute: decoded.capability.canExecute,
         definition,
@@ -447,12 +501,15 @@ export const createWailsDataSyncWorkbenchGateway = (
     },
 
     async beginApproval(task, preflight): Promise<DataSyncApprovalChallenge> {
+      requirePreflightTaskBinding(task, preflight, 'DataSyncJobApprovalBegin');
       const cached = requireCurrentPreflight(task);
       if (
         !preflight.approvalRequired ||
         preflight.status === 'blocked' ||
-        cached.definitionHash !== preflight.definitionHash
+        !preflightMatchesCache(cached, preflight) ||
+        !cached.canExecute
       ) {
+        discardAuthorization(task.id);
         throw new DataSyncGatewayProtocolError(
           'DataSyncJobApprovalBegin',
           'approval does not match the current passed preflight',
@@ -472,28 +529,39 @@ export const createWailsDataSyncWorkbenchGateway = (
       }
       approvalChallenges.set(task.id, {
         ...challenge,
+        taskId: task.id,
+        taskRevision: cached.taskRevision,
         definitionHash: preflight.definitionHash,
         taskSignature: cached.taskSignature,
       });
       return {
+        taskId: task.id,
         definitionHash: preflight.definitionHash,
+        taskRevision: cached.taskRevision,
         notBefore: challenge.notBefore,
         expiresAt: challenge.expiresAt,
       };
     },
 
     async approveTask(task, preflight): Promise<DataSyncApprovalGrant> {
+      requirePreflightTaskBinding(task, preflight, 'DataSyncJobApprove');
       const cached = requireCurrentPreflight(task);
       const challenge = approvalChallenges.get(task.id);
       if (
         !challenge ||
+        challenge.taskId !== task.id ||
+        challenge.taskRevision !== task.revision ||
+        !preflightMatchesCache(cached, preflight) ||
+        cached.status === 'blocked' ||
+        !cached.approvalRequired ||
+        !cached.canExecute ||
         challenge.definitionHash !== preflight.definitionHash ||
         challenge.definitionHash !== cached.definitionHash ||
         challenge.taskSignature !== cached.taskSignature ||
         Date.parse(challenge.notBefore) > now() ||
         Date.parse(challenge.expiresAt) <= now()
       ) {
-        approvalChallenges.delete(task.id);
+        discardAuthorization(task.id);
         throw new DataSyncGatewayProtocolError(
           'DataSyncJobApprove',
           'backend approval countdown is incomplete, expired, or stale',
@@ -519,16 +587,21 @@ export const createWailsDataSyncWorkbenchGateway = (
       }
       approvalTokens.set(task.id, {
         ...approved,
+        taskId: task.id,
+        taskRevision: cached.taskRevision,
         definitionHash: preflight.definitionHash,
         taskSignature: cached.taskSignature,
       });
       return {
+        taskId: task.id,
         definitionHash: preflight.definitionHash,
+        taskRevision: cached.taskRevision,
         expiresAt: approved.expiresAt,
       };
     },
 
     async startTask(task, preflight) {
+      requirePreflightTaskBinding(task, preflight, 'DataSyncRunStart');
       if (isLocalDataSyncTaskId(task.id)) {
         throw new DataSyncGatewayProtocolError(
           'DataSyncRunStart',
@@ -543,10 +616,11 @@ export const createWailsDataSyncWorkbenchGateway = (
       }
       const cached = requireCurrentPreflight(task);
       if (
-        cached.definitionHash !== preflight.definitionHash ||
-        preflight.status === 'blocked' ||
+        !preflightMatchesCache(cached, preflight) ||
+        cached.status === 'blocked' ||
         !cached.canExecute
       ) {
+        discardAuthorization(task.id);
         throw new DataSyncGatewayProtocolError(
           'DataSyncRunStart',
           'preflight is blocked or stale',

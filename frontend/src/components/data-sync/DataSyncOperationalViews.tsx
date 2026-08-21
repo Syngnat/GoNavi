@@ -260,13 +260,31 @@ export const DataSyncScheduleView: React.FC<{
   t: DataSyncWorkbenchTranslate;
   refreshing: boolean;
   onRefresh: () => void;
-}> = ({ schedules, t, refreshing, onRefresh }) => (
+  busyAction?: string;
+  onToggle?: (schedule: DataSyncScheduleSummary) => void;
+  onRunNow?: (schedule: DataSyncScheduleSummary) => void;
+  onViewRun?: (runId: string) => void;
+}> = ({
+  schedules,
+  t,
+  refreshing,
+  onRefresh,
+  busyAction = '',
+  onToggle,
+  onRunNow,
+  onViewRun,
+}) => (
   <section className="gn-data-sync-operational-view" data-data-sync-schedules="true">
     <header className="gn-data-sync-view-heading">
       <h1>{t('schedules.title')}</h1>
       <div>
         <p>{t('schedules.subtitle')}</p>
-        <button type="button" className="gn-data-sync-button" disabled={refreshing} onClick={onRefresh}>
+        <button
+          type="button"
+          className="gn-data-sync-button"
+          disabled={refreshing || Boolean(busyAction)}
+          onClick={onRefresh}
+        >
           {t('common.refresh')}
         </button>
       </div>
@@ -277,17 +295,104 @@ export const DataSyncScheduleView: React.FC<{
         description={t('schedules.empty_desc')}
       />
     ) : (
-      <ul className="gn-data-sync-summary-list">
-        {schedules.map((schedule) => (
-          <li key={schedule.id}>
-            <span className="gn-data-sync-summary-list__signal" data-active={schedule.enabled} />
-            <strong>{schedule.taskName}</strong>
-            <code>{schedule.expression}</code>
-            <span>{schedule.timezone}</span>
-            <time>{schedule.nextRunAt}</time>
-          </li>
-        ))}
-      </ul>
+      <div className="gn-data-sync-schedule-table" role="table">
+        <div className="gn-data-sync-schedule-table__head" role="row">
+          <span>{t('schedules.task')}</span>
+          <span>{t('schedules.status')}</span>
+          <span>{t('schedules.trigger')}</span>
+          <span>{t('schedules.next_run')}</span>
+          <span>{t('schedules.latest_run')}</span>
+          <span>{t('schedules.actions')}</span>
+        </div>
+        {schedules.map((schedule) => {
+          const latest = schedule.latestRun;
+          const scheduleActionInFlight = Boolean(busyAction);
+          return (
+            <div
+              key={schedule.id}
+              className="gn-data-sync-schedule-table__row"
+              role="row"
+              data-task-id={schedule.taskId}
+              data-enabled={schedule.enabled ? 'true' : 'false'}
+            >
+              <div className="gn-data-sync-schedule-table__task" role="cell">
+                <span
+                  className="gn-data-sync-summary-list__signal"
+                  data-active={schedule.enabled}
+                  aria-hidden="true"
+                />
+                <strong>{schedule.taskName}</strong>
+                {schedule.lifecycle ? (
+                  <small>{t(`task_list.lifecycle.${schedule.lifecycle}`)}</small>
+                ) : null}
+              </div>
+              <span role="cell">
+                {schedule.enabled
+                  ? t('schedules.enabled')
+                  : t('schedules.disabled')}
+              </span>
+              <span role="cell">
+                <code>{schedule.expression}</code>
+                <small>{schedule.timezone}</small>
+              </span>
+              <time role="cell">{schedule.nextRunAt || '—'}</time>
+              <div className="gn-data-sync-schedule-table__latest" role="cell">
+                {latest ? (
+                  <>
+                    <span className="gn-data-sync-state-label" data-state={latest.status}>
+                      {t(`status.${latest.status}`)}
+                    </span>
+                    <small>
+                      {latest.startedAt || '—'}
+                      {latest.finishedAt ? ` → ${latest.finishedAt}` : ''}
+                    </small>
+                    {latest.errorSummary ? (
+                      <span className="gn-data-sync-schedule-table__error">
+                        {latest.errorSummary}
+                      </span>
+                    ) : null}
+                    {onViewRun ? (
+                      <button
+                        type="button"
+                        className="gn-data-sync-link-button"
+                        onClick={() => onViewRun(latest.id)}
+                      >
+                        {t('schedules.view_run')}
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <span>{t('schedules.no_runs')}</span>
+                )}
+              </div>
+              <div className="gn-data-sync-schedule-table__actions" role="cell">
+                {onToggle ? (
+                  <button
+                    type="button"
+                    className="gn-data-sync-button"
+                    disabled={scheduleActionInFlight}
+                    onClick={() => onToggle(schedule)}
+                  >
+                    {schedule.enabled
+                      ? t('schedules.disable')
+                      : t('schedules.enable')}
+                  </button>
+                ) : null}
+                {onRunNow ? (
+                  <button
+                    type="button"
+                    className="gn-data-sync-button gn-data-sync-button--primary"
+                    disabled={scheduleActionInFlight}
+                    onClick={() => onRunNow(schedule)}
+                  >
+                    {t('schedules.run_now')}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     )}
   </section>
 );

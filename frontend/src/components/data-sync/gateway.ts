@@ -1,4 +1,5 @@
 import {
+  aggregateDataSyncScheduleSummaries,
   resolveDataSyncPreflightStatus,
   validateDataSyncTask,
   type DataSyncApprovalChallenge,
@@ -174,6 +175,20 @@ const copy = <T,>(value: T): T => {
   return JSON.parse(JSON.stringify(value)) as T;
 };
 
+const INACTIVE_RUN_STATUSES = new Set<DataSyncRunRecord['status']>([
+  'queued',
+  'paused',
+]);
+
+const CANCELLING_RUN_STATUSES = new Set<DataSyncRunRecord['status']>([
+  'running',
+  'cancelling',
+  'preflighting',
+  'snapshotting',
+  'catching_up',
+  'streaming',
+]);
+
 const unresolvedCapability: DataSyncRouteCapability = {
   level: 'unknown',
   canExecute: false,
@@ -206,6 +221,46 @@ export const createStaticDataSyncWorkbenchGateway = (
   const fields = copy(fixtures.fieldsByObject || DEFAULT_FIELDS);
   const now = fixtures.now || (() => new Date().toISOString());
 
+  const visibleTasks = (): DataSyncTaskDefinition[] =>
+    Array.from(taskMap.values()).filter((task) => task.lifecycle !== 'archived');
+
+  const synchronizeScheduleFixture = (task: DataSyncTaskDefinition) => {
+    const index = schedules.findIndex((schedule) => schedule.taskId === task.id);
+    if (task.lifecycle === 'archived' || task.trigger.mode === 'manual') {
+      if (index >= 0) schedules.splice(index, 1);
+      return;
+    }
+    if (index < 0) return;
+    const schedule = schedules[index];
+    schedules[index] = {
+      ...schedule,
+      taskName: task.name,
+      revision: task.revision,
+      lifecycle: task.lifecycle,
+      enabled: task.lifecycle === 'enabled',
+      nextRunAt: task.lifecycle === 'enabled' ? schedule.nextRunAt : '',
+    };
+  };
+
+  const cancelInactiveTaskRuns = (
+    task: DataSyncTaskDefinition,
+    canceledAt: string,
+  ) => {
+    const canceledMessage = `canceled because task was ${task.lifecycle}`;
+    const cancellingMessage = `cancellation requested because task was ${task.lifecycle}`;
+    for (const run of runs) {
+      if (run.taskId !== task.id) continue;
+      if (INACTIVE_RUN_STATUSES.has(run.status)) {
+        run.status = 'canceled';
+        run.finishedAt = canceledAt;
+        run.message = canceledMessage;
+      } else if (CANCELLING_RUN_STATUSES.has(run.status)) {
+        run.status = 'cancelling';
+        if (!run.message) run.message = cancellingMessage;
+      }
+    }
+  };
+
   return {
     capabilities: { errorRowRetry: false },
     async listSavedConnections() {
@@ -231,11 +286,25 @@ export const createStaticDataSyncWorkbenchGateway = (
       return (fields[exactKey] || fields[withoutSchemaKey] || []).map(copy);
     },
     async listTasks() {
-      return Array.from(taskMap.values()).map(copy);
+      return visibleTasks().map(copy);
     },
     async saveTask(task) {
-      const saved = copy(task);
+      const current = taskMap.get(task.id);
+      if (current && current.revision !== task.revision) {
+        throw new Error('data sync task revision changed');
+      }
+      const savedAt = now();
+      const saved = {
+        ...copy(task),
+        revision: current ? current.revision + 1 : 1,
+        createdAt: current?.createdAt || task.createdAt || savedAt,
+        updatedAt: savedAt,
+      };
       taskMap.set(saved.id, saved);
+      synchronizeScheduleFixture(saved);
+      if (saved.lifecycle === 'paused' || saved.lifecycle === 'archived') {
+        cancelInactiveTaskRuns(saved, savedAt);
+      }
       return copy(saved);
     },
     async resolveCapability(task) {
@@ -282,10 +351,15 @@ export const createStaticDataSyncWorkbenchGateway = (
         .map(copy);
     },
     async startTask(task, preflight) {
+      const current = taskMap.get(task.id);
+      if (!current) throw new Error('data sync task not found');
+      if (current.revision !== task.revision) {
+        throw new Error('data sync task revision changed');
+      }
       if (
-        (task.lifecycle !== 'ready' && task.lifecycle !== 'enabled') ||
+        (current.lifecycle !== 'ready' && current.lifecycle !== 'enabled') ||
         preflight.taskId !== task.id ||
-        preflight.taskRevision !== task.revision ||
+        preflight.taskRevision !== current.revision ||
         preflight.status === 'blocked' ||
         preflight.approvalRequired !== false
       ) {
@@ -293,19 +367,15 @@ export const createStaticDataSyncWorkbenchGateway = (
       }
       const startedAt = now();
       const run: DataSyncRunRecord = {
-        id: `${task.id}:run:${startedAt}`,
-        taskId: task.id,
-        taskName: task.name,
-        status: task.kind === 'cdc' ? 'streaming' : 'queued',
-        trigger:
-          task.trigger.mode === 'manual'
-            ? 'manual'
-            : task.trigger.mode === 'continuous'
-              ? 'continuous'
-              : 'schedule',
+        id: `${current.id}:run:${startedAt}`,
+        taskId: current.id,
+        taskName: current.name,
+        status: current.kind === 'cdc' ? 'streaming' : 'queued',
+        trigger: 'manual',
         attempt: 1,
         resumable: false,
         message: '',
+        queuedAt: startedAt,
         startedAt,
         finishedAt: '',
         rowsRead: 0,
@@ -321,7 +391,7 @@ export const createStaticDataSyncWorkbenchGateway = (
       return (errors[runId] || []).map(copy);
     },
     async listSchedules() {
-      return schedules.map(copy);
+      return aggregateDataSyncScheduleSummaries(visibleTasks(), runs, schedules).map(copy);
     },
     async listCdcAdapters() {
       return cdcAdapters.slice();
@@ -364,6 +434,7 @@ export const createStaticDataSyncWorkbenchGateway = (
         status: 'queued' as const,
         trigger: 'resume' as const,
         attempt: previous.attempt + 1,
+        queuedAt: now(),
         startedAt: '',
         finishedAt: '',
       };
@@ -379,6 +450,7 @@ export const createStaticDataSyncWorkbenchGateway = (
         status: 'queued' as const,
         trigger: 'retry' as const,
         attempt: previous.attempt + 1,
+        queuedAt: now(),
         startedAt: '',
         finishedAt: '',
       };

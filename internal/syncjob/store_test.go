@@ -231,6 +231,121 @@ func TestStorePersistsIncompleteDraftButManagerWillNotRunIt(t *testing.T) {
 	}
 }
 
+func TestStorePersistsPausedScheduledJobAcrossReopen(t *testing.T) {
+	ctx := context.Background()
+	path := t.TempDir() + "/sync-jobs.db"
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+
+	definition, err := store.PutJob(ctx, JobDefinition{
+		Name:            "scheduled orders sync",
+		Lifecycle:       JobLifecycleEnabled,
+		Kind:            JobKindReconcile,
+		IncrementalMode: IncrementalSnapshot,
+		Source:          EndpointRef{ConnectionID: "source"},
+		Target:          EndpointRef{ConnectionID: "target"},
+		Mappings: []TableMapping{{
+			SourceTable: "orders",
+			TargetTable: "orders_archive",
+			Enabled:     true,
+		}},
+		Schedule: ScheduleSpec{Kind: ScheduleInterval, IntervalSeconds: 60},
+	})
+	if err != nil {
+		t.Fatalf("save scheduled job: %v", err)
+	}
+	if definition.NextRunAt == 0 {
+		t.Fatal("enabled scheduled job has no next run")
+	}
+
+	paused, err := store.PauseJob(ctx, definition.ID)
+	if err != nil {
+		t.Fatalf("pause scheduled job: %v", err)
+	}
+	if paused.Lifecycle != JobLifecyclePaused || paused.Enabled || paused.NextRunAt != 0 {
+		t.Fatalf("paused job = %#v", paused)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(); err != nil {
+			t.Errorf("close reopened store: %v", err)
+		}
+	})
+
+	persisted, err := reopened.GetJob(ctx, definition.ID)
+	if err != nil {
+		t.Fatalf("get paused job after reopen: %v", err)
+	}
+	if persisted.Lifecycle != JobLifecyclePaused || persisted.Enabled || persisted.NextRunAt != 0 {
+		t.Fatalf("persisted paused job = %#v", persisted)
+	}
+	due, err := reopened.ListDueJobs(ctx, time.Now().Add(24*time.Hour).UnixMilli())
+	if err != nil {
+		t.Fatalf("list due jobs after reopen: %v", err)
+	}
+	if len(due) != 0 {
+		t.Fatalf("paused job returned as due after reopen: %#v", due)
+	}
+}
+
+func TestStorePausedPutCancelsQueuedRunsAndRequestsRunningCancellation(t *testing.T) {
+	ctx := context.Background()
+	store := openTestStore(t)
+	definition := putTestJob(t, store, "queue")
+	snapshot, err := json.Marshal(definition)
+	if err != nil {
+		t.Fatalf("marshal definition snapshot: %v", err)
+	}
+	queued, err := store.CreateRun(ctx, RunRecord{
+		JobID: definition.ID, JobRevision: definition.Revision, Status: RunStatusQueued,
+		DefinitionSnapshot: snapshot,
+	})
+	if err != nil {
+		t.Fatalf("create queued run: %v", err)
+	}
+	running, err := store.CreateRun(ctx, RunRecord{
+		JobID: definition.ID, JobRevision: definition.Revision, Status: RunStatusRunning,
+		DefinitionSnapshot: snapshot,
+	})
+	if err != nil {
+		t.Fatalf("create running run: %v", err)
+	}
+
+	definition.Lifecycle = JobLifecyclePaused
+	definition.Enabled = false
+	paused, err := store.PutJob(ctx, definition)
+	if err != nil {
+		t.Fatalf("save paused job: %v", err)
+	}
+	if paused.Lifecycle != JobLifecyclePaused || paused.Enabled {
+		t.Fatalf("paused job = %#v", paused)
+	}
+
+	persistedQueued, err := store.GetRun(ctx, queued.ID)
+	if err != nil {
+		t.Fatalf("get queued run: %v", err)
+	}
+	if persistedQueued.Status != RunStatusCanceled || persistedQueued.FinishedAt == 0 || persistedQueued.Message != "canceled because task was paused" {
+		t.Fatalf("queued run after pause = %#v", persistedQueued)
+	}
+	persistedRunning, err := store.GetRun(ctx, running.ID)
+	if err != nil {
+		t.Fatalf("get running run: %v", err)
+	}
+	if persistedRunning.Status != RunStatusCancelling || persistedRunning.FinishedAt != 0 || persistedRunning.Message != "cancellation requested because task was paused" {
+		t.Fatalf("running run after pause = %#v", persistedRunning)
+	}
+}
+
 func TestStoreResetCheckpointRejectsActiveRun(t *testing.T) {
 	store := openTestStore(t)
 	definition := putTestJob(t, store, "forbid")

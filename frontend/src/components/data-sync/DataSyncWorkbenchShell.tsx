@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   DataSyncCdcView,
@@ -17,6 +17,7 @@ import {
   type DataSyncWorkbenchGateway,
 } from './gateway';
 import {
+  aggregateDataSyncScheduleSummaries,
   canStartDataSyncTask,
   createDataSyncTaskDraft,
   isDataSyncPreflightCurrent,
@@ -45,6 +46,14 @@ import {
 import './DataSyncWorkbench.css';
 
 type WorkbenchView = 'tasks' | 'runs' | 'schedules' | 'cdc';
+
+type DataSyncOperationalState = {
+  tasks: DataSyncTaskDefinition[];
+  runs: DataSyncRunRecord[];
+  scheduleRuns: DataSyncRunRecord[];
+  schedules: DataSyncScheduleSummary[];
+  cdcSources: DataSyncCdcSourceStatus[];
+};
 
 const EMPTY_CAPABILITY: DataSyncRouteCapability = {
   level: 'unknown',
@@ -184,6 +193,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
   const [errorRows, setErrorRows] = useState<DataSyncErrorRow[]>([]);
   const [checkpoint, setCheckpoint] = useState<DataSyncCheckpointSummary | null>(null);
   const runStatusesRef = useRef<Map<string, DataSyncRunRecord['status']>>(new Map());
+  const scheduleActionBusyRef = useRef(false);
 
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) || null;
   const checkpointTask = checkpoint
@@ -212,31 +222,84 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     );
   }, [search, tasks]);
 
+  const scheduleImpactScope = (task: DataSyncTaskDefinition): string => {
+    const endpoint = (
+      value: DataSyncTaskDefinition['source'],
+      fallback: string,
+    ) => {
+      const connection = value.connectionName || value.connectionId || fallback;
+      const location = [value.database, value.schema].filter(Boolean).join(' / ');
+      return location ? `${connection} / ${location}` : connection;
+    };
+    return [
+      `${t('route.source')}: ${endpoint(task.source, t('route.pending_source'))}`,
+      `${t('route.target')}: ${endpoint(task.target, t('route.pending_target'))}`,
+    ].join('\n');
+  };
+
+  const loadOperationalState = useCallback(
+    async (): Promise<DataSyncOperationalState> => {
+      // Wails derives schedules and CDC sources from its cached task projection,
+      // so refresh tasks first and use that same snapshot for every view.
+      const loadedTasks = await gatewayRef.current!.listTasks();
+      const scheduledTasks = loadedTasks.filter(
+        (task) => task.trigger.mode !== 'manual',
+      );
+      const [loadedRuns, loadedSchedules, loadedSources, loadedScheduleRuns] = await Promise.all([
+        gatewayRef.current!.listRuns(),
+        gatewayRef.current!.listSchedules(),
+        gatewayRef.current!.listCdcSources(),
+        Promise.all(
+          scheduledTasks.map((task) => gatewayRef.current!.listRuns(task.id)),
+        ),
+      ]);
+      return {
+        tasks: loadedTasks,
+        runs: loadedRuns,
+        scheduleRuns: loadedScheduleRuns.flat(),
+        schedules: loadedSchedules,
+        cdcSources: loadedSources,
+      };
+    },
+    [],
+  );
+
+  const applyOperationalState = useCallback(
+    (snapshot: DataSyncOperationalState, includeTasks = false) => {
+      if (includeTasks && snapshot.tasks.length > 0) {
+        setTasks(snapshot.tasks);
+        setSelectedTaskId((current) =>
+          snapshot.tasks.some((task) => task.id === current)
+            ? current
+            : snapshot.tasks[0]?.id || '',
+        );
+      }
+      setRuns(snapshot.runs);
+      setSchedules(
+        aggregateDataSyncScheduleSummaries(
+          snapshot.tasks,
+          snapshot.scheduleRuns,
+          snapshot.schedules,
+        ),
+      );
+      setCdcSources(snapshot.cdcSources);
+    },
+    [],
+  );
+
+  const refreshScheduleState = useCallback(async () => {
+    const snapshot = await loadOperationalState();
+    applyOperationalState(snapshot);
+    return snapshot.tasks;
+  }, [applyOperationalState, loadOperationalState]);
+
   useEffect(() => {
     let active = true;
-    void gatewayRef.current!
-      .listTasks()
-      .then(async (loadedTasks) => {
-        const [loadedRuns, loadedSchedules, loadedSources] = await Promise.all([
-          gatewayRef.current!.listRuns(),
-          gatewayRef.current!.listSchedules(),
-          gatewayRef.current!.listCdcSources(),
-        ]);
-        return [loadedTasks, loadedRuns, loadedSchedules, loadedSources] as const;
-      })
-      .then(([loadedTasks, loadedRuns, loadedSchedules, loadedSources]) => {
-        if (!active) return;
-        if (loadedTasks.length > 0) {
-          setTasks(loadedTasks);
-          setSelectedTaskId((current) =>
-            loadedTasks.some((task) => task.id === current)
-              ? current
-              : loadedTasks[0].id,
-          );
+    void loadOperationalState()
+      .then((snapshot) => {
+        if (active) {
+          applyOperationalState(snapshot, true);
         }
-        setRuns(loadedRuns);
-        setSchedules(loadedSchedules);
-        setCdcSources(loadedSources);
       })
       .catch((error) => {
         if (active) {
@@ -246,7 +309,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     return () => {
       active = false;
     };
-  }, []);
+  }, [applyOperationalState, loadOperationalState]);
 
   useEffect(() => {
     if (!selectedTask) {
@@ -395,6 +458,9 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
         delete next[saved.id];
         return next;
       });
+      if (saved.trigger.mode !== 'manual') {
+        await refreshScheduleState();
+      }
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -411,14 +477,22 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
       setPreflights((current) => ({ ...current, [selectedTask.id]: snapshot }));
       setApprovals((current) => {
         const approval = current[selectedTask.id];
-        if (!approval || approval.definitionHash === snapshot.definitionHash) return current;
+        if (
+          !approval ||
+          (approval.definitionHash === snapshot.definitionHash &&
+            approval.taskRevision === snapshot.taskRevision)
+        ) return current;
         const next = { ...current };
         delete next[selectedTask.id];
         return next;
       });
       setApprovalChallenges((current) => {
         const challenge = current[selectedTask.id];
-        if (!challenge || challenge.definitionHash === snapshot.definitionHash) {
+        if (
+          !challenge ||
+          (challenge.definitionHash === snapshot.definitionHash &&
+            challenge.taskRevision === snapshot.taskRevision)
+        ) {
           return current;
         }
         const next = { ...current };
@@ -464,11 +538,18 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     }
   };
 
-  const selectRun = async (runId: string) => {
+  const selectRun = async (runId: string, taskIdHint = '') => {
     setSelectedRunId(runId);
-    const run = runs.find((item) => item.id === runId);
     setOperationError('');
     try {
+      let run = runs.find((item) => item.id === runId);
+      if (!run && taskIdHint) {
+        const taskRuns = await gatewayRef.current!.listRuns(taskIdHint);
+        run = taskRuns.find((item) => item.id === runId);
+        if (run) {
+          setRuns((current) => [run!, ...current.filter((item) => item.id !== runId)]);
+        }
+      }
       const [rows, loadedCheckpoint] = await Promise.all([
         gatewayRef.current!.listErrorRows(runId),
         run ? gatewayRef.current!.getCheckpoint(run.taskId) : Promise.resolve(null),
@@ -528,8 +609,30 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
     setOperationBusy('refresh-runs');
     setOperationError('');
     try {
-      setRuns(await gatewayRef.current!.listRuns());
-      if (selectedRunId) await selectRun(selectedRunId);
+      // The global endpoint is capped. Keep the selected schedule run visible
+      // by using its task-scoped history when the capped result omits it.
+      let taskIdHint = selectedRunId
+        ? runs.find((run) => run.id === selectedRunId)?.taskId ||
+          schedules.find((schedule) => schedule.latestRun?.id === selectedRunId)
+            ?.taskId ||
+          ''
+        : '';
+      const refreshedRuns = await gatewayRef.current!.listRuns();
+      const selectedFromGlobal = refreshedRuns.find((run) => run.id === selectedRunId);
+      if (selectedFromGlobal) taskIdHint = selectedFromGlobal.taskId;
+      let nextRuns = refreshedRuns;
+      if (selectedRunId && !selectedFromGlobal && taskIdHint) {
+        const taskRuns = await gatewayRef.current!.listRuns(taskIdHint);
+        const selectedFromTask = taskRuns.find((run) => run.id === selectedRunId);
+        if (selectedFromTask) {
+          nextRuns = [
+            selectedFromTask,
+            ...refreshedRuns.filter((run) => run.id !== selectedFromTask.id),
+          ];
+        }
+      }
+      setRuns(nextRuns);
+      if (selectedRunId) await selectRun(selectedRunId, taskIdHint);
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -558,6 +661,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
             : await gatewayRef.current!.retryRun(runId);
         setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
       }
+      await refreshScheduleState();
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -652,13 +756,197 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
 
   const refreshSchedules = async () => {
     setOperationBusy('refresh-schedules');
+    setOperationError('');
     try {
-      setSchedules(await gatewayRef.current!.listSchedules());
+      await refreshScheduleState();
     } catch (error) {
       setOperationError(error instanceof Error ? error.message : String(error));
     } finally {
       setOperationBusy('');
     }
+  };
+
+  const replaceTaskState = (saved: DataSyncTaskDefinition) => {
+    setTasks((current) =>
+      current.map((task) => (task.id === saved.id ? saved : task)),
+    );
+    setDirtyTaskIds((current) => {
+      const next = new Set(current);
+      next.delete(saved.id);
+      return next;
+    });
+    setPreflights((current) => {
+      if (!current[saved.id]) return current;
+      const next = { ...current };
+      delete next[saved.id];
+      return next;
+    });
+    setApprovals((current) => {
+      if (!current[saved.id]) return current;
+      const next = { ...current };
+      delete next[saved.id];
+      return next;
+    });
+    setApprovalChallenges((current) => {
+      if (!current[saved.id]) return current;
+      const next = { ...current };
+      delete next[saved.id];
+      return next;
+    });
+  };
+
+  const showScheduleTaskPreflight = (
+    task: DataSyncTaskDefinition,
+    preflight: DataSyncPreflightSnapshot,
+    resolvedCapability: DataSyncRouteCapability,
+  ) => {
+    setTasks((current) =>
+      current.map((item) => (item.id === task.id ? task : item)),
+    );
+    setSelectedTaskId(task.id);
+    setPreflights((current) => ({ ...current, [task.id]: preflight }));
+    setApprovals((current) => {
+      const approval = current[task.id];
+      if (
+        !approval ||
+        (approval.definitionHash === preflight.definitionHash &&
+          approval.taskRevision === preflight.taskRevision)
+      ) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setApprovalChallenges((current) => {
+      const challenge = current[task.id];
+      if (
+        !challenge ||
+        (challenge.definitionHash === preflight.definitionHash &&
+          challenge.taskRevision === preflight.taskRevision)
+      ) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[task.id];
+      return next;
+    });
+    setCapability(resolvedCapability);
+    setActiveView('tasks');
+    setActiveStage('preflight');
+  };
+
+  const toggleSchedule = async (schedule: DataSyncScheduleSummary) => {
+    if (scheduleActionBusyRef.current) return;
+    scheduleActionBusyRef.current = true;
+    const enabling = !schedule.enabled;
+    const action = enabling ? 'enable' : 'disable';
+    const confirmKey = enabling
+      ? 'schedules.confirm_enable'
+      : 'schedules.confirm_disable';
+    setOperationBusy(`${action}:${schedule.taskId}`);
+    setOperationError('');
+    try {
+      const latestTasks = await gatewayRef.current!.listTasks();
+      const current = latestTasks.find((task) => task.id === schedule.taskId);
+      if (!current) throw new Error(t('schedules.task_missing'));
+      if (dirtyTaskIds.has(current.id)) {
+        throw new Error(t('schedules.unsaved_edits', { task: current.name }));
+      }
+      if (!globalThis.confirm(t(confirmKey, {
+        task: current.name,
+        scope: scheduleImpactScope(current),
+      }))) {
+        return;
+      }
+      // Store.PutJob accepts the persisted revision and advances it itself.
+      const next: DataSyncTaskDefinition = {
+        ...current,
+        lifecycle: enabling ? 'enabled' : 'paused',
+      };
+      if (enabling) {
+        const [preflight, resolvedCapability] = await Promise.all([
+          gatewayRef.current!.preflightTask(next),
+          gatewayRef.current!.resolveCapability(next),
+        ]);
+        if (
+          preflight.status === 'blocked' ||
+          preflight.approvalRequired ||
+          !resolvedCapability.canExecute
+        ) {
+          showScheduleTaskPreflight(next, preflight, resolvedCapability);
+          setTasks((state) =>
+            state.map((task) => (task.id === next.id ? next : task)),
+          );
+          setDirtyTaskIds((state) => new Set(state).add(next.id));
+          setOperationError(
+            t('schedules.preflight_required', { task: next.name }),
+          );
+          return;
+        }
+      }
+      const saved = await gatewayRef.current!.saveTask(next);
+      replaceTaskState(saved);
+      await refreshScheduleState();
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      scheduleActionBusyRef.current = false;
+      setOperationBusy('');
+    }
+  };
+
+  const runScheduleNow = async (schedule: DataSyncScheduleSummary) => {
+    if (scheduleActionBusyRef.current) return;
+    scheduleActionBusyRef.current = true;
+    setOperationBusy(`run-now:${schedule.taskId}`);
+    setOperationError('');
+    try {
+      const latestTasks = await gatewayRef.current!.listTasks();
+      const task = latestTasks.find((item) => item.id === schedule.taskId);
+      if (!task) throw new Error(t('schedules.task_missing'));
+      if (dirtyTaskIds.has(task.id)) {
+        throw new Error(t('schedules.unsaved_edits', { task: task.name }));
+      }
+      if (!globalThis.confirm(t('schedules.confirm_run_now', {
+        task: task.name,
+        scope: scheduleImpactScope(task),
+      }))) {
+        return;
+      }
+      const [preflight, resolvedCapability] = await Promise.all([
+        gatewayRef.current!.preflightTask(task),
+        gatewayRef.current!.resolveCapability(task),
+      ]);
+      showScheduleTaskPreflight(task, preflight, resolvedCapability);
+      if (
+        !resolvedCapability.canExecute ||
+        !canStartDataSyncTask(task, preflight, approvals[task.id] || null)
+      ) {
+        setOperationError(t('schedules.preflight_required', { task: task.name }));
+        return;
+      }
+      const run = await gatewayRef.current!.startTask(
+        task,
+        preflight,
+      );
+      setRuns((current) => [run, ...current.filter((item) => item.id !== run.id)]);
+      await refreshScheduleState();
+      setSelectedRunId(run.id);
+      setActiveView('runs');
+    } catch (error) {
+      setOperationError(error instanceof Error ? error.message : String(error));
+    } finally {
+      scheduleActionBusyRef.current = false;
+      setOperationBusy('');
+    }
+  };
+
+  const viewScheduleRun = (runId: string) => {
+    const taskId = schedules.find((schedule) => schedule.latestRun?.id === runId)?.taskId || '';
+    setSelectedRunId(runId);
+    setActiveView('runs');
+    void selectRun(runId, taskId);
   };
 
   const refreshCdc = async () => {
@@ -704,6 +992,7 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
             Boolean(
               selectedApproval &&
                 selectedApproval.definitionHash === selectedPreflight.definitionHash &&
+                selectedApproval.taskRevision === selectedPreflight.taskRevision &&
                 Date.parse(selectedApproval.expiresAt) > Date.now(),
             )))),
   );
@@ -944,6 +1233,10 @@ export const DataSyncWorkbenchShell: React.FC<DataSyncWorkbenchShellProps> = ({
           t={t}
           refreshing={operationBusy === 'refresh-schedules'}
           onRefresh={() => void refreshSchedules()}
+          busyAction={operationBusy}
+          onToggle={(schedule) => void toggleSchedule(schedule)}
+          onRunNow={(schedule) => void runScheduleNow(schedule)}
+          onViewRun={viewScheduleRun}
         />
       ) : null}
       {activeView === 'cdc' ? (

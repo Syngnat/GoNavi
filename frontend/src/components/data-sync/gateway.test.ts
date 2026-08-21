@@ -5,6 +5,7 @@ import {
   createDataSyncTableMapping,
   createDataSyncTaskDraft,
   reviseDataSyncTask,
+  type DataSyncRunRecord,
 } from './model';
 
 const configuredTask = () => {
@@ -56,9 +57,269 @@ describe('static data sync workbench gateway', () => {
     });
     expect(await gateway.listRuns(task.id)).toHaveLength(1);
 
-    const renamed = reviseDataSyncTask(task, { name: 'Renamed migration' });
-    await gateway.saveTask(renamed);
-    expect(await gateway.listTasks()).toContainEqual(renamed);
+    const renamed = { ...task, name: 'Renamed migration' };
+    const saved = await gateway.saveTask(renamed);
+    expect(saved).toMatchObject({
+      id: task.id,
+      name: renamed.name,
+      revision: task.revision + 1,
+    });
+    expect(await gateway.listTasks()).toContainEqual(saved);
+  });
+
+  it('keeps paused schedule state and active runs in sync with the persisted task revision', async () => {
+    const task = {
+      ...configuredTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const queued: DataSyncRunRecord = {
+      id: 'queued-run',
+      taskId: task.id,
+      taskName: task.name,
+      status: 'queued',
+      trigger: 'schedule',
+      attempt: 1,
+      resumable: false,
+      message: 'waiting to start',
+      startedAt: '2026-08-08T00:00:00.000Z',
+      finishedAt: '',
+      rowsRead: 0,
+      rowsWritten: 0,
+      rowsFailed: 0,
+      throughput: 0,
+      checkpoint: '',
+    };
+    const running: DataSyncRunRecord = {
+      ...queued,
+      id: 'running-run',
+      status: 'running',
+      message: '',
+      startedAt: '2026-08-08T00:10:00.000Z',
+    };
+    const cancelling: DataSyncRunRecord = {
+      ...queued,
+      id: 'cancelling-run',
+      status: 'cancelling',
+      message: 'operator requested cancellation',
+      startedAt: '2026-08-08T00:20:00.000Z',
+    };
+    const gateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      runs: [queued, running, cancelling],
+      schedules: [
+        {
+          id: `${task.id}:schedule`,
+          taskId: task.id,
+          taskName: task.name,
+          enabled: true,
+          expression: '300s',
+          timezone: 'Asia/Shanghai',
+          nextRunAt: '2026-08-08T02:00:00.000Z',
+        },
+      ],
+      now: () => '2026-08-08T01:00:00.000Z',
+    });
+
+    const paused = await gateway.saveTask({ ...task, lifecycle: 'paused' });
+
+    expect(paused).toMatchObject({
+      lifecycle: 'paused',
+      revision: task.revision + 1,
+      updatedAt: '2026-08-08T01:00:00.000Z',
+    });
+    expect(await gateway.listRuns(task.id)).toEqual([
+      expect.objectContaining({
+        id: queued.id,
+        status: 'canceled',
+        finishedAt: '2026-08-08T01:00:00.000Z',
+        message: 'canceled because task was paused',
+      }),
+      expect.objectContaining({
+        id: running.id,
+        status: 'cancelling',
+        finishedAt: '',
+        message: 'cancellation requested because task was paused',
+      }),
+      expect.objectContaining({
+        id: cancelling.id,
+        status: 'cancelling',
+        finishedAt: '',
+        message: 'operator requested cancellation',
+      }),
+    ]);
+    expect(await gateway.listSchedules()).toEqual([
+      expect.objectContaining({
+        taskId: task.id,
+        revision: paused.revision,
+        lifecycle: 'paused',
+        enabled: false,
+        nextRunAt: '',
+      }),
+    ]);
+
+    const enabled = await gateway.saveTask({ ...paused, lifecycle: 'enabled' });
+    expect(await gateway.listSchedules()).toEqual([
+      expect.objectContaining({
+        taskId: task.id,
+        revision: enabled.revision,
+        lifecycle: 'enabled',
+        enabled: true,
+        nextRunAt: '',
+      }),
+    ]);
+    await expect(gateway.saveTask({ ...task, name: 'Stale schedule' })).rejects.toThrow(
+      'revision changed',
+    );
+    expect(await gateway.listTasks()).toEqual([enabled]);
+  });
+
+  it('rejects an immediate run that uses the task revision before a schedule change', async () => {
+    const task = {
+      ...configuredTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const gateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+    });
+    const preflight = await gateway.preflightTask(task);
+
+    await gateway.saveTask({ ...task, lifecycle: 'paused' });
+
+    await expect(gateway.startTask(task, preflight)).rejects.toThrow('revision changed');
+    expect(await gateway.listRuns(task.id)).toEqual([]);
+  });
+
+  it('records a schedule-list immediate run as a manual trigger', async () => {
+    const task = {
+      ...configuredTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'cron' as const,
+        expression: '0 * * * *',
+        timezone: 'UTC',
+        overlap: 'skip' as const,
+      },
+    };
+    const gateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+    });
+
+    const run = await gateway.startTask(task, await gateway.preflightTask(task));
+
+    expect(run).toMatchObject({ taskId: task.id, trigger: 'manual' });
+  });
+
+  it('archives scheduled tasks by canceling active runs and removing their list projections', async () => {
+    const task = {
+      ...configuredTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'cron' as const,
+        expression: '0 * * * *',
+        timezone: 'UTC',
+        overlap: 'skip' as const,
+      },
+    };
+    const gateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      runs: [
+        {
+          id: 'archive-queued-run',
+          taskId: task.id,
+          taskName: task.name,
+          status: 'queued',
+          trigger: 'schedule',
+          attempt: 1,
+          resumable: false,
+          message: '',
+          startedAt: '',
+          finishedAt: '',
+          rowsRead: 0,
+          rowsWritten: 0,
+          rowsFailed: 0,
+          throughput: 0,
+          checkpoint: '',
+        },
+        {
+          id: 'archive-streaming-run',
+          taskId: task.id,
+          taskName: task.name,
+          status: 'streaming',
+          trigger: 'continuous',
+          attempt: 1,
+          resumable: false,
+          message: '',
+          startedAt: '2026-08-08T00:30:00.000Z',
+          finishedAt: '',
+          rowsRead: 0,
+          rowsWritten: 0,
+          rowsFailed: 0,
+          throughput: 0,
+          checkpoint: '',
+        },
+      ],
+      schedules: [
+        {
+          id: `${task.id}:schedule`,
+          taskId: task.id,
+          taskName: task.name,
+          enabled: true,
+          expression: '0 * * * *',
+          timezone: 'UTC',
+          nextRunAt: '2026-08-08T02:00:00.000Z',
+        },
+      ],
+      now: () => '2026-08-08T01:00:00.000Z',
+    });
+
+    const archived = await gateway.saveTask({ ...task, lifecycle: 'archived' });
+
+    expect(archived).toMatchObject({
+      lifecycle: 'archived',
+      revision: task.revision + 1,
+    });
+    expect(await gateway.listTasks()).toEqual([]);
+    expect(await gateway.listSchedules()).toEqual([]);
+    expect(await gateway.listRuns(task.id)).toEqual([
+      expect.objectContaining({
+        id: 'archive-queued-run',
+        status: 'canceled',
+        finishedAt: '2026-08-08T01:00:00.000Z',
+        message: 'canceled because task was archived',
+      }),
+      expect.objectContaining({
+        id: 'archive-streaming-run',
+        status: 'cancelling',
+        finishedAt: '',
+        message: 'cancellation requested because task was archived',
+      }),
+    ]);
   });
 
   it('fails closed with an explicit warning when no backend capability is injected', async () => {

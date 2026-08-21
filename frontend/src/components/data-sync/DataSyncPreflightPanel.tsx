@@ -82,13 +82,17 @@ export const DataSyncPreflightPanel: React.FC<{
   const approvalCurrent = Boolean(
     snapshot &&
       approval &&
+      approval.taskId === snapshot.taskId &&
       approval.definitionHash === snapshot.definitionHash &&
+      approval.taskRevision === snapshot.taskRevision &&
       Date.parse(approval.expiresAt) > clock,
   );
   const challengeCurrent = Boolean(
     snapshot &&
       approvalChallenge &&
+      approvalChallenge.taskId === snapshot.taskId &&
       approvalChallenge.definitionHash === snapshot.definitionHash &&
+      approvalChallenge.taskRevision === snapshot.taskRevision &&
       Date.parse(approvalChallenge.expiresAt) > clock,
   );
   const remainingSeconds = useMemo(() => {

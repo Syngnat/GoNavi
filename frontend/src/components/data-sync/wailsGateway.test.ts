@@ -294,7 +294,9 @@ describe('real Wails data sync gateway', () => {
 
     const challenge = await gateway.beginApproval(task, preflight);
     expect(challenge).toEqual({
+      taskId: task.id,
       definitionHash: 'definition-hash',
+      taskRevision: task.revision,
       notBefore: new Date(NOW + 10_000).toISOString(),
       expiresAt: new Date(NOW + 120_000).toISOString(),
     });
@@ -307,7 +309,9 @@ describe('real Wails data sync gateway', () => {
     clock = NOW + 10_000;
     const grant = await gateway.approveTask(task, preflight);
     expect(grant).toEqual({
+      taskId: task.id,
       definitionHash: 'definition-hash',
+      taskRevision: task.revision,
       expiresAt: new Date(NOW + 600_000).toISOString(),
     });
     expect(grant).not.toHaveProperty('token');
@@ -334,6 +338,246 @@ describe('real Wails data sync gateway', () => {
     expect(api.DataSyncRunStart).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a forged preflight task id before beginning approval', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+    const preflight = await gateway.preflightTask(task);
+
+    await expect(
+      gateway.beginApproval(task, { ...preflight, taskId: 'other-task' }),
+    ).rejects.toThrow('does not match the current task');
+    expect(api.DataSyncJobApprovalBegin).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forged preflight revision before beginning approval and clears the challenge', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const preflight = await gateway.preflightTask(task);
+    await gateway.beginApproval(task, preflight);
+
+    await expect(
+      gateway.beginApproval(task, {
+        ...preflight,
+        taskRevision: task.revision + 1,
+      }),
+    ).rejects.toThrow('does not match the current task');
+    expect(api.DataSyncJobApprovalBegin).toHaveBeenCalledTimes(1);
+
+    clock = NOW + 10_000;
+    await expect(gateway.approveTask(task, preflight)).rejects.toThrow(
+      'countdown is incomplete',
+    );
+    expect(api.DataSyncJobApprove).not.toHaveBeenCalled();
+  });
+
+  it('rejects a stale preflight revision and discards its cached challenge', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const preflight = await gateway.preflightTask(task);
+    await gateway.beginApproval(task, preflight);
+
+    await expect(
+      gateway.approveTask(task, {
+        ...preflight,
+        taskRevision: task.revision + 1,
+      }),
+    ).rejects.toThrow('does not match the current task');
+    expect(api.DataSyncJobApprove).not.toHaveBeenCalled();
+
+    clock = NOW + 10_000;
+    await expect(gateway.approveTask(task, preflight)).rejects.toThrow(
+      'countdown is incomplete',
+    );
+    expect(api.DataSyncJobApprove).not.toHaveBeenCalled();
+
+    await gateway.beginApproval(task, preflight);
+    await gateway.approveTask(task, preflight);
+    await expect(
+      gateway.startTask(task, {
+        ...preflight,
+        definitionHash: 'forged-definition-hash',
+      }),
+    ).rejects.toThrow('preflight is blocked or stale');
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+    await expect(gateway.startTask(task, preflight)).rejects.toThrow(
+      'explicit production approval is required',
+    );
+  });
+
+  it('rejects a forged preflight task id and discards its cached grant', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const preflight = await gateway.preflightTask(task);
+    await gateway.beginApproval(task, preflight);
+    clock = NOW + 10_000;
+    await gateway.approveTask(task, preflight);
+
+    await expect(
+      gateway.startTask(task, { ...preflight, taskId: 'other-task' }),
+    ).rejects.toThrow('does not match the current task');
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+
+    await expect(gateway.startTask(task, preflight)).rejects.toThrow(
+      'explicit production approval is required',
+    );
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forged preflight task id before approving and clears the challenge', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const preflight = await gateway.preflightTask(task);
+    await gateway.beginApproval(task, preflight);
+    clock = NOW + 10_000;
+
+    await expect(
+      gateway.approveTask(task, { ...preflight, taskId: 'other-task' }),
+    ).rejects.toThrow('does not match the current task');
+    expect(api.DataSyncJobApprove).not.toHaveBeenCalled();
+
+    await expect(gateway.approveTask(task, preflight)).rejects.toThrow(
+      'countdown is incomplete',
+    );
+    expect(api.DataSyncJobApprove).not.toHaveBeenCalled();
+  });
+
+  it('rejects a forged preflight revision before starting and clears the grant', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const preflight = await gateway.preflightTask(task);
+    await gateway.beginApproval(task, preflight);
+    clock = NOW + 10_000;
+    await gateway.approveTask(task, preflight);
+
+    await expect(
+      gateway.startTask(task, {
+        ...preflight,
+        taskRevision: task.revision + 1,
+      }),
+    ).rejects.toThrow('does not match the current task');
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+
+    await expect(gateway.startTask(task, preflight)).rejects.toThrow(
+      'explicit production approval is required',
+    );
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+  });
+
+  it('discards cached authorization when the supplied definition hash changes', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const preflight = await gateway.preflightTask(task);
+    await gateway.beginApproval(task, preflight);
+
+    await expect(
+      gateway.beginApproval(task, {
+        ...preflight,
+        definitionHash: 'forged-definition-hash',
+      }),
+    ).rejects.toThrow('approval does not match the current passed preflight');
+    expect(api.DataSyncJobApprovalBegin).toHaveBeenCalledTimes(1);
+
+    clock = NOW + 10_000;
+    await expect(gateway.approveTask(task, preflight)).rejects.toThrow(
+      'countdown is incomplete',
+    );
+    expect(api.DataSyncJobApprove).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a blocked cached preflight is presented as passed', async () => {
+    const task = taskFixture();
+    const api = apiFixture({
+      DataSyncJobPreflight: vi.fn(async (definition) => ({
+        success: false,
+        message: 'preflight blocked',
+        data: {
+          status: 'blocked',
+          definition,
+          definitionHash: 'blocked-definition-hash',
+          approvalRequired: false,
+          capability: {
+            supportLevel: 'full',
+            // Capability resolution alone must not override a blocked preflight.
+            canExecute: true,
+            supportsAutoCreate: true,
+          },
+          issues: [
+            {
+              code: 'target_table_missing',
+              severity: 'blocker',
+              stage: 'delivery',
+            },
+          ],
+          checkedAt: NOW,
+        },
+      })),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+    const blocked = await gateway.preflightTask(task);
+
+    await expect(
+      gateway.startTask(task, { ...blocked, status: 'passed' }),
+    ).rejects.toThrow('preflight is blocked or stale');
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unused production token through an identical fresh preflight', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const initialPreflight = await gateway.preflightTask(task);
+
+    await gateway.beginApproval(task, initialPreflight);
+    clock = NOW + 10_000;
+    await gateway.approveTask(task, initialPreflight);
+
+    const refreshedPreflight = await gateway.preflightTask(task);
+
+    await expect(gateway.startTask(task, refreshedPreflight)).resolves.toMatchObject({
+      id: 'run-1',
+      status: 'queued',
+    });
+    expect(api.DataSyncRunStart).toHaveBeenCalledWith(
+      task.id,
+      task.revision,
+      'one-time-token',
+    );
+  });
+
+  it('discards an unused production token when a fresh preflight changes the task', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    let clock = NOW;
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => clock });
+    const initialPreflight = await gateway.preflightTask(task);
+
+    await gateway.beginApproval(task, initialPreflight);
+    clock = NOW + 10_000;
+    await gateway.approveTask(task, initialPreflight);
+
+    const changed = reviseDataSyncTask(task, { name: 'changed after approval' });
+    const refreshedPreflight = await gateway.preflightTask(changed);
+
+    await expect(gateway.startTask(changed, refreshedPreflight)).rejects.toThrow(
+      'explicit production approval is required',
+    );
+    expect(api.DataSyncRunStart).not.toHaveBeenCalled();
+  });
+
   it('binds authorization to the exact local signature and runnable lifecycle', async () => {
     const task = taskFixture();
     const api = apiFixture();
@@ -343,7 +587,7 @@ describe('real Wails data sync gateway', () => {
 
     const paused = reviseDataSyncTask(task, { lifecycle: 'paused' });
     await expect(gateway.startTask(paused, preflight)).rejects.toThrow(
-      'only ready or enabled tasks can run',
+      'preflight does not match the current task',
     );
     expect(api.DataSyncRunStart).not.toHaveBeenCalled();
   });
@@ -363,6 +607,41 @@ describe('real Wails data sync gateway', () => {
     );
     await expect(gateway.saveTask(task)).rejects.toThrow(
       'run preflight again',
+    );
+  });
+
+  it('sends the persisted revision when a schedule control pauses a loaded task', async () => {
+    const task = { ...taskFixture(), lifecycle: 'enabled' as const };
+    const paused = {
+      ...task,
+      lifecycle: 'paused' as const,
+      revision: task.revision + 1,
+    };
+    const api = apiFixture({
+      DataSyncJobList: vi.fn(async () =>
+        success([encodeDataSyncJobDefinition(task)]),
+      ),
+      DataSyncJobSave: vi.fn(async (definition) =>
+        success(encodeDataSyncJobDefinition(paused)),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const [loaded] = await gateway.listTasks();
+    await expect(
+      gateway.saveTask({ ...loaded, lifecycle: 'paused' }),
+    ).resolves.toMatchObject({
+      lifecycle: 'paused',
+      revision: paused.revision,
+    });
+
+    expect(api.DataSyncJobSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: task.id,
+        lifecycle: 'paused',
+        revision: task.revision,
+      }),
+      '',
     );
   });
 

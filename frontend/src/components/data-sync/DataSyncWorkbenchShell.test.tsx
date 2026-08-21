@@ -3,7 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createStaticDataSyncWorkbenchGateway } from './gateway';
+import {
+  createStaticDataSyncWorkbenchGateway,
+  type StaticDataSyncGatewayFixtures,
+} from './gateway';
 import {
   createDataSyncTableMapping,
   createDataSyncTaskDraft,
@@ -301,6 +304,61 @@ describe('DataSyncWorkbenchShell', () => {
     expect(renderer.root.findByProps({ 'data-dirty': 'false' })).toBeTruthy();
   });
 
+  it('refreshes the schedule list after saving a newly persisted scheduled task', async () => {
+    const task = {
+      ...buildTask(),
+      id: 'data-sync-local-scheduled',
+      lifecycle: 'paused' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    let persistedTasks: typeof task[] = [];
+    const baseGateway = createStaticDataSyncWorkbenchGateway({ tasks: [] });
+    const listTasks = vi.fn(async () => persistedTasks);
+    const saveTask = vi.fn(async (submitted: typeof task) => {
+      const saved = {
+        ...submitted,
+        id: 'persisted-scheduled-task',
+        revision: submitted.revision + 1,
+      };
+      persistedTasks = [saved];
+      return saved;
+    });
+    const gateway = { ...baseGateway, listTasks, saveTask };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Save draft'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(listTasks.mock.calls.length).toBeGreaterThan(1);
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    expect(
+      renderer.root.findByProps({ 'data-task-id': 'persisted-scheduled-task' }),
+    ).toBeTruthy();
+  });
+
   it('shows approval-required preflight state and keeps execution fail-closed', async () => {
     const task = buildTask();
     const gateway = createStaticDataSyncWorkbenchGateway({
@@ -409,7 +467,7 @@ describe('DataSyncWorkbenchShell', () => {
     });
     const resetCheckpoint = vi.fn(baseGateway.resetCheckpoint.bind(baseGateway));
     const gateway = { ...baseGateway, resetCheckpoint };
-    const confirm = vi.fn(() => false);
+    const confirm = vi.fn<(message?: string) => boolean>(() => false);
     vi.stubGlobal('confirm', confirm);
     const renderer = TestRenderer.create(
       <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
@@ -454,5 +512,621 @@ describe('DataSyncWorkbenchShell', () => {
     });
     expect(resetCheckpoint).toHaveBeenCalledWith(task.id, task.revision);
     expect(resetButton().props.disabled).toBe(true);
+  });
+
+  it('confirms schedule pause scope, preserves the stored revision, and refreshes the row', async () => {
+    const task = {
+      ...buildTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({ tasks: [task] });
+    const saveTask = vi.fn(baseGateway.saveTask.bind(baseGateway));
+    const listTasks = vi.fn(baseGateway.listTasks.bind(baseGateway));
+    const gateway = { ...baseGateway, listTasks, saveTask };
+    const confirm = vi.fn<(message?: string) => boolean>(() => false);
+    vi.stubGlobal('confirm', confirm);
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    const disable = () =>
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Disable'))!;
+
+    await act(async () => {
+      disable().props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    const confirmationMessage = confirm.mock.calls[0]?.[0] || '';
+    expect(confirmationMessage).toContain(task.name);
+    expect(confirmationMessage).toContain('Source: MySQL 生产库 / sales');
+    expect(confirmationMessage).toContain('Target: PostgreSQL 数仓 / warehouse / ods');
+    expect(saveTask).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    await act(async () => {
+      disable().props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(listTasks.mock.calls.length).toBeGreaterThan(1);
+    expect(saveTask).toHaveBeenCalledWith(expect.objectContaining({
+      id: task.id,
+      lifecycle: 'paused',
+      revision: task.revision,
+    }));
+    expect(
+      renderer.root.findByProps({ 'data-task-id': task.id }).props['data-enabled'],
+    ).toBe('false');
+  });
+
+  it('runs an eligible schedule through current preflight and opens the queued run', async () => {
+    const task = {
+      ...buildTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'cron' as const,
+        expression: '0 */5 * * * *',
+        timezone: 'Asia/Shanghai',
+        overlap: 'skip' as const,
+      },
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+    });
+    const preflightTask = vi.fn(baseGateway.preflightTask.bind(baseGateway));
+    const resolveCapability = vi.fn(baseGateway.resolveCapability.bind(baseGateway));
+    const startTask = vi.fn(baseGateway.startTask.bind(baseGateway));
+    const gateway = {
+      ...baseGateway,
+      preflightTask,
+      resolveCapability,
+      startTask,
+    };
+    const confirm = vi.fn<(message?: string) => boolean>(() => true);
+    vi.stubGlobal('confirm', confirm);
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Run now'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(preflightTask).toHaveBeenCalledWith(expect.objectContaining({
+      id: task.id,
+      revision: task.revision,
+    }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(task.name));
+    const confirmationMessage = confirm.mock.calls[0]?.[0] || '';
+    expect(confirmationMessage).toContain('Source: MySQL 生产库 / sales');
+    expect(confirmationMessage).toContain('Target: PostgreSQL 数仓 / warehouse / ods');
+    expect(resolveCapability).toHaveBeenCalledWith(expect.objectContaining({
+      id: task.id,
+      revision: task.revision,
+    }));
+    expect(startTask).toHaveBeenCalledWith(
+      expect.objectContaining({ id: task.id, revision: task.revision }),
+      expect.objectContaining({ taskId: task.id }),
+    );
+    expect(
+      renderer.root.findByProps({ 'data-data-sync-run-history': 'true' }),
+    ).toBeTruthy();
+  });
+
+  it('loads each scheduled task history when the global run history is capped', async () => {
+    const task = {
+      ...buildTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const buriedRun: DataSyncRunRecord = {
+      id: 'scheduled-run-beyond-global-cap',
+      taskId: task.id,
+      taskName: task.name,
+      status: 'failed',
+      trigger: 'schedule',
+      attempt: 1,
+      resumable: true,
+      message: 'target write failed after global history cap',
+      startedAt: '2026-08-08T01:00:00.000Z',
+      finishedAt: '2026-08-08T01:01:00.000Z',
+      rowsRead: 10,
+      rowsWritten: 9,
+      rowsFailed: 1,
+      throughput: 9,
+      checkpoint: 'orders:9',
+    };
+    const noisyRuns: DataSyncRunRecord[] = Array.from({ length: 200 }, (_, index) => ({
+      ...buriedRun,
+      id: `newer-unrelated-run-${index}`,
+      taskId: `unrelated-task-${index}`,
+      taskName: `Unrelated task ${index}`,
+      status: 'succeeded',
+      trigger: 'manual',
+      resumable: false,
+      message: '',
+      startedAt: '2026-08-08T02:00:00.000Z',
+      finishedAt: '2026-08-08T02:01:00.000Z',
+      rowsRead: 1,
+      rowsWritten: 1,
+      rowsFailed: 0,
+      throughput: 1,
+      checkpoint: '',
+    }));
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      runs: [...noisyRuns, buriedRun],
+    });
+    const listRuns = vi.fn(async (taskId?: string) =>
+      taskId
+        ? baseGateway.listRuns(taskId)
+        : (await baseGateway.listRuns()).filter((run) => run.id !== buriedRun.id).slice(0, 200),
+    );
+    const retryRun = vi.fn(baseGateway.retryRun.bind(baseGateway));
+    const gateway = { ...baseGateway, listRuns, retryRun };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+
+    const row = renderer.root.findByProps({ 'data-task-id': task.id });
+    expect(listRuns).toHaveBeenCalledWith(task.id);
+    expect(
+      row.findAllByProps({ children: buriedRun.message }),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('View run'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      renderer.root
+        .findByProps({ 'data-selected': 'true' })
+        .findAllByType('td')[0]!
+        .children,
+    ).toContain(buriedRun.id);
+
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Runs'))!
+        .props.onClick();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Refresh'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      renderer.root
+        .findByProps({ 'data-selected': 'true' })
+        .findAllByType('td')[0]!
+        .children,
+    ).toContain(buriedRun.id);
+
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Retry run'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(retryRun).toHaveBeenCalledWith(buriedRun.id);
+  });
+
+  const scheduleRunPreflightCases: Array<{
+    name: string;
+    fixtures: Pick<
+      StaticDataSyncGatewayFixtures,
+      'extraPreflightIssues' | 'approvalRequiredByTask'
+    >;
+  }> = [
+    {
+      name: 'blocked preflight',
+      fixtures: {
+        extraPreflightIssues: [{
+          id: 'target-unavailable',
+          code: 'route_unsupported',
+          severity: 'blocker' as const,
+          stage: 'endpoints' as const,
+        }],
+      },
+    },
+    {
+      name: 'required approval',
+      fixtures: {
+        approvalRequiredByTask: { 'orders-task': true },
+      },
+    },
+  ];
+
+  it.each(scheduleRunPreflightCases)('does not start a schedule run with $name', async ({ fixtures }) => {
+    const task = {
+      ...buildTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+      ...fixtures,
+    });
+    const startTask = vi.fn(baseGateway.startTask.bind(baseGateway));
+    const gateway = { ...baseGateway, startTask };
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Run now'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(startTask).not.toHaveBeenCalled();
+    expect(
+      renderer.root.findByProps({ 'data-data-sync-preflight': 'true' }),
+    ).toBeTruthy();
+  });
+
+  it('routes a paused schedule into preflight instead of bypassing the runnable lifecycle gate', async () => {
+    const task = {
+      ...buildTask(),
+      lifecycle: 'paused' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+    });
+    const preflightTask = vi.fn(baseGateway.preflightTask.bind(baseGateway));
+    const startTask = vi.fn(baseGateway.startTask.bind(baseGateway));
+    const gateway = { ...baseGateway, preflightTask, startTask };
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Run now'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(preflightTask).toHaveBeenCalledWith(expect.objectContaining({
+      id: task.id,
+      lifecycle: 'paused',
+    }));
+    expect(startTask).not.toHaveBeenCalled();
+    expect(
+      renderer.root.findByProps({ 'data-data-sync-preflight': 'true' }),
+    ).toBeTruthy();
+  });
+
+  it('opens a failed schedule run in history where the existing retry flow remains available', async () => {
+    const task = {
+      ...buildTask(),
+      lifecycle: 'enabled' as const,
+      trigger: {
+        mode: 'interval' as const,
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    };
+    const failedRun: DataSyncRunRecord = {
+      id: 'failed-schedule-run',
+      taskId: task.id,
+      taskName: task.name,
+      status: 'failed',
+      trigger: 'schedule',
+      attempt: 1,
+      resumable: true,
+      message: 'target write failed',
+      startedAt: '2026-08-08T01:00:00.000Z',
+      finishedAt: '2026-08-08T01:01:00.000Z',
+      rowsRead: 10,
+      rowsWritten: 9,
+      rowsFailed: 1,
+      throughput: 9,
+      checkpoint: 'orders:9',
+    };
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      runs: [failedRun],
+    });
+    const retryRun = vi.fn(baseGateway.retryRun.bind(baseGateway));
+    const listSchedules = vi.fn(baseGateway.listSchedules.bind(baseGateway));
+    const gateway = { ...baseGateway, listSchedules, retryRun };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('View run'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      renderer.root.findByProps({ 'data-data-sync-run-history': 'true' }),
+    ).toBeTruthy();
+    expect(
+      renderer.root
+        .findByProps({ 'data-selected': 'true' })
+        .findAllByType('td')[0]!
+        .children,
+    ).toContain(failedRun.id);
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Retry run'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(retryRun).toHaveBeenCalledWith(failedRun.id);
+    expect(listSchedules.mock.calls.length).toBeGreaterThan(1);
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Schedules'))!
+        .props.onClick();
+    });
+    expect(
+      renderer.root
+        .findByProps({ 'data-task-id': task.id })
+        .findByProps({ 'data-state': 'queued' }),
+    ).toBeTruthy();
+  });
+
+  it('invalidates an approval in the UI when a lifecycle-only change keeps the same definition hash', async () => {
+    const task = reviseDataSyncTask(buildTask(), {
+      lifecycle: 'ready',
+      trigger: {
+        mode: 'interval',
+        intervalSeconds: 300,
+        timezone: 'Asia/Shanghai',
+      },
+    });
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+      approvalRequiredByTask: { [task.id]: true },
+      // The backend approval scope also covers lifecycle, while this fixture
+      // holds the hash constant to expose the UI's former hash-only reuse.
+      definitionHashByTask: { [task.id]: 'same-definition-hash' },
+    });
+    const beginApproval = vi.fn(async (_task, preflight) => ({
+      taskId: preflight.taskId,
+      definitionHash: preflight.definitionHash,
+      taskRevision: preflight.taskRevision,
+      notBefore: '2020-01-01T00:00:00.000Z',
+      expiresAt: '2030-08-08T00:02:00.000Z',
+    }));
+    const approveTask = vi.fn(async (_task, preflight) => ({
+      taskId: preflight.taskId,
+      definitionHash: preflight.definitionHash,
+      taskRevision: preflight.taskRevision,
+      expiresAt: '2030-08-08T00:10:00.000Z',
+    }));
+    const gateway = { ...baseGateway, beginApproval, approveTask };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Run preflight'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Begin server 10-second confirmation'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Confirm production write and grant token'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      renderer.root
+        .findAllByType('strong')
+        .some((node) => node.children.includes('One-time production authorization granted')),
+    ).toBe(true);
+
+    act(() => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Enable schedule'))!
+        .props.onClick();
+    });
+    await act(async () => {
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Run preflight'))!
+        .props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      renderer.root
+        .findAllByType('strong')
+        .some((node) => node.children.includes('One-time production authorization granted')),
+    ).toBe(false);
+    expect(
+      renderer.root
+        .findAllByType('button')
+        .find((button) => button.children.includes('Save draft'))!.props.disabled,
+    ).toBe(true);
   });
 });

@@ -1081,6 +1081,7 @@ export const decodeRunRecord = (
     attempt: optionalNumber(run.attempt, 'run.attempt'),
     resumable: optionalBoolean(run.resumable, 'run.resumable'),
     message: optionalString(run.message, 'run.message'),
+    queuedAt: fromMillis(run.queuedAt, 'run.queuedAt'),
     startedAt:
       fromMillis(run.startedAt, 'run.startedAt') || fromMillis(run.queuedAt, 'run.queuedAt'),
     finishedAt: fromMillis(run.finishedAt, 'run.finishedAt'),

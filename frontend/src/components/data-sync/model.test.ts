@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   autoMatchDataSyncFields,
+  aggregateDataSyncScheduleSummaries,
   canUseDataSyncRowErrorIsolation,
   canStartDataSyncTask,
   buildDataSyncMappingsFromSelection,
@@ -10,11 +11,355 @@ import {
   isDataSyncPreflightCurrent,
   resolveDataSyncPreflightStatus,
   reviseDataSyncTask,
+  summarizeDataSyncRunMessage,
   validateDataSyncTask,
   type DataSyncPreflightSnapshot,
 } from './model';
 
 describe('data sync task model', () => {
+  it('redacts and bounds schedule error summaries', () => {
+    const message =
+      'connect failed: postgres://alice:secret@example.test/db?token=abc password=top-secret; ' +
+      'x'.repeat(300);
+
+    const summary = summarizeDataSyncRunMessage(message, 80);
+
+    expect(summary).not.toContain('secret');
+    expect(summary).not.toContain('abc');
+    expect(summary).not.toContain('top-secret');
+    expect(summary).toContain('[REDACTED]');
+    expect(summary.length).toBeLessThanOrEqual(80);
+    expect(summary.endsWith('…')).toBe(true);
+  });
+
+  it('redacts quoted credential values that contain spaces', () => {
+    const summary = summarizeDataSyncRunMessage(
+      'target rejected password="top secret"; token: \'one time token\'; api_key = "blue green"',
+    );
+
+    expect(summary).toBe(
+      'target rejected password=[REDACTED]; token: [REDACTED]; api_key = [REDACTED]',
+    );
+  });
+
+  it('redacts unquoted credential values with spaces up to the next field', () => {
+    const summary = summarizeDataSyncRunMessage(
+      'target rejected password=top secret; retryable=true; token=one time token',
+    );
+
+    expect(summary).toBe(
+      'target rejected password=[REDACTED]; retryable=true; token=[REDACTED]',
+    );
+    expect(summary).not.toContain('top secret');
+    expect(summary).not.toContain('one time token');
+  });
+
+  it('redacts authorization schemes and URL userinfo edge cases', () => {
+    const summary = summarizeDataSyncRunMessage(
+      'Authorization: Basic dXNlcjpzZWNyZXQ=; ' +
+      'postgres://:empty-user-password@example.test/db; ' +
+      'postgres://alice:p@ss@example.test/db',
+    );
+
+    expect(summary).not.toContain('dXNlcjpzZWNyZXQ=');
+    expect(summary).not.toContain('empty-user-password');
+    expect(summary).not.toContain('p@ss');
+    expect(summary).toContain('Authorization: [REDACTED]');
+    expect(summary).toContain('postgres://[REDACTED]@example.test/db');
+  });
+
+  it('redacts quoted query credentials without leaving value fragments', () => {
+    const summary = summarizeDataSyncRunMessage(
+      'request failed: https://example.test/api?password="top secret"&token=one%20time',
+    );
+
+    expect(summary).toBe(
+      'request failed: https://example.test/api?password=[REDACTED]&token=[REDACTED]',
+    );
+    expect(summary).not.toContain('top secret');
+    expect(summary).not.toContain('one%20time');
+  });
+
+  it('redacts composite OAuth and client credential keys in schedule summaries', () => {
+    const summary = summarizeDataSyncRunMessage(
+      'authorization failed: access_token=access-value; refresh_token: refresh-value; client_secret = client-value; Access-Token: header-value',
+    );
+
+    for (const value of [
+      'access-value',
+      'refresh-value',
+      'client-value',
+      'header-value',
+    ]) {
+      expect(summary).not.toContain(value);
+    }
+    expect((summary.match(/\[REDACTED\]/g) || [])).toHaveLength(4);
+  });
+
+  it('redacts credential values in JSON-shaped error messages', () => {
+    const summary = summarizeDataSyncRunMessage(
+      '{"access_token":"access-value","refresh_token":"refresh-value","client_secret":"client-value","password":"top-secret"}',
+    );
+
+    for (const value of [
+      'access-value',
+      'refresh-value',
+      'client-value',
+      'top-secret',
+    ]) {
+      expect(summary).not.toContain(value);
+    }
+    expect((summary.match(/\[REDACTED\]/g) || [])).toHaveLength(4);
+  });
+
+  it('aggregates the latest run and lifecycle state for scheduled tasks', () => {
+    const scheduled = reviseDataSyncTask(
+      createDataSyncTaskDraft({
+        id: 'scheduled-task',
+        kind: 'reconcile',
+        name: 'Scheduled orders',
+      }),
+      {
+        lifecycle: 'paused',
+        trigger: {
+          mode: 'cron',
+          expression: '0 * * * *',
+          timezone: 'Asia/Shanghai',
+          overlap: 'skip',
+        },
+      },
+    );
+    const manual = createDataSyncTaskDraft({
+      id: 'manual-task',
+      kind: 'migration',
+      name: 'Manual migration',
+    });
+    const summaries = aggregateDataSyncScheduleSummaries(
+      [scheduled, manual],
+      [
+        {
+          id: 'old-failure',
+          taskId: scheduled.id,
+          taskName: scheduled.name,
+          status: 'failed',
+          trigger: 'schedule',
+          attempt: 1,
+          resumable: false,
+          message: 'old failure',
+          startedAt: '2026-08-08T00:00:00.000Z',
+          finishedAt: '2026-08-08T00:01:00.000Z',
+          rowsRead: 0,
+          rowsWritten: 0,
+          rowsFailed: 1,
+          throughput: 0,
+          checkpoint: '',
+        },
+        {
+          id: 'latest-failure',
+          taskId: scheduled.id,
+          taskName: scheduled.name,
+          status: 'failed',
+          trigger: 'schedule',
+          attempt: 1,
+          resumable: true,
+          message: 'password=latest-secret',
+          startedAt: '2026-08-08T01:00:00.000Z',
+          finishedAt: '2026-08-08T01:02:00.000Z',
+          rowsRead: 3,
+          rowsWritten: 2,
+          rowsFailed: 1,
+          throughput: 1,
+          checkpoint: '',
+        },
+      ],
+      [
+        {
+          id: 'scheduled-task:schedule',
+          taskId: scheduled.id,
+          taskName: scheduled.name,
+          enabled: true,
+          expression: 'old-expression',
+          timezone: 'UTC',
+          nextRunAt: '2026-08-08T02:00:00.000Z',
+        },
+      ],
+    );
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({
+      taskId: scheduled.id,
+      lifecycle: 'paused',
+      enabled: false,
+      expression: '0 * * * *',
+      timezone: 'Asia/Shanghai',
+      nextRunAt: '',
+      latestRun: {
+        id: 'latest-failure',
+        status: 'failed',
+        errorSummary: 'password=[REDACTED]',
+      },
+    });
+  });
+
+  it('shows sanitized messages for canceled and interrupted latest runs', () => {
+    const scheduled = reviseDataSyncTask(
+      createDataSyncTaskDraft({
+        id: 'scheduled-terminal-task',
+        kind: 'reconcile',
+        name: 'Scheduled terminal state',
+      }),
+      {
+        lifecycle: 'enabled',
+        trigger: {
+          mode: 'interval',
+          intervalSeconds: 60,
+          timezone: 'UTC',
+        },
+      },
+    );
+
+    const [summary] = aggregateDataSyncScheduleSummaries([scheduled], [
+      {
+        id: 'interrupted-run',
+        taskId: scheduled.id,
+        taskName: scheduled.name,
+        status: 'interrupted',
+        trigger: 'schedule',
+        attempt: 1,
+        resumable: true,
+        message: 'authorization=secret-value',
+        startedAt: '2026-08-08T02:00:00.000Z',
+        finishedAt: '2026-08-08T02:01:00.000Z',
+        rowsRead: 1,
+        rowsWritten: 0,
+        rowsFailed: 1,
+        throughput: 0,
+        checkpoint: '',
+      },
+    ]);
+
+    expect(summary.latestRun?.errorSummary).toBe('authorization=[REDACTED]');
+  });
+
+  it('uses the latest run start time when completion order differs', () => {
+    const scheduled = reviseDataSyncTask(
+      createDataSyncTaskDraft({
+        id: 'scheduled-order-task',
+        kind: 'reconcile',
+        name: 'Scheduled order check',
+      }),
+      {
+        lifecycle: 'enabled',
+        trigger: {
+          mode: 'interval',
+          intervalSeconds: 300,
+          timezone: 'UTC',
+        },
+      },
+    );
+    const summaries = aggregateDataSyncScheduleSummaries([scheduled], [
+      {
+        id: 'older-start-finished-last',
+        taskId: scheduled.id,
+        taskName: scheduled.name,
+        status: 'failed',
+        trigger: 'schedule',
+        attempt: 1,
+        resumable: false,
+        message: 'older start',
+        startedAt: '2026-08-08T01:00:00.000Z',
+        finishedAt: '2026-08-08T03:00:00.000Z',
+        rowsRead: 0,
+        rowsWritten: 0,
+        rowsFailed: 1,
+        throughput: 0,
+        checkpoint: '',
+      },
+      {
+        id: 'newer-start-finished-first',
+        taskId: scheduled.id,
+        taskName: scheduled.name,
+        status: 'succeeded',
+        trigger: 'schedule',
+        attempt: 1,
+        resumable: false,
+        message: '',
+        startedAt: '2026-08-08T02:00:00.000Z',
+        finishedAt: '2026-08-08T02:30:00.000Z',
+        rowsRead: 1,
+        rowsWritten: 1,
+        rowsFailed: 0,
+        throughput: 1,
+        checkpoint: '',
+      },
+    ]);
+
+    expect(summaries[0]?.latestRun).toMatchObject({
+      id: 'newer-start-finished-first',
+      status: 'succeeded',
+    });
+  });
+
+  it('treats a queued retry as the latest schedule result', () => {
+    const scheduled = reviseDataSyncTask(
+      createDataSyncTaskDraft({
+        id: 'scheduled-retry-task',
+        kind: 'reconcile',
+        name: 'Scheduled retry check',
+      }),
+      {
+        lifecycle: 'enabled',
+        trigger: {
+          mode: 'interval',
+          intervalSeconds: 300,
+          timezone: 'UTC',
+        },
+      },
+    );
+    const summaries = aggregateDataSyncScheduleSummaries([scheduled], [
+      {
+        id: 'failed-before-retry',
+        taskId: scheduled.id,
+        taskName: scheduled.name,
+        status: 'failed',
+        trigger: 'schedule',
+        attempt: 1,
+        resumable: true,
+        message: 'target write failed',
+        startedAt: '2026-08-08T01:00:00.000Z',
+        finishedAt: '2026-08-08T01:01:00.000Z',
+        rowsRead: 1,
+        rowsWritten: 0,
+        rowsFailed: 1,
+        throughput: 0,
+        checkpoint: '',
+      },
+      {
+        id: 'queued-retry',
+        taskId: scheduled.id,
+        taskName: scheduled.name,
+        status: 'queued',
+        trigger: 'retry',
+        attempt: 2,
+        resumable: false,
+        message: '',
+        startedAt: '',
+        finishedAt: '',
+        queuedAt: '2026-08-08T02:00:00.000Z',
+        rowsRead: 0,
+        rowsWritten: 0,
+        rowsFailed: 0,
+        throughput: 0,
+        checkpoint: '',
+      },
+    ]);
+
+    expect(summaries[0]?.latestRun).toMatchObject({
+      id: 'queued-retry',
+      status: 'queued',
+    });
+  });
+
   it('creates versioned defaults for compare and CDC tasks', () => {
     const compare = createDataSyncTaskDraft({
       id: 'compare-1',

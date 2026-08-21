@@ -279,13 +279,21 @@ export type DataSyncPreflightSnapshot = {
 };
 
 export type DataSyncApprovalChallenge = {
+  /** ID of the exact task covered by the server countdown. */
+  taskId: string;
   definitionHash: string;
+  /** Revision of the exact task definition approved for the countdown. */
+  taskRevision: number;
   notBefore: string;
   expiresAt: string;
 };
 
 export type DataSyncApprovalGrant = {
+  /** ID of the exact task covered by the one-time token. */
+  taskId: string;
   definitionHash: string;
+  /** Revision of the exact task definition covered by the one-time token. */
+  taskRevision: number;
   expiresAt: string;
 };
 
@@ -324,6 +332,8 @@ export type DataSyncRunRecord = {
   attempt: number;
   resumable: boolean;
   message: string;
+  /** Queue time is retained for runs that have not started yet. */
+  queuedAt?: string;
   startedAt: string;
   finishedAt: string;
   rowsRead: number;
@@ -350,10 +360,137 @@ export type DataSyncScheduleSummary = {
   id: string;
   taskId: string;
   taskName: string;
+  revision?: number;
+  lifecycle?: DataSyncTaskLifecycle;
   enabled: boolean;
   expression: string;
   timezone: string;
   nextRunAt: string;
+  latestRun?: DataSyncScheduleRunSummary | null;
+};
+
+/** The bounded, credential-free run projection shown in the schedule list. */
+export type DataSyncScheduleRunSummary = {
+  id: string;
+  status: DataSyncRunStatus;
+  startedAt: string;
+  finishedAt: string;
+  errorSummary: string;
+};
+
+const DATA_SYNC_SCHEDULE_ERROR_MAX_LENGTH = 240;
+
+/**
+ * Redacts common credential-shaped values before a run message can reach the
+ * schedule overview. The backend remains authoritative; this is a second
+ * presentation-boundary guard for static and older gateway responses.
+ */
+export const summarizeDataSyncRunMessage = (
+  message: string,
+  maxLength = DATA_SYNC_SCHEDULE_ERROR_MAX_LENGTH,
+): string => {
+  const limit = Number.isFinite(maxLength) && maxLength > 0
+    ? Math.floor(maxLength)
+    : DATA_SYNC_SCHEDULE_ERROR_MAX_LENGTH;
+  let summary = String(message || '')
+    .replace(/\b(?:Basic|Bearer)\s+[A-Za-z0-9._~+/=-]+/gi, '[REDACTED]')
+    .replace(
+      /([a-z][a-z0-9+.-]*:\/\/)[^\s/?#]*@/gi,
+      '$1[REDACTED]@',
+    )
+    .replace(
+      /([?&](?:password|passwd|pwd|(?:access|refresh|id)[_-]?token|token|(?:client|app)[_-]?secret|secret|api[_-]?key|authorization|dsn|credential)(?:=|%3d))(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^&#\s;]+)/gi,
+      '$1[REDACTED]',
+    )
+    .replace(
+      /(["'])(password|passwd|pwd|(?:access|refresh|id)[_-]?token|token|(?:client|app)[_-]?secret|secret|api[_-]?key|authorization|dsn|credential)\1(\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,;\s"'}]+)/gi,
+      '$1$2$1$3[REDACTED]',
+    )
+    .replace(
+      /\b(password|passwd|pwd|(?:access|refresh|id)[_-]?token|token|(?:client|app)[_-]?secret|secret|api[_-]?key|authorization|dsn|credential)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^,;&\r\n]+)/gi,
+      '$1$2[REDACTED]',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (summary.length <= limit) return summary;
+  return `${summary.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+};
+
+const scheduleExpression = (trigger: DataSyncTriggerPolicy): string => {
+  switch (trigger.mode) {
+    case 'cron':
+      return trigger.expression;
+    case 'interval':
+      return `${trigger.intervalSeconds}s`;
+    case 'once':
+      return trigger.runAt;
+    case 'continuous':
+      return 'continuous';
+    default:
+      return '';
+  }
+};
+
+const scheduleTimezone = (trigger: DataSyncTriggerPolicy): string =>
+  trigger.mode === 'cron' || trigger.mode === 'interval' || trigger.mode === 'once'
+    ? trigger.timezone || 'Local'
+    : 'Local';
+
+const runSortTimestamp = (run: DataSyncRunRecord): number => {
+  const started = Date.parse(run.startedAt);
+  if (Number.isFinite(started)) return started;
+  const queued = Date.parse(run.queuedAt || '');
+  if (Number.isFinite(queued)) return queued;
+  const finished = Date.parse(run.finishedAt);
+  return Number.isFinite(finished) ? finished : 0;
+};
+
+/**
+ * Builds schedule rows from the task and run projections when a dedicated
+ * schedule endpoint is unavailable. Existing rows are used to retain the
+ * server-computed next-run timestamp.
+ */
+export const aggregateDataSyncScheduleSummaries = (
+  tasks: DataSyncTaskDefinition[],
+  runs: DataSyncRunRecord[] = [],
+  existing: DataSyncScheduleSummary[] = [],
+): DataSyncScheduleSummary[] => {
+  const existingByTask = new Map(existing.map((item) => [item.taskId, item]));
+  return tasks
+    .filter((task) => task.trigger.mode !== 'manual')
+    .map((task) => {
+      const prior = existingByTask.get(task.id);
+      const latest = runs
+        .filter((run) => run.taskId === task.id)
+        .sort((left, right) => {
+          const timestampDelta = runSortTimestamp(right) - runSortTimestamp(left);
+          return timestampDelta || right.id.localeCompare(left.id);
+        })[0];
+      return {
+        id: prior?.id || `${task.id}:schedule`,
+        taskId: task.id,
+        taskName: task.name,
+        revision: task.revision,
+        lifecycle: task.lifecycle,
+        enabled: task.lifecycle === 'enabled',
+        expression: scheduleExpression(task.trigger),
+        timezone: scheduleTimezone(task.trigger),
+        nextRunAt:
+          task.lifecycle === 'enabled' ? prior?.nextRunAt || '' : '',
+        latestRun: latest
+          ? {
+              id: latest.id,
+              status: latest.status,
+              startedAt: latest.startedAt,
+              finishedAt: latest.finishedAt,
+              errorSummary:
+                latest.status !== 'succeeded' && latest.message
+                  ? summarizeDataSyncRunMessage(latest.message)
+                  : '',
+            }
+          : null,
+      };
+    });
 };
 
 export type DataSyncCdcSourceStatus = {
@@ -878,7 +1015,9 @@ export const canStartDataSyncTask = (
     preflight?.approvalSatisfied === true ||
     Boolean(
       approval &&
+        approval.taskId === task.id &&
         approval.definitionHash === preflight?.definitionHash &&
+        approval.taskRevision === preflight?.taskRevision &&
         Date.parse(approval.expiresAt) > now,
     )) &&
   (preflight?.status === 'passed' || preflight?.status === 'warning');

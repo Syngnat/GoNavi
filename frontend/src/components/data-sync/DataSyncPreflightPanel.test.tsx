@@ -5,16 +5,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const runtimeApi = vi.hoisted(() => ({
   ClipboardSetText: vi.fn(() => Promise.resolve(false)),
 }));
+const clipboardWriteText = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 
 vi.mock('../../../wailsjs/runtime/runtime', () => runtimeApi);
 
 import { DataSyncPreflightPanel } from './DataSyncPreflightPanel';
 
-Object.assign(globalThis, {
-  navigator: {
-    clipboard: {
-      writeText: vi.fn(() => Promise.resolve()),
-    },
+vi.stubGlobal('navigator', {
+  clipboard: {
+    writeText: clipboardWriteText,
   },
 });
 import {
@@ -58,8 +57,8 @@ afterEach(() => {
   vi.useRealTimers();
   runtimeApi.ClipboardSetText.mockReset();
   runtimeApi.ClipboardSetText.mockResolvedValue(false);
-  (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mockReset();
-  (navigator.clipboard.writeText as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+  clipboardWriteText.mockReset();
+  clipboardWriteText.mockResolvedValue(undefined);
 });
 
 describe('DataSyncPreflightPanel production approval', () => {
@@ -232,7 +231,9 @@ describe('DataSyncPreflightPanel production approval', () => {
           t={t}
           onLocateIssue={() => undefined}
           approvalChallenge={{
+            taskId: 'task-1',
             definitionHash: 'hash-1',
+            taskRevision: 4,
             notBefore: new Date(now + 10_000).toISOString(),
             expiresAt: new Date(now + 120_000).toISOString(),
           }}
