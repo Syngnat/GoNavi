@@ -98,6 +98,7 @@ type UseSidebarV2ActionHandlersArgs = {
   handleRunSQLFile: (node: any) => void;
   handleDeleteDatabase: (node: any) => void;
   onCreateConnectionInGroup?: (targetTagId: string) => void;
+  onOpenConnectionHealthForGroup?: (tagId: string) => void;
   onEditConnection?: (conn: SavedConnection) => void;
   handleDuplicateConnection: (conn: SavedConnection) => Promise<void>;
   buildConnectionRootQueryTabTitle: () => string;
@@ -169,6 +170,7 @@ export const useSidebarV2ActionHandlers = ({
   handleRunSQLFile,
   handleDeleteDatabase,
   onCreateConnectionInGroup,
+  onOpenConnectionHealthForGroup,
   onEditConnection,
   handleDuplicateConnection,
   buildConnectionRootQueryTabTitle,
@@ -600,6 +602,10 @@ export const useSidebarV2ActionHandlers = ({
     if (!tag) return;
     if (action === 'new-connection') {
       onCreateConnectionInGroup?.(tag.id);
+      return;
+    }
+    if (action === 'connection-health') {
+      onOpenConnectionHealthForGroup?.(tag.id);
       return;
     }
     if (action === 'new-subgroup') {

@@ -8095,6 +8095,7 @@ function App() {
                         <Sidebar
                             onCreateConnection={handleCreateConnection}
                             onCreateConnectionInGroup={handleCreateConnectionInGroup}
+                            onOpenConnectionHealth={handleOpenConnectionHealth}
                             onEditConnection={handleEditConnection}
                             onOpenSettings={handleOpenSettingsModal}
                             onOpenSettingsNavigation={handleTitleBarSettingsNavigation}

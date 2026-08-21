@@ -12,6 +12,7 @@ const (
 )
 
 const (
+	ConnectionHealthCheckDriver           = "driver"
 	ConnectionHealthCheckPing             = "ping"
 	ConnectionHealthCheckVersion          = "version"
 	ConnectionHealthCheckTLS              = "tls"
@@ -31,6 +32,7 @@ type ConnectionHealthCheck struct {
 	Detail         string                 `json:"detail,omitempty"`
 	Recommendation string                 `json:"recommendation,omitempty"`
 }
+
 // ConnectionHealthReport contains a saved connection's health summary. It
 // intentionally excludes ConnectionConfig; exporters must omit its saved
 // connection identity fields before sharing a report.

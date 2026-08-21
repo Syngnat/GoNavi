@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"net"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,17 +28,32 @@ func (a *App) InspectSavedConnectionHealth(id string) connection.ConnectionHealt
 	report.ConnectionType = strings.ToLower(strings.TrimSpace(view.Config.Type))
 	config := normalizeTestConnectionConfig(view.Config)
 	config.ID = report.ConnectionID
+	effectiveConfig, resolveErr := a.resolveEffectiveConnectionConfig(config)
+	if resolveErr != nil {
+		return finalizeConnectionHealthReport(report, startedAt, healthChecksAfterConnectionFailureWithRecommendation("connection_configuration_invalid"))
+	}
+	effectiveConfig = normalizeTestConnectionConfig(effectiveConfig)
+	if err := validateTestConnectionInputWithText(effectiveConfig, a.appText); err != nil {
+		return finalizeConnectionHealthReport(report, startedAt, healthChecksAfterConnectionFailureWithRecommendation("connection_configuration_invalid"))
+	}
+	if strings.EqualFold(strings.TrimSpace(effectiveConfig.Type), "custom") &&
+		(strings.TrimSpace(effectiveConfig.Driver) == "" || strings.TrimSpace(effectiveConfig.DSN) == "") {
+		return finalizeConnectionHealthReport(report, startedAt, healthChecksAfterConnectionFailureWithRecommendation("connection_configuration_invalid"))
+	}
+	if supported, _ := driverRuntimeSupportStatusFunc(effectiveConfig.Type); !supported {
+		return finalizeConnectionHealthReport(report, startedAt, healthChecksForUnavailableDriver())
+	}
 
 	var checks []connection.ConnectionHealthCheck
-	switch strings.ToLower(strings.TrimSpace(config.Type)) {
+	switch strings.ToLower(strings.TrimSpace(effectiveConfig.Type)) {
 	case "redis":
-		checks = a.inspectRedisConnectionHealth(config)
+		checks = a.inspectRedisConnectionHealth(effectiveConfig)
 	case "nacos":
-		checks = a.inspectNacosConnectionHealth(config)
+		checks = a.inspectNacosConnectionHealth(effectiveConfig)
 	case "jvm":
-		checks = a.inspectJVMConnectionHealth(config)
+		checks = a.inspectJVMConnectionHealth(effectiveConfig)
 	default:
-		checks = a.inspectDatabaseConnectionHealth(config)
+		checks = a.inspectDatabaseConnectionHealth(effectiveConfig)
 	}
 	return finalizeConnectionHealthReport(report, startedAt, checks)
 }
@@ -287,14 +304,27 @@ func connectionHealthUsesHTTPS(value string) bool {
 }
 
 func healthChecksAfterConnectionFailure() []connection.ConnectionHealthCheck {
+	return healthChecksAfterConnectionFailureWithRecommendation("check_connection_settings")
+}
+
+func healthChecksAfterConnectionFailureWithRecommendation(recommendation string) []connection.ConnectionHealthCheck {
+	if strings.TrimSpace(recommendation) == "" {
+		recommendation = "check_connection_settings"
+	}
 	return []connection.ConnectionHealthCheck{
-		failedHealthCheck(connection.ConnectionHealthCheckPing, 0, "check_connection_settings"),
+		failedHealthCheck(connection.ConnectionHealthCheckPing, 0, recommendation),
 		unsupportedHealthCheck(connection.ConnectionHealthCheckTLS, "restore_connectivity_first"),
 		unsupportedHealthCheck(connection.ConnectionHealthCheckVersion, "restore_connectivity_first"),
 		unsupportedHealthCheck(connection.ConnectionHealthCheckPermissions, "restore_connectivity_first"),
 		unsupportedHealthCheck(connection.ConnectionHealthCheckSchemaVisibility, "restore_connectivity_first"),
 		unsupportedHealthCheck(connection.ConnectionHealthCheckPagination, "restore_connectivity_first"),
 		unsupportedHealthCheck(connection.ConnectionHealthCheckResponse, "restore_connectivity_first"),
+	}
+}
+
+func healthChecksForUnavailableDriver() []connection.ConnectionHealthCheck {
+	return []connection.ConnectionHealthCheck{
+		failedHealthCheck(connection.ConnectionHealthCheckDriver, 0, "driver_unavailable"),
 	}
 }
 
@@ -337,11 +367,14 @@ func unsupportedHealthCheck(key, recommendation string) connection.ConnectionHea
 func finalizeConnectionHealthReport(report connection.ConnectionHealthReport, startedAt time.Time, checks []connection.ConnectionHealthCheck) connection.ConnectionHealthReport {
 	report.Checks = orderConnectionHealthChecks(checks)
 	report.DurationMs = time.Since(startedAt).Milliseconds()
-	report.OverallStatus = connection.ConnectionHealthStatusPassed
+	report.OverallStatus = connection.ConnectionHealthStatusUnsupported
 	for _, check := range report.Checks {
 		if check.Status == connection.ConnectionHealthStatusFailed {
 			report.OverallStatus = connection.ConnectionHealthStatusFailed
 			break
+		}
+		if check.Status == connection.ConnectionHealthStatusPassed {
+			report.OverallStatus = connection.ConnectionHealthStatusPassed
 		}
 	}
 	return report
@@ -349,6 +382,7 @@ func finalizeConnectionHealthReport(report connection.ConnectionHealthReport, st
 
 func orderConnectionHealthChecks(checks []connection.ConnectionHealthCheck) []connection.ConnectionHealthCheck {
 	order := []string{
+		connection.ConnectionHealthCheckDriver,
 		connection.ConnectionHealthCheckPing,
 		connection.ConnectionHealthCheckVersion,
 		connection.ConnectionHealthCheckTLS,
@@ -374,22 +408,83 @@ func firstHealthRowValue(rows []map[string]interface{}) string {
 	if len(rows) == 0 {
 		return ""
 	}
-	for _, value := range rows[0] {
-		return fmt.Sprint(value)
+	for key, value := range rows[0] {
+		if strings.EqualFold(strings.TrimSpace(key), "version") && value != nil {
+			return fmt.Sprint(value)
+		}
 	}
 	return ""
 }
 
+var (
+	healthVersionTokenPattern     = regexp.MustCompile(`(?i)^v?([0-9]+(?:\.[0-9]+){1,2})(?:[-+][a-z0-9][a-z0-9._-]*)?$`)
+	postgresHealthVersionPattern  = regexp.MustCompile(`(?i)^postgres(?:ql)?\s+([0-9]+(?:\.[0-9]+){1,5})`)
+	sqlServerHealthVersionPattern = regexp.MustCompile(`(?i)^microsoft\s+sql\s+server[\s\S]*?\b([0-9]+(?:\.[0-9]+){2,3})\b`)
+	oracleHealthVersionPattern    = regexp.MustCompile(`(?i)^oracle\s+database[\s\S]*?\brelease\s+([0-9]+(?:\.[0-9]+){1,5})\b`)
+	productHealthVersionPattern   = regexp.MustCompile(`(?i)^(?:mysql|mariadb|clickhouse|tidb|starrocks|oceanbase|duckdb|sqlite)[^0-9]*([0-9]+(?:\.[0-9]+){1,3})`)
+)
+
+func safeHealthVersionToken(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || net.ParseIP(value) != nil {
+		return ""
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) == 4 {
+		allIPv4Octets := true
+		for _, part := range parts {
+			if part == "" {
+				allIPv4Octets = false
+				break
+			}
+			var octet int
+			if _, err := fmt.Sscanf(part, "%d", &octet); err != nil || octet < 0 || octet > 255 {
+				allIPv4Octets = false
+				break
+			}
+		}
+		if allIPv4Octets {
+			return ""
+		}
+	}
+	return value
+}
+
 func safeHealthVersion(value string) string {
 	value = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " "))
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return ""
+	}
 	lowerValue := strings.ToLower(value)
 	for _, secretMarker := range []string{"password", "passwd", "secret", "token", "api key", "apikey", "jdbc:", "://"} {
 		if strings.Contains(lowerValue, secretMarker) {
 			return ""
 		}
 	}
-	if len(value) > 256 {
-		value = value[:256]
+	if match := postgresHealthVersionPattern.FindStringSubmatch(value); len(match) == 2 {
+		if version := safeHealthVersionToken(match[1]); version != "" {
+			return "PostgreSQL " + version
+		}
+		return ""
 	}
-	return value
+	if match := sqlServerHealthVersionPattern.FindStringSubmatch(value); len(match) == 2 {
+		if version := safeHealthVersionToken(match[1]); version != "" {
+			return "Microsoft SQL Server " + version
+		}
+		return ""
+	}
+	if match := oracleHealthVersionPattern.FindStringSubmatch(value); len(match) == 2 {
+		if version := safeHealthVersionToken(match[1]); version != "" {
+			return "Oracle Database " + version
+		}
+		return ""
+	}
+	if match := productHealthVersionPattern.FindStringSubmatch(value); len(match) == 2 {
+		return safeHealthVersionToken(match[1])
+	}
+	if match := healthVersionTokenPattern.FindStringSubmatch(value); len(match) == 2 {
+		return safeHealthVersionToken(match[1])
+	}
+	return ""
 }

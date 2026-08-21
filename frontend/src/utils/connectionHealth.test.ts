@@ -78,4 +78,28 @@ describe('connection health helpers', () => {
     expect(exported).not.toContain('Production');
     expect(exported).not.toContain('"connectionId"');
   });
+
+  it('drops endpoint-like or unrecognized version details before rendering/export', () => {
+    const reports = normalizeConnectionHealthReports([{
+      connectionId: 'one',
+      connectionType: 'mysql',
+      overallStatus: 'passed',
+      checks: [
+        { key: 'version', status: 'passed', detail: 'db.internal.example' },
+        { key: 'version', status: 'passed', detail: '203.0.113.10' },
+        { key: 'version', status: 'passed', detail: 'MySQL 203.0.113.10' },
+        { key: 'version', status: 'passed', detail: 'PostgreSQL 16.2 on db.internal.example' },
+        { key: 'version', status: 'passed', detail: 'password=should-not-appear' },
+        { key: 'db.internal.example', status: 'passed', detail: '8.4.1' },
+      ],
+    }]);
+    expect(reports[0]?.checks.map((check) => check.detail || '')).toEqual([
+      '',
+      '',
+      '',
+      'PostgreSQL 16.2',
+      '',
+    ]);
+    expect(serializeConnectionHealthReportExport(reports)).not.toContain('db.internal.example');
+  });
 });

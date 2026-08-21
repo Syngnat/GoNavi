@@ -25,6 +25,7 @@ import {
   ReloadOutlined,
   SaveOutlined,
   SendOutlined,
+  SafetyCertificateOutlined,
   TableOutlined,
   ThunderboltOutlined,
   WarningOutlined,
@@ -52,6 +53,7 @@ import {
   resolveNacosNamespaceDiscoveryModeFromTreeNode,
   type NacosNamespaceDiscoveryMode,
 } from '../sidebarV2Utils';
+import { getConnectionHealthGroupConnectionIds } from '../../utils/connectionHealth';
 
 type NacosNamespaceFormMode = 'create' | 'edit';
 
@@ -313,6 +315,7 @@ export const buildSidebarLegacyNodeMenuItems = (
     setIsCreateTagModalOpen,
     removeConnectionTag,
     onCreateConnectionInGroup,
+    onOpenConnectionHealthForGroup,
     setExpandedKeys,
     setLoadedKeys,
     loadingNodesRef,
@@ -551,19 +554,32 @@ export const buildSidebarLegacyNodeMenuItems = (
     // Connection Tag Menu — must be BEFORE the connection check
     if (node.type === 'tag') {
         const tagId = String(node.dataRef?.id || '').trim();
-        const newConnectionItems: NonNullable<MenuProps['items']> = tagId && typeof onCreateConnectionInGroup === 'function'
-            ? [
+        const hasConnectionsForHealthCheck = tagId !== ''
+            && Array.isArray(connectionTags)
+            && Array.isArray(connections)
+            && getConnectionHealthGroupConnectionIds(connectionTags, tagId, connections).length > 0;
+        const tagPrimaryItems: NonNullable<MenuProps['items']> = [
+            ...(tagId && typeof onCreateConnectionInGroup === 'function' ? [
                 {
                     key: 'new-connection-in-tag',
                     label: t('connection.new'),
                     icon: <PlusOutlined />,
                     onClick: () => onCreateConnectionInGroup?.(tagId),
                 },
-                { type: 'divider' },
-            ]
-            : [];
+            ] : []),
+            ...(tagId && typeof onOpenConnectionHealthForGroup === 'function' ? [
+                {
+                    key: 'connection-health',
+                    label: t('connection_health.action.open'),
+                    icon: <SafetyCertificateOutlined />,
+                    disabled: !hasConnectionsForHealthCheck,
+                    onClick: () => onOpenConnectionHealthForGroup?.(tagId),
+                },
+            ] : []),
+        ];
         return [
-            ...newConnectionItems,
+            ...tagPrimaryItems,
+            ...(tagPrimaryItems.length > 0 ? [{ type: 'divider' as const }] : []),
             {
                 key: 'edit-tag',
                 label: t('sidebar.menu.edit_tag'),

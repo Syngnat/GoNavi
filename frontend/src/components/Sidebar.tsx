@@ -196,6 +196,7 @@ import { buildExternalSQLRootNode, type ExternalSQLTreeNode } from '../utils/ext
 import { resolveSidebarTableMetadataFields } from '../utils/sidebarTableMetadata';
 import { filterSidebarTreeByHiddenObjectGroups } from '../utils/sidebarObjectVisibility';
 import { t } from '../i18n';
+import { getConnectionHealthGroupConnectionIds } from '../utils/connectionHealth';
 import MessagePublishModal from './MessagePublishModal';
 import {
   SIDEBAR_CONTEXT_MENU_FALLBACK_HEIGHT,
@@ -633,6 +634,7 @@ export const buildAllSavedQueriesTreeNode = (
 const Sidebar: React.FC<{
   onCreateConnection?: () => void;
   onCreateConnectionInGroup?: (targetTagId: string) => void;
+  onOpenConnectionHealth?: (connectionIds: string[]) => void;
   onEditConnection?: (conn: SavedConnection) => void;
   onOpenSettings?: () => void;
   /**
@@ -660,6 +662,7 @@ const Sidebar: React.FC<{
 }> = React.memo(({
   onCreateConnection,
   onCreateConnectionInGroup,
+  onOpenConnectionHealth,
   onEditConnection,
   onOpenSettings,
   onOpenSettingsNavigation,
@@ -723,6 +726,13 @@ const Sidebar: React.FC<{
   const queryOptions = useStore(state => state.queryOptions);
   const setQueryOptions = useStore(state => state.setQueryOptions);
   const addSqlLog = useStore(state => state.addSqlLog);
+
+  const handleOpenConnectionHealthForGroup = useCallback((tagId: string) => {
+    const connectionIds = getConnectionHealthGroupConnectionIds(connectionTags, tagId, connections);
+    if (connectionIds.length > 0) {
+      onOpenConnectionHealth?.(connectionIds);
+    }
+  }, [connectionTags, connections, onOpenConnectionHealth]);
   const hideSqlLogFromRecent = useStore(state => state.hideSqlLogFromRecent);
   const clearRecentSqlLogs = useStore(state => state.clearRecentSqlLogs);
   const shortcutOptions = useStore(state => state.shortcutOptions);
@@ -2956,6 +2966,7 @@ const Sidebar: React.FC<{
       handleRunSQLFile,
       handleDeleteDatabase,
       onCreateConnectionInGroup,
+      onOpenConnectionHealthForGroup: handleOpenConnectionHealthForGroup,
       onEditConnection,
       handleDuplicateConnection,
       buildConnectionRootQueryTabTitle,
@@ -3200,6 +3211,7 @@ const Sidebar: React.FC<{
     setIsCreateTagModalOpen,
     removeConnectionTag,
     onCreateConnectionInGroup,
+    onOpenConnectionHealthForGroup: handleOpenConnectionHealthForGroup,
     setExpandedKeys,
     setLoadedKeys,
     loadingNodesRef,
