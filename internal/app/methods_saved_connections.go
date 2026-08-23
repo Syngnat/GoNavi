@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
@@ -23,12 +24,20 @@ func (a *App) GetEditableSavedConnection(id string) (connection.SavedConnectionV
 	if err != nil {
 		return connection.SavedConnectionView{}, err
 	}
-	resolvedConfig, err := a.resolveConnectionSecrets(view.Config)
+	// Editing relies on the Has* flags and explicit clear fields. Returning the
+	// resolved bundle would expose every saved credential to the WebView.
+	return sanitizeSavedConnectionView(view), nil
+}
+
+func (a *App) RevealSavedConnectionPrimaryPassword(id string) (string, error) {
+	view, bundle, err := a.savedConnectionRepository().loadConnectionSnapshot(id)
 	if err != nil {
-		return connection.SavedConnectionView{}, err
+		return "", err
 	}
-	view.Config = resolvedConfig
-	return view, nil
+	if !view.HasPrimaryPassword || strings.TrimSpace(bundle.Password) == "" {
+		return "", fmt.Errorf("saved connection has no stored primary password: %s", strings.TrimSpace(id))
+	}
+	return bundle.Password, nil
 }
 
 func (a *App) SaveConnection(input connection.SavedConnectionInput) (connection.SavedConnectionView, error) {
@@ -74,6 +83,12 @@ func (a *App) ImportLegacyConnections(items []connection.LegacySavedConnection) 
 		input.ClearRedisSentinelPassword = strings.TrimSpace(item.Config.RedisSentinelPassword) == ""
 		input.ClearOpaqueURI = strings.TrimSpace(item.Config.URI) == ""
 		input.ClearOpaqueDSN = strings.TrimSpace(item.Config.DSN) == ""
+		input.ClearJVMJMXPassword = strings.TrimSpace(item.Config.JVM.JMX.Password) == ""
+		input.ClearJVMEndpointAPIKey = strings.TrimSpace(item.Config.JVM.Endpoint.APIKey) == ""
+		input.ClearJVMAgentAPIKey = strings.TrimSpace(item.Config.JVM.Agent.APIKey) == ""
+		input.ClearJVMDiagnosticAPIKey = strings.TrimSpace(item.Config.JVM.Diagnostic.APIKey) == ""
+		_, sensitiveParams := partitionConnectionParams(item.Config.ConnectionParams)
+		input.ClearSensitiveParams = strings.TrimSpace(sensitiveParams) == ""
 		inputs = append(inputs, input)
 	}
 	views, err := a.importSavedConnectionsAtomically(inputs)

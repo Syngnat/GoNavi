@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ATLAS_CLOUD_BASE_URL,
+  ATLAS_CLOUD_DEFAULT_MODEL,
+  ORCAROUTER_BASE_URL,
+  ORCAROUTER_DEFAULT_MODEL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   resolvePresetBaseURL,
   resolvePresetTransport,
@@ -21,6 +25,44 @@ describe('aiSettingsModalConfig', () => {
   it('finds the matching preset and falls back to custom when the key is unknown', () => {
     expect(findPreset('openai').label).toBe('OpenAI');
     expect(findPreset('missing-preset').key).toBe('custom');
+  });
+
+  it('matches DeepSeek to an editable preset with Responses as the default', () => {
+    const preset = matchProviderPreset({
+      type: 'openai',
+      baseUrl: 'https://api.deepseek.com/v1',
+    });
+
+    expect(preset).toMatchObject({
+      key: 'deepseek',
+      defaultApiFormat: 'openai-responses',
+      defaultBaseUrl: 'https://api.deepseek.com',
+      defaultModel: 'deepseek-v4-flash',
+    });
+  });
+
+  it('matches legacy DeepSeek Chat Completions configs to the editable preset', () => {
+    expect(matchProviderPreset({
+      type: 'openai',
+      apiFormat: 'openai',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-chat',
+    }).key).toBe('deepseek');
+  });
+
+  it('uses stable Gemini and Kimi OpenAI-compatible defaults', () => {
+    expect(findPreset('gemini')).toMatchObject({
+      defaultModel: 'gemini-3.6-flash',
+    });
+    expect(findPreset('moonshot')).toMatchObject({
+      backendType: 'openai',
+      defaultBaseUrl: 'https://api.moonshot.cn/v1',
+      defaultModel: 'kimi-k3',
+    });
+    expect(matchProviderPreset({
+      type: 'anthropic',
+      baseUrl: 'https://api.moonshot.cn/anthropic',
+    }).key).toBe('moonshot');
   });
 
   it('matches an anthropic-compatible provider back to the qwen coding plan preset', () => {
@@ -51,6 +93,36 @@ describe('aiSettingsModalConfig', () => {
     });
 
     expect(preset.key).toBe('cursor');
+  });
+
+  it('exposes and recognizes the Atlas Cloud preset', () => {
+    const preset = findPreset('atlascloud');
+
+    expect(preset).toMatchObject({
+      label: 'Atlas Cloud',
+      backendType: 'openai',
+      defaultBaseUrl: ATLAS_CLOUD_BASE_URL,
+      defaultModel: ATLAS_CLOUD_DEFAULT_MODEL,
+    });
+    expect(matchProviderPreset({
+      type: 'openai',
+      baseUrl: ATLAS_CLOUD_BASE_URL,
+    }).key).toBe('atlascloud');
+  });
+
+  it('exposes and recognizes the OrcaRouter preset', () => {
+    const preset = findPreset('orcarouter');
+
+    expect(preset).toMatchObject({
+      label: 'OrcaRouter',
+      backendType: 'openai',
+      defaultBaseUrl: ORCAROUTER_BASE_URL,
+      defaultModel: ORCAROUTER_DEFAULT_MODEL,
+    });
+    expect(matchProviderPreset({
+      type: 'openai',
+      baseUrl: ORCAROUTER_BASE_URL,
+    }).key).toBe('orcarouter');
   });
 
   it('supports every configured MiniMax region and protocol endpoint', () => {
@@ -125,6 +197,8 @@ describe('aiSettingsModalConfig', () => {
   });
 
   it('keeps the provider preset list available for the settings modal', () => {
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'atlascloud')).toBe(true);
+    expect(PROVIDER_PRESETS.some((item) => item.key === 'orcarouter')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'codex')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'claude-subscription')).toBe(true);
     expect(PROVIDER_PRESETS.some((item) => item.key === 'codebuddy')).toBe(true);
@@ -181,8 +255,8 @@ describe('aiSettingsModalConfig', () => {
       '通义千问（Coding Plan）',
       'Claude Code CLI 代理链路 / 使用官方支持模型清单',
       '智谱 GLM',
-      'Kimi K2.5 (Anthropic 兼容)',
-      'Gemini 3.1 / 2.5 系列',
+      'Kimi K3 / OpenAI 兼容',
+      'Gemini 3.6 Flash',
       '火山方舟',
       'Ark 通用推理 / 豆包模型',
       '火山 Coding Plan',

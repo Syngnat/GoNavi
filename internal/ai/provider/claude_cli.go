@@ -732,17 +732,22 @@ func resolveClaudeCodeGitBashPath(env []string, goos string, lookPath func(strin
 
 	if configured := strings.TrimSpace(envValue(env, "CLAUDE_CODE_GIT_BASH_PATH")); configured != "" {
 		if exists(configured) {
+			if isWindowsWSLBashLauncher(configured) {
+				return "", fmt.Errorf("Claude Code CLI requires Git Bash on Windows, but CLAUDE_CODE_GIT_BASH_PATH points to a WSL launcher: %s", configured)
+			}
 			return configured, nil
 		}
 		return "", fmt.Errorf("Claude Code CLI requires git-bash on Windows, but CLAUDE_CODE_GIT_BASH_PATH points to a missing bash.exe: %s", configured)
 	}
 
-	for _, command := range []string{"bash.exe", "bash"} {
-		if bashPath, err := lookPath(command); err == nil && exists(bashPath) {
-			return bashPath, nil
-		}
+	if detected := detectWindowsGitBashPath(env, lookPath, exists); detected != "" {
+		return detected, nil
 	}
 
+	return "", fmt.Errorf("Claude Code CLI requires git-bash on Windows. Install Git for Windows (https://git-scm.com/downloads/win); if Git is already installed but not on PATH, set CLAUDE_CODE_GIT_BASH_PATH to bash.exe, for example C:\\Program Files\\Git\\bin\\bash.exe")
+}
+
+func detectWindowsGitBashPath(env []string, lookPath func(string) (string, error), exists func(string) bool) string {
 	if gitPath, err := lookPath("git.exe"); err == nil {
 		gitDir := parentWindowsPath(gitPath)
 		for _, candidate := range []string{
@@ -750,18 +755,33 @@ func resolveClaudeCodeGitBashPath(env []string, goos string, lookPath func(strin
 			joinWindowsPath(gitDir, "bash.exe"),
 		} {
 			if candidate != "" && exists(candidate) {
-				return candidate, nil
+				return candidate
 			}
 		}
 	}
 
 	for _, candidate := range windowsGitBashCandidates(env) {
 		if exists(candidate) {
-			return candidate, nil
+			return candidate
 		}
 	}
 
-	return "", fmt.Errorf("Claude Code CLI requires git-bash on Windows. Install Git for Windows (https://git-scm.com/downloads/win); if Git is already installed but not on PATH, set CLAUDE_CODE_GIT_BASH_PATH to bash.exe, for example C:\\Program Files\\Git\\bin\\bash.exe")
+	for _, command := range []string{"bash.exe", "bash"} {
+		if bashPath, err := lookPath(command); err == nil && exists(bashPath) && !isWindowsWSLBashLauncher(bashPath) {
+			return bashPath
+		}
+	}
+	return ""
+}
+
+func isWindowsWSLBashLauncher(path string) bool {
+	normalized := strings.ToLower(strings.Trim(strings.ReplaceAll(strings.TrimSpace(path), "/", `\`), `"`))
+	if !strings.HasSuffix(normalized, `\bash.exe`) && !strings.HasSuffix(normalized, `\bash`) {
+		return false
+	}
+	return strings.Contains(normalized, `\windows\system32\`) ||
+		strings.Contains(normalized, `\windows\sysnative\`) ||
+		strings.Contains(normalized, `\microsoft\windowsapps\`)
 }
 
 func windowsGitBashCandidates(env []string) []string {

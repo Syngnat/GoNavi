@@ -1,12 +1,128 @@
 package connection
 
+import "strings"
+
+// SSHProgressEvent describes a non-sensitive phase in establishing an SSH
+// connection. It intentionally contains no host, credential, or error text:
+// callers already know the target and failures continue through the normal
+// connection-result path where redaction rules apply.
+type SSHProgressEvent struct {
+	Stage  string `json:"stage"`
+	Status string `json:"status"`
+}
+
+// SSHProgressReporter receives best-effort SSH connection phase updates. It is
+// runtime-only and is never serialized with a saved connection.
+type SSHProgressReporter func(SSHProgressEvent)
+
+type sshRuntime struct {
+	report                       SSHProgressReporter
+	managedHostKeyTrustStorePath string
+	hostKeyIdentityHost          string
+	hostKeyIdentityPort          int
+}
+
+func (r sshRuntime) hasState() bool {
+	return r.report != nil ||
+		r.managedHostKeyTrustStorePath != "" ||
+		r.hostKeyIdentityHost != "" ||
+		r.hostKeyIdentityPort != 0
+}
+
 // SSHConfig 存储 SSH 隧道连接配置。
 type SSHConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	KeyPath  string `json:"keyPath"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	User               string `json:"user"`
+	Password           string `json:"password"`
+	KeyPath            string `json:"keyPath"`
+	KnownHostsPath     string `json:"knownHostsPath,omitempty"`
+	HostKeyFingerprint string `json:"hostKeyFingerprint,omitempty"`
+	runtime            *sshRuntime
+}
+
+// WithProgressReporter attaches a transient observer to this config. Keeping
+// it behind an unexported pointer preserves the public JSON contract and
+// keeps SSHConfig comparable for existing cache keys.
+func (c SSHConfig) WithProgressReporter(reporter SSHProgressReporter) SSHConfig {
+	runtime := sshRuntime{}
+	if c.runtime != nil {
+		runtime = *c.runtime
+	}
+	runtime.report = reporter
+	if !runtime.hasState() {
+		c.runtime = nil
+		return c
+	}
+	c.runtime = &runtime
+	return c
+}
+
+// WithManagedHostKeyTrustStore attaches GoNavi's private host-key trust
+// store for this runtime connection. The path is deliberately transient: it
+// is never sent to the frontend or persisted with a saved data source.
+func (c SSHConfig) WithManagedHostKeyTrustStore(path string) SSHConfig {
+	runtime := sshRuntime{}
+	if c.runtime != nil {
+		runtime = *c.runtime
+	}
+	runtime.managedHostKeyTrustStorePath = strings.TrimSpace(path)
+	if !runtime.hasState() {
+		c.runtime = nil
+		return c
+	}
+	c.runtime = &runtime
+	return c
+}
+
+// ManagedHostKeyTrustStorePath returns the private GoNavi trust-store path
+// attached to this runtime connection, if any.
+func (c SSHConfig) ManagedHostKeyTrustStorePath() string {
+	if c.runtime == nil {
+		return ""
+	}
+	return c.runtime.managedHostKeyTrustStorePath
+}
+
+// WithHostKeyIdentity preserves the logical SSH server identity while a
+// proxy rewrites Host/Port to a local forwarding endpoint. The identity is
+// runtime-only so trusted-host records never depend on an ephemeral localhost
+// port and are not serialized into saved connection settings.
+func (c SSHConfig) WithHostKeyIdentity(host string, port int) SSHConfig {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return c
+	}
+	if port <= 0 {
+		port = 22
+	}
+	runtime := sshRuntime{}
+	if c.runtime != nil {
+		runtime = *c.runtime
+	}
+	runtime.hostKeyIdentityHost = host
+	runtime.hostKeyIdentityPort = port
+	c.runtime = &runtime
+	return c
+}
+
+// HostKeyIdentity returns the logical server address used for host-key
+// verification. Without a proxy rewrite it is simply the configured SSH
+// host and port.
+func (c SSHConfig) HostKeyIdentity() (string, int) {
+	if c.runtime != nil && c.runtime.hostKeyIdentityHost != "" {
+		return c.runtime.hostKeyIdentityHost, c.runtime.hostKeyIdentityPort
+	}
+	return c.Host, c.Port
+}
+
+// ReportProgress publishes a best-effort SSH phase update when this config is
+// being used by an interactive connection test.
+func (c SSHConfig) ReportProgress(stage string, status string) {
+	if c.runtime == nil || c.runtime.report == nil {
+		return
+	}
+	c.runtime.report(SSHProgressEvent{Stage: stage, Status: status})
 }
 
 // ProxyConfig 存储代理连接配置。
@@ -112,6 +228,7 @@ type ConnectionConfig struct {
 	DSN                      string                     `json:"dsn,omitempty"`                      // For custom connection
 	ConnectionParams         string                     `json:"connectionParams,omitempty"`         // Extra URI query parameters for built-in drivers
 	Timeout                  int                        `json:"timeout,omitempty"`                  // Connection timeout in seconds (default: 30)
+	QueryTimeout             int                        `json:"queryTimeout,omitempty"`             // Per-request query timeout in seconds; 0 disables the automatic query deadline
 	KeepAliveEnabled         bool                       `json:"keepAliveEnabled,omitempty"`         // Enable background keep-alive ping for long-lived cached connections
 	KeepAliveIntervalMinutes int                        `json:"keepAliveIntervalMinutes,omitempty"` // Keep-alive ping interval in minutes (default: 240)
 	KeepAliveSQL             string                     `json:"keepAliveSQL,omitempty"`             // Optional single SELECT/WITH probe used instead of the driver ping
@@ -136,6 +253,7 @@ type ConnectionConfig struct {
 	JVM                      JVMConfig                  `json:"jvm,omitempty"`                      // JVM connector config
 	runtimeDBOverride        string                     // App-only selected database; never persisted or sent over RPC.
 	runtimeDBOverrideSet     bool                       // Distinguishes an explicit server-level override from no override.
+	resolvedSavedSnapshot    bool                       // App-only marker for one lock-consistent metadata and secret snapshot.
 }
 
 // WithRuntimeDatabaseOverride carries a caller-selected database through runtime
@@ -164,6 +282,21 @@ func (c ConnectionConfig) WithoutRuntimeDatabaseOverride() ConnectionConfig {
 	return c
 }
 
+// WithResolvedSavedSnapshot marks a config whose saved metadata and secrets
+// were loaded together under the shared storage lock. The marker is not
+// serialized and prevents a later execution layer from mixing in a newer
+// secret bundle.
+func (c ConnectionConfig) WithResolvedSavedSnapshot() ConnectionConfig {
+	c.resolvedSavedSnapshot = true
+	return c
+}
+
+// HasResolvedSavedSnapshot reports whether the config already contains the
+// complete saved connection snapshot required for one execution.
+func (c ConnectionConfig) HasResolvedSavedSnapshot() bool {
+	return c.resolvedSavedSnapshot
+}
+
 // ResultSetData 表示一个查询结果集（行 + 列名），用于多结果集场景。
 type ResultSetData struct {
 	Rows           []map[string]interface{} `json:"rows"`
@@ -172,6 +305,8 @@ type ResultSetData struct {
 	StatementIndex int                      `json:"statementIndex,omitempty"`
 }
 
+const QueryCancellationStateUnsupported = "unsupported"
+
 // QueryResult 是 Wails 绑定方法的统一响应格式，前端通过此结构体接收后端结果。
 type QueryResult struct {
 	Success            bool        `json:"success"`
@@ -179,20 +314,33 @@ type QueryResult struct {
 	Data               interface{} `json:"data"`
 	Fields             []string    `json:"fields,omitempty"`
 	Messages           []string    `json:"messages,omitempty"`
+	Partial            bool        `json:"partial,omitempty"`
+	ExecutedCount      int         `json:"executedCount,omitempty"`
+	FailedIndex        int         `json:"failedIndex,omitempty"`
+	BoundaryMode       string      `json:"boundaryMode,omitempty"`
+	CommitMode         string      `json:"commitMode,omitempty"`
+	Warnings           []string    `json:"warnings,omitempty"`
+	OutcomeUnknown     bool        `json:"outcomeUnknown,omitempty"`
+	FailedObjectTypes  []string    `json:"failedObjectTypes,omitempty"`
+	Retryable          bool        `json:"retryable,omitempty"`
+	Truncated          bool        `json:"truncated,omitempty"`
+	ScannedCount       int         `json:"scannedCount,omitempty"`
 	QueryID            string      `json:"queryId,omitempty"` // Unique ID for query cancellation
+	CancellationState  string      `json:"cancellationState,omitempty"`
 	TransactionID      string      `json:"transactionId,omitempty"`
 	TransactionPending bool        `json:"transactionPending,omitempty"`
 }
 
 // DatabaseObject 描述数据库或类数据库数据源中的可浏览对象。
 type DatabaseObject struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Schema   string `json:"schema,omitempty"`
-	Database string `json:"database,omitempty"`
-	Parent   string `json:"parent,omitempty"`
-	RawType  string `json:"rawType,omitempty"`
-	Comment  string `json:"comment,omitempty"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Schema       string `json:"schema,omitempty"`
+	Database     string `json:"database,omitempty"`
+	Parent       string `json:"parent,omitempty"`
+	RawType      string `json:"rawType,omitempty"`
+	ObjectStatus string `json:"objectStatus,omitempty"`
+	Comment      string `json:"comment,omitempty"`
 }
 
 // DatabaseCharset 描述 MySQL 系数据源可用的字符集（SHOW CHARACTER SET）。

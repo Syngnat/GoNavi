@@ -3,10 +3,12 @@ package nacos
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,11 +53,10 @@ func TestNamingServiceAndInstanceFlow(t *testing.T) {
 			_, _ = io.WriteString(w, "ok")
 		case r.Method == http.MethodDelete && strings.HasSuffix(r.URL.Path, "/v1/ns/service"):
 			_, _ = io.WriteString(w, "ok")
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/instance/list"):
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/catalog/instances"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"name":      "DEFAULT_GROUP@@orders",
-				"groupName": "DEFAULT_GROUP",
-				"hosts": []map[string]any{
+				"count": 1,
+				"list": []map[string]any{
 					{
 						"ip":          "10.0.0.1",
 						"port":        8080,
@@ -64,8 +65,6 @@ func TestNamingServiceAndInstanceFlow(t *testing.T) {
 						"enabled":     true,
 						"ephemeral":   true,
 						"clusterName": "DEFAULT",
-						"serviceName": "DEFAULT_GROUP@@orders",
-						"metadata":    map[string]string{"zone": "a"},
 					},
 				},
 			})
@@ -265,6 +264,235 @@ func TestListServicesUsesCatalogAcrossGroups(t *testing.T) {
 	}
 }
 
+func TestListInstancesV1CatalogKeepsDisabledInstancesAcrossClustersAndPages(t *testing.T) {
+	const pageSize = maxInstancePageSize
+	requests := make(map[string][]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v3/console/health/readiness"):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v2/console/health/readiness"):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v2/console/namespace/list"):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/console/health/readiness"):
+			_, _ = io.WriteString(w, "OK")
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/service"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"name":      "orders",
+				"groupName": "MKEFU_SERVICE",
+				"clusters": []map[string]any{
+					{"name": "DEFAULT"},
+					{"name": "EDGE"},
+				},
+			})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/catalog/instances"):
+			cluster := r.URL.Query().Get("clusterName")
+			pageNo, _ := strconv.Atoi(r.URL.Query().Get("pageNo"))
+			requests[cluster] = append(requests[cluster], pageNo)
+			if r.URL.Query().Get("serviceName") != "MKEFU_SERVICE@@orders" {
+				t.Errorf("catalog serviceName = %q", r.URL.Query().Get("serviceName"))
+			}
+			count := pageSize + 1
+			start := (pageNo - 1) * pageSize
+			end := min(start+pageSize, count)
+			instances := make([]map[string]any, 0, max(0, end-start))
+			for index := start; index < end; index++ {
+				instances = append(instances, map[string]any{
+					"ip":          fmt.Sprintf("10.%d.%d.%d", len(cluster), index/256, index%256),
+					"port":        8000 + index,
+					"weight":      1,
+					"healthy":     true,
+					"enabled":     index != count-1,
+					"ephemeral":   false,
+					"clusterName": cluster,
+				})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"count": count,
+				"list":  instances,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := connectNamingTestClient(t, server)
+	defer client.Close()
+	instances, err := client.ListInstances(context.Background(), InstanceQuery{
+		NamespaceID: "mkefu-dev",
+		ServiceName: "orders",
+		GroupName:   "MKEFU_SERVICE",
+	})
+	if err != nil {
+		t.Fatalf("ListInstances: %v", err)
+	}
+	if got, want := len(instances.Hosts), 2*(pageSize+1); got != want {
+		t.Fatalf("hosts = %d, want %d", got, want)
+	}
+	if got, want := requests["DEFAULT"], []int{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("DEFAULT pages = %v, want %v", got, want)
+	}
+	if got, want := requests["EDGE"], []int{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("EDGE pages = %v, want %v", got, want)
+	}
+	disabled := 0
+	for _, instance := range instances.Hosts {
+		if !instance.Enabled {
+			disabled++
+		}
+	}
+	if disabled != 2 {
+		t.Fatalf("disabled instances = %d, want 2", disabled)
+	}
+}
+
+func TestListInstancesV1CatalogQueriesUnscopedWhenServiceDoesNotDeclareClusters(t *testing.T) {
+	catalogRequests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, nacosV3ReadinessPath):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, nacosV2ReadinessPath):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, routesForNacosAPI(nacosAPIV2).namespaceList):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, nacosV1ReadinessPath):
+			_, _ = io.WriteString(w, "OK")
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/service"):
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"name":       "orders",
+				"groupName":  "MKEFU_SERVICE",
+				"clusterMap": map[string]any{},
+			})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/catalog/instances"):
+			catalogRequests++
+			if cluster := r.URL.Query().Get("clusterName"); cluster != "" {
+				t.Errorf("catalog clusterName = %q, want empty", cluster)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"count": 1,
+				"list": []map[string]any{{
+					"ip":          "10.0.0.1",
+					"port":        8080,
+					"healthy":     true,
+					"enabled":     false,
+					"clusterName": "DEFAULT",
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := connectNamingTestClient(t, server)
+	defer client.Close()
+	instances, err := client.ListInstances(context.Background(), InstanceQuery{
+		NamespaceID: "mkefu-dev",
+		ServiceName: "orders",
+		GroupName:   "MKEFU_SERVICE",
+	})
+	if err != nil {
+		t.Fatalf("ListInstances: %v", err)
+	}
+	if len(instances.Hosts) != 1 || instances.Hosts[0].Enabled {
+		t.Fatalf("hosts = %#v, want one disabled instance", instances.Hosts)
+	}
+	if catalogRequests != 1 {
+		t.Fatalf("catalog requests = %d, want 1", catalogRequests)
+	}
+}
+
+func TestParseNacosCatalogInstancesKeepsDisabledInstancesAcrossSupportedPageShapes(t *testing.T) {
+	for _, raw := range []string{
+		`{"count":1,"instances":[{"ip":"10.0.0.1","port":8080,"enabled":false}]}`,
+		`{"count":1,"list":[{"ip":"10.0.0.1","port":8080,"enabled":false}]}`,
+		`{"count":1,"pageItems":[{"ip":"10.0.0.1","port":8080,"enabled":false}]}`,
+	} {
+		page, err := parseNacosCatalogInstances([]byte(raw))
+		if err != nil {
+			t.Fatalf("parseNacosCatalogInstances(%s): %v", raw, err)
+		}
+		instances := normalizeNacosInstances(page.items(), "MKEFU_SERVICE@@orders")
+		if len(instances) != 1 || instances[0].Enabled {
+			t.Fatalf("instances = %#v, want one disabled instance", instances)
+		}
+	}
+}
+
+func TestListInstancesV2FallsBackToV1CatalogWhenV2CatalogIsUnavailable(t *testing.T) {
+	var (
+		v2CatalogRequests int
+		v1CatalogClusters []string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, nacosV3ReadinessPath):
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, nacosV2ReadinessPath):
+			writeNacosResult(w, nacosAPIV2, "ok")
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v2/ns/catalog/instances"):
+			v2CatalogRequests++
+			http.NotFound(w, r)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v2/ns/service"):
+			writeNacosResult(w, nacosAPIV2, map[string]any{
+				"name":      "orders",
+				"groupName": "MKEFU_SERVICE",
+				"clusters": []map[string]any{
+					{"name": "DEFAULT"},
+					{"name": "EDGE"},
+				},
+			})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/catalog/instances"):
+			cluster := r.URL.Query().Get("clusterName")
+			v1CatalogClusters = append(v1CatalogClusters, cluster)
+			if got := r.URL.Query().Get("serviceName"); got != "MKEFU_SERVICE@@orders" {
+				t.Errorf("v1 catalog serviceName = %q", got)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"count": 1,
+				"list": []map[string]any{{
+					"ip":          "10.0.0.1",
+					"port":        8080,
+					"healthy":     true,
+					"enabled":     false,
+					"clusterName": cluster,
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := connectNamingTestClient(t, server)
+	defer client.Close()
+	instances, err := client.ListInstances(context.Background(), InstanceQuery{
+		NamespaceID: "mkefu-dev",
+		ServiceName: "orders",
+		GroupName:   "MKEFU_SERVICE",
+	})
+	if err != nil {
+		t.Fatalf("ListInstances: %v", err)
+	}
+	if v2CatalogRequests != 1 {
+		t.Fatalf("v2 catalog requests = %d, want 1", v2CatalogRequests)
+	}
+	if want := []string{"DEFAULT", "EDGE"}; !reflect.DeepEqual(v1CatalogClusters, want) {
+		t.Fatalf("v1 catalog clusters = %v, want %v", v1CatalogClusters, want)
+	}
+	if len(instances.Hosts) != 2 {
+		t.Fatalf("hosts = %#v, want 2", instances.Hosts)
+	}
+	for _, instance := range instances.Hosts {
+		if instance.Enabled {
+			t.Fatalf("disabled instance was not preserved: %#v", instance)
+		}
+	}
+}
+
 func TestNamingOperationsQualifyNonDefaultGroup(t *testing.T) {
 	var requests []struct {
 		method           string
@@ -306,12 +534,14 @@ func TestNamingOperationsQualifyNonDefaultGroup(t *testing.T) {
 				"name":        "orders",
 				"groupName":   "MKEFU_SERVICE",
 				"namespaceId": "mkefu-dev",
+				"clusters": []map[string]any{
+					{"name": "DEFAULT"},
+				},
 			})
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/instance/list"):
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/catalog/instances"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"name":      "MKEFU_SERVICE@@orders",
-				"groupName": "MKEFU_SERVICE",
-				"hosts":     []any{},
+				"count": 0,
+				"list":  []any{},
 			})
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/v1/ns/instance"):
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -381,8 +611,8 @@ func TestNamingOperationsQualifyNonDefaultGroup(t *testing.T) {
 		t.Fatalf("UpdateInstanceHealth: %v", err)
 	}
 
-	if len(requests) != 10 {
-		t.Fatalf("captured requests = %d, want 10", len(requests))
+	if len(requests) != 11 {
+		t.Fatalf("captured requests = %d, want 11", len(requests))
 	}
 	for _, req := range requests {
 		if req.serviceName != "MKEFU_SERVICE@@orders" {

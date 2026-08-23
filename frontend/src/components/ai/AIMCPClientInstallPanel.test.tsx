@@ -62,19 +62,19 @@ describe('AIMCPClientInstallPanel', () => {
       />,
     );
 
-    expect(markup).toContain('This connects GoNavi MCP to Claude Code / Codex / OpenCode / OpenClaw / Hermans');
+    expect(markup).toContain('This connects GoNavi MCP to supported local clients or remote Agents');
     expect(markup).toContain('external tool calls');
-    expect(markup).toContain('Claude Code, Codex, and OpenCode write local user-level MCP config');
+    expect(markup).toContain('After their local command is detected, Claude Code, Codex, OpenCode, ZCode, DeepSeek Harness, Kimi Code, and Grok Build can receive a user-level MCP config');
     expect(markup).toContain('Cloud Agents such as OpenClaw and Hermans use remote connection guidance');
     expect(markup).toContain('Connect external client');
     expect(markup).toContain('Select external client');
     expect(markup).toContain('Choose target client');
     expect(markup).toContain('Write or copy config');
     expect(markup).toContain('Restart or configure target');
-    expect(markup).toContain('Not connected');
+    expect(markup).toContain('Client not detected');
     expect(markup).toContain('Update needed');
     expect(markup).toContain('External tool connection status: old config found, update needed');
-    expect(markup).toContain('External tool connection status: not connected');
+    expect(markup).toContain('External tool connection status: client not detected');
     expect(markup).toContain('Copy config path');
     expect(markup).toContain('Copy launch command');
     expect(markup).toContain('Update Codex connection config');
@@ -91,7 +91,7 @@ describe('AIMCPClientInstallPanel', () => {
       installMode: 'auto' as const,
       installed: false,
       matchesCurrent: false,
-      clientDetected: false,
+      clientDetected: true,
       clientCommand: 'opencode',
       message: 'No OpenCode user-level GoNavi MCP configuration was detected',
       configPath: '/Users/mock/.config/opencode/opencode.json',
@@ -119,12 +119,12 @@ describe('AIMCPClientInstallPanel', () => {
     );
 
     expect(markup).toContain('Current target client: OpenCode');
-    expect(markup).toContain('CLI detection: opencode was not detected');
+    expect(markup).toContain('CLI detection: Detected opencode');
     expect(markup).toContain('Install to OpenCode (external tool)');
     expect(markup).not.toContain('Remote connection boundary:');
   });
 
-  it('shows an already-connected label and supports prewriting config when the client command is not detected locally', () => {
+  it('requires local client detection before enabling MCP configuration writes', () => {
     const markup = renderToStaticMarkup(
       <AIMCPClientInstallPanel
         statuses={[
@@ -172,9 +172,14 @@ describe('AIMCPClientInstallPanel', () => {
       />,
     );
 
-    expect(markup).toContain('Install to Claude Code (external tool)');
+    expect(markup).toContain('Client not detected');
+    expect(markup).toContain('Install or enable Claude Code first');
     expect(markup).toContain('CLI detection: claude was not detected');
     expect(markup).toContain('Local claude command was not detected');
+    expect(markup).toContain('configuration writing is disabled');
+    expect(markup).toContain('disabled=""');
+    expect(markup).not.toContain('Install to Claude Code (external tool)');
+    expect(markup).not.toContain('When already connected to this GoNavi, the main button is disabled to avoid repeated writes.');
     expect(markup).toContain('Connected');
   });
 

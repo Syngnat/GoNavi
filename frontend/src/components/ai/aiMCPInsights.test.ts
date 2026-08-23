@@ -100,6 +100,24 @@ describe('aiMCPInsights', () => {
     expect(snapshot.currentClientCount).toBe(1);
   });
 
+  it('does not count a matching configuration as connected when its local client is not detected', () => {
+    const snapshot = buildMCPSetupSnapshot({
+      mcpClientStatuses: [{
+        client: 'deepseek-harness',
+        displayName: 'DeepSeek Harness',
+        installMode: 'auto',
+        installed: true,
+        matchesCurrent: true,
+        clientDetected: false,
+        clientCommand: 'dsh',
+        message: 'A GoNavi MCP configuration was found',
+      }],
+    });
+
+    expect(snapshot.currentClientCount).toBe(0);
+    expect(snapshot.clients[0].matchesCurrent).toBe(false);
+  });
+
   it('surfaces saved mcp server launch validation issues for ai diagnostics', () => {
     const snapshot = buildMCPSetupSnapshot({
       mcpServers: [

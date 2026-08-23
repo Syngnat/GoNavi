@@ -3,7 +3,6 @@
 package app
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,7 +136,6 @@ func TestInstallUpdateAndRestartClosesOtherTargetInstances(t *testing.T) {
 	originalResolveInstallTarget := updateResolveInstallTarget
 	originalFindOtherInstances := updateFindOtherWindowsInstances
 	originalCloseInstances := updateCloseWindowsInstances
-	originalConfirmCloseInstances := updateConfirmCloseWindowsInstances
 	originalAcquireMaintenance := updateAcquireWindowsMaintenance
 	originalLaunchInstallScript := updateLaunchInstallScript
 	originalQuitSleep := updateQuitSleep
@@ -146,7 +144,6 @@ func TestInstallUpdateAndRestartClosesOtherTargetInstances(t *testing.T) {
 		updateResolveInstallTarget = originalResolveInstallTarget
 		updateFindOtherWindowsInstances = originalFindOtherInstances
 		updateCloseWindowsInstances = originalCloseInstances
-		updateConfirmCloseWindowsInstances = originalConfirmCloseInstances
 		updateAcquireWindowsMaintenance = originalAcquireMaintenance
 		updateLaunchInstallScript = originalLaunchInstallScript
 		updateQuitSleep = originalQuitSleep
@@ -175,14 +172,6 @@ func TestInstallUpdateAndRestartClosesOtherTargetInstances(t *testing.T) {
 		}
 		return nil, nil
 	}
-	confirmCalls := 0
-	updateConfirmCloseWindowsInstances = func(_ context.Context, title, message string) (bool, error) {
-		confirmCalls++
-		if title == "" || message == "" {
-			t.Fatal("native close confirmation must include a localized title and message")
-		}
-		return true, nil
-	}
 	closed := false
 	updateCloseWindowsInstances = func(processes []windowsUpdateProcess) error {
 		closed = len(processes) == 1 && processes[0].PID == 4321 && processes[0].Executable == newTarget
@@ -197,7 +186,7 @@ func TestInstallUpdateAndRestartClosesOtherTargetInstances(t *testing.T) {
 	updateQuitSleep = func(time.Duration) {}
 	updateExitProcess = func(int) { quitFinished <- struct{}{} }
 
-	result := app.InstallUpdateAndRestart(false)
+	result := app.InstallUpdateAndRestart(true)
 	if !result.Success {
 		t.Fatalf("expected confirmed update to close other instances and launch, got %#v", result)
 	}
@@ -206,9 +195,6 @@ func TestInstallUpdateAndRestartClosesOtherTargetInstances(t *testing.T) {
 	}
 	if !launched {
 		t.Fatal("update launcher did not start after other instances closed")
-	}
-	if confirmCalls != 1 {
-		t.Fatalf("close confirmation calls = %d, want 1", confirmCalls)
 	}
 	if len(checkedTargets) != 2 || checkedTargets[0] != currentTarget || checkedTargets[1] != newTarget {
 		t.Fatalf("checked targets = %#v, want current and final target", checkedTargets)
@@ -245,14 +231,12 @@ func TestInstallUpdateAndRestartRequiresCloseConfirmationOnWindows(t *testing.T)
 	originalResolveTarget := updateResolveInstallTarget
 	originalResolveInstallMode := updateResolveInstallMode
 	originalFindOtherInstances := updateFindOtherWindowsInstances
-	originalConfirmCloseInstances := updateConfirmCloseWindowsInstances
 	originalAcquireMaintenance := updateAcquireWindowsMaintenance
 	originalLaunch := updateLaunchInstallScript
 	t.Cleanup(func() {
 		updateResolveInstallTarget = originalResolveTarget
 		updateResolveInstallMode = originalResolveInstallMode
 		updateFindOtherWindowsInstances = originalFindOtherInstances
-		updateConfirmCloseWindowsInstances = originalConfirmCloseInstances
 		updateAcquireWindowsMaintenance = originalAcquireMaintenance
 		updateLaunchInstallScript = originalLaunch
 	})
@@ -271,11 +255,6 @@ func TestInstallUpdateAndRestartRequiresCloseConfirmationOnWindows(t *testing.T)
 		findCalls++
 		return []windowsUpdateProcess{{PID: 4321, Executable: filepath.Join(dir, "GoNavi.exe")}}, nil
 	}
-	confirmCalls := 0
-	updateConfirmCloseWindowsInstances = func(context.Context, string, string) (bool, error) {
-		confirmCalls++
-		return false, nil
-	}
 	launched := false
 	updateLaunchInstallScript = func(*stagedUpdate) error {
 		launched = true
@@ -290,11 +269,17 @@ func TestInstallUpdateAndRestartRequiresCloseConfirmationOnWindows(t *testing.T)
 		t.Fatal("update launcher must not start before close-all confirmation")
 	}
 	data, ok := result.Data.(map[string]any)
-	if !ok || data["cancelled"] != true {
-		t.Fatalf("cancelled update data = %#v, want cancelled=true", result.Data)
+	if !ok || data["requiresCloseConfirmation"] != true {
+		t.Fatalf("close confirmation data = %#v, want requiresCloseConfirmation=true", result.Data)
 	}
-	if confirmCalls != 1 || findCalls != 1 {
-		t.Fatalf("finder/confirmation calls = %d/%d, want 1/1", findCalls, confirmCalls)
+	if data["instanceCount"] != 1 {
+		t.Fatalf("instanceCount = %#v, want 1", data["instanceCount"])
+	}
+	if runningPids, ok := data["runningPids"].([]uint32); !ok || len(runningPids) != 1 || runningPids[0] != 4321 {
+		t.Fatalf("runningPids = %#v, want [4321]", data["runningPids"])
+	}
+	if findCalls != 1 {
+		t.Fatalf("finder calls = %d, want 1", findCalls)
 	}
 }
 
@@ -319,7 +304,6 @@ func TestInstallUpdateAndRestartSkipsCloseConfirmationForSingleWindowsInstance(t
 	originalResolveTarget := updateResolveInstallTarget
 	originalResolveInstallMode := updateResolveInstallMode
 	originalFindOtherInstances := updateFindOtherWindowsInstances
-	originalConfirmCloseInstances := updateConfirmCloseWindowsInstances
 	originalAcquireMaintenance := updateAcquireWindowsMaintenance
 	originalLaunch := updateLaunchInstallScript
 	originalQuitSleep := updateQuitSleep
@@ -328,7 +312,6 @@ func TestInstallUpdateAndRestartSkipsCloseConfirmationForSingleWindowsInstance(t
 		updateResolveInstallTarget = originalResolveTarget
 		updateResolveInstallMode = originalResolveInstallMode
 		updateFindOtherWindowsInstances = originalFindOtherInstances
-		updateConfirmCloseWindowsInstances = originalConfirmCloseInstances
 		updateAcquireWindowsMaintenance = originalAcquireMaintenance
 		updateLaunchInstallScript = originalLaunch
 		updateQuitSleep = originalQuitSleep
@@ -344,11 +327,6 @@ func TestInstallUpdateAndRestartSkipsCloseConfirmationForSingleWindowsInstance(t
 		}
 		findCalls++
 		return nil, nil
-	}
-	confirmCalls := 0
-	updateConfirmCloseWindowsInstances = func(context.Context, string, string) (bool, error) {
-		confirmCalls++
-		return false, nil
 	}
 	updateAcquireWindowsMaintenance = func(string) (windowsUpdateMaintenanceLease, error) {
 		maintenanceAcquired = true
@@ -367,8 +345,8 @@ func TestInstallUpdateAndRestartSkipsCloseConfirmationForSingleWindowsInstance(t
 	if !result.Success {
 		t.Fatalf("single-instance update should launch without confirmation, got %#v", result)
 	}
-	if findCalls != 1 || confirmCalls != 0 {
-		t.Fatalf("finder/confirmation calls = %d/%d, want 1/0", findCalls, confirmCalls)
+	if findCalls != 1 {
+		t.Fatalf("finder calls = %d, want 1", findCalls)
 	}
 	if !launched {
 		t.Fatal("single-instance update did not launch")

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"regexp"
@@ -22,6 +23,7 @@ import (
 	"GoNavi-Wails/internal/ssh"
 
 	pahomqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -337,18 +339,6 @@ func (m *MQTTDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefini
 	if topic == "" {
 		return nil, fmt.Errorf("MQTT topic 不能为空")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	records, err := m.runtime.FetchMessages(ctx, mqttFetchRequest{
-		Topic: topic,
-		Limit: 20,
-		QoS:   m.defaultQoS,
-		Wait:  m.fetchWait,
-	})
-	if err != nil {
-		return nil, err
-	}
-	rows := mqttMessageRows(records)
 	columns := []connection.ColumnDefinition{
 		{Name: "topic", Type: "string", Nullable: "NO", Comment: "MQTT topic"},
 		{Name: "qos", Type: "tinyint", Nullable: "NO", Comment: "MQTT QoS level"},
@@ -360,27 +350,6 @@ func (m *MQTTDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefini
 		{Name: "payload_bytes", Type: "int", Nullable: "YES", Comment: "Payload size in bytes"},
 		{Name: "received_at", Type: "timestamp", Nullable: "YES", Comment: "Client receive timestamp"},
 	}
-	seen := map[string]struct{}{
-		"topic": {}, "qos": {}, "retained": {}, "duplicate": {}, "message_id": {},
-		"payload": {}, "payload_encoding": {}, "payload_bytes": {}, "received_at": {},
-	}
-	for _, row := range rows {
-		for key, value := range row {
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			if !strings.HasPrefix(key, "payload.") {
-				continue
-			}
-			seen[key] = struct{}{}
-			columns = append(columns, connection.ColumnDefinition{
-				Name:     key,
-				Type:     inferChromaValueType(value),
-				Nullable: "YES",
-				Comment:  "Derived MQTT payload field",
-			})
-		}
-	}
 	return columns, nil
 }
 
@@ -390,9 +359,11 @@ func (m *MQTTDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWith
 		return nil, err
 	}
 	var result []connection.ColumnDefinitionWithTable
+	var failures []MetadataObjectFailure
 	for _, table := range tables {
 		cols, err := m.GetColumns(dbName, table)
 		if err != nil {
+			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: err})
 			continue
 		}
 		for _, col := range cols {
@@ -404,7 +375,7 @@ func (m *MQTTDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWith
 			})
 		}
 	}
-	return result, nil
+	return result, NewPartialMetadataError(failures)
 }
 
 func (m *MQTTDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
@@ -431,6 +402,10 @@ func (m *MQTTDB) ApplyChanges(tableName string, changes connection.ChangeSet) er
 
 func normalizeMQTTConfig(config connection.ConnectionConfig) connection.ConnectionConfig {
 	runConfig := applyMQTTURI(config)
+	if host, port, ok := parseMQTTBrokerEndpoint(runConfig.Host, runConfig.Port); ok {
+		runConfig.Host = host
+		runConfig.Port = port
+	}
 	if strings.TrimSpace(runConfig.Host) == "" && len(runConfig.Hosts) == 0 {
 		runConfig.Host = "localhost"
 	}
@@ -680,11 +655,11 @@ func mqttTransportScheme(config connection.ConnectionConfig) string {
 
 func mqttBrokerAddresses(config connection.ConnectionConfig) ([]string, error) {
 	hosts := make([]string, 0, 4)
-	if host, port, ok := parseHostPortWithDefault(net.JoinHostPort(strings.TrimSpace(config.Host), strconv.Itoa(config.Port)), defaultMQTTPort); ok && strings.TrimSpace(host) != "" {
+	if host, port, ok := parseMQTTBrokerEndpoint(config.Host, config.Port); ok {
 		hosts = append(hosts, mqttFormatHostPort(host, port))
 	}
 	for _, entry := range config.Hosts {
-		host, port, ok := parseHostPortWithDefault(strings.TrimSpace(entry), defaultMQTTPort)
+		host, port, ok := parseMQTTBrokerEndpoint(entry, defaultMQTTPort)
 		if !ok {
 			continue
 		}
@@ -695,6 +670,67 @@ func mqttBrokerAddresses(config connection.ConnectionConfig) ([]string, error) {
 		return nil, fmt.Errorf("MQTT 至少需要一个 broker 地址")
 	}
 	return hosts, nil
+}
+
+func parseMQTTBrokerEndpoint(raw string, fallbackPort int) (string, int, bool) {
+	text := strings.TrimSpace(raw)
+	if text == "" {
+		return "", 0, false
+	}
+	if fallbackPort <= 0 || fallbackPort > 65535 {
+		fallbackPort = defaultMQTTPort
+	}
+
+	if schemeEnd := strings.Index(text, "://"); schemeEnd >= 0 {
+		scheme := strings.ToLower(strings.TrimSpace(text[:schemeEnd]))
+		switch scheme {
+		case "mqtt", "tcp":
+			text = text[schemeEnd+3:]
+		default:
+			return "", 0, false
+		}
+	}
+	if authorityEnd := strings.IndexAny(text, "/?#"); authorityEnd >= 0 {
+		text = text[:authorityEnd]
+	}
+	if userInfoEnd := strings.LastIndex(text, "@"); userInfoEnd >= 0 {
+		text = text[userInfoEnd+1:]
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", 0, false
+	}
+
+	if net.ParseIP(text) != nil {
+		return text, fallbackPort, true
+	}
+	if !strings.HasPrefix(text, "[") && strings.Count(text, ":") > 1 {
+		parts := strings.Split(text, ":")
+		suffixStart := len(parts)
+		for suffixStart > 1 {
+			if _, err := strconv.Atoi(strings.TrimSpace(parts[suffixStart-1])); err != nil {
+				break
+			}
+			suffixStart--
+		}
+		host := strings.TrimSpace(strings.Join(parts[:suffixStart], ":"))
+		if suffixStart < len(parts) && host != "" && !strings.Contains(host, ":") {
+			port, err := strconv.Atoi(strings.TrimSpace(parts[suffixStart]))
+			if err == nil && port > 0 && port <= 65535 {
+				return host, port, true
+			}
+			return host, fallbackPort, true
+		}
+	}
+
+	host, port, ok := parseHostPortWithDefault(text, fallbackPort)
+	if !ok || strings.TrimSpace(host) == "" {
+		return "", 0, false
+	}
+	if port <= 0 || port > 65535 {
+		port = fallbackPort
+	}
+	return strings.TrimSpace(host), port, true
 }
 
 func mqttFormatHostPort(host string, port int) string {
@@ -744,9 +780,6 @@ func newPahoMQTTRuntime(config connection.ConnectionConfig) (mqttRuntime, error)
 		timeout = 10 * time.Second
 	}
 	transport := mqttTransportScheme(config)
-	if config.UseProxy && (transport == "ws" || transport == "wss") {
-		return nil, fmt.Errorf("MQTT 当前暂不支持通过代理建立 WebSocket 连接，请改用 tcp/ssl")
-	}
 	tlsConfig, err := resolveGenericTLSConfig(config)
 	if err != nil {
 		return nil, err
@@ -793,6 +826,9 @@ func mqttProxyOpenConnectionFn(proxyConfig connection.ProxyConfig, timeout time.
 	return func(uri *url.URL, options pahomqtt.ClientOptions) (net.Conn, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
+		if uri.Scheme == "ws" || uri.Scheme == "wss" {
+			return mqttProxyOpenWebSocket(ctx, proxyConfig, uri, options, timeout, tlsConfig)
+		}
 
 		conn, err := proxytunnel.DialContext(ctx, proxyConfig, "tcp", uri.Host)
 		if err != nil {
@@ -825,6 +861,83 @@ func mqttProxyOpenConnectionFn(proxyConfig connection.ProxyConfig, timeout time.
 			return nil, err
 		}
 		return tlsConn, nil
+	}
+}
+
+func mqttProxyOpenWebSocket(ctx context.Context, proxyConfig connection.ProxyConfig, uri *url.URL, options pahomqtt.ClientOptions, timeout time.Duration, tlsConfig *tls.Config) (net.Conn, error) {
+	dialURI := *uri
+	dialURI.User = nil
+
+	websocketOptions := options.WebsocketOptions
+	dialer := websocket.Dialer{
+		NetDialContext: func(dialCtx context.Context, network, address string) (net.Conn, error) {
+			return proxytunnel.DialContext(dialCtx, proxyConfig, network, address)
+		},
+		HandshakeTimeout:  timeout,
+		TLSClientConfig:   tlsConfig,
+		Subprotocols:      []string{"mqtt"},
+		EnableCompression: false,
+	}
+	if dialer.TLSClientConfig == nil {
+		dialer.TLSClientConfig = options.TLSConfig
+	}
+	if websocketOptions != nil {
+		dialer.ReadBufferSize = websocketOptions.ReadBufferSize
+		dialer.WriteBufferSize = websocketOptions.WriteBufferSize
+	}
+
+	ws, response, err := dialer.DialContext(ctx, dialURI.String(), options.HTTPHeaders)
+	if err != nil {
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
+		return nil, err
+	}
+	return &mqttWebSocketConn{Conn: ws}, nil
+}
+
+type mqttWebSocketConn struct {
+	*websocket.Conn
+	reader  io.Reader
+	readMu  sync.Mutex
+	writeMu sync.Mutex
+}
+
+func (c *mqttWebSocketConn) SetDeadline(deadline time.Time) error {
+	if err := c.SetReadDeadline(deadline); err != nil {
+		return err
+	}
+	return c.SetWriteDeadline(deadline)
+}
+
+func (c *mqttWebSocketConn) Write(payload []byte) (int, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if err := c.WriteMessage(websocket.BinaryMessage, payload); err != nil {
+		return 0, err
+	}
+	return len(payload), nil
+}
+
+func (c *mqttWebSocketConn) Read(buffer []byte) (int, error) {
+	c.readMu.Lock()
+	defer c.readMu.Unlock()
+	for {
+		if c.reader == nil {
+			_, reader, err := c.NextReader()
+			if err != nil {
+				return 0, err
+			}
+			c.reader = reader
+		}
+		n, err := c.reader.Read(buffer)
+		if err != io.EOF {
+			return n, err
+		}
+		c.reader = nil
+		if n > 0 {
+			return n, nil
+		}
 	}
 }
 

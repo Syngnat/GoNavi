@@ -585,20 +585,43 @@ func (a *App) buildCloudBackupPayload(config CloudBackupConfig) ([]byte, error) 
 	if len(selected) == 0 {
 		return nil, errors.New("select at least one cloud backup category")
 	}
-	connections := connectionPackagePayload{}
-	if _, ok := selected[CloudBackupCategoryConnections]; ok {
-		var err error
-		connections, err = a.buildConnectionPackagePayload(nil, nil)
-		if err != nil {
-			return nil, err
+	var connections connectionPackagePayload
+	var files []cloudBackupFile
+	buildSnapshot := func(repo *savedConnectionRepository) error {
+		if _, ok := selected[CloudBackupCategoryConnections]; ok {
+			var err error
+			connections, err = a.buildConnectionPackagePayloadUnlocked(repo, nil, nil)
+			if err != nil {
+				return err
+			}
 		}
+		var err error
+		files, err = a.collectCloudBackupFiles(selected)
+		return err
 	}
-	files, err := a.collectCloudBackupFiles(selected)
+
+	var err error
+	if cloudBackupSelectionTouchesSavedConnectionState(selected) {
+		repo := a.savedConnectionRepository()
+		err = repo.withWriteLock(func() error {
+			return buildSnapshot(repo)
+		})
+	} else {
+		err = buildSnapshot(nil)
+	}
 	if err != nil {
 		return nil, err
 	}
 	payload := cloudBackupPayload{SchemaVersion: cloudBackupPayloadSchemaVersion, CreatedAt: time.Now().UTC().Format(time.RFC3339), Connections: connections, Files: files}
 	return json.Marshal(payload)
+}
+
+func cloudBackupSelectionTouchesSavedConnectionState(selected map[string]struct{}) bool {
+	if _, ok := selected[CloudBackupCategoryConnections]; ok {
+		return true
+	}
+	_, ok := selected[CloudBackupCategoryDailySecrets]
+	return ok
 }
 
 func (a *App) collectCloudBackupFiles(selected map[string]struct{}) ([]cloudBackupFile, error) {
@@ -934,57 +957,75 @@ func (a *App) CloudBackupRestore(request CloudBackupRestoreRequest) (CloudBackup
 		}
 	}
 
-	var connectionSnapshot cloudBackupConnectionFilesSnapshot
-	if restoreConnections {
-		connectionSnapshot, err = a.captureCloudBackupConnectionFilesSnapshot()
-		if err != nil {
-			return CloudBackupRestorePreview{}, err
-		}
-		settingsFiles, err = a.preserveLocalOnlyConnectionSecrets(settingsFiles, payload.Connections)
-		if err != nil {
-			return CloudBackupRestorePreview{}, err
-		}
-	}
 	if err := a.consumeCloudBackupRestoreConfirmationToken(request.ConfirmationToken, payload); err != nil {
 		return CloudBackupRestorePreview{}, err
 	}
 
-	rollbackSettings := func() error { return nil }
-	if len(settingsFiles) > 0 {
-		rollbackSettings, err = a.restoreCloudBackupFiles(settingsFiles)
-		if err != nil {
-			return CloudBackupRestorePreview{}, err
-		}
-	}
-	rollbackMutations := func() error {
-		var rollbackErr error
+	repo := a.savedConnectionRepository()
+	restoreMutations := func() error {
+		filesToRestore := append([]cloudBackupFile(nil), settingsFiles...)
+		var connectionSnapshot cloudBackupConnectionFilesSnapshot
 		if restoreConnections {
-			rollbackErr = errors.Join(rollbackErr, connectionSnapshot.restore(a))
+			var snapshotErr error
+			connectionSnapshot, snapshotErr = captureCloudBackupConnectionFilesSnapshotUnlocked(repo)
+			if snapshotErr != nil {
+				return snapshotErr
+			}
+			filesToRestore, snapshotErr = a.preserveLocalOnlyConnectionSecrets(filesToRestore, payload.Connections)
+			if snapshotErr != nil {
+				return snapshotErr
+			}
 		}
-		return errors.Join(rollbackErr, rollbackSettings())
+
+		rollbackSettings := func() error { return nil }
+		if len(filesToRestore) > 0 {
+			var restoreErr error
+			rollbackSettings, restoreErr = a.restoreCloudBackupFilesUnlocked(filesToRestore)
+			if restoreErr != nil {
+				return restoreErr
+			}
+		}
+		rollbackMutations := func() error {
+			var rollbackErr error
+			if restoreConnections {
+				rollbackErr = errors.Join(rollbackErr, connectionSnapshot.restoreUnlocked(repo))
+			}
+			return errors.Join(rollbackErr, rollbackSettings())
+		}
+
+		if restoreConnections {
+			if _, importErr := a.importConnectionPackagePayloadUnlocked(repo, payload.Connections); importErr != nil {
+				if rollbackErr := rollbackMutations(); rollbackErr != nil {
+					return fmt.Errorf("restore connections failed: %w (rollback failed: %v)", importErr, rollbackErr)
+				}
+				return importErr
+			}
+		}
+		if len(savedQueryFiles) > 0 {
+			currentConnections, listErr := repo.List()
+			if listErr != nil {
+				if rollbackErr := rollbackMutations(); rollbackErr != nil {
+					return fmt.Errorf("restore saved queries failed: %w (rollback failed: %v)", listErr, rollbackErr)
+				}
+				return listErr
+			}
+			if _, importErr := a.savedQueryRepository().Import(savedQueryPayload, currentConnections); importErr != nil {
+				if rollbackErr := rollbackMutations(); rollbackErr != nil {
+					return fmt.Errorf("restore saved queries failed: %w (rollback failed: %v)", importErr, rollbackErr)
+				}
+				return importErr
+			}
+		}
+		return nil
 	}
-	if restoreConnections {
-		if _, err := a.importConnectionPackagePayload(payload.Connections); err != nil {
-			if rollbackErr := rollbackMutations(); rollbackErr != nil {
-				return CloudBackupRestorePreview{}, fmt.Errorf("restore connections failed: %w (rollback failed: %v)", err, rollbackErr)
-			}
-			return CloudBackupRestorePreview{}, err
-		}
+
+	if restoreConnections || cloudBackupFilesTouchSavedConnectionState(settingsFiles) {
+		err = repo.withWriteLock(restoreMutations)
+	} else {
+		err = restoreMutations()
 	}
-	if len(savedQueryFiles) > 0 {
-		currentConnections, listErr := a.savedConnectionRepository().List()
-		if listErr != nil {
-			if rollbackErr := rollbackMutations(); rollbackErr != nil {
-				return CloudBackupRestorePreview{}, fmt.Errorf("restore saved queries failed: %w (rollback failed: %v)", listErr, rollbackErr)
-			}
-			return CloudBackupRestorePreview{}, listErr
-		}
-		if _, err := a.savedQueryRepository().Import(savedQueryPayload, currentConnections); err != nil {
-			if rollbackErr := rollbackMutations(); rollbackErr != nil {
-				return CloudBackupRestorePreview{}, fmt.Errorf("restore saved queries failed: %w (rollback failed: %v)", err, rollbackErr)
-			}
-			return CloudBackupRestorePreview{}, err
-		}
+	if err != nil {
+		return CloudBackupRestorePreview{}, err
 	}
 
 	a.markCloudBackupDirty()
@@ -1162,6 +1203,16 @@ func buildCloudBackupSavedQueryImportPayload(files []cloudBackupFile) (connectio
 
 func (a *App) captureCloudBackupConnectionFilesSnapshot() (cloudBackupConnectionFilesSnapshot, error) {
 	repo := a.savedConnectionRepository()
+	var snapshot cloudBackupConnectionFilesSnapshot
+	err := repo.withWriteLock(func() error {
+		var captureErr error
+		snapshot, captureErr = captureCloudBackupConnectionFilesSnapshotUnlocked(repo)
+		return captureErr
+	})
+	return snapshot, err
+}
+
+func captureCloudBackupConnectionFilesSnapshotUnlocked(repo *savedConnectionRepository) (cloudBackupConnectionFilesSnapshot, error) {
 	snapshot := cloudBackupConnectionFilesSnapshot{}
 	var err error
 	snapshot.connectionsData, snapshot.connectionsExists, err = readOptionalFile(repo.connectionsPath())
@@ -1177,6 +1228,12 @@ func (a *App) captureCloudBackupConnectionFilesSnapshot() (cloudBackupConnection
 
 func (snapshot cloudBackupConnectionFilesSnapshot) restore(a *App) error {
 	repo := a.savedConnectionRepository()
+	return repo.withWriteLock(func() error {
+		return snapshot.restoreUnlocked(repo)
+	})
+}
+
+func (snapshot cloudBackupConnectionFilesSnapshot) restoreUnlocked(repo *savedConnectionRepository) error {
 	return errors.Join(
 		restoreCloudBackupOptionalFile(repo.connectionsPath(), snapshot.connectionsExists, snapshot.connectionsData, 0o644),
 		restoreCloudBackupOptionalFile(repo.dailySecrets().Path(), snapshot.dailySecretsExists, snapshot.dailySecretsData, 0o600),
@@ -1338,6 +1395,35 @@ func cloudBackupRestoreRequiresRestart(files []cloudBackupFile) bool {
 }
 
 func (a *App) restoreCloudBackupFiles(files []cloudBackupFile) (func() error, error) {
+	if !cloudBackupFilesTouchSavedConnectionState(files) {
+		return a.restoreCloudBackupFilesUnlocked(files)
+	}
+
+	repo := a.savedConnectionRepository()
+	var rollbackUnlocked func() error
+	err := repo.withWriteLock(func() error {
+		var restoreErr error
+		rollbackUnlocked, restoreErr = a.restoreCloudBackupFilesUnlocked(files)
+		return restoreErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return func() error {
+		return repo.withWriteLock(rollbackUnlocked)
+	}, nil
+}
+
+func cloudBackupFilesTouchSavedConnectionState(files []cloudBackupFile) bool {
+	for _, file := range files {
+		if filepath.Clean(filepath.FromSlash(file.Path)) == "daily_secrets.json" {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) restoreCloudBackupFilesUnlocked(files []cloudBackupFile) (func() error, error) {
 	root := strings.TrimSpace(a.configDir)
 	if root == "" {
 		root = resolveAppConfigDir()
@@ -1451,6 +1537,9 @@ func (a *App) initializeCloudBackup(ctx context.Context) {
 }
 
 func (a *App) restartCloudBackupScheduler() {
+	if a == nil || a.headlessRuntime {
+		return
+	}
 	a.cloudBackupSchedulerMu.Lock()
 	if a.cloudBackupSchedulerCancel != nil {
 		a.cloudBackupSchedulerCancel()
@@ -1499,6 +1588,9 @@ func cloudBackupScheduleInterval(schedule string) time.Duration {
 }
 
 func (a *App) markCloudBackupDirty() {
+	if a == nil || a.headlessRuntime {
+		return
+	}
 	config, err := a.loadCloudBackupConfig()
 	if err != nil || !config.Enabled {
 		return
@@ -1532,6 +1624,9 @@ func (a *App) clearCloudBackupDirty(revision uint64) {
 }
 
 func (a *App) shutdownCloudBackup() {
+	if a == nil || a.headlessRuntime {
+		return
+	}
 	a.cloudBackupSchedulerMu.Lock()
 	if a.cloudBackupSchedulerCancel != nil {
 		a.cloudBackupSchedulerCancel()

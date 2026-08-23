@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,17 @@ import (
 	"GoNavi-Wails/internal/sqlaudit"
 	datasync "GoNavi-Wails/internal/sync"
 )
+
+func TestSQLSnippet_RedactsSensitiveSQL(t *testing.T) {
+	query := "SELECT * FROM users WHERE phone = '13800138000' AND token = 'raw-token' AND id = 42"
+	snippet := sqlSnippet(query)
+	if strings.Contains(snippet, "13800138000") || strings.Contains(snippet, "raw-token") || strings.Contains(snippet, "42") {
+		t.Fatalf("SQL log snippet leaked raw literal: %q", snippet)
+	}
+	if !strings.Contains(snippet, "SELECT") || !strings.Contains(snippet, "FROM users") {
+		t.Fatalf("SQL log snippet lost diagnostic structure: %q", snippet)
+	}
+}
 
 func TestDBQueryAuditedWritesOneUserActionEventWithoutSlowQueryHistory(t *testing.T) {
 	originalNewDatabaseFunc := newDatabaseFunc
@@ -365,6 +377,10 @@ func TestAIEntryPointAndMCPExecutorRecordAuditSources(t *testing.T) {
 	if !mcpResult.Success {
 		t.Fatalf("MCPQueryExecutor returned failure: %s", mcpResult.Message)
 	}
+	cliResult := NewCLIQueryExecutor(app).DBQueryMulti(context.Background(), config, "app", "SELECT id FROM users", "cli-audit-source")
+	if !cliResult.Success {
+		t.Fatalf("CLIQueryExecutor returned failure: %s", cliResult.Message)
+	}
 	spoofedResult := app.DBQueryAudited(config, "app", "UPDATE users SET email = 'private@example.test' WHERE id = 7", "mcp")
 	if !spoofedResult.Success {
 		t.Fatalf("DBQueryAudited returned failure: %s", spoofedResult.Message)
@@ -381,8 +397,54 @@ func TestAIEntryPointAndMCPExecutorRecordAuditSources(t *testing.T) {
 	if len(mcpEvents) != 1 || mcpEvents[0].Source != "mcp" {
 		t.Fatalf("MCP query did not retain its backend-owned source: %#v", mcpEvents)
 	}
+	cliEvents := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: cliResult.QueryID})
+	if len(cliEvents) != 1 || cliEvents[0].Source != "cli" {
+		t.Fatalf("CLI query did not retain its backend-owned source: %#v", cliEvents)
+	}
 	spoofedEvents := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: spoofedResult.QueryID})
 	if len(spoofedEvents) != 1 || spoofedEvents[0].Source != "application_api" {
 		t.Fatalf("public audited query was able to spoof a privileged source: %#v", spoofedEvents)
+	}
+}
+
+type mcpContextCancellationDatabase struct {
+	sqlAuditTestDatabase
+	started chan struct{}
+}
+
+func (database *mcpContextCancellationDatabase) QueryContext(ctx context.Context, _ string) ([]map[string]interface{}, []string, error) {
+	close(database.started)
+	<-ctx.Done()
+	return nil, nil, ctx.Err()
+}
+
+func TestMCPQueryExecutorCancelsUnderlyingQueryWithRequestContext(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	database := &mcpContextCancellationDatabase{started: make(chan struct{})}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+	application := newSQLAuditTestApp(t)
+	config := connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432, Database: "app"}
+	requestCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	resultCh := make(chan connection.QueryResult, 1)
+	go func() {
+		resultCh <- NewMCPQueryExecutor(application).DBQueryMultiContext(requestCtx, config, "app", "SELECT 1")
+	}()
+	select {
+	case <-database.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MCP query did not reach the context-aware database")
+	}
+	cancel()
+
+	select {
+	case result := <-resultCh:
+		if result.Success {
+			t.Fatalf("cancelled MCP query unexpectedly succeeded: %#v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled MCP query did not return")
 	}
 }

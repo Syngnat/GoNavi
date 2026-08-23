@@ -39,11 +39,28 @@ describe('buildRpcConnectionConfig', () => {
     expect(result.ssh?.port).toBe(2222);
     expect(result.proxy?.port).toBe(8080);
     expect(result.timeout).toBe(120);
+    expect(result.queryTimeout).toBeUndefined();
     expect(result.redisDB).toBe(6);
     expect(result.database).toBe('app');
     expect(result.keepAliveEnabled).toBe(true);
     expect(result.keepAliveIntervalMinutes).toBe(15);
     expect(result.keepAliveSQL).toBe('SELECT 1');
+  });
+
+  it('preserves a per-request query timeout override separately from connection timeout', () => {
+    const result = buildRpcConnectionConfig({
+      type: 'mysql',
+      host: 'db.local',
+      port: 3306,
+      user: 'root',
+      timeout: 30,
+    } as any, {
+      timeout: 5,
+      queryTimeout: 5,
+    });
+
+    expect(result.timeout).toBe(5);
+    expect(result.queryTimeout).toBe(5);
   });
 
   it('preserves ClickHouse protocol override for RPC calls', () => {
@@ -291,6 +308,8 @@ describe('buildRpcConnectionConfig', () => {
       user: '',
       password: '',
       keyPath: '',
+      knownHostsPath: '',
+      hostKeyFingerprint: '',
     });
     expect(result.httpTunnel).toEqual({
       host: '',
@@ -336,6 +355,8 @@ describe('buildRpcConnectionConfig', () => {
         host: 'jump.local',
         port: '2222' as unknown as number,
         user: 'ops',
+        knownHostsPath: '/tmp/known_hosts',
+        hostKeyFingerprint: 'SHA256:pin',
       },
       useProxy: true,
       proxy: {
@@ -352,6 +373,8 @@ describe('buildRpcConnectionConfig', () => {
 
     expect(result).toBeInstanceOf(connection.ConnectionConfig);
     expect(result.ssh).toBeInstanceOf(connection.SSHConfig);
+    expect(result.ssh?.knownHostsPath).toBe('/tmp/known_hosts');
+    expect(result.ssh?.hostKeyFingerprint).toBe('SHA256:pin');
     expect(result.proxy).toBeInstanceOf(connection.ProxyConfig);
     expect(result.httpTunnel).toBeInstanceOf(connection.HTTPTunnelConfig);
     expect(typeof (result as any).convertValues).toBe('function');

@@ -1,7 +1,6 @@
 package jvm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -409,13 +407,6 @@ func TestHTTPProviderReturnsTimeoutError(t *testing.T) {
 }
 
 func TestHTTPProviderRealEndpointRoundTrip(t *testing.T) {
-	if _, err := exec.LookPath("java"); err != nil {
-		t.Skipf("java 不可用，跳过真实 Endpoint 集成测试: %v", err)
-	}
-	if _, err := exec.LookPath("javac"); err != nil {
-		t.Skipf("javac 不可用，跳过真实 Endpoint 集成测试: %v", err)
-	}
-
 	provider := NewHTTPProvider()
 	fixture := startEndpointFixture(t)
 	cfg := newHTTPProviderTestConfig(fixture.baseURL+"/manage/jvm", 5)
@@ -506,20 +497,12 @@ func TestHTTPProviderRealEndpointRoundTrip(t *testing.T) {
 type endpointFixtureProcess struct {
 	port    int
 	baseURL string
-	cmd     *exec.Cmd
 }
 
 func startEndpointFixture(t *testing.T) endpointFixtureProcess {
 	t.Helper()
 
-	javaBin, err := exec.LookPath("java")
-	if err != nil {
-		t.Fatalf("look up java failed: %v", err)
-	}
-	javacBin, err := exec.LookPath("javac")
-	if err != nil {
-		t.Fatalf("look up javac failed: %v", err)
-	}
+	toolchain := requireJVMFixtureToolchain(t, false)
 
 	classesDir := filepath.Join(t.TempDir(), "endpoint-fixture-classes")
 	if err := os.MkdirAll(classesDir, 0o755); err != nil {
@@ -534,52 +517,11 @@ func startEndpointFixture(t *testing.T) endpointFixtureProcess {
 		t.Fatalf("expected endpoint fixture java files under %s", sourceRoot)
 	}
 
-	compileArgs := append([]string{"-encoding", "UTF-8", "-d", classesDir}, javaFiles...)
-	compileCmd := exec.Command(javacBin, compileArgs...)
-	output, err := compileCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("compile endpoint fixture failed: %v\n%s", err, strings.TrimSpace(string(output)))
-	}
+	compileJVMFixture(t, toolchain, "endpoint", classesDir, javaFiles)
 
 	port := reserveTCPPort(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	cmd := exec.CommandContext(ctx, javaBin, "-cp", classesDir, "com.gonavi.fixture.EndpointTestServer", fmt.Sprintf("%d", port))
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("endpoint fixture stdout pipe failed: %v", err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start endpoint fixture failed: %v", err)
-	}
-	t.Cleanup(func() {
-		cancel()
-		_ = cmd.Wait()
-	})
-
-	ready := make(chan error, 1)
-	go func() {
-		line, readErr := bufio.NewReader(stdout).ReadString('\n')
-		if readErr != nil {
-			ready <- fmt.Errorf("endpoint fixture readiness read failed: %w", readErr)
-			return
-		}
-		if strings.TrimSpace(line) != "READY" {
-			ready <- fmt.Errorf("unexpected endpoint fixture readiness line: %q", strings.TrimSpace(line))
-			return
-		}
-		ready <- nil
-	}()
-
-	select {
-	case err := <-ready:
-		if err != nil {
-			t.Fatalf("wait endpoint fixture ready failed: %v", err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("endpoint fixture did not become ready within 20s")
-	}
+	process, stdout := startJVMFixtureCommand(t, toolchain, "endpoint", "-cp", classesDir, "com.gonavi.fixture.EndpointTestServer", fmt.Sprintf("%d", port))
+	waitForJVMFixtureReady(t, process, stdout, toolchain, "endpoint", "READY", 20*time.Second)
 
 	waitForTest(t, 10*time.Second, func() error {
 		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
@@ -593,7 +535,6 @@ func startEndpointFixture(t *testing.T) endpointFixtureProcess {
 	return endpointFixtureProcess{
 		port:    port,
 		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
-		cmd:     cmd,
 	}
 }
 

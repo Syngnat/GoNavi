@@ -325,8 +325,9 @@ const FloatingQueryResultWindows: React.FC = () => {
                   pkColumns={windowState.result.pkColumns || []}
                   editLocator={windowState.result.editLocator as any}
                   readOnly={windowState.result.readOnly !== false}
-                  connectionId={windowState.connectionId}
-                  dbName={windowState.result.metadataDbName || windowState.dbName || ''}
+                  connectionId={windowState.result.executionConnectionId || windowState.connectionId}
+                  connectionParamsOverride={windowState.result.executionConnectionParams}
+                  dbName={windowState.result.metadataDbName || windowState.result.executionDbName || windowState.dbName || ''}
                   ddlDbName={windowState.result.ddlDbName}
                   ddlTableName={windowState.result.ddlTableName}
                   resultSql={windowState.result.exportSql || windowState.result.sql}

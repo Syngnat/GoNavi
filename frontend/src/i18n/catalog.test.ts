@@ -388,6 +388,8 @@ describe("i18n catalog", () => {
       "app.shortcuts.action.runQuery.label",
       "app.shortcuts.action.saveQuery.description",
       "app.shortcuts.action.saveQuery.label",
+      "app.shortcuts.action.saveQueryAs.description",
+      "app.shortcuts.action.saveQueryAs.label",
       "app.shortcuts.action.selectCurrentStatement.description",
       "app.shortcuts.action.selectCurrentStatement.label",
       "app.shortcuts.action.sendAIChatMessage.description",
@@ -1778,6 +1780,7 @@ describe("i18n catalog", () => {
       "app.shortcuts.action.runQuery.label",
       "app.shortcuts.action.selectCurrentStatement.label",
       "app.shortcuts.action.saveQuery.label",
+      "app.shortcuts.action.saveQueryAs.label",
       "query_editor.action.show_object_info",
     ] as const;
     const source = readQueryEditorSource();
@@ -1816,6 +1819,11 @@ describe("i18n catalog", () => {
         source,
         "      const binding = saveQueryShortcutBinding;",
         "  }, [activeShortcutPlatform, languagePreference, saveQueryShortcutBinding]);",
+      ),
+      sliceBetween(
+        source,
+        "      const binding = saveQueryAsShortcutBinding;",
+        "  }, [activeShortcutPlatform, currentSavedQuery, languagePreference, saveQueryAsShortcutBinding, tab.filePath]);",
       ),
     ].join("\n");
 

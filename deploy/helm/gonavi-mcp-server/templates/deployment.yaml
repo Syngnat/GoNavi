@@ -49,6 +49,8 @@ spec:
               value: {{ .Values.mcp.logDir | quote }}
             - name: GONAVI_MCP_HTTP_ADDR
               value: {{ .Values.mcp.httpAddr | quote }}
+            - name: GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK
+              value: {{ ternary "true" "false" .Values.mcp.allowNonLoopback | quote }}
             - name: GONAVI_MCP_HTTP_PATH
               value: {{ .Values.mcp.httpPath | quote }}
             - name: GONAVI_MCP_SCHEMA_ONLY

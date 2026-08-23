@@ -467,15 +467,15 @@ func startMCPHTTPCommandProcess(ctx context.Context, options mcpHTTPProcessStart
 	if err != nil {
 		return nil, localizeMCPHTTPError(textLookup, "ai_service.backend.error.mcp_http_executable_resolve_failed", nil, err)
 	}
+	command, args, err := resolveMCPHTTPCommand(executable, options, textLookup)
+	if err != nil {
+		return nil, localizeMCPHTTPError(textLookup, "ai_service.backend.error.mcp_http_executable_resolve_failed", nil, err)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	processCtx, cancel := context.WithCancel(ctx)
-	args := []string{"mcp-server", "http", "--addr", options.Addr, "--path", options.Path}
-	if options.SchemaOnly {
-		args = append(args, "--schema-only")
-	}
-	cmd := exec.CommandContext(processCtx, executable, args...)
+	cmd := exec.CommandContext(processCtx, command, args...)
 	cmd.Env = append(os.Environ(), "GONAVI_MCP_HTTP_TOKEN="+options.Token)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
@@ -491,6 +491,25 @@ func startMCPHTTPCommandProcess(ctx context.Context, options mcpHTTPProcessStart
 	}
 	go process.wait()
 	return process, nil
+}
+
+// resolveMCPHTTPCommand keeps the production command as
+// "<GoNavi> mcp-server http ..." while redirecting a Wails development build
+// to its independent MCP server binary. The latter is deliberately not
+// GoNavi-dev.exe because Wails must replace that file on every backend reload.
+func resolveMCPHTTPCommand(executablePath string, options mcpHTTPProcessStartOptions, textLookup mcpHTTPTextLookup) (string, []string, error) {
+	command, prefixArgs, err := resolveLocalMCPCommand(executablePath, mcpClientInstallTextFunc(textLookup))
+	if err != nil {
+		return "", nil, err
+	}
+
+	args := make([]string, 0, len(prefixArgs)+6)
+	args = append(args, prefixArgs...)
+	args = append(args, "http", "--addr", options.Addr, "--path", options.Path)
+	if options.SchemaOnly {
+		args = append(args, "--schema-only")
+	}
+	return command, args, nil
 }
 
 type mcpHTTPCommandProcess struct {

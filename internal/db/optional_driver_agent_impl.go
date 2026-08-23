@@ -47,9 +47,15 @@ const (
 	optionalAgentMethodGetTriggers          = "getTriggers"
 	optionalAgentMethodApplyChanges         = "applyChanges"
 	optionalAgentDefaultScannerMaxBytes     = 8 << 20
-	optionalAgentMetadataProbeTimeout       = 5 * time.Second
-	optionalAgentControlCallTimeout         = 30 * time.Second
-	optionalAgentShutdownCallTimeout        = 2 * time.Second
+	// Freshly downloaded agents may start slowly while OS security scanning completes.
+	optionalAgentMetadataProbeTimeout = 30 * time.Second
+	// A Windows security scanner can hold the first process start long enough to
+	// hit the primary budget, then allow the same file to start immediately.
+	// Keep this as a retry budget only; the primary metadata contract remains 30s.
+	optionalAgentMetadataProbeRetryTimeout = 5 * time.Second
+	optionalAgentMetadataProbeRetryDelay   = 100 * time.Millisecond
+	optionalAgentControlCallTimeout        = 30 * time.Second
+	optionalAgentShutdownCallTimeout       = 2 * time.Second
 	// callStreamQueryGCInterval 控制 callStreamQuery 每接收多少行 driver-agent 数据触发一次 runtime.GC。
 	//
 	// 该路径不走 sql.Rows（scan_rows.go 的周期 GC 覆盖不到），但每个 chunk 解码
@@ -119,22 +125,54 @@ type optionalDriverAgentClient struct {
 }
 
 func ProbeOptionalDriverAgentMetadata(driverType string, executablePath string) (OptionalDriverAgentMetadata, error) {
-	client, err := newOptionalDriverAgentClient(driverType, executablePath)
-	if err != nil {
-		return OptionalDriverAgentMetadata{}, err
-	}
-	defer func() {
-		_ = client.close()
-	}()
+	metadata, err := probeOptionalDriverAgentMetadataWithRetry(func(timeout time.Duration) (OptionalDriverAgentMetadata, error) {
+		client, clientErr := newOptionalDriverAgentClient(driverType, executablePath)
+		if clientErr != nil {
+			return OptionalDriverAgentMetadata{}, clientErr
+		}
+		defer func() {
+			_ = client.close()
+		}()
 
-	var metadata OptionalDriverAgentMetadata
-	if err := client.callWithTimeout(optionalAgentRequest{Method: optionalAgentMethodMetadata}, &metadata, nil, nil, nil, optionalAgentMetadataProbeTimeout); err != nil {
+		var result OptionalDriverAgentMetadata
+		if callErr := client.callWithTimeout(optionalAgentRequest{Method: optionalAgentMethodMetadata}, &result, nil, nil, nil, timeout); callErr != nil {
+			return OptionalDriverAgentMetadata{}, callErr
+		}
+		return result, nil
+	}, runtime.GOOS == "windows", optionalAgentMetadataProbeRetryDelay)
+	if err != nil {
 		return OptionalDriverAgentMetadata{}, err
 	}
 	metadata.DriverType = normalizeRuntimeDriverType(metadata.DriverType)
 	metadata.AgentRevision = strings.TrimSpace(metadata.AgentRevision)
 	metadata.ProtocolSchema = strings.TrimSpace(metadata.ProtocolSchema)
 	return metadata, nil
+}
+
+func probeOptionalDriverAgentMetadataWithRetry(
+	probe func(time.Duration) (OptionalDriverAgentMetadata, error),
+	retryOnTimeout bool,
+	delay time.Duration,
+) (OptionalDriverAgentMetadata, error) {
+	if probe == nil {
+		return OptionalDriverAgentMetadata{}, errors.New("driver-agent metadata probe is nil")
+	}
+
+	metadata, firstErr := probe(optionalAgentMetadataProbeTimeout)
+	if firstErr == nil || !retryOnTimeout || !errors.Is(firstErr, context.DeadlineExceeded) {
+		return metadata, firstErr
+	}
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+
+	metadata, retryErr := probe(optionalAgentMetadataProbeRetryTimeout)
+	if retryErr == nil {
+		return metadata, nil
+	}
+	// Preserve the 30s primary timeout as the causal error while retaining the
+	// second attempt's detail for logs and localized error rendering.
+	return OptionalDriverAgentMetadata{}, fmt.Errorf("首次 metadata 探测失败：%w；冷启动重试失败：%v", firstErr, retryErr)
 }
 
 func newOptionalDriverAgentClient(driverType string, executablePath string) (*optionalDriverAgentClient, error) {
@@ -230,6 +268,13 @@ func (c *optionalDriverAgentClient) call(req optionalAgentRequest, out interface
 	})
 }
 
+func markOptionalAgentApplyChangesTransportUnknown(req optionalAgentRequest, err error) error {
+	if err != nil && req.Method == optionalAgentMethodApplyChanges {
+		return MarkWriteOutcomeUnknown(err)
+	}
+	return err
+}
+
 func (c *optionalDriverAgentClient) callLocked(req optionalAgentRequest, out interface{}, fields *[]string, messages *[]string, rowsAffected *int64) error {
 	if err := c.stoppedError(); err != nil {
 		return fmt.Errorf("%s 驱动代理传输不可用：%w", driverDisplayName(c.driver), err)
@@ -243,31 +288,42 @@ func (c *optionalDriverAgentClient) callLocked(req optionalAgentRequest, out int
 		return err
 	}
 	payload = append(payload, '\n')
+	if len(payload) > OptionalDriverAgentMaxJSONLineBytes {
+		_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
+		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("发送 %s 驱动代理请求失败：%w", driverDisplayName(c.driver), ErrOptionalDriverAgentJSONLineTooLarge))
+	}
 	if _, err := c.stdin.Write(payload); err != nil {
 		stderrText := c.stderrText()
 		if stderrText == "" {
-			return fmt.Errorf("调用 %s 驱动代理失败：%w", driverDisplayName(c.driver), err)
+			return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("调用 %s 驱动代理失败：%w", driverDisplayName(c.driver), err))
 		}
-		return fmt.Errorf("调用 %s 驱动代理失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText)
+		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("调用 %s 驱动代理失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText))
 	}
 
-	line, err := c.reader.ReadBytes('\n')
+	line, err := ReadOptionalDriverAgentJSONLine(c.reader)
 	if err != nil {
+		if errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
+			_ = c.forceTerminate(err)
+		}
 		stderrText := c.stderrText()
 		if stderrText == "" {
-			return fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err)
+			return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
 		}
-		return fmt.Errorf("读取 %s 驱动代理响应失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText)
+		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText))
 	}
 
 	var resp optionalAgentResponse
 	if err := json.Unmarshal(line, &resp); err != nil {
-		return fmt.Errorf("解析 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err)
+		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("解析 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
 	}
 	if !resp.Success {
 		errText := strings.TrimSpace(resp.Error)
 		if errText == "" {
 			errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
+		}
+		if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
+			_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
+			return markOptionalAgentApplyChangesTransportUnknown(req, ErrOptionalDriverAgentJSONLineTooLarge)
 		}
 		return errors.New(errText)
 	}
@@ -374,11 +430,18 @@ func optionalAgentContextError(driverType, method string, err error) error {
 }
 
 func (c *optionalDriverAgentClient) callWithTimeout(req optionalAgentRequest, out interface{}, fields *[]string, messages *[]string, rowsAffected *int64, timeout time.Duration) error {
+	return c.callWithContext(context.Background(), req, out, fields, messages, rowsAffected, timeout)
+}
+
+func (c *optionalDriverAgentClient) callWithContext(ctx context.Context, req optionalAgentRequest, out interface{}, fields *[]string, messages *[]string, rowsAffected *int64, timeout time.Duration) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if timeout <= 0 {
-		return c.call(req, out, fields, messages, rowsAffected)
+		return c.callContext(ctx, req, out, fields, messages, rowsAffected)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	err := c.callContext(ctx, req, out, fields, messages, rowsAffected)
 	if errors.Is(err, context.DeadlineExceeded) && req.Method == optionalAgentMethodMetadata {
@@ -410,6 +473,10 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(req optionalAgentReque
 		return err
 	}
 	payload = append(payload, '\n')
+	if len(payload) > OptionalDriverAgentMaxJSONLineBytes {
+		_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
+		return fmt.Errorf("发送 %s 驱动代理请求失败：%w", driverDisplayName(c.driver), ErrOptionalDriverAgentJSONLineTooLarge)
+	}
 	if _, err := c.stdin.Write(payload); err != nil {
 		stderrText := c.stderrText()
 		if stderrText == "" {
@@ -428,8 +495,11 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(req optionalAgentReque
 	var processedRows int64
 
 	for {
-		line, err := c.reader.ReadBytes('\n')
+		line, err := ReadOptionalDriverAgentJSONLine(c.reader)
 		if err != nil {
+			if errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
+				_ = c.forceTerminate(err)
+			}
 			stderrText := c.stderrText()
 			if stderrText == "" {
 				return fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err)
@@ -445,6 +515,10 @@ func (c *optionalDriverAgentClient) callStreamQueryLocked(req optionalAgentReque
 			errText := strings.TrimSpace(resp.Error)
 			if errText == "" {
 				errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
+			}
+			if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
+				_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
+				return ErrOptionalDriverAgentJSONLineTooLarge
 			}
 			return errors.New(errText)
 		}
@@ -595,6 +669,20 @@ func (d *OptionalDriverAgentDB) ElasticsearchServerMajor() int {
 
 type optionalDriverAgentTransactionalDB struct {
 	*OptionalDriverAgentDB
+}
+
+func (d *optionalDriverAgentTransactionalDB) bindMetadataContext(ctx context.Context) {
+	if d == nil || d.OptionalDriverAgentDB == nil {
+		return
+	}
+	BindMetadataContext(d.OptionalDriverAgentDB, ctx)
+}
+
+func (d *optionalDriverAgentTransactionalDB) clearMetadataContext() {
+	if d == nil || d.OptionalDriverAgentDB == nil {
+		return
+	}
+	ClearMetadataContext(d.OptionalDriverAgentDB)
 }
 
 type optionalDriverAgentSession struct {
@@ -756,25 +844,12 @@ func (d *OptionalDriverAgentDB) QueryContextWithMessages(ctx context.Context, qu
 }
 
 func (d *OptionalDriverAgentDB) Query(query string) ([]map[string]interface{}, []string, error) {
-	data, fields, _, err := d.QueryWithMessages(query)
+	data, fields, _, err := d.QueryContextWithMessages(metadataContextFor(d), query)
 	return data, fields, err
 }
 
 func (d *OptionalDriverAgentDB) QueryWithMessages(query string) ([]map[string]interface{}, []string, []string, error) {
-	client, err := d.requireClient()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	var data []map[string]interface{}
-	var fields []string
-	var messages []string
-	if err := client.call(optionalAgentRequest{
-		Method: optionalAgentMethodQuery,
-		Query:  query,
-	}, &data, &fields, &messages, nil); err != nil {
-		return nil, nil, nil, err
-	}
-	return data, fields, messages, nil
+	return d.QueryContextWithMessages(metadataContextFor(d), query)
 }
 
 func (d *OptionalDriverAgentDB) QueryMulti(query string) ([]connection.ResultSetData, error) {
@@ -1135,7 +1210,7 @@ func (d *OptionalDriverAgentDB) GetDatabases() ([]string, error) {
 		return nil, err
 	}
 	var dbs []string
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method: optionalAgentMethodGetDatabases,
 	}, &dbs, nil, nil, nil, optionalAgentControlCallTimeout); err != nil {
 		return nil, err
@@ -1149,7 +1224,7 @@ func (d *OptionalDriverAgentDB) GetTables(dbName string) ([]string, error) {
 		return nil, err
 	}
 	var tables []string
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method: optionalAgentMethodGetTables,
 		DBName: dbName,
 	}, &tables, nil, nil, nil, optionalAgentControlCallTimeout); err != nil {
@@ -1164,7 +1239,7 @@ func (d *OptionalDriverAgentDB) TableExists(dbName, tableName string) (bool, err
 		return false, err
 	}
 	var exists bool
-	err = client.callWithTimeout(optionalAgentRequest{
+	err = client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method:    optionalAgentMethodTableExists,
 		DBName:    dbName,
 		TableName: tableName,
@@ -1217,7 +1292,7 @@ func (d *OptionalDriverAgentDB) GetCreateStatement(dbName, tableName string) (st
 		return "", err
 	}
 	var sqlText string
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method:    optionalAgentMethodGetCreateStmt,
 		DBName:    dbName,
 		TableName: tableName,
@@ -1233,7 +1308,7 @@ func (d *OptionalDriverAgentDB) GetColumns(dbName, tableName string) ([]connecti
 		return nil, err
 	}
 	var columns []connection.ColumnDefinition
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method:    optionalAgentMethodGetColumns,
 		DBName:    dbName,
 		TableName: tableName,
@@ -1249,7 +1324,7 @@ func (d *OptionalDriverAgentDB) GetAllColumns(dbName string) ([]connection.Colum
 		return nil, err
 	}
 	var columns []connection.ColumnDefinitionWithTable
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method: optionalAgentMethodGetAllColumns,
 		DBName: dbName,
 	}, &columns, nil, nil, nil, optionalAgentControlCallTimeout); err != nil {
@@ -1264,7 +1339,7 @@ func (d *OptionalDriverAgentDB) GetIndexes(dbName, tableName string) ([]connecti
 		return nil, err
 	}
 	var indexes []connection.IndexDefinition
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method:    optionalAgentMethodGetIndexes,
 		DBName:    dbName,
 		TableName: tableName,
@@ -1280,7 +1355,7 @@ func (d *OptionalDriverAgentDB) GetForeignKeys(dbName, tableName string) ([]conn
 		return nil, err
 	}
 	var keys []connection.ForeignKeyDefinition
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method:    optionalAgentMethodGetForeignKeys,
 		DBName:    dbName,
 		TableName: tableName,
@@ -1296,7 +1371,7 @@ func (d *OptionalDriverAgentDB) GetTriggers(dbName, tableName string) ([]connect
 		return nil, err
 	}
 	var triggers []connection.TriggerDefinition
-	if err := client.callWithTimeout(optionalAgentRequest{
+	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
 		Method:    optionalAgentMethodGetTriggers,
 		DBName:    dbName,
 		TableName: tableName,
@@ -1307,6 +1382,16 @@ func (d *OptionalDriverAgentDB) GetTriggers(dbName, tableName string) ([]connect
 }
 
 func (d *OptionalDriverAgentDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return d.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (d *OptionalDriverAgentDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	client, err := d.requireClient()
 	if err != nil {
 		return err
@@ -1321,11 +1406,15 @@ func (d *OptionalDriverAgentDB) ApplyChanges(tableName string, changes connectio
 			logger.Warnf("Kingbase ApplyChanges 字段名规范化失败：%v", normErr)
 		}
 	}
-	return client.call(optionalAgentRequest{
+	err = client.callContext(ctx, optionalAgentRequest{
 		Method:    optionalAgentMethodApplyChanges,
 		TableName: tableName,
 		Changes:   &changes,
 	}, nil, nil, nil, nil)
+	if err != nil && ctx.Err() != nil {
+		return MarkWriteOutcomeUnknown(err)
+	}
+	return err
 }
 
 func (d *OptionalDriverAgentDB) requireClient() (*optionalDriverAgentClient, error) {

@@ -11,12 +11,16 @@ import {
   buildSchemasMetadataQuerySpecs,
   buildSequencesMetadataQuerySpecs,
   buildSidebarTableStatusSQL,
+  buildTriggersMetadataQuerySpecs,
   buildViewsMetadataQuerySpecs,
   getSidebarTableName,
+  loadDatabaseTriggers,
   loadFunctions,
   loadPackages,
+  loadSchemas,
   loadSequences,
   loadViews,
+  parseSidebarTableRowCount,
   supportsDatabaseSequences,
 } from "./sidebarMetadataLoaders";
 
@@ -45,6 +49,29 @@ describe("sidebar table metadata", () => {
     );
     expect(sql).not.toMatch(/COUNT\s*\(/i);
   });
+
+  it("treats a zero InnoDB estimate as unknown without hiding reliable zero counts", () => {
+    const mysql = { config: { type: "mysql" } } as any;
+
+    expect(parseSidebarTableRowCount({ table_rows: 0, table_engine: "InnoDB" }, mysql)).toBeUndefined();
+    expect(parseSidebarTableRowCount({ table_rows: 0 }, mysql)).toBeUndefined();
+    expect(parseSidebarTableRowCount({ table_rows: 12, table_engine: "InnoDB" }, mysql)).toBe(12);
+    expect(parseSidebarTableRowCount({ table_rows: 0, table_engine: "MyISAM" }, mysql)).toBe(0);
+    expect(parseSidebarTableRowCount(
+      { table_rows: 0, table_engine: "InnoDB" },
+      { config: { type: "starrocks" } } as any,
+    )).toBe(0);
+  });
+
+  it("loads the MySQL engine so unreliable InnoDB zero estimates can be identified", () => {
+    const sql = buildSidebarTableStatusSQL(
+      { config: { type: "mysql" } } as any,
+      "sales",
+    );
+
+    expect(sql).toContain("ENGINE AS table_engine");
+    expect(sql).not.toMatch(/COUNT\s*\(/i);
+  });
 });
 
 describe("buildSchemasMetadataQuerySpecs", () => {
@@ -65,6 +92,23 @@ describe("buildSchemasMetadataQuerySpecs", () => {
 
   it("keeps unsupported dialects empty", () => {
     expect(buildSchemasMetadataQuerySpecs("mysql", "app")).toEqual([]);
+  });
+
+  it("keeps case-distinct PostgreSQL schemas selectable", async () => {
+    mockedDBQuery.mockResolvedValue({
+      success: true,
+      message: "",
+      data: [
+        { schema_name: "foo" },
+        { schema_name: "Foo" },
+        { schema_name: "foo" },
+      ],
+    });
+
+    await expect(loadSchemas({ config: { type: "postgres" } }, "analytics")).resolves.toEqual({
+      supported: true,
+      schemas: ["foo", "Foo"],
+    });
   });
 
   it("deduplicates MySQL view metadata when fallback queries omit schema names", async () => {
@@ -99,6 +143,20 @@ describe("buildSchemasMetadataQuerySpecs", () => {
     expect(result.views).toEqual([
       { viewName: "CHARACTER_SETS", schemaName: "information_schema" },
     ]);
+  });
+
+  it("retains a view metadata failure when every fallback query fails", async () => {
+    mockedDBQuery.mockResolvedValue({
+      success: false,
+      message: "view metadata permission denied",
+      data: [],
+    });
+
+    await expect(loadViews({ config: { type: "mysql" } }, "app")).resolves.toMatchObject({
+      supported: false,
+      views: [],
+      failureMessage: "view metadata permission denied",
+    });
   });
 });
 
@@ -135,12 +193,58 @@ describe("PostgreSQL sequence metadata", () => {
 });
 
 describe("Oracle object metadata loaders", () => {
+  it("loads Oracle compiler status for routines and triggers", async () => {
+    expect(buildFunctionsMetadataQuerySpecs("oracle", "SBDEV")[0]?.sql).toContain(
+      "STATUS AS object_status",
+    );
+    expect(buildTriggersMetadataQuerySpecs("oracle", "SBDEV")[0]?.sql).toContain(
+      "STATUS AS object_status",
+    );
+
+    mockedDBQuery.mockImplementation(async (_config: unknown, _dbName: string, sql: string) => {
+      if (sql.includes("ALL_TRIGGERS")) {
+        return {
+          success: true,
+          message: "",
+          data: [{ OWNER: "SBDEV", TABLE_NAME: "ORDERS", TRIGGER_NAME: "TRG_AUDIT", OBJECT_STATUS: "INVALID" }],
+        };
+      }
+      if (sql.includes("ALL_OBJECTS")) {
+        return {
+          success: true,
+          message: "",
+          data: [{ OWNER: "SBDEV", OBJECT_NAME: "P_REBUILD", OBJECT_TYPE: "PROCEDURE", OBJECT_STATUS: "VALID" }],
+        };
+      }
+      return { success: false, message: "", data: [] };
+    });
+
+    await expect(loadFunctions({ config: { type: "oracle" } }, "SBDEV")).resolves.toEqual({
+      supported: true,
+      routines: [{
+        displayName: "SBDEV.P_REBUILD [P]",
+        routineName: "SBDEV.P_REBUILD",
+        routineType: "PROCEDURE",
+        objectStatus: "VALID",
+      }],
+    });
+    await expect(loadDatabaseTriggers({ config: { type: "oracle" } }, "SBDEV")).resolves.toEqual({
+      supported: true,
+      triggers: [{
+        displayName: "TRG_AUDIT (SBDEV.ORDERS)",
+        triggerName: "TRG_AUDIT",
+        tableName: "SBDEV.ORDERS",
+        objectStatus: "INVALID",
+      }],
+    });
+  });
+
   it("builds owner-scoped object queries for the selected Oracle schema", () => {
     expect(buildViewsMetadataQuerySpecs("oracle", "SBDEV").map((spec) => spec.sql)).toEqual([
       "SELECT OWNER AS schema_name, VIEW_NAME AS view_name FROM ALL_VIEWS WHERE OWNER = 'SBDEV' ORDER BY VIEW_NAME",
     ]);
     expect(buildFunctionsMetadataQuerySpecs("oracle", "SBDEV").map((spec) => spec.sql)).toEqual([
-      "SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM ALL_OBJECTS WHERE OWNER = 'SBDEV' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME",
+      "SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type, STATUS AS object_status FROM ALL_OBJECTS WHERE OWNER = 'SBDEV' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME",
     ]);
     expect(buildSequencesMetadataQuerySpecs("oracle", "MYCIMLED").map((spec) => spec.sql)).toEqual([
       "SELECT OWNER AS schema_name, OBJECT_NAME AS sequence_name FROM ALL_OBJECTS WHERE OWNER = 'MYCIMLED' AND OBJECT_TYPE = 'SEQUENCE' ORDER BY OBJECT_NAME",

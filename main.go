@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"strings"
 	"sync"
+	"syscall"
 
 	aiservice "GoNavi-Wails/internal/ai/service"
 	"GoNavi-Wails/internal/app"
@@ -98,7 +102,12 @@ func main() {
 			return
 		}
 	}
-	if runSpecialMode(os.Args[1:]) {
+	handled, err := runSpecialMode(os.Args[1:])
+	if handled {
+		if err != nil && !isNormalSpecialModeExit(err) {
+			logger.Error(err, "GoNavi 特殊模式退出")
+			os.Exit(1)
+		}
 		return
 	}
 	primaryActivator := &primaryWindowActivator{show: wailsRuntime.WindowShow}
@@ -148,7 +157,7 @@ func main() {
 	}
 
 	// Create application with options
-	err := wails.Run(&options.App{
+	err = wails.Run(&options.App{
 		Title:              "GoNavi",
 		Logger:             logger.NewWailsAdapter(),
 		LogLevel:           wailslogger.INFO,
@@ -225,31 +234,32 @@ func buildMacApplicationMenu(onNativeSelectCurrentLine func(), frameless bool) *
 	return result
 }
 
-func runSpecialMode(args []string) bool {
+func runSpecialMode(args []string) (bool, error) {
 	if len(args) == 0 {
-		return false
+		return false, nil
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(args[0]))
 	switch mode {
 	case "mcp-server", "--mcp-server":
-		if err := runMCPServerMode(context.Background(), args[1:]); err != nil {
-			logger.Error(err, "GoNavi MCP Server 退出")
-		}
-		return true
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return true, runMCPServerMode(ctx, args[1:])
 	case "web-server", "--web-server":
-		if err := webserver.Run(context.Background(), assets, args[1:]); err != nil {
-			logger.Error(err, "GoNavi Web Server 退出")
-		}
-		return true
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return true, webserver.Run(ctx, assets, args[1:])
 	case "detached-window", nativewindow.DetachedWindowArgument:
-		if err := nativewindow.RunChild(context.Background(), assets, args[1:]); err != nil {
-			logger.Error(err, "GoNavi 原生独立窗口退出")
-		}
-		return true
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return true, nativewindow.RunChild(ctx, assets, args[1:])
 	default:
-		return false
+		return false, nil
 	}
+}
+
+func isNormalSpecialModeExit(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, io.EOF)
 }
 
 func runMCPServerMode(ctx context.Context, args []string) error {

@@ -1,4 +1,5 @@
 import type { AIMCPClientInstallStatus, AIMCPServerConfig, AIMCPToolDescriptor } from '../../types';
+import { isMCPClientConnected } from '../../utils/mcpClientInstallStatus';
 import { validateMCPServerDraft } from '../../utils/mcpServerValidation';
 import type { AIInspectionTranslator } from './aiInspectionI18n';
 import { translateInspectionCopy } from './aiInspectionI18n';
@@ -73,7 +74,7 @@ export const buildMCPSetupSnapshot = (params: {
       displayName: status.displayName,
       installMode: status.installMode || 'auto',
       installed: status.installed,
-      matchesCurrent: status.matchesCurrent,
+      matchesCurrent: isMCPClientConnected(status),
       clientDetected: status.clientDetected === true,
       clientCommand: status.clientCommand || '',
       clientPath: status.clientPath || '',

@@ -335,8 +335,7 @@ func (p *GeminiProvider) doRequest(ctx context.Context, url string, body interfa
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		statusErr := fmt.Errorf("Gemini API returned error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+		statusErr := fmt.Errorf("Gemini API returned error (HTTP %d): %s", resp.StatusCode, readProviderErrorBody(resp.Body, resp.ContentLength))
 		logAIUpstreamRequestFinish(requestLog, resp.StatusCode, statusErr)
 		return nil, statusErr
 	}

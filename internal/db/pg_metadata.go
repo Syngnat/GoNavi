@@ -28,14 +28,22 @@ func escapePGLikeMetadataLiteral(raw string) string {
 }
 
 func buildPGLikeVisibleRelationPredicate(alias string, schemaName string) string {
+	return buildPGLikeVisibleRelationPredicateWithNamespace(alias, "n", schemaName)
+}
+
+func buildPGLikeVisibleRelationPredicateWithNamespace(alias string, namespaceAlias string, schemaName string) string {
 	relAlias := strings.TrimSpace(alias)
 	if relAlias == "" {
 		relAlias = "c"
 	}
+	nsAlias := strings.TrimSpace(namespaceAlias)
+	if nsAlias == "" {
+		nsAlias = "n"
+	}
 	if strings.TrimSpace(schemaName) == "" {
 		return fmt.Sprintf("pg_catalog.pg_table_is_visible(%s.oid)", relAlias)
 	}
-	return fmt.Sprintf("n.nspname = '%s'", escapePGLikeMetadataLiteral(schemaName))
+	return fmt.Sprintf("%s.nspname = '%s'", nsAlias, escapePGLikeMetadataLiteral(schemaName))
 }
 
 func buildPGLikeColumnsMetadataQuery(schemaName, tableName string) string {
@@ -91,6 +99,65 @@ WHERE t.relkind IN ('r', 'p')
     SELECT 1 FROM unnest(ix.indkey) AS expr_key(attnum) WHERE expr_key.attnum <= 0
   )
 ORDER BY i.relname, x.ordinality`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("t", schemaName))
+}
+
+func buildPGLikeForeignKeysMetadataQuery(schemaName, tableName string) string {
+	return fmt.Sprintf(`
+SELECT
+	tc.constraint_name AS constraint_name,
+	kcu.column_name AS column_name,
+	ccu.table_schema AS foreign_table_schema,
+	ccu.table_name AS foreign_table_name,
+	ccu.column_name AS foreign_column_name
+FROM information_schema.table_constraints AS tc
+JOIN information_schema.key_column_usage AS kcu
+  ON tc.constraint_name = kcu.constraint_name
+  AND tc.constraint_catalog = kcu.constraint_catalog
+  AND tc.constraint_schema = kcu.constraint_schema
+JOIN information_schema.constraint_column_usage AS ccu
+  ON ccu.constraint_name = tc.constraint_name
+  AND ccu.constraint_catalog = tc.constraint_catalog
+  AND ccu.constraint_schema = tc.constraint_schema
+JOIN pg_catalog.pg_namespace AS n ON n.nspname = tc.table_schema
+JOIN pg_catalog.pg_class AS c ON c.relnamespace = n.oid AND c.relname = tc.table_name
+WHERE tc.constraint_type = 'FOREIGN KEY'
+  AND tc.table_name = '%s'
+  AND %s
+ORDER BY tc.constraint_name, kcu.ordinal_position`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("c", schemaName))
+}
+
+func buildPGLikeTriggersMetadataQuery(schemaName, tableName string) string {
+	return fmt.Sprintf(`
+SELECT t.trigger_name, t.action_timing, t.event_manipulation, t.action_statement
+FROM information_schema.triggers AS t
+JOIN pg_catalog.pg_namespace AS n ON n.nspname = t.event_object_schema
+JOIN pg_catalog.pg_class AS c ON c.relnamespace = n.oid AND c.relname = t.event_object_table
+WHERE t.event_object_table = '%s'
+  AND %s
+ORDER BY t.trigger_name, t.event_manipulation`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("c", schemaName))
+}
+
+func buildPGLikeTableCommentMetadataQuery(schemaName, tableName string) string {
+	return fmt.Sprintf(`
+SELECT pg_catalog.obj_description(c.oid, 'pg_class') AS table_comment
+FROM pg_catalog.pg_class AS c
+JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p')
+  AND %s
+  AND c.relname = '%s'
+LIMIT 1`, buildPGLikeVisibleRelationPredicate("c", schemaName), escapePGLikeMetadataLiteral(tableName))
+}
+
+func parsePGLikeTableComment(data []map[string]interface{}) string {
+	for _, row := range data {
+		for key, value := range row {
+			if !strings.EqualFold(key, "table_comment") || value == nil {
+				continue
+			}
+			return fmt.Sprintf("%v", value)
+		}
+	}
+	return ""
 }
 
 func buildPGLikeColumnDefinitions(data []map[string]interface{}) []connection.ColumnDefinition {

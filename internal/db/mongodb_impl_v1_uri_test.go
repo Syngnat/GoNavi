@@ -3,13 +3,117 @@
 package db
 
 import (
+	"context"
+	"errors"
+	"net"
+	"strings"
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/ssh"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	cryptossh "golang.org/x/crypto/ssh"
 )
+
+func TestMongoSSHDialerV1RoutesAllMembersThroughSSH(t *testing.T) {
+	tests := []struct {
+		name       string
+		uri        string
+		wantScheme string
+	}{
+		{name: "standard", uri: "mongodb://mongo.internal:27017/app", wantScheme: "mongodb://"},
+		{name: "srv", uri: "mongodb+srv://cluster.example.test/app", wantScheme: "mongodb+srv://"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := applyMongoURI(connection.ConnectionConfig{
+				URI:    tt.uri,
+				UseSSH: true,
+				SSH: connection.SSHConfig{
+					Host: "bastion.example.test",
+					Port: 22,
+					User: "operator",
+				},
+			})
+			if uri := (&MongoDBV1{}).getURI(config); !strings.HasPrefix(uri, tt.wantScheme) {
+				t.Fatalf("expected URI scheme %q, got %q", tt.wantScheme, uri)
+			}
+
+			dialer := mongoConnectionDialer(config)
+			sshDialer, ok := dialer.(*mongoSSHDialer)
+			if !ok {
+				t.Fatalf("expected SSH dialer, got %T", dialer)
+			}
+
+			wantErr := errors.New("dial stopped")
+			var addresses []string
+			sshDialer.dialContext = func(_ context.Context, _ connection.SSHConfig, network, address string) (net.Conn, error) {
+				if network != "tcp" {
+					t.Fatalf("expected tcp network, got %q", network)
+				}
+				addresses = append(addresses, address)
+				return nil, wantErr
+			}
+
+			for _, address := range []string{"mongo-1.internal:27017", "mongo-2.internal:27018"} {
+				if _, err := dialer.DialContext(context.Background(), "tcp", address); !errors.Is(err, wantErr) {
+					t.Fatalf("expected SSH dial error for %s, got %v", address, err)
+				}
+			}
+			if strings.Join(addresses, ",") != "mongo-1.internal:27017,mongo-2.internal:27018" {
+				t.Fatalf("unexpected SSH targets: %v", addresses)
+			}
+		})
+	}
+}
+
+func TestMongoConnectV1PreservesSSHHostKeyTrustErrorBeforeDriverDial(t *testing.T) {
+	originalGetOrCreate := mongoGetOrCreateSSHClient
+	t.Cleanup(func() { mongoGetOrCreateSSHClient = originalGetOrCreate })
+
+	want := &ssh.HostKeyTrustRequiredError{Status: ssh.HostKeyTrustStatus{
+		State:       "unknown",
+		Host:        "bastion.example.test",
+		Port:        22,
+		Address:     "bastion.example.test:22",
+		KeyType:     "ssh-ed25519",
+		Fingerprint: "SHA256:untrusted-key",
+	}}
+	var preflightConfig connection.SSHConfig
+	mongoGetOrCreateSSHClient = func(config connection.SSHConfig) (*cryptossh.Client, error) {
+		preflightConfig = config
+		return nil, want
+	}
+
+	err := (&MongoDBV1{}).Connect(connection.ConnectionConfig{
+		Type:   "mongodb",
+		Host:   "mongo.internal.example",
+		Port:   defaultMongoPort,
+		UseSSH: true,
+		SSH: connection.SSHConfig{
+			Host: "bastion.example.test",
+			Port: 22,
+			User: "operator",
+		},
+	})
+	if err == nil {
+		t.Fatal("expected SSH host-key trust error")
+	}
+	if preflightConfig.Host != "bastion.example.test" || preflightConfig.Port != 22 {
+		t.Fatalf("unexpected SSH preflight config: %+v", preflightConfig)
+	}
+
+	var got *ssh.HostKeyTrustRequiredError
+	if !errors.As(err, &got) {
+		t.Fatalf("expected HostKeyTrustRequiredError to remain unwrapable, got %T: %v", err, err)
+	}
+	if got != want {
+		t.Fatalf("unexpected SSH host-key trust error: got %#v, want %#v", got, want)
+	}
+}
 
 func TestApplyMongoURIV1_ExplicitHostDoesNotAdoptURIHosts(t *testing.T) {
 	config := connection.ConnectionConfig{

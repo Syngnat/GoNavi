@@ -158,14 +158,17 @@ func (q *QdrantDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 
 	if parsed, ok := parseQdrantSQL(text); ok {
+		if parsed.WhereError != nil {
+			return nil, nil, fmt.Errorf("Qdrant WHERE 解析失败：%w", parsed.WhereError)
+		}
 		if parsed.Count {
-			total, err := q.countPoints(ctx, parsed.Collection, nil)
+			total, err := q.countPoints(ctx, parsed.Collection, parsed.Filter)
 			if err != nil {
 				return nil, nil, err
 			}
 			return []map[string]interface{}{{"total": total}}, []string{"total"}, nil
 		}
-		return q.scrollPoints(ctx, parsed.Collection, parsed.Limit, parsed.Offset, nil, true, parsed.IncludeVector)
+		return q.scrollPoints(ctx, parsed.Collection, parsed.Limit, parsed.Offset, parsed.Filter, true, parsed.IncludeVector)
 	}
 
 	return nil, nil, fmt.Errorf("Qdrant 查询仅支持 JSON 命令或简单 SELECT 预览")
@@ -218,7 +221,7 @@ func (q *QdrantDB) GetDatabases() ([]string, error) {
 }
 
 func (q *QdrantDB) GetTables(dbName string) ([]string, error) {
-	collections, err := q.listCollections(context.Background())
+	collections, err := q.listCollections(metadataContextFor(q))
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +236,7 @@ func (q *QdrantDB) GetTables(dbName string) ([]string, error) {
 }
 
 func (q *QdrantDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	info, err := q.getCollectionInfo(context.Background(), tableNameOrDB(dbName, tableName))
+	info, err := q.getCollectionInfo(metadataContextFor(q), tableNameOrDB(dbName, tableName))
 	if err != nil {
 		return "", err
 	}
@@ -242,7 +245,7 @@ func (q *QdrantDB) GetCreateStatement(dbName, tableName string) (string, error) 
 }
 
 func (q *QdrantDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	rows, _, err := q.scrollPoints(context.Background(), tableNameOrDB(dbName, tableName), 20, nil, nil, true, true)
+	info, err := q.getCollectionInfo(metadataContextFor(q), tableNameOrDB(dbName, tableName))
 	if err != nil {
 		return nil, err
 	}
@@ -251,21 +254,7 @@ func (q *QdrantDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 		{Name: "vector", Type: "vector<float>", Nullable: "YES", Comment: "Vector or named vectors"},
 		{Name: "payload", Type: "json", Nullable: "YES", Comment: "Full payload object"},
 	}
-	seen := map[string]struct{}{"id": {}, "vector": {}, "payload": {}}
-	for _, row := range rows {
-		for key, value := range row {
-			if _, exists := seen[key]; exists || !strings.HasPrefix(key, "payload.") {
-				continue
-			}
-			seen[key] = struct{}{}
-			cols = append(cols, connection.ColumnDefinition{
-				Name:     key,
-				Type:     inferChromaValueType(value),
-				Nullable: "YES",
-				Comment:  "Payload field",
-			})
-		}
-	}
+	cols = append(cols, qdrantPayloadSchemaColumns(info)...)
 	return cols, nil
 }
 
@@ -275,9 +264,11 @@ func (q *QdrantDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 		return nil, err
 	}
 	var result []connection.ColumnDefinitionWithTable
+	var failures []MetadataObjectFailure
 	for _, table := range tables {
 		cols, err := q.GetColumns(dbName, table)
 		if err != nil {
+			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: err})
 			continue
 		}
 		for _, col := range cols {
@@ -289,14 +280,14 @@ func (q *QdrantDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 			})
 		}
 	}
-	return result, nil
+	return result, NewPartialMetadataError(failures)
 }
 
 func (q *QdrantDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
 	indexes := []connection.IndexDefinition{
 		{Name: "PRIMARY", ColumnName: "id", NonUnique: 0, SeqInIndex: 1, IndexType: "PRIMARY"},
 	}
-	info, err := q.getCollectionInfo(context.Background(), tableNameOrDB(dbName, tableName))
+	info, err := q.getCollectionInfo(metadataContextFor(q), tableNameOrDB(dbName, tableName))
 	if err == nil {
 		indexes = append(indexes, qdrantVectorIndexes(info)...)
 		indexes = append(indexes, qdrantPayloadIndexes(info)...)
@@ -461,16 +452,20 @@ func qdrantAuthHeaders(config connection.ConnectionConfig) map[string]string {
 
 func buildQdrantHTTPClient(config connection.ConnectionConfig) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	dialTimeout := getConnectTimeout(config)
+	transport.DialContext = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	if tlsConfig, err := resolveGenericTLSConfig(config); err == nil && tlsConfig != nil {
 		transport.TLSClientConfig = tlsConfig
 	}
 	if config.UseProxy {
 		proxyCfg := config.Proxy
 		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return proxytunnel.DialContext(ctx, proxyCfg, network, addr)
+			dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+			defer cancel()
+			return proxytunnel.DialContext(dialCtx, proxyCfg, network, addr)
 		}
 	}
-	return &http.Client{Transport: transport, Timeout: getConnectTimeout(config)}
+	return &http.Client{Transport: transport}
 }
 
 func (q *QdrantDB) doJSON(ctx context.Context, method, path string, body interface{}, out interface{}) error {
@@ -503,9 +498,9 @@ func (q *QdrantDB) doJSON(ctx context.Context, method, path string, body interfa
 		return err
 	}
 	defer res.Body.Close()
-	resBody, err := io.ReadAll(res.Body)
+	resBody, err := readLimitedJSONResponseBody(res.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf("读取 Qdrant 响应失败：%w", err)
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		message := strings.TrimSpace(string(resBody))
@@ -814,6 +809,8 @@ type qdrantParsedSQL struct {
 	Offset        interface{}
 	Count         bool
 	IncludeVector bool
+	Filter        interface{}
+	WhereError    error
 }
 
 var qdrantSQLFromRE = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
@@ -837,6 +834,14 @@ func parseQdrantSQL(sqlText string) (qdrantParsedSQL, bool) {
 	lower := strings.ToLower(text)
 	parsed.Count = strings.Contains(lower, "count(")
 	parsed.IncludeVector = strings.Contains(lower, "vector")
+	whereExpr, _, whereErr := parseVectorSQLWhere(text)
+	if whereErr == nil {
+		whereErr = validateQdrantWhereExpr(whereExpr)
+	}
+	parsed.WhereError = whereErr
+	if whereErr == nil && whereExpr != nil {
+		parsed.Filter = qdrantFilterFromExpr(whereExpr)
+	}
 	if m := qdrantSQLLimitRE.FindStringSubmatch(text); len(m) > 1 {
 		parsed.Limit, _ = strconv.Atoi(m[1])
 	}
@@ -1032,6 +1037,39 @@ func qdrantPayloadIndexes(info map[string]interface{}) []connection.IndexDefinit
 		})
 	}
 	return indexes
+}
+
+func qdrantPayloadSchemaColumns(info map[string]interface{}) []connection.ColumnDefinition {
+	schema := nestedMapValue(info, "payload_schema")
+	if len(schema) == 0 {
+		schema = nestedMapValue(info, "payload_schema", "schema")
+	}
+	if len(schema) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(schema))
+	for name := range schema {
+		if strings.TrimSpace(name) != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	columns := make([]connection.ColumnDefinition, 0, len(names))
+	for _, name := range names {
+		fieldType := "json"
+		if definition, ok := schema[name].(map[string]interface{}); ok {
+			if dataType := strings.TrimSpace(mapString(definition, "data_type")); dataType != "" {
+				fieldType = dataType
+			}
+		}
+		columns = append(columns, connection.ColumnDefinition{
+			Name:     "payload." + name,
+			Type:     fieldType,
+			Nullable: "YES",
+			Comment:  "Payload schema field",
+		})
+	}
+	return columns
 }
 
 func nestedMapValue(value interface{}, path ...string) map[string]interface{} {

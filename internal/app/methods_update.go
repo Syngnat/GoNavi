@@ -1,8 +1,6 @@
 package app
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +21,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/uievents"
+	"github.com/google/uuid"
 )
 
 const (
@@ -56,10 +55,10 @@ var (
 	updateLaunchInstallScript          = launchUpdateScript
 	updateFindOtherWindowsInstances    = findOtherWindowsUpdateInstances
 	updateCloseWindowsInstances        = closeWindowsUpdateInstances
-	updateConfirmCloseWindowsInstances = showWindowsUpdateCloseConfirmation
 	updateAcquireWindowsMaintenance    = acquireWindowsUpdateMaintenance
 	updateQuitSleep                    = time.Sleep
 	updateExitProcess                  = os.Exit
+	updateDownloadFileWithExpectedSize = downloadFileWithHashWithExpectedSize
 )
 
 var errUpdateChecksumMismatch = errors.New("update package checksum mismatch")
@@ -68,6 +67,7 @@ type updateState struct {
 	lastCheck   *UpdateInfo
 	downloading bool
 	staged      *stagedUpdate
+	task        *UpdateDownloadTaskStatus
 	revision    uint64
 }
 
@@ -114,12 +114,38 @@ type updateDownloadResult struct {
 	AutoRelaunch   bool       `json:"autoRelaunch"`
 }
 
+// UpdateDownloadTaskStatus is the in-process source of truth for an update
+// package download. It intentionally outlives a frontend modal or WebView
+// reload, but is not persisted across application restarts.
+type UpdateDownloadTaskStatus struct {
+	TaskID     string                `json:"taskId"`
+	Status     string                `json:"status"`
+	Percent    float64               `json:"percent"`
+	Downloaded int64                 `json:"downloaded"`
+	Total      int64                 `json:"total"`
+	Message    string                `json:"message,omitempty"`
+	Running    bool                  `json:"running"`
+	StartedAt  string                `json:"startedAt"`
+	FinishedAt string                `json:"finishedAt,omitempty"`
+	Info       *UpdateInfo           `json:"info,omitempty"`
+	Result     *updateDownloadResult `json:"result,omitempty"`
+}
+
+type updateDownloadTaskWork struct {
+	taskID   string
+	info     UpdateInfo
+	channel  updateChannel
+	revision uint64
+}
+
 type updateDownloadProgressPayload struct {
-	Status     string  `json:"status"`
-	Percent    float64 `json:"percent"`
-	Downloaded int64   `json:"downloaded"`
-	Total      int64   `json:"total"`
-	Message    string  `json:"message,omitempty"`
+	TaskID     string      `json:"taskId,omitempty"`
+	Status     string      `json:"status"`
+	Percent    float64     `json:"percent"`
+	Downloaded int64       `json:"downloaded"`
+	Total      int64       `json:"total"`
+	Message    string      `json:"message,omitempty"`
+	Info       *UpdateInfo `json:"info,omitempty"`
 }
 
 type stagedUpdate struct {
@@ -183,8 +209,9 @@ type githubAsset struct {
 }
 
 type localizedUpdateError struct {
-	key    string
-	params map[string]any
+	key        string
+	params     map[string]any
+	httpStatus int
 }
 
 func (e localizedUpdateError) Error() string {
@@ -258,11 +285,18 @@ func (a *App) checkForUpdates(logFailure bool, forceNetwork bool) connection.Que
 func (a *App) publishUpdateCheckSnapshot(expectedRevision uint64, info UpdateInfo, staged *stagedUpdate) bool {
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
-	if a.updateState.revision != expectedRevision {
+	if a.updateState.downloading || a.updateState.revision != expectedRevision {
 		return false
 	}
 	a.updateState.lastCheck = snapshotUpdateInfo(&info)
 	a.updateState.staged = snapshotStagedUpdate(staged)
+	if task := a.updateState.task; task != nil && !task.Running {
+		if updateDownloadTaskMatchesInfo(task, info) {
+			task.Info = snapshotUpdateInfo(&info)
+		} else {
+			a.updateState.task = nil
+		}
+	}
 	a.updateState.revision++
 	return true
 }
@@ -280,24 +314,300 @@ func (a *App) GetAppInfo() connection.QueryResult {
 	return connection.QueryResult{Success: true, Message: "OK", Data: info}
 }
 
+// DownloadUpdate keeps the original synchronous Wails API for older
+// frontends. Newer frontends should use StartUpdateDownload so the caller can
+// close or reload its surface without owning the running download.
 func (a *App) DownloadUpdate() connection.QueryResult {
-	a.updateMu.Lock()
-	if a.updateState.downloading {
-		a.updateMu.Unlock()
+	if a == nil {
+		return connection.QueryResult{Success: false, Message: "application is not initialized"}
+	}
+	work, _, immediate, _ := a.prepareUpdateDownloadTask(false)
+	if immediate != nil {
+		return *immediate
+	}
+	if work == nil {
 		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_in_progress", nil)}
 	}
+	return a.runUpdateDownloadTask(*work)
+}
+
+// StartUpdateDownload starts an in-process update package task and returns
+// immediately. The task remains queryable after a frontend modal closes or a
+// WebView reloads, but intentionally does not survive an application restart.
+func (a *App) StartUpdateDownload() connection.QueryResult {
+	if a == nil {
+		return connection.QueryResult{Success: false, Message: "application is not initialized"}
+	}
+	work, task, immediate, alreadyRunning := a.prepareUpdateDownloadTask(true)
+	if immediate != nil {
+		if !immediate.Success {
+			return *immediate
+		}
+		return connection.QueryResult{
+			Success: true,
+			Message: immediate.Message,
+			Data: map[string]interface{}{
+				"task":           task,
+				"alreadyRunning": false,
+			},
+		}
+	}
+	if alreadyRunning {
+		return connection.QueryResult{Success: true, Data: map[string]interface{}{
+			"task":           task,
+			"alreadyRunning": true,
+		}}
+	}
+	if work == nil || task == nil {
+		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_in_progress", nil)}
+	}
+
+	go a.runUpdateDownloadTask(*work)
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{
+		"task":           task,
+		"alreadyRunning": false,
+	}}
+}
+
+// GetUpdateDownloadTask returns the active task or the latest terminal task.
+// It is deliberately in-memory only: a restarted application has no task to
+// resume and therefore returns a nil task.
+func (a *App) GetUpdateDownloadTask() connection.QueryResult {
+	if a == nil {
+		return connection.QueryResult{Success: false, Message: "application is not initialized"}
+	}
+	a.updateMu.Lock()
+	task := snapshotUpdateDownloadTask(a.updateState.task)
+	a.updateMu.Unlock()
+	return connection.QueryResult{Success: true, Data: map[string]interface{}{
+		"task": task,
+	}}
+}
+
+func (a *App) prepareUpdateDownloadTask(reuseActive bool) (*updateDownloadTaskWork, *UpdateDownloadTaskStatus, *connection.QueryResult, bool) {
+	a.ensurePersistedGlobalProxyRuntime()
+	a.updateMu.Lock()
+	if a.updateState.downloading {
+		task := snapshotUpdateDownloadTask(a.updateState.task)
+		a.updateMu.Unlock()
+		if reuseActive && task != nil && task.Running {
+			return nil, task, nil, true
+		}
+		result := connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.download_in_progress", nil)}
+		return nil, task, &result, false
+	}
+
 	info := snapshotUpdateInfo(a.updateState.lastCheck)
 	if info == nil {
 		a.updateMu.Unlock()
-		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.check_first", nil)}
+		result := connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.check_first", nil)}
+		return nil, nil, &result, false
 	}
 	if !info.HasUpdate {
 		a.updateMu.Unlock()
-		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.latest", nil)}
+		result := connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.latest", nil)}
+		return nil, nil, &result, false
+	}
+	channel, err := normalizeUpdateChannel(info.Channel)
+	if err != nil {
+		a.updateMu.Unlock()
+		result := connection.QueryResult{Success: false, Message: a.localizedUpdateError(err)}
+		return nil, nil, &result, false
+	}
+	if invalid := a.validateUpdateInfoForDownload(info); invalid != nil {
+		a.updateMu.Unlock()
+		return nil, nil, invalid, false
+	}
+
+	staged := resolveReusableStagedUpdate(*info, snapshotStagedUpdate(a.updateState.staged))
+	if staged != nil {
+		info.Downloaded = true
+		info.DownloadPath = staged.FilePath
+		a.updateState.staged = staged
+		a.updateState.revision++
+		result := connection.QueryResult{
+			Success: true,
+			Message: a.appText("app.update.backend.message.package_already_downloaded", nil),
+			Data:    buildUpdateDownloadResult(*info, staged),
+		}
+		task := newCompletedUpdateDownloadTask(*info, result)
+		a.updateState.task = task
+		a.updateMu.Unlock()
+		return nil, snapshotUpdateDownloadTask(task), &result, false
+	}
+
+	// Once the lease is visible, install APIs must not be able to reuse the old
+	// package while the dev channel resolves a newer release.
+	a.updateState.staged = nil
+	a.updateState.downloading = true
+	a.updateState.revision++
+	task := newActiveUpdateDownloadTask(*info)
+	a.updateState.task = task
+	work := &updateDownloadTaskWork{
+		taskID:   task.TaskID,
+		info:     *info,
+		channel:  channel,
+		revision: a.updateState.revision,
+	}
+	a.updateMu.Unlock()
+	return work, snapshotUpdateDownloadTask(task), nil, false
+}
+
+func (a *App) runUpdateDownloadTask(work updateDownloadTaskWork) (result connection.QueryResult) {
+	result = connection.QueryResult{Success: false, Message: "update download did not run"}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = connection.QueryResult{Success: false, Message: fmt.Sprintf("update download panic: %v", recovered)}
+		}
+		a.finishUpdateDownloadTask(work.taskID, result)
+	}()
+
+	info := snapshotUpdateInfo(&work.info)
+	downloadRevision := work.revision
+	a.emitUpdateDownloadProgress(info, "start", 0, info.AssetSize, "")
+	result, downloadErr := a.downloadAndStageUpdate(*info, downloadRevision)
+	if work.channel == updateChannelDev && isExpiredUpdateAssetError(downloadErr) {
+		refreshed, staged, revision, refreshErr := a.refreshDevUpdateInfoForDownload(downloadRevision)
+		if refreshErr != nil {
+			logger.Warnf("dev 更新包失效后刷新清单失败：%v", refreshErr)
+		} else if updateAssetIdentityChanged(*info, *refreshed) {
+			info = refreshed
+			downloadRevision = revision
+			if invalid := a.validateUpdateInfoForDownload(info); invalid != nil {
+				result = *invalid
+				downloadErr = nil
+			} else if staged != nil {
+				result = connection.QueryResult{Success: true, Message: a.appText("app.update.backend.message.package_already_downloaded", nil), Data: buildUpdateDownloadResult(*info, staged)}
+			} else {
+				a.emitUpdateDownloadProgress(info, "start", 0, info.AssetSize, "")
+				result, downloadErr = a.downloadAndStageUpdate(*info, downloadRevision)
+			}
+		}
+	}
+	if !result.Success {
+		a.emitUpdateDownloadProgress(info, "error", 0, info.AssetSize, result.Message)
+	}
+	return result
+}
+
+func newActiveUpdateDownloadTask(info UpdateInfo) *UpdateDownloadTaskStatus {
+	return &UpdateDownloadTaskStatus{
+		TaskID:     uuid.NewString(),
+		Status:     "start",
+		Percent:    0,
+		Downloaded: 0,
+		Total:      max(0, info.AssetSize),
+		Running:    true,
+		StartedAt:  time.Now().UTC().Format(time.RFC3339),
+		Info:       snapshotUpdateInfo(&info),
+	}
+}
+
+func newCompletedUpdateDownloadTask(info UpdateInfo, result connection.QueryResult) *UpdateDownloadTaskStatus {
+	now := time.Now().UTC().Format(time.RFC3339)
+	task := &UpdateDownloadTaskStatus{
+		TaskID:     uuid.NewString(),
+		Status:     "done",
+		Percent:    100,
+		Downloaded: max(0, info.AssetSize),
+		Total:      max(0, info.AssetSize),
+		Running:    false,
+		StartedAt:  now,
+		FinishedAt: now,
+		Info:       snapshotUpdateInfo(&info),
+		Result:     snapshotUpdateDownloadResultFromQueryResult(result),
+	}
+	return task
+}
+
+func snapshotUpdateDownloadTask(current *UpdateDownloadTaskStatus) *UpdateDownloadTaskStatus {
+	if current == nil {
+		return nil
+	}
+	snapshot := *current
+	snapshot.Info = snapshotUpdateInfo(current.Info)
+	if current.Result != nil {
+		result := *current.Result
+		snapshot.Result = &result
+	}
+	return &snapshot
+}
+
+func updateDownloadTaskMatchesInfo(task *UpdateDownloadTaskStatus, info UpdateInfo) bool {
+	if task == nil || task.Info == nil {
+		return false
+	}
+	current := task.Info
+	return strings.EqualFold(strings.TrimSpace(current.Channel), strings.TrimSpace(info.Channel)) &&
+		!updateAssetIdentityChanged(*current, info)
+}
+
+func snapshotUpdateDownloadResultFromQueryResult(result connection.QueryResult) *updateDownloadResult {
+	switch data := result.Data.(type) {
+	case updateDownloadResult:
+		snapshot := data
+		return &snapshot
+	case *updateDownloadResult:
+		if data == nil {
+			return nil
+		}
+		snapshot := *data
+		return &snapshot
+	default:
+		return nil
+	}
+}
+
+func (a *App) finishUpdateDownloadTask(taskID string, result connection.QueryResult) {
+	if a == nil {
+		return
+	}
+	a.updateMu.Lock()
+	task := a.updateState.task
+	if task == nil || task.TaskID != strings.TrimSpace(taskID) {
+		a.updateMu.Unlock()
+		return
+	}
+	terminalAlreadyEmitted := task.Status == "done" || task.Status == "error"
+	if !terminalAlreadyEmitted {
+		if result.Success {
+			task.Status = "done"
+			task.Percent = 100
+			if task.Total > 0 {
+				task.Downloaded = task.Total
+			}
+		} else {
+			task.Status = "error"
+		}
+		if message := strings.TrimSpace(result.Message); message != "" {
+			task.Message = message
+		}
+	}
+	if taskResult := snapshotUpdateDownloadResultFromQueryResult(result); taskResult != nil {
+		task.Result = taskResult
+		task.Info = snapshotUpdateInfo(&taskResult.Info)
+	}
+	task.Running = false
+	task.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	a.updateState.downloading = false
+	a.updateState.revision++
+	snapshot := snapshotUpdateDownloadTask(task)
+	a.updateMu.Unlock()
+
+	// The normal download path emits done/error itself. If the task exits before
+	// that path (for example a panic or an already-staged dev refresh), publish a
+	// final snapshot so an already-open UI does not stay on "starting".
+	if !terminalAlreadyEmitted {
+		a.emitUpdateDownloadTaskSnapshot(*snapshot)
+	}
+}
+
+func (a *App) validateUpdateInfoForDownload(info *UpdateInfo) *connection.QueryResult {
+	if info == nil || !info.HasUpdate {
+		return &connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.latest", nil)}
 	}
 	if info.AssetURL == "" || info.AssetName == "" {
-		a.updateMu.Unlock()
-		return connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.no_update_package", nil)}
+		return &connection.QueryResult{Success: false, Message: a.appText("app.update.backend.message.no_update_package", nil)}
 	}
 	if err := validateUpdatePackageForCurrentInstallMode(
 		stdRuntime.GOOS,
@@ -305,29 +615,57 @@ func (a *App) DownloadUpdate() connection.QueryResult {
 		updatePackageType(info.PackageType),
 		info.AssetName,
 	); err != nil {
-		a.updateMu.Unlock()
-		return connection.QueryResult{Success: false, Message: a.localizedUpdateError(err)}
+		return &connection.QueryResult{Success: false, Message: a.localizedUpdateError(err)}
 	}
-	staged := resolveReusableStagedUpdate(*info, snapshotStagedUpdate(a.updateState.staged))
-	if staged != nil {
-		a.updateState.staged = staged
-		a.updateState.revision++
-		a.updateMu.Unlock()
-		return connection.QueryResult{Success: true, Message: a.appText("app.update.backend.message.package_already_downloaded", nil), Data: buildUpdateDownloadResult(*info, staged)}
-	}
-	a.updateState.staged = nil
-	a.updateState.downloading = true
-	a.updateState.revision++
-	a.updateMu.Unlock()
+	return nil
+}
 
-	a.emitUpdateDownloadProgress("start", 0, info.AssetSize, "")
-	result := a.downloadAndStageUpdate(*info)
+func (a *App) refreshDevUpdateInfoForDownload(expectedRevision uint64) (*UpdateInfo, *stagedUpdate, uint64, error) {
+	info, err := fetchLatestUpdateInfoWithOptions(updateChannelDev, true)
+	if err != nil {
+		return nil, nil, expectedRevision, err
+	}
 
 	a.updateMu.Lock()
-	a.updateState.downloading = false
-	a.updateMu.Unlock()
+	defer a.updateMu.Unlock()
+	if !a.updateState.downloading || a.updateState.revision != expectedRevision {
+		return nil, nil, expectedRevision, localizedUpdateError{key: "app.update.backend.message.check_stale"}
+	}
 
-	return result
+	var staged *stagedUpdate
+	if info.HasUpdate {
+		staged = resolveReusableStagedUpdate(info, snapshotStagedUpdate(a.updateState.staged))
+		if staged != nil {
+			info.Downloaded = true
+			info.DownloadPath = staged.FilePath
+		}
+	}
+	a.updateState.lastCheck = snapshotUpdateInfo(&info)
+	a.updateState.staged = snapshotStagedUpdate(staged)
+	a.updateState.revision++
+	return snapshotUpdateInfo(&info), snapshotStagedUpdate(staged), a.updateState.revision, nil
+}
+
+func updateAssetIdentityChanged(previous, current UpdateInfo) bool {
+	return previous.Channel != current.Channel ||
+		previous.LatestVersion != current.LatestVersion ||
+		previous.AssetName != current.AssetName ||
+		previous.AssetURL != current.AssetURL ||
+		previous.AssetAPIURL != current.AssetAPIURL ||
+		!strings.EqualFold(previous.SHA256, current.SHA256)
+}
+
+func isExpiredUpdateAssetError(err error) bool {
+	var currentAssetMismatch downloadCurrentAssetMismatchError
+	if errors.As(err, &currentAssetMismatch) {
+		return true
+	}
+	var localized localizedUpdateError
+	if !errors.As(err, &localized) {
+		return false
+	}
+	return localized.httpStatus == http.StatusNotFound ||
+		localized.httpStatus == http.StatusGone
 }
 
 func (a *App) InstallUpdateAndRestart(closeAllWindowsInstancesConfirmed bool) connection.QueryResult {
@@ -388,30 +726,14 @@ func (a *App) InstallUpdateAndRestart(closeAllWindowsInstancesConfirmed bool) co
 			}
 		}
 		if windowsUpdateCloseConfirmationRequired(stdRuntime.GOOS, closeAllWindowsInstancesConfirmed, len(runningInstances)) {
-			confirmationParams := map[string]any{"count": len(runningInstances)}
-			confirmed, confirmErr := updateConfirmCloseWindowsInstances(
-				a.ctx,
-				a.appText("app.about.update_install_confirm.close_instances_title", confirmationParams),
-				a.appText("app.about.update_install_confirm.close_instances_content", confirmationParams),
-			)
-			if confirmErr != nil {
-				return connection.QueryResult{
-					Success: false,
-					Message: a.appText("app.update.backend.message.install_launch_failed", map[string]any{
-						"detail": confirmErr.Error(),
-					}),
-				}
+			return connection.QueryResult{
+				Success: false,
+				Data: map[string]any{
+					"requiresCloseConfirmation": true,
+					"instanceCount":             len(runningInstances),
+					"runningPids":               otherWindowsUpdateProcessIDs(runningInstances),
+				},
 			}
-			if !confirmed {
-				return connection.QueryResult{
-					Success: false,
-					Data: map[string]any{
-						"cancelled":   true,
-						"runningPids": otherWindowsUpdateProcessIDs(runningInstances),
-					},
-				}
-			}
-			closeAllWindowsInstancesConfirmed = true
 		}
 
 		if staged.InstallMode == updateInstallModePortable {
@@ -539,7 +861,7 @@ func (a *App) OpenDownloadedUpdateDirectory() connection.QueryResult {
 	}
 }
 
-func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
+func (a *App) downloadAndStageUpdate(info UpdateInfo, expectedRevision uint64) (connection.QueryResult, error) {
 	workspaceCandidates := resolveUpdateWorkspaceDirCandidatesForInstallMode(info.LatestVersion, updateInstallMode(info.InstallMode))
 	workspaceDir, stagedDir, prepareErr := prepareUpdateWorkspaceAndStagingDirs(workspaceCandidates, info.Channel, info.LatestVersion)
 	if prepareErr != nil {
@@ -549,8 +871,7 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		}
 		logger.Error(prepareErr, "创建更新工作区失败")
 		errMsg := a.appText("app.update.backend.message.create_workspace_failed", map[string]any{"path": preferredDir})
-		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, errMsg)
-		return connection.QueryResult{Success: false, Message: errMsg}
+		return connection.QueryResult{Success: false, Message: errMsg}, prepareErr
 	}
 
 	// 安装包本体放在工作区根级，staging 目录只保留更新脚本和临时展开物。
@@ -560,20 +881,20 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		if reportTotal <= 0 {
 			reportTotal = info.AssetSize
 		}
-		a.emitUpdateDownloadProgress("downloading", downloaded, reportTotal, "")
+		a.emitUpdateDownloadProgress(&info, "downloading", downloaded, reportTotal, "")
 	}
 	if info.SHA256 == "" {
 		_ = os.Remove(assetPath)
 		_ = os.RemoveAll(stagedDir)
 		message := a.appText("app.update.backend.message.checksum_missing", nil)
-		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, message)
-		return connection.QueryResult{Success: false, Message: message}
+		return connection.QueryResult{Success: false, Message: message}, localizedUpdateError{key: "app.update.backend.message.checksum_missing"}
 	}
 
 	_, err := downloadUpdateAssetWithFallback(
 		[]string{info.AssetURL, info.AssetAPIURL},
 		assetPath,
 		info.SHA256,
+		info.AssetSize,
 		progressCB,
 	)
 	if err != nil {
@@ -581,12 +902,10 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 		_ = os.RemoveAll(stagedDir)
 		if errors.Is(err, errUpdateChecksumMismatch) {
 			message := a.appText("app.update.backend.message.checksum_failed", nil)
-			a.emitUpdateDownloadProgress("error", 0, info.AssetSize, message)
-			return connection.QueryResult{Success: false, Message: message}
+			return connection.QueryResult{Success: false, Message: message}, err
 		}
 		message := a.localizedUpdateError(err)
-		a.emitUpdateDownloadProgress("error", 0, info.AssetSize, message)
-		return connection.QueryResult{Success: false, Message: message}
+		return connection.QueryResult{Success: false, Message: message}, err
 	}
 
 	staged := &stagedUpdate{
@@ -604,18 +923,27 @@ func (a *App) downloadAndStageUpdate(info UpdateInfo) connection.QueryResult {
 	info.Downloaded = true
 	info.DownloadPath = assetPath
 	a.updateMu.Lock()
+	if !a.updateState.downloading || a.updateState.revision != expectedRevision {
+		a.updateMu.Unlock()
+		_ = os.Remove(assetPath)
+		_ = os.RemoveAll(stagedDir)
+		err := localizedUpdateError{key: "app.update.backend.message.check_stale"}
+		return connection.QueryResult{Success: false, Message: a.localizedUpdateError(err)}, err
+	}
+	a.updateState.lastCheck = snapshotUpdateInfo(&info)
 	a.updateState.staged = staged
 	a.updateState.revision++
 	a.updateMu.Unlock()
 
-	a.emitUpdateDownloadProgress("done", info.AssetSize, info.AssetSize, "")
-	return connection.QueryResult{Success: true, Message: a.appText("app.update.backend.message.package_downloaded", nil), Data: buildUpdateDownloadResult(info, staged)}
+	a.emitUpdateDownloadProgress(&info, "done", info.AssetSize, info.AssetSize, "")
+	return connection.QueryResult{Success: true, Message: a.appText("app.update.backend.message.package_downloaded", nil), Data: buildUpdateDownloadResult(info, staged)}, nil
 }
 
 func downloadUpdateAssetWithFallback(
 	candidates []string,
 	assetPath string,
 	expectedSHA256 string,
+	expectedSize int64,
 	onProgress func(downloaded, total int64),
 ) (string, error) {
 	seen := make(map[string]struct{}, len(candidates))
@@ -641,13 +969,27 @@ func downloadUpdateAssetWithFallback(
 	expectedHash := strings.TrimSpace(expectedSHA256)
 	var lastErr error
 	for index, candidate := range urls {
+		candidate, requiresCurrentDevAsset := prepareUpdateDownloadCandidate(candidate, index == 0)
 		_ = os.Remove(assetPath)
-		actualHash, err := downloadFileWithHash(candidate, assetPath, onProgress)
+		actualHash, err := updateDownloadFileWithExpectedSize(candidate, assetPath, onProgress, expectedSize)
+		if err == nil && expectedSize > 0 {
+			stat, statErr := os.Stat(assetPath)
+			if statErr != nil {
+				err = statErr
+			} else if stat.Size() != expectedSize {
+				err = fmt.Errorf("update package size mismatch: expected=%d actual=%d", expectedSize, stat.Size())
+			}
+		}
 		if err == nil && expectedHash != "" && !strings.EqualFold(expectedHash, actualHash) {
 			err = errUpdateChecksumMismatch
 		}
 		if err == nil {
 			return actualHash, nil
+		}
+		var currentAssetMismatch downloadCurrentAssetMismatchError
+		if requiresCurrentDevAsset || errors.As(err, &currentAssetMismatch) {
+			_ = os.Remove(assetPath)
+			return "", err
 		}
 		lastErr = err
 		if index+1 < len(urls) {
@@ -656,6 +998,15 @@ func downloadUpdateAssetWithFallback(
 	}
 	_ = os.Remove(assetPath)
 	return "", lastErr
+}
+
+func prepareUpdateDownloadCandidate(rawURL string, primary bool) (string, bool) {
+	candidate := strings.TrimSpace(rawURL)
+	if !primary {
+		return candidate, false
+	}
+	candidate = downloadDispatcherURLRequiringCurrentDevAsset(candidate)
+	return candidate, dispatcherURLRequiresCurrentDevAsset(candidate)
 }
 
 func fetchLatestUpdateInfo(channel updateChannel) (UpdateInfo, error) {
@@ -733,6 +1084,10 @@ func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool) 
 	if sha256Value == "" {
 		return UpdateInfo{}, localizedUpdateError{key: "app.update.backend.error.sha256_missing_current_package"}
 	}
+	assetURL := firstNonEmptyString(asset.BrowserDownloadURL, asset.URL)
+	if channel == updateChannelDev {
+		assetURL = devUpdateDispatcherAssetURL(assetVersion, asset.Name)
+	}
 	return UpdateInfo{
 		HasUpdate:          hasUpdate,
 		Channel:            string(channel),
@@ -743,7 +1098,7 @@ func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool) 
 		ReleaseNotesURL:    release.HTMLURL,
 		ReleaseNotes:       strings.TrimSpace(release.Body),
 		AssetName:          asset.Name,
-		AssetURL:           firstNonEmptyString(asset.BrowserDownloadURL, asset.URL),
+		AssetURL:           assetURL,
 		AssetAPIURL:        strings.TrimSpace(asset.URL),
 		AssetSize:          asset.Size,
 		SHA256:             sha256Value,
@@ -751,6 +1106,16 @@ func fetchLatestUpdateInfoWithOptions(channel updateChannel, forceNetwork bool) 
 		PackageType:        string(packageType),
 		AutoRelaunch:       true,
 	}, nil
+}
+
+func devUpdateDispatcherAssetURL(version string, assetName string) string {
+	version = strings.TrimSpace(version)
+	assetName = strings.TrimSpace(assetName)
+	if version == "" || assetName == "" {
+		return ""
+	}
+	assetPath := "/gonavi/dev/releases/download/" + urlpkg.PathEscape(version) + "/" + urlpkg.PathEscape(assetName)
+	return downloadDispatcherURLForPath(assetPath)
 }
 
 func fetchReleaseForChannel(channel updateChannel) (*githubRelease, error) {
@@ -817,7 +1182,7 @@ func fetchReleaseByURL(apiURL string) (*githubRelease, error) {
 		return nil, localizedUpdateError{key: "app.update.backend.error.latest_version_unparseable"}
 	}
 
-	client := newHTTPClientWithGlobalProxy(15 * time.Second)
+	client := newStrictHTTPClientWithGlobalProxy(15 * time.Second)
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
@@ -968,31 +1333,36 @@ func classifyGitHubUpdateHTTPError(status int, body []byte, headers http.Header,
 
 	if rateLimited {
 		return localizedUpdateError{
-			key:    "app.update.backend.error.check_http_rate_limited",
-			params: map[string]any{"detail": detail},
+			key:        "app.update.backend.error.check_http_rate_limited",
+			params:     map[string]any{"detail": detail},
+			httpStatus: status,
 		}
 	}
 	if status == http.StatusForbidden {
 		if isCheck {
 			return localizedUpdateError{
-				key:    "app.update.backend.error.check_http_forbidden",
-				params: map[string]any{"detail": detail},
+				key:        "app.update.backend.error.check_http_forbidden",
+				params:     map[string]any{"detail": detail},
+				httpStatus: status,
 			}
 		}
 		return localizedUpdateError{
-			key:    "app.update.backend.error.package_download_forbidden",
-			params: map[string]any{"detail": detail},
+			key:        "app.update.backend.error.package_download_forbidden",
+			params:     map[string]any{"detail": detail},
+			httpStatus: status,
 		}
 	}
 	if isCheck {
 		return localizedUpdateError{
-			key:    "app.update.backend.error.check_http_status",
-			params: map[string]any{"status": status},
+			key:        "app.update.backend.error.check_http_status",
+			params:     map[string]any{"status": status},
+			httpStatus: status,
 		}
 	}
 	return localizedUpdateError{
-		key:    "app.update.backend.error.package_download_http_failed",
-		params: map[string]any{"status": status},
+		key:        "app.update.backend.error.package_download_http_failed",
+		params:     map[string]any{"status": status},
+		httpStatus: status,
 	}
 }
 
@@ -1132,7 +1502,7 @@ func fetchReleaseSHA256(assets []githubAsset) (map[string]string, error) {
 		return nil, localizedUpdateError{key: "app.update.backend.error.sha256sums_missing"}
 	}
 
-	client := newHTTPClientWithGlobalProxy(15 * time.Second)
+	client := newStrictHTTPClientWithGlobalProxy(15 * time.Second)
 	var lastStatus int
 	for _, candidate := range candidates {
 		resp, err := doGitHubDownload(client, candidate)
@@ -1196,6 +1566,7 @@ func parseSHA256Sums(content string) map[string]string {
 }
 
 type downloadProgressWriter struct {
+	mu         sync.Mutex
 	total      int64
 	written    int64
 	lastEmit   time.Time
@@ -1208,6 +1579,8 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 	if n == 0 {
 		return 0, nil
 	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	w.written += int64(n)
 	if w.onProgress == nil {
 		return n, nil
@@ -1220,74 +1593,26 @@ func (w *downloadProgressWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
+func (w *downloadProgressWriter) finish() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.onProgress != nil {
+		w.lastEmit = time.Now()
+		w.onProgress(w.written, w.total)
+	}
+	return w.written
+}
+
 func downloadFileWithHash(url, filePath string, onProgress func(downloaded, total int64)) (string, error) {
 	return downloadFileWithHashWithTimeout(url, filePath, onProgress, 10*time.Minute)
 }
 
+func downloadFileWithHashWithExpectedSize(url, filePath string, onProgress func(downloaded, total int64), expectedSize int64) (string, error) {
+	return downloadFileWithHashParallelAwareAndExpectedSize(url, filePath, onProgress, 10*time.Minute, expectedSize)
+}
+
 func downloadFileWithHashWithTimeout(url, filePath string, onProgress func(downloaded, total int64), timeout time.Duration) (string, error) {
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
-	client := newHTTPClientWithGlobalProxy(timeout)
-	resp, err := doGitHubDownload(client, url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-		return "", classifyGitHubUpdateHTTPError(resp.StatusCode, body, resp.Header, false)
-	}
-
-	// Windows 上旧文件可能被杀毒软件/索引服务占用，先尝试删除并重试
-	_ = os.Remove(filePath)
-	var out *os.File
-	for retry := 0; retry < 5; retry++ {
-		out, err = os.Create(filePath)
-		if err == nil {
-			break
-		}
-		if retry < 4 {
-			time.Sleep(time.Duration(retry+1) * 500 * time.Millisecond)
-		}
-	}
-	if err != nil {
-		return "", localizedUpdateError{
-			key:    "app.update.backend.error.package_file_busy",
-			params: map[string]any{"detail": err.Error()},
-		}
-	}
-
-	hasher := sha256.New()
-	total := resp.ContentLength
-	progressWriter := &downloadProgressWriter{
-		total:      total,
-		emitEvery:  120 * time.Millisecond,
-		onProgress: onProgress,
-	}
-	writers := []io.Writer{out, hasher, progressWriter}
-	if onProgress != nil {
-		onProgress(0, total)
-	}
-	if _, err := io.Copy(io.MultiWriter(writers...), resp.Body); err != nil {
-		out.Close()
-		return "", wrapUpdateNetworkError(err)
-	}
-	if onProgress != nil {
-		onProgress(progressWriter.written, total)
-	}
-
-	// 显式 Sync + Close，确保数据落盘且文件句柄释放
-	if err := out.Sync(); err != nil {
-		out.Close()
-		return "", err
-	}
-	if err := out.Close(); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(hasher.Sum(nil)), nil
+	return downloadFileWithHashParallelAware(url, filePath, onProgress, timeout)
 }
 
 func doUpdateRequest(client *http.Client, req *http.Request) (*http.Response, error) {
@@ -1963,24 +2288,91 @@ func ensureWindowsUpdateTargetWritable(targetExe string) error {
 	return nil
 }
 
-func (a *App) emitUpdateDownloadProgress(status string, downloaded, total int64, message string) {
-	if a.ctx == nil {
-		return
-	}
+func (a *App) emitUpdateDownloadProgress(info *UpdateInfo, status string, downloaded, total int64, message string) {
 	payload := updateDownloadProgressPayload{
-		Status:     status,
+		Status:     normalizeUpdateDownloadTaskStatus(status),
 		Percent:    0,
 		Downloaded: downloaded,
 		Total:      total,
 		Message:    strings.TrimSpace(message),
 	}
+	if payload.Status != "downloading" {
+		payload.Info = snapshotUpdateInfo(info)
+	}
 	if total > 0 {
 		payload.Percent = math.Min(100, (float64(downloaded)/float64(total))*100)
 	}
-	if status == "done" && payload.Percent < 100 {
+	if payload.Status == "done" && payload.Percent < 100 {
 		payload.Percent = 100
 	}
+	payload.TaskID = a.updateUpdateDownloadTaskProgress(info, payload)
+	if a.ctx == nil {
+		return
+	}
 	uievents.Emit(a.ctx, updateDownloadProgressEvent, payload)
+}
+
+func (a *App) updateUpdateDownloadTaskProgress(info *UpdateInfo, payload updateDownloadProgressPayload) string {
+	if a == nil {
+		return ""
+	}
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
+	task := a.updateState.task
+	if task == nil || !task.Running || !a.updateState.downloading {
+		return ""
+	}
+	task.Status = normalizeUpdateDownloadTaskStatus(payload.Status)
+	task.Percent = payload.Percent
+	if task.Status == "start" {
+		task.Percent = 0
+	}
+	if task.Status == "done" {
+		task.Percent = 100
+	}
+	task.Downloaded = max(0, payload.Downloaded)
+	task.Total = max(0, payload.Total)
+	if task.Total > 0 && task.Downloaded > task.Total {
+		task.Downloaded = task.Total
+	}
+	task.Message = strings.TrimSpace(payload.Message)
+	if info != nil {
+		task.Info = snapshotUpdateInfo(info)
+	}
+	return task.TaskID
+}
+
+func (a *App) emitUpdateDownloadTaskSnapshot(task UpdateDownloadTaskStatus) {
+	if a == nil || a.ctx == nil {
+		return
+	}
+	payload := updateDownloadProgressPayload{
+		TaskID:     task.TaskID,
+		Status:     normalizeUpdateDownloadTaskStatus(task.Status),
+		Percent:    task.Percent,
+		Downloaded: task.Downloaded,
+		Total:      task.Total,
+		Message:    task.Message,
+	}
+	if payload.Status != "downloading" {
+		payload.Info = snapshotUpdateInfo(task.Info)
+	}
+	if payload.Status == "done" {
+		payload.Percent = 100
+		if payload.Total > 0 && payload.Downloaded < payload.Total {
+			payload.Downloaded = payload.Total
+		}
+	}
+	uievents.Emit(a.ctx, updateDownloadProgressEvent, payload)
+}
+
+func normalizeUpdateDownloadTaskStatus(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "start", "downloading", "done", "error":
+		return strings.ToLower(strings.TrimSpace(status))
+	default:
+		return "downloading"
+	}
 }
 
 func launchUpdateScript(staged *stagedUpdate) error {
@@ -2218,11 +2610,9 @@ on run argv
     "rm -rf " & quoted form of tmpPath & " " & quoted form of bakPath & "; " & ¬
     "/usr/bin/ditto " & quoted form of srcPath & " " & quoted form of tmpPath & "; " & ¬
     "if [ ! -x " & quoted form of (tmpPath & "/" & binRel) & " ]; then echo 'tmp app binary missing' >> " & quoted form of logPath & "; exit 1; fi; " & ¬
-    "xattr -rd com.apple.quarantine " & quoted form of tmpPath & " >> " & quoted form of logPath & " 2>&1 || true; " & ¬
     "if [ -d " & quoted form of dstPath & " ]; then mv " & quoted form of dstPath & " " & quoted form of bakPath & "; fi; " & ¬
     "mv " & quoted form of tmpPath & " " & quoted form of dstPath & "; " & ¬
-    "rm -rf " & quoted form of bakPath & "; " & ¬
-    "xattr -rd com.apple.quarantine " & quoted form of dstPath & " >> " & quoted form of logPath & " 2>&1 || true"
+    "rm -rf " & quoted form of bakPath
   do shell script cmd with administrator privileges
 end run
 APPLESCRIPT
@@ -2235,7 +2625,6 @@ replace_app_direct() {
     log "tmp app binary missing: $TMP_APP/$APP_BIN_REL"
     return 1
   fi
-  /usr/bin/xattr -rd com.apple.quarantine "$TMP_APP" >>"$LOG_FILE" 2>&1 || true
   if [ -d "$TARGET_APP" ]; then
     /bin/mv "$TARGET_APP" "$BACKUP_APP" >>"$LOG_FILE" 2>&1
   fi
@@ -2248,7 +2637,6 @@ replace_app_direct() {
     return 1
   fi
   /bin/rm -rf "$BACKUP_APP" >>"$LOG_FILE" 2>&1 || true
-  /usr/bin/xattr -rd com.apple.quarantine "$TARGET_APP" >>"$LOG_FILE" 2>&1 || true
   return 0
 }
 

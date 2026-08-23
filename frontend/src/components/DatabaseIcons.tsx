@@ -275,32 +275,9 @@ const KafkaIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
 const RabbitMQIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="rabbitmq" size={size} color={color} />
 );
-const NacosIcon: React.FC<DbIconProps> = ({ size = 16, color }) => {
-    const bg = color || getDbDefaultColor('nacos');
-    return (
-        <IconFrame size={size}>
-            <span
-                style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: size,
-                    height: size,
-                    borderRadius: size * 0.22,
-                    background: bg,
-                    color: '#fff',
-                    fontSize: Math.max(8, Math.round(size * 0.42)),
-                    fontWeight: 700,
-                    letterSpacing: '-0.04em',
-                    lineHeight: 1,
-                    userSelect: 'none',
-                }}
-            >
-                N
-            </span>
-        </IconFrame>
-    );
-};
+const NacosIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
+    <BrandAssetIcon type="nacos" size={size} color={color} />
+);
 const ChromaIcon: React.FC<DbIconProps> = ({ size = 16, color }) => (
     <BrandAssetIcon type="chroma" size={size} color={color} />
 );

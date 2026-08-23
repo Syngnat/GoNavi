@@ -121,7 +121,91 @@ if (
             command: 'C:/Program Files/GoNavi/GoNavi.exe',
             args: ['mcp-server'],
         },
+        {
+            client: 'zcode',
+            displayName: 'ZCode',
+            installMode: 'auto',
+            installed: false,
+            matchesCurrent: false,
+            clientDetected: false,
+            clientCommand: 'zcode',
+            message: t('ai_chat.mcp_client.install.summary.missing', { label: 'ZCode' }),
+            configPath: 'C:/Users/mock/.zcode/cli/config.json',
+            command: 'C:/Program Files/GoNavi/GoNavi.exe',
+            args: ['mcp-server'],
+        },
+        {
+            client: 'deepseek-harness',
+            displayName: 'DeepSeek Harness',
+            installMode: 'auto',
+            installed: false,
+            matchesCurrent: false,
+            clientDetected: false,
+            clientCommand: 'dsh',
+            message: t('ai_chat.mcp_client.install.summary.missing', { label: 'DeepSeek Harness' }),
+            configPath: 'C:/Users/mock/.dsh/cordis.patch.yml',
+            command: 'C:/Program Files/GoNavi/GoNavi.exe',
+            args: ['mcp-server'],
+        },
+        {
+            client: 'kimi',
+            displayName: 'Kimi Code',
+            installMode: 'auto',
+            installed: false,
+            matchesCurrent: false,
+            clientDetected: false,
+            clientCommand: 'kimi',
+            message: t('ai_chat.mcp_client.install.summary.missing', { label: 'Kimi Code' }),
+            configPath: 'C:/Users/mock/.kimi-code/mcp.json',
+            command: 'C:/Program Files/GoNavi/GoNavi.exe',
+            args: ['mcp-server'],
+        },
+        {
+            client: 'grok-build',
+            displayName: 'Grok Build',
+            installMode: 'auto',
+            installed: false,
+            matchesCurrent: false,
+            clientDetected: false,
+            clientCommand: 'grok',
+            message: t('ai_chat.mcp_client.install.summary.missing', { label: 'Grok Build' }),
+            configPath: 'C:/Users/mock/.grok/config.toml',
+            command: 'C:/Program Files/GoNavi/GoNavi.exe',
+            args: ['mcp-server'],
+        },
     ];
+    const requireBrowserMockMCPClientDetected = (client: string, displayName: string) => {
+        const status = mockMCPClientStatuses.find((item) => item.client === client);
+        if (status?.clientDetected) {
+            return;
+        }
+        throw new Error(t('ai.service.mcp_client.local_client_not_detected', {
+            label: displayName,
+            command: String(status?.clientCommand || client).trim() || client,
+        }));
+    };
+    const installBrowserMockMCPClient = (client: string, displayName: string, configPath: string) => {
+        requireBrowserMockMCPClientDetected(client, displayName);
+        const message = t('ai_chat.mcp_client.install.message.install_success', { label: displayName });
+        mockMCPClientStatuses = mockMCPClientStatuses.map((item) => item.client === client
+            ? {
+                ...item,
+                installed: true,
+                matchesCurrent: true,
+                message,
+                command: 'C:/Program Files/GoNavi/GoNavi.exe',
+                args: ['mcp-server'],
+            }
+            : item);
+        return {
+            success: true,
+            client,
+            message,
+            configPath,
+            command: 'C:/Program Files/GoNavi/GoNavi.exe',
+            args: ['mcp-server'],
+        };
+    };
     let mockSkills: any[] = [];
     let mockGlobalProxy: any = { enabled: false, type: 'socks5', host: '', port: 1080, user: '', password: '', hasPassword: false };
     let mockUpdateChannel: 'latest' | 'dev' = 'latest';
@@ -167,39 +251,51 @@ if (
         mockConnections.push(view);
     };
 
+    const retainMockConnectionSecret = (value: unknown, existingValue: unknown): string => {
+        const nextValue = String(value ?? '');
+        return nextValue !== '' ? nextValue : String(existingValue ?? '');
+    };
+
     const saveMockConnection = (input: any) => {
         const existing = mockConnections.find((item) => item.id === input?.id);
         const hasIncludeDatabases = Object.prototype.hasOwnProperty.call(input || {}, 'includeDatabases');
         const hasIncludeDatabasePatterns = Object.prototype.hasOwnProperty.call(input || {}, 'includeDatabasePatterns');
         const hasExcludeDatabasePatterns = Object.prototype.hasOwnProperty.call(input || {}, 'excludeDatabasePatterns');
         const hasSchemaVisibilityByDatabase = Object.prototype.hasOwnProperty.call(input || {}, 'schemaVisibilityByDatabase');
-        const existingSecrets = mockConnectionSecrets.get(existing?.id || input?.id || '') || {};
+        const existingSecrets = existing ? (mockConnectionSecrets.get(existing.id) || {}) : {};
         const config = (input?.config && typeof input.config === 'object') ? input.config : {};
         const ssh = (config.ssh && typeof config.ssh === 'object') ? config.ssh : {};
         const proxy = (config.proxy && typeof config.proxy === 'object') ? config.proxy : {};
         const httpTunnel = (config.httpTunnel && typeof config.httpTunnel === 'object') ? config.httpTunnel : {};
         const nextId = String(input?.id || existing?.id || `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-        const nextSecrets = {
-            password: String(config.password ?? existingSecrets.password ?? ''),
-            sshPassword: String(ssh.password ?? existingSecrets.sshPassword ?? ''),
-            proxyPassword: String(proxy.password ?? existingSecrets.proxyPassword ?? ''),
-            httpTunnelPassword: String(httpTunnel.password ?? existingSecrets.httpTunnelPassword ?? ''),
-            mysqlReplicaPassword: String(config.mysqlReplicaPassword ?? existingSecrets.mysqlReplicaPassword ?? ''),
-            mongoReplicaPassword: String(config.mongoReplicaPassword ?? existingSecrets.mongoReplicaPassword ?? ''),
-            redisSentinelPassword: String(config.redisSentinelPassword ?? existingSecrets.redisSentinelPassword ?? ''),
-            uri: String(config.uri ?? existingSecrets.uri ?? ''),
-            dsn: String(config.dsn ?? existingSecrets.dsn ?? ''),
+        const nextSecrets: Record<string, string> = {
+            password: retainMockConnectionSecret(config.password, existingSecrets.password),
+            sshPassword: retainMockConnectionSecret(ssh.password, existingSecrets.sshPassword),
+            proxyPassword: retainMockConnectionSecret(proxy.password, existingSecrets.proxyPassword),
+            httpTunnelPassword: retainMockConnectionSecret(httpTunnel.password, existingSecrets.httpTunnelPassword),
+            mysqlReplicaPassword: retainMockConnectionSecret(config.mysqlReplicaPassword, existingSecrets.mysqlReplicaPassword),
+            mongoReplicaPassword: retainMockConnectionSecret(config.mongoReplicaPassword, existingSecrets.mongoReplicaPassword),
+            redisSentinelPassword: retainMockConnectionSecret(config.redisSentinelPassword, existingSecrets.redisSentinelPassword),
+            uri: retainMockConnectionSecret(config.uri, existingSecrets.uri),
+            dsn: retainMockConnectionSecret(config.dsn, existingSecrets.dsn),
         };
-        if (input?.clearPrimaryPassword) nextSecrets.password = '';
-        if (input?.clearSSHPassword) nextSecrets.sshPassword = '';
-        if (input?.clearProxyPassword) nextSecrets.proxyPassword = '';
-        if (input?.clearHttpTunnelPassword) nextSecrets.httpTunnelPassword = '';
-        if (input?.clearMySQLReplicaPassword) nextSecrets.mysqlReplicaPassword = '';
-        if (input?.clearMongoReplicaPassword) nextSecrets.mongoReplicaPassword = '';
-        if (input?.clearRedisSentinelPassword) nextSecrets.redisSentinelPassword = '';
-        if (input?.clearOpaqueURI) nextSecrets.uri = '';
-        if (input?.clearOpaqueDSN) nextSecrets.dsn = '';
-        mockConnectionSecrets.set(nextId, nextSecrets);
+        if (input?.clearPrimaryPassword) delete nextSecrets.password;
+        if (input?.clearSSHPassword) delete nextSecrets.sshPassword;
+        if (input?.clearProxyPassword) delete nextSecrets.proxyPassword;
+        if (input?.clearHttpTunnelPassword) delete nextSecrets.httpTunnelPassword;
+        if (input?.clearMySQLReplicaPassword) delete nextSecrets.mysqlReplicaPassword;
+        if (input?.clearMongoReplicaPassword) delete nextSecrets.mongoReplicaPassword;
+        if (input?.clearRedisSentinelPassword) delete nextSecrets.redisSentinelPassword;
+        if (input?.clearOpaqueURI) delete nextSecrets.uri;
+        if (input?.clearOpaqueDSN) delete nextSecrets.dsn;
+        Object.entries(nextSecrets).forEach(([key, value]) => {
+            if (value === '') delete nextSecrets[key];
+        });
+        if (Object.keys(nextSecrets).length > 0) {
+            mockConnectionSecrets.set(nextId, nextSecrets);
+        } else {
+            mockConnectionSecrets.delete(nextId);
+        }
         const view = {
             id: nextId,
             name: String(input?.name || existing?.name || t('connection.unnamed')),
@@ -380,6 +476,8 @@ if (
             App: {
                 CheckUpdate: async () => ({ success: false }),
                 DownloadUpdate: async () => ({ success: false }),
+                StartUpdateDownload: async () => ({ success: false, message: 'Browser mock does not provide an update package' }),
+                GetUpdateDownloadTask: async () => ({ success: true, data: { task: null } }),
                 SetLanguage: async () => null,
                 GetSavedConnections: async () => cloneBrowserMockValue(mockConnections),
                 GetEditableSavedConnection: async (id: string) => {
@@ -387,22 +485,18 @@ if (
                     if (!existing) {
                         throw new Error(`saved connection not found: ${id}`);
                     }
-                    const secrets = mockConnectionSecrets.get(id) || {};
-                    return cloneBrowserMockValue({
-                        ...existing,
-                        config: {
-                            ...existing.config,
-                            password: secrets.password || '',
-                            ssh: { ...(existing.config?.ssh || {}), password: secrets.sshPassword || '' },
-                            proxy: { ...(existing.config?.proxy || {}), password: secrets.proxyPassword || '' },
-                            httpTunnel: { ...(existing.config?.httpTunnel || {}), password: secrets.httpTunnelPassword || '' },
-                            mysqlReplicaPassword: secrets.mysqlReplicaPassword || '',
-                            mongoReplicaPassword: secrets.mongoReplicaPassword || '',
-                            redisSentinelPassword: secrets.redisSentinelPassword || '',
-                            uri: secrets.uri || '',
-                            dsn: secrets.dsn || '',
-                        },
-                    });
+                    return cloneBrowserMockValue(existing);
+                },
+                RevealSavedConnectionPrimaryPassword: async (id: string) => {
+                    const existing = mockConnections.find((item) => item.id === id);
+                    if (!existing) {
+                        throw new Error(`saved connection not found: ${id}`);
+                    }
+                    const password = String(mockConnectionSecrets.get(id)?.password || '');
+                    if (!existing.hasPrimaryPassword || password === '') {
+                        throw new Error(`saved connection has no stored primary password: ${id}`);
+                    }
+                    return password;
                 },
                 ListInstalledFontFamilies: async () => ({ success: true, data: [] }),
                 SaveConnection: async (input: any) => saveMockConnection(input),
@@ -411,6 +505,7 @@ if (
                     if (index >= 0) {
                         mockConnections.splice(index, 1);
                     }
+                    mockConnectionSecrets.delete(id);
                     return null;
                 },
                 DuplicateConnection: async (id: string) => {
@@ -422,6 +517,13 @@ if (
                         nextId: `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                     });
                     mockConnections.push(duplicated);
+                    const existingSecrets = mockConnectionSecrets.get(id);
+                    if (existingSecrets) {
+                        mockConnectionSecrets.set(
+                            duplicated.id,
+                            cloneBrowserMockValue(existingSecrets),
+                        );
+                    }
                     return cloneBrowserMockValue(duplicated);
                 },
                 ImportLegacyConnections: async (items: any[]) => items.map((item) => saveMockConnection(item)),
@@ -433,6 +535,23 @@ if (
                 GetTableColumns: async () => [],
                 DBGetDatabases: async () => ({ success: true, data: ['missav_bot'] }),
                 DBGetTables: async () => ({ success: true, data: cloneBrowserMockValue(mockQueryTables) }),
+                DataSyncCapability: async (sourceConfig: any, targetConfig: any) => {
+                    const sourceType = String(sourceConfig?.type || sourceConfig?.driver || '').trim().toLowerCase();
+                    const targetType = String(targetConfig?.type || targetConfig?.driver || '').trim().toLowerCase();
+                    const canExecute = sourceType !== '' && targetType !== '';
+                    return {
+                        sourceType,
+                        targetType,
+                        sourceModel: 'custom',
+                        targetModel: 'custom',
+                        planner: canExecute ? 'browser-mock-existing-target' : '',
+                        supportLevel: canExecute ? 'partial' : 'unsupported',
+                        canExecute,
+                        supportsAutoCreate: false,
+                        supportsAutoAddColumns: false,
+                        requiresExistingTarget: true,
+                    };
+                },
                 DBGetAllColumns: async () => ({ success: true, data: cloneBrowserMockValue(mockQueryColumns) }),
                 DBGetDatabaseForeignKeys: async () => ({ success: true, data: {} }),
                 DBGetColumns: async (_config: any, _dbName: string, tableName: string) => ({
@@ -830,6 +949,7 @@ if (
                 },
                 AIGetMCPServers: async () => cloneBrowserMockValue(mockMCPServers),
                 AIInstallClaudeCodeMCP: async () => {
+                    requireBrowserMockMCPClientDetected('claude-code', 'Claude Code');
                     mockMCPClientStatuses = mockMCPClientStatuses.map((item) => item.client === 'claude-code'
                         ? {
                             ...item,
@@ -850,6 +970,7 @@ if (
                     };
                 },
                 AIInstallCodexMCP: async () => {
+                    requireBrowserMockMCPClientDetected('codex', 'Codex');
                     mockMCPClientStatuses = mockMCPClientStatuses.map((item) => item.client === 'codex'
                         ? {
                             ...item,
@@ -870,6 +991,7 @@ if (
                     };
                 },
                 AIInstallOpenCodeMCP: async () => {
+                    requireBrowserMockMCPClientDetected('opencode', 'OpenCode');
                     mockMCPClientStatuses = mockMCPClientStatuses.map((item) => item.client === 'opencode'
                         ? {
                             ...item,
@@ -889,6 +1011,10 @@ if (
                         args: ['mcp-server'],
                     };
                 },
+                AIInstallZCodeMCP: async () => installBrowserMockMCPClient('zcode', 'ZCode', 'C:/Users/mock/.zcode/cli/config.json'),
+                AIInstallDeepSeekHarnessMCP: async () => installBrowserMockMCPClient('deepseek-harness', 'DeepSeek Harness', 'C:/Users/mock/.dsh/cordis.patch.yml'),
+                AIInstallKimiMCP: async () => installBrowserMockMCPClient('kimi', 'Kimi Code', 'C:/Users/mock/.kimi-code/mcp.json'),
+                AIInstallGrokBuildMCP: async () => installBrowserMockMCPClient('grok-build', 'Grok Build', 'C:/Users/mock/.grok/config.toml'),
                 AISaveMCPServer: async (input: any) => {
                     const next = {
                         id: String(input?.id || `mcp-${Date.now()}`),

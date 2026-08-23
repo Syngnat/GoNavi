@@ -1,7 +1,7 @@
 const REDIS_GLOB_SPECIAL_CHARS = /([*?\[\]\\])/g;
 const ASCII_LETTER = /^[A-Za-z]$/;
 
-export type RedisSearchMode = 'prefix' | 'exact';
+export type RedisSearchMode = 'prefix' | 'fuzzy' | 'exact';
 
 const escapeRedisGlobLiteral = (value: string): string => {
   return value.replace(REDIS_GLOB_SPECIAL_CHARS, '\\$1');
@@ -33,9 +33,10 @@ export const normalizeRedisSearchInput = (
       pattern: escapeRedisGlobLiteral(keyword),
     };
   }
+  const pattern = toCaseInsensitiveRedisGlobLiteral(keyword);
   return {
     keyword,
-    pattern: `${toCaseInsensitiveRedisGlobLiteral(keyword)}*`,
+    pattern: mode === 'fuzzy' ? `*${pattern}*` : `${pattern}*`,
   };
 };
 

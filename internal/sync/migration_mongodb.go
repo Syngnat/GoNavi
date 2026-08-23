@@ -72,13 +72,14 @@ func buildTabularToMongoPlan(config SyncConfig, tableName string, sourceDB db.Da
 		}
 		plan.PreDataSQL = append(plan.PreDataSQL, createCmd)
 		if config.CreateIndexes {
-			indexCmds, warnings, unsupported, created, skipped, err := buildMongoIndexCommands(sourceDB, plan.SourceSchema, plan.SourceTable, plan.TargetTable)
+			indexCmds, warnings, unsupported, unmigrated, created, skipped, err := buildMongoIndexCommands(sourceDB, plan.SourceSchema, plan.SourceTable, plan.TargetTable)
 			if err != nil {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("读取源表索引失败，已跳过索引迁移：%v", err))
 			} else {
 				plan.PostDataSQL = append(plan.PostDataSQL, indexCmds...)
 				plan.Warnings = append(plan.Warnings, warnings...)
 				plan.UnsupportedObjects = append(plan.UnsupportedObjects, unsupported...)
+				plan.UnmigratedIndexes = append(plan.UnmigratedIndexes, unmigrated...)
 				plan.IndexesToCreate = created
 				plan.IndexesSkipped = skipped
 			}
@@ -139,13 +140,14 @@ func buildMongoToMongoPlan(config SyncConfig, tableName string, sourceDB db.Data
 		}
 		plan.PreDataSQL = append(plan.PreDataSQL, createCmd)
 		if config.CreateIndexes {
-			indexCmds, indexWarnings, unsupported, created, skipped, err := buildMongoIndexCommands(sourceDB, plan.SourceSchema, plan.SourceTable, plan.TargetTable)
+			indexCmds, indexWarnings, unsupported, unmigrated, created, skipped, err := buildMongoIndexCommands(sourceDB, plan.SourceSchema, plan.SourceTable, plan.TargetTable)
 			if err != nil {
 				plan.Warnings = append(plan.Warnings, fmt.Sprintf("读取源集合索引失败，已跳过索引迁移：%v", err))
 			} else {
 				plan.PostDataSQL = append(plan.PostDataSQL, indexCmds...)
 				plan.Warnings = append(plan.Warnings, indexWarnings...)
 				plan.UnsupportedObjects = append(plan.UnsupportedObjects, unsupported...)
+				plan.UnmigratedIndexes = append(plan.UnmigratedIndexes, unmigrated...)
 				plan.IndexesToCreate = created
 				plan.IndexesSkipped = skipped
 			}
@@ -245,15 +247,60 @@ func buildMongoCreateCollectionCommand(collection string) (string, error) {
 	return string(data), nil
 }
 
-func buildMongoIndexCommands(sourceDB db.Database, dbName, tableName, targetCollection string) ([]string, []string, []string, int, int, error) {
+func buildMongoIndexCommand(targetCollection string, idx groupedIndex, text bool) (string, error) {
+	keyParts := make([]string, 0, len(idx.Columns))
+	for _, column := range idx.Columns {
+		nameJSON, err := json.Marshal(strings.TrimSpace(column.Name))
+		if err != nil {
+			return "", err
+		}
+		value := "1"
+		if text {
+			value = `"text"`
+		}
+		keyParts = append(keyParts, fmt.Sprintf("%s:%s", nameJSON, value))
+	}
+	command := struct {
+		CreateIndexes string `json:"createIndexes"`
+		Indexes       []struct {
+			Name   string          `json:"name"`
+			Key    json.RawMessage `json:"key"`
+			Unique bool            `json:"unique"`
+		} `json:"indexes"`
+	}{CreateIndexes: strings.TrimSpace(targetCollection)}
+	command.Indexes = append(command.Indexes, struct {
+		Name   string          `json:"name"`
+		Key    json.RawMessage `json:"key"`
+		Unique bool            `json:"unique"`
+	}{
+		Name:   strings.TrimSpace(idx.Name),
+		Key:    json.RawMessage(`{` + strings.Join(keyParts, ",") + `}`),
+		Unique: idx.Unique,
+	})
+	data, err := json.Marshal(command)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func remediationStatements(command string) []string {
+	if strings.TrimSpace(command) == "" {
+		return nil
+	}
+	return []string{command}
+}
+
+func buildMongoIndexCommands(sourceDB db.Database, dbName, tableName, targetCollection string) ([]string, []string, []string, []UnmigratedIndex, int, int, error) {
 	indexes, err := sourceDB.GetIndexes(dbName, tableName)
 	if err != nil {
-		return nil, nil, nil, 0, 0, err
+		return nil, nil, nil, nil, 0, 0, err
 	}
 	grouped := groupIndexDefinitions(indexes)
 	cmds := make([]string, 0, len(grouped))
 	warnings := make([]string, 0)
 	unsupported := make([]string, 0)
+	unmigrated := make([]UnmigratedIndex, 0)
 	created := 0
 	skipped := 0
 	for _, idx := range grouped {
@@ -262,41 +309,85 @@ func buildMongoIndexCommands(sourceDB db.Database, dbName, tableName, targetColl
 			continue
 		}
 		if len(idx.Columns) == 0 {
+			reason := fmt.Sprintf("索引 %s 缺少列定义，已跳过", name)
 			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 缺少列定义，已跳过", name))
+			unsupported = append(unsupported, reason)
+			unmigrated = append(unmigrated, UnmigratedIndex{
+				Name:       name,
+				Columns:    []IndexMigrationColumn{},
+				Unique:     idx.Unique,
+				IndexType:  idx.IndexType,
+				ReasonCode: "missing_columns",
+				Reason:     reason,
+			})
 			continue
 		}
 		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
-		if idx.SubPart > 0 {
+		if hasIndexPrefix(idx.Columns) {
+			reason := fmt.Sprintf("索引 %s 使用前缀长度，MongoDB 目标暂不支持等价迁移", name)
+			remediation, _ := buildMongoIndexCommand(targetCollection, idx, false)
 			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，MongoDB 目标暂不支持等价迁移", name))
+			unsupported = append(unsupported, reason)
+			unmigrated = append(unmigrated, UnmigratedIndex{
+				Name:                  name,
+				Columns:               append([]IndexMigrationColumn(nil), idx.Columns...),
+				Unique:                idx.Unique,
+				IndexType:             idx.IndexType,
+				ReasonCode:            "prefix_index_requires_review",
+				Reason:                reason,
+				RemediationStatements: remediationStatements(remediation),
+			})
+			continue
+		}
+		if kind == "fulltext" {
+			reason := fmt.Sprintf("索引 %s 类型=%s，MongoDB 目标暂不支持等价迁移", name, idx.IndexType)
+			remediation, _ := buildMongoIndexCommand(targetCollection, idx, true)
+			skipped++
+			unsupported = append(unsupported, reason)
+			unmigrated = append(unmigrated, UnmigratedIndex{
+				Name:                  name,
+				Columns:               append([]IndexMigrationColumn(nil), idx.Columns...),
+				Unique:                idx.Unique,
+				IndexType:             idx.IndexType,
+				ReasonCode:            "fulltext_requires_review",
+				Reason:                reason,
+				RemediationStatements: remediationStatements(remediation),
+			})
 			continue
 		}
 		if kind != "" && kind != "btree" {
-			warnings = append(warnings, fmt.Sprintf("索引 %s 类型=%s 将按普通索引迁移到 MongoDB", name, idx.IndexType))
-		}
-		keySpec := make(map[string]int)
-		for _, col := range idx.Columns {
-			keySpec[col] = 1
-		}
-		command := map[string]interface{}{
-			"createIndexes": strings.TrimSpace(targetCollection),
-			"indexes": []map[string]interface{}{{
-				"name":   name,
-				"key":    keySpec,
-				"unique": idx.Unique,
-			}},
-		}
-		data, err := json.Marshal(command)
-		if err != nil {
+			reason := fmt.Sprintf("索引 %s 类型=%s，MongoDB 目标暂不支持等价迁移", name, idx.IndexType)
 			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 生成 MongoDB createIndexes 命令失败：%v", name, err))
+			unsupported = append(unsupported, reason)
+			unmigrated = append(unmigrated, UnmigratedIndex{
+				Name:       name,
+				Columns:    append([]IndexMigrationColumn(nil), idx.Columns...),
+				Unique:     idx.Unique,
+				IndexType:  idx.IndexType,
+				ReasonCode: "unsupported_index_type",
+				Reason:     reason,
+			})
 			continue
 		}
-		cmds = append(cmds, string(data))
+		command, err := buildMongoIndexCommand(targetCollection, idx, false)
+		if err != nil {
+			reason := fmt.Sprintf("索引 %s 生成 MongoDB createIndexes 命令失败：%v", name, err)
+			skipped++
+			unsupported = append(unsupported, reason)
+			unmigrated = append(unmigrated, UnmigratedIndex{
+				Name:       name,
+				Columns:    append([]IndexMigrationColumn(nil), idx.Columns...),
+				Unique:     idx.Unique,
+				IndexType:  idx.IndexType,
+				ReasonCode: "remediation_generation_failed",
+				Reason:     reason,
+			})
+			continue
+		}
+		cmds = append(cmds, command)
 		created++
 	}
-	return cmds, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
+	return cmds, dedupeStrings(warnings), dedupeStrings(unsupported), unmigrated, created, skipped, nil
 }
 
 func inferMongoCollectionColumns(sourceDB db.Database, collection string) ([]connection.ColumnDefinition, []string, error) {
@@ -468,7 +559,7 @@ func buildMongoToMySQLCreateTablePlan(config SyncConfig, targetQueryTable string
 		}
 		quotedCols := make([]string, 0, len(idx.Columns))
 		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType("mysql", col))
+			quotedCols = append(quotedCols, quoteIdentByType("mysql", col.Name))
 		}
 		prefix := "CREATE INDEX"
 		if idx.Unique {
@@ -642,7 +733,7 @@ func buildMongoToPGLikeCreateTablePlan(targetType string, config SyncConfig, tar
 		}
 		quotedCols := make([]string, 0, len(idx.Columns))
 		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType(targetType, col))
+			quotedCols = append(quotedCols, quoteIdentByType(targetType, col.Name))
 		}
 		prefix := "CREATE INDEX"
 		if idx.Unique {

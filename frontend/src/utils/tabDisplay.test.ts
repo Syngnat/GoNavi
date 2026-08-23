@@ -4,6 +4,7 @@ import { t as catalogTranslate } from '../i18n/catalog';
 import type { SavedConnection, TabData } from '../types';
 import {
   applyTabDisplaySettingsPatch,
+  buildConnectionGroupNameIndex,
   buildTabDisplayModel,
   buildTabDisplayTitle,
   DEFAULT_TAB_DISPLAY_SETTINGS,
@@ -247,7 +248,7 @@ describe('tabDisplay', () => {
       layout: 'single',
       primaryElements: ['object', 'schema', 'host'],
       secondaryElements: [],
-    })).toBe('andon_events SCHEMA:ldf_server 192.168.10.8');
+    })).toBe('andon_events ldf_server 192.168.10.8');
   });
 
   it('builds the default configurable model with the object on the primary line', () => {
@@ -403,8 +404,8 @@ describe('tabDisplay', () => {
 
     expect(model.layout).toBe('double');
     expect(model.primaryText).toBe('TABLE events');
-    expect(model.secondaryText).toBe('[PROD]·analytics·SCHEMA:reporting·10.0.0.9');
-    expect(model.fullTitle).toBe('TABLE events · [PROD]·analytics·SCHEMA:reporting·10.0.0.9');
+    expect(model.secondaryText).toBe('[PROD]·analytics·reporting·10.0.0.9');
+    expect(model.fullTitle).toBe('TABLE events · [PROD]·analytics·reporting·10.0.0.9');
   });
 
   it('uses explicit schema metadata for unqualified table names', () => {
@@ -425,7 +426,7 @@ describe('tabDisplay', () => {
     });
 
     expect(model.primaryText).toBe('events');
-    expect(model.secondaryText).toBe('SCHEMA:reporting');
+    expect(model.secondaryText).toBe('reporting');
   });
 
   it('sanitizes tab display settings with fallback defaults', () => {
@@ -481,7 +482,78 @@ describe('tabDisplay', () => {
       layout: 'double',
       primaryElements: ['object', 'kind'],
       secondaryElements: ['host'],
-    })).toEqual(['object', 'kind', 'host', 'connection', 'database', 'schema']);
+    })).toEqual(['object', 'kind', 'host', 'connection', 'database', 'schema', 'group']);
+  });
+
+  it('renders the connection group name when the group element is enabled', () => {
+    const connection: SavedConnection = {
+      id: 'pg-1',
+      name: 'Postgres PROD',
+      config: {
+        type: 'postgres',
+        host: '10.0.0.9',
+        port: 5432,
+        user: 'postgres',
+        database: 'analytics',
+      },
+    };
+    const tableTab: TabData = {
+      id: 'pg-1-analytics-table-reporting.events',
+      title: 'reporting.events',
+      type: 'table',
+      connectionId: 'pg-1',
+      dbName: 'analytics',
+      tableName: 'reporting.events',
+    };
+
+    const grouped = buildTabDisplayModel(tableTab, connection, {
+      layout: 'double',
+      primaryElements: ['object'],
+      secondaryElements: ['group', 'connection'],
+    }, undefined, '核心交易库');
+
+    expect(grouped.secondaryText).toBe('核心交易库·[PROD]');
+    expect(grouped.fullTitle).toBe('events · 核心交易库·[PROD]');
+  });
+
+  it('omits the group element when the connection has no group name', () => {
+    const tableTab: TabData = {
+      id: 'pg-1-analytics-table-events',
+      title: 'events',
+      type: 'table',
+      connectionId: 'pg-1',
+      dbName: 'analytics',
+      tableName: 'events',
+    };
+
+    const ungrouped = buildTabDisplayModel(tableTab, undefined, {
+      layout: 'double',
+      primaryElements: ['object'],
+      secondaryElements: ['group', 'kind'],
+    }, undefined, '');
+
+    expect(ungrouped.secondaryText).toBe('TABLE');
+    expect(ungrouped.fullTitle).toBe('events · TABLE');
+  });
+
+  it('resolves a connection group name from the first matching tag', () => {
+    const index = buildConnectionGroupNameIndex([
+      { id: 'tag-a', name: '交易库', connectionIds: ['conn-1', 'conn-2'] },
+      { id: 'tag-b', name: '日志库', connectionIds: ['conn-3'] },
+    ]);
+
+    expect(index.get('conn-1')).toBe('交易库');
+    expect(index.get('conn-3')).toBe('日志库');
+    expect(index.get('conn-unknown')).toBeUndefined();
+  });
+
+  it('resolves only the direct group name for a nested connection', () => {
+    const index = buildConnectionGroupNameIndex([
+      { id: 'tag-root', name: '生产环境', connectionIds: [] },
+      { id: 'tag-child', name: '核心交易库', parentTagId: 'tag-root', connectionIds: ['conn-1'] },
+    ]);
+
+    expect(index.get('conn-1')).toBe('核心交易库');
   });
 
   it('keeps separate single-line and double-line settings when switching layouts', () => {

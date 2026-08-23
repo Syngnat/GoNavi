@@ -80,6 +80,7 @@ helm upgrade --install gonavi-mcp-server deploy/helm/gonavi-mcp-server \
 ## 4. 关键参数
 
 - `image.repository` / `image.tag`
+- `mcp.httpAddr` / `mcp.allowNonLoopback`
 - `secret.create`
 - `secret.name`
 - `data.mode=secret|hostPath|pvc`

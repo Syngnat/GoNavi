@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -108,6 +109,9 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 			Err:            sqlAuditErrorFromResult(result),
 		})
 	}()
+	if err := a.ensureDataSourceQueryCapability(config); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
+	}
 	if err := ensureConnectionAllowsQuery(config, query); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error(), QueryID: queryID}
 	}
@@ -557,6 +561,11 @@ func executeManagedSQLTransactionStatementsWithObserver(
 				emitObservation(0, 0, statementErr)
 				return nil, statementErr
 			}
+			// Query-first writes may already have reached the server. Falling
+			// through to Exec would replay the same statement in this transaction.
+			statementErr := buildStatementExecutionFailedError(statementIndex, classifyDispatchedWriteError(err))
+			emitObservation(0, 0, statementErr)
+			return nil, statementErr
 		}
 
 		affected, err := session.ExecContext(ctx, stmt)
@@ -650,12 +659,7 @@ func shouldUseManagedSQLTransaction(dbType string, query string) bool {
 }
 
 func isManagedSQLTransactionUnsupportedType(dbType string) bool {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "trino", "tdengine", "clickhouse", "iotdb", "rocketmq", "mqtt", "kafka", "rabbitmq":
-		return true
-	default:
-		return false
-	}
+	return !db.ResolveDataSourceCapability(dbType).Transaction.Supported
 }
 
 func sqlEditorImplicitTransactionSQL(dbType string) (commitSQL string, rollbackSQL string, ok bool) {
@@ -814,6 +818,9 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 	}
 	closeErr := tx.execer.Close()
 	if execErr != nil {
+		if closeErr != nil {
+			execErr = errors.Join(execErr, closeErr)
+		}
 		a.recordSQLAuditTransactionEvent(sqlAuditTransactionEventInput{
 			Config:        tx.config,
 			Database:      tx.config.Database,
@@ -832,7 +839,11 @@ func (a *App) finishManagedSQLTransaction(transactionID string, commit bool, tri
 		if commit {
 			key = "db.backend.error.transaction_commit_failed"
 		}
-		return connection.QueryResult{Success: false, Message: a.appText(key, map[string]any{"detail": execErr.Error()})}
+		return connection.QueryResult{
+			Success:        false,
+			Message:        a.appText(key, map[string]any{"detail": execErr.Error()}),
+			OutcomeUnknown: true,
+		}
 	}
 	if closeErr != nil {
 		// Commit/Rollback has already succeeded at the database boundary. Record that

@@ -7,6 +7,8 @@ import { useI18n } from '../../i18n/provider'
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities'
 import { ExplainReportView } from './ExplainWorkbench'
 import { SlowQueryPanelContent } from './SlowQueryPanel'
+import type { SlowQueryRecord } from './slowQueryModel'
+import { buildRestoredQueryTab } from '../../utils/sqlAuditTab'
 
 const { Title, Text } = Typography
 
@@ -27,6 +29,7 @@ const normalizeConnectionConfig = (connection: any): ConnectionConfig => ({
 export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
   const { t } = useI18n()
   const connections = useStore((state) => state.connections)
+  const addTab = useStore((state) => state.addTab)
   const connection = useMemo(
     () => connections.find((item) => item.id === tab.connectionId) || null,
     [connections, tab.connectionId],
@@ -89,6 +92,19 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
     setDiagnoseRunKey(0)
     setActiveView('diagnose')
   }, [])
+
+  const handleRestoreSlowQuery = useCallback((sql: string, record: SlowQueryRecord) => {
+    const text = String(sql || '').trim()
+    if (!text) return
+    addTab(buildRestoredQueryTab({
+      sourceId: record.id || record.sqlFp || 'slow-query',
+      connectionId: String(tab.connectionId || '').trim(),
+      dbName,
+      sql: text,
+      title: t('query_history.restore.tab_title'),
+    }))
+    message.warning(t('query_history.restore.redacted_warning'))
+  }, [addTab, dbName, t, tab.connectionId])
 
   const handleViewChange = useCallback((value: string | number) => {
     const nextView = value as SqlAnalysisViewKey
@@ -173,6 +189,7 @@ export default function SqlAnalysisWorkbench({ tab }: { tab: TabData }) {
               config={connectionConfig}
               dbName={dbName}
               onPickQuery={handlePickSlowQuery}
+              onRestoreQuery={handleRestoreSlowQuery}
               activeToken={slowQueryLoadKey}
             />
           </div>

@@ -41,6 +41,9 @@ func TestBuildMacScriptContainsHardeningGuards(t *testing.T) {
 	if strings.Contains(script, `rm -rf "$MOUNT_DIR" "$DMG" "$STAGED"`) {
 		t.Fatal("mac update script must not delete STAGED while the script may still be running from it")
 	}
+	if strings.Contains(script, "com.apple.quarantine") || strings.Contains(script, "xattr -rd") {
+		t.Fatal("mac updater must preserve Gatekeeper quarantine metadata; notarized releases must not depend on clearing it")
+	}
 	// 确保不会在 relaunch 之前删除 updates 目录。
 	rmIdx := strings.Index(script, `exec /bin/rm -rf "$UPDATES_DIR"`)
 	relaunchIdx := strings.Index(script, "if ! relaunch_app; then")

@@ -520,6 +520,18 @@ describe('shortcut defaults', () => {
     });
   });
 
+  it('registers save query as a copy as a query editor shortcut', () => {
+    expect(DEFAULT_SHORTCUT_OPTIONS.saveQueryAs).toEqual({
+      mac: { combo: 'Meta+Shift+S', enabled: true },
+      windows: { combo: 'Ctrl+Shift+S', enabled: true },
+    });
+    expect(SHORTCUT_ACTION_META.saveQueryAs).toMatchObject({
+      label: '查询另存为',
+      scope: 'queryEditor',
+      allowInEditable: true,
+    });
+  });
+
   it('registers format SQL as a query editor shortcut', () => {
     expect(DEFAULT_SHORTCUT_OPTIONS.formatSql).toEqual({
       mac: { combo: 'Alt+Shift+F', enabled: true },
@@ -699,6 +711,20 @@ describe('shortcut defaults', () => {
     expect(sanitizeShortcutOptions({}).closeActiveTab).toEqual(DEFAULT_SHORTCUT_OPTIONS.closeActiveTab);
   });
 
+  it('fills save query as defaults for existing shortcut settings', () => {
+    const options = sanitizeShortcutOptions({
+      saveQuery: {
+        mac: { combo: 'Meta+S', enabled: true },
+        windows: { combo: 'Ctrl+S', enabled: true },
+      },
+    });
+
+    expect(options.saveQueryAs).toEqual({
+      mac: { combo: 'Meta+Shift+S', enabled: true },
+      windows: { combo: 'Ctrl+Shift+S', enabled: true },
+    });
+  });
+
   it('disables only the conflicting close-tab platform while preserving current platform bindings', () => {
     const options = sanitizeShortcutOptions({
       saveQuery: {
@@ -784,7 +810,9 @@ describe('shortcut defaults', () => {
     expect(getShortcutDisplayLabel('Meta+Shift+H', 'mac')).toBe('⌘⇧H');
     expect(getShortcutDisplayLabel('Ctrl+Meta+F', 'mac')).toBe('⌃⌘F');
     expect(getShortcutDisplayLabel('Meta+S', 'mac')).toBe('⌘S');
+    expect(getShortcutDisplayLabel('Meta+Shift+S', 'mac')).toBe('⌘⇧S');
     expect(getShortcutDisplayLabel('Ctrl+S', 'windows')).toBe('Ctrl+S');
+    expect(getShortcutDisplayLabel('Ctrl+Shift+S', 'windows')).toBe('Ctrl+Shift+S');
     expect(getShortcutPrimaryModifierDisplayLabel('mac')).toBe('⌘');
     expect(getShortcutPrimaryModifierDisplayLabel('windows')).toBe('Ctrl');
     expect(getPrimaryShortcutDisplayLabel('C', 'mac')).toBe('⌘C');

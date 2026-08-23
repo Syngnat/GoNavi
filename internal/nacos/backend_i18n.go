@@ -95,3 +95,34 @@ func localizedNacosBackendError(key string, params map[string]any) error {
 	}
 	return fmt.Errorf("%s", localizedNacosBackendText(key, params))
 }
+
+// localizedNacosBackendErrorWithCause keeps display text localized without
+// discarding an underlying error that the app layer needs to classify.
+func localizedNacosBackendErrorWithCause(key string, params map[string]any, cause error) error {
+	if cause == nil {
+		return localizedNacosBackendError(key, params)
+	}
+	return &localizedNacosBackendCauseError{
+		message: localizedNacosBackendText(key, params),
+		cause:   cause,
+	}
+}
+
+type localizedNacosBackendCauseError struct {
+	message string
+	cause   error
+}
+
+func (e *localizedNacosBackendCauseError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
+}
+
+func (e *localizedNacosBackendCauseError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}

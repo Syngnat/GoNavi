@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,8 +20,8 @@ import (
 
 const (
 	// 静态清单优先走自建下载镜像，GitHub Release 作为故障回退。
-	updateMirrorLatestManifestURL = "https://download.syngnat.top/gonavi/releases/latest/latest.json"
-	updateMirrorDevManifestURL    = "https://download.syngnat.top/gonavi/dev/releases/latest/latest-dev.json"
+	updateMirrorLatestManifestURL = "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Freleases%2Flatest%2Flatest.json"
+	updateMirrorDevManifestURL    = "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fgonavi%2Fdev%2Freleases%2Flatest%2Flatest-dev.json"
 	updateGitHubLatestManifestURL = "https://github.com/" + updateRepo + "/releases/latest/download/latest.json"
 	updateGitHubDevManifestURL    = "https://github.com/" + updateRepo + "/releases/download/" + updateDevReleaseTag + "/latest-dev.json"
 
@@ -35,13 +36,13 @@ const (
 
 // updateReleaseManifest 是面向终端用户的静态更新清单（不依赖 GitHub REST API）。
 type updateReleaseManifest struct {
-	SchemaVersion int                   `json:"schemaVersion"`
-	Channel       string                `json:"channel"`
-	TagName       string                `json:"tagName"`
-	Version       string                `json:"version"`
-	Name          string                `json:"name,omitempty"`
-	HTMLURL       string                `json:"htmlUrl,omitempty"`
-	PublishedAt   string                `json:"publishedAt,omitempty"`
+	SchemaVersion int    `json:"schemaVersion"`
+	Channel       string `json:"channel"`
+	TagName       string `json:"tagName"`
+	Version       string `json:"version"`
+	Name          string `json:"name,omitempty"`
+	HTMLURL       string `json:"htmlUrl,omitempty"`
+	PublishedAt   string `json:"publishedAt,omitempty"`
 	// ReleaseNotes 为 Markdown 更新日志（可选；旧清单无此字段时客户端走空态+外链）。
 	ReleaseNotes string                `json:"releaseNotes,omitempty"`
 	Assets       []updateManifestAsset `json:"assets"`
@@ -63,28 +64,16 @@ type updateNetworkCheckMemory struct {
 }
 
 var (
-	updateFetchStaticManifest         = fetchStaticUpdateManifest
-	updateFetchFreshestStaticManifest = fetchFreshestStaticUpdateManifest
-	updateNetworkCheckMu              sync.Mutex
-	updateLastNetworkCheck            updateNetworkCheckMemory
+	updateFetchStaticManifest = fetchStaticUpdateManifest
+	updateNetworkCheckMu      sync.Mutex
+	updateLastNetworkCheck    updateNetworkCheckMemory
 )
 
 func swapUpdateFetchStaticManifest(next func(updateChannel) (*githubRelease, error)) func() {
-	originalStatic := updateFetchStaticManifest
-	originalFreshest := updateFetchFreshestStaticManifest
+	original := updateFetchStaticManifest
 	updateFetchStaticManifest = next
-	updateFetchFreshestStaticManifest = next
 	return func() {
-		updateFetchStaticManifest = originalStatic
-		updateFetchFreshestStaticManifest = originalFreshest
-	}
-}
-
-func swapUpdateFetchFreshestStaticManifest(next func(updateChannel) (*githubRelease, error)) func() {
-	original := updateFetchFreshestStaticManifest
-	updateFetchFreshestStaticManifest = next
-	return func() {
-		updateFetchFreshestStaticManifest = original
+		updateFetchStaticManifest = original
 	}
 }
 
@@ -136,12 +125,12 @@ func releaseFromUpdateManifest(manifest *updateReleaseManifest) *githubRelease {
 		name = tagName
 	}
 	return &githubRelease{
-		TagName:      tagName,
-		Name:         name,
-		HTMLURL:      strings.TrimSpace(manifest.HTMLURL),
-		PublishedAt:  strings.TrimSpace(manifest.PublishedAt),
-		Body:         strings.TrimSpace(manifest.ReleaseNotes),
-		Assets:       assets,
+		TagName:     tagName,
+		Name:        name,
+		HTMLURL:     strings.TrimSpace(manifest.HTMLURL),
+		PublishedAt: strings.TrimSpace(manifest.PublishedAt),
+		Body:        strings.TrimSpace(manifest.ReleaseNotes),
+		Assets:      assets,
 	}
 }
 
@@ -242,10 +231,6 @@ func fetchStaticUpdateManifest(channel updateChannel) (*githubRelease, error) {
 	return fetchStaticUpdateManifestFromURLs(channel, updateManifestRemoteURLs(channel))
 }
 
-func fetchFreshestStaticUpdateManifest(channel updateChannel) (*githubRelease, error) {
-	return fetchFreshestStaticUpdateManifestFromURLs(channel, updateManifestRemoteURLs(channel))
-}
-
 func fetchStaticUpdateManifestFromURLs(channel updateChannel, manifestURLs []string) (*githubRelease, error) {
 	var failures []string
 	for _, manifestURL := range manifestURLs {
@@ -271,96 +256,40 @@ func fetchStaticUpdateManifestFromURL(channel updateChannel, manifestURL string)
 	return commitStaticUpdateManifest(channel, manifest), nil
 }
 
-func fetchFreshestStaticUpdateManifestFromURLs(channel updateChannel, manifestURLs []string) (*githubRelease, error) {
-	type fetchResult struct {
-		index    int
-		manifest *updateReleaseManifest
-		err      error
-	}
-
-	results := make([]fetchResult, len(manifestURLs))
-	resultCh := make(chan fetchResult, len(manifestURLs))
-	for index, manifestURL := range manifestURLs {
-		go func(index int, manifestURL string) {
-			manifest, err := fetchStaticUpdateManifestPayloadFromURL(channel, manifestURL)
-			resultCh <- fetchResult{index: index, manifest: manifest, err: err}
-		}(index, manifestURL)
-	}
-	for range manifestURLs {
-		result := <-resultCh
-		results[result.index] = result
-	}
-
-	var selected *updateReleaseManifest
-	var failures []string
-	for index, result := range results {
-		if result.err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", manifestURLs[index], result.err))
-			continue
-		}
-		if shouldPreferUpdateManifest(channel, selected, result.manifest) {
-			selected = result.manifest
-		}
-	}
-	if selected != nil {
-		return commitStaticUpdateManifest(channel, selected), nil
-	}
-	if len(failures) == 0 {
-		return nil, fmt.Errorf("no static update manifest URL configured")
-	}
-	return nil, fmt.Errorf("static update manifests unavailable: %s", strings.Join(failures, "; "))
-}
-
-func shouldPreferUpdateManifest(channel updateChannel, current *updateReleaseManifest, candidate *updateReleaseManifest) bool {
-	if candidate == nil {
-		return false
-	}
-	if current == nil {
-		return true
-	}
-	comparison, comparable := compareUpdateManifestRecency(channel, current, candidate)
-	return comparable && comparison < 0
-}
-
-// compareUpdateManifestRecency follows compareVersion: -1 means current is older.
-// A false comparable result keeps source order stable, so the mirror wins ties.
-func compareUpdateManifestRecency(channel updateChannel, current *updateReleaseManifest, candidate *updateReleaseManifest) (int, bool) {
-	if current == nil || candidate == nil {
-		return 0, false
-	}
-
-	if channel != updateChannelDev {
-		currentVersion := normalizeVersion(firstNonEmptyString(current.Version, current.TagName))
-		candidateVersion := normalizeVersion(firstNonEmptyString(candidate.Version, candidate.TagName))
-		if currentVersion != "" && candidateVersion != "" {
-			if comparison := compareVersion(currentVersion, candidateVersion); comparison != 0 {
-				return comparison, true
-			}
-		}
-	}
-
-	currentPublishedAt, currentErr := time.Parse(time.RFC3339, strings.TrimSpace(current.PublishedAt))
-	candidatePublishedAt, candidateErr := time.Parse(time.RFC3339, strings.TrimSpace(candidate.PublishedAt))
-	if currentErr == nil && candidateErr == nil {
-		switch {
-		case currentPublishedAt.Before(candidatePublishedAt):
-			return -1, true
-		case currentPublishedAt.After(candidatePublishedAt):
-			return 1, true
-		default:
-			return 0, true
-		}
-	}
-	return 0, false
-}
-
 func fetchStaticUpdateManifestPayloadFromURL(channel updateChannel, manifestURL string) (*updateReleaseManifest, error) {
-	url := strings.TrimSpace(manifestURL)
-	if url == "" {
+	rawURL := strings.TrimSpace(manifestURL)
+	if rawURL == "" {
 		return nil, fmt.Errorf("static update manifest URL is empty")
 	}
-	client := newHTTPClientWithGlobalProxy(15 * time.Second)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	client := newStrictHTTPClientWithGlobalProxy(15 * time.Second)
+	failures := make([]error, 0, 3)
+	if _, isDispatcher := downloadDispatcherAssetPath(rawURL); isDispatcher {
+		// The normal dispatcher response is a 302 to the selected mirror. Follow
+		// that redirect directly so a healthy manifest costs one request; JSON
+		// candidate resolution remains a fallback for routing or mirror failures.
+		if manifest, directErr := fetchStaticUpdateManifestCandidate(client, channel, rawURL); directErr == nil {
+			return manifest, nil
+		} else {
+			failures = append(failures, fmt.Errorf("%s: %w", redactDownloadURL(rawURL), directErr))
+		}
+	}
+	candidates, resolveErr := resolveDispatcherDownloadCandidates(client, rawURL)
+	if resolveErr != nil {
+		candidates = []string{rawURL}
+		failures = append(failures, resolveErr)
+	}
+	for _, candidate := range candidates {
+		manifest, err := fetchStaticUpdateManifestCandidate(client, channel, candidate)
+		if err == nil {
+			return manifest, nil
+		}
+		failures = append(failures, fmt.Errorf("%s: %w", redactDownloadURL(candidate), err))
+	}
+	return nil, errors.Join(failures...)
+}
+
+func fetchStaticUpdateManifestCandidate(client *http.Client, channel updateChannel, rawURL string) (*updateReleaseManifest, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +309,7 @@ func fetchStaticUpdateManifestPayloadFromURL(channel updateChannel, manifestURL 
 	if resp.StatusCode != http.StatusOK {
 		// 静态资产 404：尚未发布 latest.json 的旧版本 Release，正常回退 API
 		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("static update manifest not found: %s", url)
+			return nil, fmt.Errorf("static update manifest not found")
 		}
 		return nil, classifyGitHubUpdateHTTPError(resp.StatusCode, body, resp.Header, true)
 	}
@@ -396,7 +325,7 @@ func fetchStaticUpdateManifestPayloadFromURL(channel updateChannel, manifestURL 
 		return nil, fmt.Errorf("unsupported update manifest schema: %d", manifest.SchemaVersion)
 	}
 	if err := validateRemoteUpdateManifest(channel, &manifest); err != nil {
-		return nil, fmt.Errorf("invalid static update manifest %s: %w", url, err)
+		return nil, fmt.Errorf("invalid static update manifest: %w", err)
 	}
 	manifest.FetchedAt = time.Now().UTC()
 	manifest.Source = "static"
@@ -501,13 +430,8 @@ func fetchReleaseForChannelPreferringStatic(channel updateChannel, forceNetwork 
 		}
 	}
 
-	staticFetcher := updateFetchStaticManifest
-	if forceNetwork {
-		staticFetcher = updateFetchFreshestStaticManifest
-	}
-
 	var staticErr error
-	if release, err := staticFetcher(channel); err == nil && release != nil {
+	if release, err := updateFetchStaticManifest(channel); err == nil && release != nil {
 		markUpdateNetworkCheck(channel)
 		return release, nil
 	} else {

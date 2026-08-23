@@ -120,7 +120,7 @@ func TestBuildMySQLToKingbaseCreateTablePlan_GeneratesAndSkipsIndexes(t *testing
 		{Name: "note", Type: "text", Nullable: "YES"},
 	}
 	cfg := SyncConfig{CreateIndexes: true}
-	createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildMySQLToKingbaseCreateTablePlan(cfg, "public.orders", cols, sourceDB, "shop", "orders")
+	createSQL, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToKingbaseCreateTablePlan(cfg, "public.orders", cols, sourceDB, "shop", "orders")
 	if err != nil {
 		t.Fatalf("buildMySQLToKingbaseCreateTablePlan returned error: %v", err)
 	}
@@ -140,11 +140,38 @@ func TestBuildMySQLToKingbaseCreateTablePlan_GeneratesAndSkipsIndexes(t *testing
 		t.Fatalf("unexpected warnings: %v", warnings)
 	}
 	wantUnsupported := []string{
-		"索引 idx_name_prefix 使用前缀长度，当前暂不支持迁移",
-		"索引 idx_fulltext_note 类型=FULLTEXT，当前暂不支持自动迁移",
+		"索引 idx_name_prefix 使用前缀长度，当前目标方言暂不支持等价自动迁移",
+		"索引 idx_fulltext_note 类型=FULLTEXT，当前暂不支持等价自动迁移",
 	}
 	if !reflect.DeepEqual(unsupported, wantUnsupported) {
 		t.Fatalf("unexpected unsupported objects: got=%v want=%v", unsupported, wantUnsupported)
+	}
+	wantUnmigrated := []UnmigratedIndex{
+		{
+			Name:       "idx_name_prefix",
+			Columns:    []IndexMigrationColumn{{Name: "name", PrefixLength: 12}},
+			Unique:     false,
+			IndexType:  "BTREE",
+			ReasonCode: "prefix_index_requires_review",
+			Reason:     wantUnsupported[0],
+			RemediationStatements: []string{
+				"CREATE INDEX idx_name_prefix ON public.orders (left(CAST(name AS text), 12))",
+			},
+		},
+		{
+			Name:       "idx_fulltext_note",
+			Columns:    []IndexMigrationColumn{{Name: "note"}},
+			Unique:     false,
+			IndexType:  "FULLTEXT",
+			ReasonCode: "fulltext_requires_review",
+			Reason:     wantUnsupported[1],
+			RemediationStatements: []string{
+				"CREATE INDEX idx_fulltext_note ON public.orders USING GIN (to_tsvector('simple', coalesce(CAST(note AS text), '')))",
+			},
+		},
+	}
+	if !reflect.DeepEqual(unmigrated, wantUnmigrated) {
+		t.Fatalf("unexpected unmigrated indexes: got=%+v want=%+v", unmigrated, wantUnmigrated)
 	}
 }
 
@@ -377,6 +404,124 @@ func TestBuildSchemaMigrationPlan_MySQLToMySQLAutoCreatesMissingTarget(t *testin
 	}
 }
 
+func TestBuildMySQLToMySQLCreateTablePlan_ListsCompositePrefixRemediation(t *testing.T) {
+	t.Parallel()
+
+	sourceDB := &fakeMigrationDB{
+		indexes: map[string][]connection.IndexDefinition{
+			"shop.users": {
+				{Name: "idx_users_lookup", ColumnName: "email", NonUnique: 1, SeqInIndex: 2, IndexType: "BTREE"},
+				{Name: "idx_users_lookup", ColumnName: "name", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE", SubPart: 12},
+				{Name: "idx_users_lookup", ColumnName: "bio", NonUnique: 1, SeqInIndex: 3, IndexType: "BTREE", SubPart: 24},
+			},
+		},
+	}
+	cols := []connection.ColumnDefinition{
+		{Name: "name", Type: "varchar(128)", Nullable: "NO"},
+		{Name: "email", Type: "varchar(255)", Nullable: "NO"},
+		{Name: "bio", Type: "text", Nullable: "YES"},
+	}
+
+	_, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToMySQLCreateTablePlan(
+		"mysql",
+		SyncConfig{CreateIndexes: true},
+		"app.users",
+		cols,
+		sourceDB,
+		"shop",
+		"users",
+	)
+	if err != nil {
+		t.Fatalf("buildMySQLToMySQLCreateTablePlan returned error: %v", err)
+	}
+	want := "CREATE INDEX `idx_users_lookup` ON `app`.`users` (`name`(12), `email`, `bio`(24))"
+	if len(postSQL) != 0 || idxCreate != 0 || idxSkip != 1 {
+		t.Fatalf("prefix index must require review: sql=%v create=%d skip=%d", postSQL, idxCreate, idxSkip)
+	}
+	if len(warnings) != 0 || len(unsupported) != 1 || len(unmigrated) != 1 {
+		t.Fatalf("unexpected warnings/unsupported: warnings=%v unsupported=%v unmigrated=%v", warnings, unsupported, unmigrated)
+	}
+	if !reflect.DeepEqual(unmigrated[0].RemediationStatements, []string{want}) {
+		t.Fatalf("unexpected prefix remediation: got=%v want=%v", unmigrated[0].RemediationStatements, []string{want})
+	}
+}
+
+func TestBuildMySQLToMySQLCreateTablePlan_ListsFulltextRemediation(t *testing.T) {
+	t.Parallel()
+
+	sourceDB := &fakeMigrationDB{
+		indexes: map[string][]connection.IndexDefinition{
+			"shop.articles": {
+				{Name: "idx_fulltext_body", ColumnName: "title", NonUnique: 1, SeqInIndex: 1, IndexType: "FULLTEXT"},
+				{Name: "idx_fulltext_body", ColumnName: "body", NonUnique: 1, SeqInIndex: 2, IndexType: "FULLTEXT"},
+			},
+		},
+	}
+	cols := []connection.ColumnDefinition{
+		{Name: "title", Type: "varchar(255)", Nullable: "NO"},
+		{Name: "body", Type: "text", Nullable: "NO"},
+	}
+
+	_, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToMySQLCreateTablePlan(
+		"mysql",
+		SyncConfig{CreateIndexes: true},
+		"archive.articles",
+		cols,
+		sourceDB,
+		"shop",
+		"articles",
+	)
+	if err != nil {
+		t.Fatalf("buildMySQLToMySQLCreateTablePlan returned error: %v", err)
+	}
+	if len(postSQL) != 0 || idxCreate != 0 || idxSkip != 1 {
+		t.Fatalf("fulltext index must require review: sql=%v create=%d skip=%d", postSQL, idxCreate, idxSkip)
+	}
+	if len(warnings) != 0 || len(unsupported) != 1 || len(unmigrated) != 1 {
+		t.Fatalf("unexpected fulltext summary: warnings=%v unsupported=%v unmigrated=%+v", warnings, unsupported, unmigrated)
+	}
+	wantSQL := "CREATE FULLTEXT INDEX `idx_fulltext_body` ON `archive`.`articles` (`title`, `body`)"
+	if !reflect.DeepEqual(unmigrated[0].RemediationStatements, []string{wantSQL}) {
+		t.Fatalf("unexpected fulltext remediation: got=%v want=%v", unmigrated[0].RemediationStatements, []string{wantSQL})
+	}
+}
+
+func TestBuildMongoIndexCommands_ListsUnmigratedIndexes(t *testing.T) {
+	t.Parallel()
+
+	sourceDB := &fakeMigrationDB{
+		indexes: map[string][]connection.IndexDefinition{
+			"shop.articles": {
+				{Name: "idx_lookup", ColumnName: "category", NonUnique: 1, SeqInIndex: 2, IndexType: "BTREE"},
+				{Name: "idx_lookup", ColumnName: "author", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE"},
+				{Name: "idx_title_prefix", ColumnName: "title", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE", SubPart: 12},
+				{Name: "idx_fulltext_body", ColumnName: "title", NonUnique: 1, SeqInIndex: 1, IndexType: "FULLTEXT"},
+				{Name: "idx_fulltext_body", ColumnName: "body", NonUnique: 1, SeqInIndex: 2, IndexType: "FULLTEXT"},
+			},
+		},
+	}
+
+	commands, warnings, unsupported, unmigrated, created, skipped, err := buildMongoIndexCommands(sourceDB, "shop", "articles", "articles")
+	if err != nil {
+		t.Fatalf("buildMongoIndexCommands returned error: %v", err)
+	}
+	if created != 1 || skipped != 2 || len(commands) != 1 {
+		t.Fatalf("unexpected Mongo index summary: commands=%v create=%d skip=%d", commands, created, skipped)
+	}
+	if !strings.Contains(commands[0], `"key":{"author":1,"category":1}`) {
+		t.Fatalf("Mongo compound index order was not preserved: %s", commands[0])
+	}
+	if len(warnings) != 0 || len(unsupported) != 2 || len(unmigrated) != 2 {
+		t.Fatalf("unexpected Mongo index warnings: warnings=%v unsupported=%v unmigrated=%+v", warnings, unsupported, unmigrated)
+	}
+	if unmigrated[0].ReasonCode != "prefix_index_requires_review" || !strings.Contains(strings.Join(unmigrated[0].RemediationStatements, "\n"), `"key":{"title":1}`) {
+		t.Fatalf("unexpected prefix remediation: %+v", unmigrated[0])
+	}
+	if unmigrated[1].ReasonCode != "fulltext_requires_review" || !strings.Contains(strings.Join(unmigrated[1].RemediationStatements, "\n"), `"key":{"title":"text","body":"text"}`) {
+		t.Fatalf("unexpected fulltext remediation: %+v", unmigrated[1])
+	}
+}
+
 func TestBuildSchemaMigrationPlan_PGLikeToPGLikeAutoCreatesMissingTarget(t *testing.T) {
 	t.Parallel()
 
@@ -536,7 +681,7 @@ func TestBuildMySQLToPGLikeCreateTablePlan_GeneratesPostgresDDL(t *testing.T) {
 		{Name: "payload", Type: "json", Nullable: "YES"},
 	}
 	cfg := SyncConfig{CreateIndexes: true}
-	createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildMySQLToPGLikeCreateTablePlan("postgres", cfg, "public.orders", cols, sourceDB, "shop", "orders")
+	createSQL, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToPGLikeCreateTablePlan("postgres", cfg, "public.orders", cols, sourceDB, "shop", "orders")
 	if err != nil {
 		t.Fatalf("buildMySQLToPGLikeCreateTablePlan returned error: %v", err)
 	}
@@ -555,8 +700,8 @@ func TestBuildMySQLToPGLikeCreateTablePlan_GeneratesPostgresDDL(t *testing.T) {
 	if len(postSQL) != 1 || !strings.Contains(postSQL[0], `CREATE INDEX "idx_orders_user"`) {
 		t.Fatalf("unexpected post SQL: %v", postSQL)
 	}
-	if len(warnings) != 0 || len(unsupported) != 0 {
-		t.Fatalf("unexpected warnings/unsupported: warnings=%v unsupported=%v", warnings, unsupported)
+	if len(warnings) != 0 || len(unsupported) != 0 || len(unmigrated) != 0 {
+		t.Fatalf("unexpected warnings/unsupported: warnings=%v unsupported=%v unmigrated=%v", warnings, unsupported, unmigrated)
 	}
 }
 

@@ -127,6 +127,10 @@ class WindowsReleaseArtifactsTest(unittest.TestCase):
         self.assertEqual(major_upgrade.attrib["Schedule"], "afterInstallInitialize")
         self.assertNotIn("AllowSameVersionUpgrades", major_upgrade.attrib)
         self.assertNotIn("DowngradeErrorMessage", major_upgrade.attrib)
+        reinstall_mode = package.find("wix:Property[@Id='REINSTALLMODE']", ns)
+        self.assertIsNotNone(reinstall_mode)
+        assert reinstall_mode is not None
+        self.assertEqual(reinstall_mode.attrib["Value"], "amus")
         self.assertIsNotNone(package.find("wix:MediaTemplate", ns))
         self.assertIsNotNone(package.find("wix:Property[@Id='ARPPRODUCTICON']", ns))
         desktop_property = package.find("wix:Property[@Id='INSTALLDESKTOPSHORTCUT']", ns)

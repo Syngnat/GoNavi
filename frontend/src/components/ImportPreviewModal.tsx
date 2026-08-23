@@ -1,26 +1,38 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useState, useEffect, useRef } from "react";
-import { Table, Alert, Progress, Button, Space, Select } from 'antd';
+import { Table, Alert, Progress, Button, Space, Select, Spin } from 'antd';
 import { CheckCircleOutlined, CloseCircleOutlined, StopOutlined } from "@ant-design/icons";
 import {
-  CancelQuery,
   DBGetColumns,
-  PreviewImportFile,
+  ExportImportErrorRows,
   ImportDataWithProgressOptions,
 } from "../../wailsjs/go/app/App";
+import * as AppBindings from "../../wailsjs/go/app/App";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { useStore } from "../store";
 import { t as defaultTranslate } from "../i18n";
 import { useOptionalI18n } from "../i18n/provider";
 import { buildRpcConnectionConfig } from "../utils/connectionRpcConfig";
-import { getColumnDefinitionName } from "../utils/columnDefinition";
+import {
+  getColumnDefinitionExtra,
+  getColumnDefinitionName,
+  getColumnDefinitionNullable,
+  hasColumnDefinitionDefault,
+} from "../utils/columnDefinition";
 import { confirmProductionRisk } from "../utils/productionRiskConfirm";
+import { calculateImportTransferMetrics, formatImportBytes, formatImportDuration } from "./importProgressMetrics";
+import {
+  DEFAULT_DATA_IMPORT_PREFERENCES,
+  type DataImportPreferences,
+} from "./dataImportPreferences";
 interface ImportPreviewModalProps {
   visible: boolean;
   filePath: string;
   connectionId: string;
   dbName: string;
   tableName: string;
+  continueOnError?: boolean;
+  importOptions?: DataImportPreferences;
   onClose: () => void;
   onSuccess: () => void | Promise<void>;
   onImportingChange?: (importing: boolean) => void;
@@ -30,8 +42,52 @@ interface ImportPreviewModalProps {
 interface PreviewData {
   columns: string[];
   totalRows: number;
+  totalRowsKnown: boolean;
+  fileSize: number;
+  sourceIdentityToken: string;
   previewRows: any[];
 }
+
+type ImportParserOptions = Omit<DataImportPreferences, "nullToken" | "sheetName"> & {
+  nullToken?: string;
+  sheetName?: string;
+};
+
+const previewImportFileWithOptions = (
+  AppBindings as unknown as {
+    PreviewImportFileWithOptions?: (filePath: string, options: ImportParserOptions) => Promise<any>;
+  }
+).PreviewImportFileWithOptions;
+
+const cancelImportJob = (
+  AppBindings as unknown as {
+    CancelImportJob?: (jobId: string) => Promise<any>;
+  }
+).CancelImportJob;
+
+const buildImportParserOptions = (
+  importOptions: DataImportPreferences | undefined,
+  continueOnError: boolean,
+): ImportParserOptions => {
+  const normalized = {
+    ...DEFAULT_DATA_IMPORT_PREFERENCES,
+    ...importOptions,
+    continueOnError,
+  };
+  return {
+    continueOnError: normalized.continueOnError,
+    conflictPolicy: normalized.conflictPolicy,
+    conflictKeyColumns: Array.from(new Set(
+      normalized.conflictKeyColumns.map((column) => column.trim()).filter(Boolean),
+    )),
+    encoding: normalized.encoding,
+    delimiter: normalized.delimiter,
+    headerRow: normalized.headerRow,
+    emptyStringAsNull: normalized.emptyStringAsNull,
+    ...(normalized.nullToken !== "" ? { nullToken: normalized.nullToken } : {}),
+    ...(normalized.sheetName !== "" ? { sheetName: normalized.sheetName } : {}),
+  };
+};
 
 interface ImportProgress {
   jobId?: string;
@@ -39,7 +95,13 @@ interface ImportProgress {
   total: number;
   success: number;
   errors: number;
+  skipped?: number;
   totalRowsKnown?: boolean;
+  bytesRead?: number;
+  totalBytes?: number;
+  bytesPerSecond?: number;
+  etaSeconds?: number;
+  stage?: string;
 }
 
 const createImportJobId = (): string => {
@@ -55,6 +117,8 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   connectionId,
   dbName,
   tableName,
+  continueOnError = false,
+  importOptions,
   onClose,
   onSuccess,
   onImportingChange,
@@ -65,9 +129,19 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   const connections = useStore((state) => state.connections);
   const darkMode = useStore((state) => state.theme === "dark");
   const connection = connections.find((item) => item.id === connectionId);
+  const parserOptions = buildImportParserOptions(importOptions, continueOnError);
+  const parserOptionsKey = JSON.stringify({
+    encoding: parserOptions.encoding,
+    delimiter: parserOptions.delimiter,
+    headerRow: parserOptions.headerRow,
+    nullToken: parserOptions.nullToken,
+    emptyStringAsNull: parserOptions.emptyStringAsNull,
+    sheetName: parserOptions.sheetName,
+  });
   const [loading, setLoading] = useState(true);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [targetColumns, setTargetColumns] = useState<string[]>([]);
+  const [targetColumnDefinitions, setTargetColumnDefinitions] = useState<unknown[]>([]);
   const [columnMappings, setColumnMappings] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -80,8 +154,25 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   const stoppingRef = useRef(false);
   const activeImportJobIdRef = useRef("");
   const previewConnectionConfigRef = useRef<any>(null);
-  const secondaryTextColor = darkMode ? "rgba(255,255,255,0.65)" : "rgba(0,0,0,0.45)";
-  const mappingFieldBackground = darkMode ? "rgba(255,255,255,0.06)" : "#f5f5f5";
+  const importStartedAtRef = useRef(0);
+  const latestProgressRef = useRef<ImportProgress | null>(null);
+  const secondaryTextColor = `var(--gn-fg-3, ${darkMode
+    ? "rgba(255,255,255,0.65)"
+    : "rgba(0,0,0,0.45)"})`;
+  const mappingHeaderColor = `var(--gn-fg-2, ${darkMode
+    ? "rgba(255,255,255,0.85)"
+    : "rgba(0,0,0,0.65)"})`;
+  const mappingFieldBackground = `var(--gn-bg-subtle, var(--gn-bg-panel-2, ${darkMode
+    ? "rgba(255,255,255,0.06)"
+    : "#f5f5f5"}))`;
+  const dividerColor = `var(--gn-br-1, ${darkMode
+    ? "rgba(255,255,255,0.08)"
+    : "rgba(15,23,42,0.08)"})`;
+  const dangerColor = `var(--gn-danger, ${darkMode ? "#ff7875" : "#ff4d4f"})`;
+  const warningSoftBackground = `var(--gn-warn-soft, ${darkMode
+    ? "rgba(250,173,20,0.16)"
+    : "#fff1f0"})`;
+  const warningBorderColor = `var(--gn-warn, ${darkMode ? "#d89614" : "#ffccc7"})`;
 
   useEffect(() => {
     if (importingRef.current) return undefined;
@@ -95,7 +186,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         previewRequestRef.current += 1;
       }
     };
-  }, [visible, filePath, connectionId, dbName, tableName, connection]);
+  }, [visible, filePath, connectionId, dbName, tableName, connection, parserOptionsKey]);
 
   useEffect(() => {
     if (importing) {
@@ -104,18 +195,39 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         (data: ImportProgress) => {
           if (!data || data.jobId !== activeImportJobIdRef.current) return;
           setProgress((prev) => {
-            const fallbackTotal = prev?.total || previewData?.totalRows || 0;
+            const totalRowsKnown = prev?.totalRowsKnown === true
+              ? true
+              : (data.totalRowsKnown ?? previewData?.totalRowsKnown ?? false);
+            const fallbackTotal = totalRowsKnown
+              ? (prev?.total || previewData?.totalRows || 0)
+              : 0;
             const nextTotal =
-              typeof data.total === "number" && data.total > 0
+              totalRowsKnown && typeof data.total === "number" && data.total > 0
                 ? data.total
                 : fallbackTotal;
-            return {
+            const bytesRead = Math.max(0, Math.trunc(Number(data.bytesRead ?? prev?.bytesRead) || 0));
+            const totalBytes = Math.max(0, Math.trunc(Number(data.totalBytes ?? prev?.totalBytes ?? previewData?.fileSize) || 0));
+            const transferMetrics = calculateImportTransferMetrics({
+              startedAt: importStartedAtRef.current,
+              now: Date.now(),
+              bytesRead,
+              totalBytes,
+            });
+            const nextProgress = {
               current: data.current ?? prev?.current ?? 0,
               total: nextTotal,
               success: data.success ?? prev?.success ?? 0,
               errors: data.errors ?? prev?.errors ?? 0,
-              totalRowsKnown: data.totalRowsKnown ?? nextTotal > 0,
+              skipped: data.skipped ?? prev?.skipped ?? 0,
+              totalRowsKnown,
+              bytesRead,
+              totalBytes,
+              bytesPerSecond: transferMetrics.bytesPerSecond,
+              etaSeconds: transferMetrics.etaSeconds,
+              stage: data.stage || prev?.stage || "",
             };
+            latestProgressRef.current = nextProgress;
+            return nextProgress;
           });
         },
       );
@@ -144,9 +256,11 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     setError(null);
     setPreviewData(null);
     setTargetColumns([]);
+    setTargetColumnDefinitions([]);
     setColumnMappings({});
     setImportResult(null);
     setProgress(null);
+    latestProgressRef.current = null;
     try {
       const conn = connection;
       if (!conn) {
@@ -169,8 +283,12 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         },
       };
       const rpcConfig = buildRpcConnectionConfig(config) as any;
+      if (typeof previewImportFileWithOptions !== "function") {
+        setError(t("data_import.capability.reason.capability_unavailable"));
+        return;
+      }
       const [previewRes, columnsRes] = await Promise.all([
-        PreviewImportFile(filePath),
+        previewImportFileWithOptions(filePath, parserOptions),
         DBGetColumns(rpcConfig, dbName, tableName),
       ]);
       if (previewRequestRef.current !== requestId) return;
@@ -205,12 +323,18 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         nextMappings[sourceColumn] = exactTarget || (insensitiveTargets.length === 1 ? insensitiveTargets[0] : "");
       });
 
+      const previewTotalRows = Math.max(0, Number(previewRes.data.totalRows) || 0);
       setPreviewData({
         columns: sourceColumns,
-        totalRows: previewRes.data.totalRows || 0,
+        totalRows: previewTotalRows,
+        totalRowsKnown: previewRes.data.totalRowsKnown === true
+          || (previewRes.data.totalRowsKnown == null && previewTotalRows > 0),
+        fileSize: Math.max(0, Number(previewRes.data.fileSize) || 0),
+        sourceIdentityToken: String(previewRes.data.sourceIdentity?.token || "").trim(),
         previewRows: previewRes.data.previewRows || [],
       });
       setTargetColumns(nextTargetColumns);
+      setTargetColumnDefinitions(columnsRes.data);
       setColumnMappings(nextMappings);
     } catch (e: any) {
       if (previewRequestRef.current !== requestId) return;
@@ -231,16 +355,52 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     ? new Set(previewData.columns).size !== previewData.columns.length
     : false;
   const hasDuplicateTargetColumns = new Set(mappedTargetColumns).size !== mappedTargetColumns.length;
-  const mappingValidationError = hasDuplicateSourceColumns
+  const normalizedMappedTargetColumns = new Set(
+    mappedTargetColumns.map((column) => column.trim().toLowerCase()),
+  );
+  const requiredTargetColumns = targetColumnDefinitions
+    .filter((column) => {
+      const nullable = getColumnDefinitionNullable(column).toUpperCase();
+      const extra = getColumnDefinitionExtra(column).toLowerCase();
+      return nullable === "NO"
+        && !hasColumnDefinitionDefault(column)
+        && !(column && typeof column === "object" && "default" in column && (column as { default?: unknown }).default != null)
+        && !extra.includes("auto_increment")
+        && !extra.includes("identity")
+        && !extra.includes("generated");
+    })
+    .map(getColumnDefinitionName)
+    .filter(Boolean);
+  const unmappedRequiredColumns = requiredTargetColumns.filter(
+    (column) => !normalizedMappedTargetColumns.has(column.toLowerCase()),
+  );
+  const unmappedConflictKeys = parserOptions.conflictPolicy === "upsert"
+    ? parserOptions.conflictKeyColumns.filter((column) => (
+        !normalizedMappedTargetColumns.has(column.trim().toLowerCase())
+      ))
+    : [];
+  const importOptionsValidationError = parserOptions.conflictPolicy === "upsert"
+    && parserOptions.conflictKeyColumns.length === 0
+    ? t("data_import.workbench.advanced.conflict_keys_required")
+    : unmappedConflictKeys.length > 0
+      ? t("data_import.workbench.advanced.conflict_keys_not_mapped", {
+          columns: unmappedConflictKeys.join(", "),
+        })
+      : unmappedRequiredColumns.length > 0
+        ? t("import_preview.mapping.validation.required_database_columns", {
+            columns: unmappedRequiredColumns.join(", "),
+          })
+      : null;
+  const mappingValidationError = importOptionsValidationError || (hasDuplicateSourceColumns
     ? t("import_preview.mapping.validation.duplicate_source")
     : hasDuplicateTargetColumns
       ? t("import_preview.mapping.validation.duplicate_target")
       : mappedTargetColumns.length === 0
         ? t("import_preview.mapping.validation.required")
-        : null;
+        : null);
 
   const handleImport = async () => {
-    if (!previewData || mappingValidationError) return;
+    if (!previewData || mappingValidationError || importingRef.current) return;
 
     const approved = await confirmProductionRisk({
       connection,
@@ -248,7 +408,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
       target: [dbName, tableName].filter(Boolean).join(" / "),
       translate: t,
     });
-    if (!approved) return;
+    if (!approved || importingRef.current) return;
 
     const importRequestId = importRequestRef.current + 1;
     const importJobId = createImportJobId();
@@ -256,15 +416,25 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     importingRef.current = true;
     stoppingRef.current = false;
     activeImportJobIdRef.current = importJobId;
+    importStartedAtRef.current = Date.now();
     setImporting(true);
     setStopping(false);
     setError(null);
-    setProgress({
+    const initialProgress: ImportProgress = {
       current: 0,
       total: previewData.totalRows,
       success: 0,
       errors: 0,
-    });
+      skipped: 0,
+      totalRowsKnown: previewData.totalRowsKnown,
+      bytesRead: 0,
+      totalBytes: previewData.fileSize,
+      bytesPerSecond: 0,
+      etaSeconds: 0,
+      stage: "prepare",
+    };
+    latestProgressRef.current = initialProgress;
+    setProgress(initialProgress);
     setImportResult(null);
 
     try {
@@ -282,12 +452,21 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         dbName,
         tableName,
         filePath,
-        { columnMappings: selectedMappings, jobId: importJobId },
+        {
+          ...parserOptions,
+          columnMappings: selectedMappings,
+          jobId: importJobId,
+          ...(previewData.sourceIdentityToken
+            ? { sourceIdentityToken: previewData.sourceIdentityToken }
+            : {}),
+        },
       );
       if (importRequestRef.current !== importRequestId) return;
 
       setError(null);
       if (res.data?.cancelled) {
+        setImportResult(res.data);
+      } else if (res.data?.stoppedOnError) {
         setImportResult(res.data);
       } else if (res.success && res.data) {
         setImportResult(res.data);
@@ -295,20 +474,50 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
           await onSuccess();
         }
       } else {
-        setError(res.message || t("import_preview.error.import_failed"));
+        const failureMessage = res.message || t("import_preview.error.import_failed");
+        if (res.data) {
+          setImportResult({
+            ...res.data,
+            executionFailed: true,
+            failureMessage,
+          });
+        } else {
+          const latestProgress = latestProgressRef.current;
+          setImportResult({
+            success: latestProgress?.success || 0,
+            skipped: latestProgress?.skipped || 0,
+            failed: latestProgress?.errors || 0,
+            total: latestProgress?.current || 0,
+            errorLogs: [],
+            executionFailed: true,
+            failureMessage,
+            outcomeUnknown: true,
+          });
+        }
       }
     } catch (e: any) {
       if (importRequestRef.current !== importRequestId) return;
-      setError(
-        t("import_preview.error.import_failed_detail", {
-          detail: String(e?.message || e),
-        }),
-      );
+      const failureMessage = t("import_preview.error.import_failed_detail", {
+        detail: String(e?.message || e),
+      });
+      const latestProgress = latestProgressRef.current;
+      setError(null);
+      setImportResult({
+        success: latestProgress?.success || 0,
+        skipped: latestProgress?.skipped || 0,
+        failed: latestProgress?.errors || 0,
+        total: latestProgress?.current || 0,
+        errorLogs: [],
+        executionFailed: true,
+        failureMessage,
+        outcomeUnknown: true,
+      });
     } finally {
       if (importRequestRef.current === importRequestId) {
         importingRef.current = false;
         stoppingRef.current = false;
         activeImportJobIdRef.current = "";
+        importStartedAtRef.current = 0;
         setImporting(false);
         setStopping(false);
       }
@@ -323,7 +532,10 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
     setStopping(true);
     setError(null);
     try {
-      const res = await CancelQuery(importJobId);
+      if (typeof cancelImportJob !== "function") {
+        throw new Error(t("import_preview.error.stop_failed"));
+      }
+      const res = await cancelImportJob(importJobId);
       if (!importingRef.current || activeImportJobIdRef.current !== importJobId) {
         return;
       }
@@ -353,10 +565,58 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
       width: 150,
     })) || [];
 
-  const progressPercent =
-    progress && progress.total > 0
-      ? Math.round((progress.current / progress.total) * 100)
-      : 0;
+  const rowProgressKnown = Boolean(progress?.totalRowsKnown && progress.total > 0);
+  const byteProgressKnown = Boolean(
+    !rowProgressKnown
+    && progress
+    && Number(progress.bytesRead) > 0
+    && Number(progress.totalBytes) > 0,
+  );
+  const progressMode = rowProgressKnown
+    ? "rows"
+    : byteProgressKnown
+      ? "bytes"
+      : "indeterminate";
+  const progressPercent = Math.max(0, Math.min(100, Math.round(
+    rowProgressKnown
+      ? ((progress?.current || 0) / (progress?.total || 1)) * 100
+      : byteProgressKnown
+        ? ((progress?.bytesRead || 0) / (progress?.totalBytes || 1)) * 100
+        : 0,
+  )));
+
+  const progressTransferText = progress && (progress.bytesRead || progress.totalBytes)
+    ? [
+        t("data_import.workbench.progress.bytes", {
+          processed: formatImportBytes(progress.bytesRead || 0),
+          total: progress.totalBytes ? formatImportBytes(progress.totalBytes) : "—",
+        }),
+        progress.bytesPerSecond
+          ? t("data_import.workbench.progress.throughput", { rate: formatImportBytes(progress.bytesPerSecond) })
+          : "",
+        progress.etaSeconds
+          ? t("data_import.workbench.progress.eta", {
+              duration: formatImportDuration(progress.etaSeconds, i18n?.language),
+            })
+          : "",
+      ].filter(Boolean).join(" · ")
+    : "";
+
+  const handleExportRejectedRows = async () => {
+    const artifactID = String(importResult?.errorArtifactId || "").trim();
+    if (!artifactID) return;
+    setError(null);
+    try {
+      const result = await ExportImportErrorRows(artifactID);
+      if (!result.success) {
+        setError(result.message || t("import_preview.error.export_rejected_rows_failed"));
+      }
+    } catch (exportError: any) {
+      setError(t("import_preview.error.export_rejected_rows_failed_detail", {
+        detail: String(exportError?.message || exportError),
+      }));
+    }
+  };
 
   const footer = importResult ? (
     <Space>
@@ -408,7 +668,9 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         <>
           <Alert
             type="info"
-            message={t("import_preview.preview.summary", {
+            message={t(previewData.totalRowsKnown
+              ? "import_preview.preview.summary"
+              : "import_preview.preview.summary_sample", {
               rows: previewData.totalRows,
               columns: previewData.columns.length,
             })}
@@ -420,6 +682,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
             {t("import_preview.preview.field_list")}
           </div>
           <div
+            data-import-preview-source-columns="true"
             style={{
               marginBottom: 16,
               padding: 8,
@@ -442,7 +705,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                 gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
                 gap: 8,
                 marginBottom: 6,
-                color: darkMode ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.65)",
+                color: mappingHeaderColor,
                 fontSize: 12,
                 fontWeight: 600,
               }}
@@ -520,39 +783,89 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
               ? t("import_preview.status.stopping")
               : t("import_preview.status.importing")}
           </div>
-          <Progress percent={progressPercent} status="active" />
-          <div style={{ marginTop: 16, textAlign: "center", color: "#666" }}>
-            {t("import_preview.progress.processed_rows", {
-              current: progress.current,
-              total: progress.total,
-            })}
-            <span style={{ marginLeft: 16, color: "#52c41a" }}>
+          {progressMode === "indeterminate" ? (
+            <div
+              data-import-progress-mode="indeterminate"
+              data-import-progress-indeterminate="true"
+              style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}
+            >
+              <Spin size="large" />
+            </div>
+          ) : (
+            <Progress
+              data-import-progress-mode={progressMode}
+              percent={progressPercent}
+              showInfo
+              status="active"
+            />
+          )}
+          <div style={{ marginTop: 16, textAlign: "center", color: secondaryTextColor }}>
+            {progress.totalRowsKnown
+              ? t("import_preview.progress.processed_rows", {
+                  current: progress.current,
+                  total: progress.total,
+                })
+              : t("import_preview.progress.processed_rows_unknown", {
+                  current: progress.current,
+                })}
+            <span
+              data-import-progress-success="true"
+              style={{ marginLeft: 16, color: "var(--gn-status-connected, #52c41a)" }}
+            >
               <CheckCircleOutlined />{" "}
               {t("import_preview.progress.success_count", {
                 count: progress.success,
               })}
             </span>
             {progress.errors > 0 && (
-              <span style={{ marginLeft: 16, color: "#ff4d4f" }}>
+              <span style={{ marginLeft: 16, color: dangerColor }}>
                 <CloseCircleOutlined />{" "}
                 {t("import_preview.progress.error_count", {
                   count: progress.errors,
                 })}
               </span>
             )}
+            {(progress.skipped || 0) > 0 && (
+              <span data-import-progress-skipped="true" style={{ marginLeft: 16, color: secondaryTextColor }}>
+                {t("data_import.workbench.progress.skipped", {
+                  count: progress.skipped,
+                })}
+              </span>
+            )}
           </div>
+          {progress.stage ? (
+            <div style={{ marginTop: 8, textAlign: "center", color: secondaryTextColor }}>
+              {t(`import_preview.stage.${progress.stage}`)}
+            </div>
+          ) : null}
+          {progressTransferText ? (
+            <div style={{ marginTop: 8, textAlign: "center", color: secondaryTextColor, fontSize: 12 }}>
+              {progressTransferText}
+            </div>
+          ) : null}
         </div>
       )}
 
       {importResult && (
         <div style={{ padding: 20 }}>
           <Alert
-            type={!importResult.cancelled && importResult.failed === 0 ? "success" : "warning"}
-            message={importResult.cancelled
-              ? t("import_preview.result.stopped")
-              : t("import_preview.result.completed")}
+            type={importResult.executionFailed
+              ? "error"
+              : !importResult.cancelled && !importResult.stoppedOnError && importResult.failed === 0
+                ? "success"
+                : "warning"}
+            message={importResult.executionFailed
+              ? t("import_preview.error.import_failed")
+              : importResult.cancelled
+                ? t("import_preview.result.stopped")
+                : importResult.stoppedOnError
+                  ? t("import_preview.result.stopped_on_error")
+                  : t("import_preview.result.completed")}
             description={
               <div>
+                {importResult.executionFailed && importResult.failureMessage && (
+                  <div>{importResult.failureMessage}</div>
+                )}
                 <div>
                   {t("import_preview.result.success_rows", {
                     count: importResult.success,
@@ -560,29 +873,46 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                 </div>
                 {importResult.failed > 0 && (
                   <div>
-                    {t("import_preview.result.failed_rows", {
-                      count: importResult.failed,
+                    {importResult.outcomeUnknown
+                      ? t("import_preview.result.error_count", { count: importResult.failed })
+                      : t("import_preview.result.failed_rows", { count: importResult.failed })}
+                  </div>
+                )}
+                {Number(importResult.skipped) > 0 && (
+                  <div data-import-result-skipped="true">
+                    {t("data_import.workbench.progress.skipped", {
+                      count: importResult.skipped,
                     })}
                   </div>
+                )}
+                {importResult.outcomeUnknown && (
+                  <div>{t("import_preview.result.batch_outcome_unknown")}</div>
                 )}
               </div>
             }
             showIcon
             style={{ marginBottom: 16 }}
           />
+          {importResult.errorArtifactId ? (
+            <Button onClick={() => void handleExportRejectedRows()}>
+              {t("import_preview.action.export_rejected_rows")}
+            </Button>
+          ) : null}
           {importResult.errorLogs && importResult.errorLogs.length > 0 && (
             <>
               <div
-                style={{ marginBottom: 8, fontWeight: 600, color: "#ff4d4f" }}
+                data-import-preview-error-log-title="true"
+                style={{ marginBottom: 8, fontWeight: 600, color: dangerColor }}
               >
                 {t("import_preview.result.error_logs")}
               </div>
               <div
+                data-import-preview-error-log-panel="true"
                 style={{
                   maxHeight: 300,
                   overflow: "auto",
-                  background: "#fff1f0",
-                  border: "1px solid #ffccc7",
+                  background: warningSoftBackground,
+                  border: `1px solid ${warningBorderColor}`,
                   borderRadius: 4,
                   padding: 12,
                   fontSize: 12,
@@ -594,6 +924,13 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                     {log}
                   </div>
                 ))}
+                {importResult.errorLogsOmitted > 0 && (
+                  <div>
+                    {t("import_preview.result.error_logs_omitted", {
+                      count: importResult.errorLogsOmitted,
+                    })}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -632,9 +969,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
               justifyContent: "flex-end",
               marginTop: 16,
               paddingTop: 16,
-              borderTop: darkMode
-                ? "1px solid rgba(255,255,255,0.08)"
-                : "1px solid rgba(15,23,42,0.08)",
+              borderTop: `1px solid ${dividerColor}`,
             }}
           >
             {footer}

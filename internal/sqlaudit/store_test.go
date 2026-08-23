@@ -2,6 +2,7 @@ package sqlaudit
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -124,6 +125,52 @@ func TestOpenConfiguresSQLiteAndDefaultSettings(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesV1EventsWithoutBreakingExistingHashChain(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit", "sql_audit.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open v2 store: %v", err)
+	}
+	if err := store.Append(sampleEvent("v1-event", time.Now().UnixMilli())); err != nil {
+		t.Fatalf("append v1-compatible event: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close v2 store: %v", err)
+	}
+
+	legacyDB, err := sql.Open("sqlite", sqliteAuditDSN(path))
+	if err != nil {
+		t.Fatalf("open legacy database: %v", err)
+	}
+	for _, column := range []string{"executed_count", "failed_index", "outcome_unknown"} {
+		if _, err := legacyDB.Exec("ALTER TABLE sql_audit_events DROP COLUMN " + column); err != nil {
+			_ = legacyDB.Close()
+			t.Fatalf("drop v2 column %s: %v", column, err)
+		}
+	}
+	if _, err := legacyDB.Exec("PRAGMA user_version=1"); err != nil {
+		_ = legacyDB.Close()
+		t.Fatalf("set v1 schema version: %v", err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatalf("close legacy database: %v", err)
+	}
+
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open migrated v1 store: %v", err)
+	}
+	t.Cleanup(func() { _ = migrated.Close() })
+	report, err := migrated.VerifyIntegrity()
+	if err != nil || !report.Valid || report.CheckedRecords != 1 {
+		t.Fatalf("migrated v1 integrity report = %#v, err=%v", report, err)
+	}
+	page, err := migrated.Query(Filter{PageSize: 10})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ExecutedCount != 0 || page.Items[0].FailedIndex != 0 || page.Items[0].OutcomeUnknown {
+		t.Fatalf("migrated v1 event = %#v, err=%v", page.Items, err)
+	}
+}
+
 func TestOpenSupportsURIReservedCharactersInPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit space # percent% amp&", "sql audit.db")
 	store, err := Open(path)
@@ -241,6 +288,51 @@ func TestQuerySupportsContractFiltersAndEscapesSearchWildcards(t *testing.T) {
 	page, err = store.Query(Filter{Search: fingerprintPrefix, PageSize: 10})
 	if err != nil || page.Total == 0 {
 		t.Fatalf("fingerprint search should find matching events: page=%#v err=%v", page, err)
+	}
+}
+
+func TestQueryExecutionHistoryIncludesEditorRunsWithoutTransactionLifecycleNoise(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Now().UnixMilli()
+	events := []Event{
+		{ID: "editor-query", EventType: "query", Status: "success", Source: "query_editor", SQLText: "SELECT 1", Timestamp: now},
+		{ID: "editor-query-statement", EventType: "query_statement", Status: "success", Source: "query_editor", SQLText: "SELECT 1", Timestamp: now + 1},
+		{ID: "editor-transaction-statement", EventType: "transaction_statement", Status: "error", Source: "query_editor", SQLText: "UPDATE users SET active = 1", Timestamp: now + 2},
+		{ID: "editor-transaction-open-failed", EventType: "transaction_begin", Status: "error", Source: "query_editor", SQLText: "UPDATE users SET active = 1", Timestamp: now + 3},
+		{ID: "editor-transaction-opened", EventType: "transaction_begin", Status: "success", Source: "query_editor", SQLText: "UPDATE users SET active = 1", Timestamp: now + 4},
+		{ID: "editor-transaction-commit", EventType: "transaction_commit", Status: "success", Source: "query_editor", Timestamp: now + 5},
+		{ID: "application-query", EventType: "query", Status: "success", Source: "application_api", SQLText: "SELECT 2", Timestamp: now + 6},
+	}
+	for _, event := range events {
+		event.ConnectionID = "conn-main"
+		event.ConnectionFingerprint = strings.Repeat("a", 64)
+		event.DBType = "postgres"
+		event.Database = "analytics"
+		if err := store.Append(event); err != nil {
+			t.Fatalf("Append %s returned error: %v", event.ID, err)
+		}
+	}
+
+	page, err := store.Query(Filter{ExecutionHistory: true, PageSize: 10})
+	if err != nil {
+		t.Fatalf("Query execution history returned error: %v", err)
+	}
+	if page.Total != 3 || len(page.Items) != 3 {
+		t.Fatalf("execution history page = %#v, want three editor executions", page)
+	}
+	ids := map[string]bool{}
+	for _, event := range page.Items {
+		ids[event.ID] = true
+	}
+	for _, id := range []string{"editor-query", "editor-transaction-statement", "editor-transaction-open-failed"} {
+		if !ids[id] {
+			t.Fatalf("execution history omitted %s: %#v", id, page.Items)
+		}
+	}
+	for _, id := range []string{"editor-query-statement", "editor-transaction-opened", "editor-transaction-commit", "application-query"} {
+		if ids[id] {
+			t.Fatalf("execution history included non-execution event %s: %#v", id, page.Items)
+		}
 	}
 }
 
@@ -615,6 +707,29 @@ func TestAppendBatchLargerThanMaxRecordsFailsAtomically(t *testing.T) {
 	}
 	if report, err := store.VerifyIntegrity(); err != nil || !report.Valid || report.CheckedRecords != 1 {
 		t.Fatalf("large-batch chain invalid: report=%#v err=%v", report, err)
+	}
+}
+
+func TestStorePreservesMultiStatementExecutionSummary(t *testing.T) {
+	store := openTestStore(t)
+	event := sampleEvent("multi-summary", time.Now().UnixMilli())
+	event.StatementCount = 3
+	event.ExecutedCount = 1
+	event.FailedIndex = 2
+	event.OutcomeUnknown = true
+	if err := store.Append(event); err != nil {
+		t.Fatalf("Append returned error: %v", err)
+	}
+	page, err := store.Query(Filter{PageSize: 10})
+	if err != nil || len(page.Items) != 1 {
+		t.Fatalf("Query returned page=%#v err=%v", page, err)
+	}
+	got := page.Items[0]
+	if got.ExecutedCount != 1 || got.FailedIndex != 2 || !got.OutcomeUnknown {
+		t.Fatalf("execution summary = %#v", got)
+	}
+	if report, err := store.VerifyIntegrity(); err != nil || !report.Valid {
+		t.Fatalf("summary audit hash invalid: report=%#v err=%v", report, err)
 	}
 }
 

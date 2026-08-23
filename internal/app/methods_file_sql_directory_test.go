@@ -192,6 +192,44 @@ func TestDeleteSQLDirectoryByPathRejectsNonEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestDeleteSQLDirectoryByPathTreatsMissingDirectoryAsAlreadyDeleted(t *testing.T) {
+	directoryPath := filepath.Join(t.TempDir(), "missing")
+
+	result := deleteSQLDirectoryByPath(directoryPath)
+	if !result.Success {
+		t.Fatalf("expected missing sql directory delete to succeed, got %#v", result)
+	}
+	data, ok := result.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected deletion metadata, got %#v", result.Data)
+	}
+	if data["directoryPath"] != directoryPath {
+		t.Fatalf("expected directoryPath %q, got %#v", directoryPath, data["directoryPath"])
+	}
+	if data["alreadyMissing"] != true {
+		t.Fatalf("expected alreadyMissing marker, got %#v", data["alreadyMissing"])
+	}
+}
+
+func TestListSQLDirectoryMarksMissingDirectory(t *testing.T) {
+	directoryPath := filepath.Join(t.TempDir(), "missing")
+
+	result := (&App{}).ListSQLDirectory(directoryPath)
+	if result.Success {
+		t.Fatalf("expected missing sql directory list to fail, got %#v", result)
+	}
+	data, ok := result.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected directory error metadata, got %#v", result.Data)
+	}
+	if data["errorCode"] != sqlDirectoryErrorCodeNotFound {
+		t.Fatalf("expected directory_not_found error code, got %#v", data["errorCode"])
+	}
+	if data["directoryPath"] != directoryPath {
+		t.Fatalf("expected directoryPath %q, got %#v", directoryPath, data["directoryPath"])
+	}
+}
+
 func TestRenameSQLFileByPathRenamesWithinSameDirectory(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "old.sql")

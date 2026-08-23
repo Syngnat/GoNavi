@@ -40,17 +40,20 @@ type BackendAppMock = {
   CheckForUpdates: ReturnType<typeof vi.fn>;
   CheckForUpdatesSilently: ReturnType<typeof vi.fn>;
   DownloadUpdate: ReturnType<typeof vi.fn>;
+  GetUpdateDownloadTask: ReturnType<typeof vi.fn>;
   GetUpdateChannel: ReturnType<typeof vi.fn>;
   InstallUpdateAndRestart: ReturnType<typeof vi.fn>;
   OpenDownloadedUpdateDirectory: ReturnType<typeof vi.fn>;
   SetUpdateChannel: ReturnType<typeof vi.fn>;
   GetAppInfo: ReturnType<typeof vi.fn>;
+  StartUpdateDownload?: ReturnType<typeof vi.fn>;
 };
 
 const createBackendAppMock = (): BackendAppMock => ({
   CheckForUpdates: vi.fn(),
   CheckForUpdatesSilently: vi.fn(),
   DownloadUpdate: vi.fn(),
+  GetUpdateDownloadTask: vi.fn(async () => ({ success: true, data: { task: null } })),
   GetUpdateChannel: vi.fn(async () => ({ success: true, data: { channel: 'latest' } })),
   InstallUpdateAndRestart: vi.fn(),
   OpenDownloadedUpdateDirectory: vi.fn(),
@@ -82,6 +85,11 @@ describe('useAppUpdateManager', () => {
     act(() => {
       renderer = create(<Harness />);
     });
+  };
+
+  const flushMicrotasks = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
   };
 
   beforeEach(() => {
@@ -347,6 +355,407 @@ describe('useAppUpdateManager', () => {
       version: 'dev-new',
       key: 'dev:dev-new:portable:gonavi-dev-new-windows-amd64-portable.exe',
       status: 'done',
+    });
+  });
+
+  it('shows the refreshed dev version as soon as the backend starts downloading it', async () => {
+    let resolveDownload: ((result: Record<string, unknown>) => void) | undefined;
+    const downloadPromise = new Promise<Record<string, unknown>>((resolve) => {
+      resolveDownload = resolve;
+    });
+    const refreshedInfo = {
+      hasUpdate: true,
+      channel: 'dev',
+      currentVersion: 'dev-current',
+      latestVersion: 'dev-new',
+      assetName: 'GoNavi-dev-new-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: false,
+      assetSize: 8192,
+    };
+    backendApp.CheckForUpdates.mockResolvedValue({
+      success: true,
+      data: refreshedInfo,
+    });
+    backendApp.DownloadUpdate.mockReturnValue(downloadPromise);
+
+    renderHook();
+    await act(async () => {
+      await hook?.checkForUpdates(false);
+    });
+
+    let pendingDownload: Promise<void> | undefined;
+    act(() => {
+      pendingDownload = hook?.downloadUpdate(hook.lastUpdateInfo!, false);
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      status: 'start',
+      message: 'app.about.download_progress.downloading',
+    });
+
+    const progressListener = (runtimeApi.EventsOn.mock.calls as unknown as Array<[string, unknown]>)
+      .filter(([eventName]) => eventName === 'update:download-progress')
+      .slice(-1)[0]?.[1] as ((event: Record<string, unknown>) => void) | undefined;
+    expect(progressListener).toBeTypeOf('function');
+    act(() => {
+      progressListener?.({
+        status: 'start',
+        downloaded: 0,
+        total: refreshedInfo.assetSize,
+        info: refreshedInfo,
+      });
+    });
+
+    expect(hook?.lastUpdateInfo).toMatchObject({
+      latestVersion: 'dev-new',
+      assetName: 'GoNavi-dev-new-Windows-Amd64-Portable.exe',
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      version: 'dev-new',
+      key: 'dev:dev-new:portable:gonavi-dev-new-windows-amd64-portable.exe',
+      status: 'start',
+      total: 8192,
+      message: 'app.about.download_progress.downloading',
+    });
+
+    await act(async () => {
+      resolveDownload?.({ success: true, data: { info: refreshedInfo } });
+      await pendingDownload;
+    });
+  });
+
+  it('starts package downloads through the detached task API and ignores stale task events', async () => {
+    const updateInfo = {
+      hasUpdate: true,
+      channel: 'dev',
+      currentVersion: 'dev-current',
+      latestVersion: 'dev-new',
+      assetName: 'GoNavi-dev-new-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: false,
+      assetSize: 8192,
+    };
+    backendApp.CheckForUpdates.mockResolvedValue({ success: true, data: updateInfo });
+    backendApp.StartUpdateDownload = vi.fn(async () => ({
+      success: true,
+      data: {
+        task: {
+          taskId: 'update-task-current',
+          status: 'start',
+          percent: 0,
+          downloaded: 0,
+          total: 8192,
+          running: true,
+          info: updateInfo,
+        },
+      },
+    }));
+
+    renderHook();
+    await act(async () => {
+      await hook?.checkForUpdates(false);
+      await hook?.downloadUpdate(hook?.lastUpdateInfo!, false);
+    });
+
+    expect(backendApp.StartUpdateDownload).toHaveBeenCalledTimes(1);
+    expect(backendApp.DownloadUpdate).not.toHaveBeenCalled();
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      status: 'start',
+      percent: 0,
+      key: 'dev:dev-new:portable:gonavi-dev-new-windows-amd64-portable.exe',
+    });
+
+    const progressListener = (runtimeApi.EventsOn.mock.calls as unknown as Array<[string, unknown]>)
+      .filter(([eventName]) => eventName === 'update:download-progress')
+      .slice(-1)[0]?.[1] as ((event: Record<string, unknown>) => void) | undefined;
+    expect(progressListener).toBeTypeOf('function');
+
+    act(() => {
+      progressListener?.({
+        taskId: 'update-task-stale',
+        status: 'error',
+        percent: 0,
+        message: 'stale task failed',
+      });
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'start', percent: 0 });
+
+    act(() => {
+      progressListener?.({
+        taskId: 'update-task-current',
+        status: 'downloading',
+        percent: 45,
+        downloaded: 3686,
+        total: 8192,
+      });
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'downloading', percent: 45, downloaded: 3686 });
+  });
+
+  it('does not regress a completed task when its start response arrives late', async () => {
+    const updateInfo = {
+      hasUpdate: true,
+      channel: 'latest',
+      currentVersion: '0.8.1',
+      latestVersion: '0.8.2',
+      assetName: 'GoNavi-0.8.2-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: false,
+      assetSize: 10000,
+    };
+    let resolveStart!: (value: unknown) => void;
+    backendApp.CheckForUpdates.mockResolvedValue({ success: true, data: updateInfo });
+    backendApp.StartUpdateDownload = vi.fn(() => new Promise((resolve) => {
+      resolveStart = resolve;
+    }));
+
+    renderHook();
+    await act(async () => {
+      await hook?.checkForUpdates(false);
+    });
+    let pendingStart: Promise<void> | undefined;
+    act(() => {
+      pendingStart = hook?.downloadUpdate(hook?.lastUpdateInfo!, false);
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+
+    const progressListener = (runtimeApi.EventsOn.mock.calls as unknown as Array<[string, unknown]>)
+      .filter(([eventName]) => eventName === 'update:download-progress')
+      .slice(-1)[0]?.[1] as ((event: Record<string, unknown>) => void) | undefined;
+    expect(progressListener).toBeTypeOf('function');
+    act(() => {
+      progressListener?.({
+        taskId: 'update-task-fast-complete',
+        status: 'done',
+        percent: 100,
+        downloaded: 10000,
+        total: 10000,
+        info: { ...updateInfo, downloaded: true, downloadPath: 'D:/GoNavi/GoNavi-0.8.2.exe' },
+      });
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'done', percent: 100 });
+
+    await act(async () => {
+      resolveStart({
+        success: true,
+        data: {
+          task: {
+            taskId: 'update-task-fast-complete',
+            status: 'start',
+            percent: 0,
+            downloaded: 0,
+            total: 10000,
+            running: true,
+            info: updateInfo,
+          },
+        },
+      });
+      await pendingStart;
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'done', percent: 100 });
+    expect(hook?.lastUpdateInfo).toMatchObject({ downloaded: true, downloadPath: 'D:/GoNavi/GoNavi-0.8.2.exe' });
+  });
+
+  it('rehydrates an active background update task after the update hook remounts', async () => {
+    const updateInfo = {
+      hasUpdate: true,
+      channel: 'dev',
+      currentVersion: 'dev-current',
+      latestVersion: 'dev-new',
+      assetName: 'GoNavi-dev-new-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: false,
+      assetSize: 10000,
+    };
+    const activeTask = {
+      taskId: 'update-task-rehydrate',
+      status: 'downloading',
+      percent: 45,
+      downloaded: 4500,
+      total: 10000,
+      message: 'downloading update package',
+      running: true,
+      info: updateInfo,
+    };
+    backendApp.GetUpdateDownloadTask.mockResolvedValue({ success: true, data: { task: activeTask } });
+
+    renderHook();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(hook?.lastUpdateInfo).toMatchObject({ latestVersion: 'dev-new', channel: 'dev' });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      open: false,
+      status: 'downloading',
+      percent: 45,
+      downloaded: 4500,
+      key: 'dev:dev-new:portable:gonavi-dev-new-windows-amd64-portable.exe',
+    });
+
+    await act(async () => {
+      renderer?.unmount();
+      await flushMicrotasks();
+    });
+
+    renderHook();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(backendApp.GetUpdateDownloadTask).toHaveBeenCalledTimes(2);
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      open: false,
+      status: 'downloading',
+      percent: 45,
+      downloaded: 4500,
+    });
+
+    const progressListener = (runtimeApi.EventsOn.mock.calls as unknown as Array<[string, unknown]>)
+      .filter(([eventName]) => eventName === 'update:download-progress')
+      .slice(-1)[0]?.[1] as ((event: Record<string, unknown>) => void) | undefined;
+    expect(progressListener).toBeTypeOf('function');
+    act(() => {
+      progressListener?.({
+        taskId: 'old-update-task',
+        status: 'error',
+        percent: 0,
+        message: 'old task failed',
+      });
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'downloading', percent: 45 });
+
+    act(() => {
+      progressListener?.({
+        taskId: 'update-task-rehydrate',
+        status: 'downloading',
+        percent: 60,
+        downloaded: 6000,
+        total: 10000,
+      });
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      open: false,
+      status: 'downloading',
+      percent: 60,
+      downloaded: 6000,
+    });
+  });
+
+  it('keeps a persisted dev-channel task after the first dev update check', async () => {
+    const updateInfo = {
+      hasUpdate: true,
+      channel: 'dev',
+      currentVersion: 'dev-current',
+      latestVersion: 'dev-new',
+      assetName: 'GoNavi-dev-new-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: false,
+      assetSize: 10000,
+    };
+    backendApp.GetUpdateChannel.mockResolvedValue({ success: true, data: { channel: 'dev' } });
+    backendApp.GetUpdateDownloadTask.mockResolvedValue({
+      success: true,
+      data: {
+        task: {
+          taskId: 'persisted-dev-task',
+          status: 'downloading',
+          percent: 45,
+          downloaded: 4500,
+          total: 10000,
+          running: true,
+          info: updateInfo,
+        },
+      },
+    });
+    backendApp.CheckForUpdates.mockResolvedValue({ success: true, data: updateInfo });
+
+    renderHook();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      status: 'downloading',
+      percent: 45,
+      key: 'dev:dev-new:portable:gonavi-dev-new-windows-amd64-portable.exe',
+    });
+
+    await act(async () => {
+      await hook?.checkForUpdates(false);
+    });
+
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.lastUpdateInfo).toMatchObject({ channel: 'dev', latestVersion: 'dev-new' });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      status: 'downloading',
+      percent: 45,
+      downloaded: 4500,
+    });
+  });
+
+  it('keeps an event arriving before task hydration in the background', async () => {
+    const updateInfo = {
+      hasUpdate: true,
+      channel: 'latest',
+      currentVersion: '0.8.1',
+      latestVersion: '0.8.2',
+      assetName: 'GoNavi-0.8.2-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: false,
+      assetSize: 10000,
+    };
+    const activeTask = {
+      taskId: 'update-task-hydration-race',
+      status: 'downloading',
+      percent: 45,
+      downloaded: 4500,
+      total: 10000,
+      running: true,
+      info: updateInfo,
+    };
+    let resolveTask!: (value: unknown) => void;
+    backendApp.GetUpdateDownloadTask.mockImplementation(() => new Promise((resolve) => {
+      resolveTask = resolve;
+    }));
+
+    renderHook();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    const progressListener = (runtimeApi.EventsOn.mock.calls as unknown as Array<[string, unknown]>)
+      .filter(([eventName]) => eventName === 'update:download-progress')
+      .slice(-1)[0]?.[1] as ((event: Record<string, unknown>) => void) | undefined;
+    expect(progressListener).toBeTypeOf('function');
+    act(() => {
+      progressListener?.(activeTask);
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      open: false,
+      status: 'downloading',
+      percent: 45,
+    });
+
+    await act(async () => {
+      resolveTask({ success: true, data: { task: activeTask } });
+      await flushMicrotasks();
+    });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      open: false,
+      status: 'downloading',
+      percent: 45,
     });
   });
 
@@ -633,6 +1042,44 @@ describe('useAppUpdateManager', () => {
     expect(messageApi.error).not.toHaveBeenCalled();
   });
 
+  it('returns the Windows instance confirmation request to the GoNavi modal layer', async () => {
+    backendApp.CheckForUpdates.mockResolvedValue({
+      success: true,
+      data: {
+        hasUpdate: true,
+        currentVersion: '0.8.1',
+        latestVersion: '0.8.2',
+        downloaded: true,
+        assetSize: 2048,
+        installMode: 'portable',
+        packageType: 'portable',
+      },
+    });
+    backendApp.InstallUpdateAndRestart.mockResolvedValue({
+      success: false,
+      data: { requiresCloseConfirmation: true, instanceCount: 3 },
+    });
+
+    renderHook();
+    await act(async () => {
+      await hook?.checkForUpdates(false);
+    });
+
+    let requestedInstanceCount: number | null = null;
+    let accepted = true;
+    await act(async () => {
+      accepted = await hook!.handleInstallFromProgress(false, (instanceCount) => {
+        requestedInstanceCount = instanceCount;
+      });
+    });
+
+    expect(accepted).toBe(false);
+    expect(requestedInstanceCount).toBe(3);
+    expect(hook?.updateDownloadProgress.status).toBe('done');
+    expect(hook?.updateDownloadProgress.open).toBe(false);
+    expect(messageApi.error).not.toHaveBeenCalled();
+  });
+
   it('returns false without calling the backend when no update is ready', async () => {
     renderHook();
 
@@ -667,6 +1114,186 @@ describe('useAppUpdateManager', () => {
     expect(backendApp.CheckForUpdates).toHaveBeenCalledTimes(1);
     expect(hook?.updateChannel).toBe('dev');
     expect(hook?.lastUpdateInfo?.channel).toBe('dev');
+  });
+
+  it('does not restore a previous-channel task after switching channels while hydration is pending', async () => {
+    const oldTaskInfo = {
+      hasUpdate: true,
+      channel: 'latest',
+      currentVersion: '0.8.1',
+      latestVersion: '0.8.2',
+      assetName: 'GoNavi-0.8.2-Windows-Amd64-Portable.exe',
+      packageType: 'portable',
+      installMode: 'portable',
+      autoRelaunch: true,
+      downloaded: true,
+      downloadPath: 'D:/GoNavi/GoNavi-0.8.2.exe',
+      assetSize: 1024,
+    };
+    let resolveOldTask!: (value: unknown) => void;
+    backendApp.GetUpdateDownloadTask.mockImplementation(() => new Promise((resolve) => {
+      resolveOldTask = resolve;
+    }));
+    backendApp.SetUpdateChannel.mockResolvedValue({ success: true, data: { channel: 'dev' } });
+    backendApp.CheckForUpdates.mockResolvedValue({
+      success: true,
+      data: {
+        hasUpdate: false,
+        channel: 'dev',
+        currentVersion: 'dev-a1b2c3d',
+        latestVersion: 'dev-a1b2c3d',
+      },
+    });
+
+    renderHook();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(backendApp.GetUpdateDownloadTask).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await hook?.changeUpdateChannel('dev');
+    });
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.lastUpdateInfo).toMatchObject({ channel: 'dev', latestVersion: 'dev-a1b2c3d' });
+    expect(hook?.updateDownloadProgress.status).toBe('idle');
+
+    const progressListener = (runtimeApi.EventsOn.mock.calls as unknown as Array<[string, unknown]>)
+      .filter(([eventName]) => eventName === 'update:download-progress')
+      .slice(-1)[0]?.[1] as ((event: Record<string, unknown>) => void) | undefined;
+    expect(progressListener).toBeTypeOf('function');
+    act(() => {
+      progressListener?.({
+        taskId: 'old-latest-task',
+        status: 'done',
+        percent: 100,
+        downloaded: 1024,
+        total: 1024,
+        info: oldTaskInfo,
+      });
+    });
+
+    await act(async () => {
+      resolveOldTask({
+        success: true,
+        data: {
+          task: {
+            taskId: 'old-latest-task',
+            status: 'done',
+            percent: 100,
+            downloaded: 1024,
+            total: 1024,
+            running: false,
+            info: oldTaskInfo,
+            result: { info: oldTaskInfo, downloadPath: oldTaskInfo.downloadPath },
+          },
+        },
+      });
+      await flushMicrotasks();
+    });
+
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.lastUpdateInfo).toMatchObject({ channel: 'dev', latestVersion: 'dev-a1b2c3d' });
+    expect(hook?.updateDownloadProgress).toMatchObject({
+      status: 'idle',
+      key: '',
+      percent: 0,
+    });
+  });
+
+  it('does not let a delayed initial channel lookup overwrite a successful channel switch', async () => {
+    let resolveInitialChannel!: (value: unknown) => void;
+    backendApp.GetUpdateChannel.mockImplementation(() => new Promise((resolve) => {
+      resolveInitialChannel = resolve;
+    }));
+    backendApp.SetUpdateChannel.mockResolvedValue({ success: true, data: { channel: 'dev' } });
+    backendApp.CheckForUpdates.mockResolvedValue({
+      success: true,
+      data: {
+        hasUpdate: false,
+        channel: 'dev',
+        currentVersion: 'dev-a1b2c3d',
+        latestVersion: 'dev-a1b2c3d',
+      },
+    });
+
+    renderHook();
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(backendApp.GetUpdateChannel).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await hook?.changeUpdateChannel('dev');
+    });
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.lastUpdateInfo).toMatchObject({ channel: 'dev', latestVersion: 'dev-a1b2c3d' });
+
+    await act(async () => {
+      resolveInitialChannel({ success: true, data: { channel: 'latest' } });
+      await flushMicrotasks();
+    });
+
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.lastUpdateInfo).toMatchObject({ channel: 'dev', latestVersion: 'dev-a1b2c3d' });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'idle', key: '', percent: 0 });
+  });
+
+  it('waits for an old check to settle before completing the selected-channel recheck', async () => {
+    let resolveOldCheck!: (value: unknown) => void;
+    backendApp.CheckForUpdates
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveOldCheck = resolve;
+      }))
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          hasUpdate: false,
+          channel: 'dev',
+          currentVersion: 'dev-a1b2c3d',
+          latestVersion: 'dev-a1b2c3d',
+        },
+      });
+    backendApp.SetUpdateChannel.mockResolvedValue({ success: true, data: { channel: 'dev' } });
+
+    renderHook();
+    let oldCheck: Promise<void> | undefined;
+    act(() => {
+      oldCheck = hook?.checkForUpdates(false);
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(hook?.isCheckingForUpdates).toBe(true);
+
+    let channelChange: Promise<void> | undefined;
+    act(() => {
+      channelChange = hook?.changeUpdateChannel('dev');
+    });
+    await act(async () => {
+      await flushMicrotasks();
+    });
+    expect(backendApp.SetUpdateChannel).toHaveBeenCalledWith('dev');
+    expect(backendApp.CheckForUpdates).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveOldCheck({
+        success: true,
+        data: {
+          hasUpdate: false,
+          channel: 'latest',
+          currentVersion: '0.8.1',
+          latestVersion: '0.8.1',
+        },
+      });
+      await channelChange;
+      await oldCheck;
+    });
+
+    expect(backendApp.CheckForUpdates).toHaveBeenCalledTimes(2);
+    expect(hook?.updateChannel).toBe('dev');
+    expect(hook?.lastUpdateInfo).toMatchObject({ channel: 'dev', latestVersion: 'dev-a1b2c3d' });
+    expect(hook?.updateDownloadProgress).toMatchObject({ status: 'idle', key: '', percent: 0 });
   });
 
   it('does not invoke the manual-check bridge when a channel change re-check finds an update', async () => {
@@ -975,6 +1602,7 @@ describe('useAppUpdateManager', () => {
       pendingDownload = hook?.downloadUpdate(hook.lastUpdateInfo!, false);
     });
     expect(hook?.updateDownloadProgress.open).toBe(true);
+    expect(hook?.updateDownloadProgress.message).toBe('app.about.download_progress.downloading');
 
     act(() => {
       hook?.markUpdateProgressDismissed();

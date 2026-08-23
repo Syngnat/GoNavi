@@ -3,13 +3,116 @@
 package db
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
 )
+
+func TestSQLiteConnectConfiguresBoundedPoolAndSerializesWrites(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "pool.sqlite")
+	client := &SQLiteDB{}
+	if err := client.Connect(connection.ConnectionConfig{Type: "sqlite", Host: dbPath}); err != nil {
+		t.Fatalf("连接 SQLite 失败: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+
+	if got := client.conn.Stats().MaxOpenConnections; got != sqliteSQLMaxOpenConns {
+		t.Fatalf("期望最大连接数为 %d，实际=%d", sqliteSQLMaxOpenConns, got)
+	}
+	if _, err := client.conn.Exec(`CREATE TABLE pool_items (id INTEGER PRIMARY KEY, value TEXT NOT NULL)`); err != nil {
+		t.Fatalf("创建测试表失败: %v", err)
+	}
+
+	const requestCount = 20
+	var wg sync.WaitGroup
+	errCh := make(chan error, requestCount)
+	for i := 0; i < requestCount; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			_, err := client.conn.ExecContext(
+				context.Background(),
+				`INSERT INTO pool_items (id, value) VALUES (?, ?)`,
+				id,
+				fmt.Sprintf("value-%d", id),
+			)
+			errCh <- err
+		}(i)
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			t.Fatalf("并发写入失败: %v", err)
+		}
+	}
+
+	var count int
+	if err := client.conn.QueryRow(`SELECT COUNT(*) FROM pool_items`).Scan(&count); err != nil {
+		t.Fatalf("统计写入结果失败: %v", err)
+	}
+	if count != requestCount {
+		t.Fatalf("期望写入 %d 行，实际=%d", requestCount, count)
+	}
+	stats := client.conn.Stats()
+	if stats.OpenConnections > sqliteSQLMaxOpenConns || stats.Idle > sqliteSQLMaxIdleConns {
+		t.Fatalf("SQLite 连接池超出边界: %+v", stats)
+	}
+}
+
+func TestSQLiteMetadataSupportsApostropheObjectNames(t *testing.T) {
+	client := &SQLiteDB{}
+	if err := client.Connect(connection.ConnectionConfig{Type: "sqlite", Host: ":memory:"}); err != nil {
+		t.Fatalf("连接 SQLite 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	const parentTable = "parent'items"
+	const table = "order'items"
+	const index = "idx'order_parent"
+	const trigger = "trg'order_insert"
+
+	if _, err := client.conn.Exec(`CREATE TABLE "parent'items" (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatalf("创建父表失败: %v", err)
+	}
+	if _, err := client.conn.Exec(`CREATE TABLE "order'items" (id INTEGER PRIMARY KEY, parent_id INTEGER, FOREIGN KEY (parent_id) REFERENCES "parent'items" (id))`); err != nil {
+		t.Fatalf("创建测试表失败: %v", err)
+	}
+	if _, err := client.conn.Exec(`CREATE INDEX "idx'order_parent" ON "order'items" (parent_id)`); err != nil {
+		t.Fatalf("创建索引失败: %v", err)
+	}
+	if _, err := client.conn.Exec(`CREATE TRIGGER "trg'order_insert" AFTER INSERT ON "order'items" BEGIN SELECT 1; END`); err != nil {
+		t.Fatalf("创建触发器失败: %v", err)
+	}
+
+	ddl, err := client.GetCreateStatement("main", table)
+	if err != nil || !strings.Contains(ddl, table) {
+		t.Fatalf("GetCreateStatement = %q, %v", ddl, err)
+	}
+
+	indexes, err := client.GetIndexes("main", table)
+	if err != nil || len(indexes) != 1 || indexes[0].Name != index || indexes[0].ColumnName != "parent_id" {
+		t.Fatalf("GetIndexes = %#v, %v", indexes, err)
+	}
+
+	foreignKeys, err := client.GetForeignKeys("main", table)
+	if err != nil || len(foreignKeys) != 1 || foreignKeys[0].RefTableName != parentTable || foreignKeys[0].ColumnName != "parent_id" {
+		t.Fatalf("GetForeignKeys = %#v, %v", foreignKeys, err)
+	}
+
+	triggers, err := client.GetTriggers("main", table)
+	if err != nil || len(triggers) != 1 || triggers[0].Name != trigger || triggers[0].Timing != "AFTER" || triggers[0].Event != "INSERT" {
+		t.Fatalf("GetTriggers = %#v, %v", triggers, err)
+	}
+}
 
 func TestResolveSQLiteDSNRejectsHostPort(t *testing.T) {
 	_, err := resolveSQLiteDSN(connection.ConnectionConfig{Type: "sqlite", Host: "localhost:3306"})

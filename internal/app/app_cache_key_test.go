@@ -24,6 +24,24 @@ func TestGetCacheKey_IgnoreTimeout(t *testing.T) {
 	}
 }
 
+func TestGetCacheKey_IgnoreQueryTimeout(t *testing.T) {
+	base := connection.ConnectionConfig{
+		Type:         "mysql",
+		Host:         "127.0.0.1",
+		Port:         3306,
+		User:         "root",
+		QueryTimeout: 0,
+	}
+	modified := base
+	modified.QueryTimeout = 600
+
+	left := getCacheKey(base)
+	right := getCacheKey(modified)
+	if left != right {
+		t.Fatalf("expected same cache key when only query timeout differs, got %s vs %s", left, right)
+	}
+}
+
 func TestGetCacheKey_IgnoreConnectionID(t *testing.T) {
 	base := connection.ConnectionConfig{
 		ID:       "conn-1",

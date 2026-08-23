@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -53,6 +55,51 @@ func TestPrimaryWindowActivatorQueuesRequestsUntilRuntimeStartup(t *testing.T) {
 	activator.requestActivation()
 	if len(activatedWith) != 2 || activatedWith[1] != ctx {
 		t.Fatalf("live activation contexts = %#v, want startup context twice", activatedWith)
+	}
+}
+
+func TestMainReturnsNonZeroForSpecialModeFailure(t *testing.T) {
+	const helperEnv = "GONAVI_SPECIAL_MODE_FAILURE_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		os.Args = []string{"GoNavi", "mcp-server", "invalid-mode"}
+		main()
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMainReturnsNonZeroForSpecialModeFailure$")
+	cmd.Env = append(os.Environ(), helperEnv+"=1")
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("main returned success for a special-mode failure: %v", err)
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("special-mode failure exit code = %d, want 1", exitErr.ExitCode())
+	}
+}
+
+func TestMainReturnsZeroForSuccessfulSpecialMode(t *testing.T) {
+	const helperEnv = "GONAVI_SPECIAL_MODE_SUCCESS_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		os.Args = []string{
+			"GoNavi",
+			"mcp-server",
+			"remote-config",
+			"--client",
+			"openclaw",
+			"--url",
+			"https://example.com/mcp",
+			"--token",
+			"test-token",
+		}
+		main()
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMainReturnsZeroForSuccessfulSpecialMode$")
+	cmd.Env = append(os.Environ(), helperEnv+"=1")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("successful special mode returned error: %v", err)
 	}
 }
 

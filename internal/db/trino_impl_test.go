@@ -6,8 +6,11 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"net/url"
 	"sync"
 	"testing"
+
+	"GoNavi-Wails/internal/connection"
 )
 
 var (
@@ -61,5 +64,26 @@ func TestTrinoCloseCleansStateWhenDatabaseCloseFails(t *testing.T) {
 	}
 	if trino.namespace != "" {
 		t.Fatalf("Close() namespace = %q, want empty", trino.namespace)
+	}
+}
+
+func TestBuildTrinoDSNDoesNotDeriveQueryTimeoutFromConnectionTimeout(t *testing.T) {
+	dsn, err := buildTrinoDSN(connection.ConnectionConfig{
+		Type:     "trino",
+		Host:     "127.0.0.1",
+		Port:     8080,
+		User:     "alice",
+		Database: "hive.analytics",
+		Timeout:  1,
+	}, "")
+	if err != nil {
+		t.Fatalf("buildTrinoDSN: %v", err)
+	}
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse Trino DSN: %v", err)
+	}
+	if got := parsed.Query().Get("query_timeout"); got != "" {
+		t.Fatalf("connection timeout leaked into Trino query_timeout=%q", got)
 	}
 }

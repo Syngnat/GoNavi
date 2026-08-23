@@ -15,21 +15,25 @@ import {
 
 const REQUIRED_MCP_CLIENT_INSTALL_KEYS = [
   'ai_chat.mcp_client.install.status_tone.connected',
+  'ai_chat.mcp_client.install.status_tone.client_not_detected',
   'ai_chat.mcp_client.install.status_tone.update_required',
   'ai_chat.mcp_client.install.status_tone.remote_bridge',
   'ai_chat.mcp_client.install.status_tone.status_error',
   'ai_chat.mcp_client.install.status_tone.not_connected',
   'ai_chat.mcp_client.install.state.connected',
+  'ai_chat.mcp_client.install.state.client_not_detected',
   'ai_chat.mcp_client.install.state.stale',
   'ai_chat.mcp_client.install.state.error',
   'ai_chat.mcp_client.install.state.remote',
   'ai_chat.mcp_client.install.state.missing',
   'ai_chat.mcp_client.install.summary.connected',
+  'ai_chat.mcp_client.install.summary.client_not_detected',
   'ai_chat.mcp_client.install.summary.stale',
   'ai_chat.mcp_client.install.summary.error',
   'ai_chat.mcp_client.install.summary.remote',
   'ai_chat.mcp_client.install.summary.missing',
   'ai_chat.mcp_client.install.option.connected',
+  'ai_chat.mcp_client.install.option.client_not_detected',
   'ai_chat.mcp_client.install.option.stale',
   'ai_chat.mcp_client.install.option.error',
   'ai_chat.mcp_client.install.option.remote',
@@ -38,11 +42,13 @@ const REQUIRED_MCP_CLIENT_INSTALL_KEYS = [
   'ai_chat.mcp_client.install.detection.detected',
   'ai_chat.mcp_client.install.detection.not_detected',
   'ai_chat.mcp_client.install.selected.connected',
+  'ai_chat.mcp_client.install.selected.client_not_detected',
   'ai_chat.mcp_client.install.selected.stale',
   'ai_chat.mcp_client.install.selected.error',
   'ai_chat.mcp_client.install.selected.remote',
   'ai_chat.mcp_client.install.selected.missing',
   'ai_chat.mcp_client.install.action.connected',
+  'ai_chat.mcp_client.install.action.install_client_first',
   'ai_chat.mcp_client.install.action.update',
   'ai_chat.mcp_client.install.action.copy_remote',
   'ai_chat.mcp_client.install.action.install',
@@ -84,8 +90,10 @@ const REQUIRED_MCP_CLIENT_INSTALL_KEYS = [
   'ai_chat.mcp_client.install.message.remote_guide_copied',
   'ai_chat.mcp_client.install.message.remote_guide_copy_failed',
   'ai_chat.mcp_client.install.message.already_connected',
+  'ai_chat.mcp_client.install.message.client_not_detected',
   'ai_chat.mcp_client.install.message.codex_not_supported',
   'ai_chat.mcp_client.install.message.opencode_not_supported',
+  'ai_chat.mcp_client.install.message.auto_install_not_supported',
   'ai_chat.mcp_client.install.message.claude_not_supported',
   'ai_chat.mcp_client.install.message.install_success',
   'ai_chat.mcp_client.install.message.install_failed',
@@ -175,15 +183,22 @@ describe('mcpClientInstallPanelState', () => {
     expect(resolveMCPClientInstallActionLabel(status)).toBe('Update Codex connection config');
   });
 
-  it('explains that config can be written before the target CLI is detected in PATH', () => {
+  it('blocks local MCP configuration writes until the target client is detected', () => {
     const status = buildStatus({
+      installed: true,
+      matchesCurrent: true,
       clientDetected: false,
       clientCommand: '',
     });
 
     expect(resolveMCPClientCommandName(status)).toBe('claude');
-    expect(getMCPClientDetectionSummary(status)).toContain('CLI is not in PATH yet');
-    expect(resolveMCPClientInstallActionLabel(status)).toBe('Install to Claude Code (external tool)');
+    expect(getMCPClientStatusTone(status, false).label).toBe('Client not detected');
+    expect(getMCPClientInstallStateLabel(status)).toBe('External tool connection status: client not detected');
+    expect(getMCPClientStatusSummary(status)).toContain('was not detected locally');
+    expect(getMCPClientOptionSummary(status)).toContain('local client was not detected');
+    expect(getMCPClientDetectionSummary(status)).toContain('configuration writing is disabled');
+    expect(getSelectedMCPClientStateLine(status)).toContain('Client was not detected locally');
+    expect(resolveMCPClientInstallActionLabel(status)).toBe('Install or enable Claude Code first');
   });
 
   it('uses the OpenCode command when its CLI path is not detected yet', () => {
@@ -195,7 +210,26 @@ describe('mcpClientInstallPanelState', () => {
 
     expect(resolveMCPClientCommandName(status)).toBe('opencode');
     expect(getMCPClientDetectionSummary(status)).toContain('Local opencode command was not detected');
-    expect(resolveMCPClientInstallActionLabel(status)).toBe('Install to OpenCode (external tool)');
+    expect(resolveMCPClientInstallActionLabel(status)).toBe('Install or enable OpenCode first');
+  });
+
+  it('uses the documented local commands for the added MCP clients when CLI detection is unavailable', () => {
+    const cases = [
+      ['zcode', 'ZCode', 'zcode'],
+      ['deepseek-harness', 'DeepSeek Harness', 'dsh'],
+      ['kimi', 'Kimi Code', 'kimi'],
+      ['grok-build', 'Grok Build', 'grok'],
+    ] as const;
+
+    for (const [client, displayName, command] of cases) {
+      const status = buildStatus({
+        client,
+        displayName,
+        clientCommand: '',
+      });
+      expect(resolveMCPClientCommandName(status)).toBe(command);
+      expect(getMCPClientDetectionSummary(status)).toContain(`Local ${command} command was not detected`);
+    }
   });
 
   it('treats OpenClaw as a remote bridge target instead of a local install', () => {

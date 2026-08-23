@@ -117,4 +117,30 @@ describe('connectionReadOnly', () => {
       },
     }, 'SELECT * FROM users;--compact')).toEqual(['--compact']);
   });
+
+  it('allows MongoDB distinct and read-only aggregate shell commands', () => {
+    const config = {
+      type: 'mongodb',
+      protection: { restrictScriptExecution: true },
+    };
+
+    expect(findConnectionMutatingStatements(
+      config,
+      'db.users.distinct("status", { active: true }); db.users.aggregate([{ $match: { active: true } }])',
+    )).toEqual([]);
+  });
+
+  it('keeps aggregate pipelines with write stages protected', () => {
+    const config = {
+      type: 'mongodb',
+      protection: { restrictScriptExecution: true },
+    };
+    const statement = 'db.users.aggregate([{ $match: {} }, { $out: "archive" }])';
+
+    expect(findConnectionMutatingStatements(config, statement)).toEqual([statement]);
+    expect(findConnectionMutatingStatements(
+      config,
+      'db.users.aggregate([{ $match: {} }, { $merge: { into: "archive" } }])',
+    )).toEqual(['db.users.aggregate([{ $match: {} }, { $merge: { into: "archive" } }])']);
+  });
 });

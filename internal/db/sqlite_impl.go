@@ -23,6 +23,12 @@ type SQLiteDB struct {
 	pingTimeout time.Duration
 }
 
+var _ BatchApplierContext = (*SQLiteDB)(nil)
+
+func escapeSQLiteStringLiteral(value string) string {
+	return strings.ReplaceAll(value, "'", "''")
+}
+
 func (s *SQLiteDB) Connect(config connection.ConnectionConfig) error {
 	dsn, err := resolveSQLiteDSN(config)
 	if err != nil {
@@ -36,6 +42,7 @@ func (s *SQLiteDB) Connect(config connection.ConnectionConfig) error {
 	if err != nil {
 		return wrapDatabaseConnectionOpenError(err)
 	}
+	configureSQLConnectionPool(db, "sqlite")
 	s.conn = db
 	s.pingTimeout = getConnectTimeout(config)
 
@@ -214,7 +221,7 @@ func (s *SQLiteDB) Query(query string) ([]map[string]interface{}, []string, erro
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := s.conn.Query(query)
+	rows, err := s.conn.QueryContext(metadataContextFor(s), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -291,7 +298,7 @@ func (s *SQLiteDB) GetTableRowCounts(_ string, tables []string) (map[string]int6
 }
 
 func (s *SQLiteDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	query := fmt.Sprintf("SELECT sql FROM sqlite_master WHERE type='table' AND name='%s'", tableName)
+	query := fmt.Sprintf("SELECT sql FROM sqlite_master WHERE type='table' AND name='%s'", escapeSQLiteStringLiteral(tableName))
 	data, _, err := s.Query(query)
 	if err != nil {
 		return "", err
@@ -310,10 +317,8 @@ func (s *SQLiteDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	esc := func(v string) string { return strings.ReplaceAll(v, "'", "''") }
-
 	// cid, name, type, notnull, dflt_value, pk
-	data, _, err := s.Query(fmt.Sprintf("PRAGMA table_info('%s')", esc(table)))
+	data, _, err := s.Query(fmt.Sprintf("PRAGMA table_info('%s')", escapeSQLiteStringLiteral(table)))
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +406,6 @@ func (s *SQLiteDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	esc := func(v string) string { return strings.ReplaceAll(v, "'", "''") }
 	parseInt := func(v interface{}) int {
 		switch val := v.(type) {
 		case int:
@@ -421,7 +425,7 @@ func (s *SQLiteDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 		}
 	}
 
-	data, _, err := s.Query(fmt.Sprintf("PRAGMA index_list('%s')", esc(table)))
+	data, _, err := s.Query(fmt.Sprintf("PRAGMA index_list('%s')", escapeSQLiteStringLiteral(table)))
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +453,7 @@ func (s *SQLiteDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 			nonUnique = 0
 		}
 
-		cols, _, err := s.Query(fmt.Sprintf("PRAGMA index_info('%s')", esc(indexName)))
+		cols, _, err := s.Query(fmt.Sprintf("PRAGMA index_info('%s')", escapeSQLiteStringLiteral(indexName)))
 		if err != nil {
 			// skip broken index
 			continue
@@ -492,9 +496,7 @@ func (s *SQLiteDB) GetForeignKeys(dbName, tableName string) ([]connection.Foreig
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	esc := func(v string) string { return strings.ReplaceAll(v, "'", "''") }
-
-	data, _, err := s.Query(fmt.Sprintf("PRAGMA foreign_key_list('%s')", esc(table)))
+	data, _, err := s.Query(fmt.Sprintf("PRAGMA foreign_key_list('%s')", escapeSQLiteStringLiteral(table)))
 	if err != nil {
 		return nil, err
 	}
@@ -566,9 +568,7 @@ func (s *SQLiteDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	esc := func(v string) string { return strings.ReplaceAll(v, "'", "''") }
-
-	data, _, err := s.Query(fmt.Sprintf("SELECT name AS trigger_name, sql AS statement FROM sqlite_master WHERE type='trigger' AND tbl_name='%s' ORDER BY name", esc(table)))
+	data, _, err := s.Query(fmt.Sprintf("SELECT name AS trigger_name, sql AS statement FROM sqlite_master WHERE type='trigger' AND tbl_name='%s' ORDER BY name", escapeSQLiteStringLiteral(table)))
 	if err != nil {
 		return nil, err
 	}
@@ -613,15 +613,20 @@ func (s *SQLiteDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 }
 
 func (s *SQLiteDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return s.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (s *SQLiteDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if s.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
 
-	tx, err := s.conn.Begin()
+	tx, err := s.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
 
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
@@ -659,7 +664,7 @@ func (s *SQLiteDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("删除失败：%v", err)
 		}
 	}
@@ -689,7 +694,7 @@ func (s *SQLiteDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		}
 
 		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("更新失败：%v", err)
 		}
 	}
@@ -700,14 +705,18 @@ func (s *SQLiteDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		QuoteColumn: quoteIdent,
 		Placeholder: func(int) string { return "?" },
 		Exec: func(query string, args ...interface{}) (sql.Result, error) {
-			return tx.Exec(query, args...)
+			return tx.ExecContext(ctx, query, args...)
 		},
 		MaxArgs: sqliteBatchInsertArgs,
 	}); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	if err := commitWriteTransaction(tx); err != nil {
+		return err
+	}
+	transactionCommitted = true
+	return nil
 }
 
 func (s *SQLiteDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
@@ -717,6 +726,7 @@ func (s *SQLiteDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 	}
 
 	var cols []connection.ColumnDefinitionWithTable
+	var failures []MetadataObjectFailure
 	for _, table := range tables {
 		// Skip internal tables
 		if strings.HasPrefix(strings.ToLower(table), "sqlite_") {
@@ -724,6 +734,7 @@ func (s *SQLiteDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 		}
 		columns, err := s.GetColumns("", table)
 		if err != nil {
+			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: err})
 			continue
 		}
 		for _, col := range columns {
@@ -735,5 +746,5 @@ func (s *SQLiteDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 			})
 		}
 	}
-	return cols, nil
+	return cols, NewPartialMetadataError(failures)
 }

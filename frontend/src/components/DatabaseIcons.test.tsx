@@ -2,7 +2,13 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { DB_ICON_TYPES, getDbIcon, getDbIconLabel } from './DatabaseIcons';
+import {
+  DB_ICON_TYPES,
+  getDbIcon,
+  getDbIconAssetSrc,
+  getDbIconLabel,
+  hasDbIconAsset,
+} from './DatabaseIcons';
 const translate = (key: string) =>
   key === 'connection_modal.db_icon_label.custom' ? 'T:custom' : key;
 
@@ -25,6 +31,7 @@ const BRAND_ICON_CASES: Array<[string, string, string]> = [
   ['mqtt', 'MQTT', 'mqtt.svg'],
   ['kafka', 'Kafka', 'kafka.png'],
   ['rabbitmq', 'RabbitMQ', 'rabbitmq.svg'],
+  ['nacos', 'Nacos', 'nacos.svg'],
   ['chroma', 'Chroma', 'chroma.svg'],
   ['qdrant', 'Qdrant', 'qdrant.svg'],
   ['milvus', 'Milvus', 'milvus.svg'],
@@ -36,8 +43,10 @@ describe('DatabaseIcons', () => {
     it(`includes ${label} in the selectable database icons`, () => {
       expect(DB_ICON_TYPES).toContain(type);
       expect(getDbIconLabel(type)).toBe(label);
+      expect(hasDbIconAsset(type)).toBe(true);
+      expect(getDbIconAssetSrc(type)).toContain(asset);
       const markup = renderToStaticMarkup(<>{getDbIcon(type, undefined, 22)}</>);
-      expect(markup).toContain(asset);
+      expect(markup).toContain(`src="${getDbIconAssetSrc(type)}"`);
       expect(markup).toContain(`alt="${type}"`);
     });
   }

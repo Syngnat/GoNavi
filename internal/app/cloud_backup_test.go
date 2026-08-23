@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/cloudbackup"
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/secretstore"
@@ -958,6 +959,217 @@ func TestCloudBackupRestoreFilesProtectsSecretsAndSupportsRollback(t *testing.T)
 	data, err = os.ReadFile(secretPath)
 	if err != nil || string(data) != `{"old":true}` {
 		t.Fatalf("rollback did not restore original daily secrets: data=%q err=%v", data, err)
+	}
+}
+
+func TestCloudBackupConnectionSnapshotWaitsForSharedStorageLock(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	repository := application.savedConnectionRepository()
+	if _, err := repository.Save(connection.SavedConnectionInput{
+		ID: "snapshot-connection", Name: "Snapshot connection",
+		Config: connection.ConnectionConfig{ID: "snapshot-connection", Type: "mysql", Password: "snapshot-secret"},
+	}); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(application.configDir))
+	if err != nil {
+		t.Fatalf("acquire shared storage lock: %v", err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			_ = lock.Close()
+		}
+	})
+
+	type snapshotResult struct {
+		snapshot cloudBackupConnectionFilesSnapshot
+		err      error
+	}
+	finished := make(chan snapshotResult, 1)
+	go func() {
+		snapshot, captureErr := application.captureCloudBackupConnectionFilesSnapshot()
+		finished <- snapshotResult{snapshot: snapshot, err: captureErr}
+	}()
+	select {
+	case result := <-finished:
+		t.Fatalf("snapshot acquired shared lock before release: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := repository.saveUnlocked(connection.SavedConnectionInput{
+		ID: "snapshot-connection", Name: "Snapshot connection after lock",
+		Config: connection.ConnectionConfig{ID: "snapshot-connection", Type: "mysql", Host: "db-after-lock", Password: "after-lock-secret"},
+	}); err != nil {
+		t.Fatalf("write paired connection snapshot while holding lock: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release shared storage lock: %v", err)
+	}
+	released = true
+	select {
+	case result := <-finished:
+		if result.err != nil {
+			t.Fatalf("snapshot after lock release: %v", result.err)
+		}
+		if len(result.snapshot.connectionsData) == 0 || len(result.snapshot.dailySecretsData) == 0 {
+			t.Fatalf("snapshot did not capture paired connection files: %#v", result.snapshot)
+		}
+		if !strings.Contains(string(result.snapshot.connectionsData), "db-after-lock") || !strings.Contains(string(result.snapshot.dailySecretsData), "after-lock-secret") {
+			t.Fatalf("snapshot mixed pre-lock metadata and secret revisions: connections=%s secrets=%s", result.snapshot.connectionsData, result.snapshot.dailySecretsData)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("snapshot did not acquire shared lock after release")
+	}
+}
+
+func TestCloudBackupPayloadKeepsConnectionAndSecretSnapshotTogether(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	repository := application.savedConnectionRepository()
+	if _, err := repository.Save(connection.SavedConnectionInput{
+		ID: "payload-connection", Name: "Payload connection",
+		Config: connection.ConnectionConfig{ID: "payload-connection", Type: "mysql", Host: "db-before-lock", Password: "before-lock-secret"},
+	}); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+	lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(application.configDir))
+	if err != nil {
+		t.Fatalf("acquire shared storage lock: %v", err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			_ = lock.Close()
+		}
+	})
+	finished := make(chan struct {
+		data []byte
+		err  error
+	}, 1)
+	go func() {
+		data, buildErr := application.buildCloudBackupPayload(CloudBackupConfig{
+			BackupCategories: []string{CloudBackupCategoryConnections, CloudBackupCategoryDailySecrets},
+		})
+		finished <- struct {
+			data []byte
+			err  error
+		}{data: data, err: buildErr}
+	}()
+	select {
+	case result := <-finished:
+		t.Fatalf("cloud backup payload acquired shared lock before release: %v", result.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := repository.saveUnlocked(connection.SavedConnectionInput{
+		ID: "payload-connection", Name: "Payload connection after lock",
+		Config: connection.ConnectionConfig{ID: "payload-connection", Type: "mysql", Host: "db-after-lock", Password: "after-lock-secret"},
+	}); err != nil {
+		t.Fatalf("write paired payload snapshot while holding lock: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release shared storage lock: %v", err)
+	}
+	released = true
+	select {
+	case result := <-finished:
+		if result.err != nil {
+			t.Fatalf("build cloud backup payload: %v", result.err)
+		}
+		var payload cloudBackupPayload
+		if err := json.Unmarshal(result.data, &payload); err != nil {
+			t.Fatalf("decode cloud backup payload: %v", err)
+		}
+		if len(payload.Connections.Connections) != 1 || payload.Connections.Connections[0].Config.Host != "db-after-lock" || payload.Connections.Connections[0].Secrets.Password != "after-lock-secret" {
+			t.Fatalf("cloud backup payload mixed connection revisions: %#v", payload.Connections.Connections)
+		}
+		var dailySecrets []cloudBackupFile
+		for _, file := range payload.Files {
+			if file.Path == "daily_secrets.json" {
+				dailySecrets = append(dailySecrets, file)
+			}
+		}
+		if len(dailySecrets) != 1 || !strings.Contains(string(dailySecrets[0].Data), "after-lock-secret") {
+			t.Fatalf("cloud backup payload did not include paired daily secrets: %#v", dailySecrets)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cloud backup payload did not acquire shared lock after release")
+	}
+}
+
+func TestCloudBackupRestoreFilesWaitsForSharedStorageLock(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	secretPath := filepath.Join(application.configDir, "daily_secrets.json")
+	if err := os.WriteFile(secretPath, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatalf("write original daily secrets: %v", err)
+	}
+
+	lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(application.configDir))
+	if err != nil {
+		t.Fatalf("acquire shared storage lock: %v", err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			_ = lock.Close()
+		}
+	})
+	type restoreResult struct {
+		rollback func() error
+		err      error
+	}
+	finished := make(chan restoreResult, 1)
+	go func() {
+		rollback, restoreErr := application.restoreCloudBackupFiles([]cloudBackupFile{{Path: "daily_secrets.json", Data: []byte(`{"new":true}`)}})
+		finished <- restoreResult{rollback: rollback, err: restoreErr}
+	}()
+	select {
+	case result := <-finished:
+		t.Fatalf("restore acquired shared lock before release: %#v", result.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release shared storage lock: %v", err)
+	}
+	released = true
+	select {
+	case result := <-finished:
+		if result.err != nil {
+			t.Fatalf("restore after lock release: %v", result.err)
+		}
+		if data, readErr := os.ReadFile(secretPath); readErr != nil || string(data) != `{"new":true}` {
+			t.Fatalf("restored daily secrets mismatch: data=%q err=%v", data, readErr)
+		}
+		if result.rollback == nil {
+			t.Fatal("restore did not return rollback")
+		}
+		rollbackLock, lockErr := appdata.AcquireFileLock(appdata.SharedStorageLockPath(application.configDir))
+		if lockErr != nil {
+			t.Fatalf("acquire rollback shared storage lock: %v", lockErr)
+		}
+		rollbackDone := make(chan error, 1)
+		go func() { rollbackDone <- result.rollback() }()
+		select {
+		case rollbackErr := <-rollbackDone:
+			_ = rollbackLock.Close()
+			t.Fatalf("rollback acquired shared lock before release: %v", rollbackErr)
+		case <-time.After(50 * time.Millisecond):
+		}
+		if lockErr := rollbackLock.Close(); lockErr != nil {
+			t.Fatalf("release rollback shared storage lock: %v", lockErr)
+		}
+		select {
+		case rollbackErr := <-rollbackDone:
+			if rollbackErr != nil {
+				t.Fatalf("rollback after lock release: %v", rollbackErr)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("rollback did not acquire shared lock after release")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("restore did not acquire shared lock after release")
 	}
 }
 

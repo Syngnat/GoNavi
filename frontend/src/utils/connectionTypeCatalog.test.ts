@@ -6,6 +6,7 @@ import {
   getAllConnectionTypeCatalogItems,
   getConnectionTypeDefaultPort,
   getConnectionTypeHint,
+  orderConnectionTypeCatalogItems,
 } from './connectionTypeCatalog';
 
 const translatedCopy: Record<string, string> = {
@@ -119,5 +120,27 @@ describe('connectionTypeCatalog', () => {
     expect(getConnectionTypeHint('trino')).toBe('HTTP / HTTPS / catalog.schema');
     expect(getConnectionTypeHint('duckdb', translate)).toBe('T:file');
     expect(getConnectionTypeHint('mysql', translate)).toBe('T:standard');
+  });
+
+  it('moves pinned types first without changing the default order of other types', () => {
+    const items = [
+      { key: 'mysql', name: 'MySQL' },
+      { key: 'postgres', name: 'PostgreSQL' },
+      { key: 'sqlite', name: 'SQLite' },
+      { key: 'redis', name: 'Redis' },
+    ];
+
+    expect(orderConnectionTypeCatalogItems(items, [])).toEqual(items);
+    expect(
+      orderConnectionTypeCatalogItems(items, ['redis', 'postgres', 'redis']).map(
+        (item) => item.key,
+      ),
+    ).toEqual(['redis', 'postgres', 'mysql', 'sqlite']);
+    expect(items.map((item) => item.key)).toEqual([
+      'mysql',
+      'postgres',
+      'sqlite',
+      'redis',
+    ]);
   });
 });

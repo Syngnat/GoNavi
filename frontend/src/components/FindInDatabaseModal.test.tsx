@@ -186,4 +186,82 @@ describe("FindInDatabaseModal i18n", () => {
 
     expect(mocks.message.error).toHaveBeenCalledWith("Failed to get table list: driver raw detail");
   });
+
+  it("warns and stops before searching an incomplete table list", async () => {
+    mocks.dbGetTables.mockResolvedValue({
+      success: true,
+      partial: true,
+      truncated: true,
+      message: "Redis key scan truncated after 2 keys: cursor loop detected",
+      data: [{ Table: "orders" }, { Table: "users" }],
+    });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(mocks.message.warning).toHaveBeenCalledWith(
+      "Failed to get table list: Redis key scan truncated after 2 keys: cursor loop detected",
+    );
+    expect(mocks.dbGetAllColumns).not.toHaveBeenCalled();
+    expect(mocks.dbQuery).not.toHaveBeenCalled();
+  });
+
+  it("warns about an incomplete column summary but searches available columns", async () => {
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "healthy" }, { Table: "restricted" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({
+      success: true,
+      partial: true,
+      message: "Column summary is incomplete",
+      warnings: ["Failed to read column metadata for restricted: permission denied"],
+      data: [{ tableName: "healthy", name: "email", type: "varchar(255)" }],
+    });
+    mocks.dbQuery.mockResolvedValue({ success: true, data: [] });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.message.warning).toHaveBeenCalledWith("Column summary is incomplete");
+    expect(mocks.dbQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a failed column summary instead of presenting no matches", async () => {
+    mocks.dbGetTables.mockResolvedValue({ success: true, data: [{ Table: "healthy" }] });
+    mocks.dbGetAllColumns.mockResolvedValue({ success: false, message: "metadata permission denied" });
+    const renderer = renderFindModal();
+
+    const input = renderer.root.findByType("input");
+    await act(async () => {
+      input.props.onChange({ target: { value: "alice" } });
+    });
+    const searchButton = renderer.root.findAllByType("button").find((button) => textContent(button).includes("Search"));
+
+    await act(async () => {
+      searchButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.message.error).toHaveBeenCalledWith("Failed to get column summary: metadata permission denied");
+    expect(mocks.message.info).not.toHaveBeenCalledWith("No matching data found");
+    expect(mocks.dbQuery).not.toHaveBeenCalled();
+  });
 });

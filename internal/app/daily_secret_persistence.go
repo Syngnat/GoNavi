@@ -12,6 +12,7 @@ var runtimeGOOS = func() string {
 }
 
 func extractConnectionSecretBundle(config connection.ConnectionConfig) connectionSecretBundle {
+	_, sensitiveParams := partitionConnectionParams(config.ConnectionParams)
 	return connectionSecretBundle{
 		Password:              config.Password,
 		SSHPassword:           config.SSH.Password,
@@ -22,6 +23,11 @@ func extractConnectionSecretBundle(config connection.ConnectionConfig) connectio
 		RedisSentinelPassword: config.RedisSentinelPassword,
 		OpaqueURI:             config.URI,
 		OpaqueDSN:             config.DSN,
+		JVMJMXPassword:        config.JVM.JMX.Password,
+		JVMEndpointAPIKey:     config.JVM.Endpoint.APIKey,
+		JVMAgentAPIKey:        config.JVM.Agent.APIKey,
+		JVMDiagnosticAPIKey:   config.JVM.Diagnostic.APIKey,
+		SensitiveParams:       sensitiveParams,
 	}
 }
 
@@ -36,6 +42,11 @@ func toDailyConnectionBundle(bundle connectionSecretBundle) dailysecret.Connecti
 		RedisSentinelPassword: bundle.RedisSentinelPassword,
 		OpaqueURI:             bundle.OpaqueURI,
 		OpaqueDSN:             bundle.OpaqueDSN,
+		JVMJMXPassword:        bundle.JVMJMXPassword,
+		JVMEndpointAPIKey:     bundle.JVMEndpointAPIKey,
+		JVMAgentAPIKey:        bundle.JVMAgentAPIKey,
+		JVMDiagnosticAPIKey:   bundle.JVMDiagnosticAPIKey,
+		SensitiveParams:       bundle.SensitiveParams,
 	}
 }
 
@@ -50,6 +61,11 @@ func fromDailyConnectionBundle(bundle dailysecret.ConnectionBundle) connectionSe
 		RedisSentinelPassword: bundle.RedisSentinelPassword,
 		OpaqueURI:             bundle.OpaqueURI,
 		OpaqueDSN:             bundle.OpaqueDSN,
+		JVMJMXPassword:        bundle.JVMJMXPassword,
+		JVMEndpointAPIKey:     bundle.JVMEndpointAPIKey,
+		JVMAgentAPIKey:        bundle.JVMAgentAPIKey,
+		JVMDiagnosticAPIKey:   bundle.JVMDiagnosticAPIKey,
+		SensitiveParams:       bundle.SensitiveParams,
 	}
 }
 
@@ -64,6 +80,11 @@ func stripConnectionSecretFields(config connection.ConnectionConfig) connection.
 	stripped.RedisSentinelPassword = ""
 	stripped.URI = ""
 	stripped.DSN = ""
+	stripped.JVM.JMX.Password = ""
+	stripped.JVM.Endpoint.APIKey = ""
+	stripped.JVM.Agent.APIKey = ""
+	stripped.JVM.Diagnostic.APIKey = ""
+	stripped.ConnectionParams, _ = partitionConnectionParams(stripped.ConnectionParams)
 	return stripped
 }
 

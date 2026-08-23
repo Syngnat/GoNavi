@@ -57,6 +57,62 @@ func TestBuildCodeBuddyCLIEnv_AllowsMissingGitBashOnWindows(t *testing.T) {
 	}
 }
 
+func TestResolveCodeBuddyGitBashPathPrefersGitForWindowsOverWSLLauncher(t *testing.T) {
+	const (
+		wslBash = `C:\Windows\System32\bash.exe`
+		gitExe  = `C:\Program Files\Git\cmd\git.exe`
+		gitBash = `C:\Program Files\Git\bin\bash.exe`
+	)
+
+	got, err := resolveCodeBuddyGitBashPath(nil, "windows", func(name string) (string, error) {
+		switch name {
+		case "bash.exe", "bash":
+			return wslBash, nil
+		case "git.exe":
+			return gitExe, nil
+		default:
+			return "", errors.New("not found")
+		}
+	}, func(path string) bool {
+		return path == wslBash || path == gitExe || path == gitBash
+	})
+	if err != nil {
+		t.Fatalf("resolve CodeBuddy Git Bash: %v", err)
+	}
+	if got != gitBash {
+		t.Fatalf("expected Git for Windows bash %q, got %q", gitBash, got)
+	}
+}
+
+func TestResolveCodeBuddyGitBashPathRejectsConfiguredWSLLauncher(t *testing.T) {
+	const wslBash = `C:\Users\tester\AppData\Local\Microsoft\WindowsApps\bash.exe`
+	_, err := resolveCodeBuddyGitBashPath(
+		[]string{"CODEBUDDY_CODE_GIT_BASH_PATH=" + wslBash},
+		"windows",
+		func(name string) (string, error) { return "", errors.New("not found") },
+		func(path string) bool { return path == wslBash },
+	)
+	if err == nil || !strings.Contains(err.Error(), "WSL launcher") {
+		t.Fatalf("expected actionable WSL launcher error, got %v", err)
+	}
+}
+
+func TestResolveCodeBuddyGitBashPathIgnoresPATHWSLLauncher(t *testing.T) {
+	const wslBash = `C:\Windows\System32\bash.exe`
+	got, err := resolveCodeBuddyGitBashPath(nil, "windows", func(name string) (string, error) {
+		if name == "bash.exe" || name == "bash" {
+			return wslBash, nil
+		}
+		return "", errors.New("not found")
+	}, func(path string) bool { return path == wslBash })
+	if err != nil {
+		t.Fatalf("expected missing Git Bash to remain optional for CodeBuddy, got %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected PATH WSL launcher to be ignored, got %q", got)
+	}
+}
+
 func TestCodeBuddyCLIProvider_ChatParsesJSONEventArray(t *testing.T) {
 	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\necho '[{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello \"}]}},{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"hello world\"}]'\n")
 	restore := overrideCodeBuddyCLIForTest(t, fakeCodeBuddy)
@@ -77,6 +133,32 @@ func TestCodeBuddyCLIProvider_ChatParsesJSONEventArray(t *testing.T) {
 	}
 	if resp.Content != "hello world" {
 		t.Fatalf("expected result content, got %#v", resp)
+	}
+}
+
+func TestCodeBuddyCLIProvider_ChatPreservesExecutionFailureDetails(t *testing.T) {
+	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\necho 'partial output'\necho 'specific failure' >&2\nexit 7\n")
+	restore := overrideCodeBuddyCLIForTest(t, fakeCodeBuddy)
+	defer restore()
+
+	provider, err := NewCodeBuddyCLIProvider(ai.ProviderConfig{APIKey: "cb-test"})
+	if err != nil {
+		t.Fatalf("unexpected provider error: %v", err)
+	}
+
+	_, err = provider.Chat(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	})
+	if err == nil {
+		t.Fatal("expected CodeBuddy CLI execution error")
+	}
+	for _, want := range []string{"stderr: specific failure", "stdout: 15 bytes omitted", "error: exit status 7"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("expected execution error to contain %q, got %q", want, err.Error())
+		}
+	}
+	if strings.Contains(err.Error(), "partial output") {
+		t.Fatalf("expected execution error to omit raw stdout, got %q", err.Error())
 	}
 }
 
@@ -267,7 +349,11 @@ func TestCodeBuddyCLIProviderChatStreamWithState_ResumesExistingSessionWithoutDr
 
 func writeFakeCodeBuddyScript(t *testing.T, content string) string {
 	t.Helper()
-	dir := t.TempDir()
+	tempRoot := t.TempDir()
+	dir := filepath.Join(tempRoot, "包含 空格")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("failed to create fake CodeBuddy directory: %v", err)
+	}
 
 	if runtime.GOOS == "windows" {
 		bashPath, err := resolveClaudeCodeGitBashPath(os.Environ(), runtime.GOOS, exec.LookPath, fileExists)
@@ -280,7 +366,7 @@ func writeFakeCodeBuddyScript(t *testing.T, content string) string {
 			t.Fatalf("failed to write fake codebuddy shell script: %v", err)
 		}
 
-		wrapperPath := filepath.Join(dir, "codebuddy.cmd")
+		wrapperPath := filepath.Join(tempRoot, "codebuddy.cmd")
 		wrapper := "@echo off\r\n\"" + bashPath + "\" \"" + scriptPath + "\" %*\r\n"
 		if err := os.WriteFile(wrapperPath, []byte(wrapper), 0o755); err != nil {
 			t.Fatalf("failed to write fake codebuddy wrapper: %v", err)

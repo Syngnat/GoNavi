@@ -39,6 +39,8 @@ spec:
               value: /var/lib/gonavi/logs
             - name: GONAVI_MCP_HTTP_ADDR
               value: 0.0.0.0:8765
+            - name: GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK
+              value: "true"
             - name: GONAVI_MCP_HTTP_PATH
               value: /mcp
             - name: GONAVI_MCP_SCHEMA_ONLY

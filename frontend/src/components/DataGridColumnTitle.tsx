@@ -1,8 +1,13 @@
 import React from 'react';
-import { Button, Checkbox, Input, Popover, Select, Tooltip } from 'antd';
+import { Button, Checkbox, Input, Popover, Select, Table, Tooltip } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { FilterOutlined, LinkOutlined, PushpinOutlined, SearchOutlined } from '@ant-design/icons';
 import { t as defaultTranslate, type I18nParams } from '../i18n';
-import type { DataGridColumnValueCount } from '../utils/dataGridClientFilter';
+import {
+  sortGridColumnValueCounts,
+  type DataGridColumnValueCount,
+  type DataGridColumnValueCountSortOrder,
+} from '../utils/dataGridClientFilter';
 import type { FilterValueSelection } from '../utils/sql';
 
 export type DataGridColumnTitleTranslate = (key: string, params?: I18nParams) => string;
@@ -116,6 +121,7 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
   const [draftFilterValue, setDraftFilterValue] = React.useState(columnFilter?.initialValue || '');
   const [draftFilterValue2, setDraftFilterValue2] = React.useState(columnFilter?.initialValue2 || '');
   const [valueCountSearch, setValueCountSearch] = React.useState('');
+  const [valueCountSortOrder, setValueCountSortOrder] = React.useState<DataGridColumnValueCountSortOrder>('descend');
   const [draftValueSelection, setDraftValueSelection] = React.useState<FilterValueSelection>(
     normalizeValueSelection(columnFilter?.initialValueSelection),
   );
@@ -303,6 +309,7 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
     !normalizedValueCountSearch
     || getValueCountDisplay(item).toLocaleLowerCase().includes(normalizedValueCountSearch)
   ));
+  const sortedFilteredValueCounts = sortGridColumnValueCounts(filteredValueCounts, valueCountSortOrder);
   const isValueCountSelected = (item: DataGridColumnValueCount) => {
     if (item.kind === 'nullish') return !!draftValueSelection.includeNull;
     if (item.kind === 'empty') return !!draftValueSelection.includeEmpty;
@@ -354,10 +361,62 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
     });
     if (applied !== false) setFilterPopoverOpen(false);
   };
+  const valueCountTableColumns: TableColumnsType<DataGridColumnValueCount> = [
+    {
+      key: 'select',
+      width: 32,
+      align: 'center',
+      title: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+          <Checkbox
+            data-grid-column-value-select-all="true"
+            aria-label={translate('data_grid.filter.value_counts.select_all')}
+            title={translate('data_grid.filter.value_counts.select_all')}
+            checked={areAllVisibleValueCountsSelected}
+            indeterminate={hasVisibleValueCountSelection && !areAllVisibleValueCountsSelected}
+            disabled={filteredValueCounts.length === 0}
+            onChange={toggleVisibleValueCounts}
+          />
+        </span>
+      ),
+      render: (_value, item) => (
+        <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+          <Checkbox
+            data-grid-column-value-count-kind={item.kind}
+            title={getValueCountDisplay(item)}
+            checked={isValueCountSelected(item)}
+            onChange={() => toggleValueCount(item)}
+          />
+        </span>
+      ),
+    },
+    {
+      key: 'value',
+      dataIndex: 'display',
+      title: translate('data_grid.filter.value_counts.value'),
+      ellipsis: true,
+      render: (_value, item) => (
+        <span title={getValueCountDisplay(item)}>
+          {getValueCountDisplay(item)}
+        </span>
+      ),
+    },
+    {
+      key: 'count',
+      dataIndex: 'count',
+      width: 64,
+      align: 'right',
+      title: translate('data_grid.filter.value_counts.count'),
+      sorter: true,
+      sortOrder: valueCountSortOrder,
+    },
+  ];
   const filterPopoverContent = (
     <div
       data-grid-column-filter-popover="true"
       onClick={stopColumnHeaderInteraction}
+      onMouseDown={stopColumnHeaderInteraction}
+      onPointerDown={stopColumnHeaderInteraction}
       style={{
         width: 260,
         display: 'flex',
@@ -459,52 +518,30 @@ const DataGridColumnTitle: React.FC<DataGridColumnTitleProps> = ({
             placeholder={translate('data_grid.filter.value_counts.search_placeholder')}
             onChange={(event) => setValueCountSearch(event.target.value)}
           />
-          <Checkbox
-            data-grid-column-value-select-all="true"
-            checked={areAllVisibleValueCountsSelected}
-            indeterminate={hasVisibleValueCountSelection && !areAllVisibleValueCountsSelected}
-            disabled={filteredValueCounts.length === 0}
-            onChange={toggleVisibleValueCounts}
-          >
-            {translate('data_grid.filter.value_counts.select_all')}
-          </Checkbox>
           <div
-            className="custom-scrollbar"
+            className="data-grid-column-value-counts-table"
             data-grid-column-value-counts="true"
-            style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}
+            style={{ minHeight: 0 }}
           >
-            {filteredValueCounts.map((item) => (
-              <Checkbox
-                key={item.key}
-                data-grid-column-value-count-kind={item.kind}
-                title={getValueCountDisplay(item)}
-                checked={isValueCountSelected(item)}
-                onChange={() => toggleValueCount(item)}
-                style={{
-                  minHeight: 28,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  padding: '3px 6px',
-                  color: darkMode ? 'rgba(255,255,255,0.85)' : 'rgba(15,23,42,0.85)',
-                }}
-              >
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, minWidth: 0, width: '100%' }}>
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {getValueCountDisplay(item)}
-                  </span>
-                  <span style={{ flex: 'none', color: darkMode ? 'rgba(255,255,255,0.5)' : 'rgba(15,23,42,0.46)' }}>
-                    {item.count}
-                  </span>
-                </span>
-              </Checkbox>
-            ))}
-            {filteredValueCounts.length === 0 && (
-              <span style={{ padding: '6px 4px', fontSize: 12, color: darkMode ? 'rgba(255,255,255,0.46)' : 'rgba(15,23,42,0.42)' }}>
-                {translate('data_grid.filter.value_counts.no_matches')}
-              </span>
-            )}
+            <Table<DataGridColumnValueCount>
+              bordered
+              columns={valueCountTableColumns}
+              dataSource={sortedFilteredValueCounts}
+              locale={{ emptyText: translate('data_grid.filter.value_counts.no_matches') }}
+              pagination={false}
+              rowHoverable={false}
+              rowKey="key"
+              scroll={{ x: 240, y: 180 }}
+              showSorterTooltip={{ target: 'sorter-icon' }}
+              size="small"
+              sortDirections={['descend', 'ascend', 'descend']}
+              tableLayout="fixed"
+              virtual
+              onChange={(_pagination, _filters, sorter) => {
+                const nextSortOrder = Array.isArray(sorter) ? sorter[0]?.order : sorter.order;
+                setValueCountSortOrder(nextSortOrder === 'ascend' ? 'ascend' : 'descend');
+              }}
+            />
           </div>
         </div>
       )}

@@ -121,6 +121,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     dataPanelOriginalRef,
     dataPanelValue,
     dbName,
+    schemaName,
     dbType,
     ddlLoading,
     ddlModalOpen,
@@ -222,6 +223,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     localizedDataEditAutoCommitDelayOptions,
     looksLikeJsonText,
     mergedDisplayData,
+    metadataCacheKey,
     noAutoCapInputProps,
     normalizedPageFindText,
     onCancelTotalCount,
@@ -281,6 +283,8 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     rowEditorRowKey,
     rowSelectionConfig,
     selectedCells,
+    selectedCellRowCount,
+    fillTemplateTargetRowCount,
     selectedRowKeys,
     selectionAccentHex,
     sensors,
@@ -387,7 +391,7 @@ const renderDataTableView = () => (
                                       rowKey={GONAVI_ROW_KEY}
                                       pagination={false}
                                       onChange={handleTableChange}
-                                      rowHoverable={!enableVirtual}
+                                      rowHoverable={false}
                                       bordered
                                       rowSelection={rowSelectionConfig}
                                       rowClassName={rowClassName}
@@ -525,16 +529,14 @@ const renderDataTableView = () => (
       setSelectedRowKeys([]);
       resetCellSelection();
       const normalizedTableName = String(tableName || '').trim();
-      const normalizedDbName = String(dbName || '').trim();
       if (connectionId && normalizedTableName) {
-          const cacheKey = `${connectionId}|${normalizedDbName}|${normalizedTableName}`;
-          delete columnMetaCacheRef.current[cacheKey];
-          delete foreignKeyCacheRef.current[cacheKey];
-          delete uniqueKeyGroupsCacheRef.current[cacheKey];
+          delete columnMetaCacheRef.current[metadataCacheKey];
+          delete foreignKeyCacheRef.current[metadataCacheKey];
+          delete uniqueKeyGroupsCacheRef.current[metadataCacheKey];
           setMetadataReloadVersion((value: number) => value + 1);
       }
       if (onReload) onReload();
-  }, [connectionId, dbName, onReload, resetCellSelection, tableName]);
+  }, [connectionId, metadataCacheKey, onReload, resetCellSelection, tableName]);
 
   const handleResetPendingChanges = useCallback(() => {
       clearAutoCommitTimer();
@@ -614,6 +616,8 @@ const renderDataTableView = () => (
             allSelectedAreDeleted={allSelectedAreDeleted}
             cellEditMode={cellEditMode}
             selectedCellsSize={selectedCells.size}
+            selectedCellRowCount={selectedCellRowCount}
+            fillTemplateTargetRowCount={fillTemplateTargetRowCount}
             copiedCellPatchColumnCount={copiedCellPatch ? Object.keys(copiedCellPatch.values).length : 0}
             hasChanges={hasChanges}
             pendingChangeCount={pendingChangeCount}
@@ -780,6 +784,7 @@ const renderDataTableView = () => (
                         connectionId: String(connectionId || ''),
                         dbName,
                         tableName,
+                        schemaName,
                         initialTab: 'columns',
                         readOnly: designerReadOnly,
                         objectType: 'table',

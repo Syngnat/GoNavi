@@ -98,6 +98,11 @@ func TestEncryptSecretBundleRoundTripAndAADBinding(t *testing.T) {
 		RedisSentinelPassword: "sentinel-secret",
 		OpaqueURI:             "postgres://user:pass@db.local/app",
 		OpaqueDSN:             "server=db.local;password=secret",
+		JVMJMXPassword:        "jmx-secret",
+		JVMEndpointAPIKey:     "endpoint-key",
+		JVMAgentAPIKey:        "agent-key",
+		JVMDiagnosticAPIKey:   "diagnostic-key",
+		SensitiveParams:       "accessToken=param-secret",
 	}
 
 	encrypted, err := encryptSecretBundle(appKey, plain, "conn-1")
@@ -115,6 +120,11 @@ func TestEncryptSecretBundleRoundTripAndAADBinding(t *testing.T) {
 		"redisSentinelPassword": encrypted.RedisSentinelPassword,
 		"opaqueURI":             encrypted.OpaqueURI,
 		"opaqueDSN":             encrypted.OpaqueDSN,
+		"jvmJMXPassword":        encrypted.JVMJMXPassword,
+		"jvmEndpointAPIKey":     encrypted.JVMEndpointAPIKey,
+		"jvmAgentAPIKey":        encrypted.JVMAgentAPIKey,
+		"jvmDiagnosticAPIKey":   encrypted.JVMDiagnosticAPIKey,
+		"sensitiveParams":       encrypted.SensitiveParams,
 	} {
 		if value == "" {
 			t.Fatalf("expected encrypted %s field to be populated", name)
@@ -125,7 +135,9 @@ func TestEncryptSecretBundleRoundTripAndAADBinding(t *testing.T) {
 		if value == plain.Password || value == plain.SSHPassword || value == plain.ProxyPassword ||
 			value == plain.HTTPTunnelPassword || value == plain.MySQLReplicaPassword || value == plain.MongoReplicaPassword ||
 			value == plain.RedisSentinelPassword ||
-			value == plain.OpaqueURI || value == plain.OpaqueDSN {
+			value == plain.OpaqueURI || value == plain.OpaqueDSN || value == plain.JVMJMXPassword ||
+			value == plain.JVMEndpointAPIKey || value == plain.JVMAgentAPIKey ||
+			value == plain.JVMDiagnosticAPIKey || value == plain.SensitiveParams {
 			t.Fatalf("expected encrypted %s field to differ from plaintext", name)
 		}
 	}

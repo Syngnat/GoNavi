@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -21,6 +22,86 @@ type optionalAgentCancelWhenDoneObservedContext struct {
 	context.Context
 	cancel context.CancelFunc
 	once   sync.Once
+}
+
+func TestOptionalAgentMetadataProbeTimeout(t *testing.T) {
+	if got := optionalAgentMetadataProbeTimeout; got != 30*time.Second {
+		t.Fatalf("metadata probe timeout = %s, want 30s on every platform", got)
+	}
+	if got := optionalAgentMetadataProbeRetryTimeout; got != 5*time.Second {
+		t.Fatalf("metadata probe retry timeout = %s, want 5s", got)
+	}
+}
+
+func TestProbeOptionalDriverAgentMetadataWithRetryRetriesOnlyAfterTimeout(t *testing.T) {
+	var timeouts []time.Duration
+	metadata, err := probeOptionalDriverAgentMetadataWithRetry(func(timeout time.Duration) (OptionalDriverAgentMetadata, error) {
+		timeouts = append(timeouts, timeout)
+		if len(timeouts) == 1 {
+			return OptionalDriverAgentMetadata{}, fmt.Errorf("first probe: %w", context.DeadlineExceeded)
+		}
+		return OptionalDriverAgentMetadata{DriverType: "clickhouse", AgentRevision: "src-current"}, nil
+	}, true, 0)
+	if err != nil {
+		t.Fatalf("metadata retry returned error: %v", err)
+	}
+	if len(timeouts) != 2 || timeouts[0] != optionalAgentMetadataProbeTimeout || timeouts[1] != optionalAgentMetadataProbeRetryTimeout {
+		t.Fatalf("metadata retry timeouts = %#v, want [%s %s]", timeouts, optionalAgentMetadataProbeTimeout, optionalAgentMetadataProbeRetryTimeout)
+	}
+	if metadata.AgentRevision != "src-current" {
+		t.Fatalf("metadata retry result = %#v", metadata)
+	}
+}
+
+func TestProbeOptionalDriverAgentMetadataWithRetryDoesNotRetryNonTimeout(t *testing.T) {
+	wantErr := errors.New("invalid metadata response")
+	probes := 0
+	_, err := probeOptionalDriverAgentMetadataWithRetry(func(time.Duration) (OptionalDriverAgentMetadata, error) {
+		probes++
+		return OptionalDriverAgentMetadata{}, wantErr
+	}, true, 0)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("metadata probe error = %v, want %v", err, wantErr)
+	}
+	if probes != 1 {
+		t.Fatalf("non-timeout metadata error triggered %d probes, want 1", probes)
+	}
+}
+
+func TestProbeOptionalDriverAgentMetadataWithRetryPreservesBothTimeoutErrors(t *testing.T) {
+	firstErr := fmt.Errorf("first timeout: %w", context.DeadlineExceeded)
+	secondErr := errors.New("second process exited")
+	probes := 0
+	_, err := probeOptionalDriverAgentMetadataWithRetry(func(time.Duration) (OptionalDriverAgentMetadata, error) {
+		probes++
+		if probes == 1 {
+			return OptionalDriverAgentMetadata{}, firstErr
+		}
+		return OptionalDriverAgentMetadata{}, secondErr
+	}, true, 0)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("combined metadata error lost first timeout: %v", err)
+	}
+	if !strings.Contains(err.Error(), secondErr.Error()) {
+		t.Fatalf("combined metadata error lost retry detail: %v", err)
+	}
+	if probes != 2 {
+		t.Fatalf("metadata probes = %d, want 2", probes)
+	}
+}
+
+func TestProbeOptionalDriverAgentMetadataWithRetryKeepsNonWindowsTimeoutBudget(t *testing.T) {
+	probes := 0
+	_, err := probeOptionalDriverAgentMetadataWithRetry(func(time.Duration) (OptionalDriverAgentMetadata, error) {
+		probes++
+		return OptionalDriverAgentMetadata{}, context.DeadlineExceeded
+	}, false, 0)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("metadata probe error = %v, want deadline exceeded", err)
+	}
+	if probes != 1 {
+		t.Fatalf("non-Windows timeout triggered %d probes, want 1", probes)
+	}
 }
 
 func (c *optionalAgentCancelWhenDoneObservedContext) Done() <-chan struct{} {

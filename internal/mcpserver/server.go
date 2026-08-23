@@ -4,6 +4,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"GoNavi-Wails/internal/requesttrace"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -22,6 +23,11 @@ func NewServerWithOptions(backend Backend, options ServerOptions) *mcp.Server {
 		Name:    "gonavi-ai",
 		Version: implementationVersion(),
 	}, nil)
+	if traced, ok := backend.(interface {
+		RequestTraceStore() *requesttrace.Store
+	}); ok {
+		server.AddReceivingMiddleware(newMCPRequestTraceMiddleware(traced.RequestTraceStore()))
+	}
 
 	service := NewService(backend)
 

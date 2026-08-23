@@ -136,13 +136,19 @@ func TestMethodsDriverReleaseHelpersUseLocalizedText(t *testing.T) {
 			rawMessages: []string{
 				`fmt.Errorf("release 为空")`,
 				`fmt.Errorf("未找到驱动总包索引资产")`,
+			},
+			keys: []string{
+				"driver_manager.backend.error.release_empty",
+				"driver_manager.backend.error.bundle_index_asset_missing",
+			},
+		},
+		"func fetchDriverBundleAssetIndexCandidate": {
+			rawMessages: []string{
 				`fmt.Errorf("拉取驱动总包索引失败：HTTP %d")`,
 				`fmt.Errorf("解析驱动总包索引失败：%w")`,
 				`fmt.Errorf("驱动总包索引为空")`,
 			},
 			keys: []string{
-				"driver_manager.backend.error.release_empty",
-				"driver_manager.backend.error.bundle_index_asset_missing",
 				"driver_manager.backend.error.bundle_index_fetch_failed",
 				"driver_manager.backend.error.bundle_index_parse_failed",
 				"driver_manager.backend.error.bundle_index_empty",

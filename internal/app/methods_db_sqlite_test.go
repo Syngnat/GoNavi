@@ -9,15 +9,17 @@ import (
 	"GoNavi-Wails/internal/connection"
 )
 
-func TestDBGetTablesIncludesSQLiteRowCounts(t *testing.T) {
+func TestDBGetTablesUsesRefreshedSQLiteRowCounts(t *testing.T) {
 	app := newSQLAuditTestApp(t)
 	databasePath := filepath.Join(t.TempDir(), "table-counts.sqlite")
 	config := connection.ConnectionConfig{
+		ID:       "sqlite-table-counts",
 		Type:     "custom",
 		Driver:   "sqlite",
 		DSN:      databasePath,
 		Database: databasePath,
 	}
+	config = config.WithResolvedSavedSnapshot()
 	t.Cleanup(func() { app.DBReleaseConnection(config) })
 
 	for _, statement := range []string{
@@ -30,7 +32,13 @@ func TestDBGetTablesIncludesSQLiteRowCounts(t *testing.T) {
 		}
 	}
 
-	result := app.DBGetTables(config, databasePath)
+	initial := app.DBGetTables(config, databasePath)
+	initialTable := findTableStatRow(t, initial, "orders")
+	if _, ok := initialTable["Rows"]; ok {
+		t.Fatalf("DBGetTables should not query a live SQLite row count: %#v", initialTable)
+	}
+
+	result := app.DBRefreshTableStats(config, databasePath, []string{"orders"})
 	if !result.Success {
 		t.Fatalf("DBGetTables returned failure: %s", result.Message)
 	}

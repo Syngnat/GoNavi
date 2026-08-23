@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -279,7 +280,7 @@ func (o *OracleDB) Query(query string) ([]map[string]interface{}, []string, erro
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := o.conn.Query(query)
+	rows, err := o.conn.QueryContext(metadataContextFor(o), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -292,7 +293,7 @@ func (o *OracleDB) queryUnbounded(query string) ([]map[string]interface{}, []str
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := o.conn.Query(query)
+	rows, err := o.conn.QueryContext(metadataContextFor(o), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -483,7 +484,7 @@ func (o *OracleDB) inferOracleColumnsFromSelect(dbName string, tableName string)
 	var firstErr error
 	for _, candidate := range oracleMetadataNamePairs(dbName, tableName) {
 		query := "SELECT * FROM " + quoteOracleTableRef(candidate.schema, candidate.table) + " WHERE 1 = 0"
-		rows, err := o.conn.Query(query)
+		rows, err := o.conn.QueryContext(metadataContextFor(o), query)
 		if err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -1364,21 +1365,32 @@ func parseOracleTemporalString(raw string) (time.Time, bool) {
 }
 
 func (o *OracleDB) ApplyChanges(tableName string, changes connection.ChangeSet) (err error) {
+	return o.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (o *OracleDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if o.conn == nil {
 		return fmt.Errorf("连接未打开")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	columnTypeMap, err := o.loadColumnTypeMap(tableName)
 	if err != nil {
 		return err
 	}
-
-	ctx := context.Background()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	conn, err := o.conn.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() {
+		if conn == nil {
+			return
+		}
 		if closeErr := conn.Close(); closeErr != nil && err == nil {
 			err = closeErr
 		}
@@ -1389,8 +1401,18 @@ func (o *OracleDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		if transactionFinished {
 			return
 		}
-		if _, rollbackErr := conn.ExecContext(context.Background(), "ROLLBACK"); rollbackErr != nil {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelRollback()
+		if _, rollbackErr := conn.ExecContext(rollbackCtx, "ROLLBACK"); rollbackErr != nil {
 			logger.Warnf("Oracle 表格编辑事务回滚失败：table=%s err=%v", tableName, rollbackErr)
+			unknownErr := fmt.Errorf("Oracle 事务回滚失败：%w", rollbackErr)
+			if err != nil {
+				unknownErr = errors.Join(err, unknownErr)
+			}
+			if discardErr := discardSQLConn(&conn); discardErr != nil {
+				unknownErr = errors.Join(unknownErr, fmt.Errorf("Oracle 事务连接丢弃失败：%w", discardErr))
+			}
+			err = MarkWriteOutcomeUnknown(unknownErr)
 		}
 	}()
 
@@ -1514,7 +1536,7 @@ func (o *OracleDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 	}
 
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return fmt.Errorf("事务提交失败：%v", err)
+		return MarkWriteOutcomeUnknown(fmt.Errorf("事务提交失败：%w", err))
 	}
 	transactionFinished = true
 	return nil

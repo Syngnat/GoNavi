@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Empty, Segmented, Select, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Empty, Segmented, Select, Typography, message } from 'antd';
 import {
   DatabaseOutlined,
   FileAddOutlined,
@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons';
 
 import {
+  DataImportCapability as LoadDataImportCapability,
   DBGetDatabases,
   DBGetTables,
   ImportData,
@@ -29,7 +30,19 @@ import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 import { normalizeTableNamesFromMetadataRows } from '../utils/tableMetadataRows';
 import type { DataImportMode } from '../utils/dataImportTab';
 import DatabaseImportExecutionPanel from './DatabaseImportExecutionPanel';
+import ImportJobHistoryPanel from './ImportJobHistoryPanel';
 import ImportPreviewModal from './ImportPreviewModal';
+import {
+  resolveDataImportCapabilityReasonKey,
+  resolveDataImportModeCapability,
+  type DataImportCapabilityDTO,
+} from './dataImportCapability';
+import {
+  loadDataImportPreferences,
+  saveDataImportPreferences,
+  type DataImportPreferenceScope,
+  type DataImportPreferences,
+} from './dataImportPreferences';
 import './DataImportWorkbench.css';
 
 const { Text, Title } = Typography;
@@ -44,6 +57,12 @@ type SelectOption = {
   value: string;
   label: React.ReactNode;
   title: string;
+};
+
+type CapabilityLoadState = {
+  connectionId: string;
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  value?: DataImportCapabilityDTO;
 };
 
 const normalizeConnectionConfig = (connection: SavedConnection) => ({
@@ -79,17 +98,48 @@ const getFileName = (filePath: string): string => {
   return parts[parts.length - 1] || filePath;
 };
 
+const resolvePreferenceStorage = (): Storage | null => {
+  try {
+    return typeof globalThis.localStorage === 'undefined' ? null : globalThis.localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const parseConflictKeyColumns = (value: string): string[] => (
+  String(value || '')
+    .split(',')
+    .map((column) => column.trim().slice(0, 255))
+    .filter(Boolean)
+    .filter((column, index, columns) => (
+      columns.findIndex((candidate) => candidate.toLowerCase() === column.toLowerCase()) === index
+    ))
+    .slice(0, 64)
+);
+
+const normalizeConflictKeyColumnsInput = (value: string): {
+  columns: string[];
+  displayValue: string;
+} => {
+  const inputValue = String(value || '');
+  const columns = parseConflictKeyColumns(inputValue);
+  const trailingSeparator = inputValue.match(/,\s*$/)?.[0] || '';
+  return {
+    columns,
+    displayValue: `${columns.join(', ')}${columns.length < 64 ? trailingSeparator : ''}`,
+  };
+};
+
 const isEligibleImportConnection = (
   connection: SavedConnection,
   mode: DataImportMode,
 ): boolean => {
-  const capabilities = getDataSourceCapabilities(connection.config);
   if (mode === 'table') {
+    const capabilities = getDataSourceCapabilities(connection.config);
     return capabilities.supportsCopyInsert
       && !isConnectionDataImportRestricted(connection.config);
   }
-  return capabilities.supportsSqlQueryExport
-    && !isConnectionDataImportRestricted(connection.config)
+  return !isConnectionDataImportRestricted(connection.config)
     && !isConnectionStructureEditRestricted(connection.config)
     && !isConnectionScriptExecutionRestricted(connection.config);
 };
@@ -127,11 +177,28 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [loadingTables, setLoadingTables] = useState(false);
   const [selectingFile, setSelectingFile] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [preferencesByMode, setPreferencesByMode] = useState<Record<DataImportPreferenceScope, DataImportPreferences>>(() => {
+    const storage = resolvePreferenceStorage();
+    return {
+      table: loadDataImportPreferences(storage, 'table'),
+      database: loadDataImportPreferences(storage, 'database'),
+    };
+  });
+  const [conflictKeyColumnsInput, setConflictKeyColumnsInput] = useState(
+    () => preferencesByMode.table.conflictKeyColumns.join(', '),
+  );
+  const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
   const [databaseError, setDatabaseError] = useState('');
   const [tableError, setTableError] = useState('');
+  const [capabilityState, setCapabilityState] = useState<CapabilityLoadState>({
+    connectionId: '',
+    status: 'idle',
+  });
+  const [capabilityRequestToken, setCapabilityRequestToken] = useState(0);
   const appliedPrefillRef = useRef<string | null>(null);
   const fileSelectionRequestRef = useRef(0);
   const tabRef = useRef(tab);
+  const wasImportingRef = useRef(false);
   tabRef.current = tab;
 
   const selectedConnection = useMemo(
@@ -143,6 +210,55 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     [selectedConnection],
   );
   const targetLocked = Boolean(filePath) || importing;
+  const activeCapability = capabilityState.connectionId === selectedConnectionId
+    && capabilityState.status === 'ready'
+    ? capabilityState.value
+    : undefined;
+  const modeCapability = resolveDataImportModeCapability(
+    activeCapability,
+    importMode === 'database' ? 'sqlFile' : 'table',
+  );
+  const capabilityAllowsImport = capabilityState.connectionId === selectedConnectionId
+    && capabilityState.status === 'ready'
+    && modeCapability.supported;
+  const activePreferences = preferencesByMode[importMode];
+  const continueOnError = capabilityAllowsImport
+    && modeCapability.supportsContinue
+    && activePreferences.continueOnError;
+  const supportedConflictPolicies = modeCapability.supportedConflictPolicies || [];
+  const conflictPolicySupported = importMode !== 'table'
+    || !capabilityAllowsImport
+    || supportedConflictPolicies.includes(activePreferences.conflictPolicy);
+  const conflictKeysValid = activePreferences.conflictPolicy !== 'upsert'
+    || activePreferences.conflictKeyColumns.length > 0;
+  const tableImportOptionsValid = conflictPolicySupported && conflictKeysValid;
+  const capabilityReason = capabilityState.connectionId === selectedConnectionId
+    ? capabilityState.status === 'loading'
+      ? 'loading'
+      : capabilityState.status === 'error'
+        ? 'rpc_failed'
+        : capabilityState.status === 'ready' && !modeCapability.supported
+          ? (modeCapability.reason || 'capability_unavailable')
+          : ''
+    : '';
+  const capabilityMessageKey = capabilityReason === 'loading'
+    ? 'data_import.capability.loading'
+    : capabilityReason === 'rpc_failed'
+      ? 'data_import.capability.rpc_failed'
+      : capabilityReason
+        ? resolveDataImportCapabilityReasonKey(capabilityReason)
+        : '';
+  const capabilityDetails = [
+    { key: 'formats', values: modeCapability.supportedFormats },
+    { key: 'encodings', values: modeCapability.supportedEncodings },
+    { key: 'compressions', values: modeCapability.supportedCompressions },
+    { key: 'directives', values: modeCapability.supportedClientDirectives },
+  ].map(({ key, values }) => ({
+    key,
+    values: Array.isArray(values)
+      ? Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean)))
+      : [],
+  })).filter(({ values }) => values.length > 0);
 
   const syncWorkbenchTab = useCallback((patch: Partial<TabData>) => {
     addTab({
@@ -152,6 +268,17 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
       type: 'data-import',
     });
   }, [addTab]);
+
+  const updateImportPreferences = useCallback((
+    scope: DataImportPreferenceScope,
+    patch: Partial<DataImportPreferences>,
+  ) => {
+    setPreferencesByMode((current) => {
+      const nextPreferences = { ...current[scope], ...patch };
+      saveDataImportPreferences(resolvePreferenceStorage(), scope, nextPreferences);
+      return { ...current, [scope]: nextPreferences };
+    });
+  }, []);
 
   const invalidateFileSelection = useCallback(() => {
     fileSelectionRequestRef.current += 1;
@@ -218,6 +345,36 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   ]);
 
   useEffect(() => {
+    if (importing) return undefined;
+    if (!selectedConnectionConfig || !selectedConnectionId) {
+      setCapabilityState({ connectionId: '', status: 'idle' });
+      return undefined;
+    }
+
+    let active = true;
+    setCapabilityState({ connectionId: selectedConnectionId, status: 'loading' });
+    void Promise.resolve()
+      .then(() => LoadDataImportCapability(buildRpcConnectionConfig(selectedConnectionConfig) as any))
+      .then((capability) => {
+        if (!active) return;
+        setCapabilityState({
+          connectionId: selectedConnectionId,
+          status: 'ready',
+          value: capability as unknown as DataImportCapabilityDTO,
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setCapabilityState({ connectionId: selectedConnectionId, status: 'error' });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [capabilityRequestToken, importing, selectedConnectionConfig, selectedConnectionId]);
+
+  useEffect(() => {
+    if (importing) return undefined;
     if (!selectedConnectionConfig || !selectedConnection) {
       setDatabaseOptions([]);
       setLoadingDatabases(false);
@@ -285,9 +442,10 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     return () => {
       alive = false;
     };
-  }, [invalidateFileSelection, selectedConnection, selectedConnectionConfig, t]);
+  }, [importing, invalidateFileSelection, selectedConnection, selectedConnectionConfig, t]);
 
   useEffect(() => {
+    if (importing) return undefined;
     if (importMode !== 'table' || !selectedConnectionConfig || !selectedDbName) {
       setTableOptions([]);
       setLoadingTables(false);
@@ -331,7 +489,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     return () => {
       alive = false;
     };
-  }, [importMode, invalidateFileSelection, selectedConnectionConfig, selectedDbName, t]);
+  }, [importMode, importing, invalidateFileSelection, selectedConnectionConfig, selectedDbName, t]);
 
   const clearSelectedFile = () => {
     invalidateFileSelection();
@@ -401,6 +559,10 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   };
 
   const handleImportingChange = useCallback((nextImporting: boolean) => {
+    if (wasImportingRef.current !== nextImporting) {
+      setHistoryRefreshToken((current) => current + 1);
+    }
+    wasImportingRef.current = nextImporting;
     setImporting(nextImporting);
     syncWorkbenchTab({
       connectionId: selectedConnectionId,
@@ -412,7 +574,8 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   }, [importMode, selectedConnectionId, selectedDbName, selectedTableName, syncWorkbenchTab]);
 
   const handleSelectFile = async () => {
-    if (!selectedConnectionConfig || !selectedConnection || loadingDatabases || loadingTables) return;
+    if (!capabilityAllowsImport || !selectedConnectionConfig || !selectedConnection || loadingDatabases || loadingTables) return;
+    if (importMode === 'table' && !tableImportOptionsValid) return;
     if (importMode === 'table' && (!selectedDbName || !selectedTableName)) return;
     if (selectedDbName && !isDatabaseVisible(selectedConnection, selectedDbName)) return;
     const requestId = fileSelectionRequestRef.current + 1;
@@ -450,12 +613,14 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     }
   };
 
-  const shellBackground = darkMode ? '#101319' : '#f5f7fb';
-  const panelBackground = darkMode ? '#161b22' : '#ffffff';
-  const panelBorder = darkMode
-    ? '1px solid rgba(255,255,255,0.08)'
-    : '1px solid rgba(15,23,42,0.08)';
-  const selectedFileBackground = darkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc';
+  const shellBackground = `var(--gn-bg-panel-2, ${darkMode ? '#101319' : '#f5f7fb'})`;
+  const panelBackground = `var(--gn-bg-panel, ${darkMode ? '#161b22' : '#ffffff'})`;
+  const panelBorder = `1px solid var(--gn-br-1, ${darkMode
+    ? 'rgba(255,255,255,0.08)'
+    : 'rgba(15,23,42,0.08)'})`;
+  const selectedFileBackground = `var(--gn-bg-subtle, var(--gn-bg-panel-2, ${darkMode
+    ? 'rgba(255,255,255,0.04)'
+    : '#f8fafc'}))`;
 
   return (
     <div
@@ -599,6 +764,25 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
 
             {databaseError && <Alert type="error" showIcon message={databaseError} />}
             {importMode === 'table' && tableError && <Alert type="error" showIcon message={tableError} />}
+            {capabilityReason && (
+              <Alert
+                data-import-capability-alert="true"
+                data-import-capability-reason={capabilityReason}
+                type={capabilityReason === 'loading' ? 'info' : 'error'}
+                showIcon
+                message={t(capabilityMessageKey)}
+                action={capabilityReason === 'rpc_failed' ? (
+                  <Button
+                    data-import-capability-retry="true"
+                    type="link"
+                    size="small"
+                    onClick={() => setCapabilityRequestToken((current) => current + 1)}
+                  >
+                    {t('common.retry')}
+                  </Button>
+                ) : undefined}
+              />
+            )}
 
             <div style={{ display: 'grid', gap: 6 }}>
               <Text type="secondary">
@@ -631,9 +815,11 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                 loading={selectingFile}
                 disabled={
                   importing
+                  || !capabilityAllowsImport
                   || !selectedConnectionConfig
                   || loadingDatabases
                   || loadingTables
+                  || (importMode === 'table' && !tableImportOptionsValid)
                   || (importMode === 'table' && (!selectedDbName || !selectedTableName))
                 }
                 onClick={() => void handleSelectFile()}
@@ -651,7 +837,231 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                   ? t('data_import.workbench.helper.sql_file')
                   : t('data_import.workbench.helper.file_formats')}
               </Text>
+              {capabilityAllowsImport && capabilityDetails.length > 0 ? (
+                <div
+                  data-import-capability-details="true"
+                  style={{ display: 'grid', gap: 3 }}
+                >
+                  {capabilityDetails.map(({ key, values }) => (
+                    <Text
+                      key={key}
+                      type="secondary"
+                      style={{ fontSize: 12 }}
+                      data-import-capability-detail={key}
+                    >
+                      {t(`data_import.capability.details.${key}`)}: {values.join(', ')}
+                    </Text>
+                  ))}
+                </div>
+              ) : null}
             </div>
+
+            <div
+              data-import-error-policy="true"
+              style={{
+                display: 'grid',
+                gap: 8,
+                padding: '12px 14px',
+                border: panelBorder,
+                borderRadius: 8,
+                background: selectedFileBackground,
+              }}
+            >
+              <Text strong>{t('data_import.workbench.error_policy.title')}</Text>
+              <Checkbox
+                data-import-continue-on-error="true"
+                checked={continueOnError}
+                disabled={importing || !capabilityAllowsImport || !modeCapability.supportsContinue}
+                onChange={(event) => {
+                  if (capabilityAllowsImport && modeCapability.supportsContinue) {
+                    updateImportPreferences(importMode, {
+                      continueOnError: event.target.checked,
+                    });
+                  }
+                }}
+              >
+                {importMode === 'database'
+                  ? t('data_import.workbench.error_policy.continue')
+                  : t('data_import.workbench.error_policy.continue_table')}
+              </Checkbox>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {importMode === 'database'
+                  ? continueOnError
+                    ? t('data_import.workbench.error_policy.continue_description')
+                    : t('data_import.workbench.error_policy.stop_description')
+                  : continueOnError
+                    ? t('data_import.workbench.error_policy.continue_table_description')
+                    : t('data_import.workbench.error_policy.stop_table_description')}
+              </Text>
+            </div>
+
+            {importMode === 'table' ? (
+              <details
+                data-import-advanced-options="true"
+                style={{
+                  padding: '12px 14px',
+                  border: panelBorder,
+                  borderRadius: 8,
+                  background: selectedFileBackground,
+                }}
+              >
+                <summary style={{ cursor: importing ? 'default' : 'pointer', fontWeight: 600 }}>
+                  {t('data_import.workbench.advanced.title')}
+                </summary>
+                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+                  {t('data_import.workbench.advanced.description')}
+                </Text>
+                <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <Text type="secondary">{t('data_import.workbench.advanced.encoding')}</Text>
+                    <Select
+                      data-import-option-encoding="true"
+                      value={activePreferences.encoding}
+                      disabled={importing}
+                      options={[
+                        { value: 'auto', label: t('data_import.workbench.advanced.encoding.auto') },
+                        { value: 'utf-8', label: t('data_import.workbench.advanced.encoding.utf8') },
+                        { value: 'utf-16le', label: t('data_import.workbench.advanced.encoding.utf16le') },
+                        { value: 'utf-16be', label: t('data_import.workbench.advanced.encoding.utf16be') },
+                        { value: 'gb18030', label: t('data_import.workbench.advanced.encoding.gb18030') },
+                      ]}
+                      onChange={(encoding) => updateImportPreferences('table', { encoding })}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <Text type="secondary">{t('data_import.workbench.advanced.delimiter')}</Text>
+                    <Select
+                      data-import-option-delimiter="true"
+                      value={activePreferences.delimiter}
+                      disabled={importing}
+                      options={[
+                        { value: 'auto', label: t('data_import.workbench.advanced.delimiter.auto') },
+                        { value: 'comma', label: t('data_import.workbench.advanced.delimiter.comma') },
+                        { value: 'tab', label: t('data_import.workbench.advanced.delimiter.tab') },
+                        { value: 'semicolon', label: t('data_import.workbench.advanced.delimiter.semicolon') },
+                        { value: 'pipe', label: t('data_import.workbench.advanced.delimiter.pipe') },
+                      ]}
+                      onChange={(delimiter) => updateImportPreferences('table', { delimiter })}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <Text type="secondary">{t('data_import.workbench.advanced.header_row')}</Text>
+                    <input
+                      data-import-option-header-row="true"
+                      type="number"
+                      min={1}
+                      max={1_000_000}
+                      value={activePreferences.headerRow}
+                      disabled={importing}
+                      onChange={(event) => {
+                        const headerRow = Math.min(
+                          1_000_000,
+                          Math.max(1, Math.trunc(Number(event.target.value) || 1)),
+                        );
+                        updateImportPreferences('table', { headerRow });
+                      }}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <Text type="secondary">{t('data_import.workbench.advanced.null_token')}</Text>
+                    <input
+                      data-import-option-null-token="true"
+                      type="text"
+                      maxLength={64}
+                      value={activePreferences.nullToken}
+                      disabled={importing}
+                      onChange={(event) => updateImportPreferences('table', {
+                        nullToken: event.target.value,
+                      })}
+                    />
+                  </label>
+                  <Checkbox
+                    data-import-option-empty-string-as-null="true"
+                    checked={activePreferences.emptyStringAsNull}
+                    disabled={importing}
+                    onChange={(event) => updateImportPreferences('table', {
+                      emptyStringAsNull: event.target.checked,
+                    })}
+                  >
+                    {t('data_import.workbench.advanced.empty_string_as_null')}
+                  </Checkbox>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <Text type="secondary">{t('data_import.workbench.advanced.sheet_name')}</Text>
+                    <input
+                      data-import-option-sheet-name="true"
+                      type="text"
+                      maxLength={255}
+                      value={activePreferences.sheetName}
+                      disabled={importing}
+                      onChange={(event) => updateImportPreferences('table', {
+                        sheetName: event.target.value,
+                      })}
+                    />
+                  </label>
+                  <label style={{ display: 'grid', gap: 6 }}>
+                    <Text type="secondary">{t('data_import.workbench.advanced.conflict_policy')}</Text>
+                    <Select
+                      data-import-option-conflict-policy="true"
+                      value={activePreferences.conflictPolicy}
+                      disabled={importing || !capabilityAllowsImport}
+                      options={[
+                        {
+                          value: 'stop',
+                          label: t('data_import.workbench.advanced.conflict.stop'),
+                          disabled: !supportedConflictPolicies.includes('stop'),
+                        },
+                        {
+                          value: 'skip_duplicates',
+                          label: t('data_import.workbench.advanced.conflict.skip_duplicates'),
+                          disabled: !supportedConflictPolicies.includes('skip_duplicates'),
+                        },
+                        {
+                          value: 'upsert',
+                          label: t('data_import.workbench.advanced.conflict.upsert'),
+                          disabled: !supportedConflictPolicies.includes('upsert'),
+                        },
+                      ]}
+                      onChange={(conflictPolicy) => updateImportPreferences('table', { conflictPolicy })}
+                    />
+                  </label>
+                  {activePreferences.conflictPolicy === 'upsert' ? (
+                    <label style={{ display: 'grid', gap: 6 }}>
+                      <Text type="secondary">{t('data_import.workbench.advanced.conflict_keys')}</Text>
+                      <input
+                        data-import-option-conflict-keys="true"
+                        type="text"
+                        maxLength={16_384}
+                        value={conflictKeyColumnsInput}
+                        disabled={importing || !capabilityAllowsImport || !supportedConflictPolicies.includes('upsert')}
+                        placeholder={t('data_import.workbench.advanced.conflict_keys_placeholder')}
+                        onChange={(event) => {
+                          const normalized = normalizeConflictKeyColumnsInput(event.target.value);
+                          setConflictKeyColumnsInput(normalized.displayValue);
+                          updateImportPreferences('table', {
+                            conflictKeyColumns: normalized.columns,
+                          });
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                  {!conflictPolicySupported ? (
+                    <Alert
+                      data-import-conflict-policy-error="unsupported"
+                      type="error"
+                      showIcon
+                      message={t('data_import.workbench.advanced.conflict_unsupported')}
+                    />
+                  ) : !conflictKeysValid ? (
+                    <Alert
+                      data-import-conflict-policy-error="keys_required"
+                      type="error"
+                      showIcon
+                      message={t('data_import.workbench.advanced.conflict_keys_required')}
+                    />
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
           </div>
         </section>
 
@@ -666,15 +1076,17 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
             background: panelBackground,
           }}
         >
-          {filePath ? (
+          {filePath && capabilityAllowsImport ? (
             importMode === 'database' ? (
               <DatabaseImportExecutionPanel
+                key={JSON.stringify([selectedConnectionId, selectedDbName, filePath])}
                 connection={selectedConnection}
                 connectionConfig={selectedConnectionConfig}
                 dbName={selectedDbName}
                 filePath={filePath}
                 fileSizeMB={fileSizeMB}
                 darkMode={darkMode}
+                continueOnError={continueOnError}
                 onRunningChange={handleImportingChange}
               />
             ) : (
@@ -685,6 +1097,8 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                 connectionId={selectedConnectionId}
                 dbName={selectedDbName}
                 tableName={selectedTableName}
+                continueOnError={continueOnError}
+                importOptions={activePreferences}
                 onClose={clearSelectedFile}
                 onImportingChange={handleImportingChange}
                 onSuccess={() => {
@@ -712,6 +1126,9 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
             />
           )}
         </section>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <ImportJobHistoryPanel refreshToken={historyRefreshToken} />
+        </div>
       </div>
     </div>
   );

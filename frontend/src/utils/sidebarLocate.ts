@@ -1,7 +1,14 @@
 import { splitQualifiedNameLast } from './qualifiedName';
 
+export const SIDEBAR_LOCATE_CONNECTION_EVENT = 'gonavi:locate-sidebar-connection';
+
 export type SidebarLocateObjectGroup = 'tables' | 'views' | 'materializedViews' | 'triggers' | 'routines' | 'sequences' | 'packages' | 'externalSqlFiles';
 export type SidebarLocateDatabaseObjectGroup = Exclude<SidebarLocateObjectGroup, 'externalSqlFiles'>;
+
+export interface SidebarLocateConnectionRequest {
+  connectionId: string;
+  dbName?: string;
+}
 
 export interface SidebarLocateDatabaseObjectRequest {
   tabId?: string;
@@ -69,6 +76,30 @@ const toTrimmedString = (value: unknown): string => String(value ?? '').trim();
 const normalizeLocateName = (value: string): string => toTrimmedString(value).toLowerCase();
 
 const normalizeExternalSQLLocatePath = (value: unknown): string => toTrimmedString(value).replace(/\\/g, '/');
+
+export const normalizeSidebarLocateConnectionRequest = (detail: unknown): SidebarLocateConnectionRequest | null => {
+  const raw = (detail || {}) as Record<string, unknown>;
+  const connectionId = toTrimmedString(raw.connectionId);
+  if (!connectionId) return null;
+  const dbName = toTrimmedString(raw.dbName);
+  return {
+    connectionId,
+    ...(dbName ? { dbName } : {}),
+  };
+};
+
+export const dispatchSidebarLocateConnection = (
+  detail: unknown,
+  eventTarget?: Pick<Window, 'dispatchEvent'> | null,
+): boolean => {
+  const request = normalizeSidebarLocateConnectionRequest(detail);
+  const target = eventTarget ?? (typeof window === 'undefined' ? null : window);
+  if (!request || !target || typeof CustomEvent !== 'function') return false;
+  target.dispatchEvent(new CustomEvent<SidebarLocateConnectionRequest>(SIDEBAR_LOCATE_CONNECTION_EVENT, {
+    detail: request,
+  }));
+  return true;
+};
 
 export const splitSidebarQualifiedName = (qualifiedName: string): { schemaName: string; objectName: string } => {
   const raw = toTrimmedString(qualifiedName);

@@ -741,6 +741,70 @@ describe('RedisViewer tree interactions', () => {
     renderer!.unmount();
   });
 
+  it('runs and refreshes fuzzy searches to completion with the same pattern', async () => {
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    expect(findButtonByText(renderer!, 'Fuzzy')).toBeTruthy();
+    const searchModeGroup = renderer!.root.findAll(
+      node => node.props.buttonStyle === 'solid' && typeof node.props.onChange === 'function',
+    )[0];
+    await act(async () => {
+      searchModeGroup.props.onChange({ target: { value: 'fuzzy' } });
+    });
+    await flushEffects();
+
+    redisBackend.RedisScanKeys.mockReset();
+    redisBackend.RedisScanKeys
+      .mockResolvedValueOnce({
+        success: true,
+        data: { cursor: '27', keys: [{ key: 'TmpProxy', type: 'string', ttl: -1 }] },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: { cursor: '0', keys: [{ key: 'app:TmpProfile', type: 'string', ttl: -1 }] },
+      });
+
+    const searchInput = renderer!.root.findAllByType('input')
+      .find((node) => typeof node.props.onSearch === 'function');
+    await act(async () => {
+      searchInput!.props.onSearch('mpP');
+    });
+    await flushEffects();
+
+    expect(redisBackend.RedisScanKeys.mock.calls.map((call) => call.slice(1))).toEqual([
+      ['*[mM][pP][pP]*', '0', 600],
+      ['*[mM][pP][pP]*', '27', 600],
+    ]);
+    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(2);
+
+    redisBackend.RedisScanKeys.mockClear();
+    redisBackend.RedisScanKeys
+      .mockResolvedValueOnce({
+        success: true,
+        data: { cursor: '27', keys: [{ key: 'TmpProxy', type: 'string', ttl: -1 }] },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: { cursor: '0', keys: [{ key: 'app:TmpProfile', type: 'string', ttl: -1 }] },
+      });
+    await act(async () => {
+      findButtonByText(renderer!, 'Refresh')!.props.onClick?.();
+    });
+    await flushEffects();
+
+    expect(redisBackend.RedisScanKeys.mock.calls.map((call) => call.slice(1))).toEqual([
+      ['*[mM][pP][pP]*', '0', 600],
+      ['*[mM][pP][pP]*', '27', 600],
+    ]);
+    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(2);
+
+    renderer!.unmount();
+  });
+
   it('keeps exact search continuation available after the first page', async () => {
     const firstPage = Array.from({ length: 600 }, (_, index) => ({
       key: `app:user:${index}`,

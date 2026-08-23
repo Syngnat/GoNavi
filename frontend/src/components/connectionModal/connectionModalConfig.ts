@@ -137,10 +137,7 @@ export const buildSavedConnectionInput = ({
   const primaryDraft = resolveConnectionSecretDraft({
     hasSecret: initialValues?.hasPrimaryPassword,
     valueInput: config.password,
-    clearSecret:
-      clearSecrets.primaryPassword ||
-      (initialValues?.hasPrimaryPassword === true &&
-        String(config.password || "") === ""),
+    clearSecret: clearSecrets.primaryPassword,
     forceClear: values.type === "mongodb" && values.savePassword === false,
   });
   const sshDraft = resolveConnectionSecretDraft({
@@ -232,6 +229,8 @@ export const buildSavedConnectionInput = ({
           user: "",
           password: "",
           keyPath: "",
+          knownHostsPath: "",
+          hostKeyFingerprint: "",
         }),
         password: sshDraft.value,
       },
@@ -798,8 +797,20 @@ export const buildConnectionConfig = async ({
         user: mergedValues.sshUser,
         password: mergedValues.sshPassword || "",
         keyPath: mergedValues.sshKeyPath || "",
+        knownHostsPath: String(mergedValues.sshKnownHostsPath || "").trim(),
+        hostKeyFingerprint: String(
+          mergedValues.sshHostKeyFingerprint || "",
+        ).trim(),
       }
-    : { host: "", port: 22, user: "", password: "", keyPath: "" };
+    : {
+        host: "",
+        port: 22,
+        user: "",
+        password: "",
+        keyPath: "",
+        knownHostsPath: "",
+        hostKeyFingerprint: "",
+      };
   const effectiveUseHttpTunnel =
     !isFileDbType && !!mergedValues.useHttpTunnel;
   const effectiveUseProxy =

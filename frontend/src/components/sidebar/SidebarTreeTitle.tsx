@@ -18,6 +18,7 @@ import {
   formatSidebarTableTimestamp,
   resolveV2ObjectGroupTitle,
 } from './sidebarHelpers';
+import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
 
 type SidebarV2TreeTitleOptions = {
   node: any;
@@ -29,6 +30,7 @@ type SidebarV2TreeTitleOptions = {
   restoreTreeSelectionAfterDrag: () => void;
   treeDragSelectSuppressUntilRef: React.MutableRefObject<number>;
   setIsTreeDragging: (dragging: boolean) => void;
+  sidebarDropPlacement?: 'before' | 'inside' | 'after' | null;
 };
 
 const SIDEBAR_TREE_NODE_CONTENT_SELECTOR = '.ant-tree-node-content-wrapper';
@@ -119,6 +121,7 @@ export const renderSidebarV2TreeTitle = ({
   restoreTreeSelectionAfterDrag,
   treeDragSelectSuppressUntilRef,
   setIsTreeDragging,
+  sidebarDropPlacement,
 }: SidebarV2TreeTitleOptions): React.ReactNode => {
   const rawTitle = String(node.title ?? '');
   const groupKey = String(node?.dataRef?.groupKey || '');
@@ -143,6 +146,21 @@ export const renderSidebarV2TreeTitle = ({
     }
     return rawTitle;
   })();
+  const objectCompileStatus = (node.type === 'routine' || node.type === 'db-trigger')
+    ? normalizeOracleObjectCompileStatus(node?.dataRef?.objectStatus)
+    : '';
+  const objectCompileStatusLabel = objectCompileStatus
+    ? t(`sidebar.object_status.${objectCompileStatus.toLowerCase()}`)
+    : '';
+  const objectCompileStatusBadge = objectCompileStatus ? (
+    <span
+      className={`gn-v2-tree-object-status is-${objectCompileStatus.toLowerCase()}`}
+      data-sidebar-object-status={objectCompileStatus}
+      title={t('sidebar.object_status.tooltip', { status: objectCompileStatusLabel })}
+    >
+      {objectCompileStatusLabel}
+    </span>
+  ) : null;
   const tableMetadata = node.type === 'table'
     ? buildSidebarTableMetadataSnapshot(node?.dataRef)
     : null;
@@ -173,6 +191,8 @@ export const renderSidebarV2TreeTitle = ({
     'gn-v2-tree-title',
     isMono ? 'is-mono' : '',
     node.type === 'object-group' ? 'is-group' : '',
+    node.type === 'tag' ? 'is-connection-group' : '',
+    sidebarDropPlacement ? `is-drop-${sidebarDropPlacement}` : '',
     node.type === 'redis-db' ? 'is-redis-db' : '',
     node.type === 'table' && node?.dataRef?.pinnedSidebarTable ? 'is-pinned-table' : '',
   ].filter(Boolean).join(' ');
@@ -219,6 +239,7 @@ export const renderSidebarV2TreeTitle = ({
       data-group-key={groupKey || undefined}
       data-sidebar-node-key={String(node.key || '')}
       data-sidebar-node-type={String(node.type || '')}
+      data-sidebar-drop-placement={sidebarDropPlacement || undefined}
       onPointerOverCapture={tableHoverInfo ? clearSidebarTableNativeHoverTitle : undefined}
       onMouseOverCapture={tableHoverInfo ? clearSidebarTableNativeHoverTitle : undefined}
       onDragStart={dragText ? (event) => {
@@ -255,6 +276,7 @@ export const renderSidebarV2TreeTitle = ({
       {tableMetadataItems.map((item) => (
         <span key={item.key} className={item.className}>{item.text}</span>
       ))}
+      {objectCompileStatusBadge}
       {metaText && <span className="gn-v2-tree-count">{metaText}</span>}
     </span>
   );

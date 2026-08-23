@@ -13,8 +13,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/ssh"
 	"GoNavi-Wails/shared/i18n"
+
 	mysqlDriver "github.com/go-sql-driver/mysql"
 )
 
@@ -543,6 +546,99 @@ func TestOceanBaseOracleConnectProbeDialFailureMentionsSSHWhenEnabled(t *testing
 	}
 }
 
+func TestOceanBaseOBClientPreservesSSHHostKeyTrustError(t *testing.T) {
+	originalAcquireLocalForwarder := oceanBaseAcquireLocalForwarder
+	t.Cleanup(func() { oceanBaseAcquireLocalForwarder = originalAcquireLocalForwarder })
+
+	want := &ssh.HostKeyTrustRequiredError{Status: ssh.HostKeyTrustStatus{
+		State:       "unknown",
+		Host:        testSSHJumpHost,
+		Port:        22,
+		Address:     testSSHJumpHost + ":22",
+		KeyType:     "ssh-ed25519",
+		Fingerprint: "SHA256:untrusted-key",
+	}}
+	oceanBaseAcquireLocalForwarder = func(connection.SSHConfig, string, int) (*ssh.LocalForwarder, error) {
+		return nil, want
+	}
+
+	config := connection.ConnectionConfig{
+		Type:   "oceanbase",
+		Host:   testOceanBaseOracleHost,
+		Port:   testOceanBaseOraclePort,
+		UseSSH: true,
+		SSH: connection.SSHConfig{
+			Host: testSSHJumpHost,
+			Port: 22,
+			User: testSSHJumpUser,
+		},
+	}
+	for _, connect := range []struct {
+		name string
+		fn   func(connection.ConnectionConfig) error
+	}{
+		{name: "OBClient path", fn: (&OceanBaseDB{}).connectOracleViaOBClient},
+		{name: "OBClient to TNS fallback", fn: (&OceanBaseDB{}).connectOracleViaOBClientThenTNS},
+	} {
+		connect := connect
+		t.Run(connect.name, func(t *testing.T) {
+			err := connect.fn(config)
+			if err == nil {
+				t.Fatal("expected SSH host-key trust error")
+			}
+
+			var got *ssh.HostKeyTrustRequiredError
+			if !errors.As(err, &got) {
+				t.Fatalf("expected HostKeyTrustRequiredError to remain unwrapable, got %T: %v", err, err)
+			}
+			if got != want {
+				t.Fatalf("unexpected SSH host-key trust error: got %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestOceanBaseMySQLPathPreservesSSHHostKeyTrustError(t *testing.T) {
+	originalRegisterSSHNetwork := oceanBaseRegisterSSHNetwork
+	t.Cleanup(func() { oceanBaseRegisterSSHNetwork = originalRegisterSSHNetwork })
+
+	want := &ssh.HostKeyTrustRequiredError{Status: ssh.HostKeyTrustStatus{
+		State:       "unknown",
+		Host:        testSSHJumpHost,
+		Port:        22,
+		Address:     testSSHJumpHost + ":22",
+		KeyType:     "ssh-ed25519",
+		Fingerprint: "SHA256:untrusted-key",
+	}}
+	oceanBaseRegisterSSHNetwork = func(connection.SSHConfig) (string, error) {
+		return "", want
+	}
+
+	err := (&OceanBaseDB{}).Connect(connection.ConnectionConfig{
+		Type:     "oceanbase",
+		Host:     testOceanBaseOracleHost,
+		Port:     testOceanBaseOraclePort,
+		User:     testOceanBaseOracleUser,
+		Password: testOceanBaseOraclePassword,
+		UseSSH:   true,
+		SSH: connection.SSHConfig{
+			Host: testSSHJumpHost,
+			Port: 22,
+			User: testSSHJumpUser,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected SSH host-key trust error")
+	}
+	var got *ssh.HostKeyTrustRequiredError
+	if !errors.As(err, &got) {
+		t.Fatalf("expected HostKeyTrustRequiredError to remain unwrapable, got %T: %v", err, err)
+	}
+	if got != want {
+		t.Fatalf("unexpected SSH host-key trust error: got %#v, want %#v", got, want)
+	}
+}
+
 func TestProbeOceanBaseMySQLWireHandshakeUsesSSHConfiguredDialer(t *testing.T) {
 	originalDial := oceanBaseProbeDialContext
 	t.Cleanup(func() { oceanBaseProbeDialContext = originalDial })
@@ -783,6 +879,121 @@ func TestOceanBaseOracleOBClientApplyChangesUsesMySQLWirePlaceholders(t *testing
 	}
 }
 
+func TestOceanBaseOracleApplyChangesContextCancelsMySQLWireStatement(t *testing.T) {
+	dbConn, state := openOracleRecordingDB(t)
+	state.mu.Lock()
+	state.blockExecUntilCanceled = true
+	state.execStarted = make(chan struct{}, 1)
+	state.execRelease = make(chan struct{})
+	state.mu.Unlock()
+
+	oceanbaseDB := &OceanBaseDB{}
+	oceanbaseDB.bindConnectedDatabase(dbConn, 0, oceanBaseProtocolOracle)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- oceanbaseDB.ApplyChangesContext(ctx, "APP.USERS", connection.ChangeSet{
+			Updates: []connection.UpdateRow{{
+				Keys:   map[string]interface{}{"ID": 42},
+				Values: map[string]interface{}{"NAME": "cancel-me"},
+			}},
+		})
+	}()
+
+	select {
+	case <-state.execStarted:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not reach the Oracle-protocol MySQL-wire execution path")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Fatalf("ApplyChangesContext error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not return after cancellation")
+	}
+}
+
+func TestOceanBaseMySQLApplyChangesContextForwardsCancellation(t *testing.T) {
+	dbConn, state := openOracleRecordingDB(t)
+	state.mu.Lock()
+	state.blockExecUntilCanceled = true
+	state.execStarted = make(chan struct{}, 1)
+	state.execRelease = make(chan struct{})
+	state.mu.Unlock()
+
+	oceanbaseDB := &OceanBaseDB{}
+	oceanbaseDB.bindConnectedDatabase(dbConn, 0, oceanBaseProtocolMySQL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- oceanbaseDB.ApplyChangesContext(ctx, "app.orders", connection.ChangeSet{
+			Inserts: []map[string]interface{}{{"id": 42, "status": "pending"}},
+		})
+	}()
+
+	select {
+	case <-state.execStarted:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not reach the underlying MySQL context applier")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Fatalf("ApplyChangesContext error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not return after cancellation")
+	}
+}
+
+func TestOceanBaseForwardsUnknownCommitOutcomeFromMySQLApplier(t *testing.T) {
+	commitErr := errors.New("commit response lost")
+	state := &writeOutcomeTransactionState{commitErr: commitErr}
+	database := openWriteOutcomeTransactionDB(t, state)
+	oceanbase := &OceanBaseDB{}
+	oceanbase.bindConnectedDatabase(database, 0, oceanBaseProtocolMySQL)
+
+	err := oceanbase.ApplyChangesContext(context.Background(), "users", connection.ChangeSet{
+		Inserts: []map[string]interface{}{{"id": int64(1)}},
+	})
+	if !IsWriteOutcomeUnknown(err) || !errors.Is(err, commitErr) {
+		t.Fatalf("OceanBase forwarding must preserve the typed MySQL commit outcome, got %v", err)
+	}
+}
+
+func TestOceanBaseOracleMySQLWireMarksCommitFailureOutcomeUnknown(t *testing.T) {
+	dbConn, state := openOracleRecordingDB(t)
+	commitErr := errors.New("commit response lost")
+	state.mu.Lock()
+	state.txCommitErr = commitErr
+	state.mu.Unlock()
+	oceanbase := &OceanBaseDB{}
+	oceanbase.bindConnectedDatabase(dbConn, 0, oceanBaseProtocolOracle)
+
+	err := oceanbase.ApplyChangesContext(context.Background(), "APP.USERS", connection.ChangeSet{
+		Inserts: []map[string]interface{}{{"ID": int64(1)}},
+	})
+	if !IsWriteOutcomeUnknown(err) || !errors.Is(err, commitErr) {
+		t.Fatalf("OceanBase Oracle MySQL-wire commit failure must mark the outcome unknown, got %v", err)
+	}
+}
+
+var _ BatchApplierContext = (*OceanBaseDB)(nil)
+
 func TestOceanBaseOracleOBClientApplyChangesFormatsTemporalValuesExplicitly(t *testing.T) {
 	t.Parallel()
 
@@ -920,7 +1131,6 @@ func TestOceanBaseOracleCreateStatementFallbackErrorUsesCurrentLanguage(t *testi
 	}
 }
 
-
 // 用户通过 ConnectionParams 设置 connectionAttributes 时，OceanBase MySQL wire 路径必须把
 // 这些 attribute 透传到 go-sql-driver/mysql DSN，让 driver 在握手响应里发 CLIENT_CONNECT_ATTRS。
 // 这是 OBClient 协议握手探索的入口：高级用户/DBA 可以试错不同 attribute 组合而不需要改 GoNavi 代码。
@@ -950,6 +1160,19 @@ func TestOceanBaseMySQLDSNPassesThroughConnectionAttributes(t *testing.T) {
 	}
 	if !strings.Contains(parsed.ConnectionAttributes, "_client_version:2.4.5") {
 		t.Fatalf("expected _client_version attribute in DSN, got %q", parsed.ConnectionAttributes)
+	}
+}
+
+func TestOceanBaseMySQLBatchWriteCapabilityTracksConnectedDSN(t *testing.T) {
+	oceanBase := &OceanBaseDB{}
+	oceanBase.setMySQLBatchWritesFromDSN("user:pass@tcp(localhost:2881)/app?multiStatements=true")
+	if !oceanBase.SupportsBatchWrites() {
+		t.Fatal("OceanBase MySQL multiStatements=true connection should allow batch writes")
+	}
+
+	oceanBase.setMySQLBatchWritesFromDSN("user:pass@tcp(localhost:2881)/app?multiStatements=false")
+	if oceanBase.SupportsBatchWrites() {
+		t.Fatal("OceanBase MySQL multiStatements=false connection must disable batch writes")
 	}
 }
 

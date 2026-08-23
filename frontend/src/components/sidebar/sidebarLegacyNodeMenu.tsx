@@ -340,6 +340,7 @@ export const buildSidebarLegacyNodeMenuItems = (
     openRoutineDefinition,
     openEditRoutine,
     handleDropRoutine,
+    handleCompileOracleObject,
     openEventDefinition,
     openEditEvent,
     openSequenceDefinition,
@@ -382,6 +383,7 @@ export const buildSidebarLegacyNodeMenuItems = (
     handleDeleteExternalSQLDirectory,
     handleRemoveExternalSQLDirectory,
     openExternalSQLFile,
+    openExternalSQLBindingModal,
     openRenameExternalSQLFileModal,
     handleDeleteExternalSQLFile,
     extractObjectName,
@@ -760,14 +762,25 @@ export const buildSidebarLegacyNodeMenuItems = (
             icon: <FolderOutlined />,
             onClick: () => moveConnectionToTag(node.key, tag.id)
         }));
-        if (connectionTags.length > 0) {
-            tagSubMenuItems.push({ type: 'divider' });
+        const currentTagId = connectionTags.find(
+            (tag: any) => tag.connectionIds.includes(String(node.key)),
+        )?.id;
+        if (currentTagId) {
+            if (connectionTags.length > 0) {
+                tagSubMenuItems.push({ type: 'divider' });
+            }
+            tagSubMenuItems.push({
+                key: 'move-to-ungrouped',
+                label: t('connection.sidebar.menu.moveOutTag'),
+                onClick: () => moveConnectionToTag(node.key, null)
+            });
         }
-        tagSubMenuItems.push({
-            key: 'move-to-ungrouped',
-            label: t('connection.sidebar.menu.moveOutTag'),
-            onClick: () => moveConnectionToTag(node.key, null)
-        });
+        const tagMenuItem = tagSubMenuItems.length > 0 ? {
+            key: 'move-to-tag',
+            label: t('connection.sidebar.menu.moveToTag'),
+            icon: <FolderOpenOutlined />,
+            children: tagSubMenuItems
+        } : null;
 
         // Regular database connection menu
         const connectionCapabilities = getDataSourceCapabilities((node.dataRef as SavedConnection)?.config);
@@ -790,27 +803,29 @@ export const buildSidebarLegacyNodeMenuItems = (
                 }
             },
             { type: 'divider' },
-             {
-               key: 'new-query',
-               label: t('sidebar.menu.new_query'),
-               icon: <ConsoleSqlOutlined />,
-               onClick: () => {
-                   addTab({
-                       id: `query-${Date.now()}`,
-                       title: buildConnectionRootQueryTabTitle(),
-                       type: 'query',
-                       connectionId: node.key,
-                       dbName: undefined,
-                       query: ''
-                   });
-               }
-             },
-             {
-                 key: 'open-sql-file',
-                 label: t('sidebar.sql_file_exec.title'),
-                 icon: <FileAddOutlined />,
-                 onClick: () => handleRunSQLFile(node)
-             },
+             ...(connectionCapabilities.supportsQueryEditor ? [
+                 {
+                   key: 'new-query',
+                   label: t('sidebar.menu.new_query'),
+                   icon: <ConsoleSqlOutlined />,
+                   onClick: () => {
+                       addTab({
+                           id: `query-${Date.now()}`,
+                           title: buildConnectionRootQueryTabTitle(),
+                           type: 'query',
+                           connectionId: node.key,
+                           dbName: undefined,
+                           query: ''
+                       });
+                   }
+                 },
+                 {
+                     key: 'open-sql-file',
+                     label: t('sidebar.sql_file_exec.title'),
+                     icon: <FileAddOutlined />,
+                     onClick: () => handleRunSQLFile(node)
+                 },
+             ] : []),
              { type: 'divider' },
              {
                  key: 'edit',
@@ -826,12 +841,7 @@ export const buildSidebarLegacyNodeMenuItems = (
                  icon: <CopyOutlined />,
                  onClick: () => handleDuplicateConnection(node.dataRef as SavedConnection)
              },
-             {
-                 key: 'move-to-tag',
-                 label: t('connection.sidebar.menu.moveToTag'),
-                 icon: <FolderOpenOutlined />,
-                 children: tagSubMenuItems
-             },
+             ...(tagMenuItem ? [tagMenuItem] : []),
              {
                  key: 'disconnect',
                  label: t('connection.sidebar.menu.disconnect'),
@@ -1354,6 +1364,7 @@ export const buildSidebarLegacyNodeMenuItems = (
     } else if (node.type === 'routine') {
         const routineType = node.dataRef?.routineType || 'FUNCTION';
         const typeLabel = t(routineType === 'PROCEDURE' ? 'sidebar.object.procedure' : 'sidebar.object.function');
+        const supportsOracleCompilation = getMetadataDialect(node.dataRef as SavedConnection) === 'oracle';
         return [
             {
                 key: 'view-routine-def',
@@ -1367,6 +1378,12 @@ export const buildSidebarLegacyNodeMenuItems = (
                 icon: <EditOutlined />,
                 onClick: () => openEditRoutine(node)
             },
+            ...(supportsOracleCompilation && typeof handleCompileOracleObject === 'function' ? [{
+                key: 'compile-oracle-object',
+                label: t('sidebar.menu.compile'),
+                icon: <ThunderboltOutlined />,
+                onClick: () => void handleCompileOracleObject(node),
+            }] : []),
             { type: 'divider' },
             {
                 key: 'danger-zone',
@@ -1382,6 +1399,22 @@ export const buildSidebarLegacyNodeMenuItems = (
                     }
                 ]
             },
+        ];
+    } else if (node.type === 'db-trigger') {
+        const supportsOracleCompilation = getMetadataDialect(node.dataRef as SavedConnection) === 'oracle';
+        return [
+            {
+                key: 'view-trigger-definition',
+                label: t('sidebar.menu.view_object_definition'),
+                icon: <CodeOutlined />,
+                onClick: () => onDoubleClick(null, node),
+            },
+            ...(supportsOracleCompilation && typeof handleCompileOracleObject === 'function' ? [{
+                key: 'compile-oracle-object',
+                label: t('sidebar.menu.compile'),
+                icon: <ThunderboltOutlined />,
+                onClick: () => void handleCompileOracleObject(node),
+            }] : []),
         ];
     } else if (node.type === 'sequence') {
         return [
@@ -1853,6 +1886,14 @@ export const buildSidebarLegacyNodeMenuItems = (
                 icon: <ConsoleSqlOutlined />,
                 onClick: () => {
                     void openExternalSQLFile(node);
+                }
+            },
+            {
+                key: 'bind-external-sql-file-database',
+                label: t('sidebar.menu.bind_sql_file_database'),
+                icon: <LinkOutlined />,
+                onClick: () => {
+                    openExternalSQLBindingModal(node);
                 }
             },
             {

@@ -26,6 +26,17 @@ describe('tableOverviewFilter', () => {
     expect(filtered[0].name).toBe('table_1199');
   });
 
+  it('filters schema-scoped rows by their displayed table names', () => {
+    const indexed = buildTableOverviewSearchIndex([
+      { name: 'reporting.reporting_summary', comment: '', rows: 1, dataSize: 1, indexSize: 0 },
+      { name: 'reporting.orders', comment: '', rows: 2, dataSize: 2, indexSize: 0 },
+    ], (row) => row.name.split('.').pop() || row.name);
+
+    expect(filterAndSortTableOverviewRows(indexed, 'reporting', 'name', 'asc').map((item) => item.name)).toEqual([
+      'reporting.reporting_summary',
+    ]);
+  });
+
   it('caps initially rendered rows for large overview result sets', () => {
     const rows = buildRows(1200);
     const visible = resolveTableOverviewVisibleRows(rows, TABLE_OVERVIEW_RENDER_BATCH_SIZE);

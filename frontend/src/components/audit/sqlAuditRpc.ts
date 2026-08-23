@@ -7,13 +7,13 @@ export interface SQLAuditRpcResult<T = unknown> {
 }
 
 export interface SQLAuditBackend {
-  GetSQLAuditEvents?: (filter: Record<string, string | number>) => Promise<SQLAuditRpcResult>;
+  GetSQLAuditEvents?: (filter: Record<string, string | number | boolean>) => Promise<SQLAuditRpcResult>;
   GetSQLAuditHealth?: () => Promise<SQLAuditRpcResult<SQLAuditHealth>>;
   GetSQLAuditSettings?: () => Promise<SQLAuditRpcResult>;
   UpdateSQLAuditSettings?: (settings: SQLAuditSettings) => Promise<SQLAuditRpcResult>;
   VerifySQLAuditIntegrity?: () => Promise<SQLAuditRpcResult>;
-  BuildSQLAuditExport?: (filter: Record<string, string | number>, format: 'json' | 'csv') => Promise<SQLAuditRpcResult>;
-  ExportSQLAuditFile?: (filter: Record<string, string | number>, format: 'json' | 'csv') => Promise<SQLAuditRpcResult>;
+  BuildSQLAuditExport?: (filter: Record<string, string | number | boolean>, format: 'json' | 'csv') => Promise<SQLAuditRpcResult>;
+  ExportSQLAuditFile?: (filter: Record<string, string | number | boolean>, format: 'json' | 'csv') => Promise<SQLAuditRpcResult>;
   ClearSQLAuditEvents?: (beforeTimestamp: number) => Promise<SQLAuditRpcResult>;
 }
 

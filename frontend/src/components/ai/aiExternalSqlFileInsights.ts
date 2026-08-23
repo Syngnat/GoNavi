@@ -1,4 +1,5 @@
 import type { ExternalSQLDirectory, SavedConnection, TabData } from '../../types';
+import { resolveExternalSQLFileBinding } from '../../utils/externalSqlTree';
 import {
   findBestMatchingExternalSQLDirectory,
   normalizeExternalSQLPath,
@@ -73,7 +74,17 @@ export const buildExternalSQLFileSnapshot = (params: {
   const payload = normalizeFileReadPayload(readResult);
   const resolvedFilePath = normalizeExternalSQLPath(payload.filePath || requestedFilePath);
   const matchedDirectory = findBestMatchingExternalSQLDirectory(resolvedFilePath, externalSQLDirectories);
-  const matchedConnection = connections.find((item) => item.id === matchedDirectory?.connectionId);
+  const fileBinding = resolveExternalSQLFileBinding(
+    externalSQLDirectories,
+    resolvedFilePath,
+    matchedDirectory
+      ? { connectionId: matchedDirectory.connectionId, dbName: matchedDirectory.dbName }
+      : undefined,
+  );
+  const effectiveConnectionId = fileBinding
+    ? fileBinding.connectionId
+    : matchedDirectory?.connectionId || '';
+  const matchedConnection = connections.find((item) => item.id === effectiveConnectionId);
   const matchingTabs = tabs.filter(
     (tab) => normalizeExternalSQLPath(tab.filePath || '').toLowerCase() === resolvedFilePath.toLowerCase(),
   );
@@ -91,10 +102,11 @@ export const buildExternalSQLFileSnapshot = (params: {
       id: matchedDirectory.id,
       name: matchedDirectory.name,
       path: matchedDirectory.path,
-      connectionId: matchedDirectory.connectionId || '',
+      connectionId: effectiveConnectionId,
       connectionName: matchedConnection?.name || '',
       connectionType: matchedConnection?.config?.type || '',
-      dbName: matchedDirectory.dbName || '',
+      dbName: fileBinding ? fileBinding.dbName : matchedDirectory.dbName || '',
+      ...(fileBinding ? { bindingSource: 'file' } : {}),
     } : null,
     hasOpenTab: matchingTabs.length > 0,
     openTabCount: matchingTabs.length,

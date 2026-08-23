@@ -83,6 +83,9 @@ type sqlAuditTransactionEventInput struct {
 	SQL            string
 	StatementIndex int
 	StatementCount int
+	ExecutedCount  int
+	FailedIndex    int
+	OutcomeUnknown bool
 	Duration       time.Duration
 	RowsAffected   int64
 	RowsReturned   int64
@@ -373,8 +376,12 @@ func (a *App) recordSQLAuditQuery(input sqlAuditQueryInput) {
 		QueryID:               strings.TrimSpace(input.QueryID),
 		Source:                normalizeSQLAuditSource(input.Source),
 		CommitMode:            normalizeSQLAuditCommitMode(input.CommitMode),
+		BoundaryMode:          normalizeSQLAuditBoundaryMode(input.Result.BoundaryMode),
 		SQLText:               input.SQL,
 		StatementCount:        statementCount,
+		ExecutedCount:         input.Result.ExecutedCount,
+		FailedIndex:           input.Result.FailedIndex,
+		OutcomeUnknown:        input.Result.OutcomeUnknown,
 		DurationMs:            durationMilliseconds(input.Duration),
 		RowsAffected:          sqlAuditRowsAffected(input.Result),
 		RowsReturned:          queryResultRowsReturned(input.Result),
@@ -443,6 +450,9 @@ func buildSQLAuditTransactionEvent(input sqlAuditTransactionEventInput) sqlaudit
 		SQLText:               input.SQL,
 		StatementIndex:        input.StatementIndex,
 		StatementCount:        input.StatementCount,
+		ExecutedCount:         input.ExecutedCount,
+		FailedIndex:           input.FailedIndex,
+		OutcomeUnknown:        input.OutcomeUnknown,
 		DurationMs:            durationMilliseconds(input.Duration),
 		RowsAffected:          input.RowsAffected,
 		RowsReturned:          input.RowsReturned,
@@ -1140,6 +1150,14 @@ func (a *App) buildSQLAuditExport(filter sqlaudit.Filter, format string) ([]byte
 }
 
 func writeSQLAuditExportAtomically(fileName string, content []byte) error {
+	return writeSQLAuditExportAtomicallyWithReplace(fileName, content, true)
+}
+
+func writeSQLAuditExportAtomicallyNoReplace(fileName string, content []byte) error {
+	return writeSQLAuditExportAtomicallyWithReplace(fileName, content, false)
+}
+
+func writeSQLAuditExportAtomicallyWithReplace(fileName string, content []byte, replace bool) error {
 	directory := filepath.Dir(filepath.Clean(fileName))
 	temporary, err := os.CreateTemp(directory, ".gonavi-sql-audit-*.tmp")
 	if err != nil {
@@ -1162,8 +1180,14 @@ func writeSQLAuditExportAtomically(fileName string, content []byte) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	if err := replaceSQLAuditFile(temporaryName, fileName); err != nil {
-		return err
+	var publishErr error
+	if replace {
+		publishErr = replaceSQLAuditFile(temporaryName, fileName)
+	} else {
+		publishErr = atomicCreateSQLAuditFile(temporaryName, fileName)
+	}
+	if publishErr != nil {
+		return publishErr
 	}
 	return os.Chmod(fileName, 0o600)
 }

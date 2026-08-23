@@ -83,6 +83,8 @@ kubectl apply -k deploy/k8s/gonavi-mcp-server
 
 清单内已经带了基础安全上下文和默认资源配额；如果你的连接数量、对象规模或并发访问更高，建议按实际负载调整 `resources`。
 
+基础 Deployment 会显式设置 `GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK=true`，允许进程监听 Pod 网卡；Bearer Token 仍由 Secret 强制提供。本机直接运行二进制时不要开启该选项。
+
 ### 常用 Overlay
 
 仅基础部署：

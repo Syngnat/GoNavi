@@ -114,6 +114,18 @@ func runtimeBridgeScript() string {
     if (!response.ok || payload.error) {
       throw new Error(payload.error || ('invoke failed with status ' + response.status));
     }
+    if (payload.requestId) {
+      var requestId = String(payload.requestId);
+      window.__GONAVI_LAST_REQUEST_ID__ = requestId;
+      if (payload.result && typeof payload.result === 'object' && !Array.isArray(payload.result)) {
+        try {
+          Object.defineProperty(payload.result, '__gonaviRequestId', {
+            value: requestId,
+            configurable: true
+          });
+        } catch (_) {}
+      }
+    }
     return payload.result;
   };
 

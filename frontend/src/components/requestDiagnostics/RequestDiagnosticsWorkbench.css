@@ -1,0 +1,142 @@
+.gn-request-diagnostics-workbench {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  color: var(--gn-fg-1, #111827);
+}
+
+.gn-request-diagnostics-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gn-request-diagnostics-header .ant-typography {
+  margin-block: 0 4px;
+}
+
+.gn-request-diagnostics-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--gn-fg-3, #6b7280);
+  font-size: 12px;
+}
+
+.gn-request-diagnostics-table {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border: 1px solid var(--gn-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--gn-surface, #fff);
+}
+
+.gn-request-diagnostics-table .ant-spin-nested-loading,
+.gn-request-diagnostics-table .ant-spin-container,
+.gn-request-diagnostics-table .ant-table-wrapper,
+.gn-request-diagnostics-table .ant-table-container {
+  min-height: 0;
+  height: 100%;
+}
+
+.gn-request-diagnostics-row {
+  cursor: pointer;
+}
+
+.gn-reproduction-bundle-panel {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--gn-border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--gn-surface, #fff);
+}
+
+.gn-reproduction-bundle-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.gn-reproduction-bundle-panel__header .ant-typography {
+  margin-block: 0 4px;
+}
+
+.gn-request-diagnostics-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.gn-request-diagnostics-detail h5 {
+  margin-top: 0;
+}
+
+.gn-request-diagnostics-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gn-request-diagnostics-timeline li {
+  position: relative;
+  margin-left: 8px;
+  padding: 0 0 18px 22px;
+  border-left: 2px solid var(--gn-border, #e5e7eb);
+}
+
+.gn-request-diagnostics-timeline li::before {
+  position: absolute;
+  top: 5px;
+  left: -7px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--gn-surface, #fff);
+  border-radius: 50%;
+  background: var(--gn-accent-2, #2563eb);
+  content: '';
+}
+
+.gn-request-diagnostics-timeline li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gn-request-diagnostics-timeline time {
+  color: var(--gn-fg-3, #6b7280);
+  font-size: 12px;
+}
+
+.gn-request-diagnostics-timeline pre {
+  margin: 8px 0 0;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--gn-fill-3, #f3f4f6);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .gn-request-diagnostics-workbench {
+    padding: 12px;
+  }
+
+  .gn-request-diagnostics-header,
+  .gn-reproduction-bundle-panel__header,
+  .gn-request-diagnostics-summary,
+  .gn-request-diagnostics-timeline li > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

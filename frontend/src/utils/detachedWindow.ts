@@ -33,6 +33,9 @@ export type DetachedQueryResultSnapshot = {
   metadataTableName?: string;
   ddlDbName?: string;
   ddlTableName?: string;
+  executionConnectionId?: string;
+  executionDbName?: string;
+  executionConnectionParams?: string;
   pkColumns: string[];
   editLocator?: {
     strategy?: string;

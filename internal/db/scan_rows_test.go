@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -135,6 +136,16 @@ func (scanRowsDuplicateConn) QueryContext(_ context.Context, query string, args 
 			},
 		}, nil
 	}
+	if query == "SELECT scan_error_rows" {
+		return &scanRowsDuplicateRows{
+			columns: []string{"id"},
+			rows: [][]driver.Value{
+				{int64(1)},
+				{int64(2)},
+				{int64(3)},
+			},
+		}, nil
+	}
 	return &scanRowsDuplicateRows{
 		columns: []string{"id", "id", "name"},
 		rows: [][]driver.Value{
@@ -165,6 +176,73 @@ func (c *scanRowsValueConsumer) ConsumeRow(row map[string]interface{}) error {
 func (c *scanRowsValueConsumer) ConsumeRowValues(values []interface{}) error {
 	c.rows = append(c.rows, append([]interface{}(nil), values...))
 	return nil
+}
+
+type scanRowsMapConsumer struct {
+	columns []string
+	rows    []map[string]interface{}
+}
+
+func (c *scanRowsMapConsumer) SetColumns(columns []string) error {
+	c.columns = append([]string(nil), columns...)
+	return nil
+}
+
+func (c *scanRowsMapConsumer) ConsumeRow(row map[string]interface{}) error {
+	c.rows = append(c.rows, row)
+	return nil
+}
+
+var errScanRowsTest = errors.New("simulated scan error")
+
+type scanRowsErrorScanner struct {
+	failAt    int
+	scanCount int
+}
+
+func (s *scanRowsErrorScanner) scanCurrentPreviewRow(rows *sql.Rows) (map[string]interface{}, error) {
+	return s.scanCurrentRow(rows)
+}
+
+func (s *scanRowsErrorScanner) scanCurrentRow(_ *sql.Rows) (map[string]interface{}, error) {
+	s.scanCount++
+	if s.scanCount == s.failAt {
+		return nil, errScanRowsTest
+	}
+	return map[string]interface{}{"id": int64(s.scanCount)}, nil
+}
+
+func (s *scanRowsErrorScanner) scanCurrentRowValues(_ *sql.Rows) ([]interface{}, error) {
+	s.scanCount++
+	if s.scanCount == s.failAt {
+		return nil, errScanRowsTest
+	}
+	return []interface{}{int64(s.scanCount)}, nil
+}
+
+func openScanRowsErrorRows(t *testing.T) *sql.Rows {
+	t.Helper()
+
+	registerScanRowsDuplicateDriverOnce.Do(func() {
+		sql.Register(scanRowsDuplicateDriverName, scanRowsDuplicateDriver{})
+	})
+
+	dbConn, err := sql.Open(scanRowsDuplicateDriverName, "")
+	if err != nil {
+		t.Fatalf("open scan error db failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = dbConn.Close()
+	})
+
+	rows, err := dbConn.QueryContext(context.Background(), "SELECT scan_error_rows")
+	if err != nil {
+		t.Fatalf("query scan error db failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = rows.Close()
+	})
+	return rows
 }
 
 func TestScanRowsBoundsOracleBlobPreview(t *testing.T) {
@@ -342,6 +420,53 @@ func (r *scanRowsDuplicateRows) Next(dest []driver.Value) error {
 	}
 	r.index++
 	return nil
+}
+
+func TestScanRowsReturnsSecondRowScanErrorWithPartialResults(t *testing.T) {
+	rows := openScanRowsErrorRows(t)
+
+	data, columns, err := scanRowsWithScanner(rows, []string{"id"}, &scanRowsErrorScanner{failAt: 2}, false)
+	if !errors.Is(err, errScanRowsTest) {
+		t.Fatalf("scanRows error = %v, want wrapped scan error", err)
+	}
+	if !reflect.DeepEqual(columns, []string{"id"}) || len(data) != 1 || data[0]["id"] != int64(1) {
+		t.Fatalf("unexpected partial result: columns=%v rows=%#v", columns, data)
+	}
+	if !strings.Contains(err.Error(), "scan query row 2 (columns: id)") {
+		t.Fatalf("scan error lacks row and column context: %v", err)
+	}
+}
+
+func TestStreamRowsValueConsumerReturnsSecondRowScanError(t *testing.T) {
+	rows := openScanRowsErrorRows(t)
+	consumer := &scanRowsValueConsumer{}
+
+	err := streamRowsWithScanner(rows, []string{"id"}, consumer, &scanRowsErrorScanner{failAt: 2})
+	if !errors.Is(err, errScanRowsTest) {
+		t.Fatalf("streamRows error = %v, want wrapped scan error", err)
+	}
+	if !reflect.DeepEqual(consumer.rows, [][]interface{}{{int64(1)}}) {
+		t.Fatalf("unexpected streamed rows: %#v", consumer.rows)
+	}
+	if !strings.Contains(err.Error(), "scan query row 2 (columns: id)") {
+		t.Fatalf("stream scan error lacks row and column context: %v", err)
+	}
+}
+
+func TestStreamRowsMapConsumerReturnsSecondRowScanError(t *testing.T) {
+	rows := openScanRowsErrorRows(t)
+	consumer := &scanRowsMapConsumer{}
+
+	err := streamRowsWithScanner(rows, []string{"id"}, consumer, &scanRowsErrorScanner{failAt: 2})
+	if !errors.Is(err, errScanRowsTest) {
+		t.Fatalf("streamRows error = %v, want wrapped scan error", err)
+	}
+	if len(consumer.rows) != 1 || consumer.rows[0]["id"] != int64(1) {
+		t.Fatalf("unexpected streamed rows: %#v", consumer.rows)
+	}
+	if !strings.Contains(err.Error(), "scan query row 2 (columns: id)") {
+		t.Fatalf("map consumer stream scan error lacks row and column context: %v", err)
+	}
 }
 
 func TestScanRowsRenamesDuplicateColumns(t *testing.T) {

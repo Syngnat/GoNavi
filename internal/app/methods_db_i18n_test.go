@@ -540,6 +540,9 @@ func TestMethodsDBManagedTransactionUsesEnglishMessages(t *testing.T) {
 		if result.Success {
 			t.Fatalf("DBCommitTransaction(commit fail) returned success: %+v", result)
 		}
+		if !result.OutcomeUnknown {
+			t.Fatalf("DBCommitTransaction(commit fail) must mark the outcome unknown: %+v", result)
+		}
 		if result.Message != "Transaction commit failed: deadlock detected" {
 			t.Fatalf("expected localized commit failure message, got %q", result.Message)
 		}
@@ -561,6 +564,9 @@ func TestMethodsDBManagedTransactionUsesEnglishMessages(t *testing.T) {
 		result := app.DBRollbackTransaction("tx-rollback-fail")
 		if result.Success {
 			t.Fatalf("DBRollbackTransaction(rollback fail) returned success: %+v", result)
+		}
+		if !result.OutcomeUnknown {
+			t.Fatalf("DBRollbackTransaction(rollback fail) must mark the outcome unknown: %+v", result)
 		}
 		if result.Message != "Transaction rollback failed: session timeout" {
 			t.Fatalf("expected localized rollback failure message, got %q", result.Message)

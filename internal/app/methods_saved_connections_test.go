@@ -225,7 +225,7 @@ func TestSaveConnectionSanitizesSchemaVisibilityRules(t *testing.T) {
 	}
 }
 
-func TestGetEditableSavedConnectionReturnsResolvedSecretsForEdit(t *testing.T) {
+func TestGetEditableSavedConnectionReturnsSecretlessViewForEdit(t *testing.T) {
 	app := NewAppWithSecretStore(newFakeAppSecretStore())
 	app.configDir = t.TempDir()
 
@@ -255,11 +255,11 @@ func TestGetEditableSavedConnectionReturnsResolvedSecretsForEdit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if view.Config.Password != "mysql-secret" {
-		t.Fatalf("expected editable primary password, got %q", view.Config.Password)
+	if view.Config.Password != "" {
+		t.Fatalf("editable view must not expose primary password, got %q", view.Config.Password)
 	}
-	if view.Config.SSH.Password != "ssh-secret" {
-		t.Fatalf("expected editable SSH password, got %q", view.Config.SSH.Password)
+	if view.Config.SSH.Password != "" {
+		t.Fatalf("editable view must not expose SSH password, got %q", view.Config.SSH.Password)
 	}
 	if !view.HasPrimaryPassword || !view.HasSSHPassword {
 		t.Fatalf("expected secret flags to stay true, got %#v", view)
@@ -277,6 +277,123 @@ func TestGetEditableSavedConnectionReturnsResolvedSecretsForEdit(t *testing.T) {
 	}
 	if saved[0].Config.SSH.Password != "" {
 		t.Fatalf("expected saved connection list SSH password to remain secretless, got %q", saved[0].Config.SSH.Password)
+	}
+}
+
+func TestRevealSavedConnectionPrimaryPasswordReturnsOnlyPrimarySecret(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	if _, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:   "conn-reveal-password",
+		Name: "Reveal password",
+		Config: connection.ConnectionConfig{
+			ID:       "conn-reveal-password",
+			Type:     "mysql",
+			Host:     "db.local",
+			Port:     3306,
+			User:     "root",
+			Password: "primary-secret",
+			UseSSH:   true,
+			SSH: connection.SSHConfig{
+				Host:     "jump.local",
+				Port:     22,
+				User:     "ops",
+				Password: "ssh-secret",
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	password, err := app.RevealSavedConnectionPrimaryPassword("conn-reveal-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if password != "primary-secret" {
+		t.Fatalf("expected primary password, got %q", password)
+	}
+
+	editable, err := app.GetEditableSavedConnection("conn-reveal-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if editable.Config.Password != "" || editable.Config.SSH.Password != "" {
+		t.Fatalf("editable view must remain secretless: %#v", editable.Config)
+	}
+}
+
+func TestRevealSavedConnectionPrimaryPasswordFailsClosedWithoutSavedPrimarySecret(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	withoutPassword, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:   "conn-without-password",
+		Name: "No password",
+		Config: connection.ConnectionConfig{
+			ID:   "conn-without-password",
+			Type: "mysql",
+			Host: "db.local",
+			Port: 3306,
+			User: "root",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutPassword.HasPrimaryPassword {
+		t.Fatal("connection without a password must not advertise a saved primary password")
+	}
+
+	password, err := app.RevealSavedConnectionPrimaryPassword(withoutPassword.ID)
+	if err == nil || !strings.Contains(err.Error(), "no stored primary password") {
+		t.Fatalf("expected an explicit no-password error, got password=%q err=%v", password, err)
+	}
+	if password != "" {
+		t.Fatalf("no-password error must not return secret material, got %q", password)
+	}
+
+	staleView, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:   "conn-stale-password",
+		Name: "Stale password",
+		Config: connection.ConnectionConfig{
+			ID:       "conn-stale-password",
+			Type:     "mysql",
+			Host:     "db.local",
+			Port:     3306,
+			User:     "root",
+			Password: "must-not-leak",
+			UseSSH:   true,
+			SSH: connection.SSHConfig{
+				Host:     "jump.local",
+				Port:     22,
+				User:     "ops",
+				Password: "ssh-secret",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	staleView.HasPrimaryPassword = false
+	if err := app.savedConnectionRepository().saveAll([]connection.SavedConnectionView{withoutPassword, staleView}); err != nil {
+		t.Fatal(err)
+	}
+
+	password, err = app.RevealSavedConnectionPrimaryPassword(staleView.ID)
+	if err == nil || !strings.Contains(err.Error(), "no stored primary password") {
+		t.Fatalf("expected stale primary secret to be rejected, got password=%q err=%v", password, err)
+	}
+	if password != "" {
+		t.Fatalf("stale primary secret must not be returned, got %q", password)
+	}
+
+	password, err = app.RevealSavedConnectionPrimaryPassword("missing-connection")
+	if err == nil || !strings.Contains(err.Error(), "saved connection not found") {
+		t.Fatalf("expected missing connection error, got password=%q err=%v", password, err)
+	}
+	if password != "" {
+		t.Fatalf("missing connection must not return secret material, got %q", password)
 	}
 }
 

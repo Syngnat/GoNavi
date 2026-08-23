@@ -59,6 +59,34 @@ export const buildTableSelectQuery = (
   return `SELECT\n  ${selectList}\nFROM ${quotedTable}${limitSuffix};`;
 };
 
+type BuildContextualNewQueryTemplateOptions = {
+  dbType: string;
+  tableName: string;
+  customTemplate?: string | null;
+};
+
+/**
+ * Build the initial query for a new tab opened while a table-like data tab is active.
+ * A custom template is only augmented when it explicitly ends at a FROM insertion point.
+ */
+export const buildContextualNewQueryTemplate = ({
+  dbType,
+  tableName,
+  customTemplate,
+}: BuildContextualNewQueryTemplateOptions): string | null => {
+  const normalizedTableName = String(tableName || '').trim();
+  if (!normalizedTableName) return null;
+  if (isElasticsearchDbType(dbType) || customTemplate === null || customTemplate === undefined) {
+    return buildTableSelectQuery(dbType, normalizedTableName);
+  }
+
+  const template = String(customTemplate)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  if (!/\bfrom\s*$/i.test(template)) return null;
+  return `${template}${quoteQualifiedIdent(dbType, normalizedTableName)}`;
+};
+
 type ResolveTableSelectQueryOptions = {
   dbType: string;
   tableName: string;

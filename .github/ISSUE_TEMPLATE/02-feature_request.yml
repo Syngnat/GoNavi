@@ -86,7 +86,7 @@ body:
         使用场景：在什么任务或流程中需要该功能
         使用频率：每天多次 / 偶尔 / 特定项目阶段
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: problem
@@ -123,7 +123,7 @@ body:
         - [ ] 操作完成后，应显示/生成 ...
         - [ ] 在 ... 数据量或环境下，仍能 ...
     validations:
-      required: true
+      required: false
 
   - type: dropdown
     id: impact
@@ -136,7 +136,7 @@ body:
         - 偶尔使用，希望减少操作或提升体验
         - 探索性需求，用于支持未来场景
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: scale

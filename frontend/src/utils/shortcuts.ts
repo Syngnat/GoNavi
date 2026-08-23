@@ -7,6 +7,7 @@ export type ShortcutAction =
   | 'selectCurrentStatement'
   | 'duplicateCurrentLine'
   | 'saveQuery'
+  | 'saveQueryAs'
   | 'formatSql'
   | 'triggerSqlAiCompletion'
   | 'acceptSqlAiCompletion'
@@ -110,6 +111,7 @@ export const SHORTCUT_ACTION_ORDER: ShortcutAction[] = [
   'selectCurrentStatement',
   'duplicateCurrentLine',
   'saveQuery',
+  'saveQueryAs',
   'formatSql',
   'triggerSqlAiCompletion',
   'acceptSqlAiCompletion',
@@ -171,6 +173,12 @@ const SHORTCUT_ACTION_META_DEFINITIONS: Record<ShortcutAction, ShortcutActionMet
   saveQuery: {
     labelKey: 'app.shortcuts.action.saveQuery.label',
     descriptionKey: 'app.shortcuts.action.saveQuery.description',
+    scope: 'queryEditor',
+    allowInEditable: true,
+  },
+  saveQueryAs: {
+    labelKey: 'app.shortcuts.action.saveQueryAs.label',
+    descriptionKey: 'app.shortcuts.action.saveQueryAs.description',
     scope: 'queryEditor',
     allowInEditable: true,
   },
@@ -302,6 +310,10 @@ export const DEFAULT_SHORTCUT_OPTIONS: ShortcutOptions = {
   saveQuery: {
     mac: { combo: 'Meta+S', enabled: true },
     windows: { combo: 'Ctrl+S', enabled: true },
+  },
+  saveQueryAs: {
+    mac: { combo: 'Meta+Shift+S', enabled: true },
+    windows: { combo: 'Ctrl+Shift+S', enabled: true },
   },
   formatSql: {
     mac: { combo: 'Alt+Shift+F', enabled: true },

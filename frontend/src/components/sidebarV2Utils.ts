@@ -76,6 +76,26 @@ export interface SidebarTreeNode {
   type?: SidebarTreeNodeType;
 }
 
+// Keep these values aligned with the V2 explorer tree layout in v2-theme.css.
+const V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX = 32;
+const V2_TREE_CONTENT_TOP_PADDING_PX = 4;
+
+export const resolveSidebarTreeVirtualHeight = (
+  containerHeight: number,
+  isV2Ui: boolean,
+): number => {
+  if (!Number.isFinite(containerHeight)) return 0;
+  const normalizedHeight = Math.max(0, containerHeight);
+  return Math.max(
+    0,
+    normalizedHeight - (
+      isV2Ui
+        ? V2_TREE_HORIZONTAL_SCROLL_RESERVE_PX + V2_TREE_CONTENT_TOP_PADDING_PX
+        : 0
+    ),
+  );
+};
+
 export const hasSidebarLazyChildren = (children: unknown): boolean => {
   return Array.isArray(children) && children.length > 0;
 };
@@ -1107,6 +1127,96 @@ export const resolveSidebarDropInsertBefore = (
   return clientY < (top + height / 2);
 };
 
+export type SidebarTreeDropPlacement = 'before' | 'inside' | 'after';
+
+export type SidebarHostGroupDropDestination = {
+  targetParentTagId: string | null;
+  targetToken: string | null;
+  insertBefore: boolean;
+};
+
+type SidebarTreeDropPlacementOptions = {
+  dragNodeType: unknown;
+  dropNodeType: unknown;
+  relativeDropPosition: number;
+  dropToGap?: boolean;
+  fallbackInsertBefore: boolean;
+  metrics?: {
+    clientY?: number;
+    top?: number;
+    height?: number;
+  } | null;
+};
+
+const SIDEBAR_HOST_GROUP_DROP_EDGE_PX = 4;
+
+/**
+ * Resolves the user-facing drop intent from the real row under the pointer.
+ *
+ * rc-tree normally requires a hidden horizontal-indent gesture to drop into a
+ * collapsed node. Host rows should instead treat the visible group row as the
+ * primary target, while retaining narrow top/bottom gaps for explicit sorting.
+ */
+export const resolveSidebarTreeDropPlacement = ({
+  dragNodeType,
+  dropNodeType,
+  relativeDropPosition,
+  dropToGap,
+  fallbackInsertBefore,
+  metrics,
+}: SidebarTreeDropPlacementOptions): SidebarTreeDropPlacement => {
+  const isHostMovingToGroup = dragNodeType === 'connection' && dropNodeType === 'tag';
+  if (isHostMovingToGroup) {
+    const clientY = metrics?.clientY;
+    const top = metrics?.top;
+    const height = metrics?.height;
+    if (
+      typeof clientY === 'number'
+      && typeof top === 'number'
+      && typeof height === 'number'
+      && Number.isFinite(clientY)
+      && Number.isFinite(top)
+      && Number.isFinite(height)
+      && height > 0
+    ) {
+      const edgeSize = Math.min(SIDEBAR_HOST_GROUP_DROP_EDGE_PX, height / 4);
+      const offset = clientY - top;
+      if (offset < edgeSize) return 'before';
+      if (offset > height - edgeSize) return 'after';
+    }
+    return 'inside';
+  }
+
+  if (
+    dropNodeType === 'tag'
+    && (dropToGap === false || (dropToGap === undefined && relativeDropPosition === 0))
+  ) {
+    return 'inside';
+  }
+  if (relativeDropPosition < 0) return 'before';
+  if (relativeDropPosition > 0) return 'after';
+  return fallbackInsertBefore ? 'before' : 'after';
+};
+
+export const resolveSidebarHostGroupDropDestination = (options: {
+  targetTagId: string;
+  targetTagParentId: string | null;
+  targetTagToken: string | null;
+  placement: SidebarTreeDropPlacement;
+}): SidebarHostGroupDropDestination => (
+  options.placement === 'inside'
+    ? {
+        targetParentTagId: options.targetTagId,
+        targetToken: null,
+        insertBefore: false,
+      }
+    : {
+        targetParentTagId: options.targetTagParentId,
+        targetToken: options.targetTagToken,
+        insertBefore: options.placement === 'before',
+      }
+);
+
 const resolveSidebarDropBaseElementFromDomEvent = (
   event: {
     clientX?: number;
@@ -1129,6 +1239,44 @@ const resolveSidebarDropBaseElementFromDomEvent = (
   return baseElement;
 };
 
+export type SidebarDropDomHit = {
+  key: string;
+  type: string;
+  metrics: { top: number; height: number } | null;
+};
+
+export const resolveSidebarDropDomHit = (
+  event: {
+    clientX?: number;
+    clientY?: number;
+    target?: EventTarget | null;
+  } | null | undefined,
+): SidebarDropDomHit | null => {
+  const baseElement = resolveSidebarDropBaseElementFromDomEvent(event);
+  if (!baseElement) return null;
+
+  const treeNode = baseElement.closest('.ant-tree-treenode') as HTMLElement | null;
+  const rowKey = String(treeNode?.getAttribute?.('data-sidebar-node-key') || '').trim();
+  const rowType = String(treeNode?.getAttribute?.('data-sidebar-node-type') || '').trim();
+  const nestedMarker = treeNode?.querySelector?.('[data-sidebar-node-key]') as HTMLElement | null;
+  const fallbackMarker = baseElement.closest('[data-sidebar-node-key]') as HTMLElement | null;
+  const marker = rowKey && rowType ? treeNode : (nestedMarker || fallbackMarker);
+  if (!marker) return null;
+
+  const key = rowKey || String(marker.getAttribute('data-sidebar-node-key') || '').trim();
+  const type = rowType || String(marker.getAttribute('data-sidebar-node-type') || '').trim();
+  if (!key || !type) return null;
+
+  let metrics: SidebarDropDomHit['metrics'] = null;
+  if (treeNode && typeof treeNode.getBoundingClientRect === 'function') {
+    const rect = treeNode.getBoundingClientRect();
+    if (Number.isFinite(rect.top) && Number.isFinite(rect.height) && rect.height > 0) {
+      metrics = { top: rect.top, height: rect.height };
+    }
+  }
+  return { key, type, metrics };
+};
+
 export const resolveSidebarDropNodeFromDomEvent = (
   event: {
     clientX?: number;
@@ -1136,14 +1284,8 @@ export const resolveSidebarDropNodeFromDomEvent = (
     target?: EventTarget | null;
   } | null | undefined,
 ): { key: string; type: string } | null => {
-  const baseElement = resolveSidebarDropBaseElementFromDomEvent(event);
-  if (!baseElement) return null;
-  const marker = baseElement.closest('[data-sidebar-node-key]') as HTMLElement | null;
-  if (!marker) return null;
-  const key = String(marker.getAttribute('data-sidebar-node-key') || '').trim();
-  const type = String(marker.getAttribute('data-sidebar-node-type') || '').trim();
-  if (!key || !type) return null;
-  return { key, type };
+  const hit = resolveSidebarDropDomHit(event);
+  return hit ? { key: hit.key, type: hit.type } : null;
 };
 
 export const resolveSidebarDropTargetMetricsFromDomEvent = (

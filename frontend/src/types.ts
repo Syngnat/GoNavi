@@ -4,6 +4,8 @@ export interface SSHConfig {
   user: string;
   password?: string;
   keyPath?: string;
+  knownHostsPath?: string;
+  hostKeyFingerprint?: string;
 }
 
 export interface ProxyConfig {
@@ -306,6 +308,7 @@ export interface ConnectionConfig {
   dsn?: string;
   connectionParams?: string;
   timeout?: number;
+  queryTimeout?: number; // transient per-request override; not a saved connection setting
   keepAliveEnabled?: boolean;
   keepAliveIntervalMinutes?: number;
   keepAliveSQL?: string;
@@ -482,6 +485,7 @@ export interface TabData {
     | "sql-file-execution"
     | "sql-analysis"
     | "sql-audit"
+    | "request-diagnostics"
     | "redis-keys"
     | "redis-command"
     | "redis-monitor"
@@ -552,8 +556,10 @@ export interface TabData {
   sqlFileExecutionFileSizeMB?: string;
   sqlAnalysisView?: "diagnose" | "slow-query";
   sqlAnalysisRequestKey?: string;
+  sqlAuditView?: "audit" | "query-history";
   sqlAuditTransactionId?: string;
   sqlAuditRequestKey?: string;
+  preserveUnboundConnection?: boolean;
   formatRestoreSnapshot?: {
     query: string;
     createdAt: number;
@@ -622,7 +628,14 @@ export interface ExternalSQLDirectory {
   path: string;
   connectionId?: string;
   dbName?: string;
+  fileBindings?: ExternalSQLFileBinding[];
   createdAt: number;
+}
+
+export interface ExternalSQLFileBinding {
+  filePath: string;
+  connectionId: string;
+  dbName: string;
 }
 
 export interface ExternalSQLTreeEntry {

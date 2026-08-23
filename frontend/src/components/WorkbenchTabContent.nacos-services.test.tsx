@@ -16,6 +16,7 @@ vi.mock('./NacosServiceViewer', () => ({
       data-connection-id={props.connectionId}
       data-namespace-id={props.namespaceId}
       data-initial-group={props.initialGroup}
+      data-is-active={String(props.isActive)}
     />
   ),
 }));
@@ -43,6 +44,7 @@ describe('WorkbenchTabContent Nacos service routing', () => {
     expect(viewer.props['data-connection-id']).toBe('nacos-1');
     expect(viewer.props['data-namespace-id']).toBe('mkefu-dev');
     expect(viewer.props['data-initial-group']).toBe('MKEFU_SERVICE');
+    expect(viewer.props['data-is-active']).toBe('true');
     act(() => renderer!.unmount());
   });
 });

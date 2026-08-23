@@ -48,4 +48,21 @@ describe('table metadata request cache', () => {
 
     expect(loader).toHaveBeenCalledTimes(3);
   });
+
+  it('keeps metadata requests isolated by connection parameters', async () => {
+    const salesLoader = vi.fn().mockResolvedValue({ schema: 'sales' });
+    const publicLoader = vi.fn().mockResolvedValue({ schema: 'public' });
+
+    await expect(requestTableMetadata(
+      { ...requestKey, connectionParams: 'search_path=sales%2Cpublic' },
+      salesLoader,
+    )).resolves.toEqual({ schema: 'sales' });
+    await expect(requestTableMetadata(
+      { ...requestKey, connectionParams: 'search_path=public' },
+      publicLoader,
+    )).resolves.toEqual({ schema: 'public' });
+
+    expect(salesLoader).toHaveBeenCalledTimes(1);
+    expect(publicLoader).toHaveBeenCalledTimes(1);
+  });
 });

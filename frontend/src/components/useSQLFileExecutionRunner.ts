@@ -3,6 +3,7 @@ import { message } from 'antd';
 
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { t } from '../i18n';
+import { calculateImportTransferMetrics } from './importProgressMetrics';
 
 export type SQLFileExecutionProgressEvent = {
   jobId: string;
@@ -11,6 +12,9 @@ export type SQLFileExecutionProgressEvent = {
   failed?: number;
   total?: number;
   percent?: number;
+  bytesRead?: number;
+  totalBytes?: number;
+  stage?: string;
   currentSQL?: string;
   error?: string;
 };
@@ -19,6 +23,7 @@ export type SQLFileExecutionRunnerStatus =
   | 'idle'
   | 'start'
   | 'running'
+  | 'stopping'
   | 'done'
   | 'cancelled'
   | 'error';
@@ -36,6 +41,10 @@ export type SQLFileExecutionState = {
   failed: number;
   total: number;
   percent: number;
+  bytesRead: number;
+  totalBytes: number;
+  bytesPerSecond: number;
+  etaSeconds: number;
   currentSQL: string;
   message: string;
 };
@@ -43,6 +52,7 @@ export type SQLFileExecutionState = {
 export type SQLFileExecutionRunResult = {
   success: boolean;
   message: string;
+  data?: unknown;
 };
 
 export type RunSQLFileExecutionWithProgressOptions<T extends SQLFileExecutionRunResult> = {
@@ -70,6 +80,10 @@ const createInitialState = (): SQLFileExecutionState => ({
   failed: 0,
   total: 0,
   percent: 0,
+  bytesRead: 0,
+  totalBytes: 0,
+  bytesPerSecond: 0,
+  etaSeconds: 0,
   currentSQL: '',
   message: '',
 });
@@ -87,14 +101,24 @@ const buildSQLFileExecutionJobId = (): string =>
 
 const EXECUTION_CANCELED_MESSAGE = '\u5df2\u53d6\u6d88';
 
+const isStructuredCancelledResult = (result: SQLFileExecutionRunResult): boolean => {
+  const data = result?.data;
+  return Boolean(data && typeof data === 'object' && (data as { cancelled?: unknown }).cancelled === true);
+};
+
 export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOptions) {
   const showToast = options?.showToast !== false;
   const [state, setState] = useState<SQLFileExecutionState>(() => createInitialState());
+  const [rpcInFlight, setRPCInFlight] = useState(false);
   const activeJobIdRef = useRef('');
+  const runningJobIdRef = useRef('');
   const pendingEventRef = useRef<SQLFileExecutionProgressEvent | null>(null);
   const flushFrameRef = useRef<number | null>(null);
-  const cancelRequestedRef = useRef(false);
-  const cancelHandlerRef = useRef<((jobId: string) => void | Promise<void>) | null>(null);
+  const cancelRequestedJobIdRef = useRef('');
+  const cancelHandlerRef = useRef<{
+    jobId: string;
+    handler: (jobId: string) => void | Promise<void>;
+  } | null>(null);
 
   useEffect(() => {
     const flushPendingEvent = () => {
@@ -118,31 +142,59 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
         // The RPC result is authoritative once it has settled. A terminal
         // progress event delayed by the animation-frame throttle may still
         // contribute final counters/percent, but must not rewrite that result.
-        const nextStatus = wasTerminal && reportedIsTerminal ? prev.status : reportedStatus;
+        const nextStatus = wasTerminal && reportedIsTerminal
+          ? prev.status
+          : prev.status === 'stopping' && !reportedIsTerminal
+            ? 'stopping'
+            : reportedStatus;
         const nextStartedAt = prev.startedAt || Date.now();
         const isTerminal = nextStatus === 'done' || nextStatus === 'cancelled' || nextStatus === 'error';
         const reportedPercent = Math.max(0, Math.min(100, Number(event.percent ?? prev.percent) || 0));
         const nextPercent = reportedStatus === 'done' || nextStatus === 'done'
           ? 100
           : Math.min(99, reportedPercent);
+        const nextBytesRead = normalizeCount(event.bytesRead ?? prev.bytesRead);
+        const nextTotalBytes = normalizeCount(event.totalBytes ?? prev.totalBytes);
+        const transferMetrics = calculateImportTransferMetrics({
+          startedAt: nextStartedAt,
+          now: Date.now(),
+          bytesRead: nextBytesRead,
+          totalBytes: nextTotalBytes,
+        });
+        const preserveSettledMessage = wasTerminal
+          && reportedIsTerminal
+          && typeof prev.message === 'string'
+          && Boolean(prev.message.trim());
         return {
           ...prev,
           startedAt: nextStartedAt,
           finishedAt: isTerminal ? (prev.finishedAt || Date.now()) : prev.finishedAt,
           status: nextStatus,
-          stage: nextStatus === 'cancelled'
-            ? t('sidebar.sql_file_exec.status.cancelled')
-            : nextStatus === 'error'
-              ? t('sidebar.sql_file_exec.status.error')
-              : nextStatus === 'done'
-                ? t('sidebar.sql_file_exec.status.done')
-                : t('sidebar.sql_file_exec.status.running'),
+          stage: nextStatus === 'stopping'
+            ? t('sidebar.sql_file_exec.status.stopping')
+            : typeof event.stage === 'string' && event.stage.trim() && !isTerminal
+            ? event.stage.trim()
+            : nextStatus === 'cancelled'
+              ? t('sidebar.sql_file_exec.status.cancelled')
+              : nextStatus === 'error'
+                ? t('sidebar.sql_file_exec.status.error')
+                : nextStatus === 'done'
+                  ? t('sidebar.sql_file_exec.status.done')
+                  : t('sidebar.sql_file_exec.status.running'),
           executed: normalizeCount(event.executed ?? prev.executed),
           failed: normalizeCount(event.failed ?? prev.failed),
           total: normalizeCount(event.total ?? prev.total),
           percent: nextPercent,
+          bytesRead: nextBytesRead,
+          totalBytes: nextTotalBytes,
+          bytesPerSecond: transferMetrics.bytesPerSecond,
+          etaSeconds: transferMetrics.etaSeconds,
           currentSQL: typeof event.currentSQL === 'string' ? event.currentSQL : prev.currentSQL,
-          message: typeof event.error === 'string' && event.error.trim() ? event.error : prev.message,
+          message: preserveSettledMessage
+            ? prev.message
+            : typeof event.error === 'string' && event.error.trim()
+              ? event.error
+              : prev.message,
         };
       });
     };
@@ -183,35 +235,56 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
   }, []);
 
   const reset = useCallback(() => {
+    if (runningJobIdRef.current) {
+      return;
+    }
     activeJobIdRef.current = '';
+    runningJobIdRef.current = '';
     pendingEventRef.current = null;
-    cancelRequestedRef.current = false;
+    cancelRequestedJobIdRef.current = '';
     cancelHandlerRef.current = null;
     setState(createInitialState());
   }, []);
 
   const cancelExecution = useCallback(async () => {
     const jobId = activeJobIdRef.current;
-    if (!jobId || !cancelHandlerRef.current) {
+    const cancelRegistration = cancelHandlerRef.current;
+    if (!jobId || !cancelRegistration || cancelRegistration.jobId !== jobId) {
       return;
     }
-    cancelRequestedRef.current = true;
-    await cancelHandlerRef.current(jobId);
+    if (cancelRequestedJobIdRef.current === jobId) {
+      return;
+    }
+    cancelRequestedJobIdRef.current = jobId;
+    try {
+      await cancelRegistration.handler(jobId);
+    } catch (error: any) {
+      if (cancelRequestedJobIdRef.current === jobId) {
+        cancelRequestedJobIdRef.current = '';
+      }
+      if (showToast) {
+        void message.error(error?.message || String(error));
+      }
+      throw error;
+    }
     setState((prev) => (
       prev.jobId !== jobId
+        || prev.status === 'done'
+        || prev.status === 'cancelled'
+        || prev.status === 'error'
         ? prev
         : {
             ...prev,
-            status: 'cancelled',
-            stage: t('sidebar.sql_file_exec.status.cancelled'),
+            status: 'stopping',
+            stage: t('sidebar.sql_file_exec.status.stopping'),
           }
     ));
-  }, []);
+  }, [showToast]);
 
   const runSQLFileExecutionWithProgress = useCallback(async <T extends SQLFileExecutionRunResult,>(
     runOptions: RunSQLFileExecutionWithProgressOptions<T>,
   ): Promise<T | null> => {
-    if (state.status === 'start' || state.status === 'running') {
+    if (runningJobIdRef.current) {
       if (showToast) {
         void message.warning(t('sidebar.sql_file_exec.message.already_running'));
       }
@@ -219,9 +292,13 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
     }
 
     const jobId = buildSQLFileExecutionJobId();
+    runningJobIdRef.current = jobId;
+    setRPCInFlight(true);
     activeJobIdRef.current = jobId;
-    cancelRequestedRef.current = false;
-    cancelHandlerRef.current = runOptions.cancel || null;
+    cancelRequestedJobIdRef.current = '';
+    cancelHandlerRef.current = runOptions.cancel
+      ? { jobId, handler: runOptions.cancel }
+      : null;
     setState({
       jobId,
       title: String(runOptions.title || '').trim(),
@@ -235,6 +312,10 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
       failed: 0,
       total: 0,
       percent: 0,
+      bytesRead: 0,
+      totalBytes: 0,
+      bytesPerSecond: 0,
+      etaSeconds: 0,
       currentSQL: '',
       message: '',
     });
@@ -245,7 +326,9 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
         if (prev.jobId !== jobId) {
           return prev;
         }
-        const canceled = cancelRequestedRef.current || prev.status === 'cancelled' || result.message === EXECUTION_CANCELED_MESSAGE;
+        const canceled = prev.status === 'cancelled'
+          || isStructuredCancelledResult(result)
+          || result.message === EXECUTION_CANCELED_MESSAGE;
         const nextStatus: SQLFileExecutionRunnerStatus = canceled
           ? 'cancelled'
           : result.success
@@ -269,7 +352,7 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
       });
 
       if (showToast) {
-        if (cancelRequestedRef.current || result.message === EXECUTION_CANCELED_MESSAGE) {
+        if (isStructuredCancelledResult(result) || result.message === EXECUTION_CANCELED_MESSAGE) {
           void message.info(t('sidebar.sql_file_exec.status.cancelled'));
         } else if (result.success) {
           void message.success(t('sidebar.sql_file_exec.status.done'));
@@ -288,25 +371,43 @@ export function useSQLFileExecutionRunner(options?: UseSQLFileExecutionRunnerOpt
           ...prev,
           startedAt: prev.startedAt || Date.now(),
           finishedAt: prev.finishedAt || Date.now(),
-          status: cancelRequestedRef.current ? 'cancelled' : 'error',
-          stage: cancelRequestedRef.current
+          status: prev.status === 'cancelled' || errorMessage === EXECUTION_CANCELED_MESSAGE ? 'cancelled' : 'error',
+          stage: prev.status === 'cancelled' || errorMessage === EXECUTION_CANCELED_MESSAGE
             ? t('sidebar.sql_file_exec.status.cancelled')
             : t('sidebar.sql_file_exec.status.error'),
           message: errorMessage,
         };
       });
       if (showToast) {
-        void message.error(errorMessage);
+        if (errorMessage === EXECUTION_CANCELED_MESSAGE) {
+          void message.info(t('sidebar.sql_file_exec.status.cancelled'));
+        } else {
+          void message.error(errorMessage);
+        }
       }
       throw error;
+    } finally {
+      if (runningJobIdRef.current === jobId) {
+        runningJobIdRef.current = '';
+        setRPCInFlight(false);
+      }
+      if (cancelRequestedJobIdRef.current === jobId) {
+        cancelRequestedJobIdRef.current = '';
+      }
+      if (cancelHandlerRef.current?.jobId === jobId) {
+        cancelHandlerRef.current = null;
+      }
     }
-  }, [showToast, state.status]);
+  }, [showToast]);
 
   return {
     state,
     reset,
     cancelExecution,
     runSQLFileExecutionWithProgress,
-    isRunning: state.status === 'start' || state.status === 'running',
+    isRunning: rpcInFlight
+      || state.status === 'start'
+      || state.status === 'running'
+      || state.status === 'stopping',
   };
 }

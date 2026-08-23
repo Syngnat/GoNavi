@@ -86,7 +86,7 @@ body:
         Scenario: the task or workflow where this feature is needed
         Frequency: several times per day / occasionally / during a specific project phase
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: problem
@@ -123,7 +123,7 @@ body:
         - [ ] After the action, the application displays or produces ...
         - [ ] With ... data or environment, the feature still ...
     validations:
-      required: true
+      required: false
 
   - type: dropdown
     id: impact
@@ -136,7 +136,7 @@ body:
         - Used occasionally and would reduce effort or improve usability
         - Exploratory request for a future scenario
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: scale

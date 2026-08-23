@@ -3,6 +3,8 @@ import { Button } from 'antd';
 
 import type { AIMCPClientInstallStatus } from '../../types';
 import {
+  isLocalMCPClientUnavailable,
+  isMCPClientConnected,
   isRemoteMCPClientStatus,
   type MCPClientKey,
 } from '../../utils/mcpClientInstallStatus';
@@ -58,6 +60,8 @@ const AIMCPClientInstallPanel: React.FC<AIMCPClientInstallPanelProps> = ({
     params?: Record<string, string | number | boolean | null | undefined>,
   ) => translateMCPClientInstallCopy(t, key, fallback, params);
   const selectedIsRemoteClient = isRemoteMCPClientStatus(selectedStatus);
+  const selectedLocalClientUnavailable = isLocalMCPClientUnavailable(selectedStatus);
+  const selectedClientConnected = isMCPClientConnected(selectedStatus);
 
   return (
     <div className="gonavi-ai-mcp-client-panel" style={{ padding: '14px 0 8px', display: 'flex', flexDirection: 'column' }}>
@@ -93,14 +97,14 @@ const AIMCPClientInstallPanel: React.FC<AIMCPClientInstallPanelProps> = ({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <div
             className="gonavi-ai-mcp-line-clamp"
-            title={`${getMCPClientDetectionSummary(selectedStatus, t)}${!selectedIsRemoteClient ? ` ${copy(
+            title={`${getMCPClientDetectionSummary(selectedStatus, t)}${!selectedIsRemoteClient && !selectedLocalClientUnavailable ? ` ${copy(
               'ai_chat.mcp_client.install.repeat_avoidance',
               'When already connected to this GoNavi, the main button is disabled to avoid repeated writes.',
             )}` : ''}`}
             style={{ minWidth: 0, fontSize: 'var(--gn-font-size-sm, 12px)', color: overlayTheme.mutedText, lineHeight: 1.5 }}
           >
             {getMCPClientDetectionSummary(selectedStatus, t)}
-            {!selectedIsRemoteClient && (
+            {!selectedIsRemoteClient && !selectedLocalClientUnavailable && (
               <>
                 {' '}
                 {copy(
@@ -110,7 +114,7 @@ const AIMCPClientInstallPanel: React.FC<AIMCPClientInstallPanelProps> = ({
               </>
             )}
           </div>
-          {selectedStatus?.matchesCurrent ? (
+          {selectedClientConnected ? (
             <span
               role="status"
               style={{
@@ -131,7 +135,9 @@ const AIMCPClientInstallPanel: React.FC<AIMCPClientInstallPanelProps> = ({
             <Button
               type="primary"
               onClick={onInstall}
+              disabled={selectedLocalClientUnavailable}
               loading={loading}
+              title={selectedLocalClientUnavailable ? getMCPClientDetectionSummary(selectedStatus, t) : undefined}
               style={{ fontWeight: 600, maxWidth: '44%', flexShrink: 0 }}
             >
               {resolveMCPClientInstallActionLabel(selectedStatus, t)}

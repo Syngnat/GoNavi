@@ -79,10 +79,8 @@ files_equal() {
   [[ "$(hash_file "$left")" == "$(hash_file "$right")" ]]
 }
 
-should_include_internal_db_file() {
-  local driver="$1"
-  local identity="$2"
-
+should_include_shared_internal_db_file() {
+  local identity="$1"
   case "$identity" in
     internal/db/agent_process_stub.go|\
 internal/db/agent_process_windows.go|\
@@ -103,6 +101,13 @@ internal/db/timeout.go)
       return 0
       ;;
   esac
+
+  return 1
+}
+
+should_include_driver_internal_db_file() {
+  local driver="$1"
+  local identity="$2"
 
   case "$driver:$identity" in
     mariadb:internal/db/mariadb_impl.go|\
@@ -150,19 +155,84 @@ trino:internal/db/trino_impl.go)
   return 1
 }
 
+should_include_internal_db_file() {
+  local driver="$1"
+  local identity="$2"
+
+  if should_include_shared_internal_db_file "$identity"; then
+    return 0
+  fi
+  should_include_driver_internal_db_file "$driver" "$identity"
+}
+
 should_include_source_file() {
   local driver="$1"
   local identity="$2"
+
+  # revision 用于验证 agent IPC 兼容性，不是整个二进制依赖树的版本号。
+  # optional-driver-agent 依赖 monolithic internal/db 包，go list 会同时列出
+  # 内置驱动和其他 optional driver 的依赖；把它们纳入指纹会让无关升级要求
+  # 用户重装所有 driver-agent。
   case "$identity" in
-    internal/appdata/*|internal/connection/*|internal/logger/*)
-      return 1
+    cmd/optional-driver-agent/*)
+      return 0
       ;;
   esac
   if [[ "$identity" == internal/db/* ]]; then
     should_include_internal_db_file "$driver" "$identity"
     return
   fi
-  return 0
+  return 1
+}
+
+list_go_imports() {
+  awk '
+    $1 == "import" && $2 == "(" { in_import = 1; next }
+    $1 == "import" {
+      for (i = 2; i <= NF; i++) {
+        if ($i ~ /^"[^"]+"$/) {
+          gsub(/^"|"$/, "", $i)
+          print $i
+          next
+        }
+      }
+    }
+    in_import && $1 == ")" { in_import = 0; next }
+    in_import {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^"[^"]+"$/) {
+          gsub(/^"|"$/, "", $i)
+          print $i
+          next
+        }
+      }
+    }
+  ' "$1"
+}
+
+is_external_import() {
+  local first_segment="${1%%/*}"
+  [[ "$first_segment" == *.* ]]
+}
+
+source_identity() {
+  local file="${1//\\//}"
+  if [[ -n "$gomodcache" && "$file" == "$gomodcache"/* ]]; then
+    printf 'gomod/%s\n' "${file#$gomodcache/}"
+    return
+  fi
+  if [[ -n "$SCRIPT_DIR_WINDOWS" && "$file" == "$SCRIPT_DIR_WINDOWS"/* ]]; then
+    printf '%s\n' "${file#$SCRIPT_DIR_WINDOWS/}"
+    return
+  fi
+  case "$file" in
+    "$SCRIPT_DIR"/*)
+      printf '%s\n' "${file#$SCRIPT_DIR/}"
+      ;;
+    *)
+      printf '%s\n' "$file"
+      ;;
+  esac
 }
 
 target_platform=""
@@ -274,7 +344,9 @@ fi
 
 fingerprint_driver() {
   local driver="$1"
-  local build_driver tag cgo_enabled tmp dependency_files file identity file_hash revision
+  local build_driver tag cgo_enabled tmp dependency_files included_files external_imports external_dependency_files hash_entries
+  local file identity import_path file_hash revision
+  local -a direct_external_imports=()
   build_driver="$(build_driver_name "$driver")"
   tag="$(driver_build_tags "$driver")"
   cgo_enabled=0
@@ -301,34 +373,73 @@ fingerprint_driver() {
     return 1
   fi
 
+  included_files="$(mktemp "${TMPDIR:-/tmp}/gonavi-agent-included-files.XXXXXX")"
+  external_imports="$(mktemp "${TMPDIR:-/tmp}/gonavi-agent-external-imports.XXXXXX")"
+  external_dependency_files="$(mktemp "${TMPDIR:-/tmp}/gonavi-agent-external-dependencies.XXXXXX")"
+  hash_entries="$(mktemp "${TMPDIR:-/tmp}/gonavi-agent-hash-entries.XXXXXX")"
+
+  # 只从 agent 入口和目标 driver 源码提取外部 import，避免 internal/db
+  # 包级依赖把其他驱动的 module closure 一并带入当前 revision。
   while IFS= read -r file; do
     file="${file//\\//}"
     [[ -n "$file" && -f "$file" ]] || continue
-    if [[ -n "$SCRIPT_DIR_WINDOWS" && "$file" == "$SCRIPT_DIR_WINDOWS"/* ]]; then
-      identity="${file#$SCRIPT_DIR_WINDOWS/}"
-    else
-      case "$file" in
-        "$SCRIPT_DIR"/*)
-          identity="${file#$SCRIPT_DIR/}"
-          ;;
-        "$gomodcache"/*)
-          identity="gomod/${file#$gomodcache/}"
-          ;;
-        *)
-          identity="$file"
-          ;;
-      esac
-    fi
+    identity="$(source_identity "$file")"
     if [[ "$identity" == "$OUTPUT_FILE" ]]; then
       continue
     fi
     if ! should_include_source_file "$driver" "$identity"; then
       continue
     fi
+    printf '%s\n' "$file" >>"$included_files"
+
+    if [[ "$identity" == cmd/optional-driver-agent/* ]] || should_include_driver_internal_db_file "$driver" "$identity"; then
+      while IFS= read -r import_path; do
+        if is_external_import "$import_path"; then
+          printf '%s\n' "$import_path" >>"$external_imports"
+        fi
+      done < <(list_go_imports "$file")
+    fi
+  done <"$dependency_files"
+
+  LC_ALL=C sort -u "$external_imports" -o "$external_imports"
+  while IFS= read -r import_path; do
+    [[ -n "$import_path" ]] || continue
+    direct_external_imports+=("$import_path")
+  done <"$external_imports"
+
+  if [[ ${#direct_external_imports[@]} -gt 0 ]]; then
+    if ! CGO_ENABLED="$cgo_enabled" GOOS="$goos" GOARCH="$goarch" GOTOOLCHAIN=auto \
+      go list -deps \
+        -tags "$tag" \
+        -f '{{if not .Standard}}{{range .GoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{range .CgoFiles}}{{$.Dir}}/{{.}}{{"\n"}}{{end}}{{end}}' \
+        "${direct_external_imports[@]}" | LC_ALL=C sort -u >"$external_dependency_files"; then
+      rm -f "$tmp" "$dependency_files" "$included_files" "$external_imports" "$external_dependency_files" "$hash_entries"
+      echo "driver-agent external dependency enumeration failed: $driver ($goos/$goarch)" >&2
+      return 1
+    fi
+  fi
+
+  while IFS= read -r file; do
+    file="${file//\\//}"
+    [[ -n "$file" && -f "$file" ]] || continue
+    identity="$(source_identity "$file")"
+    case "$identity" in
+      gomod/*|third_party/*)
+        printf '%s\n' "$file" >>"$included_files"
+        ;;
+    esac
+  done <"$external_dependency_files"
+
+  LC_ALL=C sort -u "$included_files" -o "$included_files"
+  while IFS= read -r file; do
+    file="${file//\\//}"
+    [[ -n "$file" && -f "$file" ]] || continue
+    identity="$(source_identity "$file")"
     file_hash="$(hash_file "$file")"
-    printf '%s  %s\n' "$file_hash" "$identity"
-  done <"$dependency_files" >>"$tmp"
-  rm -f "$dependency_files"
+    printf '%s  %s\n' "$file_hash" "$identity" >>"$hash_entries"
+  done <"$included_files"
+  LC_ALL=C sort -k2,2 "$hash_entries" >>"$tmp"
+  rm -f "$dependency_files" "$included_files" "$external_imports" "$external_dependency_files" "$hash_entries"
 
   revision="$(hash_file "$tmp" | cut -c1-16)"
   rm -f "$tmp"

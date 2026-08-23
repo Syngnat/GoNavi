@@ -276,3 +276,128 @@ func TestMigrateDataRootContentsCopiesDailySecretsForSavedConnections(t *testing
 		t.Fatalf("expected migrated DSN to be restored, got %q", resolved.DSN)
 	}
 }
+
+func TestMigrateDataRootContentsWaitsForSourceSharedStorageLock(t *testing.T) {
+	sourceRoot := t.TempDir()
+	targetRoot := filepath.Join(t.TempDir(), "gonavi-data")
+	if err := os.WriteFile(filepath.Join(sourceRoot, "connections.json"), []byte(`{"connections":[{"id":"locked"}]}`), 0o644); err != nil {
+		t.Fatalf("write source connections: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "daily_secrets.json"), []byte(`{"connections":{"locked":{"password":"secret"}}}`), 0o600); err != nil {
+		t.Fatalf("write source daily secrets: %v", err)
+	}
+
+	lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(sourceRoot))
+	if err != nil {
+		t.Fatalf("acquire source shared storage lock: %v", err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			_ = lock.Close()
+		}
+	})
+	finished := make(chan error, 1)
+	go func() {
+		finished <- migrateDataRootContents(sourceRoot, targetRoot)
+	}()
+	select {
+	case migrateErr := <-finished:
+		t.Fatalf("migration acquired source shared lock before release: %v", migrateErr)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "connections.json"), []byte(`{"connections":[{"id":"after-lock"}]}`), 0o644); err != nil {
+		t.Fatalf("update source connections while holding lock: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "daily_secrets.json"), []byte(`{"connections":{"after-lock":{"password":"after-lock-secret"}}}`), 0o600); err != nil {
+		t.Fatalf("update source daily secrets while holding lock: %v", err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release source shared storage lock: %v", err)
+	}
+	released = true
+	select {
+	case migrateErr := <-finished:
+		if migrateErr != nil {
+			t.Fatalf("migration after source lock release: %v", migrateErr)
+		}
+		connections, readErr := os.ReadFile(filepath.Join(targetRoot, "connections.json"))
+		if readErr != nil || string(connections) != `{"connections":[{"id":"after-lock"}]}` {
+			t.Fatalf("migrated connections snapshot = %q err=%v", connections, readErr)
+		}
+		secrets, readErr := os.ReadFile(filepath.Join(targetRoot, "daily_secrets.json"))
+		if readErr != nil || string(secrets) != `{"connections":{"after-lock":{"password":"after-lock-secret"}}}` {
+			t.Fatalf("migrated daily secrets snapshot = %q err=%v", secrets, readErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("migration did not acquire source shared lock after release")
+	}
+}
+
+func TestMigrateDataRootContentsWaitsForTargetSharedStorageLock(t *testing.T) {
+	sourceRoot := t.TempDir()
+	targetRoot := filepath.Join(t.TempDir(), "gonavi-data")
+	if err := os.WriteFile(filepath.Join(sourceRoot, "connections.json"), []byte(`{"connections":[]}`), 0o644); err != nil {
+		t.Fatalf("write source connections: %v", err)
+	}
+	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
+		t.Fatalf("create target root: %v", err)
+	}
+
+	lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(targetRoot))
+	if err != nil {
+		t.Fatalf("acquire target shared storage lock: %v", err)
+	}
+	released := false
+	t.Cleanup(func() {
+		if !released {
+			_ = lock.Close()
+		}
+	})
+	finished := make(chan error, 1)
+	go func() {
+		finished <- migrateDataRootContents(sourceRoot, targetRoot)
+	}()
+	select {
+	case migrateErr := <-finished:
+		t.Fatalf("migration acquired target shared lock before release: %v", migrateErr)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release target shared storage lock: %v", err)
+	}
+	released = true
+	select {
+	case migrateErr := <-finished:
+		if migrateErr != nil {
+			t.Fatalf("migration after target lock release: %v", migrateErr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("migration did not acquire target shared lock after release")
+	}
+}
+
+func TestMigrateDataRootContentsUsesStableLockOrderForOppositeMigrations(t *testing.T) {
+	firstRoot := t.TempDir()
+	secondRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(firstRoot, "connections.json"), []byte(`{"connections":[{"id":"first"}]}`), 0o644); err != nil {
+		t.Fatalf("write first source connections: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(secondRoot, "connections.json"), []byte(`{"connections":[{"id":"second"}]}`), 0o644); err != nil {
+		t.Fatalf("write second source connections: %v", err)
+	}
+
+	results := make(chan error, 2)
+	go func() { results <- migrateDataRootContents(firstRoot, secondRoot) }()
+	go func() { results <- migrateDataRootContents(secondRoot, firstRoot) }()
+	for index := 0; index < 2; index++ {
+		select {
+		case err := <-results:
+			if err != nil {
+				t.Fatalf("opposite migration %d returned error: %v", index, err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("opposite migrations deadlocked while acquiring roots")
+		}
+	}
+}

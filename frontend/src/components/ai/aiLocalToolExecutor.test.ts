@@ -369,6 +369,35 @@ describe('aiLocalToolExecutor', () => {
     expect(result.content).toContain('"name":"email"');
   });
 
+  it('marks partial get_all_columns results while preserving returned columns', async () => {
+    const result = await executeLocalAIToolCall({
+      toolCall: buildToolCall('get_all_columns', {
+        connectionId: 'conn-1',
+        dbName: 'crm',
+      }),
+      connections: [buildConnection()],
+      mcpTools: [],
+      toolContextMap: new Map(),
+      runtime: {
+        getDatabases: vi.fn(),
+        getTables: vi.fn(),
+        getAllColumns: vi.fn().mockResolvedValue({
+          success: true,
+          partial: true,
+          warnings: ['Failed to read column metadata for restricted: permission denied'],
+          data: [{ TableName: 'healthy', Name: 'id', Type: 'bigint' }],
+        }),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(JSON.parse(result.content)).toMatchObject({
+      partial: true,
+      warnings: ['Failed to read column metadata for restricted: permission denied'],
+      columns: [{ tableName: 'healthy', name: 'id' }],
+    });
+  });
+
   it('returns index definitions and resolves the tool label for MCP descriptors', async () => {
     const mcpTools: AIMCPToolDescriptor[] = [{
       alias: 'custom_tool',

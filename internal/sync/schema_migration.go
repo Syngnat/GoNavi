@@ -22,6 +22,7 @@ type SchemaMigrationPlan struct {
 	PlannedAction      string
 	Warnings           []string
 	UnsupportedObjects []string
+	UnmigratedIndexes  []UnmigratedIndex
 	IndexesToCreate    int
 	IndexesSkipped     int
 	CreateTableSQL     string
@@ -29,12 +30,26 @@ type SchemaMigrationPlan struct {
 	PostDataSQL        []string
 }
 
+type IndexMigrationColumn struct {
+	Name         string `json:"name"`
+	PrefixLength int    `json:"prefixLength,omitempty"`
+}
+
+type UnmigratedIndex struct {
+	Name                  string                 `json:"name"`
+	Columns               []IndexMigrationColumn `json:"columns"`
+	Unique                bool                   `json:"unique"`
+	IndexType             string                 `json:"indexType"`
+	ReasonCode            string                 `json:"reasonCode"`
+	Reason                string                 `json:"reason"`
+	RemediationStatements []string               `json:"remediationStatements,omitempty"`
+}
+
 type groupedIndex struct {
 	Name      string
-	Columns   []string
+	Columns   []IndexMigrationColumn
 	Unique    bool
 	IndexType string
-	SubPart   int
 }
 
 func normalizeTargetTableStrategy(strategy string) string {
@@ -188,7 +203,7 @@ func buildSchemaMigrationPlanLegacy(config SyncConfig, tableName string, sourceD
 		}
 		plan.AutoCreate = true
 		plan.PlannedAction = "目标表不存在，将自动建表后导入"
-		createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildMySQLToKingbaseCreateTablePlan(config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
+		createSQL, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToKingbaseCreateTablePlan(config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
 		if err != nil {
 			return plan, sourceCols, targetCols, err
 		}
@@ -196,6 +211,7 @@ func buildSchemaMigrationPlanLegacy(config SyncConfig, tableName string, sourceD
 		plan.PostDataSQL = append(plan.PostDataSQL, postSQL...)
 		plan.Warnings = append(plan.Warnings, warnings...)
 		plan.UnsupportedObjects = append(plan.UnsupportedObjects, unsupported...)
+		plan.UnmigratedIndexes = append(plan.UnmigratedIndexes, unmigrated...)
 		plan.IndexesToCreate = idxCreate
 		plan.IndexesSkipped = idxSkip
 		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
@@ -208,6 +224,11 @@ func dedupeSchemaMigrationPlan(plan SchemaMigrationPlan) SchemaMigrationPlan {
 	plan.Warnings = dedupeStrings(plan.Warnings)
 	plan.UnsupportedObjects = dedupeStrings(plan.UnsupportedObjects)
 	return plan
+}
+
+func InspectSchemaMigrationPlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, error) {
+	plan, _, _, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
+	return plan, err
 }
 
 func dedupeStrings(items []string) []string {
@@ -291,7 +312,7 @@ func buildMySQLToKingbaseAddColumnSQL(targetQueryTable string, sourceCols, targe
 	return sqlList, dedupeStrings(warnings)
 }
 
-func buildMySQLToKingbaseCreateTablePlan(config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, int, int, error) {
+func buildMySQLToKingbaseCreateTablePlan(config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, []UnmigratedIndex, int, int, error) {
 	columnDefs := make([]string, 0, len(sourceCols)+1)
 	warnings := make([]string, 0)
 	unsupported := make([]string, 0)
@@ -311,51 +332,16 @@ func buildMySQLToKingbaseCreateTablePlan(config SyncConfig, targetQueryTable str
 	createSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", quoteQualifiedIdentByType("kingbase", targetQueryTable), strings.Join(columnDefs, ",\n  "))
 
 	if !config.CreateIndexes {
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), nil, 0, 0, nil
 	}
 
 	indexes, err := sourceDB.GetIndexes(sourceSchema, sourceTable)
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("读取源表索引失败，已跳过索引迁移：%v", err))
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), nil, 0, 0, nil
 	}
-	grouped := groupIndexDefinitions(indexes)
-	postSQL := make([]string, 0, len(grouped))
-	created := 0
-	skipped := 0
-	for _, idx := range grouped {
-		name := strings.TrimSpace(idx.Name)
-		if name == "" || strings.EqualFold(name, "primary") {
-			continue
-		}
-		if len(idx.Columns) == 0 {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 缺少列定义，已跳过", name))
-			continue
-		}
-		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
-		if idx.SubPart > 0 {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，当前暂不支持迁移", name))
-			continue
-		}
-		if kind != "" && kind != "btree" {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 类型=%s，当前暂不支持自动迁移", name, idx.IndexType))
-			continue
-		}
-		quotedCols := make([]string, 0, len(idx.Columns))
-		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType("kingbase", col))
-		}
-		prefix := "CREATE INDEX"
-		if idx.Unique {
-			prefix = "CREATE UNIQUE INDEX"
-		}
-		postSQL = append(postSQL, fmt.Sprintf("%s %s ON %s (%s)", prefix, quoteIdentByType("kingbase", name), quoteQualifiedIdentByType("kingbase", targetQueryTable), strings.Join(quotedCols, ", ")))
-		created++
-	}
-	return createSQL, postSQL, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
+	postSQL, unsupported, unmigrated, created, skipped := buildMySQLSourceIndexPlan("kingbase", targetQueryTable, indexes)
+	return createSQL, postSQL, dedupeStrings(warnings), unsupported, unmigrated, created, skipped, nil
 }
 
 func buildMySQLToKingbaseColumnDefinition(col connection.ColumnDefinition) (string, []string) {
@@ -534,12 +520,12 @@ func groupIndexDefinitions(indexes []connection.IndexDefinition) []groupedIndex 
 			if strings.TrimSpace(row.IndexType) != "" {
 				gi.IndexType = row.IndexType
 			}
-			if row.SubPart > 0 && gi.SubPart == 0 {
-				gi.SubPart = row.SubPart
-			}
 			col := strings.TrimSpace(row.ColumnName)
 			if col != "" {
-				gi.Columns = append(gi.Columns, col)
+				gi.Columns = append(gi.Columns, IndexMigrationColumn{
+					Name:         col,
+					PrefixLength: row.SubPart,
+				})
 			}
 		}
 		grouped = append(grouped, gi)
@@ -547,16 +533,159 @@ func groupIndexDefinitions(indexes []connection.IndexDefinition) []groupedIndex 
 	return grouped
 }
 
-func sameColumnNameList(a, b []string) bool {
+func sameColumnNameList(a []IndexMigrationColumn, b []string) bool {
 	if len(a) == 0 || len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if !strings.EqualFold(strings.TrimSpace(a[i]), strings.TrimSpace(b[i])) {
+		if !strings.EqualFold(strings.TrimSpace(a[i].Name), strings.TrimSpace(b[i])) {
 			return false
 		}
 	}
 	return true
+}
+
+func hasIndexPrefix(columns []IndexMigrationColumn) bool {
+	for _, column := range columns {
+		if column.PrefixLength > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func buildQuotedIndexColumns(targetType string, columns []IndexMigrationColumn, preservePrefix bool) []string {
+	quoted := make([]string, 0, len(columns))
+	for _, column := range columns {
+		name := strings.TrimSpace(column.Name)
+		if name == "" {
+			continue
+		}
+		value := quoteIdentByType(targetType, name)
+		if preservePrefix && column.PrefixLength > 0 {
+			value += fmt.Sprintf("(%d)", column.PrefixLength)
+		}
+		quoted = append(quoted, value)
+	}
+	return quoted
+}
+
+func buildCreateIndexSQL(targetType, targetQueryTable string, idx groupedIndex, preservePrefix bool) string {
+	prefix := "CREATE INDEX"
+	if idx.Unique {
+		prefix = "CREATE UNIQUE INDEX"
+	}
+	return fmt.Sprintf("%s %s ON %s (%s)",
+		prefix,
+		quoteIdentByType(targetType, idx.Name),
+		quoteQualifiedIdentByType(targetType, targetQueryTable),
+		strings.Join(buildQuotedIndexColumns(targetType, idx.Columns, preservePrefix), ", "),
+	)
+}
+
+func buildIndexRemediationStatements(targetType, targetQueryTable string, idx groupedIndex) []string {
+	kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
+	if isMySQLRowStoreType(targetType) {
+		if kind == "fulltext" {
+			return []string{fmt.Sprintf("CREATE FULLTEXT INDEX %s ON %s (%s)",
+				quoteIdentByType(targetType, idx.Name),
+				quoteQualifiedIdentByType(targetType, targetQueryTable),
+				strings.Join(buildQuotedIndexColumns(targetType, idx.Columns, true), ", "),
+			)}
+		}
+		if hasIndexPrefix(idx.Columns) {
+			return []string{buildCreateIndexSQL(targetType, targetQueryTable, idx, true)}
+		}
+		return nil
+	}
+	if kind == "fulltext" && isPGLikeSameFamilyDDLType(targetType) {
+		parts := make([]string, 0, len(idx.Columns))
+		for _, column := range idx.Columns {
+			parts = append(parts, fmt.Sprintf("coalesce(CAST(%s AS text), '')", quoteIdentByType(targetType, column.Name)))
+		}
+		return []string{fmt.Sprintf("CREATE INDEX %s ON %s USING GIN (to_tsvector('simple', %s))",
+			quoteIdentByType(targetType, idx.Name),
+			quoteQualifiedIdentByType(targetType, targetQueryTable),
+			strings.Join(parts, " || ' ' || "),
+		)}
+	}
+	if hasIndexPrefix(idx.Columns) && isPGLikeSameFamilyDDLType(targetType) {
+		columns := make([]string, 0, len(idx.Columns))
+		for _, column := range idx.Columns {
+			value := quoteIdentByType(targetType, column.Name)
+			if column.PrefixLength > 0 {
+				value = fmt.Sprintf("left(CAST(%s AS text), %d)", value, column.PrefixLength)
+			}
+			columns = append(columns, value)
+		}
+		prefix := "CREATE INDEX"
+		if idx.Unique {
+			prefix = "CREATE UNIQUE INDEX"
+		}
+		return []string{fmt.Sprintf("%s %s ON %s (%s)",
+			prefix,
+			quoteIdentByType(targetType, idx.Name),
+			quoteQualifiedIdentByType(targetType, targetQueryTable),
+			strings.Join(columns, ", "),
+		)}
+	}
+	return nil
+}
+
+func buildMySQLSourceIndexPlan(targetType, targetQueryTable string, indexes []connection.IndexDefinition) ([]string, []string, []UnmigratedIndex, int, int) {
+	grouped := groupIndexDefinitions(indexes)
+	postSQL := make([]string, 0, len(grouped))
+	unsupported := make([]string, 0)
+	unmigrated := make([]UnmigratedIndex, 0)
+	created := 0
+	skipped := 0
+	for _, idx := range grouped {
+		name := strings.TrimSpace(idx.Name)
+		if name == "" || strings.EqualFold(name, "primary") {
+			continue
+		}
+		if len(idx.Columns) == 0 {
+			reason := fmt.Sprintf("索引 %s 缺少列定义，已跳过", name)
+			unsupported = append(unsupported, reason)
+			unmigrated = append(unmigrated, UnmigratedIndex{
+				Name:       name,
+				Columns:    []IndexMigrationColumn{},
+				Unique:     idx.Unique,
+				IndexType:  idx.IndexType,
+				ReasonCode: "missing_columns",
+				Reason:     reason,
+			})
+			skipped++
+			continue
+		}
+		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
+		if (kind == "" || kind == "btree") && !hasIndexPrefix(idx.Columns) {
+			postSQL = append(postSQL, buildCreateIndexSQL(targetType, targetQueryTable, idx, false))
+			created++
+			continue
+		}
+
+		reasonCode := "unsupported_index_type"
+		reason := fmt.Sprintf("索引 %s 类型=%s，当前暂不支持等价自动迁移", name, idx.IndexType)
+		if hasIndexPrefix(idx.Columns) {
+			reasonCode = "prefix_index_requires_review"
+			reason = fmt.Sprintf("索引 %s 使用前缀长度，当前目标方言暂不支持等价自动迁移", name)
+		} else if kind == "fulltext" {
+			reasonCode = "fulltext_requires_review"
+		}
+		unsupported = append(unsupported, reason)
+		unmigrated = append(unmigrated, UnmigratedIndex{
+			Name:                  name,
+			Columns:               append([]IndexMigrationColumn(nil), idx.Columns...),
+			Unique:                idx.Unique,
+			IndexType:             idx.IndexType,
+			ReasonCode:            reasonCode,
+			Reason:                reason,
+			RemediationStatements: buildIndexRemediationStatements(targetType, targetQueryTable, idx),
+		})
+		skipped++
+	}
+	return postSQL, dedupeStrings(unsupported), unmigrated, created, skipped
 }
 
 func intFromAny(v interface{}) int {
@@ -673,7 +802,7 @@ func buildMySQLToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Data
 	case "smart", "auto_create_if_missing":
 		plan.AutoCreate = true
 		plan.PlannedAction = "目标表不存在，将自动建表后导入"
-		createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildMySQLToMySQLCreateTablePlan(targetType, config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
+		createSQL, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToMySQLCreateTablePlan(targetType, config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
 		if err != nil {
 			return plan, sourceCols, targetCols, err
 		}
@@ -681,6 +810,7 @@ func buildMySQLToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Data
 		plan.PostDataSQL = append(plan.PostDataSQL, postSQL...)
 		plan.Warnings = append(plan.Warnings, warnings...)
 		plan.UnsupportedObjects = append(plan.UnsupportedObjects, unsupported...)
+		plan.UnmigratedIndexes = append(plan.UnmigratedIndexes, unmigrated...)
 		plan.IndexesToCreate = idxCreate
 		plan.IndexesSkipped = idxSkip
 		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
@@ -689,7 +819,7 @@ func buildMySQLToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Data
 	}
 }
 
-func buildMySQLToMySQLCreateTablePlan(targetType string, config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, int, int, error) {
+func buildMySQLToMySQLCreateTablePlan(targetType string, config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, []UnmigratedIndex, int, int, error) {
 	columnDefs := make([]string, 0, len(sourceCols)+1)
 	warnings := make([]string, 0)
 	unsupported := make([]string, 0)
@@ -707,50 +837,15 @@ func buildMySQLToMySQLCreateTablePlan(targetType string, config SyncConfig, targ
 	}
 	createSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(columnDefs, ",\n  "))
 	if !config.CreateIndexes {
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), nil, 0, 0, nil
 	}
 	indexes, err := sourceDB.GetIndexes(sourceSchema, sourceTable)
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("读取源表索引失败，已跳过索引迁移：%v", err))
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), nil, 0, 0, nil
 	}
-	grouped := groupIndexDefinitions(indexes)
-	postSQL := make([]string, 0, len(grouped))
-	created := 0
-	skipped := 0
-	for _, idx := range grouped {
-		name := strings.TrimSpace(idx.Name)
-		if name == "" || strings.EqualFold(name, "primary") {
-			continue
-		}
-		if len(idx.Columns) == 0 {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 缺少列定义，已跳过", name))
-			continue
-		}
-		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
-		if idx.SubPart > 0 {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，当前暂不支持迁移", name))
-			continue
-		}
-		if kind != "" && kind != "btree" {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 类型=%s，当前暂不支持自动迁移", name, idx.IndexType))
-			continue
-		}
-		quotedCols := make([]string, 0, len(idx.Columns))
-		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType(targetType, col))
-		}
-		prefix := "CREATE INDEX"
-		if idx.Unique {
-			prefix = "CREATE UNIQUE INDEX"
-		}
-		postSQL = append(postSQL, fmt.Sprintf("%s %s ON %s (%s)", prefix, quoteIdentByType(targetType, name), quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(quotedCols, ", ")))
-		created++
-	}
-	return createSQL, postSQL, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
+	postSQL, unsupported, unmigrated, created, skipped := buildMySQLSourceIndexPlan(targetType, targetQueryTable, indexes)
+	return createSQL, postSQL, dedupeStrings(warnings), unsupported, unmigrated, created, skipped, nil
 }
 
 func buildMySQLToMySQLColumnDefinition(col connection.ColumnDefinition) (string, []string) {
@@ -980,7 +1075,7 @@ func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, ta
 			continue
 		}
 		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
-		if idx.SubPart > 0 {
+		if hasIndexPrefix(idx.Columns) {
 			skipped++
 			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，当前暂不支持迁移", name))
 			continue
@@ -992,7 +1087,7 @@ func buildPGLikeToPGLikeCreateTablePlan(targetType string, config SyncConfig, ta
 		}
 		quotedCols := make([]string, 0, len(idx.Columns))
 		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType(targetType, col))
+			quotedCols = append(quotedCols, quoteIdentByType(targetType, col.Name))
 		}
 		prefix := "CREATE INDEX"
 		if idx.Unique {
@@ -1230,7 +1325,7 @@ func buildPGLikeToMySQLCreateTablePlan(config SyncConfig, targetQueryTable strin
 			continue
 		}
 		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
-		if idx.SubPart > 0 {
+		if hasIndexPrefix(idx.Columns) {
 			skipped++
 			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，当前暂不支持迁移", name))
 			continue
@@ -1242,7 +1337,7 @@ func buildPGLikeToMySQLCreateTablePlan(config SyncConfig, targetQueryTable strin
 		}
 		quotedCols := make([]string, 0, len(idx.Columns))
 		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType("mysql", col))
+			quotedCols = append(quotedCols, quoteIdentByType("mysql", col.Name))
 		}
 		prefix := "CREATE INDEX"
 		if idx.Unique {
@@ -1434,7 +1529,7 @@ func buildMySQLToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Dat
 	case "smart", "auto_create_if_missing":
 		plan.AutoCreate = true
 		plan.PlannedAction = "目标表不存在，将自动建表后导入"
-		createSQL, postSQL, warnings, unsupported, idxCreate, idxSkip, err := buildMySQLToPGLikeCreateTablePlan(targetType, config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
+		createSQL, postSQL, warnings, unsupported, unmigrated, idxCreate, idxSkip, err := buildMySQLToPGLikeCreateTablePlan(targetType, config, plan.TargetQueryTable, sourceCols, sourceDB, plan.SourceSchema, plan.SourceTable)
 		if err != nil {
 			return plan, sourceCols, targetCols, err
 		}
@@ -1442,6 +1537,7 @@ func buildMySQLToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Dat
 		plan.PostDataSQL = append(plan.PostDataSQL, postSQL...)
 		plan.Warnings = append(plan.Warnings, warnings...)
 		plan.UnsupportedObjects = append(plan.UnsupportedObjects, unsupported...)
+		plan.UnmigratedIndexes = append(plan.UnmigratedIndexes, unmigrated...)
 		plan.IndexesToCreate = idxCreate
 		plan.IndexesSkipped = idxSkip
 		return dedupeSchemaMigrationPlan(plan), sourceCols, targetCols, nil
@@ -1483,7 +1579,7 @@ func buildMySQLToPGLikeAddColumnSQL(targetType string, targetQueryTable string, 
 	return sqlList, dedupeStrings(warnings)
 }
 
-func buildMySQLToPGLikeCreateTablePlan(targetType string, config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, int, int, error) {
+func buildMySQLToPGLikeCreateTablePlan(targetType string, config SyncConfig, targetQueryTable string, sourceCols []connection.ColumnDefinition, sourceDB db.Database, sourceSchema, sourceTable string) (string, []string, []string, []string, []UnmigratedIndex, int, int, error) {
 	columnDefs := make([]string, 0, len(sourceCols)+1)
 	warnings := make([]string, 0)
 	unsupported := make([]string, 0)
@@ -1501,50 +1597,15 @@ func buildMySQLToPGLikeCreateTablePlan(targetType string, config SyncConfig, tar
 	}
 	createSQL := fmt.Sprintf("CREATE TABLE %s (\n  %s\n)", quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(columnDefs, ",\n  "))
 	if !config.CreateIndexes {
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), nil, 0, 0, nil
 	}
 	indexes, err := sourceDB.GetIndexes(sourceSchema, sourceTable)
 	if err != nil {
 		warnings = append(warnings, fmt.Sprintf("读取源表索引失败，已跳过索引迁移：%v", err))
-		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), 0, 0, nil
+		return createSQL, nil, dedupeStrings(warnings), dedupeStrings(unsupported), nil, 0, 0, nil
 	}
-	grouped := groupIndexDefinitions(indexes)
-	postSQL := make([]string, 0, len(grouped))
-	created := 0
-	skipped := 0
-	for _, idx := range grouped {
-		name := strings.TrimSpace(idx.Name)
-		if name == "" || strings.EqualFold(name, "primary") {
-			continue
-		}
-		if len(idx.Columns) == 0 {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 缺少列定义，已跳过", name))
-			continue
-		}
-		kind := strings.ToLower(strings.TrimSpace(idx.IndexType))
-		if idx.SubPart > 0 {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 使用前缀长度，当前暂不支持迁移", name))
-			continue
-		}
-		if kind != "" && kind != "btree" {
-			skipped++
-			unsupported = append(unsupported, fmt.Sprintf("索引 %s 类型=%s，当前暂不支持自动迁移", name, idx.IndexType))
-			continue
-		}
-		quotedCols := make([]string, 0, len(idx.Columns))
-		for _, col := range idx.Columns {
-			quotedCols = append(quotedCols, quoteIdentByType(targetType, col))
-		}
-		prefix := "CREATE INDEX"
-		if idx.Unique {
-			prefix = "CREATE UNIQUE INDEX"
-		}
-		postSQL = append(postSQL, fmt.Sprintf("%s %s ON %s (%s)", prefix, quoteIdentByType(targetType, name), quoteQualifiedIdentByType(targetType, targetQueryTable), strings.Join(quotedCols, ", ")))
-		created++
-	}
-	return createSQL, postSQL, dedupeStrings(warnings), dedupeStrings(unsupported), created, skipped, nil
+	postSQL, unsupported, unmigrated, created, skipped := buildMySQLSourceIndexPlan(targetType, targetQueryTable, indexes)
+	return createSQL, postSQL, dedupeStrings(warnings), unsupported, unmigrated, created, skipped, nil
 }
 
 func buildMySQLToPGLikeColumnDefinition(col connection.ColumnDefinition) (string, []string) {

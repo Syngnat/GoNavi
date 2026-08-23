@@ -8,8 +8,10 @@ import (
 	"database/sql/driver"
 	"errors"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 )
@@ -20,6 +22,9 @@ type damengTransactionRecordingState struct {
 	commitCalls   int
 	rollbackCalls int
 	execQueries   []string
+	execStarted   chan struct{}
+	execRelease   chan struct{}
+	blockExec     bool
 }
 
 type damengTransactionConnector struct {
@@ -57,10 +62,29 @@ func (c *damengTransactionConn) Begin() (driver.Tx, error) {
 	return &damengTransactionTx{state: c.state}, nil
 }
 
-func (c *damengTransactionConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+func (c *damengTransactionConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return c.Begin()
+}
+
+func (c *damengTransactionConn) ExecContext(ctx context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
 	c.state.mu.Lock()
 	c.state.execQueries = append(c.state.execQueries, query)
+	blockExec := c.state.blockExec
+	execStarted := c.state.execStarted
+	execRelease := c.state.execRelease
 	c.state.mu.Unlock()
+	if blockExec {
+		select {
+		case execStarted <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-execRelease:
+			return nil, errors.New("execution released without cancellation")
+		}
+	}
 	return driver.RowsAffected(1), nil
 }
 
@@ -171,3 +195,42 @@ func TestDamengApplyChangesPreservesSchemaContainingDot(t *testing.T) {
 		t.Fatalf("ApplyChanges queries = %#v, want %#v", execQueries, want)
 	}
 }
+
+func TestDamengApplyChangesContextCancelsInFlightInsert(t *testing.T) {
+	state := &damengTransactionRecordingState{
+		execStarted: make(chan struct{}, 1),
+		execRelease: make(chan struct{}),
+		blockExec:   true,
+	}
+	dbConn := sql.OpenDB(&damengTransactionConnector{state: state})
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- (&DamengDB{conn: dbConn}).ApplyChangesContext(ctx, "APP.ORDERS", connection.ChangeSet{
+			Inserts: []map[string]interface{}{{"ID": 42, "STATUS": "pending"}},
+		})
+	}()
+
+	select {
+	case <-state.execStarted:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not reach the context-aware insert path")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Fatalf("ApplyChangesContext error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not return after cancellation")
+	}
+}
+
+var _ BatchApplierContext = (*DamengDB)(nil)

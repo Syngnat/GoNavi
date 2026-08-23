@@ -121,7 +121,7 @@ type openAIChatMessage struct {
 }
 
 func buildOpenAIMessages(reqMessages []ai.Message, modelName string, baseURL string) []openAIChatMessage {
-	reqMessages = normalizeOpenAISystemMessageOrder(reqMessages)
+	reqMessages = normalizeOpenAISystemMessageOrder(normalizeOpenAIToolCallHistory(reqMessages))
 	messages := make([]openAIChatMessage, len(reqMessages))
 	replayReasoningContent := shouldReplayReasoningContent(modelName, baseURL)
 	for i, m := range reqMessages {
@@ -171,6 +171,95 @@ func buildOpenAIMessages(reqMessages []ai.Message, modelName string, baseURL str
 		}
 	}
 	return messages
+}
+
+// normalizeToolCallHistory removes an interrupted tool-call turn before it is
+// serialized. OpenAI-compatible APIs require every assistant tool call to be
+// followed immediately by a result for each call ID; a canceled stream can
+// otherwise leave an invalid turn in the persisted chat history.
+func normalizeToolCallHistory(messages []ai.Message) []ai.Message {
+	return normalizeOpenAIToolCallHistory(messages)
+}
+
+func normalizeToolCallHistoryForResponses(messages []ai.Message) []ai.Message {
+	return normalizeToolCallHistoryWithOptions(messages, false, nil)
+}
+
+func normalizeToolCallHistoryForResponsesWithSession(messages []ai.Message, toolCallIDs map[string]struct{}) []ai.Message {
+	return normalizeToolCallHistoryWithOptions(messages, true, toolCallIDs)
+}
+
+func normalizeToolCallHistoryWithOptions(messages []ai.Message, preserveStandaloneTools bool, standaloneToolCallIDs map[string]struct{}) []ai.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	normalized := make([]ai.Message, 0, len(messages))
+	for index := 0; index < len(messages); index++ {
+		message := messages[index]
+		if message.Role != "assistant" || len(message.ToolCalls) == 0 {
+			if message.Role != "tool" || (preserveStandaloneTools && (standaloneToolCallIDs == nil || hasToolCallID(standaloneToolCallIDs, message.ToolCallID))) {
+				normalized = append(normalized, message)
+			}
+			continue
+		}
+
+		expected := make(map[string]struct{}, len(message.ToolCalls))
+		validIDs := true
+		for _, call := range message.ToolCalls {
+			id := strings.TrimSpace(call.ID)
+			if id == "" {
+				validIDs = false
+				continue
+			}
+			if _, duplicate := expected[id]; duplicate {
+				validIDs = false
+				continue
+			}
+			expected[id] = struct{}{}
+		}
+
+		results := make([]ai.Message, 0, len(expected))
+		seen := make(map[string]struct{}, len(expected))
+		cursor := index + 1
+		for cursor < len(messages) && messages[cursor].Role == "tool" {
+			result := messages[cursor]
+			id := strings.TrimSpace(result.ToolCallID)
+			if _, expectedID := expected[id]; !expectedID {
+				validIDs = false
+			} else if _, duplicate := seen[id]; duplicate {
+				validIDs = false
+			} else {
+				seen[id] = struct{}{}
+				results = append(results, result)
+			}
+			cursor++
+		}
+		if len(seen) != len(expected) {
+			validIDs = false
+		}
+
+		if validIDs {
+			normalized = append(normalized, message)
+			normalized = append(normalized, results...)
+		}
+		// Skip all contiguous tool results when the assistant turn is invalid;
+		// they belong to the discarded turn and must not be replayed separately.
+		index = cursor - 1
+	}
+	return normalized
+}
+
+func hasToolCallID(toolCallIDs map[string]struct{}, id string) bool {
+	_, ok := toolCallIDs[strings.TrimSpace(id)]
+	return ok
+}
+
+// normalizeOpenAIToolCallHistory is the Chat Completions entry point added by
+// PR #935. It shares the stricter validator with Responses while retaining the
+// Responses session mode, which may legitimately replay known standalone tool
+// results.
+func normalizeOpenAIToolCallHistory(messages []ai.Message) []ai.Message {
+	return normalizeToolCallHistoryWithOptions(messages, false, nil)
 }
 
 // normalizeOpenAISystemMessageOrder keeps strict OpenAI-compatible endpoints
@@ -609,8 +698,7 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, body interface{}) (io.Re
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		statusErr := fmt.Errorf("OpenAI API returned error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+		statusErr := fmt.Errorf("OpenAI API returned error (HTTP %d): %s", resp.StatusCode, readProviderErrorBody(resp.Body, resp.ContentLength))
 		logAIUpstreamRequestFinish(requestLog, resp.StatusCode, statusErr)
 		return nil, statusErr
 	}

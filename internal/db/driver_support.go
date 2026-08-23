@@ -68,8 +68,16 @@ func normalizeRuntimeDriverType(driverType string) string {
 	switch normalized {
 	case "doris":
 		return "diros"
-	case "postgresql":
+	case "postgresql", "pg", "pq", "pgx":
 		return "postgres"
+	case "mssql", "sql_server", "sql-server":
+		return "sqlserver"
+	case "sqlite3":
+		return "sqlite"
+	case "dm", "dm8":
+		return "dameng"
+	case "sphinxql":
+		return "sphinx"
 	case "kingbase8", "kingbasees", "kingbasev8":
 		return "kingbase"
 	case "opengauss", "open_gauss", "open-gauss":

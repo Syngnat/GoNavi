@@ -155,6 +155,26 @@ func encryptSecretBundle(appKey []byte, bundle connectionSecretBundle, connectio
 	if err != nil {
 		return connectionSecretBundle{}, err
 	}
+	encrypted.JVMJMXPassword, err = encryptSecretField(appKey, bundle.JVMJMXPassword, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	encrypted.JVMEndpointAPIKey, err = encryptSecretField(appKey, bundle.JVMEndpointAPIKey, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	encrypted.JVMAgentAPIKey, err = encryptSecretField(appKey, bundle.JVMAgentAPIKey, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	encrypted.JVMDiagnosticAPIKey, err = encryptSecretField(appKey, bundle.JVMDiagnosticAPIKey, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	encrypted.SensitiveParams, err = encryptSecretField(appKey, bundle.SensitiveParams, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
 
 	return encrypted, nil
 }
@@ -196,6 +216,26 @@ func decryptSecretBundle(appKey []byte, bundle connectionSecretBundle, connectio
 		return connectionSecretBundle{}, err
 	}
 	decrypted.OpaqueDSN, err = decryptSecretField(appKey, bundle.OpaqueDSN, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	decrypted.JVMJMXPassword, err = decryptSecretField(appKey, bundle.JVMJMXPassword, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	decrypted.JVMEndpointAPIKey, err = decryptSecretField(appKey, bundle.JVMEndpointAPIKey, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	decrypted.JVMAgentAPIKey, err = decryptSecretField(appKey, bundle.JVMAgentAPIKey, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	decrypted.JVMDiagnosticAPIKey, err = decryptSecretField(appKey, bundle.JVMDiagnosticAPIKey, connectionID)
+	if err != nil {
+		return connectionSecretBundle{}, err
+	}
+	decrypted.SensitiveParams, err = decryptSecretField(appKey, bundle.SensitiveParams, connectionID)
 	if err != nil {
 		return connectionSecretBundle{}, err
 	}

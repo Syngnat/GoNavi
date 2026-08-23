@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1.7
+
+FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+COPY third_party/highgo-pq/go.mod ./third_party/highgo-pq/go.mod
+COPY third_party/go-irisnative/go.mod third_party/go-irisnative/go.sum ./third_party/go-irisnative/
+RUN go mod download
+
+COPY . .
+RUN ./tools/generate-driver-agent-revisions.sh --platform "${TARGETOS}/${TARGETARCH}"
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w -X GoNavi-Wails/internal/cli.Version=${VERSION}" -o /out/gonavi ./cmd/gonavi
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --create-home --home-dir /var/lib/gonavi --uid 10001 gonavi \
+    && mkdir -p /data /var/lib/gonavi/logs /usr/share/doc/gonavi \
+    && chown -R gonavi:gonavi /data /var/lib/gonavi
+
+COPY --from=builder /out/gonavi /usr/local/bin/gonavi
+COPY --from=builder /src/LICENSE /usr/share/doc/gonavi/LICENSE
+COPY --from=builder /src/NOTICE /usr/share/doc/gonavi/NOTICE
+
+ENV HOME=/var/lib/gonavi \
+    GONAVI_DATA_ROOT=/data \
+    GONAVI_LOG_DIR=/var/lib/gonavi/logs
+
+VOLUME ["/data"]
+
+USER gonavi
+
+ENTRYPOINT ["/usr/local/bin/gonavi"]
+CMD ["--help"]

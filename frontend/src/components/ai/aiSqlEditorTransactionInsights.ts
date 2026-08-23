@@ -97,7 +97,11 @@ const buildActiveSqlTabSnapshot = (params: {
   );
   const statements = splitStatements(sql, dbType);
   const hasExplicitTransactionControl = statements.some(isSqlEditorTransactionControlStatement);
-  const usesManagedTransaction = shouldUseSqlEditorManagedTransactionForType(dbType, statements);
+  const usesManagedTransaction = shouldUseSqlEditorManagedTransactionForType(
+    dbType,
+    statements,
+    connection?.config,
+  );
 
   return {
     hasActiveTab: true,

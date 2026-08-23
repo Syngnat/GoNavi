@@ -104,7 +104,7 @@ body:
         - TLS/SSL
         - Not applicable
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: description
@@ -129,7 +129,7 @@ body:
         3. Click or run ...
         4. Observe ...
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: expected
@@ -146,7 +146,7 @@ body:
       description: Paste the complete error text when available; do not only write "error" or attach an error screenshot
       placeholder: Describe the actual result and include the complete error text
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: logs

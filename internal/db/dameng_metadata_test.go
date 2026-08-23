@@ -7,6 +7,21 @@ import (
 	"testing"
 )
 
+func TestEscapeDamengMetadataLiteral_NormalizesAndEscapes(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		" Sales'Ops ": "SALES''OPS",
+		"orders":      "ORDERS",
+		"MiXeD":       "MIXED",
+		"":            "",
+	}
+	for input, want := range tests {
+		if got := escapeDamengMetadataLiteral(input); got != want {
+			t.Fatalf("escapeDamengMetadataLiteral(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
 func TestCollectDamengDatabaseNames_UsesCurrentSchemaFallback(t *testing.T) {
 	t.Parallel()
 
@@ -143,6 +158,32 @@ func TestBuildDamengColumnsQuery_IncludesColumnCommentsJoin(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(allQuery), " as comment") {
 		t.Fatalf("dameng forbids AS comment alias (reserved word), got: %s", allQuery)
+	}
+}
+
+func TestDamengMetadataQueriesEscapeSchemaAndTableLiterals(t *testing.T) {
+	t.Parallel()
+
+	const schema = "Sales'Ops"
+	const table = "Order'Items"
+	wantSchema := "SALES''OPS"
+	wantTable := "ORDER''ITEMS"
+
+	queries := []string{
+		buildDamengColumnsQuery(schema, table),
+		buildDamengColumnCommentsQuery(schema, table),
+		buildDamengTableCommentQuery(schema, table),
+		buildDamengAutoIncrementColumnsQuery(schema, table),
+		buildDamengIndexesQuery(schema, table),
+		buildDamengForeignKeysQuery(schema, table),
+	}
+	for i, query := range queries {
+		if !strings.Contains(query, wantSchema) || !strings.Contains(query, wantTable) {
+			t.Fatalf("metadata query %d should escape normalized schema/table literals, got: %s", i, query)
+		}
+		if strings.Contains(query, "'SALES'OPS'") || strings.Contains(query, "'ORDER'ITEMS'") {
+			t.Fatalf("metadata query %d contains an unescaped apostrophe, got: %s", i, query)
+		}
 	}
 }
 

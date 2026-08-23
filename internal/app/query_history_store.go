@@ -14,9 +14,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
+	"GoNavi-Wails/internal/sqlaudit"
 )
 
 // 慢 SQL 历史存储。
@@ -92,6 +94,7 @@ func (s *queryHistoryStore) Append(record connection.QueryExecutionRecord) error
 // cross-process lock for s.filePath. Migration uses this primitive so copying
 // and clearing a legacy store can be one atomic critical section.
 func (s *queryHistoryStore) appendLocked(record connection.QueryExecutionRecord) error {
+	record = sanitizeQueryHistoryRecord(record)
 	s.tightenFilePermissions()
 
 	// 检查大小并 rotate（rotate 失败不阻塞写入）
@@ -287,6 +290,12 @@ func (s *queryHistoryStore) readFileSnapshots() [][]byte {
 }
 
 // decodeQueryHistorySnapshots 解码内存快照；单行损坏时跳过该行，不阻塞整体加载。
+func sanitizeQueryHistoryRecord(record connection.QueryExecutionRecord) connection.QueryExecutionRecord {
+	record.SQLPreview = buildQueryPreviewForDBType(record.DBType, record.SQLPreview)
+	record.SQLText = redactQueryHistorySQL(record.DBType, record.SQLText)
+	return record
+}
+
 func decodeQueryHistorySnapshots(snapshots [][]byte) []connection.QueryExecutionRecord {
 	var records []connection.QueryExecutionRecord
 	for _, payload := range snapshots {
@@ -301,6 +310,7 @@ func decodeQueryHistorySnapshots(snapshots [][]byte) []connection.QueryExecution
 			if err := json.Unmarshal([]byte(line), &r); err != nil {
 				continue
 			}
+			r = sanitizeQueryHistoryRecord(r)
 			records = append(records, r)
 		}
 		if err := scanner.Err(); err != nil {
@@ -730,8 +740,19 @@ func skipSQLNumber(text string, start int) int {
 }
 
 // buildQueryPreview 截断 SQL 为人类可读预览。
+func redactQueryHistorySQL(dbType, sql string) string {
+	if strings.TrimSpace(dbType) == "" {
+		dbType = "postgres"
+	}
+	return strings.TrimSpace(sqlaudit.RedactQuery(dbType, sql))
+}
+
 func buildQueryPreview(sql string) string {
-	text := strings.TrimSpace(sql)
+	return buildQueryPreviewForDBType("postgres", sql)
+}
+
+func buildQueryPreviewForDBType(dbType, sql string) string {
+	text := redactQueryHistorySQL(dbType, sql)
 	if text == "" {
 		return ""
 	}
@@ -750,12 +771,17 @@ func buildQueryPreview(sql string) string {
 	return string(runes[:queryHistoryPreviewRunes-1]) + "…"
 }
 
-// buildQuerySQLText 保留可用于重新诊断的原始 SQL，并限制单条记录体积。
+// buildQuerySQLText 保留脱敏后可用于重新诊断的 SQL，并限制单条记录体积。
 func buildQuerySQLText(sql string) (string, bool) {
-	text := strings.TrimSpace(sql)
+	return buildQuerySQLTextForDBType("postgres", sql)
+}
+
+func buildQuerySQLTextForDBType(dbType, sql string) (string, bool) {
+	text := redactQueryHistorySQL(dbType, sql)
 	runes := []rune(text)
+	inputTruncated := utf8.RuneCountInString(strings.TrimSpace(sql)) > queryHistorySQLRunes
 	if len(runes) <= queryHistorySQLRunes {
-		return text, false
+		return text, inputTruncated
 	}
 	return string(runes[:queryHistorySQLRunes]), true
 }
@@ -779,7 +805,7 @@ func sanitizeFingerprintForFilename(fp string) string {
 // buildQueryExecutionRecord 是埋点时的便利构造器，组装一条完整记录。
 func buildQueryExecutionRecord(config connection.ConnectionConfig, logicalDB, dbType, sql string, durationMs int64, rowsRead, rowsReturned int64) connection.QueryExecutionRecord {
 	connFP, _ := buildQueryHistoryConnectionFingerprint(config, logicalDB)
-	sqlText, sqlTruncated := buildQuerySQLText(sql)
+	sqlText, sqlTruncated := buildQuerySQLTextForDBType(dbType, sql)
 	statementCount := 0
 	for _, statement := range splitSQLStatementsForDialect(dbType, sql) {
 		if strings.TrimSpace(trimLeadingSQLComments(statement)) != "" {
@@ -790,7 +816,7 @@ func buildQueryExecutionRecord(config connection.ConnectionConfig, logicalDB, db
 		ID:             fmt.Sprintf("qhr-%d", time.Now().UnixNano()),
 		ConnectionFP:   connFP,
 		SQLFingerprint: buildSQLFingerprint(sql),
-		SQLPreview:     buildQueryPreview(sql),
+		SQLPreview:     buildQueryPreviewForDBType(dbType, sql),
 		SQLText:        sqlText,
 		SQLTruncated:   sqlTruncated,
 		Diagnosable:    explainSupportedDBTypes[normalizeExplainLexicalDBType(dbType)] && isSafeExplainQuery(dbType, sql),

@@ -17,6 +17,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EyeOutlined,
+  FileAddOutlined,
   ImportOutlined,
   InfoCircleOutlined,
   ReloadOutlined,
@@ -56,12 +57,14 @@ interface SlowQueryPanelProps {
   config: ConnectionConfig
   dbName: string
   onPickQuery?: (sql: string) => void
+  onRestoreQuery?: (sql: string, record: SlowQueryRecord) => void
 }
 
 interface SlowQueryPanelContentProps {
   config: ConnectionConfig
   dbName: string
   onPickQuery?: (sql: string) => void
+  onRestoreQuery?: (sql: string, record: SlowQueryRecord) => void
   activeToken?: string | number | null
 }
 
@@ -69,6 +72,7 @@ export function SlowQueryPanelContent({
   config,
   dbName,
   onPickQuery,
+  onRestoreQuery,
   activeToken,
 }: SlowQueryPanelContentProps) {
   const { t, language } = useI18n()
@@ -290,6 +294,7 @@ export function SlowQueryPanelContent({
                   key={record.id ?? `${record.sqlFp ?? 'slow-query'}:${index}`}
                   record={record}
                   onPickQuery={onPickQuery}
+                  onRestoreQuery={onRestoreQuery}
                   supportsDiagnosis={supportsDiagnosis}
                 />
               ))}
@@ -313,7 +318,7 @@ export function SlowQueryPanelContent({
   )
 }
 
-export default function SlowQueryPanel({ open, onClose, config, dbName, onPickQuery }: SlowQueryPanelProps) {
+export default function SlowQueryPanel({ open, onClose, config, dbName, onPickQuery, onRestoreQuery }: SlowQueryPanelProps) {
   const { t } = useI18n()
   return (
     <Modal
@@ -340,6 +345,7 @@ export default function SlowQueryPanel({ open, onClose, config, dbName, onPickQu
             onPickQuery?.(sql)
             onClose()
           }}
+          onRestoreQuery={onRestoreQuery}
         />
       </div>
     </Modal>
@@ -349,10 +355,12 @@ export default function SlowQueryPanel({ open, onClose, config, dbName, onPickQu
 function SlowQueryCard({
   record,
   onPickQuery,
+  onRestoreQuery,
   supportsDiagnosis,
 }: {
   record: SlowQueryRecord
   onPickQuery?: (sql: string) => void
+  onRestoreQuery?: (sql: string, record: SlowQueryRecord) => void
   supportsDiagnosis: boolean
 }) {
   const { t, language } = useI18n()
@@ -367,6 +375,7 @@ function SlowQueryCard({
   const severity = duration >= 5000 ? 'critical' : duration >= 1000 ? 'warning' : 'normal'
   const recordDiagnosable = isSlowQueryRecordDiagnosable(record)
   const canLoad = Boolean(sql && !truncated && supportsDiagnosis && recordDiagnosable && onPickQuery)
+  const canRestore = Boolean(sql && !truncated && onRestoreQuery)
   const diagnosisHint = truncated
     ? t('sql_analysis.slow_query.truncated')
     : !supportsDiagnosis
@@ -435,6 +444,18 @@ function SlowQueryCard({
           >
             {t('sql_analysis.slow_query.action.copy')}
           </Button>
+          <Tooltip title={truncated ? t('query_history.restore.truncated_unavailable') : t('query_history.restore.redacted_tooltip')}>
+            <span>
+              <Button
+                size="small"
+                icon={<FileAddOutlined />}
+                onClick={() => onRestoreQuery?.(sql, record)}
+                disabled={!canRestore}
+              >
+                {t('query_history.restore.action')}
+              </Button>
+            </span>
+          </Tooltip>
           <Tooltip title={diagnosisHint}>
             <span>
               <Button

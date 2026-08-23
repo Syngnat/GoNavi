@@ -403,6 +403,59 @@ func TestBuildClaudeCLIEnv_UsesDetectedGitBashOnWindows(t *testing.T) {
 	}
 }
 
+func TestResolveClaudeCodeGitBashPathPrefersGitForWindowsOverWSLLauncher(t *testing.T) {
+	const (
+		wslBash = `C:\Windows\System32\bash.exe`
+		gitExe  = `C:\Program Files\Git\cmd\git.exe`
+		gitBash = `C:\Program Files\Git\bin\bash.exe`
+	)
+
+	got, err := resolveClaudeCodeGitBashPath(nil, "windows", func(name string) (string, error) {
+		switch name {
+		case "bash.exe", "bash":
+			return wslBash, nil
+		case "git.exe":
+			return gitExe, nil
+		default:
+			return "", errors.New("not found")
+		}
+	}, func(path string) bool {
+		return path == wslBash || path == gitExe || path == gitBash
+	})
+	if err != nil {
+		t.Fatalf("resolve Claude Code Git Bash: %v", err)
+	}
+	if got != gitBash {
+		t.Fatalf("expected Git for Windows bash %q, got %q", gitBash, got)
+	}
+}
+
+func TestResolveClaudeCodeGitBashPathRejectsConfiguredWSLLauncher(t *testing.T) {
+	const wslBash = `C:\Windows\System32\bash.exe`
+	_, err := resolveClaudeCodeGitBashPath(
+		[]string{"CLAUDE_CODE_GIT_BASH_PATH=" + wslBash},
+		"windows",
+		func(name string) (string, error) { return "", errors.New("not found") },
+		func(path string) bool { return path == wslBash },
+	)
+	if err == nil || !strings.Contains(err.Error(), "WSL launcher") {
+		t.Fatalf("expected actionable WSL launcher error, got %v", err)
+	}
+}
+
+func TestResolveClaudeCodeGitBashPathIgnoresPATHWSLLauncher(t *testing.T) {
+	const wslBash = `C:\Windows\System32\bash.exe`
+	_, err := resolveClaudeCodeGitBashPath(nil, "windows", func(name string) (string, error) {
+		if name == "bash.exe" || name == "bash" {
+			return wslBash, nil
+		}
+		return "", errors.New("not found")
+	}, func(path string) bool { return path == wslBash })
+	if err == nil || !strings.Contains(err.Error(), "Install Git for Windows") {
+		t.Fatalf("expected PATH WSL launcher to be ignored with an install hint, got %v", err)
+	}
+}
+
 func TestBuildClaudeCLIEnv_ReturnsActionableErrorWhenGitBashMissingOnWindows(t *testing.T) {
 	_, err := buildClaudeCLIEnv(ai.ProviderConfig{}, []string{"ProgramFiles=C:\\Program Files"}, "windows", func(name string) (string, error) {
 		return "", errors.New("not found")

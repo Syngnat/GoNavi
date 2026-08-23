@@ -12,6 +12,7 @@ import (
 const (
 	bootstrapFileName              = "storage_root.json"
 	bootstrapLockFileName          = bootstrapFileName + ".lock"
+	sharedStorageLockFileName      = ".gonavi-storage-write.lock"
 	configuredLogFileName          = "gonavi.log"
 	savedQueryDirectoryName        = "saved_queries"
 	savedQueryDirectoryProbePrefix = ".gonavi-saved-query-"
@@ -23,6 +24,40 @@ var (
 	ErrSetActiveRootCreateBootstrapDirectory = errors.New("create bootstrap directory failed")
 	bootstrapConfigMu                        sync.Mutex
 )
+
+// AcquireFileLock obtains an exclusive, cross-process lock for a caller-owned
+// file path. It is shared by the data-root, connection, and daily-secret
+// stores so their read-modify-write operations cannot overwrite each other.
+func AcquireFileLock(path string) (*bootstrapFileLock, error) {
+	return acquireBootstrapFileLock(path)
+}
+
+// AtomicReplaceFile replaces target with source using the platform-specific
+// durable rename implementation used by the bootstrap configuration.
+func AtomicReplaceFile(source string, target string) error {
+	return atomicReplaceBootstrapFile(source, target)
+}
+
+// SharedStorageLockPath returns the lock shared by the saved connection and
+// daily-secret stores. Those files are updated as one logical operation by the
+// GUI and CLI, so per-file locks alone cannot prevent a cross-process
+// read-modify-write race.
+func SharedStorageLockPath(root string) string {
+	trimmed := strings.TrimSpace(root)
+	if trimmed == "" {
+		return filepath.Join(trimmed, sharedStorageLockFileName)
+	}
+	if absolute, err := filepath.Abs(trimmed); err == nil {
+		trimmed = absolute
+	}
+	// Resolve aliases when the root already exists so callers using a symlink
+	// and callers using its real path coordinate on the same lock file. Keep the
+	// absolute fallback for a not-yet-created root.
+	if resolved, err := filepath.EvalSymlinks(trimmed); err == nil {
+		trimmed = resolved
+	}
+	return filepath.Join(filepath.Clean(trimmed), sharedStorageLockFileName)
+}
 
 type setActiveRootError struct {
 	kind   error

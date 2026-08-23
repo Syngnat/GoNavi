@@ -1334,6 +1334,32 @@ export const convertMongoShellToJsonCommand = (raw: string): ShellConvertResult 
       };
     }
 
+    if (method === 'distinct') {
+      if (args.length === 0) throw new Error('distinct field argument is required');
+      const key = parseMongoJSONValue(args[0]);
+      if (typeof key !== 'string' || !key.trim()) {
+        throw new Error('distinct field argument must be a string');
+      }
+      const query = args.length > 1 ? parseMongoJSONDoc(args[1], 'distinct query argument') : {};
+      const options = args.length > 2 ? parseMongoOptionalDoc(args[2]) : {};
+      for (const item of chain) {
+        if (isNoopMongoChainMethod(item.method)) continue;
+        throw new Error(`Unsupported chain method .${item.method}()`);
+      }
+      const command: Record<string, unknown> = {
+        distinct: collection,
+        key: key.trim(),
+        query,
+      };
+      for (const option of ['collation', 'hint', 'comment', 'maxTimeMS', 'readConcern', 'let']) {
+        if (typeof options[option] !== 'undefined') command[option] = options[option];
+      }
+      return {
+        recognized: true,
+        command: JSON.stringify(command),
+      };
+    }
+
     if (method === 'aggregate') {
       const pipeline = args.length > 0 ? parseMongoJSONPipeline(args[0]) : [];
       const options = args.length > 1 ? parseMongoJSONDoc(args[1], 'aggregate second argument (options)') : {};

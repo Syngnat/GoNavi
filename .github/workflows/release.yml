@@ -4,18 +4,67 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable release tag to rebuild (for example, v0.9.3)
+        required: true
+        type: string
 
 permissions:
   contents: write
   pull-requests: read
 
 jobs:
+  validate_release_tag:
+    name: Validate immutable release tag
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Checkout workflow source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Resolve immutable release tag
+        id: resolve
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED_TAG}"
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tag must be vX.Y.Z: ${tag}" >&2
+            exit 1
+          fi
+          git fetch --force --tags
+          if ! git show-ref --verify --quiet "refs/tags/${tag}"; then
+            echo "Release tag does not exist: ${tag}" >&2
+            exit 1
+          fi
+          sha="$(git rev-parse "${tag}^{commit}")"
+          if [[ ! "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Release tag does not resolve to a commit: ${tag}" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "🧭 Releasing immutable tag ${tag} at ${sha}"
+
   frontend:
     name: Build frontend
+    needs: validate_release_tag
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -24,13 +73,26 @@ jobs:
 
       - name: Test release asset contracts
         run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= \
+            .github/workflows/release.yml \
+            .github/workflows/dev-build.yml \
+            .github/workflows/publish-release.yml
           bash tools/detect-changed-driver-agents.test.sh
           bash tools/generate-driver-agent-revisions.test.sh
+          bash tools/verify-driver-revision-contract.test.sh
           python3 tools/generate-driver-release-manifest.test.py
           python3 tools/generate-update-latest-manifest.test.py
+          python3 tools/validate-gui-update-manifest.test.py
           python3 tools/prepare-vps-release-payload.test.py
-          bash tools/vps-release-commit.test.sh
+          python3 tools/edge-release-transaction.test.py
+          python3 tools/edge-release-retention.test.py
+          python3 tools/download-mirror-config.test.py
           python3 tools/package-driver-release-assets.test.py
+          python3 tools/complete-driver-release-assets.test.py
+          python3 tools/cli-release-assets.test.py
+          python3 tools/npm-cli-wrapper.test.py
+          python3 tools/validate-npm-cli-package-version.test.py
+          python3 tools/generate-winget-cli-manifest.test.py
           python3 tools/legal-release-assets.test.py
           python3 tools/windows-release-artifacts.test.py
           python3 tools/generate-release-notes.test.py
@@ -78,7 +140,11 @@ jobs:
 
   driver_agents:
     name: Detect changed driver agents
+    needs: validate_release_tag
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
+      RELEASE_SHA: ${{ needs.validate_release_tag.outputs.sha }}
     outputs:
       drivers: ${{ steps.detect.outputs.drivers }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
@@ -92,6 +158,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
           fetch-depth: 0
 
       - name: Resolve published driver release source
@@ -101,7 +168,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PREV_TAG="$(git describe --tags --match 'v*' --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+          PREV_TAG="$(git describe --tags --match 'v*' --abbrev=0 "${RELEASE_SHA}^" 2>/dev/null || true)"
           manifest_path="$RUNNER_TEMP/published-driver-manifest.json"
           if [[ -z "$PREV_TAG" ]]; then
             echo "source_commit=" >> "$GITHUB_OUTPUT"
@@ -172,7 +239,7 @@ jobs:
           }
 
           git fetch --force --tags
-          PREV_TAG="$(git describe --tags --match 'v*' --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+          PREV_TAG="$(git describe --tags --match 'v*' --abbrev=0 "${RELEASE_SHA}^" 2>/dev/null || true)"
           if [ -n "$PREV_TAG" ]; then
             BASE_REF="$PREV_TAG"
             RELEASE_SOURCE="$PREV_TAG"
@@ -191,13 +258,13 @@ jobs:
             BASE_REF="all"
             RELEASE_SOURCE="all"
           fi
-          DRIVERS="$(bash ./tools/detect-changed-driver-agents.sh --base "$BASE_REF" --head "$GITHUB_SHA")"
+          DRIVERS="$(bash ./tools/detect-changed-driver-agents.sh --base "$BASE_REF" --head "$RELEASE_SHA")"
           if [[ "$BASE_REF" != "all" ]]; then
             REVISION_DRIVERS=""
             for PLATFORM in darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 linux/amd64 linux/arm64; do
-              PLATFORM_DRIVERS="$(bash ./tools/diff-driver-agent-revisions.sh --base "$BASE_REF" --head "$GITHUB_SHA" --platform "$PLATFORM")" || {
+              PLATFORM_DRIVERS="$(bash ./tools/diff-driver-agent-revisions.sh --base "$BASE_REF" --head "$RELEASE_SHA" --platform "$PLATFORM")" || {
                 echo "⚠️ 平台 revision 差异对比失败（${PLATFORM}），保守回退为全量驱动重建"
-                DRIVERS="$(bash ./tools/detect-changed-driver-agents.sh --base all --head "$GITHUB_SHA")"
+                DRIVERS="$(bash ./tools/detect-changed-driver-agents.sh --base all --head "$RELEASE_SHA")"
                 REVISION_DRIVERS=""
                 break
               }
@@ -208,7 +275,7 @@ jobs:
               DRIVERS="$(merge_csv "$DRIVERS" "$REVISION_DRIVERS")"
             fi
           fi
-          FORCE_GLOBAL_DRIVER_BUILDS="$(bash ./tools/should-force-global-driver-builds.sh --base "$BASE_REF" --head "$GITHUB_SHA")"
+          FORCE_GLOBAL_DRIVER_BUILDS="$(bash ./tools/should-force-global-driver-builds.sh --base "$BASE_REF" --head "$RELEASE_SHA")"
           echo "drivers=${DRIVERS}" >> "$GITHUB_OUTPUT"
           echo "release_source=${RELEASE_SOURCE}" >> "$GITHUB_OUTPUT"
           echo "compare_base=${BASE_REF}" >> "$GITHUB_OUTPUT"
@@ -224,13 +291,179 @@ jobs:
             echo "🧭 Driver build/release plumbing changed; preserve global driver rebuild set on every platform"
           fi
 
+  driver_revision_maps:
+    name: Generate canonical driver revision map ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: validate_release_tag
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            artifact_key: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            artifact_key: darwin-arm64
+          - goos: linux
+            goarch: amd64
+            artifact_key: linux-amd64
+          - goos: linux
+            goarch: arm64
+            artifact_key: linux-arm64
+          - goos: windows
+            goarch: amd64
+            artifact_key: windows-amd64
+          - goos: windows
+            goarch: arm64
+            artifact_key: windows-arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Generate canonical driver revision map
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tools/generate-driver-agent-revisions.sh --platform "${{ matrix.goos }}/${{ matrix.goarch }}"
+          test -s internal/db/driver_agent_revisions_gen.go
+
+      - name: Upload canonical driver revision map
+        uses: actions/upload-artifact@v6
+        with:
+          name: canonical-driver-revision-map-${{ matrix.artifact_key }}
+          path: internal/db/driver_agent_revisions_gen.go
+          if-no-files-found: error
+          retention-days: 1
+
+  cli:
+    name: Build CLI ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs:
+      - validate_release_tag
+      - driver_revision_maps
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            extension: tar.gz
+            binary: gonavi
+          - goos: darwin
+            goarch: arm64
+            extension: tar.gz
+            binary: gonavi
+          - goos: linux
+            goarch: amd64
+            extension: tar.gz
+            binary: gonavi
+          - goos: linux
+            goarch: arm64
+            extension: tar.gz
+            binary: gonavi
+          - goos: windows
+            goarch: amd64
+            extension: zip
+            binary: gonavi.exe
+          - goos: windows
+            goarch: arm64
+            extension: zip
+            binary: gonavi.exe
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download canonical driver revision map
+        uses: actions/download-artifact@v7
+        with:
+          name: canonical-driver-revision-map-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: canonical-driver-revision-map
+
+      - name: Install canonical driver revision map
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s canonical-driver-revision-map/driver_agent_revisions_gen.go
+          install -m 0644 canonical-driver-revision-map/driver_agent_revisions_gen.go internal/db/driver_agent_revisions_gen.go
+
+      - name: Build and package CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          asset="gonavi-cli_${version}_${{ matrix.goos }}_${{ matrix.goarch }}.${{ matrix.extension }}"
+          stage="${RUNNER_TEMP}/gonavi-cli-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "$stage"
+          ./tools/write-driver-revision-contract.sh --role cli \
+            --platform "${{ matrix.goos }}/${{ matrix.goarch }}" \
+            --output-dir driver-revision-contract
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -trimpath -ldflags="-s -w -X GoNavi-Wails/internal/cli.Version=${version}" \
+            -o "$stage/${{ matrix.binary }}" ./cmd/gonavi
+          install -m 0644 LICENSE NOTICE "$stage/"
+          if [[ "${{ matrix.extension }}" == "zip" ]]; then
+            (cd "$stage" && zip -q -X "${GITHUB_WORKSPACE}/${asset}" "${{ matrix.binary }}" LICENSE NOTICE)
+          else
+            tar -C "$stage" -czf "$asset" "${{ matrix.binary }}" LICENSE NOTICE
+          fi
+          test -s "$asset"
+          expected_entries="$(printf '%s\n' "${{ matrix.binary }}" LICENSE NOTICE | sort)"
+          if [[ "${{ matrix.extension }}" == "zip" ]]; then
+            actual_entries="$(unzip -Z1 "$asset" | sort)"
+          else
+            actual_entries="$(tar -tzf "$asset" | sed 's#^\./##' | sort)"
+          fi
+          if [[ "$actual_entries" != "$expected_entries" ]]; then
+            echo "CLI archive contents are invalid for $asset" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_entries" "$actual_entries" >&2
+            exit 1
+          fi
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: cli-artifact-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: gonavi-cli_*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload CLI driver revision contract
+        uses: actions/upload-artifact@v6
+        with:
+          name: cli-driver-revision-contract-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: driver-revision-contract/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
   # Phase 1: Build in parallel and output artifacts
   build:
     name: Build ${{ matrix.platform }}
     needs:
+      - validate_release_tag
       - frontend
       - driver_agents
+      - driver_revision_maps
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
+      RELEASE_SHA: ${{ needs.validate_release_tag.outputs.sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -240,8 +473,10 @@ jobs:
             os_name: MacOS
             arch_name: Amd64
             build_name: gonavi-build-darwin-amd64
+            canonical_revision_map: darwin-amd64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: macos-latest
@@ -249,8 +484,10 @@ jobs:
             os_name: MacOS
             arch_name: Arm64
             build_name: gonavi-build-darwin-arm64
+            canonical_revision_map: darwin-arm64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: windows-2025-vs2026
@@ -258,8 +495,10 @@ jobs:
             os_name: Windows
             arch_name: Amd64
             build_name: gonavi-build-windows-amd64
+            canonical_revision_map: windows-amd64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: windows-2025-vs2026
@@ -267,8 +506,10 @@ jobs:
             os_name: Windows
             arch_name: Arm64
             build_name: gonavi-build-windows-arm64
+            canonical_revision_map: windows-arm64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: ubuntu-22.04
@@ -276,8 +517,10 @@ jobs:
             os_name: Linux
             arch_name: Amd64
             build_name: gonavi-build-linux-amd64
+            canonical_revision_map: linux-amd64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: "4.0"
           - os: ubuntu-22.04-arm
@@ -285,8 +528,10 @@ jobs:
             os_name: Linux
             arch_name: Arm64
             build_name: gonavi-build-linux-arm64
+            canonical_revision_map: linux-arm64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: "4.0"
           # Debian 13 (trixie) 默认仓库已切到 WebKitGTK 4.1：单独提供 4.1 变体产物
@@ -295,8 +540,10 @@ jobs:
             os_name: Linux
             arch_name: Amd64
             build_name: gonavi-build-linux-amd64-webkit41
+            canonical_revision_map: linux-amd64
             wails_tags: "webkit2_41"
             artifact_suffix: "-WebKit41"
+            driver_revision_variant: "webkit41"
             build_optional_agents: false
             linux_webkit: "4.1"
 
@@ -304,12 +551,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
         with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
           fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
+
+      - name: Download canonical driver revision map
+        uses: actions/download-artifact@v7
+        with:
+          name: canonical-driver-revision-map-${{ matrix.canonical_revision_map }}
+          path: canonical-driver-revision-map
+
+      - name: Install canonical driver revision map
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s canonical-driver-revision-map/driver_agent_revisions_gen.go
+          install -m 0644 canonical-driver-revision-map/driver_agent_revisions_gen.go internal/db/driver_agent_revisions_gen.go
 
       - name: Download frontend dist
         id: download_frontend_dist
@@ -496,8 +757,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "🧭 为 ${{ matrix.platform }} 全量生成 driver-agent revision 指纹，避免跨平台沿用旧 revision"
-          ./tools/generate-driver-agent-revisions.sh --platform "${{ matrix.platform }}"
+          revision_contract_args=(
+            --role gui
+            --platform "${{ matrix.platform }}"
+            --output-dir driver-revision-contract
+          )
+          if [[ -n "${{ matrix.driver_revision_variant }}" ]]; then
+            revision_contract_args+=(--variant "${{ matrix.driver_revision_variant }}")
+          fi
+          ./tools/write-driver-revision-contract.sh "${revision_contract_args[@]}"
           REVISION_HASH="$(python3 - <<'PY'
           import hashlib
           from pathlib import Path
@@ -509,9 +777,9 @@ jobs:
           mkdir -p "$GOCACHE"
           echo "🧭 使用隔离 GOCACHE：$GOCACHE"
           if [ -n "${{ matrix.wails_tags }}" ]; then
-            wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -tags "${{ matrix.wails_tags }}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+            wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -tags "${{ matrix.wails_tags }}" -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${RELEASE_TAG}"
           else
-            wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${{ github.ref_name }}"
+            wails build -s -skipbindings -trimpath -platform ${{ matrix.platform }} -clean -o ${{ matrix.build_name }} -ldflags "-s -w -X GoNavi-Wails/internal/app.AppVersion=${RELEASE_TAG}"
           fi
 
       - name: Resolve Platform Driver Revision Diff
@@ -532,13 +800,13 @@ jobs:
             fi
             echo "drivers=${FALLBACK_DRIVERS}" >> "$GITHUB_OUTPUT"
           else
-            echo "🧭 对比当前平台 revision：base=${BASE_REF} head=${GITHUB_SHA} platform=${{ matrix.platform }}"
-            if DRIVERS="$(bash ./tools/diff-driver-agent-revisions.sh --base "$BASE_REF" --head "$GITHUB_SHA" --platform "${{ matrix.platform }}")"; then
+            echo "🧭 对比当前平台 revision：base=${BASE_REF} head=${RELEASE_SHA} platform=${{ matrix.platform }}"
+            if DRIVERS="$(bash ./tools/diff-driver-agent-revisions.sh --base "$BASE_REF" --head "$RELEASE_SHA" --platform "${{ matrix.platform }}")"; then
               echo "🧭 当前平台实际需要重建的 driver agents: ${DRIVERS:-<empty>}"
               echo "drivers=${DRIVERS}" >> "$GITHUB_OUTPUT"
             else
               echo "⚠️ revision 差异对比失败，保守回退为全量重建"
-              ALL_DRIVERS="$(bash ./tools/detect-changed-driver-agents.sh --base all --head "$GITHUB_SHA")"
+              ALL_DRIVERS="$(bash ./tools/detect-changed-driver-agents.sh --base all --head "$RELEASE_SHA")"
               echo "drivers=${ALL_DRIVERS}" >> "$GITHUB_OUTPUT"
             fi
           fi
@@ -769,21 +1037,39 @@ jobs:
       # macOS Packaging
       - name: Package macOS DMG
         if: contains(matrix.platform, 'darwin')
+        env:
+          MACOS_SIGNING_CERTIFICATE_P12: ${{ secrets.MACOS_SIGNING_CERTIFICATE_P12 }}
+          MACOS_SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_SIGNING_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           brew install create-dmg
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
+          VERSION="${RELEASE_TAG#v}"
           cd build/bin
           
-          APP_PATH=$(find . -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ 未找到 .app 应用包!"
+          APP_PATH="./GoNavi.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ 未找到固定名称 GoNavi.app 应用包!"
             exit 1
           fi
-          APP_NAME=$(basename "$APP_PATH")
+          APP_NAME="GoNavi.app"
           mkdir -p "$APP_NAME/Contents/Resources"
           cp ../../LICENSE "$APP_NAME/Contents/Resources/LICENSE"
           cp ../../NOTICE "$APP_NAME/Contents/Resources/NOTICE"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ macOS stable bundle version must be X.Y.Z: ${VERSION}" >&2
+            exit 1
+          fi
+          APP_INFO_PLIST="$APP_PATH/Contents/Info.plist"
+          test -f "$APP_INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" "$APP_INFO_PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" "$APP_INFO_PLIST"
+          plutil -lint "$APP_INFO_PLIST"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_INFO_PLIST")" == "$VERSION" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_INFO_PLIST")" == "$VERSION" ]]
 
           APP_BIN=$(find "$APP_PATH/Contents/MacOS" -maxdepth 1 -type f | head -n 1)
           if [ -z "$APP_BIN" ]; then
@@ -792,13 +1078,69 @@ jobs:
           fi
           echo "ℹ️ macOS 产物不执行 UPX 压缩，保留原始主程序。"
           
-          echo "🔏 正在进行 Ad-hoc 签名..."
-          # 注意：Ad-hoc + hardened runtime（--options runtime）在未配置 entitlements 时，
-          # 可能导致部分 macOS 机型上应用双击无响应。这里保持 Ad-hoc 深签名但禁用 runtime hardened。
-          if command -v xattr >/dev/null 2>&1; then
-            xattr -cr "$APP_NAME" || true
+          signing_inputs=(
+            MACOS_SIGNING_CERTIFICATE_P12
+            MACOS_SIGNING_CERTIFICATE_PASSWORD
+            MACOS_SIGNING_IDENTITY
+            APPLE_ID
+            APPLE_APP_SPECIFIC_PASSWORD
+            APPLE_TEAM_ID
+          )
+          signing_input_count=0
+          for signing_input in "${signing_inputs[@]}"; do
+            if [[ -n "${!signing_input:-}" ]]; then
+              signing_input_count=$((signing_input_count + 1))
+            fi
+          done
+
+          if (( signing_input_count == 0 )); then
+            MACOS_SIGNING_MODE="ad-hoc"
+            echo "⚠️ 未配置 Apple Developer 凭据；生成 ad-hoc 签名、未公证的 macOS DMG。"
+            codesign --force --deep --sign - "$APP_NAME"
+          elif (( signing_input_count != ${#signing_inputs[@]} )); then
+            echo "macOS signing credentials are partially configured; refusing an ambiguous release mode" >&2
+            exit 1
+          else
+            MACOS_SIGNING_MODE="developer-id"
+          if [[ ! "$MACOS_SIGNING_IDENTITY" =~ ^Developer\ ID\ Application:\ .+\ \([A-Z0-9]{10}\)$ ]]; then
+            echo "macOS signing identity must be a Developer ID Application certificate" >&2
+            exit 1
           fi
-          codesign --force --deep --sign - "$APP_NAME"
+          signing_team_id="${MACOS_SIGNING_IDENTITY##*\(}"
+          signing_team_id="${signing_team_id%\)}"
+          if [[ "$signing_team_id" != "$APPLE_TEAM_ID" ]]; then
+            echo "macOS signing identity team does not match APPLE_TEAM_ID" >&2
+            exit 1
+          fi
+          keychain_path="$RUNNER_TEMP/gonavi-signing.keychain-db"
+          security create-keychain -p "$MACOS_SIGNING_CERTIFICATE_PASSWORD" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$MACOS_SIGNING_CERTIFICATE_PASSWORD" "$keychain_path"
+          certificate_path="$RUNNER_TEMP/gonavi-signing.p12"
+          if ! printf '%s' "$MACOS_SIGNING_CERTIFICATE_P12" | base64 --decode > "$certificate_path" 2>/dev/null; then
+            : > "$certificate_path"
+            printf '%s' "$MACOS_SIGNING_CERTIFICATE_P12" | base64 -D > "$certificate_path"
+          fi
+          security import "$certificate_path" -k "$keychain_path" -P "$MACOS_SIGNING_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MACOS_SIGNING_CERTIFICATE_PASSWORD" "$keychain_path"
+          if ! security find-identity -v -p codesigning "$keychain_path" | grep -Fq "\"$MACOS_SIGNING_IDENTITY\""; then
+            echo "Developer ID Application signing identity was not imported" >&2
+            exit 1
+          fi
+          verify_team_identifier() {
+            local target="$1"
+            local actual_team_id
+            actual_team_id="$(codesign -dv --verbose=4 "$target" 2>&1 | awk -F= '$1 == "TeamIdentifier" { print $2 }')"
+            if [[ "$actual_team_id" != "$APPLE_TEAM_ID" ]]; then
+              echo "unexpected TeamIdentifier for $target: ${actual_team_id:-not set}" >&2
+              exit 1
+            fi
+          }
+          codesign --force --deep --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP_NAME"
+          codesign --verify --deep --strict --verbose=4 "$APP_NAME"
+          verify_team_identifier "$APP_NAME"
+          fi
           
           DMG_NAME="${{ matrix.build_name }}.dmg"
           FINAL_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.dmg"
@@ -815,15 +1157,55 @@ jobs:
             "$DMG_NAME" \
             "$APP_NAME"
 
+          if [[ "$MACOS_SIGNING_MODE" == "developer-id" ]]; then
+            codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$DMG_NAME"
+            codesign --verify --verbose=4 "$DMG_NAME"
+            verify_team_identifier "$DMG_NAME"
+            NOTARY_RESULT="$RUNNER_TEMP/gonavi-notary-${{ matrix.arch_name }}.json"
+            xcrun notarytool submit "$DMG_NAME" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait \
+              --output-format json > "$NOTARY_RESULT"
+          python3 - "$NOTARY_RESULT" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as result_file:
+              result = json.load(result_file)
+          status = result.get("status")
+          if status != "Accepted":
+              raise SystemExit(f"notarization was not accepted: {status or 'missing status'}")
+          print(f"notarization accepted: {result.get('id', 'unknown submission')}")
+          PY
+            xcrun stapler staple "$DMG_NAME"
+            xcrun stapler validate "$DMG_NAME"
+            codesign --verify --verbose=4 "$DMG_NAME"
+            verify_team_identifier "$DMG_NAME"
+          else
+            echo "⚠️ 跳过 macOS DMG 的 Developer ID 签名和 Apple 公证。"
+          fi
+
           VERIFY_MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gonavi-release-verify.XXXXXX")
           hdiutil attach -nobrowse -readonly -mountpoint "$VERIFY_MOUNT_DIR" "$DMG_NAME" >/dev/null
-          PACKAGED_APP=$(find "$VERIFY_MOUNT_DIR" -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$PACKAGED_APP" ]; then
-            echo "❌ DMG 内未找到 .app 应用包!"
+          PACKAGED_APP="$VERIFY_MOUNT_DIR/GoNavi.app"
+          if [ ! -d "$PACKAGED_APP" ]; then
+            echo "❌ DMG 内未找到固定名称 GoNavi.app 应用包!"
             hdiutil detach "$VERIFY_MOUNT_DIR" -quiet >/dev/null 2>&1 || true
             exit 1
           fi
           codesign --verify --deep --strict --verbose=4 "$PACKAGED_APP"
+          PACKAGED_INFO_PLIST="$PACKAGED_APP/Contents/Info.plist"
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PACKAGED_INFO_PLIST")" == "$VERSION" ]]
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PACKAGED_INFO_PLIST")" == "$VERSION" ]]
+          if [[ "$MACOS_SIGNING_MODE" == "developer-id" ]]; then
+            verify_team_identifier "$PACKAGED_APP"
+            spctl -a -t exec -vv "$PACKAGED_APP"
+            spctl --assess --type open --context context:primary-signature -vv "$DMG_NAME"
+          else
+            echo "⚠️ ad-hoc 签名产物不执行 Gatekeeper 公证验证。"
+          fi
           hdiutil detach "$VERIFY_MOUNT_DIR" -quiet >/dev/null 2>&1 || true
             
           mv "$DMG_NAME" "../../$FINAL_NAME"
@@ -834,7 +1216,7 @@ jobs:
         shell: pwsh
         run: |
           Set-Location build/bin
-          $version = "${{ github.ref_name }}"
+          $version = "$env:RELEASE_TAG"
           if ($version.StartsWith("v")) {
               $version = $version.Substring(1)
           }
@@ -947,8 +1329,7 @@ jobs:
       - name: Package Linux
         if: contains(matrix.platform, 'linux')
         run: |
-          VERSION="${{ github.ref_name }}"
-          VERSION="${VERSION#v}"
+          VERSION="${RELEASE_TAG#v}"
           cd build/bin
           TARGET="${{ matrix.build_name }}"
           TAR_NAME="GoNavi-$VERSION-${{ matrix.os_name }}-${{ matrix.arch_name }}${{ matrix.artifact_suffix }}.tar.gz"
@@ -1054,16 +1435,31 @@ jobs:
             driver-provenance/**
           retention-days: 1
 
+      - name: Upload GUI driver revision contract
+        uses: actions/upload-artifact@v6
+        with:
+          name: gui-driver-revision-contract-${{ matrix.build_name }}
+          path: driver-revision-contract/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
   # Phase 2: Collect all artifacts and Publish Release (Single Job)
   release:
     name: Publish Release
     needs:
+      - validate_release_tag
       - build
+      - cli
       - driver_agents
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.validate_release_tag.outputs.tag }}
+      RELEASE_SHA: ${{ needs.validate_release_tag.outputs.sha }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
 
       - name: Setup Go
         uses: actions/setup-go@v6
@@ -1077,12 +1473,64 @@ jobs:
           pattern: build-artifacts-*
           merge-multiple: true
 
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: cli-assets
+          pattern: cli-artifact-*
+          merge-multiple: true
+
+      - name: Download GUI driver revision contracts
+        uses: actions/download-artifact@v7
+        with:
+          path: driver-revision-contract
+          pattern: gui-driver-revision-contract-*
+          merge-multiple: true
+
+      - name: Download CLI driver revision contracts
+        uses: actions/download-artifact@v7
+        with:
+          path: driver-revision-contract
+          pattern: cli-driver-revision-contract-*
+          merge-multiple: true
+
+      - name: Verify GUI and CLI driver revision contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tools/verify-driver-revision-contract.sh --contracts-dir driver-revision-contract
+
+      - name: Validate CLI artifact staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          expected=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          mapfile -t actual < <(find cli-assets -type f -printf '%P\n' | sort)
+          expected_list="$(printf '%s\n' "${expected[@]}" | sort)"
+          actual_list="$(printf '%s\n' "${actual[@]}")"
+          if [[ "$actual_list" != "$expected_list" ]]; then
+            echo "CLI artifact set is invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_list" "$actual_list" >&2
+            exit 1
+          fi
+          for asset in "${expected[@]}"; do
+            test -s "cli-assets/${asset}"
+          done
+
       - name: Add legal documents
         shell: bash
         run: install -m 0644 LICENSE NOTICE release-assets/
 
       - name: List Assets
-        run: ls -R release-assets
+        run: ls -R release-assets cli-assets
 
       - name: Download Previous Driver Manifest
         if: needs.driver_agents.outputs.has_changes == 'true' && needs.driver_agents.outputs.release_source != 'all'
@@ -1189,25 +1637,120 @@ jobs:
           rm -rf drivers driver-provenance
           echo "has_driver_assets=true" >> "$GITHUB_OUTPUT"
 
+      - name: Generate CLI checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          expected=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          (cd cli-assets && sha256sum "${expected[@]}" > "gonavi-cli_${version}_checksums.txt")
+
       - name: Generate SHA256SUMS
         shell: bash
         run: |
-          cd release-assets
-          FILES=()
+          set -euo pipefail
+          output="release-assets/SHA256SUMS"
+          count=0
+          declare -A seen=()
+          : > "$output"
           while IFS= read -r file; do
-            if [ -n "$file" ]; then
-              case "$file" in
-                SHA256SUMS|latest.json|latest-dev.json) continue ;;
-              esac
-              FILES+=("$file")
+            name="$(basename "$file")"
+            if [[ -n "${seen[$name]:-}" ]]; then
+              echo "Duplicate release asset name across staging directories: ${name}" >&2
+              exit 1
             fi
-          done < <(find . -maxdepth 1 -type f ! -name SHA256SUMS -exec basename {} \; | sort)
-          if [ ${#FILES[@]} -eq 0 ]; then
+            seen["$name"]=1
+            digest="$(sha256sum "$file" | awk '{ print $1 }')"
+            printf '%s  %s\n' "$digest" "$name" >> "$output"
+            count=$((count + 1))
+          done < <(find release-assets cli-assets -maxdepth 1 -type f \
+            ! -name SHA256SUMS ! -name latest.json ! -name latest-dev.json -print | sort)
+          if [ "$count" -eq 0 ]; then
             echo "⚠️ 未找到可签名资产，生成空 SHA256SUMS"
-            : > SHA256SUMS
-          else
-            sha256sum "${FILES[@]}" > SHA256SUMS
           fi
+
+      - name: Verify CLI release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          cli_checksum_name="gonavi-cli_${version}_checksums.txt"
+          expected=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          expected_cli_files=("${expected[@]}" "$cli_checksum_name")
+          mapfile -t actual_cli_files < <(find cli-assets -maxdepth 1 -type f -name 'gonavi-cli_*' -printf '%f\n' | sort)
+          expected_cli_list="$(printf '%s\n' "${expected_cli_files[@]}" | sort)"
+          actual_cli_list="$(printf '%s\n' "${actual_cli_files[@]}")"
+          if [[ "$actual_cli_list" != "$expected_cli_list" ]]; then
+            echo "CLI release asset set is invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_cli_list" "$actual_cli_list" >&2
+            exit 1
+          fi
+          test -s "cli-assets/${cli_checksum_name}"
+          if ! awk 'NF != 2 || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/ { exit 1 }' "cli-assets/${cli_checksum_name}"; then
+            echo "CLI checksum file contents are invalid" >&2
+            exit 1
+          fi
+          mapfile -t checksum_assets < <(awk '{ print $2 }' "cli-assets/${cli_checksum_name}" | sort)
+          checksum_asset_list="$(printf '%s\n' "${checksum_assets[@]}")"
+          expected_checksum_list="$(printf '%s\n' "${expected[@]}" | sort)"
+          if [[ "$checksum_asset_list" != "$expected_checksum_list" ]]; then
+            echo "CLI checksum file contents are invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_checksum_list" "$checksum_asset_list" >&2
+            exit 1
+          fi
+          for asset in "${expected[@]}"; do
+            test -s "cli-assets/${asset}"
+            grep -Fq "  ${asset}" release-assets/SHA256SUMS
+            global_digest="$(awk -v name="$asset" '$2 == name { print $1 }' release-assets/SHA256SUMS)"
+            cli_digest="$(awk -v name="$asset" '$2 == name { print $1 }' "cli-assets/${cli_checksum_name}")"
+            actual_digest="$(sha256sum "cli-assets/${asset}" | awk '{ print $1 }')"
+            [[ -n "$global_digest" && "$global_digest" == "$cli_digest" && "$cli_digest" == "$actual_digest" ]]
+          done
+          grep -Fq "  ${cli_checksum_name}" release-assets/SHA256SUMS
+          (cd cli-assets && sha256sum --check "$cli_checksum_name")
+          while read -r expected_digest asset; do
+            if [[ -f "release-assets/${asset}" && -f "cli-assets/${asset}" ]]; then
+              echo "Duplicate release asset name across staging directories: ${asset}" >&2
+              exit 1
+            elif [[ -f "release-assets/${asset}" ]]; then
+              file="release-assets/${asset}"
+            elif [[ -f "cli-assets/${asset}" ]]; then
+              file="cli-assets/${asset}"
+            else
+              echo "Release asset listed in SHA256SUMS is missing: ${asset}" >&2
+              exit 1
+            fi
+            actual_digest="$(sha256sum "$file" | awk '{ print $1 }')"
+            [[ "$actual_digest" == "$expected_digest" ]]
+          done < release-assets/SHA256SUMS
+
+      - name: Generate WinGet CLI manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          python3 tools/generate-winget-cli-manifest.py \
+            --version "$version" \
+            --checksums "cli-assets/gonavi-cli_${version}_checksums.txt" \
+            --output "$RUNNER_TEMP/Syngnat.GoNavi.CLI.yaml"
+          test -s "$RUNNER_TEMP/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "PackageIdentifier: Syngnat.GoNavi.CLI" "$RUNNER_TEMP/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "gonavi-cli_${version}_windows_amd64.zip" "$RUNNER_TEMP/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "gonavi-cli_${version}_windows_arm64.zip" "$RUNNER_TEMP/Syngnat.GoNavi.CLI.yaml"
 
       # 静态更新清单：客户端优先下载 github.com/.../latest/download/latest.json，
       # 避免终端用户检查更新打爆 api.github.com 未认证配额。
@@ -1215,14 +1758,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"
+          TAG="${RELEASE_TAG}"
           VERSION="${TAG#v}"
           python3 tools/generate-update-latest-manifest.py \
             --assets-dir release-assets \
             --version "$VERSION" \
             --tag "$TAG" \
             --channel latest \
-            --download-base-url https://download.syngnat.top/gonavi/releases/download \
+            --component gui \
+            --download-dispatcher-url https://download-dispatch.syngnat.top/v1/resolve \
+            --download-path-prefix /gonavi/releases/download \
             --output release-assets/latest.json
           test -s release-assets/latest.json
           echo "📄 latest.json ready:"
@@ -1246,7 +1791,7 @@ jobs:
           sha256sum "${FILES[@]}" > SHA256SUMS
 
       - name: Create Driver Agents Release
-        if: startsWith(github.ref, 'refs/tags/') && steps.driver_assets.outputs.has_driver_assets == 'true'
+        if: steps.driver_assets.outputs.has_driver_assets == 'true'
         env:
           GH_TOKEN: ${{ secrets.DRIVER_RELEASE_TOKEN }}
         shell: bash
@@ -1259,19 +1804,24 @@ jobs:
           fi
 
           NOTES_FILE="$RUNNER_TEMP/driver-release-notes.md"
-          cat > "$NOTES_FILE" <<'EOF'
-            GoNavi driver-agent assets for `${{ github.ref_name }}`.
+          cat > "$NOTES_FILE" <<EOF
+            GoNavi driver-agent assets for $RELEASE_TAG.
           EOF
 
-          gh release create "${{ github.ref_name }}" "${DRIVER_RELEASE_ASSETS[@]}" \
-            --repo Syngnat/GoNavi-DriverAgents \
-            --title "GoNavi Driver Agents ${{ github.ref_name }}" \
-            --notes-file "$NOTES_FILE" \
-            --latest
+          if gh release view "$RELEASE_TAG" --repo Syngnat/GoNavi-DriverAgents >/dev/null 2>&1; then
+            echo "🧭 Driver Agents release $RELEASE_TAG already exists; preserving immutable assets."
+          else
+            gh release create "$RELEASE_TAG" "${DRIVER_RELEASE_ASSETS[@]}" \
+              --repo Syngnat/GoNavi-DriverAgents \
+              --title "GoNavi Driver Agents $RELEASE_TAG" \
+              --notes-file "$NOTES_FILE" \
+              --latest
+          fi
 
       - name: Checkout code for changelog
         uses: actions/checkout@v5
         with:
+          ref: ${{ needs.validate_release_tag.outputs.tag }}
           fetch-depth: 0
           path: repo-for-changelog
 
@@ -1286,17 +1836,34 @@ jobs:
           CHANGELOG_FILE="$RUNNER_TEMP/changelog.md"
           python3 tools/generate-release-notes.py \
             --repo "${{ github.repository }}" \
-            --tag "${{ github.ref_name }}" \
+            --tag "$RELEASE_TAG" \
             --repository-url "${{ github.server_url }}/${{ github.repository }}" \
             --output "$CHANGELOG_FILE"
           echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Annotate macOS signing status
+        env:
+          CHANGELOG_FILE: ${{ steps.changelog.outputs.changelog_file }}
+          MACOS_SIGNING_CERTIFICATE_P12: ${{ secrets.MACOS_SIGNING_CERTIFICATE_P12 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$CHANGELOG_FILE"
+          if [[ -z "$MACOS_SIGNING_CERTIFICATE_P12" ]]; then
+            printf '%s\n' \
+              '' \
+              '## macOS 安装提示' \
+              '' \
+              '此版本的 macOS DMG 使用 ad-hoc 签名，未进行 Apple 公证。首次打开可能被 Gatekeeper 拦截；请确认来源后，在 Finder 中按住 Control 点击应用并选择“打开”。' \
+              >> "$CHANGELOG_FILE"
+          fi
 
       # 将同一份 changelog 写入 latest.json，供应用内「更新日志」弹窗使用（静态清单优先路径）。
       - name: Embed changelog into latest.json
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${{ github.ref_name }}"
+          TAG="$RELEASE_TAG"
           VERSION="${TAG#v}"
           CHANGELOG_FILE="${{ steps.changelog.outputs.changelog_file }}"
           test -s "$CHANGELOG_FILE"
@@ -1306,17 +1873,54 @@ jobs:
             --version "$VERSION" \
             --tag "$TAG" \
             --channel latest \
-            --download-base-url https://download.syngnat.top/gonavi/releases/download \
+            --component gui \
+            --download-dispatcher-url https://download-dispatch.syngnat.top/v1/resolve \
+            --download-path-prefix /gonavi/releases/download \
             --release-notes-file "$CHANGELOG_FILE" \
             --output release-assets/latest.json
           jq -e '(.releaseNotes | type == "string" and length > 0)' release-assets/latest.json >/dev/null
           echo "📄 latest.json releaseNotes embedded ($(jq -r '.releaseNotes | length' release-assets/latest.json) chars)"
 
+      - name: Record release provenance
+        env:
+          CHANGELOG_FILE: ${{ steps.changelog.outputs.changelog_file }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$CHANGELOG_FILE" "$RELEASE_TAG" "$RELEASE_SHA" "$WORKFLOW_RUN_ID" <<'PY'
+          import json
+          import re
+          import sys
+
+          changelog_path, tag, commit, run_id = sys.argv[1:]
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+              raise SystemExit(f"invalid release tag for provenance: {tag}")
+          if not re.fullmatch(r"[0-9a-f]{40}", commit):
+              raise SystemExit(f"invalid release commit for provenance: {commit}")
+          if not run_id.isdigit() or int(run_id) <= 0:
+              raise SystemExit(f"invalid workflow run id for provenance: {run_id}")
+          provenance = {
+              "schema": 1,
+              "tag": tag,
+              "commit": commit,
+              "runId": int(run_id),
+          }
+          with open(changelog_path, "a", encoding="utf-8") as changelog:
+              changelog.write("\n<!-- gonavi-release-provenance ")
+              changelog.write(json.dumps(provenance, separators=(",", ":"), sort_keys=True))
+              changelog.write(" -->\n")
+          PY
+
       - name: Create Release
         uses: softprops/action-gh-release@v3
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: release-assets/*
+          tag_name: ${{ needs.validate_release_tag.outputs.tag }}
+          target_commitish: ${{ needs.validate_release_tag.outputs.sha }}
+          name: ${{ needs.validate_release_tag.outputs.tag }}
+          files: |
+            release-assets/*
+            cli-assets/*
           draft: true
           make_latest: true
           body_path: ${{ steps.changelog.outputs.changelog_file }}

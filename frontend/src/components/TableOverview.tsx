@@ -6,7 +6,7 @@ import { Input, Spin, Empty, Dropdown, message, Tooltip, Button } from 'antd';
 import type { MenuProps } from 'antd';
 import { TableOutlined, SearchOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined, ConsoleSqlOutlined, EditOutlined, CopyOutlined, SaveOutlined, DeleteOutlined, ExportOutlined, AppstoreOutlined, UnorderedListOutlined, WarningOutlined, CaretUpFilled, CaretDownFilled } from '@ant-design/icons';
 import { buildSidebarTablePinKey, useStore, type TableOverviewViewMode } from '../store';
-import { DBGetTables, DBQuery, DBShowCreateTable, DropTable, RenameTable } from '../../wailsjs/go/app/App';
+import { DBGetTables, DBQuery, DBRefreshTableStats, DBShowCreateTable, DropTable, RenameTable } from '../../wailsjs/go/app/App';
 import type { TabData } from '../types';
 import { useAutoFetchVisibility } from '../utils/autoFetchVisibility';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
@@ -34,6 +34,7 @@ import { confirmCopyTable } from './tableCopyAction';
 import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
 import { formatSidebarTableTimestamp } from './sidebar/sidebarHelpers';
 import { confirmProductionMutation } from '../utils/productionRiskConfirm';
+import { stripSchemaFromTabObjectLabel } from '../utils/tabDisplay';
 
 interface TableOverviewProps {
     tab: TabData;
@@ -140,6 +141,21 @@ const getMetadataDialect = (connType: string, driver?: string, oceanBaseProtocol
     if (type === 'goldendb' || type === 'mariadb' || type === 'oceanbase' || type === 'diros' || type === 'sphinx') return 'mysql';
     if (type === 'dameng') return 'dm';
     return type;
+};
+
+const isSchemaScopedTableOverviewDialect = (dialect: string): boolean => [
+    'postgres',
+    'kingbase',
+    'vastbase',
+    'highgo',
+    'opengauss',
+    'gaussdb',
+].includes(dialect);
+
+const getTableOverviewDisplayName = (dialect: string, tableName: string): string => {
+    const rawName = String(tableName || '').trim();
+    if (!isSchemaScopedTableOverviewDialect(dialect)) return rawName;
+    return stripSchemaFromTabObjectLabel(rawName) || rawName;
 };
 
 const buildTableStatusSQL = (dialect: string, dbName: string, schemaName?: string): string => {
@@ -291,6 +307,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         [connection?.config?.driver, connection?.config?.oceanBaseProtocol, connection?.config?.type]
     );
     const schemaName = String((tab as any).schemaName || '').trim();
+    const overviewSchemaName = isSchemaScopedTableOverviewDialect(metadataDialect)
+        ? (schemaName || 'public')
+        : '';
     const supportsDesignWrite = !getDataSourceCapabilities(connection?.config).forceReadOnlyStructureDesigner;
     const supportsCopyTable = getDataSourceCapabilities(connection?.config).supportsCopyTable;
     const autoFetchVisible = useAutoFetchVisibility();
@@ -326,6 +345,21 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 if (!isLatestRequest()) return;
                 if (res.success && Array.isArray(res.data)) {
                     setTables(parseTableStats(metadataDialect, res.data));
+                    if (metadataDialect === 'sqlite' || metadataDialect === 'sqlite3') {
+                        setLoading(false);
+                        const tableNames = res.data
+                            .map((row: Record<string, any>) => extractTableNameFromMetadataRow(row))
+                            .filter((tableName: string) => tableName !== '');
+                        const refreshed = await DBRefreshTableStats(
+                            buildRpcConnectionConfig(config) as any,
+                            tab.dbName || '',
+                            tableNames,
+                        ).catch(() => null);
+                        if (!isLatestRequest()) return;
+                        if (refreshed?.success && Array.isArray(refreshed.data)) {
+                            setTables(parseTableStats(metadataDialect, refreshed.data));
+                        }
+                    }
                 } else {
                     message.error(t('table_overview.message.load_tables_failed', {
                         detail: res.message || t('table_overview.message.unknown_error'),
@@ -362,7 +396,10 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         void loadData();
     }, [autoFetchVisible, loadData]);
 
-    const tableSearchIndex = useMemo(() => buildTableOverviewSearchIndex(tables), [tables]);
+    const tableSearchIndex = useMemo(
+        () => buildTableOverviewSearchIndex(tables, (table) => getTableOverviewDisplayName(metadataDialect, table.name)),
+        [metadataDialect, tables],
+    );
 
     const sortedFiltered = useMemo(() => (
         filterAndSortTableOverviewRows(tableSearchIndex, deferredSearchText, sortField, sortOrder)
@@ -1186,9 +1223,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         >
             <div className={isV2Ui ? 'gn-v2-table-card-name' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <TableOutlined style={{ fontSize: 14, color: accentColor }} />
-                <Tooltip title={table.name} mouseEnterDelay={0.4}>
+                <Tooltip title={getTableOverviewDisplayName(metadataDialect, table.name)} mouseEnterDelay={0.4}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'block' }}>
-                        {table.name}
+                        {getTableOverviewDisplayName(metadataDialect, table.name)}
                     </span>
                 </Tooltip>
             </div>
@@ -1230,6 +1267,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
 
     const renderListTable = (table: TableStatRow) => {
         const combinedSize = getCombinedTableSize(table);
+        const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
         const sizeRatio = maxCombinedSize > 0 && hasKnownTableSize(table) ? combinedSize / maxCombinedSize : 0;
         const fillWidth = maxCombinedSize > 0 && hasKnownTableSize(table) ? `${Math.max(10, Math.round(sizeRatio * 100))}%` : '0%';
         const fillColor = isV2Ui
@@ -1285,9 +1323,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                         <div style={{ minWidth: 0, flex: '1 1 320px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                                 <TableOutlined style={{ fontSize: 13, color: accentColor, flexShrink: 0 }} />
-                                <Tooltip title={table.name} mouseEnterDelay={0.4}>
+                                <Tooltip title={displayName} mouseEnterDelay={0.4}>
                                     <span style={{ color: textPrimary, fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                        {table.name}
+                                        {displayName}
                                     </span>
                                 </Tooltip>
                                 {table.engine && (
@@ -1423,6 +1461,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     );
 
     const renderCompactTableRow = (table: TableStatRow) => {
+        const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
         const content = (
             <div
                 className="gn-table-overview-compact-row"
@@ -1447,9 +1486,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     }),
                 }}
             >
-                <div className="gn-table-overview-compact-name" role="cell" title={table.name}>
+                <div className="gn-table-overview-compact-name" role="cell" title={displayName}>
                     <TableOutlined aria-hidden="true" />
-                    <span>{table.name}</span>
+                    <span>{displayName}</span>
                 </div>
                 <div className="gn-table-overview-compact-cell" role="cell" title={table.comment || undefined}>{table.comment || '—'}</div>
                 <div className="gn-table-overview-compact-cell gn-table-overview-compact-number" role="cell" title={table.rows >= 0 ? String(table.rows) : undefined}>{formatRows(table.rows)}</div>
@@ -1508,7 +1547,9 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 <span className={isV2Ui ? 'gn-v2-table-overview-icon' : undefined}>
                     <DatabaseOutlined style={{ fontSize: 16, color: isV2Ui ? undefined : accentColor }} />
                 </span>
-                <span className={isV2Ui ? 'gn-v2-table-overview-title' : undefined} style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>{tab.dbName}</span>
+                <span className={isV2Ui ? 'gn-v2-table-overview-title' : undefined} style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>
+                    {[tab.dbName, overviewSchemaName].filter(Boolean).join(' · ')}
+                </span>
                 <span className={isV2Ui ? 'gn-table-overview-summary gn-v2-table-overview-summary' : 'gn-table-overview-summary'} style={{ fontSize: 12, color: textMuted }}>
                     {renderToolbarSummary()}
                 </span>

@@ -37,6 +37,7 @@ ENV HOME=/var/lib/gonavi \
     GONAVI_DATA_ROOT=/data \
     GONAVI_LOG_DIR=/var/lib/gonavi/logs \
     GONAVI_MCP_HTTP_ADDR=0.0.0.0:8765 \
+    GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK=true \
     GONAVI_MCP_HTTP_PATH=/mcp \
     GONAVI_MCP_SCHEMA_ONLY=true
 

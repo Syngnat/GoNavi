@@ -22,6 +22,8 @@ import {
   ClearOutlined,
   ExportOutlined,
   EyeOutlined,
+  HistoryOutlined,
+  ImportOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
@@ -37,6 +39,8 @@ import {
   getSQLAuditEnumLabelKey,
   getSQLAuditEventPreview,
   getSQLAuditPrimaryRowCount,
+  getSQLAuditRecoveryState,
+  isSQLAuditEventRestorable,
   normalizeSQLAuditPage,
   SQL_AUDIT_EVENT_TYPES,
   SQL_AUDIT_SOURCES,
@@ -54,6 +58,7 @@ import {
   unwrapSQLAuditResult,
   type SQLAuditBackend,
 } from './sqlAuditRpc';
+import { buildRestoredQueryTab } from '../../utils/sqlAuditTab';
 import './SqlAuditWorkbench.css';
 
 const { Text, Title } = Typography;
@@ -117,9 +122,12 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
   const { t, language } = useI18n();
   const { token } = theme.useToken();
   const connections = useStore((state) => state.connections);
+  const addTab = useStore((state) => state.addTab);
+  const queryHistoryMode = tab.sqlAuditView === 'query-history';
   const [filter, setFilter] = useState<SQLAuditFilter>(() => ({
     ...DEFAULT_SQL_AUDIT_FILTER,
     connectionId: String(tab.connectionId || '').trim(),
+    database: queryHistoryMode ? String(tab.dbName || '').trim() : '',
     transactionId: String(tab.sqlAuditTransactionId || '').trim(),
   }));
   const [debouncedSearch, setDebouncedSearch] = useState(filter.search);
@@ -140,10 +148,11 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
     setFilter((current) => ({
       ...current,
       connectionId: String(tab.connectionId || '').trim(),
+      database: queryHistoryMode ? String(tab.dbName || '').trim() : '',
       transactionId: String(tab.sqlAuditTransactionId || '').trim(),
       page: 1,
     }));
-  }, [tab.connectionId, tab.sqlAuditRequestKey, tab.sqlAuditTransactionId]);
+  }, [queryHistoryMode, tab.connectionId, tab.dbName, tab.sqlAuditRequestKey, tab.sqlAuditTransactionId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -190,8 +199,8 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
     filter.transactionId,
   ]);
   const filterPayload = useMemo(
-    () => buildSQLAuditFilterPayload(requestFilter),
-    [requestFilter],
+    () => buildSQLAuditFilterPayload(requestFilter, { executionHistory: queryHistoryMode }),
+    [queryHistoryMode, requestFilter],
   );
 
   const labelEnum = useCallback((kind: 'event_type' | 'status' | 'source', value: string): string => {
@@ -344,6 +353,41 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
     timestamp > 0 ? dateTimeFormatter.format(new Date(timestamp)) : '-'
   );
 
+  const handleRestoreEvent = useCallback((event: SQLAuditEvent) => {
+    const recoveryState = getSQLAuditRecoveryState(event);
+    if (!isSQLAuditEventRestorable(event)) {
+      message.warning(t(recoveryState === 'metadata'
+        ? 'query_history.restore.metadata_unavailable'
+        : 'query_history.restore.event_unavailable'));
+      return;
+    }
+    const originalConnectionId = String(event.connectionId || '').trim();
+    const connectionAvailable = connections.some((connection) => connection.id === originalConnectionId);
+    addTab(buildRestoredQueryTab({
+      sourceId: event.id,
+      connectionId: connectionAvailable ? originalConnectionId : '',
+      dbName: event.database,
+      sql: event.sqlText,
+      title: t('query_history.restore.tab_title'),
+      preserveUnboundConnection: !connectionAvailable,
+    }));
+    if (!connectionAvailable) {
+      message.warning(t('query_history.restore.connection_missing', {
+        connectionId: originalConnectionId || t('common.unknown'),
+      }));
+      return;
+    }
+    if (recoveryState === 'redacted') {
+      message.warning(t('query_history.restore.redacted_warning'));
+      return;
+    }
+    message.success(t('query_history.restore.success'));
+  }, [addTab, connections, t]);
+
+  const recoveryLabel = useCallback((event: SQLAuditEvent): string => (
+    t(`query_history.recovery.${getSQLAuditRecoveryState(event)}` as any)
+  ), [t]);
+
   const eventTypeOptions = useMemo(() => uniqueOptions(
     SQL_AUDIT_EVENT_TYPES,
     pageData.items.map((item) => item.eventType),
@@ -364,7 +408,8 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
     ...pageData.items.map((item) => item.dbType),
   ].filter(Boolean))).sort().map((value) => ({ value, label: value })), [connections, pageData.items]);
 
-  const columns = useMemo<ColumnsType<SQLAuditEvent>>(() => [
+  const columns = useMemo<ColumnsType<SQLAuditEvent>>(() => {
+    const auditColumns: ColumnsType<SQLAuditEvent> = [
     {
       title: t('sql_audit.column.time'),
       dataIndex: 'timestamp',
@@ -430,6 +475,19 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
       render: (_value, record) => numberFormatter.format(getSQLAuditPrimaryRowCount(record)),
     },
     {
+      title: t('query_history.column.recovery'),
+      key: 'recovery',
+      width: 116,
+      render: (_value, record) => {
+        const recoveryState = getSQLAuditRecoveryState(record);
+        return (
+          <Tag color={recoveryState === 'complete' ? 'success' : recoveryState === 'redacted' ? 'processing' : 'default'}>
+            {recoveryLabel(record)}
+          </Tag>
+        );
+      },
+    },
+    {
       title: t('sql_audit.column.source'),
       dataIndex: 'source',
       key: 'source',
@@ -439,24 +497,54 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
     {
       title: t('sql_audit.column.action'),
       key: 'action',
-      width: 74,
+      width: 112,
       fixed: 'right',
-      render: (_value, record) => (
-        <Tooltip title={t('sql_audit.action.view_detail')}>
-          <Button
-            type="text"
-            size="small"
-            icon={<EyeOutlined aria-hidden="true" />}
-            aria-label={t('sql_audit.action.view_detail')}
-            onClick={() => setSelectedEvent(record)}
-          />
-        </Tooltip>
-      ),
+      render: (_value, record) => {
+        const recoveryState = getSQLAuditRecoveryState(record);
+        const restorable = isSQLAuditEventRestorable(record);
+        const restoreHint = recoveryState === 'metadata'
+          ? t('query_history.restore.metadata_unavailable')
+          : !restorable
+            ? t('query_history.restore.event_unavailable')
+          : recoveryState === 'redacted'
+            ? t('query_history.restore.redacted_tooltip')
+            : t('query_history.restore.action');
+        return (
+          <Space size={2}>
+            <Tooltip title={restoreHint}>
+              <span>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ImportOutlined aria-hidden="true" />}
+                  aria-label={t('query_history.restore.action')}
+                  disabled={!restorable}
+                  onClick={() => handleRestoreEvent(record)}
+                />
+              </span>
+            </Tooltip>
+            <Tooltip title={t('sql_audit.action.view_detail')}>
+              <Button
+                type="text"
+                size="small"
+                icon={<EyeOutlined aria-hidden="true" />}
+                aria-label={t('sql_audit.action.view_detail')}
+                onClick={() => setSelectedEvent(record)}
+              />
+            </Tooltip>
+          </Space>
+        );
+      },
     },
-  ], [connectionNameById, dateTimeFormatter, labelEnum, numberFormatter, t]);
+    ];
+    if (!queryHistoryMode) return auditColumns;
+    return auditColumns.filter((column) => column.key !== 'eventType' && column.key !== 'source');
+  }, [connectionNameById, dateTimeFormatter, handleRestoreEvent, labelEnum, numberFormatter, queryHistoryMode, recoveryLabel, t]);
 
   const hasLoadedRecords = pageData.items.length > 0;
-  const emptyDescription = hasActiveFilters ? t('sql_audit.empty.no_matches') : t('sql_audit.empty.no_records');
+  const emptyDescription = hasActiveFilters
+    ? t(queryHistoryMode ? 'query_history.empty.no_matches' : 'sql_audit.empty.no_matches')
+    : t(queryHistoryMode ? 'query_history.empty.no_records' : 'sql_audit.empty.no_records');
   const detailConnectionName = selectedEvent ? connectionNameById.get(selectedEvent.connectionId) : undefined;
   const workbenchStyle = {
     '--sql-audit-bg': token.colorBgLayout,
@@ -472,32 +560,44 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
     <main className="gn-sql-audit-workbench" style={workbenchStyle} aria-labelledby="sql-audit-workbench-title" aria-busy={loading}>
       <header className="gn-sql-audit-header">
         <div className="gn-sql-audit-title-group">
-          <div className="gn-sql-audit-title-icon" aria-hidden="true"><AuditOutlined /></div>
+          <div className="gn-sql-audit-title-icon" aria-hidden="true">
+            {queryHistoryMode ? <HistoryOutlined /> : <AuditOutlined />}
+          </div>
           <div className="gn-sql-audit-title-copy">
-            <Title level={4} id="sql-audit-workbench-title">{t('sql_audit.workbench.title')}</Title>
-            <Text type="secondary">{t('sql_audit.workbench.description')}</Text>
+            <Title level={4} id="sql-audit-workbench-title">
+              {t(queryHistoryMode ? 'query_history.workbench.title' : 'sql_audit.workbench.title')}
+            </Title>
+            <Text type="secondary">
+              {t(queryHistoryMode ? 'query_history.workbench.description' : 'sql_audit.workbench.description')}
+            </Text>
           </div>
         </div>
         <Space wrap className="gn-sql-audit-header-actions">
-          <Tooltip title={t('sql_audit.action.verify')}>
-            <Button icon={<SafetyCertificateOutlined aria-hidden="true" />} loading={verifying} onClick={() => void handleVerifyIntegrity()}>
-              {t('sql_audit.action.verify')}
-            </Button>
-          </Tooltip>
-          <Dropdown
-            menu={{
-              items: [
-                { key: 'json', label: t('sql_audit.action.export_json') },
-                { key: 'csv', label: t('sql_audit.action.export_csv') },
-              ],
-              onClick: ({ key }) => void handleExport(key as 'json' | 'csv'),
-            }}
-            disabled={pageData.total <= 0 || exporting}
-          >
-            <Button icon={<ExportOutlined aria-hidden="true" />} loading={exporting}>{t('sql_audit.action.export')}</Button>
-          </Dropdown>
+          {!queryHistoryMode ? (
+            <>
+              <Tooltip title={t('sql_audit.action.verify')}>
+                <Button icon={<SafetyCertificateOutlined aria-hidden="true" />} loading={verifying} onClick={() => void handleVerifyIntegrity()}>
+                  {t('sql_audit.action.verify')}
+                </Button>
+              </Tooltip>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: 'json', label: t('sql_audit.action.export_json') },
+                    { key: 'csv', label: t('sql_audit.action.export_csv') },
+                  ],
+                  onClick: ({ key }) => void handleExport(key as 'json' | 'csv'),
+                }}
+                disabled={pageData.total <= 0 || exporting}
+              >
+                <Button icon={<ExportOutlined aria-hidden="true" />} loading={exporting}>{t('sql_audit.action.export')}</Button>
+              </Dropdown>
+            </>
+          ) : null}
           <Button icon={<SettingOutlined aria-hidden="true" />} onClick={() => setSettingsOpen(true)}>{t('sql_audit.action.settings')}</Button>
-          <Button danger icon={<ClearOutlined aria-hidden="true" />} disabled={pageData.total <= 0} loading={clearing} onClick={handleClear}>{t('sql_audit.action.clear')}</Button>
+          {!queryHistoryMode ? (
+            <Button danger icon={<ClearOutlined aria-hidden="true" />} disabled={pageData.total <= 0} loading={clearing} onClick={handleClear}>{t('sql_audit.action.clear')}</Button>
+          ) : null}
         </Space>
       </header>
 
@@ -505,18 +605,18 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
         className="gn-sql-audit-privacy-note"
         type="info"
         showIcon
-        message={t('sql_audit.privacy.title')}
-        description={t('sql_audit.privacy.description')}
+        message={t(queryHistoryMode ? 'query_history.privacy.title' : 'sql_audit.privacy.title')}
+        description={t(queryHistoryMode ? 'query_history.privacy.description' : 'sql_audit.privacy.description')}
       />
       <SqlAuditHealthAlert backend={backend} refreshKey={reloadKey} isActive={isActive} />
 
-      <section className="gn-sql-audit-toolbar" aria-label={t('sql_audit.filter.aria_label')}>
+      <section className="gn-sql-audit-toolbar" aria-label={t(queryHistoryMode ? 'query_history.filter.aria_label' : 'sql_audit.filter.aria_label')}>
         <Input
           value={filter.search}
           onChange={(event) => updateFilter('search', event.target.value)}
           prefix={<SearchOutlined aria-hidden="true" />}
-          placeholder={t('sql_audit.filter.search_placeholder')}
-          aria-label={t('sql_audit.filter.search_aria_label')}
+          placeholder={t(queryHistoryMode ? 'query_history.filter.search_placeholder' : 'sql_audit.filter.search_placeholder')}
+          aria-label={t(queryHistoryMode ? 'query_history.filter.search_aria_label' : 'sql_audit.filter.search_aria_label')}
           name="sql-audit-search"
           autoComplete="off"
           allowClear
@@ -551,14 +651,16 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
           optionFilterProp="label"
           options={dbTypeOptions}
         />
-        <Select
-          value={filter.eventType || undefined}
-          onChange={(value) => updateFilter('eventType', value || '')}
-          placeholder={t('sql_audit.filter.event_type')}
-          aria-label={t('sql_audit.filter.event_type')}
-          allowClear
-          options={eventTypeOptions}
-        />
+        {!queryHistoryMode ? (
+          <Select
+            value={filter.eventType || undefined}
+            onChange={(value) => updateFilter('eventType', value || '')}
+            placeholder={t('sql_audit.filter.event_type')}
+            aria-label={t('sql_audit.filter.event_type')}
+            allowClear
+            options={eventTypeOptions}
+          />
+        ) : null}
         <Select
           value={filter.status || undefined}
           onChange={(value) => updateFilter('status', value || '')}
@@ -567,24 +669,28 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
           allowClear
           options={statusOptions}
         />
-        <Select
-          value={filter.source || undefined}
-          onChange={(value) => updateFilter('source', value || '')}
-          placeholder={t('sql_audit.filter.source')}
-          aria-label={t('sql_audit.filter.source')}
-          allowClear
-          options={sourceOptions}
-        />
-        <Input
-          value={filter.transactionId}
-          onChange={(event) => updateFilter('transactionId', event.target.value)}
-          placeholder={t('sql_audit.filter.transaction_id')}
-          aria-label={t('sql_audit.filter.transaction_id')}
-          name="sql-audit-transaction-id"
-          autoComplete="off"
-          spellCheck={false}
-          allowClear
-        />
+        {!queryHistoryMode ? (
+          <>
+            <Select
+              value={filter.source || undefined}
+              onChange={(value) => updateFilter('source', value || '')}
+              placeholder={t('sql_audit.filter.source')}
+              aria-label={t('sql_audit.filter.source')}
+              allowClear
+              options={sourceOptions}
+            />
+            <Input
+              value={filter.transactionId}
+              onChange={(event) => updateFilter('transactionId', event.target.value)}
+              placeholder={t('sql_audit.filter.transaction_id')}
+              aria-label={t('sql_audit.filter.transaction_id')}
+              name="sql-audit-transaction-id"
+              autoComplete="off"
+              spellCheck={false}
+              allowClear
+            />
+          </>
+        ) : null}
         <div className="gn-sql-audit-filter-time" role="group" aria-label={t('sql_audit.filter.time_range')}>
           <Input
             type="datetime-local"
@@ -609,9 +715,9 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
         </div>
       </section>
 
-      <section className="gn-sql-audit-summary" aria-label={t('sql_audit.summary.aria_label')} aria-live="polite">
+      <section className="gn-sql-audit-summary" aria-label={t(queryHistoryMode ? 'query_history.summary.aria_label' : 'sql_audit.summary.aria_label')} aria-live="polite">
         {[
-          { key: 'total', label: t('sql_audit.summary.events'), value: pageData.summary.totalEvents || pageData.total },
+          { key: 'total', label: t(queryHistoryMode ? 'query_history.summary.records' : 'sql_audit.summary.events'), value: pageData.summary.totalEvents || pageData.total },
           { key: 'success', label: t('sql_audit.summary.success'), value: pageData.summary.successCount },
           { key: 'error', label: t('sql_audit.summary.errors'), value: pageData.summary.errorCount },
           { key: 'transactions', label: t('sql_audit.summary.transactions'), value: pageData.summary.transactionCount },
@@ -639,13 +745,13 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
           className="gn-sql-audit-load-alert"
           type="error"
           showIcon
-          message={t('sql_audit.error.load_failed')}
+          message={t(queryHistoryMode ? 'query_history.error.load_failed' : 'sql_audit.error.load_failed')}
           description={error}
           action={<Button size="small" onClick={() => setReloadKey((current) => current + 1)}>{t('common.retry')}</Button>}
         />
       ) : null}
 
-      <section className="gn-sql-audit-table-panel" aria-label={t('sql_audit.table.aria_label')}>
+      <section className="gn-sql-audit-table-panel" aria-label={t(queryHistoryMode ? 'query_history.table.aria_label' : 'sql_audit.table.aria_label')}>
         {hasLoadedRecords || loading ? (
           <Table<SQLAuditEvent>
             rowKey="id"
@@ -655,7 +761,7 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
             pagination={false}
             size="small"
             tableLayout="fixed"
-            scroll={{ x: 1444, y: '100%' }}
+            scroll={{ x: queryHistoryMode ? 1278 : 1672, y: '100%' }}
             rowClassName="gn-sql-audit-table-row"
           />
         ) : (
@@ -686,6 +792,7 @@ export default function SqlAuditWorkbench({ tab, backend: backendOverride, isAct
         onClose={() => setSelectedEvent(null)}
         backend={backend}
         connectionName={detailConnectionName}
+        onRestore={handleRestoreEvent}
       />
       <SqlAuditSettingsDrawer
         open={settingsOpen}

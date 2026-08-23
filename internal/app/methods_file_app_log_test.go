@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -43,6 +44,43 @@ func TestReadAppLogTailByPathReturnsLatestLinesAndLevelBreakdown(t *testing.T) {
 	}
 }
 
+func TestReadAppLogTailByPathRedactsSQLLiterals(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "gonavi.log")
+	content := "2026/08/17 10:00:00.000000 [ERROR] DBQuery 查询失败 SQL片段=\"SELECT * FROM users WHERE phone = '13800138000' AND token = 'raw-token'\"\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write log failed: %v", err)
+	}
+
+	result := readAppLogTailByPath(logPath, 10, "")
+	if !result.Success {
+		t.Fatalf("expected success, got failure: %s", result.Message)
+	}
+	snapshot, ok := result.Data.(appLogTailSnapshot)
+	if !ok || len(snapshot.Lines) != 1 {
+		t.Fatalf("expected one log line, got %#v", result.Data)
+	}
+	if strings.Contains(snapshot.Lines[0], "13800138000") || strings.Contains(snapshot.Lines[0], "raw-token") {
+		t.Fatalf("log tail returned raw SQL literal: %q", snapshot.Lines[0])
+	}
+}
+func TestReadAppLogTailByPathRedactsUnquotedSQLLiterals(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "gonavi.log")
+	content := "2026/08/17 10:00:00.000000 [ERROR] DBQuery 查询失败 SQL片段=SELECT * FROM users WHERE id = 42 AND token = raw-token\n"
+	if err := os.WriteFile(logPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write log failed: %v", err)
+	}
+
+	result := readAppLogTailByPath(logPath, 10, "")
+	if !result.Success {
+		t.Fatalf("expected success, got failure: %s", result.Message)
+	}
+	snapshot := result.Data.(appLogTailSnapshot)
+	if strings.Contains(snapshot.Lines[0], "42") || strings.Contains(snapshot.Lines[0], "raw-token") {
+		t.Fatalf("log tail returned unquoted SQL literal: %q", snapshot.Lines[0])
+	}
+}
 func TestReadAppLogTailByPathFiltersByKeywordCaseInsensitively(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "gonavi.log")

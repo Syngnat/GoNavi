@@ -25,6 +25,7 @@ import {
   getMetadataDialect,
   splitQualifiedName,
 } from './sidebarMetadataLoaders';
+import { buildOracleObjectCompileSQL } from './oracleObjectCompilation';
 import {
   resolveSidebarDatabaseNameForCopy,
   resolveSidebarTableNameForCopy,
@@ -1465,6 +1466,63 @@ export const useSidebarObjectActions = ({
     });
   };
 
+  const handleCompileOracleObject = async (node: any) => {
+    const conn = node?.dataRef;
+    if (!conn || getMetadataDialect(conn as SavedConnection) !== 'oracle') return;
+
+    const isTrigger = node?.type === 'db-trigger';
+    const objectName = String(
+      isTrigger ? conn.triggerName : conn.routineName,
+    ).trim();
+    const objectLabel = isTrigger
+      ? t('sidebar.object.trigger')
+      : t(String(conn.routineType || '').toUpperCase() === 'PROCEDURE'
+        ? 'sidebar.object.procedure'
+        : 'sidebar.object.function');
+    const compileSQL = buildOracleObjectCompileSQL({
+      kind: isTrigger ? 'trigger' : 'routine',
+      objectName,
+      schemaName: conn.schemaName,
+      routineType: conn.routineType,
+    });
+    if (!compileSQL) {
+      message.error(t('sidebar.message.object_compile_target_invalid'));
+      return;
+    }
+    if (!await confirmSidebarMutation(
+      conn,
+      [conn.dbName, objectName].filter(Boolean).join(' / '),
+    )) return;
+
+    try {
+      const config = buildRuntimeConfig(conn, conn.dbName);
+      const result = await DBQuery(
+        buildRpcConnectionConfig(config) as any,
+        conn.dbName,
+        compileSQL,
+      );
+      if (!result.success) {
+        message.error(t('sidebar.message.object_compile_failed', {
+          type: objectLabel,
+          name: objectName,
+          error: result.message || t('common.unknown'),
+        }));
+        return;
+      }
+      await loadTables(getDatabaseNodeRef(conn, conn.dbName), { ensureFresh: true });
+      message.success(t('sidebar.message.object_compile_success', {
+        type: objectLabel,
+        name: objectName,
+      }));
+    } catch (error: any) {
+      message.error(t('sidebar.message.object_compile_failed', {
+        type: objectLabel,
+        name: objectName,
+        error: error?.message || String(error),
+      }));
+    }
+  };
+
   const resolveMessagePublishTarget = (node: any): SidebarMessagePublishTarget | null => {
     const connectionId = String(node?.dataRef?.id || '').trim();
     const liveConnection = connections.find((item) => item.id === connectionId);
@@ -1545,6 +1603,7 @@ export const useSidebarObjectActions = ({
     openEditRoutine,
     openCreateRoutine,
     handleDropRoutine,
+    handleCompileOracleObject,
     resolveMessagePublishTarget,
     openMessagePublishModal,
     handleMessagePublishSuccess,

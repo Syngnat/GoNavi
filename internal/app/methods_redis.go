@@ -680,6 +680,10 @@ func importRedisTransferPayload(client redis.RedisClient, payload redisTransferF
 
 // getRedisClient gets or creates a Redis client from cache
 func (a *App) getRedisClient(config connection.ConnectionConfig) (redis.RedisClient, error) {
+	if a != nil && a.metadataSession != nil {
+		return a.metadataSession.openRedisClient(config)
+	}
+
 	resolvedConfig, err := a.resolveConnectionSecrets(config)
 	if err != nil {
 		wrapped := wrapConnectError(config, err)
@@ -687,7 +691,7 @@ func (a *App) getRedisClient(config connection.ConnectionConfig) (redis.RedisCli
 		return nil, wrapped
 	}
 
-	effectiveConfig := resolvedConfig
+	effectiveConfig := a.withManagedSSHHostKeyTrustStore(resolvedConfig)
 	connectConfig, proxyErr := resolveDialConfigWithProxyFunc(effectiveConfig)
 	if proxyErr != nil {
 		wrapped := wrapConnectError(effectiveConfig, proxyErr)
@@ -740,7 +744,7 @@ func (a *App) openRedisClientIsolated(config connection.ConnectionConfig) (redis
 		return nil, wrapped
 	}
 
-	effectiveConfig := resolvedConfig
+	effectiveConfig := a.withManagedSSHHostKeyTrustStore(resolvedConfig)
 	connectConfig, proxyErr := resolveDialConfigWithProxyFunc(effectiveConfig)
 	if proxyErr != nil {
 		wrapped := wrapConnectError(effectiveConfig, proxyErr)
@@ -907,6 +911,10 @@ func (a *App) RedisConnect(config connection.ConnectionConfig) connection.QueryR
 	config.Type = "redis"
 	_, err := a.getRedisClient(config)
 	if err != nil {
+		if trustResult, ok := a.sshHostKeyTrustRequiredResult(err); ok {
+			logger.Warnf("RedisConnect 需要确认 SSH 服务端身份：%s", formatRedisConnSummary(config))
+			return trustResult
+		}
 		logger.Error(err, "RedisConnect 连接失败：%s", formatRedisConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -919,6 +927,10 @@ func (a *App) RedisTestConnection(config connection.ConnectionConfig) connection
 	config.Type = "redis"
 	client, err := a.openRedisClientIsolated(config)
 	if err != nil {
+		if trustResult, ok := a.sshHostKeyTrustRequiredResult(err); ok {
+			logger.Warnf("RedisTestConnection 需要确认 SSH 服务端身份：%s", formatRedisConnSummary(config))
+			return trustResult
+		}
 		logger.Error(err, "RedisTestConnection 连接失败：%s", formatRedisConnSummary(config))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

@@ -19,7 +19,9 @@ import (
 
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
+	httpserverlimits "GoNavi-Wails/internal/httpserver"
 	"GoNavi-Wails/internal/logger"
+	"GoNavi-Wails/internal/requesttrace"
 	"GoNavi-Wails/internal/uievents"
 )
 
@@ -71,13 +73,20 @@ var desktopOnlyAppMethods = map[string]struct{}{
 	"ImportConfigFile":              {},
 	"ExportConnectionsPackage":      {},
 	"SelectSSHKeyFile":              {},
+	"SelectSSHKnownHostsFile":       {},
 	"SelectCertificateFile":         {},
 	"SelectDatabaseFile":            {},
 	"ImportData":                    {},
 	"ImportDatabaseSQL":             {},
 	"PreviewImportFile":             {},
+	"PreviewImportFileWithOptions":  {},
 	"ImportDataWithProgress":        {},
 	"ImportDataWithProgressOptions": {},
+	"ListImportJobs":                {},
+	"GetImportJob":                  {},
+	"CancelImportJob":               {},
+	"DeleteImportJob":               {},
+	"ExportImportErrorRows":         {},
 	"ExportTable":                   {},
 	"ExportTableWithOptions":        {},
 	"ExportTablesSQL":               {},
@@ -96,6 +105,10 @@ var desktopOnlyAppMethods = map[string]struct{}{
 	"ExportSQLAuditFile":            {},
 }
 
+var desktopOnlyCredentialAppMethods = map[string]struct{}{
+	"RevealSavedConnectionPrimaryPassword": {},
+}
+
 type Options struct {
 	Addr string
 }
@@ -108,8 +121,9 @@ type invokeRequest struct {
 }
 
 type invokeResponse struct {
-	Result any    `json:"result,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Result    any    `json:"result,omitempty"`
+	Error     string `json:"error,omitempty"`
+	RequestID string `json:"requestId,omitempty"`
 }
 
 type eventMessage struct {
@@ -429,7 +443,11 @@ func (i *methodInvoker) Invoke(req invokeRequest) (any, error) {
 }
 
 func isDesktopOnlyAppMethod(methodName string) bool {
-	_, denied := desktopOnlyAppMethods[strings.TrimSpace(methodName)]
+	methodName = strings.TrimSpace(methodName)
+	if _, denied := desktopOnlyAppMethods[methodName]; denied {
+		return true
+	}
+	_, denied := desktopOnlyCredentialAppMethods[methodName]
 	return denied
 }
 
@@ -580,8 +598,8 @@ func (s *SharedRuntime) EmitToBestEffort(targetID string, name string, args ...a
 
 func (s *SharedRuntime) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc(internalRoutePrefix+"/api/invoke", s.server.handleInvoke)
-	mux.HandleFunc(internalRoutePrefix+"/events", s.server.handleEvents)
+	mux.Handle(internalRoutePrefix+"/api/invoke", httpserverlimits.LimitRequestBody(http.HandlerFunc(s.server.handleInvoke)))
+	mux.Handle(internalRoutePrefix+"/events", httpserverlimits.StreamingWriteTimeout(http.HandlerFunc(s.server.handleEvents)))
 	mux.HandleFunc(s.runtimeBridgePath, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -703,7 +721,10 @@ func (s *Server) Run(ctx context.Context) error {
 	httpServer := &http.Server{
 		Addr:              s.options.Addr,
 		Handler:           s.routes(),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: httpserverlimits.ReadHeaderTimeout,
+		ReadTimeout:       httpserverlimits.ReadTimeout,
+		WriteTimeout:      httpserverlimits.WriteTimeout,
+		IdleTimeout:       httpserverlimits.IdleTimeout,
 	}
 
 	listener, err := net.Listen("tcp", s.options.Addr)
@@ -741,14 +762,14 @@ func (s *Server) Run(ctx context.Context) error {
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(internalRoutePrefix+"/auth/status", s.handleAuthStatus)
-	mux.HandleFunc(internalRoutePrefix+"/auth/setup/bootstrap", s.handleSetupBootstrap)
-	mux.HandleFunc(internalRoutePrefix+"/auth/setup/complete", s.handleSetupComplete)
-	mux.HandleFunc(internalRoutePrefix+"/auth/login", s.handleLogin)
+	mux.Handle(internalRoutePrefix+"/auth/setup/bootstrap", httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleSetupBootstrap)))
+	mux.Handle(internalRoutePrefix+"/auth/setup/complete", httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleSetupComplete)))
+	mux.Handle(internalRoutePrefix+"/auth/login", httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleLogin)))
 	mux.HandleFunc(internalRoutePrefix+"/auth/logout", s.handleLogout)
 	mux.Handle(internalRoutePrefix+"/auth/settings", s.requireWebAuth(http.HandlerFunc(s.handleAuthSettings)))
-	mux.Handle(internalRoutePrefix+"/auth/settings/password", s.requireWebAuth(http.HandlerFunc(s.handleAuthPasswordChange)))
-	mux.Handle(internalRoutePrefix+"/api/invoke", s.requireWebAuth(http.HandlerFunc(s.handleInvoke)))
-	mux.Handle(internalRoutePrefix+"/events", s.requireWebAuth(http.HandlerFunc(s.handleEvents)))
+	mux.Handle(internalRoutePrefix+"/auth/settings/password", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleAuthPasswordChange))))
+	mux.Handle(internalRoutePrefix+"/api/invoke", s.requireWebAuth(httpserverlimits.LimitRequestBody(http.HandlerFunc(s.handleInvoke))))
+	mux.Handle(internalRoutePrefix+"/events", s.requireWebAuth(httpserverlimits.StreamingWriteTimeout(http.HandlerFunc(s.handleEvents))))
 	mux.Handle(internalRoutePrefix+"/web-runtime.js", s.requireWebAuth(http.HandlerFunc(s.handleRuntimeBridge)))
 	mux.HandleFunc(internalRoutePrefix+"/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -850,21 +871,43 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		s.writeInvokeResponse(w, http.StatusBadRequest, invokeResponse{Error: err.Error()})
 		return
 	}
+	var webTrace *requesttrace.Handle
+	if shouldTraceWebInvoke(request) {
+		if traceStore := appcore.RequestTraceStoreForEntryPoint(s.app); traceStore != nil {
+			webTrace = traceStore.Start(webInvokeTraceInput(request))
+		}
+	}
+	writeResponse := func(status int, response invokeResponse) {
+		requestID := ""
+		if resultRequestID := webInvokeResultRequestID(response.Result); resultRequestID != "" {
+			requestID = resultRequestID
+		} else if webTrace != nil && webTrace.ID() != "" {
+			requestID = webTrace.ID()
+		}
+		response.RequestID = requestID
+		if webTrace != nil {
+			completeWebInvokeTrace(webTrace, response)
+		}
+		if requestID != "" {
+			w.Header().Set("X-GoNavi-Request-ID", requestID)
+		}
+		s.writeInvokeResponse(w, status, response)
+	}
 	if isSQLAuditHeavyInvoke(request) && s.auditHeavySem != nil {
 		select {
 		case s.auditHeavySem <- struct{}{}:
 			defer func() { <-s.auditHeavySem }()
 		default:
-			s.writeInvokeResponse(w, http.StatusTooManyRequests, invokeResponse{Error: "another SQL audit export or integrity verification is already in progress"})
+			writeResponse(http.StatusTooManyRequests, invokeResponse{Error: "another SQL audit export or integrity verification is already in progress"})
 			return
 		}
 	}
 	result, err := s.invoker.Invoke(request)
 	if err != nil {
-		s.writeInvokeResponse(w, http.StatusBadRequest, invokeResponse{Error: err.Error()})
+		writeResponse(http.StatusBadRequest, invokeResponse{Error: err.Error()})
 		return
 	}
-	s.writeInvokeResponse(w, http.StatusOK, invokeResponse{Result: result})
+	writeResponse(http.StatusOK, invokeResponse{Result: result})
 }
 
 func isSQLAuditHeavyInvoke(request invokeRequest) bool {

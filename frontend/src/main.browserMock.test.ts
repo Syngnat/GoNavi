@@ -82,6 +82,11 @@ const importMain = async () => {
             CheckForUpdates: () => Promise<{ success: boolean; data?: Record<string, unknown> }>;
             CheckForUpdatesSilently: () => Promise<{ success: boolean; data?: Record<string, unknown> }>;
             SetUpdateChannel: (channel: string) => Promise<{ success: boolean; data?: { channel?: string } }>;
+            SaveConnection: (input: Record<string, unknown>) => Promise<any>;
+            GetEditableSavedConnection: (id: string) => Promise<any>;
+            RevealSavedConnectionPrimaryPassword: (id: string) => Promise<string>;
+            DeleteConnection: (id: string) => Promise<null>;
+            DuplicateConnection: (id: string) => Promise<any>;
           };
         };
       };
@@ -166,6 +171,60 @@ describe('main browser mock', () => {
       t('app.browser_mock.import_connection_package_unsupported'),
     );
   });
+
+  it('reveals saved host passwords on demand without exposing them in editable connection metadata', async () => {
+    const app = await importMain();
+    const saved = await app!.SaveConnection({
+      id: 'browser-mock-password',
+      name: 'Password host',
+      config: {
+        id: 'browser-mock-password',
+        type: 'mysql',
+        host: 'db.local',
+        port: 3306,
+        user: 'root',
+        password: 'primary-secret',
+      },
+    });
+
+    await expect(app!.GetEditableSavedConnection(saved.id)).resolves.toMatchObject({
+      config: { password: '' },
+      hasPrimaryPassword: true,
+    });
+    await expect(app!.RevealSavedConnectionPrimaryPassword(saved.id)).resolves.toBe('primary-secret');
+
+    const duplicated = await app!.DuplicateConnection(saved.id);
+    await expect(app!.RevealSavedConnectionPrimaryPassword(duplicated.id)).resolves.toBe('primary-secret');
+
+    await app!.SaveConnection({
+      ...saved,
+      name: 'Renamed host',
+      config: { ...saved.config, password: '' },
+    });
+    await expect(app!.RevealSavedConnectionPrimaryPassword(saved.id)).resolves.toBe('primary-secret');
+
+    await app!.SaveConnection({
+      ...saved,
+      config: { ...saved.config, password: '' },
+      clearPrimaryPassword: true,
+    });
+    await expect(app!.RevealSavedConnectionPrimaryPassword(saved.id)).rejects.toThrow('no stored primary password');
+
+    await app!.SaveConnection({
+      ...saved,
+      config: { ...saved.config, password: 'must-not-survive-delete' },
+    });
+    await app!.DeleteConnection(saved.id);
+    await expect(app!.RevealSavedConnectionPrimaryPassword(saved.id)).rejects.toThrow('saved connection not found');
+
+    const recreated = await app!.SaveConnection({
+      id: saved.id,
+      name: 'Recreated without password',
+      config: { ...saved.config, password: '' },
+    });
+    expect(recreated.hasPrimaryPassword).toBe(false);
+    await expect(app!.RevealSavedConnectionPrimaryPassword(saved.id)).rejects.toThrow('no stored primary password');
+  }, 30000);
 
   it('localizes generated browser mock saved query names', async () => {
     vi.stubGlobal('navigator', {
@@ -354,7 +413,7 @@ describe('main browser mock', () => {
     }));
   });
 
-  it('localizes browser mock MCP client status and install messages', async () => {
+  it('localizes browser mock MCP client status and blocks writes for undetected local clients', async () => {
     vi.stubGlobal('navigator', {
       languages: ['en-US'],
       language: 'en-US',
@@ -377,35 +436,54 @@ describe('main browser mock', () => {
         client: 'opencode',
         message: t('app.browser_mock.mcp_client.opencode.not_detected'),
       }),
+      expect.objectContaining({
+        client: 'zcode',
+        message: t('ai_chat.mcp_client.install.summary.missing', { label: 'ZCode' }),
+      }),
+      expect.objectContaining({
+        client: 'deepseek-harness',
+        message: t('ai_chat.mcp_client.install.summary.missing', { label: 'DeepSeek Harness' }),
+      }),
+      expect.objectContaining({
+        client: 'kimi',
+        message: t('ai_chat.mcp_client.install.summary.missing', { label: 'Kimi Code' }),
+      }),
+      expect.objectContaining({
+        client: 'grok-build',
+        message: t('ai_chat.mcp_client.install.summary.missing', { label: 'Grok Build' }),
+      }),
     ]));
 
-    await expect(service.AIInstallClaudeCodeMCP()).resolves.toEqual(expect.objectContaining({
-      client: 'claude-code',
-      message: t('app.browser_mock.mcp_client.claude_code.installed'),
+    await expect(service.AIInstallClaudeCodeMCP()).rejects.toThrow(t('ai.service.mcp_client.local_client_not_detected', {
+      label: 'Claude Code',
+      command: 'claude',
     }));
     await expect(service.AIInstallCodexMCP()).resolves.toEqual(expect.objectContaining({
       client: 'codex',
       message: t('app.browser_mock.mcp_client.codex.installed'),
     }));
-    await expect(service.AIInstallOpenCodeMCP()).resolves.toEqual(expect.objectContaining({
-      client: 'opencode',
-      message: t('app.browser_mock.mcp_client.opencode.installed'),
+    await expect(service.AIInstallOpenCodeMCP()).rejects.toThrow(t('ai.service.mcp_client.local_client_not_detected', {
+      label: 'OpenCode',
+      command: 'opencode',
     }));
+    for (const [method, label, command] of [
+      ['AIInstallZCodeMCP', 'ZCode', 'zcode'],
+      ['AIInstallDeepSeekHarnessMCP', 'DeepSeek Harness', 'dsh'],
+      ['AIInstallKimiMCP', 'Kimi Code', 'kimi'],
+      ['AIInstallGrokBuildMCP', 'Grok Build', 'grok'],
+    ]) {
+      await expect(service[method]()).rejects.toThrow(t('ai.service.mcp_client.local_client_not_detected', { label, command }));
+    }
     await expect(service.AIGetMCPClientInstallStatuses()).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        client: 'claude-code',
-        installed: true,
-        message: t('app.browser_mock.mcp_client.claude_code.installed'),
-      }),
       expect.objectContaining({
         client: 'codex',
         installed: true,
         message: t('app.browser_mock.mcp_client.codex.installed'),
       }),
       expect.objectContaining({
-        client: 'opencode',
-        installed: true,
-        message: t('app.browser_mock.mcp_client.opencode.installed'),
+        client: 'deepseek-harness',
+        installed: false,
+        clientDetected: false,
       }),
     ]));
   });

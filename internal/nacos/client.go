@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -128,9 +129,28 @@ func NewClient() Client {
 
 // Connect prepares the HTTP client and validates reachability.
 func (c *ClientImpl) Connect(config connection.ConnectionConfig) error {
+	ctx, cancel := context.WithTimeout(context.Background(), normalizeNacosTimeout(config.Timeout))
+	defer cancel()
+	return c.ConnectContext(ctx, config)
+}
+
+// ConnectContext prepares the HTTP client and validates reachability while
+// honoring a caller-owned cancellation context.
+func (c *ClientImpl) ConnectContext(ctx context.Context, config connection.ConnectionConfig) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	normalized, err := normalizeNacosConfig(config)
 	if err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, normalizeNacosTimeout(normalized.Timeout))
+		defer cancel()
 	}
 
 	if err := c.Close(); err != nil {
@@ -144,11 +164,14 @@ func (c *ClientImpl) Connect(config connection.ConnectionConfig) error {
 		if acquire == nil {
 			acquire = acquireNacosForwarder
 		}
-		forwarder, err = acquire(normalized.SSH, normalized.Host, normalized.Port)
+		forwarder, err = acquireNacosForwarderWithContext(ctx, acquire, normalized.SSH, normalized.Host, normalized.Port)
 		if err != nil {
-			return localizedNacosBackendError("nacos.backend.error.ssh_tunnel_create_failed", map[string]any{
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			return localizedNacosBackendErrorWithCause("nacos.backend.error.ssh_tunnel_create_failed", map[string]any{
 				"detail": err.Error(),
-			})
+			}, err)
 		}
 		if forwarder == nil {
 			return localizedNacosBackendError("nacos.backend.error.ssh_tunnel_create_failed", map[string]any{
@@ -166,6 +189,13 @@ func (c *ClientImpl) Connect(config connection.ConnectionConfig) error {
 
 	httpClient, baseURL, err := buildNacosHTTPClientWithDialAddress(normalized, dialAddress)
 	if err != nil {
+		if forwarder != nil {
+			_ = forwarder.Release()
+		}
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		httpClient.CloseIdleConnections()
 		if forwarder != nil {
 			_ = forwarder.Release()
 		}
@@ -189,21 +219,59 @@ func (c *ClientImpl) Connect(config connection.ConnectionConfig) error {
 	c.lifecycleCancel = lifecycleCancel
 	c.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), normalizeNacosTimeout(normalized.Timeout))
-	defer cancel()
 	if err := c.ensureAuth(ctx); err != nil {
 		_ = c.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
 	}
 	if err := c.detectAPIFamily(ctx); err != nil {
 		_ = c.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
 	}
 	if err := c.Ping(ctx); err != nil {
 		_ = c.Close()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		return err
 	}
 	return nil
+}
+
+func acquireNacosForwarderWithContext(
+	ctx context.Context,
+	acquire nacosForwarderAcquirer,
+	sshConfig connection.SSHConfig,
+	remoteHost string,
+	remotePort int,
+) (nacosForwarderLease, error) {
+	type acquireResult struct {
+		forwarder nacosForwarderLease
+		err       error
+	}
+	resultCh := make(chan acquireResult, 1)
+	go func() {
+		forwarder, err := acquire(sshConfig, remoteHost, remotePort)
+		resultCh <- acquireResult{forwarder: forwarder, err: err}
+	}()
+
+	select {
+	case result := <-resultCh:
+		return result.forwarder, result.err
+	case <-ctx.Done():
+		go func() {
+			result := <-resultCh
+			if result.forwarder != nil {
+				_ = result.forwarder.Release()
+			}
+		}()
+		return nil, ctx.Err()
+	}
 }
 
 // Close releases client resources.

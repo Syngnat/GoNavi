@@ -16,6 +16,9 @@
     <Icon Id="GoNaviIcon" SourceFile="$(var.IconPath)" />
     <Property Id="ARPPRODUCTICON" Value="GoNaviIcon" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/Syngnat/GoNavi" />
+    <!-- Channel switches and dev builds may install an executable with a lower or equal file version.
+         Always replace installer-owned files instead of leaving a related product's key path in place. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
     <Property Id="INSTALLDESKTOPSHORTCUT" Value="1" Secure="yes" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
     <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />

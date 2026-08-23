@@ -147,25 +147,30 @@ func main() {
 
 // serveAgentRequests 是 driver-agent 的 JSON-lines 请求主循环。
 //
-// 用 bufio.Reader 而非 bufio.Scanner：Scanner 有单行长度上限（原为 8 MiB），超限时
-// Scan() 直接返回 false 使主循环退出、进程终止，该连接从此永久不可用（主进程侧随后所有
-// 请求都拿到 EOF，只能手动重连）。而主进程写入端没有任何上限：一个 1000 行的导入批次或
-// 一个大 JSON/CLOB 单元格都能轻易超过 8 MiB。bufio.Reader.ReadString 会按需增长，无单行上限。
+// 使用带协议上限的 Reader，而不是 Scanner 或 ReadString：前者的固定上限会把可恢复的
+// 大请求误判为错误，后者则会为缺少换行的输入无限增长。超限时终止当前代理，由主进程
+// 重建传输，避免残留半帧污染后续请求。
 //
 // 返回非 nil 表示读取过程出现了非 EOF 的真实错误。
 func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *agentRuntime) error {
 	reader := bufio.NewReaderSize(input, 16<<10)
 	for {
-		raw, err := reader.ReadString('\n')
+		raw, err := db.ReadOptionalDriverAgentJSONLine(reader)
 		if err != nil && len(raw) == 0 {
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
+			if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
+				_ = writeResponse(writer, agentResponse{
+					Success: false,
+					Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
+				})
+			}
 			return err
 		}
 		// err != nil 但 raw 非空：最后一行没有换行符，仍需处理；
-		// 下一轮 ReadString 会立即以 len(raw)==0 返回并结束循环。
-		line := strings.TrimSpace(raw)
+		// 下一轮读取会立即以 len(raw)==0 返回并结束循环。
+		line := strings.TrimSpace(string(raw))
 		if line == "" {
 			continue
 		}
@@ -183,6 +188,13 @@ func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *age
 		if strings.TrimSpace(req.Method) == agentMethodStreamQuery {
 			if err := handleStreamRequest(runtimeState, req, writer); err != nil {
 				fmt.Fprintf(os.Stderr, "写入流式响应失败：%v\n", err)
+				if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
+					_ = writeResponse(writer, agentResponse{
+						ID:      req.ID,
+						Success: false,
+						Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
+					})
+				}
 				return nil
 			}
 			continue
@@ -191,6 +203,13 @@ func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *age
 		resp := handleRequest(runtimeState, req)
 		if err := writeResponse(writer, resp); err != nil {
 			fmt.Fprintf(os.Stderr, "写入响应失败：%v\n", err)
+			if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
+				_ = writeResponse(writer, agentResponse{
+					ID:      req.ID,
+					Success: false,
+					Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
+				})
+			}
 			return nil
 		}
 		if strings.TrimSpace(req.Method) == agentMethodQuery {
@@ -523,12 +542,26 @@ func (w *agentStreamResponseWriter) flushRows() error {
 	}
 	rows := w.rows
 	w.rows = nil
-	return writeResponse(w.writer, agentResponse{
-		ID:        w.requestID,
-		Success:   true,
-		ChunkType: agentChunkRows,
-		Data:      rows,
-	})
+	for len(rows) > 0 {
+		batch := rows
+		for {
+			err := writeResponse(w.writer, agentResponse{
+				ID:        w.requestID,
+				Success:   true,
+				ChunkType: agentChunkRows,
+				Data:      batch,
+			})
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) || len(batch) == 1 {
+				return err
+			}
+			batch = batch[:len(batch)/2]
+		}
+		rows = rows[len(batch):]
+	}
+	return nil
 }
 
 func (w *agentStreamResponseWriter) finish() error {
@@ -644,6 +677,9 @@ func writeResponse(writer *bufio.Writer, resp agentResponse) error {
 		return err
 	}
 	payload = append(payload, '\n')
+	if len(payload) > db.OptionalDriverAgentMaxJSONLineBytes {
+		return db.ErrOptionalDriverAgentJSONLineTooLarge
+	}
 	if _, err := writer.Write(payload); err != nil {
 		return err
 	}

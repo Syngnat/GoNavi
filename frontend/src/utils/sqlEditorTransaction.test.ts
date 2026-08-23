@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canReusePendingSqlEditorTransactionForType,
+  hasTopLevelSqlEditorForUpdate,
   resolveSqlEditorOperationKeyword,
   shouldUseSqlEditorManagedTransaction,
   shouldUseSqlEditorManagedTransactionForType,
 } from './sqlEditorTransaction';
+import { getDataSourceCapabilityContract } from './dataSourceCapabilities';
 import { findSqlStatementRanges } from './sqlStatementSelection';
 
 describe('sqlEditorTransaction', () => {
@@ -38,6 +40,16 @@ describe('sqlEditorTransaction', () => {
     expect(resolveSqlEditorOperationKeyword('WITH target AS (SELECT id FROM users) SELECT * FROM target')).toBe('select');
     expect(resolveSqlEditorOperationKeyword('WITH target AS (SELECT id FROM users) UPDATE users SET synced = 1')).toBe('update');
     expect(resolveSqlEditorOperationKeyword('WITH target AS (SELECT id FROM users) DELETE FROM users WHERE id IN (SELECT id FROM target)')).toBe('delete');
+  });
+
+  it('detects only top-level SELECT FOR UPDATE clauses', () => {
+    expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM users FOR UPDATE')).toBe(true);
+    expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM users FOR /* lock */ UPDATE')).toBe(true);
+    expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM users FOR JSON AUTO FOR UPDATE')).toBe(true);
+    expect(hasTopLevelSqlEditorForUpdate("SELECT 'FOR UPDATE' AS marker FROM users")).toBe(false);
+    expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM (SELECT * FROM users FOR UPDATE) source')).toBe(false);
+    expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM users -- FOR UPDATE')).toBe(false);
+    expect(hasTopLevelSqlEditorForUpdate('UPDATE users SET locked = 1')).toBe(false);
   });
 
   it('uses managed transactions for WITH DML but not WITH SELECT', () => {
@@ -103,6 +115,7 @@ describe('sqlEditorTransaction', () => {
     ['clickhouse', 'INSERT INTO events FORMAT JSONEachRow {"id":1}'],
     ['iotdb', 'INSERT INTO root.ln.wf01.wt01(timestamp,status) VALUES(1,true)'],
   ])('keeps %s writes on the plain multi-statement execution path', (dbType, sql) => {
+    expect(getDataSourceCapabilityContract({ type: dbType }).transaction.supported).toBe(false);
     expect(shouldUseSqlEditorManagedTransactionForType(dbType, [sql])).toBe(false);
     expect(canReusePendingSqlEditorTransactionForType(dbType, [
       'SELECT * FROM users WHERE id = 1',
@@ -122,5 +135,15 @@ describe('sqlEditorTransaction', () => {
     expect(canReusePendingSqlEditorTransactionForType('mysql', [
       'COMMIT',
     ])).toBe(false);
+  });
+
+  it('reads the shared transaction capability while retaining runtime-probed custom drivers', () => {
+    const sql = 'UPDATE demo SET enabled = true';
+    expect(shouldUseSqlEditorManagedTransactionForType('future-driver', [sql])).toBe(false);
+    expect(shouldUseSqlEditorManagedTransactionForType(
+      'future-driver',
+      [sql],
+      { type: 'custom', driver: 'future-driver' },
+    )).toBe(true);
   });
 });

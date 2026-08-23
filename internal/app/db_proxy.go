@@ -64,11 +64,18 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 	config.HTTPTunnel = connection.HTTPTunnelConfig{}
 
 	if config.UseSSH {
+		sshHost := strings.TrimSpace(config.SSH.Host)
+		if sshHost == "" {
+			return connection.ConnectionConfig{}, fmt.Errorf("%s", defaultAppText("connection_modal.validation.ssh_host_required", nil))
+		}
 		sshPort := config.SSH.Port
 		if sshPort <= 0 {
 			sshPort = 22
 		}
-		forwardedSSH, err := buildProxyForwardAddress(normalizedProxy, strings.TrimSpace(config.SSH.Host), sshPort)
+		// The proxy needs a local, ephemeral dial endpoint, but host-key trust
+		// must remain bound to the real bastion address the user configured.
+		config.SSH = config.SSH.WithHostKeyIdentity(sshHost, sshPort)
+		forwardedSSH, err := buildProxyForwardAddress(normalizedProxy, sshHost, sshPort)
 		if err != nil {
 			return connection.ConnectionConfig{}, fmt.Errorf("%s", defaultAppText("db.backend.error.proxy_ssh_gateway_connect_failed", map[string]any{
 				"detail": err.Error(),
@@ -86,6 +93,11 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		// Nacos is HTTP-based and must keep its remote authority for the Host
 		// header and TLS SNI/certificate verification. Its transport dials the
 		// normalized proxy directly instead of using a local TCP forwarder.
+		return config, nil
+	}
+	if normalizedType == "rocketmq" || normalizedType == "rocket-mq" || normalizedType == "rocket_mq" || normalizedType == "apache-rocketmq" || normalizedType == "apache_rocketmq" || normalizedType == "rmq" {
+		// RocketMQ discovers broker addresses from NameServer responses. Its
+		// driver must keep the proxy so it can forward both address layers.
 		return config, nil
 	}
 	if normalizedType == "sqlite" || normalizedType == "duckdb" || normalizedType == "custom" {

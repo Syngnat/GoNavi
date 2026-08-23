@@ -3,6 +3,7 @@
 package db
 
 import (
+	"context"
 	"net"
 	"strconv"
 	"strings"
@@ -15,6 +16,14 @@ const defaultOpenGaussPort = 5432
 // OpenGaussDB 使用 PostgreSQL wire protocol 兼容链路，通过独立 agent 类型暴露。
 type OpenGaussDB struct {
 	PostgresDB
+}
+
+func (o *OpenGaussDB) bindMetadataContext(ctx context.Context) {
+	BindMetadataContext(&o.PostgresDB, ctx)
+}
+
+func (o *OpenGaussDB) clearMetadataContext() {
+	ClearMetadataContext(&o.PostgresDB)
 }
 
 func applyOpenGaussURI(config connection.ConnectionConfig) connection.ConnectionConfig {

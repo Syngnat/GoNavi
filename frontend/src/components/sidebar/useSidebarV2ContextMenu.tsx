@@ -17,7 +17,7 @@ import {
 import type { SavedConnection } from '../../types';
 import { t } from '../../i18n';
 import { DBQuery } from '../../../wailsjs/go/app/App';
-import { getCaseInsensitiveRawValue, getCaseInsensitiveValue, getMetadataDialect, splitQualifiedName, buildSidebarTableStatusSQL, escapeSQLLiteral, shouldHideSchemaPrefix } from './sidebarMetadataLoaders';
+import { getCaseInsensitiveRawValue, getCaseInsensitiveValue, getMetadataDialect, splitQualifiedName, escapeSQLLiteral, parseSidebarTableRowCount, shouldHideSchemaPrefix } from './sidebarMetadataLoaders';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { resolveConnectionIconType } from '../../utils/connectionVisual';
@@ -35,6 +35,10 @@ import {
   resolveSidebarContextMenuPosition,
 } from '../sidebarCoreUtils';
 import { isShortcutMatch, type ShortcutPlatform } from '../../utils/shortcuts';
+import {
+  normalizeSidebarDatabaseRefreshRequest,
+  SIDEBAR_DATABASE_REFRESH_EVENT,
+} from '../../utils/sidebarDatabaseRefresh';
 import type { SidebarTreeLoadOptions } from './useSidebarTreeLoaders';
 
 export type SidebarContextMenuState = {
@@ -114,6 +118,93 @@ export const handleSidebarV2ContextMenuShortcut = ({
   return true;
 };
 
+export const buildV2TableStatusSQL = ({
+  conn,
+  tableName,
+  extractObjectName,
+}: {
+  conn: SavedConnection & { dbName?: string; tableName?: string; schemaName?: string };
+  tableName: string;
+  extractObjectName: (fullName: string) => string;
+}): string => {
+  const dialect = getMetadataDialect(conn);
+  const dbName = String(conn?.dbName || '').trim();
+  const objectName = extractObjectName(tableName);
+  const schemaName = String(conn?.schemaName || splitQualifiedName(tableName).schemaName || '').trim();
+  switch (dialect) {
+      case 'mysql': {
+          if (!dbName || !objectName) return '';
+          return [
+              'SELECT TABLE_ROWS AS table_rows, DATA_LENGTH AS data_length, INDEX_LENGTH AS index_length, ENGINE AS engine',
+              'FROM information_schema.tables',
+              `WHERE table_schema = '${escapeSQLLiteral(dbName)}'`,
+              `AND table_name = '${escapeSQLLiteral(objectName)}'`,
+              'LIMIT 1',
+          ].join('\n');
+      }
+      case 'starrocks':
+          return [
+              'SELECT TABLE_ROWS AS table_rows, DATA_LENGTH AS data_length, INDEX_LENGTH AS index_length, ENGINE AS engine',
+              'FROM information_schema.tables',
+              `WHERE table_schema = '${escapeSQLLiteral(dbName)}'`,
+              `AND table_name = '${escapeSQLLiteral(objectName)}'`,
+              'LIMIT 1',
+          ].join('\n');
+      case 'postgres':
+      case 'kingbase':
+      case 'vastbase':
+      case 'highgo':
+      case 'opengauss':
+      case 'gaussdb': {
+          const schema = schemaName || 'public';
+          return [
+              "SELECT c.reltuples::bigint AS table_rows, pg_total_relation_size(c.oid) AS data_length, pg_indexes_size(c.oid) AS index_length, 'heap' AS engine",
+              'FROM pg_class c',
+              'JOIN pg_namespace n ON n.oid = c.relnamespace',
+              "WHERE c.relkind = 'r'",
+              `AND n.nspname = '${escapeSQLLiteral(schema)}'`,
+              `AND c.relname = '${escapeSQLLiteral(objectName)}'`,
+              'LIMIT 1',
+          ].join('\n');
+      }
+      case 'sqlserver': {
+          const safeTable = tableName.replace(/'/g, "''");
+          return [
+              'SELECT SUM(p.rows) AS table_rows, SUM(a.total_pages) * 8 * 1024 AS data_length, SUM(a.used_pages) * 8 * 1024 AS index_length, NULL AS engine',
+              'FROM sys.tables t',
+              'JOIN sys.indexes i ON t.object_id = i.object_id',
+              'JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id',
+              'JOIN sys.allocation_units a ON p.partition_id = a.container_id',
+              `WHERE t.object_id = OBJECT_ID('${safeTable}')`,
+          ].join('\n');
+      }
+      case 'clickhouse':
+          return [
+              'SELECT total_rows AS table_rows, total_bytes AS data_length, 0 AS index_length, engine AS engine',
+              'FROM system.tables',
+              `WHERE database = '${escapeSQLLiteral(dbName)}'`,
+              `AND name = '${escapeSQLLiteral(objectName)}'`,
+              'LIMIT 1',
+          ].join('\n');
+      case 'oracle':
+      case 'dm': {
+          const owner = (schemaName || dbName || '').toUpperCase();
+          return [
+              'SELECT num_rows AS table_rows, 0 AS data_length, 0 AS index_length, NULL AS engine',
+              'FROM all_tables',
+              `WHERE owner = '${escapeSQLLiteral(owner)}'`,
+              `AND table_name = '${escapeSQLLiteral(objectName.toUpperCase())}'`,
+              'FETCH FIRST 1 ROWS ONLY',
+          ].join('\n');
+      }
+      case 'sqlite':
+      case 'duckdb':
+          return `SELECT COUNT(*) AS table_rows, 0 AS data_length, 0 AS index_length, NULL AS engine FROM ${tableName}`;
+      default:
+          return '';
+  }
+};
+
 export const useSidebarV2ContextMenu = ({
   connections,
   connectionTags,
@@ -144,6 +235,25 @@ export const useSidebarV2ContextMenu = ({
   const [contextMenu, setContextMenu] = useState<SidebarContextMenuState | null>(null);
   const contextMenuPortalRef = useRef<HTMLDivElement | null>(null);
   const [v2TableContextMenuStats, setV2TableContextMenuStats] = useState<Record<string, V2TableContextMenuStats>>({});
+
+  useEffect(() => {
+      const invalidateDatabaseStats = (event: Event) => {
+          const request = normalizeSidebarDatabaseRefreshRequest((event as CustomEvent).detail);
+          if (!request) return;
+          const keyPrefix = `${request.connectionId}::${request.dbName}::`;
+          setV2TableContextMenuStats((current) => {
+              const staleKeys = Object.keys(current).filter((key) => key.startsWith(keyPrefix));
+              if (staleKeys.length === 0) return current;
+              const next = { ...current };
+              staleKeys.forEach((key) => delete next[key]);
+              return next;
+          });
+      };
+      window.addEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, invalidateDatabaseStats as EventListener);
+      return () => {
+          window.removeEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, invalidateDatabaseStats as EventListener);
+      };
+  }, []);
 
   const openV2ConnectionContextMenu = (
       event: React.MouseEvent,
@@ -214,76 +324,10 @@ export const useSidebarV2ContextMenu = ({
       return Number.isFinite(normalized) ? normalized : undefined;
   };
 
-  const buildV2TableStatusSQL = (node: any): string => {
+  const buildTableStatusSQLForNode = (node: any): string => {
       const conn = node.dataRef as SavedConnection & { dbName?: string; tableName?: string; schemaName?: string };
-      const dialect = getMetadataDialect(conn);
-      const dbName = String(conn?.dbName || '').trim();
       const tableName = String(conn?.tableName || node?.title || '').trim();
-      const objectName = extractObjectName(tableName);
-      const schemaName = String(conn?.schemaName || splitQualifiedName(tableName).schemaName || '').trim();
-      switch (dialect) {
-          case 'mysql':
-          case 'starrocks':
-              return [
-                  'SELECT TABLE_ROWS AS table_rows, DATA_LENGTH AS data_length, INDEX_LENGTH AS index_length, ENGINE AS engine',
-                  'FROM information_schema.tables',
-                  `WHERE table_schema = '${escapeSQLLiteral(dbName)}'`,
-                  `AND table_name = '${escapeSQLLiteral(objectName)}'`,
-                  'LIMIT 1',
-              ].join('\n');
-          case 'postgres':
-          case 'kingbase':
-          case 'vastbase':
-          case 'highgo':
-          case 'opengauss':
-          case 'gaussdb': {
-              const schema = schemaName || 'public';
-              return [
-                  "SELECT c.reltuples::bigint AS table_rows, pg_total_relation_size(c.oid) AS data_length, pg_indexes_size(c.oid) AS index_length, 'heap' AS engine",
-                  'FROM pg_class c',
-                  'JOIN pg_namespace n ON n.oid = c.relnamespace',
-                  "WHERE c.relkind = 'r'",
-                  `AND n.nspname = '${escapeSQLLiteral(schema)}'`,
-                  `AND c.relname = '${escapeSQLLiteral(objectName)}'`,
-                  'LIMIT 1',
-              ].join('\n');
-          }
-          case 'sqlserver': {
-              const safeTable = tableName.replace(/'/g, "''");
-              return [
-                  'SELECT SUM(p.rows) AS table_rows, SUM(a.total_pages) * 8 * 1024 AS data_length, SUM(a.used_pages) * 8 * 1024 AS index_length, NULL AS engine',
-                  'FROM sys.tables t',
-                  'JOIN sys.indexes i ON t.object_id = i.object_id',
-                  'JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id',
-                  'JOIN sys.allocation_units a ON p.partition_id = a.container_id',
-                  `WHERE t.object_id = OBJECT_ID('${safeTable}')`,
-              ].join('\n');
-          }
-          case 'clickhouse':
-              return [
-                  'SELECT total_rows AS table_rows, total_bytes AS data_length, 0 AS index_length, engine AS engine',
-                  'FROM system.tables',
-                  `WHERE database = '${escapeSQLLiteral(dbName)}'`,
-                  `AND name = '${escapeSQLLiteral(objectName)}'`,
-                  'LIMIT 1',
-              ].join('\n');
-          case 'oracle':
-          case 'dm': {
-              const owner = (schemaName || dbName || '').toUpperCase();
-              return [
-                  'SELECT num_rows AS table_rows, 0 AS data_length, 0 AS index_length, NULL AS engine',
-                  'FROM all_tables',
-                  `WHERE owner = '${escapeSQLLiteral(owner)}'`,
-                  `AND table_name = '${escapeSQLLiteral(objectName.toUpperCase())}'`,
-                  'FETCH FIRST 1 ROWS ONLY',
-              ].join('\n');
-          }
-          case 'sqlite':
-          case 'duckdb':
-              return `SELECT COUNT(*) AS table_rows, 0 AS data_length, 0 AS index_length, NULL AS engine FROM ${tableName}`;
-          default:
-              return '';
-      }
+      return buildV2TableStatusSQL({ conn, tableName, extractObjectName });
   };
 
   const renderV2TableContextMenu = (node: any) => {
@@ -419,6 +463,7 @@ export const useSidebarV2ContextMenu = ({
               driverLabel={resolveConnectionIconType(conn)}
               isRedis={conn?.config?.type === 'redis'}
               supportsCreateDatabase={capabilities.supportsCreateDatabase}
+              supportsQueryEditor={capabilities.supportsQueryEditor}
               tags={connectionTags.map((tag) => ({
                   id: tag.id,
                   name: tag.name,
@@ -502,7 +547,7 @@ export const useSidebarV2ContextMenu = ({
   const fetchV2TableContextMenuStats = async (node: any) => {
       const statsKey = getV2TableContextMenuStatsKey(node);
       if (!statsKey || v2TableContextMenuStats[statsKey]?.loading) return;
-      const sql = buildV2TableStatusSQL(node);
+      const sql = buildTableStatusSQLForNode(node);
       if (!sql) {
           setV2TableContextMenuStats(prev => ({ ...prev, [statsKey]: { unavailable: true } }));
           return;
@@ -521,7 +566,7 @@ export const useSidebarV2ContextMenu = ({
           setV2TableContextMenuStats(prev => ({
               ...prev,
               [statsKey]: {
-                  rowCount: readNumericMetadataValue(row, ['table_rows', 'TABLE_ROWS', 'rows', 'num_rows', 'reltuples', 'total_rows']),
+                  rowCount: parseSidebarTableRowCount(row, conn as SavedConnection),
                   dataLength: readNumericMetadataValue(row, ['data_length', 'DATA_LENGTH', 'total_bytes']),
                   indexLength: readNumericMetadataValue(row, ['index_length', 'INDEX_LENGTH']),
                   engine: getCaseInsensitiveValue(row, ['engine', 'ENGINE']),

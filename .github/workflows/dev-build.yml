@@ -27,13 +27,26 @@ jobs:
 
       - name: Test release asset contracts
         run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes= \
+            .github/workflows/release.yml \
+            .github/workflows/dev-build.yml \
+            .github/workflows/publish-release.yml
           bash tools/detect-changed-driver-agents.test.sh
           bash tools/generate-driver-agent-revisions.test.sh
+          bash tools/verify-driver-revision-contract.test.sh
           python3 tools/generate-driver-release-manifest.test.py
           python3 tools/generate-update-latest-manifest.test.py
+          python3 tools/validate-gui-update-manifest.test.py
           python3 tools/prepare-vps-release-payload.test.py
-          bash tools/vps-release-commit.test.sh
+          python3 tools/edge-release-transaction.test.py
+          python3 tools/edge-release-retention.test.py
+          python3 tools/download-mirror-config.test.py
           python3 tools/package-driver-release-assets.test.py
+          python3 tools/complete-driver-release-assets.test.py
+          python3 tools/cli-release-assets.test.py
+          python3 tools/npm-cli-wrapper.test.py
+          python3 tools/validate-npm-cli-package-version.test.py
+          python3 tools/generate-winget-cli-manifest.test.py
           python3 tools/legal-release-assets.test.py
           python3 tools/windows-release-artifacts.test.py
           python3 tools/generate-release-notes.test.py
@@ -275,11 +288,164 @@ jobs:
           fi
           echo "release_source=dev-latest" >> "$GITHUB_OUTPUT"
 
+  driver_revision_maps:
+    name: Generate canonical driver revision map ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            artifact_key: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            artifact_key: darwin-arm64
+          - goos: linux
+            goarch: amd64
+            artifact_key: linux-amd64
+          - goos: linux
+            goarch: arm64
+            artifact_key: linux-arm64
+          - goos: windows
+            goarch: amd64
+            artifact_key: windows-amd64
+          - goos: windows
+            goarch: arm64
+            artifact_key: windows-arm64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Generate canonical driver revision map
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tools/generate-driver-agent-revisions.sh --platform "${{ matrix.goos }}/${{ matrix.goarch }}"
+          test -s internal/db/driver_agent_revisions_gen.go
+
+      - name: Upload canonical driver revision map
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-canonical-driver-revision-map-${{ matrix.artifact_key }}
+          path: internal/db/driver_agent_revisions_gen.go
+          if-no-files-found: error
+          retention-days: 1
+
+  cli:
+    name: Build dev CLI ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: driver_revision_maps
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            extension: tar.gz
+            binary: gonavi
+          - goos: darwin
+            goarch: arm64
+            extension: tar.gz
+            binary: gonavi
+          - goos: linux
+            goarch: amd64
+            extension: tar.gz
+            binary: gonavi
+          - goos: linux
+            goarch: arm64
+            extension: tar.gz
+            binary: gonavi
+          - goos: windows
+            goarch: amd64
+            extension: zip
+            binary: gonavi.exe
+          - goos: windows
+            goarch: arm64
+            extension: zip
+            binary: gonavi.exe
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Download canonical driver revision map
+        uses: actions/download-artifact@v7
+        with:
+          name: dev-canonical-driver-revision-map-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: canonical-driver-revision-map
+
+      - name: Install canonical driver revision map
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s canonical-driver-revision-map/driver_agent_revisions_gen.go
+          install -m 0644 canonical-driver-revision-map/driver_agent_revisions_gen.go internal/db/driver_agent_revisions_gen.go
+
+      - name: Build and package dev CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="dev-${GITHUB_SHA:0:7}"
+          asset="gonavi-cli_${version}_${{ matrix.goos }}_${{ matrix.goarch }}.${{ matrix.extension }}"
+          stage="${RUNNER_TEMP}/gonavi-cli-${{ matrix.goos }}-${{ matrix.goarch }}"
+          mkdir -p "$stage"
+          ./tools/write-driver-revision-contract.sh --role cli \
+            --platform "${{ matrix.goos }}/${{ matrix.goarch }}" \
+            --output-dir driver-revision-contract
+          CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
+            go build -trimpath -ldflags="-s -w -X GoNavi-Wails/internal/cli.Version=${version}" \
+            -o "$stage/${{ matrix.binary }}" ./cmd/gonavi
+          install -m 0644 LICENSE NOTICE "$stage/"
+          if [[ "${{ matrix.extension }}" == "zip" ]]; then
+            (cd "$stage" && zip -q -X "${GITHUB_WORKSPACE}/${asset}" "${{ matrix.binary }}" LICENSE NOTICE)
+          else
+            tar -C "$stage" -czf "$asset" "${{ matrix.binary }}" LICENSE NOTICE
+          fi
+          test -s "$asset"
+          expected_entries="$(printf '%s\n' "${{ matrix.binary }}" LICENSE NOTICE | sort)"
+          if [[ "${{ matrix.extension }}" == "zip" ]]; then
+            actual_entries="$(unzip -Z1 "$asset" | sort)"
+          else
+            actual_entries="$(tar -tzf "$asset" | sed 's#^\./##' | sort)"
+          fi
+          if [[ "$actual_entries" != "$expected_entries" ]]; then
+            echo "CLI archive contents are invalid for $asset" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_entries" "$actual_entries" >&2
+            exit 1
+          fi
+
+      - name: Upload dev CLI artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-cli-artifact-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: gonavi-cli_*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload dev CLI driver revision contract
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-cli-driver-revision-contract-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: driver-revision-contract/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
   build:
     name: Build ${{ matrix.platform }}
     needs:
       - frontend
       - driver_agents
+      - driver_revision_maps
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -290,8 +456,10 @@ jobs:
             os_name: MacOS
             arch_name: Amd64
             build_name: gonavi-build-darwin-amd64
+            canonical_revision_map: darwin-amd64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: macos-latest
@@ -299,8 +467,10 @@ jobs:
             os_name: MacOS
             arch_name: Arm64
             build_name: gonavi-build-darwin-arm64
+            canonical_revision_map: darwin-arm64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: windows-2025-vs2026
@@ -308,8 +478,10 @@ jobs:
             os_name: Windows
             arch_name: Amd64
             build_name: gonavi-build-windows-amd64
+            canonical_revision_map: windows-amd64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: windows-2025-vs2026
@@ -317,8 +489,10 @@ jobs:
             os_name: Windows
             arch_name: Arm64
             build_name: gonavi-build-windows-arm64
+            canonical_revision_map: windows-arm64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: ""
           - os: ubuntu-22.04
@@ -326,8 +500,10 @@ jobs:
             os_name: Linux
             arch_name: Amd64
             build_name: gonavi-build-linux-amd64
+            canonical_revision_map: linux-amd64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: "4.0"
           - os: ubuntu-22.04-arm
@@ -335,8 +511,10 @@ jobs:
             os_name: Linux
             arch_name: Arm64
             build_name: gonavi-build-linux-arm64
+            canonical_revision_map: linux-arm64
             wails_tags: ""
             artifact_suffix: ""
+            driver_revision_variant: ""
             build_optional_agents: true
             linux_webkit: "4.0"
           - os: ubuntu-24.04
@@ -344,8 +522,10 @@ jobs:
             os_name: Linux
             arch_name: Amd64
             build_name: gonavi-build-linux-amd64-webkit41
+            canonical_revision_map: linux-amd64
             wails_tags: "webkit2_41"
             artifact_suffix: "-WebKit41"
+            driver_revision_variant: "webkit41"
             build_optional_agents: false
             linux_webkit: "4.1"
 
@@ -357,6 +537,19 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: 'go.mod'
+
+      - name: Download canonical driver revision map
+        uses: actions/download-artifact@v7
+        with:
+          name: dev-canonical-driver-revision-map-${{ matrix.canonical_revision_map }}
+          path: canonical-driver-revision-map
+
+      - name: Install canonical driver revision map
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s canonical-driver-revision-map/driver_agent_revisions_gen.go
+          install -m 0644 canonical-driver-revision-map/driver_agent_revisions_gen.go internal/db/driver_agent_revisions_gen.go
 
       - name: Download frontend dist
         id: download_frontend_dist
@@ -540,7 +733,7 @@ jobs:
         id: version
         shell: bash
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          SHORT_SHA="${GITHUB_SHA:0:7}"
           DEV_VERSION="dev-${SHORT_SHA}"
           echo "version=${DEV_VERSION}" >> "$GITHUB_OUTPUT"
           echo "📌 Dev 版本号: ${DEV_VERSION}"
@@ -550,8 +743,15 @@ jobs:
         run: |
           set -euo pipefail
           DEV_VERSION="${{ steps.version.outputs.version }}"
-          echo "🧭 为 ${{ matrix.platform }} 全量生成 driver-agent revision 指纹，避免跨平台沿用旧 revision"
-          ./tools/generate-driver-agent-revisions.sh --platform "${{ matrix.platform }}"
+          revision_contract_args=(
+            --role gui
+            --platform "${{ matrix.platform }}"
+            --output-dir driver-revision-contract
+          )
+          if [[ -n "${{ matrix.driver_revision_variant }}" ]]; then
+            revision_contract_args+=(--variant "${{ matrix.driver_revision_variant }}")
+          fi
+          ./tools/write-driver-revision-contract.sh "${revision_contract_args[@]}"
           REVISION_HASH="$(python3 - <<'PY'
           import hashlib
           from pathlib import Path
@@ -831,12 +1031,12 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           cd build/bin
           
-          APP_PATH=$(find . -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$APP_PATH" ]; then
-            echo "❌ 未找到 .app 应用包!"
+          APP_PATH="./GoNavi.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ 未找到固定名称 GoNavi.app 应用包!"
             exit 1
           fi
-          APP_NAME=$(basename "$APP_PATH")
+          APP_NAME="GoNavi.app"
           mkdir -p "$APP_NAME/Contents/Resources"
           cp ../../LICENSE "$APP_NAME/Contents/Resources/LICENSE"
           cp ../../NOTICE "$APP_NAME/Contents/Resources/NOTICE"
@@ -848,10 +1048,7 @@ jobs:
           fi
           echo "ℹ️ macOS 产物不执行 UPX 压缩，保留原始主程序。"
           
-          echo "🔏 正在进行 Ad-hoc 签名..."
-          if command -v xattr >/dev/null 2>&1; then
-            xattr -cr "$APP_NAME" || true
-          fi
+          echo "🔏 Signing dev DMG with an ad-hoc identity (not for production distribution)..."
           codesign --force --deep --sign - "$APP_NAME"
           
           DMG_NAME="${{ matrix.build_name }}.dmg"
@@ -871,9 +1068,9 @@ jobs:
 
           VERIFY_MOUNT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/gonavi-dev-verify.XXXXXX")
           hdiutil attach -nobrowse -readonly -mountpoint "$VERIFY_MOUNT_DIR" "$DMG_NAME" >/dev/null
-          PACKAGED_APP=$(find "$VERIFY_MOUNT_DIR" -maxdepth 1 -name "*.app" | head -n 1)
-          if [ -z "$PACKAGED_APP" ]; then
-            echo "❌ DMG 内未找到 .app 应用包!"
+          PACKAGED_APP="$VERIFY_MOUNT_DIR/GoNavi.app"
+          if [ ! -d "$PACKAGED_APP" ]; then
+            echo "❌ DMG 内未找到固定名称 GoNavi.app 应用包!"
             hdiutil detach "$VERIFY_MOUNT_DIR" -quiet >/dev/null 2>&1 || true
             exit 1
           fi
@@ -1088,18 +1285,28 @@ jobs:
             driver-provenance/**
           retention-days: 7
 
+      - name: Upload dev GUI driver revision contract
+        uses: actions/upload-artifact@v6
+        with:
+          name: dev-gui-driver-revision-contract-${{ matrix.build_name }}
+          path: driver-revision-contract/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
   # 汇总所有产物并发布为 Pre-release
   release:
     name: Publish Dev Pre-release
     needs:
       - build
+      - cli
       - driver_agents
     # Serialize only the publication stage with stable releases so both
     # channels cannot publish shared mirror targets concurrently.
     concurrency:
-      group: gonavi-release-publication
+      group: gonavi-download-publication
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -1119,12 +1326,64 @@ jobs:
           pattern: dev-build-artifacts-*
           merge-multiple: true
 
+      - name: Download dev CLI artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: cli-assets
+          pattern: dev-cli-artifact-*
+          merge-multiple: true
+
+      - name: Download dev GUI driver revision contracts
+        uses: actions/download-artifact@v7
+        with:
+          path: driver-revision-contract
+          pattern: dev-gui-driver-revision-contract-*
+          merge-multiple: true
+
+      - name: Download dev CLI driver revision contracts
+        uses: actions/download-artifact@v7
+        with:
+          path: driver-revision-contract
+          pattern: dev-cli-driver-revision-contract-*
+          merge-multiple: true
+
+      - name: Verify GUI and CLI driver revision contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tools/verify-driver-revision-contract.sh --contracts-dir driver-revision-contract
+
+      - name: Validate dev CLI artifact staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="dev-${GITHUB_SHA:0:7}"
+          expected=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          mapfile -t actual < <(find cli-assets -type f -printf '%P\n' | sort)
+          expected_list="$(printf '%s\n' "${expected[@]}" | sort)"
+          actual_list="$(printf '%s\n' "${actual[@]}")"
+          if [[ "$actual_list" != "$expected_list" ]]; then
+            echo "CLI artifact set is invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_list" "$actual_list" >&2
+            exit 1
+          fi
+          for asset in "${expected[@]}"; do
+            test -s "cli-assets/${asset}"
+          done
+
       - name: Add legal documents
         shell: bash
         run: install -m 0644 LICENSE NOTICE release-assets/
 
       - name: List Assets
-        run: ls -R release-assets
+        run: ls -R release-assets cli-assets
 
       - name: Download Previous Driver Manifest
         if: needs.driver_agents.outputs.has_changes == 'true' && needs.driver_agents.outputs.release_source != 'all'
@@ -1190,25 +1449,106 @@ jobs:
           rm -rf drivers driver-provenance
           echo "has_driver_assets=true" >> "$GITHUB_OUTPUT"
 
+      - name: Generate dev CLI checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="dev-${GITHUB_SHA:0:7}"
+          expected=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          (cd cli-assets && sha256sum "${expected[@]}" > "gonavi-cli_${version}_checksums.txt")
+
       - name: Generate SHA256SUMS
         shell: bash
         run: |
-          cd release-assets
-          FILES=()
+          set -euo pipefail
+          output="release-assets/SHA256SUMS"
+          count=0
+          declare -A seen=()
+          : > "$output"
           while IFS= read -r file; do
-            if [ -n "$file" ]; then
-              case "$file" in
-                SHA256SUMS|latest.json|latest-dev.json) continue ;;
-              esac
-              FILES+=("$file")
+            name="$(basename "$file")"
+            if [[ -n "${seen[$name]:-}" ]]; then
+              echo "Duplicate release asset name across staging directories: ${name}" >&2
+              exit 1
             fi
-          done < <(find . -maxdepth 1 -type f ! -name SHA256SUMS -exec basename {} \; | sort)
-          if [ ${#FILES[@]} -eq 0 ]; then
+            seen["$name"]=1
+            digest="$(sha256sum "$file" | awk '{ print $1 }')"
+            printf '%s  %s\n' "$digest" "$name" >> "$output"
+            count=$((count + 1))
+          done < <(find release-assets cli-assets -maxdepth 1 -type f \
+            ! -name SHA256SUMS ! -name latest.json ! -name latest-dev.json -print | sort)
+          if [ "$count" -eq 0 ]; then
             echo "⚠️ 未找到可签名资产，生成空 SHA256SUMS"
-            : > SHA256SUMS
-          else
-            sha256sum "${FILES[@]}" > SHA256SUMS
           fi
+
+      - name: Verify dev CLI release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="dev-${GITHUB_SHA:0:7}"
+          cli_checksum_name="gonavi-cli_${version}_checksums.txt"
+          expected=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          expected_cli_files=("${expected[@]}" "$cli_checksum_name")
+          mapfile -t actual_cli_files < <(find cli-assets -maxdepth 1 -type f -name 'gonavi-cli_*' -printf '%f\n' | sort)
+          expected_cli_list="$(printf '%s\n' "${expected_cli_files[@]}" | sort)"
+          actual_cli_list="$(printf '%s\n' "${actual_cli_files[@]}")"
+          if [[ "$actual_cli_list" != "$expected_cli_list" ]]; then
+            echo "CLI release asset set is invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_cli_list" "$actual_cli_list" >&2
+            exit 1
+          fi
+          test -s "cli-assets/${cli_checksum_name}"
+          if ! awk 'NF != 2 || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/ { exit 1 }' "cli-assets/${cli_checksum_name}"; then
+            echo "CLI checksum file contents are invalid" >&2
+            exit 1
+          fi
+          mapfile -t checksum_assets < <(awk '{ print $2 }' "cli-assets/${cli_checksum_name}" | sort)
+          checksum_asset_list="$(printf '%s\n' "${checksum_assets[@]}")"
+          expected_checksum_list="$(printf '%s\n' "${expected[@]}" | sort)"
+          if [[ "$checksum_asset_list" != "$expected_checksum_list" ]]; then
+            echo "CLI checksum file contents are invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "$expected_checksum_list" "$checksum_asset_list" >&2
+            exit 1
+          fi
+          for asset in "${expected[@]}"; do
+            test -s "cli-assets/${asset}"
+            grep -Fq "  ${asset}" release-assets/SHA256SUMS
+            global_digest="$(awk -v name="$asset" '$2 == name { print $1 }' release-assets/SHA256SUMS)"
+            cli_digest="$(awk -v name="$asset" '$2 == name { print $1 }' "cli-assets/${cli_checksum_name}")"
+            actual_digest="$(sha256sum "cli-assets/${asset}" | awk '{ print $1 }')"
+            [[ -n "$global_digest" && "$global_digest" == "$cli_digest" && "$cli_digest" == "$actual_digest" ]]
+          done
+          grep -Fq "  ${cli_checksum_name}" release-assets/SHA256SUMS
+          (cd cli-assets && sha256sum --check "$cli_checksum_name")
+          while read -r expected_digest asset; do
+            if [[ -f "release-assets/${asset}" && -f "cli-assets/${asset}" ]]; then
+              echo "Duplicate release asset name across staging directories: ${asset}" >&2
+              exit 1
+            elif [[ -f "release-assets/${asset}" ]]; then
+              file="release-assets/${asset}"
+            elif [[ -f "cli-assets/${asset}" ]]; then
+              file="cli-assets/${asset}"
+            else
+              echo "Release asset listed in SHA256SUMS is missing: ${asset}" >&2
+              exit 1
+            fi
+            actual_digest="$(sha256sum "$file" | awk '{ print $1 }')"
+            [[ "$actual_digest" == "$expected_digest" ]]
+          done < release-assets/SHA256SUMS
 
       - name: Generate Driver SHA256SUMS
         if: steps.driver_assets.outputs.has_driver_assets == 'true'
@@ -1347,8 +1687,10 @@ jobs:
             --version "$DEV_VERSION" \
             --tag dev-latest \
             --channel dev \
+            --component gui \
             --name "Dev Build (${DEV_VERSION})" \
-            --download-base-url "https://download.syngnat.top/gonavi/dev/releases/download" \
+            --download-dispatcher-url "https://download-dispatch.syngnat.top/v1/resolve" \
+            --download-path-prefix "/gonavi/dev/releases/download" \
             --download-tag "$DEV_VERSION" \
             --release-notes-file "$CHANGELOG_FILE" \
             --output release-assets/latest-dev.json
@@ -1482,7 +1824,9 @@ jobs:
           tag_name: dev-latest
           name: "🧪 Dev Build (${{ steps.version.outputs.version }})"
           target_commitish: ${{ github.sha }}
-          files: release-assets/*
+          files: |
+            release-assets/*
+            cli-assets/*
           prerelease: true
           draft: false
           body_path: ${{ steps.changelog.outputs.body_file }}
@@ -1499,22 +1843,16 @@ jobs:
           app_dir="release-assets"
           driver_dir="driver-release-assets"
 
-          jq -e \
-            --arg version "${DEV_VERSION}" \
-            --arg mirror_base "https://download.syngnat.top/gonavi/dev/releases/download" \
-            --arg github_base "https://github.com/${GITHUB_REPOSITORY}/releases/download/dev-latest" \
-            '
-              .channel == "dev"
-              and .tagName == "dev-latest"
-              and .version == $version
-              and (.assets | type == "array" and length > 0)
-              and all(.assets[];
-                (.url | type == "string" and startswith($mirror_base + "/" + $version + "/"))
-                and (.apiUrl | type == "string" and startswith($github_base + "/"))
-                and (.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$"))
-              )
-            ' "${app_dir}/latest-dev.json" >/dev/null
+          python3 tools/validate-gui-update-manifest.py \
+            --channel dev \
+            --app-tag "${DEV_VERSION}" \
+            --app-dir "${app_dir}" \
+            --manifest "${app_dir}/latest-dev.json" \
+            --github-repository "${GITHUB_REPOSITORY}" \
+            --download-dispatcher-url "https://download-dispatch.syngnat.top/v1/resolve" \
+            --download-path-prefix "/gonavi/dev/releases/download"
 
+          driver_version_file="${RUNNER_TEMP}/driver-dev-version-index.json"
           driver_latest_file="${RUNNER_TEMP}/driver-dev-latest-index.json"
           if [[ "${HAS_DRIVER_ASSETS}" == "true" ]]; then
             [[ -s "${driver_dir}/SHA256SUMS" ]] || {
@@ -1522,12 +1860,27 @@ jobs:
               exit 1
             }
             (cd "${driver_dir}" && sha256sum --check SHA256SUMS)
+            driver_hashes="${RUNNER_TEMP}/driver-dev-asset-sha256.json"
             jq \
-              --arg tag "dev-latest" \
+              --arg tag "${DEV_VERSION}" \
               --arg mirror_tag "${DEV_VERSION}" \
-              '.tagName = $tag | .mirrorTagName = $mirror_tag | del(.assets["GoNavi-DriverAgents.zip"])' \
+              '.tagName = $tag | del(.mirrorTagName) | del(.assets["GoNavi-DriverAgents.zip"]) | del(.assetSha256)' \
               "${driver_dir}/GoNavi-DriverAgents-Index.json" \
-              > "${driver_latest_file}"
+              > "${RUNNER_TEMP}/driver-dev-version-index-base.json"
+            while IFS= read -r name; do
+              [[ "${name}" == "$(basename "${name}")" && -f "${driver_dir}/${name}" ]] || {
+                echo "Invalid or missing dev driver asset: ${name}" >&2
+                exit 1
+              }
+              printf '%s\t%s\n' "${name}" "$(sha256sum "${driver_dir}/${name}" | awk '{print $1}')"
+            done < <(jq -r '.assets | keys[]' "${RUNNER_TEMP}/driver-dev-version-index-base.json") \
+              | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' > "${driver_hashes}"
+            jq --slurpfile hashes "${driver_hashes}" \
+              '.assetSha256 = $hashes[0]' \
+              "${RUNNER_TEMP}/driver-dev-version-index-base.json" > "${driver_version_file}"
+            jq --arg tag "dev-latest" --arg mirror_tag "${DEV_VERSION}" \
+              '.tagName = $tag | .mirrorTagName = $mirror_tag' \
+              "${driver_version_file}" > "${driver_latest_file}"
             jq -e '.assets | type == "object" and length > 0' "${driver_latest_file}" >/dev/null
           fi
 
@@ -1568,7 +1921,7 @@ jobs:
             done < <(jq -r '.assets | to_entries[] | [.key, (.value | tostring)] | @tsv' "${driver_latest_file}")
           fi
 
-      - name: Mirror dev release to Gatewaysentry
+      - name: Publish dev release to verified static edge
         uses: ./.github/actions/publish-vps-mirror
         with:
           channel: dev
@@ -1578,10 +1931,19 @@ jobs:
           driver-enabled: ${{ steps.driver_assets.outputs.has_driver_assets }}
           driver-tag: ${{ steps.version.outputs.version }}
           driver-dir: driver-release-assets
-          driver-version-index: ${{ runner.temp }}/driver-dev-latest-index.json
+          driver-version-index: ${{ runner.temp }}/driver-dev-version-index.json
           driver-latest-index: ${{ runner.temp }}/driver-dev-latest-index.json
-          ssh-host: ${{ secrets.MIRROR_SSH_HOST }}
-          ssh-port: ${{ secrets.MIRROR_SSH_PORT }}
-          ssh-user: ${{ secrets.MIRROR_SSH_USER }}
-          ssh-private-key: ${{ secrets.MIRROR_SSH_PRIVATE_KEY }}
-          ssh-known-hosts: ${{ secrets.MIRROR_SSH_KNOWN_HOSTS }}
+          dmit-ssh-host: ${{ secrets.CDN_DMIT_SSH_HOST }}
+          dmit-ssh-port: ${{ secrets.CDN_DMIT_SSH_PORT }}
+          dmit-ssh-user: ${{ secrets.CDN_DMIT_SSH_USER }}
+          dmit-ssh-private-key: ${{ secrets.CDN_DMIT_SSH_PRIVATE_KEY }}
+          dmit-ssh-known-hosts: ${{ secrets.CDN_DMIT_SSH_KNOWN_HOSTS }}
+          bero-ssh-host: ${{ secrets.CDN_BERO_SSH_HOST }}
+          bero-ssh-port: ${{ secrets.CDN_BERO_SSH_PORT }}
+          bero-ssh-user: ${{ secrets.CDN_BERO_SSH_USER }}
+          bero-ssh-private-key: ${{ secrets.CDN_BERO_SSH_PRIVATE_KEY }}
+          bero-ssh-known-hosts: ${{ secrets.CDN_BERO_SSH_KNOWN_HOSTS }}
+          bero-base-url: ${{ vars.CDN_BERO_BASE_URL }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_KV_API_TOKEN }}
+          routing-state-kv-id: ${{ vars.ROUTING_STATE_KV_ID }}

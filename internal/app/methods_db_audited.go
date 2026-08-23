@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -120,13 +121,63 @@ func (executor *MCPQueryExecutor) DBQueryMulti(
 	dbName string,
 	query string,
 ) connection.QueryResult {
+	return executor.DBQueryMultiContext(context.Background(), config, dbName, query)
+}
+
+// DBQueryMultiContext binds an MCP request lifecycle to the underlying
+// database query. This keeps an HTTP client disconnect or stdio shutdown from
+// leaving a query running after its MCP caller has gone away.
+func (executor *MCPQueryExecutor) DBQueryMultiContext(
+	ctx context.Context,
+	config connection.ConnectionConfig,
+	dbName string,
+	query string,
+) connection.QueryResult {
+	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, true)
+}
+
+// DBQueryMultiAuthorizedContext is the MCP execution boundary. It resolves
+// the current saved metadata and secrets together, then re-evaluates the
+// shared AI safety level and connection protections immediately before the
+// SQL call. The resolved-snapshot marker prevents a later execution layer
+// from mixing in a newer secret bundle.
+func (executor *MCPQueryExecutor) DBQueryMultiAuthorizedContext(
+	ctx context.Context,
+	config connection.ConnectionConfig,
+	dbName string,
+	query string,
+	allowMutating bool,
+) connection.QueryResult {
+	return executor.dbQueryMultiAuthorizedContext(ctx, config, dbName, query, allowMutating)
+}
+
+func (executor *MCPQueryExecutor) dbQueryMultiAuthorizedContext(
+	ctx context.Context,
+	config connection.ConnectionConfig,
+	dbName string,
+	query string,
+	allowMutating bool,
+) connection.QueryResult {
 	if executor == nil || executor.app == nil {
 		return connection.QueryResult{Success: false, Message: "MCP query executor is unavailable"}
 	}
-	return executor.app.dbQueryMulti(config, dbName, query, "", dbQueryMultiAuditOptions{
-		auditAll:    true,
-		auditWrites: true,
-		source:      "mcp",
+	resolvedConfig, err := executor.app.resolveConnectionSecrets(config)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	runtime := &HeadlessRuntime{app: executor.app}
+	if err := runtime.authorizeHeadlessSQL(resolvedConfig, query, allowMutating, false); err != nil {
+		return connection.QueryResult{
+			Success: false,
+			Message: err.Error(),
+			Data:    map[string]any{"errorKind": headlessResultErrorKindPolicy},
+		}
+	}
+	return executor.app.dbQueryMulti(resolvedConfig, dbName, query, "", dbQueryMultiAuditOptions{
+		auditAll:         true,
+		auditWrites:      true,
+		source:           "mcp",
+		executionContext: ctx,
 	})
 }
 

@@ -9,6 +9,12 @@ import (
 	"GoNavi-Wails/internal/logger"
 )
 
+// escapeDamengMetadataLiteral normalizes a schema/table value and escapes it
+// for use as a SQL string literal in Dameng metadata queries.
+func escapeDamengMetadataLiteral(value string) string {
+	return strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(value)), "'", "''")
+}
+
 var damengDatabaseQueries = []string{
 	// 优先使用达梦原生系统表（SYSDBA 保留：作为默认管理员 schema，大多数用户在此创建业务表）
 	"SELECT DISTINCT OBJECT_NAME AS DATABASE_NAME FROM SYS.SYSOBJECTS WHERE TYPE$ = 'SCH' AND OBJECT_NAME NOT IN ('SYS','SYSAUDITOR','SYSSSO','CTISYS','__RECYCLE_USER__') ORDER BY OBJECT_NAME",
@@ -106,8 +112,8 @@ func getDamengRowString(row map[string]interface{}, keys ...string) string {
 }
 
 func buildDamengColumnsQuery(dbName, tableName string) string {
-	upperTableName := strings.ToUpper(strings.TrimSpace(tableName))
-	upperDBName := strings.ToUpper(strings.TrimSpace(dbName))
+	upperTableName := escapeDamengMetadataLiteral(tableName)
+	upperDBName := escapeDamengMetadataLiteral(dbName)
 
 	// 注意：达梦中 COMMENT 为保留字，不能使用 AS comment 作为列别名（Error -2007 语法分析出错）。
 	if upperDBName == "" {
@@ -153,8 +159,8 @@ func buildDamengColumnsQuery(dbName, tableName string) string {
 // compatible ALL_COL_COMMENTS/USER_COL_COMMENTS views but return empty comment
 // values when those views are joined with the column dictionary.
 func buildDamengColumnCommentsQuery(dbName, tableName string) string {
-	upperTableName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(tableName)), "'", "''")
-	upperDBName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(dbName)), "'", "''")
+	upperTableName := escapeDamengMetadataLiteral(tableName)
+	upperDBName := escapeDamengMetadataLiteral(dbName)
 
 	schemaPredicate := "SCHNAME = USER"
 	if upperDBName != "" {
@@ -168,8 +174,8 @@ func buildDamengColumnCommentsQuery(dbName, tableName string) string {
 }
 
 func buildDamengTableCommentQuery(dbName, tableName string) string {
-	upperTableName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(tableName)), "'", "''")
-	upperDBName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(dbName)), "'", "''")
+	upperTableName := escapeDamengMetadataLiteral(tableName)
+	upperDBName := escapeDamengMetadataLiteral(dbName)
 	if upperDBName == "" {
 		return fmt.Sprintf(`SELECT comments AS "TABLE_COMMENT"
 			FROM user_tab_comments
@@ -208,8 +214,8 @@ func appendDamengTableCommentDDL(ddl, dbName, tableName, comment string) string 
 // records both IDENTITY and AUTO_INCREMENT columns. It intentionally remains a
 // separate query so restricted accounts can still load base column metadata.
 func buildDamengAutoIncrementColumnsQuery(dbName, tableName string) string {
-	upperDBName := strings.ToUpper(strings.TrimSpace(dbName))
-	upperTableName := strings.ToUpper(strings.TrimSpace(tableName))
+	upperDBName := escapeDamengMetadataLiteral(dbName)
+	upperTableName := escapeDamengMetadataLiteral(tableName)
 
 	schemaPredicate := "s.NAME = USER"
 	if upperDBName != "" {
@@ -245,8 +251,8 @@ func applyDamengAutoIncrementColumns(columns []connection.ColumnDefinition, data
 }
 
 func buildDamengIndexesQuery(dbName, tableName string) string {
-	upperDBName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(dbName)), "'", "''")
-	upperTableName := strings.ReplaceAll(strings.ToUpper(strings.TrimSpace(tableName)), "'", "''")
+	upperDBName := escapeDamengMetadataLiteral(dbName)
+	upperTableName := escapeDamengMetadataLiteral(tableName)
 
 	if upperDBName == "" {
 		return fmt.Sprintf(`SELECT c.index_name, c.column_name, i.uniqueness, c.column_position, i.index_type
@@ -298,8 +304,8 @@ func buildDamengIndexDefinitions(data []map[string]interface{}) []connection.Ind
 }
 
 func buildDamengForeignKeysQuery(dbName, tableName string) string {
-	upperDBName := strings.ToUpper(strings.TrimSpace(dbName))
-	upperTableName := strings.ToUpper(strings.TrimSpace(tableName))
+	upperDBName := escapeDamengMetadataLiteral(dbName)
+	upperTableName := escapeDamengMetadataLiteral(tableName)
 	if upperDBName == "" {
 		return fmt.Sprintf(`SELECT a.constraint_name, a.column_name, c_pk.table_name r_table_name, b.column_name r_column_name
 		FROM (

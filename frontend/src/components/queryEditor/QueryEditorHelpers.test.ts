@@ -14,6 +14,7 @@ import {
     materializeBoundedQueryEditorCompletionBatches,
     rankQueryEditorCompletionCandidate,
     resolveQueryEditorCompletionFilterText,
+    resolveQueryEditorConnectionTimeout,
     resolveOracleLikeDefaultSchemaName,
     resolveOracleLikeExecutionSchemaName,
     resolveOracleLikeLookupSchemaCandidates,
@@ -23,6 +24,29 @@ import {
     shouldHandleQueryEditorRunShortcutFallback,
     splitCompletionSchemaAndTable,
 } from './QueryEditorHelpers';
+
+describe('QueryEditor connection timeout', () => {
+    it('keeps the configured MySQL timeout instead of forcing a 120 second minimum', () => {
+        expect(resolveQueryEditorConnectionTimeout({ type: 'mysql' })).toBe(30);
+        expect(resolveQueryEditorConnectionTimeout({ type: 'mysql', timeout: 45 })).toBe(45);
+        expect(resolveQueryEditorConnectionTimeout({ type: 'mysql', timeout: 300 })).toBe(300);
+    });
+
+    it.each([
+        [{ type: 'goldendb', timeout: 45 }, 45],
+        [{ type: 'custom', driver: 'gdb', timeout: 60 }, 60],
+    ])('keeps the configured connection timeout for compatible config %#', (config, expected) => {
+        expect(resolveQueryEditorConnectionTimeout(config)).toBe(expected);
+    });
+
+    it.each([
+        [{ type: 'postgres', timeout: 30 }, 30],
+        [{ type: 'oracle', timeout: 45 }, 45],
+        [{ type: 'elasticsearch', timeout: 60 }, 60],
+    ])('keeps the configured connection timeout for every data source %#', (config, expected) => {
+        expect(resolveQueryEditorConnectionTimeout(config)).toBe(expected);
+    });
+});
 
 describe('QueryEditor result merge identity', () => {
     it('keeps zero-based Elasticsearch request indexes distinct', () => {

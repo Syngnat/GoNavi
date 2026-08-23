@@ -53,6 +53,8 @@ const normalizeSSHConfig = (value: unknown): connection.SSHConfig => {
     user: toStringValue(raw.user),
     password: toStringValue(raw.password),
     keyPath: toStringValue(raw.keyPath),
+    knownHostsPath: toStringValue(raw.knownHostsPath),
+    hostKeyFingerprint: toStringValue(raw.hostKeyFingerprint),
   });
 };
 
@@ -123,6 +125,7 @@ export function buildRpcConnectionConfig(
 
   const baseId = toStringValue(config.id).trim() || toStringValue(overrides.id).trim() || undefined;
   const timeout = toOptionalInteger(rpcMerged.timeout, toOptionalInteger(config.timeout));
+  const queryTimeout = toOptionalInteger(rpcMerged.queryTimeout, toOptionalInteger(config.queryTimeout));
   const redisDB = toOptionalInteger(rpcMerged.redisDB, toOptionalInteger(config.redisDB));
   const protection = resolveConnectionProtectionConfig({
     type: toStringValue(rpcMerged.type),
@@ -149,6 +152,7 @@ export function buildRpcConnectionConfig(
     useHttpTunnel: rpcMerged.useHttpTunnel === true,
     httpTunnel: normalizeHttpTunnelConfig(rpcMerged.httpTunnel),
     timeout,
+    queryTimeout,
     redisDB,
   }) as RpcConnectionConfig;
 

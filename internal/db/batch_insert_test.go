@@ -5,10 +5,27 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
+
 	"GoNavi-Wails/shared/i18n"
 )
+
+func TestExecLiteralInsertBatchesMarksLostResponseOutcomeUnknown(t *testing.T) {
+	err := execLiteralInsertBatches(literalInsertConfig{
+		Table:       `"events"`,
+		Rows:        []map[string]interface{}{{"id": 1}},
+		QuoteColumn: func(column string) string { return `"` + column + `"` },
+		Literal:     func(value interface{}) string { return fmt.Sprintf("%v", value) },
+		Exec: func(string) (sql.Result, error) {
+			return nil, io.ErrUnexpectedEOF
+		},
+	})
+	if !IsWriteOutcomeUnknown(err) {
+		t.Fatalf("lost literal insert response must be outcome unknown, got %v", err)
+	}
+}
 
 func TestExecParameterizedInsertBatchesGroupsRowsByColumnSet(t *testing.T) {
 	t.Parallel()
@@ -428,8 +445,6 @@ func TestBatchInsertErrorsUseCurrentLanguage(t *testing.T) {
 		})
 	}
 }
-
-
 func TestBatchInsertErrorCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {

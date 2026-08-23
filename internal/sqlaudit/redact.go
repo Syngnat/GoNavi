@@ -580,6 +580,12 @@ func sanitizeEvent(event Event, settings Settings) Event {
 	if event.StatementCount < 0 {
 		event.StatementCount = 0
 	}
+	if event.ExecutedCount < 0 {
+		event.ExecutedCount = 0
+	}
+	if event.FailedIndex < 0 {
+		event.FailedIndex = 0
+	}
 	if event.DurationMs < 0 {
 		event.DurationMs = 0
 	}

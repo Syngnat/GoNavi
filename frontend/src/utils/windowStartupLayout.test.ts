@@ -99,12 +99,16 @@ describe('windowStartupLayout', () => {
     });
   });
 
-  it('keeps startup normal when the explicit fullscreen preference is disabled', () => {
-    expect(resolveStartupWindowRestoreMode(false)).toBe('normal');
+  it('restores the last normal window when startup maximise is disabled', () => {
+    expect(resolveStartupWindowRestoreMode(false, 'normal')).toBe('normal');
+  });
+
+  it('restores a user-maximised window when startup maximise is disabled', () => {
+    expect(resolveStartupWindowRestoreMode(false, 'maximized')).toBe('maximised');
   });
 
   it('maximises the startup window on every desktop platform when enabled', () => {
-    expect(resolveStartupWindowRestoreMode(true)).toBe('maximised');
+    expect(resolveStartupWindowRestoreMode(true, 'normal')).toBe('maximised');
   });
 
   it('does not accept a stale Windows WebView surface as a settled maximised window', () => {

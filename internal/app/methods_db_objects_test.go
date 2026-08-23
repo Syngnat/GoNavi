@@ -99,6 +99,24 @@ func TestBuildObjectTriggerQueriesDoNotEmitEmptyMySQLFromClause(t *testing.T) {
 	}
 }
 
+func TestBuildOracleObjectMetadataQueriesExposeCompileStatus(t *testing.T) {
+	routineSpecs := buildObjectRoutineMetadataQueries("oracle", "APP")
+	if len(routineSpecs) != 1 {
+		t.Fatalf("expected one Oracle routine metadata query, got %#v", routineSpecs)
+	}
+	if !strings.Contains(routineSpecs[0].sql, "STATUS AS object_status") {
+		t.Fatalf("expected Oracle routine query to expose compiler status, got %q", routineSpecs[0].sql)
+	}
+
+	triggerSpecs := buildObjectTriggerMetadataQueries("oracle", "APP")
+	if len(triggerSpecs) != 1 {
+		t.Fatalf("expected one Oracle trigger metadata query, got %#v", triggerSpecs)
+	}
+	if !strings.Contains(triggerSpecs[0].sql, "LEFT JOIN ALL_OBJECTS") || !strings.Contains(triggerSpecs[0].sql, "STATUS AS object_status") {
+		t.Fatalf("expected Oracle trigger query to join object compiler status, got %q", triggerSpecs[0].sql)
+	}
+}
+
 func testConnectionConfig(dbType string) connection.ConnectionConfig {
 	return connection.ConnectionConfig{Type: dbType}
 }

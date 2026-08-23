@@ -29,6 +29,11 @@ type SavedConnectionInput struct {
 	ClearRedisSentinelPassword bool                            `json:"clearRedisSentinelPassword,omitempty"`
 	ClearOpaqueURI             bool                            `json:"clearOpaqueURI,omitempty"`
 	ClearOpaqueDSN             bool                            `json:"clearOpaqueDSN,omitempty"`
+	ClearJVMJMXPassword        bool                            `json:"clearJVMJMXPassword,omitempty"`
+	ClearJVMEndpointAPIKey     bool                            `json:"clearJVMEndpointAPIKey,omitempty"`
+	ClearJVMAgentAPIKey        bool                            `json:"clearJVMAgentAPIKey,omitempty"`
+	ClearJVMDiagnosticAPIKey   bool                            `json:"clearJVMDiagnosticAPIKey,omitempty"`
+	ClearSensitiveParams       bool                            `json:"clearSensitiveConnectionParams,omitempty"`
 }
 
 type SavedConnectionView struct {
@@ -53,6 +58,11 @@ type SavedConnectionView struct {
 	HasRedisSentinelPassword   bool                            `json:"hasRedisSentinelPassword,omitempty"`
 	HasOpaqueURI               bool                            `json:"hasOpaqueURI,omitempty"`
 	HasOpaqueDSN               bool                            `json:"hasOpaqueDSN,omitempty"`
+	HasJVMJMXPassword          bool                            `json:"hasJVMJMXPassword,omitempty"`
+	HasJVMEndpointAPIKey       bool                            `json:"hasJVMEndpointAPIKey,omitempty"`
+	HasJVMAgentAPIKey          bool                            `json:"hasJVMAgentAPIKey,omitempty"`
+	HasJVMDiagnosticAPIKey     bool                            `json:"hasJVMDiagnosticAPIKey,omitempty"`
+	HasSensitiveParams         bool                            `json:"hasSensitiveConnectionParams,omitempty"`
 }
 
 type LegacySavedConnection = SavedConnectionInput

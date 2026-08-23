@@ -1,7 +1,7 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useEffect, useState, useContext, useMemo, useRef, useCallback } from 'react';
 import { Table, Tabs, Button, message, Input, Checkbox, AutoComplete, Tooltip, Select, Empty, Space, Tag, Radio, Spin } from 'antd';
-import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined, CopyOutlined, TableOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SaveOutlined, PlusOutlined, DeleteOutlined, MenuOutlined, FileTextOutlined, EyeOutlined, EditOutlined, ExclamationCircleOutlined, CopyOutlined, TableOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -37,6 +37,16 @@ import {
     resolveSqlDialect,
 } from '../utils/sqlDialect';
 import { splitQualifiedNameLast, stripIdentifierQuotes } from '../utils/qualifiedName';
+import { loadSchemas } from './sidebar/sidebarMetadataLoaders';
+import {
+    qualifyTableDesignerCreateName,
+    extractTableDesignerCurrentSchema,
+    resolveLoadedTableDesignerSchema,
+    resolveTableDesignerEditTarget,
+    resolveTableDesignerSchema,
+    supportsTableDesignerSchemaSelection as supportsRequestedTableDesignerSchemaSelection,
+    TABLE_DESIGNER_CURRENT_SCHEMA_SQL,
+} from './tableDesignerSchemaContext';
 import { buildTDengineStableOptions, buildTDengineStableQueries } from '../utils/tdengineStableMetadata';
 import {
     cloneTableDesignerColumnsForPaste,
@@ -444,6 +454,13 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   
   // New Table State
   const [newTableName, setNewTableName] = useState('');
+  const [schemaOptions, setSchemaOptions] = useState<{ label: string; value: string }[]>([]);
+  const [selectedSchema, setSelectedSchema] = useState(() => stripIdentifierQuotes(
+      splitQualifiedNameLast(tab.tableName || '').parentPath || tab.schemaName || '',
+  ));
+  const [schemaSelectionOverride, setSchemaSelectionOverride] = useState(false);
+  const [schemaReady, setSchemaReady] = useState(false);
+  const [schemaLoading, setSchemaLoading] = useState(false);
   const [charset, setCharset] = useState('utf8mb4');
   const [collation, setCollation] = useState('utf8mb4_unicode_ci');
   const [starRocksTableKind, setStarRocksTableKind] = useState<StarRocksTableKind>('olap');
@@ -528,6 +545,8 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const connections = useStore(state => state.connections);
   const addTab = useStore(state => state.addTab);
   const setActiveContext = useStore(state => state.setActiveContext);
+  const tableDesignerSchemaByConnection = useStore(state => state.tableDesignerSchemaByConnection || {});
+  const setTableDesignerSchema = useStore(state => state.setTableDesignerSchema);
   const theme = useStore(state => state.theme);
   const appearance = useStore(state => state.appearance);
   const i18nLanguage = useTableDesignerI18nLanguage();
@@ -535,8 +554,13 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const isV2Ui = appearance.uiVersion === 'v2';
   const resizeGuideColor = darkMode ? '#f6c453' : '#1890ff';
   const readOnly = !!tab.readOnly;
-  const designerTableTitle = tab.tableName || newTableName || t('table_designer.title.untitled_table', undefined, i18nLanguage);
+  const designerTableTitle = isNewTable
+      ? (newTableName || t('table_designer.title.untitled_table', undefined, i18nLanguage))
+      : (splitQualifiedNameLast(tab.tableName || '').objectName || tab.tableName || t('table_designer.title.untitled_table', undefined, i18nLanguage));
   const designerDbTitle = tab.dbName || t('table_designer.title.default_database', undefined, i18nLanguage);
+  const designerSchemaTitle = (
+      isNewTable ? stripIdentifierQuotes(splitQualifiedNameLast(newTableName).parentPath) : ''
+  ) || selectedSchema || tab.schemaName || '';
   const designerColumnSummary = t('table_designer.summary.columns', { count: columns.length }, i18nLanguage);
   const metadataLoading = columnsLoading || indexesLoading || foreignKeysLoading || triggersLoading || ddlLoading;
   const charsetOptions = useMemo(() => getCharsetOptions(i18nLanguage), [i18nLanguage]);
@@ -554,7 +578,14 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const pendingFocusColumnKeyRef = useRef<string | null>(null);
   const focusHighlightTimerRef = useRef<number | null>(null);
   const metadataLoadSeqRef = useRef(0);
+  const schemaLoadSeqRef = useRef(0);
+  const latestSelectedSchemaRef = useRef(selectedSchema);
+  const schemaContextKeyRef = useRef('');
   const [focusColumnKey, setFocusColumnKey] = useState('');
+
+  useEffect(() => {
+      latestSelectedSchemaRef.current = selectedSchema;
+  }, [selectedSchema]);
 
   const openCommentEditor = useCallback((record: EditableColumn) => {
       if (!record?._key) return;
@@ -1012,10 +1043,14 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
     };
 
     const rpcConfig = buildRpcConnectionConfig(config) as any;
-    const dbName = tab.dbName || '';
-    const tableName = tab.tableName || '';
+      const dbName = tab.dbName || '';
+      const tableInfo = resolveTableInfo();
+      const resolvedTableName = supportsRequestedTableDesignerSchemaSelection(tableInfo.dbType)
+          ? tableInfo.qualifiedName
+          : (tab.tableName || '');
+      const tableName = resolvedTableName || tab.tableName || '';
 
-    setColumnsLoading(true);
+      setColumnsLoading(true);
     setIndexesLoading(true);
     setForeignKeysLoading(true);
     setTriggersLoading(true);
@@ -1115,7 +1150,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
 
   useEffect(() => {
     fetchData();
-  }, [tab]);
+  }, [tab, selectedSchema]);
 
   // --- Trigger Handlers ---
 
@@ -1156,9 +1191,143 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
     });
   };
 
+  const supportsTableDesignerSchemaSelection = supportsRequestedTableDesignerSchemaSelection(getDbType());
+
+  useEffect(() => {
+      if (!supportsTableDesignerSchemaSelection) {
+          schemaLoadSeqRef.current += 1;
+          schemaContextKeyRef.current = '';
+          latestSelectedSchemaRef.current = '';
+          setSchemaOptions([]);
+          setSelectedSchema('');
+          setSchemaSelectionOverride(false);
+          setSchemaReady(true);
+          setSchemaLoading(false);
+          return;
+      }
+
+      const conn = connections.find(c => c.id === tab.connectionId);
+      const dbName = String(tab.dbName || '').trim();
+      if (!conn || !dbName) {
+          setSchemaReady(false);
+          return;
+      }
+
+      const requestSeq = schemaLoadSeqRef.current + 1;
+      schemaLoadSeqRef.current = requestSeq;
+      const explicitSchema = stripIdentifierQuotes(
+          splitQualifiedNameLast(tab.tableName || '').parentPath || tab.schemaName || '',
+      );
+      const rememberedSchema = tableDesignerSchemaByConnection[tab.connectionId] || '';
+      const contextKey = [tab.connectionId, dbName, tab.tableName || 'new'].join('::');
+      if (schemaContextKeyRef.current !== contextKey) {
+          schemaContextKeyRef.current = contextKey;
+          latestSelectedSchemaRef.current = explicitSchema;
+          setSelectedSchema(explicitSchema);
+          setSchemaSelectionOverride(false);
+          setSchemaOptions(explicitSchema ? [{ label: explicitSchema, value: explicitSchema }] : []);
+      }
+
+      let cancelled = false;
+      setSchemaReady(false);
+      setSchemaLoading(true);
+      const loadCurrentSchema = DBQuery(
+          buildRpcConnectionConfig({
+              ...conn.config,
+              port: Number(conn.config.port),
+              password: conn.config.password || '',
+              database: conn.config.database || '',
+              useSSH: conn.config.useSSH || false,
+              ssh: conn.config.ssh || { host: '', port: 22, user: '', password: '', keyPath: '' },
+          }) as any,
+          dbName,
+          TABLE_DESIGNER_CURRENT_SCHEMA_SQL,
+      ).then(result => {
+          if (!result.success) return '';
+          return extractTableDesignerCurrentSchema(result.data);
+      }).catch(() => '');
+
+      void Promise.all([loadSchemas(conn, dbName), loadCurrentSchema])
+          .then(([result, currentSchema]) => {
+              if (cancelled) return;
+              const schemaNames = Array.from(new Map(
+                  (Array.isArray(result.schemas) ? result.schemas : [])
+                      .map(schema => String(schema || '').trim())
+                      .filter(Boolean)
+                      .map(schema => [schema.toLocaleLowerCase(), schema] as const),
+              ).values());
+              const resolved = resolveLoadedTableDesignerSchema({
+                  requestSeq,
+                  currentRequestSeq: schemaLoadSeqRef.current,
+                  latestSelectedSchema: latestSelectedSchemaRef.current,
+                  explicitSchema,
+                  rememberedSchema,
+                  currentSchema,
+                  schemaNames,
+              });
+              if (!resolved) return;
+              latestSelectedSchemaRef.current = resolved.selectedSchema;
+              setSelectedSchema(resolved.selectedSchema);
+              setSchemaOptions(resolved.schemaNames.map(schema => ({ label: schema, value: schema })));
+              if (resolved.selectedSchema) {
+                  setTableDesignerSchema?.(tab.connectionId, resolved.selectedSchema);
+              }
+          })
+          .catch(() => {
+              if (cancelled || requestSeq !== schemaLoadSeqRef.current) return;
+              const fallback = latestSelectedSchemaRef.current || explicitSchema;
+              setSelectedSchema(fallback);
+              setSchemaOptions(fallback ? [{ label: fallback, value: fallback }] : []);
+          })
+          .finally(() => {
+              if (!cancelled && requestSeq === schemaLoadSeqRef.current) {
+                  setSchemaReady(true);
+                  setSchemaLoading(false);
+              }
+          });
+
+      return () => {
+          cancelled = true;
+      };
+  }, [connections, supportsTableDesignerSchemaSelection, tab.connectionId, tab.dbName, tab.schemaName, tab.tableName]);
+
+  const handleSchemaChange = (schemaName: string) => {
+      const nextSchema = String(schemaName || '').trim();
+      if (!nextSchema || nextSchema === selectedSchema) return;
+      const applySchema = () => {
+          if (!isNewTable) {
+              setColumns([]);
+              setOriginalColumns([]);
+              setIndexes([]);
+              setFks([]);
+              setTriggers([]);
+              setDdl('');
+              setSelectedColumnRowKeys([]);
+          }
+          latestSelectedSchemaRef.current = nextSchema;
+          setSelectedSchema(nextSchema);
+          setSchemaSelectionOverride(!isNewTable);
+          setTableDesignerSchema?.(tab.connectionId, nextSchema);
+      };
+      if (hasUnsavedDraftChanges) {
+          Modal.confirm({
+              title: t('table_designer.modal.unsaved_changes_title', undefined, i18nLanguage),
+              icon: <ExclamationCircleOutlined />,
+              content: t('table_designer.modal.unsaved_changes_content', undefined, i18nLanguage),
+              okText: t('table_designer.action.refresh_anyway', undefined, i18nLanguage),
+              cancelText: t('table_designer.action.cancel', undefined, i18nLanguage),
+              onOk: applySchema,
+          });
+          return;
+      }
+      applySchema();
+  };
+
   const generateTriggerTemplate = (): string => {
     const dbType = getDbType();
-    const tblName = tab.tableName || 'table_name';
+    const tblName = supportsRequestedTableDesignerSchemaSelection(dbType)
+        ? resolveTableInfo().qualifiedName
+        : (tab.tableName || 'table_name');
 
     switch (dbType) {
       case 'mysql':
@@ -1177,7 +1346,8 @@ END;`;
       case 'highgo':
       case 'vastbase':
       case 'opengauss':
-      case 'gaussdb':
+      case 'gaussdb': {
+        const tableRef = quoteIdentifierPathByDialect(tblName, dbType);
         return `CREATE OR REPLACE FUNCTION trigger_function_name()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -1187,9 +1357,10 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_name
-BEFORE INSERT ON "${tblName}"
+BEFORE INSERT ON ${tableRef}
 FOR EACH ROW
 EXECUTE FUNCTION trigger_function_name();`;
+      }
       case 'sqlserver':
         return `CREATE TRIGGER trigger_name
 ON [${tblName}]
@@ -1222,7 +1393,9 @@ END;`;
 
   const buildDropTriggerSql = (triggerName: string): string => {
     const dbType = getDbType();
-    const tblName = tab.tableName || '';
+    const tblName = supportsRequestedTableDesignerSchemaSelection(dbType)
+        ? resolveTableInfo().qualifiedName
+        : (tab.tableName || '');
 
     switch (dbType) {
       case 'mysql':
@@ -1237,7 +1410,7 @@ END;`;
       case 'vastbase':
       case 'opengauss':
       case 'gaussdb':
-        return `DROP TRIGGER IF EXISTS "${triggerName}" ON "${tblName}"`;
+        return `DROP TRIGGER IF EXISTS ${quoteIdentifierPartByDialect(triggerName, dbType)} ON ${quoteIdentifierPathByDialect(tblName, dbType)}`;
       case 'sqlserver':
         return `DROP TRIGGER IF EXISTS [${triggerName}]`;
       case 'oracle':
@@ -1260,7 +1433,9 @@ END;`;
   const handleEditTrigger = () => {
     if (!selectedTrigger) return;
     const dbType = getDbType();
-    const tblName = tab.tableName || '';
+    const tblName = supportsRequestedTableDesignerSchemaSelection(dbType)
+        ? resolveTableInfo().qualifiedName
+        : (tab.tableName || '');
     let createSql = '';
 
     if (dbType === 'mysql') {
@@ -1894,31 +2069,17 @@ ${selectedTrigger.statement}`;
 
   const resolveTableInfo = () => {
       const dbType = getDbType();
-      const rawTable = String(tab.tableName || '').trim();
-      const rawDb = String(tab.dbName || '').trim();
-      const parsed = splitQualifiedName(rawTable);
-      const table = parsed.objectName || stripIdentifierQuotes(rawTable);
-      let schema = parsed.schemaName;
-
-      if (!schema) {
-          if (isPgLikeDialect(dbType)) {
-              schema = rawDb || 'public';
-          } else if (isSqlServerDialect(dbType)) {
-              schema = 'dbo';
-          } else if (isOracleLikeDialect(dbType)) {
-              schema = rawDb;
-          } else {
-              schema = rawDb;
-          }
-      }
-
-      const qualifiedName = schema ? `${schema}.${table}` : table;
+      const resolved = resolveTableDesignerEditTarget({
+          dbType,
+          dbName: String(tab.dbName || ''),
+          tableName: String(tab.tableName || ''),
+          selectedSchema,
+          schemaSelectionOverride,
+      });
       return {
           dbType,
-          schema: stripIdentifierQuotes(schema),
-          table: stripIdentifierQuotes(table),
-          qualifiedName,
-          tableRef: quoteIdentifierPathByDialect(qualifiedName, dbType),
+          ...resolved,
+          tableRef: quoteIdentifierPathByDialect(resolved.qualifiedName, dbType),
       };
   };
 
@@ -1933,7 +2094,7 @@ ${selectedTrigger.statement}`;
           originalColumns,
           columns,
       });
-  }, [columns, connections, isNewTable, originalColumns, readOnly, tab.connectionId, tab.dbName, tab.tableName]);
+  }, [columns, connections, isNewTable, originalColumns, readOnly, schemaSelectionOverride, selectedSchema, tab.connectionId, tab.dbName, tab.tableName]);
 
   const supportsIndexSchemaOps = (): boolean => {
       const dbType = getDbType();
@@ -2013,9 +2174,10 @@ ${selectedTrigger.statement}`;
   };
 
   const buildCreateTableSql = (targetTableName: string, targetColumns: EditableColumn[], targetCharset: string, targetCollation: string) => {
+      const dbType = getDbType();
       return buildCreateTablePreviewSql({
-          dbType: getDbType(),
-          tableName: targetTableName,
+          dbType,
+          tableName: qualifyTableDesignerCreateName(targetTableName, selectedSchema, dbType),
           columns: targetColumns,
           charset: targetCharset,
           collation: targetCollation,
@@ -2067,7 +2229,11 @@ ${selectedTrigger.statement}`;
       const approved = await confirmProductionRisk({
           connection: conn,
           action: t('connection.production_risk.action.execute_sql'),
-          target: [tab.dbName, copyTableName.trim()].filter(Boolean).join(' / '),
+          target: [
+              tab.dbName,
+              supportsTableDesignerSchemaSelection ? designerSchemaTitle : '',
+              copyTableName.trim(),
+          ].filter(Boolean).join(' / '),
           translate: (key, params) => t(key, params, i18nLanguage),
       });
       if (!approved) return;
@@ -2111,7 +2277,7 @@ ${selectedTrigger.statement}`;
           const approved = await confirmProductionRisk({
               connection: conn,
               action: t('connection.production_risk.action.execute_sql'),
-              target: [tab.dbName, tab.tableName].filter(Boolean).join(' / '),
+              target: [tab.dbName, supportsTableDesignerSchemaSelection ? designerSchemaTitle : '', tab.tableName].filter(Boolean).join(' / '),
               translate: (key, params) => t(key, params, i18nLanguage),
           });
           if (!approved) {
@@ -2315,13 +2481,13 @@ END;`;
       if (!isIndexModalOpen) return '';
       const result = getIndexCreateSqlResult(indexForm);
       return result.sql || `-- ${result.message || 'Index CREATE SQL placeholder unavailable'}`;
-  }, [connections, i18nLanguage, indexForm, isIndexModalOpen, tab.connectionId, tab.dbName, tab.tableName]);
+  }, [connections, i18nLanguage, indexForm, isIndexModalOpen, schemaSelectionOverride, selectedSchema, tab.connectionId, tab.dbName, tab.tableName]);
 
   const selectedIndexCreateSql = useMemo(() => {
       if (!selectedIndex || selectedIndexKeys.length !== 1) return '';
       const result = getIndexCreateSqlResult(buildIndexFormFromRow(selectedIndex));
       return result.sql || `-- ${result.message || 'Index CREATE SQL unavailable'}`;
-  }, [connections, i18nLanguage, selectedIndex, selectedIndexKeys.length, tab.connectionId, tab.dbName, tab.tableName]);
+  }, [connections, i18nLanguage, schemaSelectionOverride, selectedIndex, selectedIndexKeys.length, selectedSchema, tab.connectionId, tab.dbName, tab.tableName]);
 
   const indexTableHeight = selectedIndexCreateSql ? Math.max(180, tableHeight - 220) : tableHeight;
 
@@ -2765,7 +2931,12 @@ END;`;
                       detail: {
                           connectionId,
                           dbName,
-                          tableName: String(newTableName || '').trim(),
+                          tableName: qualifyTableDesignerCreateName(
+                              String(newTableName || '').trim(),
+                              selectedSchema,
+                              getDbType(),
+                          ),
+                          schemaName: supportsTableDesignerSchemaSelection ? designerSchemaTitle : undefined,
                       },
                   }));
               }
@@ -3630,6 +3801,7 @@ END;`;
                 </div>
                 <div className="gn-v2-designer-meta">
                     <span><TableOutlined /> {designerDbTitle}</span>
+                    {supportsTableDesignerSchemaSelection && designerSchemaTitle && <span><FolderOpenOutlined /> {designerSchemaTitle}</span>}
                     <span>{designerColumnSummary}</span>
                     {readOnly && <span>{t('table_designer.status.read_only', undefined, i18nLanguage)}</span>}
                 </div>
@@ -3651,13 +3823,39 @@ END;`;
                 alignItems: 'center'
             }}
         >
+            {supportsTableDesignerSchemaSelection && (
+                <Select
+                    aria-label={t('data_sync.field.schema', undefined, i18nLanguage)}
+                    value={designerSchemaTitle || undefined}
+                    placeholder={t('data_sync.field.schema', undefined, i18nLanguage)}
+                    loading={schemaLoading}
+                    disabled={!schemaReady}
+                    showSearch
+                    optionFilterProp="label"
+                    options={designerSchemaTitle && !schemaOptions.some(option => option.value === designerSchemaTitle)
+                        ? [{ label: designerSchemaTitle, value: designerSchemaTitle }, ...schemaOptions]
+                        : schemaOptions}
+                    onChange={handleSchemaChange}
+                    style={{ minWidth: 150 }}
+                    popupMatchSelectWidth={false}
+                />
+            )}
             {isNewTable && (
                 <>
                     <Input 
                         {...noAutoCapInputProps}
                         placeholder={t('table_designer.placeholder.table_name', undefined, i18nLanguage)}
-                        value={newTableName} 
-                        onChange={e => setNewTableName(e.target.value)} 
+                        value={newTableName}
+                        onChange={e => {
+                            const nextTableName = e.target.value;
+                            setNewTableName(nextTableName);
+                            const explicitSchema = resolveTableDesignerSchema(nextTableName, selectedSchema, getDbType());
+                            if (explicitSchema && explicitSchema !== selectedSchema) {
+                                latestSelectedSchemaRef.current = explicitSchema;
+                                setSelectedSchema(explicitSchema);
+                                setTableDesignerSchema?.(tab.connectionId, explicitSchema);
+                            }
+                        }}
                         style={{ width: 150 }} 
                     />
                     {!isTDengineNewTable && (
@@ -3683,7 +3881,7 @@ END;`;
                     )}
                 </>
             )}
-            {!readOnly && <Button size="small" icon={<SaveOutlined />} type="primary" onClick={generateDDL}>{t('table_designer.action.save', undefined, i18nLanguage)}</Button>}
+            {!readOnly && <Button size="small" icon={<SaveOutlined />} type="primary" disabled={supportsTableDesignerSchemaSelection && !schemaReady} onClick={generateDDL}>{t('table_designer.action.save', undefined, i18nLanguage)}</Button>}
             {!isNewTable && <Button size="small" icon={<ReloadOutlined />} loading={metadataLoading} onClick={handleRefreshDesigner}>{t('table_designer.action.refresh', undefined, i18nLanguage)}</Button>}
             {!isNewTable && !readOnly && supportsTableCommentOps() && (
                 <Button size="small" icon={<EditOutlined />} onClick={openTableCommentModal}>{t('table_designer.action.table_comment', undefined, i18nLanguage)}</Button>

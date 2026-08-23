@@ -295,8 +295,9 @@ const NativeDetachedQueryResult: React.FC<{
             loading={false}
             pkColumns={[]}
             readOnly
-            connectionId={windowState.connectionId}
-            dbName={result.metadataDbName || windowState.dbName || ''}
+            connectionId={result.executionConnectionId || windowState.connectionId}
+            connectionParamsOverride={result.executionConnectionParams}
+            dbName={result.metadataDbName || result.executionDbName || windowState.dbName || ''}
             resultSql={result.sql}
             exportScope="queryResult"
             isActive
@@ -330,8 +331,9 @@ const NativeDetachedQueryResult: React.FC<{
       pkColumns={result.pkColumns || []}
       editLocator={result.editLocator as any}
       readOnly={result.readOnly !== false}
-      connectionId={windowState.connectionId}
-      dbName={result.metadataDbName || windowState.dbName || ''}
+      connectionId={result.executionConnectionId || windowState.connectionId}
+      connectionParamsOverride={result.executionConnectionParams}
+      dbName={result.metadataDbName || result.executionDbName || windowState.dbName || ''}
       ddlDbName={result.ddlDbName}
       ddlTableName={result.ddlTableName}
       resultSql={result.exportSql || result.sql}

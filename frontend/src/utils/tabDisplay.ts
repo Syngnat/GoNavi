@@ -1,9 +1,9 @@
-import type { ConnectionConfig, SavedConnection, TabData } from '../types';
+import type { ConnectionConfig, ConnectionTag, SavedConnection, TabData } from '../types';
 import { t as catalogTranslate } from '../i18n/catalog';
 import type { I18nParams } from '../i18n/types';
 import { resolveLocalizedUntitledQueryTitle } from './queryTabTitle';
 
-export const TAB_DISPLAY_ELEMENT_KEYS = ['object', 'kind', 'connection', 'database', 'schema', 'host'] as const;
+export const TAB_DISPLAY_ELEMENT_KEYS = ['object', 'kind', 'connection', 'database', 'schema', 'host', 'group'] as const;
 
 export type TabDisplayElementKey = typeof TAB_DISPLAY_ELEMENT_KEYS[number];
 export type TabDisplayLayout = 'single' | 'double';
@@ -25,7 +25,7 @@ export type TabDisplayTranslate = (key: string, params?: I18nParams) => string;
 
 const defaultTranslate: TabDisplayTranslate = (key, params) => catalogTranslate('en-US', key, params);
 
-export const TAB_DISPLAY_SECONDARY_DEFAULT_KEYS: TabDisplayElementKey[] = ['kind', 'connection', 'database', 'schema', 'host'];
+export const TAB_DISPLAY_SECONDARY_DEFAULT_KEYS: TabDisplayElementKey[] = ['kind', 'connection', 'database', 'schema', 'host', 'group'];
 
 export const TAB_DISPLAY_ELEMENT_META: Record<TabDisplayElementKey, { labelKey: string; descriptionKey: string }> = {
   connection: {
@@ -51,6 +51,10 @@ export const TAB_DISPLAY_ELEMENT_META: Record<TabDisplayElementKey, { labelKey: 
   host: {
     labelKey: 'app.theme.tab_display.element.host.label',
     descriptionKey: 'app.theme.tab_display.element.host.description',
+  },
+  group: {
+    labelKey: 'app.theme.tab_display.element.group.label',
+    descriptionKey: 'app.theme.tab_display.element.group.description',
   },
 };
 
@@ -275,6 +279,34 @@ export const resolveConnectionHostSummary = (config?: ConnectionConfig): string 
   if (hosts.length === 1) return hosts[0];
   return `${hosts[0]} +${hosts.length - 1}`;
 };
+
+/**
+ * Builds a connectionId -> group-name lookup from connection tags.
+ * A connection belongs to the first tag (in array order) whose
+ * `connectionIds` contains it, matching the sidebar's ownership
+ * resolution. The lookup helper returns an empty string for ungrouped connections.
+ */
+export const buildConnectionGroupNameIndex = (
+  connectionTags: ConnectionTag[],
+): Map<string, string> => {
+  const map = new Map<string, string>();
+  connectionTags.forEach((tag) => {
+    const groupName = String(tag?.name || '').trim();
+    if (!groupName) return;
+    tag.connectionIds.forEach((connectionId) => {
+      const trimmed = String(connectionId || '').trim();
+      if (trimmed && !map.has(trimmed)) {
+        map.set(trimmed, groupName);
+      }
+    });
+  });
+  return map;
+};
+
+export const getConnectionGroupName = (
+  index: Map<string, string>,
+  connectionId: string | undefined,
+): string => index.get(String(connectionId || '').trim()) || '';
 
 const isRedisTab = (tab: TabData): boolean => {
   return tab.type === 'redis-keys' || tab.type === 'redis-command' || tab.type === 'redis-monitor';
@@ -502,6 +534,7 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'data-sync') return 'SYNC';
   if (tab.type === 'sql-analysis') return 'ANALYZE';
   if (tab.type === 'sql-audit') return 'AUDIT';
+  if (tab.type === 'request-diagnostics') return 'TRACE';
   if (tab.type.startsWith('redis')) return 'REDIS';
   if (tab.type.startsWith('jvm')) return 'JVM';
   if (tab.type === 'trigger') return 'TRG';
@@ -526,6 +559,7 @@ const getTabRawObjectLabel = (tab: TabData, translate: TabDisplayTranslate = def
   if (tab.filePath) return getFileNameFromPath(tab.filePath);
   if (tab.type.startsWith('redis')) return `db${tab.redisDB ?? 0}`;
   if (tab.type === 'sql-audit') return tab.title;
+  if (tab.type === 'request-diagnostics') return tab.title;
   return tab.title;
 };
 
@@ -539,6 +573,7 @@ const getTabDisplayElementValue = (
   tab: TabData,
   connection?: SavedConnection,
   translate: TabDisplayTranslate = defaultTranslate,
+  groupName?: string,
 ): string => {
   const rawObjectLabel = getTabRawObjectLabel(tab, translate);
   switch (key) {
@@ -557,6 +592,8 @@ const getTabDisplayElementValue = (
       return String(tab.schemaName || '').trim() || getSchemaFromTabObjectLabel(rawObjectLabel);
     case 'host':
       return resolveConnectionHostSummary(connection?.config);
+    case 'group':
+      return String(groupName || '').trim();
     default:
       return '';
   }
@@ -565,7 +602,6 @@ const getTabDisplayElementValue = (
 const formatTabDisplayPartValue = (key: TabDisplayElementKey, value: string): string => {
   if (!value) return '';
   if (key === 'connection') return `[${value}]`;
-  if (key === 'schema') return `SCHEMA:${value}`;
   return value;
 };
 
@@ -589,9 +625,10 @@ const buildTabDisplayParts = (
   tab: TabData,
   connection?: SavedConnection,
   translate: TabDisplayTranslate = defaultTranslate,
+  groupName?: string,
 ): TabDisplayPart[] => keys
   .map((key) => {
-    const value = getTabDisplayElementValue(key, tab, connection, translate);
+    const value = getTabDisplayElementValue(key, tab, connection, translate, groupName);
     return {
       key,
       value,
@@ -605,10 +642,11 @@ export const buildTabDisplayModel = (
   connection?: SavedConnection,
   settings?: Partial<TabDisplaySettings> | null,
   translate: TabDisplayTranslate = defaultTranslate,
+  groupName?: string,
 ): TabDisplayModel => {
   const sanitized = sanitizeTabDisplaySettings(settings);
-  const primaryParts = buildTabDisplayParts(sanitized.primaryElements, tab, connection, translate);
-  const secondaryParts = buildTabDisplayParts(sanitized.secondaryElements, tab, connection, translate);
+  const primaryParts = buildTabDisplayParts(sanitized.primaryElements, tab, connection, translate, groupName);
+  const secondaryParts = buildTabDisplayParts(sanitized.secondaryElements, tab, connection, translate, groupName);
   const primaryText = primaryParts.map((part) => part.text).join(' ').trim() || buildCompactObjectTabTitle(tab, translate);
   const secondaryText = secondaryParts.map((part) => part.text).join('·').trim();
   const fullTitle = [primaryText, secondaryText].filter(Boolean).join(' · ');
@@ -627,9 +665,10 @@ export const buildTabDisplayTitle = (
   connection?: SavedConnection,
   settings?: Partial<TabDisplaySettings> | null,
   translate: TabDisplayTranslate = defaultTranslate,
+  groupName?: string,
 ): string => {
   if (settings) {
-    return buildTabDisplayModel(tab, connection, settings, translate).fullTitle;
+    return buildTabDisplayModel(tab, connection, settings, translate, groupName).fullTitle;
   }
 
   const connectionName = String(connection?.name || '').trim();

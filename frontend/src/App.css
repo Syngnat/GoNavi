@@ -65,6 +65,34 @@ samp {
   padding-right: 8px;
 }
 
+.gonavi-sidebar-object-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 16px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.gonavi-sidebar-object-status.is-valid {
+  border-color: rgba(47, 158, 68, 0.42);
+  background: rgba(47, 158, 68, 0.12);
+  color: #16803a;
+}
+
+.gonavi-sidebar-object-status.is-invalid {
+  border-color: rgba(217, 72, 65, 0.45);
+  background: rgba(217, 72, 65, 0.12);
+  color: #c92a2a;
+}
+
 .sidebar-tree-scroll-shell {
   overflow-x: auto;
   overflow-y: hidden;
@@ -434,6 +462,10 @@ body[data-theme='dark'] .ant-checkbox-indeterminate .ant-checkbox-inner::after {
 body[data-theme='dark'] .ant-checkbox:hover .ant-checkbox-inner,
 body[data-theme='dark'] .ant-checkbox-wrapper:hover .ant-checkbox-inner {
     border-color: #f6c453 !important;
+}
+
+.table-designer-shell .table-designer-cell-check .ant-checkbox-disabled.ant-checkbox-checked .ant-checkbox-inner::after {
+    border-color: var(--gn-on-accent, #fff) !important;
 }
 
 body[data-theme='dark'] .ant-radio-checked .ant-radio-inner {
@@ -957,17 +989,14 @@ body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true'
 }
 
 .gn-conn-type-card {
-    appearance: none;
-    text-align: left;
-    cursor: pointer;
-    font: inherit;
+    position: relative;
     color: inherit;
     background: var(--gn-bg-panel-2, rgba(16, 24, 40, 0.03));
     border: 1px solid var(--gn-br-2, rgba(16, 24, 40, 0.1));
     border-radius: var(--radius, 8px);
-    padding: 12px;
     transition: border-color 0.15s, transform 0.15s, background 0.15s;
     min-width: 0;
+    overflow: hidden;
 }
 
 .gn-conn-type-card:hover {
@@ -976,9 +1005,70 @@ body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true'
     transform: translateY(-1px);
 }
 
-.gn-conn-type-card:focus-visible {
+.gn-conn-type-card[data-connection-type-pinned='true'] {
+    border-color: color-mix(in srgb, var(--gn-accent, #1677ff) 54%, var(--gn-br-2, transparent));
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 7%, var(--gn-bg-panel-2, transparent));
+}
+
+.gn-conn-type-card-select {
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-height: 100%;
+    padding: 12px 42px 12px 12px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.gn-conn-type-card-select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
+    outline-offset: -3px;
+}
+
+.gn-conn-type-card-pin {
+    appearance: none;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s;
+}
+
+.gn-conn-type-card-pin .anticon {
+    transition: transform 0.15s;
+}
+
+.gn-conn-type-card-pin:hover {
+    color: var(--gn-accent, #1677ff);
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 12%, transparent);
+}
+
+.gn-conn-type-card-pin:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--gn-accent, #1677ff) 68%, transparent);
     outline-offset: 1px;
+}
+
+.gn-conn-type-card-pin[aria-pressed='true'] {
+    color: var(--gn-accent, #1677ff);
+    background: color-mix(in srgb, var(--gn-accent, #1677ff) 14%, transparent);
+}
+
+.gn-conn-type-card-pin[aria-pressed='true'] .anticon {
+    transform: rotate(-18deg);
 }
 
 .gn-conn-type-card-top {
@@ -2115,6 +2205,257 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     margin-top: 4px;
 }
 
+/* SSH 主机身份不再是一个需要用户填写的路径/指纹字段。
+   提示占据完整可用宽度，避免长说明落入 52px 的密排标签列而被截断。 */
+.gn-ssh-host-key-automatic-hint {
+    margin: 2px 0 4px;
+    max-width: 100%;
+    line-height: 1.55;
+}
+
+.gn-ssh-host-key-trust-dialog {
+    display: grid;
+    gap: 14px;
+}
+
+.gn-ssh-host-key-trust-facts {
+    display: grid;
+    grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+    gap: 8px 14px;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.gn-ssh-host-key-trust-facts dt {
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+}
+
+.gn-ssh-host-key-trust-facts dd {
+    min-width: 0;
+    margin: 0;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+    font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    overflow-wrap: anywhere;
+}
+
+.gn-ssh-host-key-trust-explanation {
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+/* SSH 测试过程：用连接链路而不是无限 spinner 告诉用户卡在何处。 */
+.gn-ssh-progress {
+    padding: 24px;
+    color: var(--gn-fg-1, rgba(0, 0, 0, 0.88));
+}
+
+.gn-ssh-progress-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.gn-ssh-progress-eyebrow {
+    color: var(--gn-primary, #1677ff);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.gn-ssh-progress h2 {
+    margin: 3px 0 2px;
+    font-size: 20px;
+    line-height: 1.3;
+}
+
+.gn-ssh-progress-head p {
+    margin: 0;
+    color: var(--gn-fg-4, rgba(0, 0, 0, 0.45));
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: 12px;
+}
+
+.gn-ssh-progress-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.gn-ssh-progress-steps {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+    list-style: none;
+    margin: 0 0 14px;
+    padding: 0;
+}
+
+.gn-ssh-progress-steps li {
+    position: relative;
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+    min-width: 0;
+    color: var(--gn-fg-5, rgba(0, 0, 0, 0.4));
+    font-size: 12px;
+    text-align: center;
+}
+
+.gn-ssh-progress-steps li:not(:last-child)::after {
+    position: absolute;
+    /* Start and end at adjacent dot centres. The dot is layered above it,
+       making the connector visually touch the dot without cutting through it. */
+    top: 4px;
+    left: 50%;
+    width: calc(100% + 6px);
+    height: 2px;
+    background: var(--gn-border, rgba(5, 5, 5, 0.12));
+    content: "";
+}
+
+.gn-ssh-progress-dot,
+.gn-ssh-progress-log-dot {
+    position: relative;
+    z-index: 1;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--gn-border, rgba(5, 5, 5, 0.18));
+}
+
+.gn-ssh-progress-steps li[data-status="running"] {
+    color: var(--gn-primary, #1677ff);
+}
+
+.gn-ssh-progress-steps li[data-status="running"] .gn-ssh-progress-dot {
+    background: var(--gn-primary, #1677ff);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--gn-primary, #1677ff) 16%, transparent);
+}
+
+.gn-ssh-progress-steps li[data-status="success"] {
+    color: var(--gn-fg-2, rgba(0, 0, 0, 0.72));
+}
+
+.gn-ssh-progress-steps li[data-status="success"] .gn-ssh-progress-dot,
+.gn-ssh-progress-steps li[data-status="success"]::after {
+    background: var(--gn-success, #10b981);
+}
+
+.gn-ssh-progress-steps li[data-status="error"] {
+    color: var(--gn-error, #d4380d);
+}
+
+.gn-ssh-progress-steps li[data-status="error"] .gn-ssh-progress-dot {
+    background: var(--gn-error, #d4380d);
+}
+
+.gn-ssh-progress-steps small {
+    overflow: hidden;
+    color: inherit;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.gn-ssh-progress-summary {
+    margin: 0 0 12px;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.55));
+    font-size: 13px;
+}
+
+.gn-ssh-progress-summary[data-status="success"] {
+    color: var(--gn-success, #10b981);
+}
+
+.gn-ssh-progress-summary[data-status="error"] {
+    color: var(--gn-error, #d4380d);
+}
+
+.gn-ssh-progress-log {
+    display: grid;
+    gap: 7px;
+    max-height: 260px;
+    overflow: auto;
+    padding: 14px 16px;
+    border: 1px solid var(--gn-border, rgba(5, 5, 5, 0.12));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--gn-primary, #1677ff) 3%, transparent);
+    color: var(--gn-fg-2, rgba(0, 0, 0, 0.72));
+    font-family: var(--gn-font-mono, ui-monospace, monospace);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.gn-ssh-progress-log > div {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.gn-ssh-progress-log-message {
+    min-width: 0;
+}
+
+.gn-ssh-progress-log-detail {
+    display: block;
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+    color: var(--gn-fg-3, rgba(0, 0, 0, 0.55));
+    font-size: 11px;
+}
+
+.gn-ssh-progress-log > div[data-status="error"] .gn-ssh-progress-log-detail {
+    color: var(--gn-error, #d4380d);
+}
+
+.gn-ssh-progress-log > div[data-status="running"] .gn-ssh-progress-log-dot {
+    background: var(--gn-primary, #1677ff);
+}
+
+.gn-ssh-progress-log > div[data-status="success"] .gn-ssh-progress-log-dot {
+    background: var(--gn-success, #10b981);
+}
+
+.gn-ssh-progress-log > div[data-status="error"] .gn-ssh-progress-log-dot {
+    background: var(--gn-error, #d4380d);
+}
+
+@media (max-width: 680px) {
+    .gn-ssh-progress {
+        padding: 18px;
+    }
+
+    .gn-ssh-progress-head {
+        display: grid;
+    }
+
+    .gn-ssh-progress-steps {
+        grid-template-columns: 1fr;
+        gap: 9px;
+    }
+
+    .gn-ssh-progress-steps li {
+        grid-template-columns: 12px minmax(0, 1fr) auto;
+        align-items: center;
+        justify-items: stretch;
+        text-align: left;
+    }
+
+    .gn-ssh-progress-steps li .gn-ssh-progress-dot {
+        justify-self: start;
+    }
+
+    .gn-ssh-progress-steps li:not(:last-child)::after {
+        display: none;
+    }
+}
+
 /* Custom Title Bar Close Button Hover */
 .gonavi-titlebar-leading {
     display: flex;
@@ -2899,6 +3240,11 @@ body[data-platform='windows'] .titlebar-window-controls {
   color: #0f766e;
 }
 
+.gonavi-query-editor-field-drop-anchor {
+  background-color: rgba(0, 0, 0, 0.12);
+  border-radius: 2px;
+}
+
 .gonavi-query-editor-db-token {
   color: #7c3aed;
 }
@@ -2913,6 +3259,10 @@ body[data-theme='dark'] .gonavi-query-editor-link-hint {
 
 body[data-theme='dark'] .gonavi-query-editor-column-token {
   color: #5eead4;
+}
+
+body[data-theme='dark'] .gonavi-query-editor-field-drop-anchor {
+  background-color: rgba(255, 255, 255, 0.16);
 }
 
 body[data-theme='dark'] .gonavi-query-editor-db-token {

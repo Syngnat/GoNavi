@@ -305,6 +305,44 @@ describe('validateDataSyncExecutionReadiness', () => {
     })).toEqual({ ready: false, reason: 'no_effective_operations' });
   });
 
+  it('does not treat schema differences as effective work in data-only mode', () => {
+    expect(validateDataSyncExecutionReadiness({
+      ...baseReadinessInput,
+      syncContent: 'data',
+      selectedTables: ['users'],
+      analyzedTables: [{
+        table: 'users',
+        canSync: true,
+        inserts: 0,
+        updates: 0,
+        deletes: 0,
+        schemaDiffCount: 1,
+        targetTableExists: true,
+      }],
+      tableOptions: {
+        users: { insert: false, update: false, delete: false },
+      },
+    })).toEqual({ ready: false, reason: 'no_effective_operations' });
+  });
+
+  it('does not treat a missing target table as effective work in data-only mode', () => {
+    expect(validateDataSyncExecutionReadiness({
+      ...baseReadinessInput,
+      syncContent: 'data',
+      selectedTables: ['users'],
+      analyzedTables: [{
+        table: 'users',
+        canSync: true,
+        inserts: 0,
+        schemaDiffCount: 0,
+        targetTableExists: false,
+      }],
+      tableOptions: {
+        users: { insert: false, update: false, delete: false },
+      },
+    })).toEqual({ ready: false, reason: 'no_effective_operations' });
+  });
+
   it('allows structure work for both mode and an empty auto-created target', () => {
     expect(validateDataSyncExecutionReadiness({
       ...baseReadinessInput,
@@ -324,6 +362,7 @@ describe('validateDataSyncExecutionReadiness', () => {
 
     expect(validateDataSyncExecutionReadiness({
       ...baseReadinessInput,
+      syncContent: 'both',
       selectedTables: ['users'],
       analyzedTables: [{
         table: 'users',

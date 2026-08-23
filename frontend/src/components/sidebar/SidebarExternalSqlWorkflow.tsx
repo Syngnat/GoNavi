@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { Button, Form, Input, Progress, message } from 'antd';
+import React, { useCallback, useRef, useState } from 'react';
+import { Button, Form, Input, Progress, Select, message } from 'antd';
 import type { FormInstance } from 'antd/es/form';
 import Modal from '../common/ResizableDraggableModal';
 import type { SavedConnection, ExternalSQLDirectory } from '../../types';
@@ -7,9 +7,19 @@ import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import {
   buildExternalSQLDirectoryId,
   buildExternalSQLTabId,
+  findExternalSQLDirectoriesByPath,
+  moveExternalSQLFileBindings,
   normalizeExternalSQLPath,
+  removeExternalSQLFileBindings,
+  resolveExternalSQLFileBinding,
+  setExternalSQLFileBinding,
 } from '../../utils/externalSqlTree';
 import { buildSQLFileExecutionWorkbenchTab } from '../../utils/sqlFileExecutionTab';
+import type { BuildDataImportWorkbenchTabInput } from '../../utils/dataImportTab';
+import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
+import { filterVisibleDatabaseNames } from '../../utils/databaseVisibility';
+import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { t } from '../../i18n';
 import { resolveSidebarNodeConnectionId } from '../sidebarV2Utils';
 import {
@@ -20,6 +30,7 @@ import {
   OpenSQLFile,
   SelectSQLDirectory,
   ReadSQLFile,
+  DBGetDatabases,
   CreateSQLFile,
   CreateSQLDirectory,
   DeleteSQLFile,
@@ -66,6 +77,7 @@ type UseSidebarExternalSqlWorkflowOptions = {
   connectionIds: string[];
   selectedNodesRef: React.MutableRefObject<any[]>;
   addTab: (tab: any) => void;
+  openDataImportWorkbench: (input: BuildDataImportWorkbenchTabInput) => void;
   saveExternalSQLDirectory: (directory: ExternalSQLDirectory) => void;
   deleteExternalSQLDirectory: (directoryId: string) => void;
   updateRecentSQLFilePath: (previousPath: string, nextPath: string) => void;
@@ -76,6 +88,23 @@ type UseSidebarExternalSqlWorkflowOptions = {
   setExpandedKeys: React.Dispatch<React.SetStateAction<React.Key[]>>;
   setAutoExpandParent: React.Dispatch<React.SetStateAction<boolean>>;
   getActiveContext: () => ActiveExecutionContext;
+};
+
+export const launchDatabaseSQLImportWorkbench = (
+  node: any,
+  openDataImportWorkbench: (input: BuildDataImportWorkbenchTabInput) => void,
+): boolean => {
+  const connectionId = node?.type === 'connection'
+    ? String(node?.key || '').trim()
+    : String(node?.dataRef?.id || '').trim();
+  if (!connectionId) return false;
+
+  openDataImportWorkbench({
+    connectionId,
+    dbName: String(node?.dataRef?.dbName || '').trim(),
+    mode: 'database',
+  });
+  return true;
 };
 
 type ExternalSQLFileModalProps = {
@@ -92,6 +121,22 @@ type SQLFileExecutionModalProps = {
   modalPanelStyle: React.CSSProperties;
   onCancelExecution: () => void;
   onClose: () => void;
+};
+
+type ExternalSQLBindingModalProps = {
+  open: boolean;
+  form: FormInstance;
+  connections: SavedConnection[];
+  filePath: string;
+  databaseOptions: string[];
+  loadingDatabases: boolean;
+  databaseLoadError: string;
+  hasExplicitBinding: boolean;
+  saving: boolean;
+  onConnectionChange: (connectionId: string) => void;
+  onClearBinding: () => void;
+  onOk: () => void;
+  onCancel: () => void;
 };
 
 const normalizeExternalSQLFileName = (rawName: unknown): string => {
@@ -135,9 +180,6 @@ const normalizeSQLFileDialogData = (data: unknown): { content: string; filePath:
     isLargeFile: false,
   };
 };
-
-const buildSQLFileExecutionRequestKey = (): string =>
-  `sql-file-execution-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const resolveSQLFileExecutionStatusLabel = (status: SQLFileExecutionStatus): string => {
   switch (status) {
@@ -200,9 +242,9 @@ export const SQLFileExecutionProgressContent: React.FC<SQLFileExecutionProgressS
       <div>
         {t('sidebar.sql_file_exec.executed_label')}
         <strong style={{ color: '#52c41a' }}>{executed}</strong>
-        {t('sidebar.sql_file_exec.rows_separator')}
+        {t('sidebar.sql_file_exec.statements_separator')}
         <strong style={{ color: failed > 0 ? '#ff4d4f' : undefined }}>{failed}</strong>
-        {t('sidebar.sql_file_exec.rows_suffix')}
+        {t('sidebar.sql_file_exec.statements_suffix')}
       </div>
     </div>
     {currentSQL && status === 'running' && (
@@ -265,6 +307,90 @@ export const ExternalSQLFileModal: React.FC<ExternalSQLFileModalProps> = ({
   </Modal>
 );
 
+export const ExternalSQLBindingModal: React.FC<ExternalSQLBindingModalProps> = ({
+  open,
+  form,
+  connections,
+  filePath,
+  databaseOptions,
+  loadingDatabases,
+  databaseLoadError,
+  hasExplicitBinding,
+  saving,
+  onConnectionChange,
+  onClearBinding,
+  onOk,
+  onCancel,
+}) => {
+  const connectionOptions = connections
+    .filter((connection) => getDataSourceCapabilities(connection.config).supportsQueryEditor)
+    .map((connection) => {
+      const host = resolveConnectionHostSummary(connection.config);
+      return {
+        value: connection.id,
+        label: host ? `${connection.name || connection.id} (${host})` : connection.name || connection.id,
+      };
+    });
+
+  return (
+    <Modal
+      title={t('sidebar.external_sql_binding.title')}
+      open={open}
+      onOk={onOk}
+      onCancel={onCancel}
+      okText={t('common.save')}
+      cancelText={t('common.cancel')}
+      confirmLoading={saving}
+      maskClosable={!saving}
+      closable={!saving}
+    >
+      <div
+        title={filePath}
+        style={{ marginBottom: 16, color: 'var(--gn-text-secondary)', wordBreak: 'break-all' }}
+      >
+        {filePath}
+      </div>
+      <Form form={form} layout="vertical">
+        <Form.Item
+          name="connectionId"
+          label={t('data_export.label.connection')}
+          rules={[{ required: true, message: t('sidebar.message.select_connection_or_database_first') }]}
+        >
+          <Select
+            showSearch
+            optionFilterProp="label"
+            options={connectionOptions}
+            placeholder={t('data_export.workbench.placeholder.select_connection')}
+            onChange={onConnectionChange}
+          />
+        </Form.Item>
+        <Form.Item
+          name="dbName"
+          label={t('data_export.label.database')}
+          extra={databaseLoadError || undefined}
+        >
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            loading={loadingDatabases}
+            disabled={!form.getFieldValue('connectionId') || loadingDatabases}
+            options={databaseOptions.map((database) => ({ value: database, label: database }))}
+            placeholder={loadingDatabases
+              ? t('data_export.workbench.placeholder.loading_databases')
+              : t('data_export.workbench.placeholder.select_database')}
+          />
+        </Form.Item>
+      </Form>
+      {hasExplicitBinding && (
+        <Button type="link" style={{ paddingInline: 0 }} disabled={saving} onClick={onClearBinding}>
+          {t('sidebar.external_sql_binding.clear_override')}
+        </Button>
+      )}
+    </Modal>
+  );
+};
+
 export const SQLFileExecutionModal: React.FC<SQLFileExecutionModalProps> = ({
   title,
   state,
@@ -309,6 +435,7 @@ export const useSidebarExternalSqlWorkflow = ({
   connectionIds,
   selectedNodesRef,
   addTab,
+  openDataImportWorkbench,
   saveExternalSQLDirectory,
   deleteExternalSQLDirectory,
   updateRecentSQLFilePath,
@@ -324,6 +451,58 @@ export const useSidebarExternalSqlWorkflow = ({
   const [externalSQLFileForm] = Form.useForm();
   const [externalSQLFileModalMode, setExternalSQLFileModalMode] = useState<ExternalSQLFileModalMode>('create');
   const [externalSQLFileTarget, setExternalSQLFileTarget] = useState<any>(null);
+  const [isExternalSQLBindingModalOpen, setIsExternalSQLBindingModalOpen] = useState(false);
+  const [externalSQLBindingForm] = Form.useForm();
+  const [externalSQLBindingTarget, setExternalSQLBindingTarget] = useState<any>(null);
+  const [externalSQLBindingDatabases, setExternalSQLBindingDatabases] = useState<string[]>([]);
+  const [externalSQLBindingDatabaseError, setExternalSQLBindingDatabaseError] = useState('');
+  const [loadingExternalSQLBindingDatabases, setLoadingExternalSQLBindingDatabases] = useState(false);
+  const [savingExternalSQLBinding, setSavingExternalSQLBinding] = useState(false);
+  const externalSQLBindingDatabaseRequestRef = useRef(0);
+
+  const loadExternalSQLBindingDatabases = useCallback(async (
+    connectionId: string,
+    preferredDbName = '',
+  ) => {
+    const requestId = ++externalSQLBindingDatabaseRequestRef.current;
+    const connection = connections.find((item) => item.id === String(connectionId || '').trim());
+    setExternalSQLBindingDatabaseError('');
+    if (!connection) {
+      setExternalSQLBindingDatabases([]);
+      setLoadingExternalSQLBindingDatabases(false);
+      return;
+    }
+
+    setLoadingExternalSQLBindingDatabases(true);
+    const fallbackNames = [preferredDbName, String(connection.config.database || '').trim()].filter(Boolean);
+    try {
+      const result = await DBGetDatabases(buildRpcConnectionConfig(connection.config) as any);
+      if (requestId !== externalSQLBindingDatabaseRequestRef.current) return;
+      if (!result.success) {
+        setExternalSQLBindingDatabases(Array.from(new Set(fallbackNames)));
+        setExternalSQLBindingDatabaseError(result.message || t('data_export.message.load_databases_failed'));
+        return;
+      }
+      const names = (Array.isArray(result.data) ? result.data : [])
+        .map((row: any) => String(row?.Database || row?.database || Object.values(row || {})[0] || '').trim())
+        .filter(Boolean);
+      const visibleNames = filterVisibleDatabaseNames(connection, names);
+      setExternalSQLBindingDatabases(
+        Array.from(new Set([...fallbackNames, ...visibleNames]))
+          .sort((left, right) => left.localeCompare(right)),
+      );
+    } catch (error) {
+      if (requestId !== externalSQLBindingDatabaseRequestRef.current) return;
+      setExternalSQLBindingDatabases(Array.from(new Set(fallbackNames)));
+      setExternalSQLBindingDatabaseError(
+        error instanceof Error ? error.message : t('data_export.message.load_databases_failed'),
+      );
+    } finally {
+      if (requestId === externalSQLBindingDatabaseRequestRef.current) {
+        setLoadingExternalSQLBindingDatabases(false);
+      }
+    }
+  }, [connections]);
 
   const selectSQLFileForExecution = useCallback(async () => {
     const backendApp = typeof window !== 'undefined' ? (window as any).go?.app?.App : undefined;
@@ -362,37 +541,14 @@ export const useSidebarExternalSqlWorkflow = ({
       filePath: normalizedFilePath,
       fileName: String(fileName || '').trim() || undefined,
       fileSizeMB: String(fileSizeMB || '').trim() || undefined,
-      requestKey: buildSQLFileExecutionRequestKey(),
+      autoStart: false,
     }));
     return true;
   }, [addTab, connections]);
 
-  const handleRunSQLFile = async (node: any) => {
-    const connectionId = node.type === 'connection'
-      ? String(node.key || '').trim()
-      : String(node?.dataRef?.id || '').trim();
-    const dbName = String(node?.dataRef?.dbName || '').trim();
-    if (!connectionId) {
+  const handleRunSQLFile = (node: any) => {
+    if (!launchDatabaseSQLImportWorkbench(node, openDataImportWorkbench)) {
       message.warning(t('sidebar.message.select_connection_or_database_first'));
-      return;
-    }
-
-    const res = await selectSQLFileForExecution();
-    if (res.success) {
-      const data = normalizeSQLFileDialogData(res.data);
-      if (!data.filePath) {
-        message.error(t('sidebar.message.sql_file_path_incomplete'));
-        return;
-      }
-      openSQLFileExecutionWorkbench({
-        connectionId,
-        dbName: dbName,
-        filePath: data.filePath,
-        fileName: data.fileName,
-        fileSizeMB: data.fileSizeMB,
-      });
-    } else if (res.message !== '已取消') {
-      message.error(t('sidebar.message.read_file_failed', { error: res.message }));
     }
   };
 
@@ -409,9 +565,23 @@ export const useSidebarExternalSqlWorkflow = ({
         message.error(t('sidebar.message.sql_file_path_incomplete'));
         return;
       }
+      const fileBinding = resolveExternalSQLFileBinding(
+        externalSQLDirectories,
+        data.filePath,
+        {
+          connectionId: String(ctx?.connectionId || '').trim(),
+          dbName: String(ctx?.dbName || '').trim(),
+        },
+      );
+      const connectionId = fileBinding
+        ? fileBinding.connectionId
+        : ctx.connectionId;
+      const dbName = fileBinding
+        ? fileBinding.dbName
+        : String(ctx.dbName || '').trim();
       openSQLFileExecutionWorkbench({
-        connectionId: ctx.connectionId,
-        dbName: ctx.dbName || '',
+        connectionId,
+        dbName,
         filePath: data.filePath,
         fileName: data.fileName,
         fileSizeMB: data.fileSizeMB,
@@ -441,21 +611,144 @@ export const useSidebarExternalSqlWorkflow = ({
     };
   };
 
+  const closeExternalSQLBindingModal = () => {
+    externalSQLBindingDatabaseRequestRef.current += 1;
+    setIsExternalSQLBindingModalOpen(false);
+    setExternalSQLBindingTarget(null);
+    setExternalSQLBindingDatabases([]);
+    setExternalSQLBindingDatabaseError('');
+    setLoadingExternalSQLBindingDatabases(false);
+    externalSQLBindingForm.resetFields();
+  };
+
+  const openExternalSQLBindingModal = (fileNode: any) => {
+    const filePath = String(fileNode?.dataRef?.path || '').trim();
+    const directoryId = String(fileNode?.dataRef?.directoryId || '').trim();
+    if (!filePath || !directoryId) {
+      message.error(t('sidebar.message.sql_file_path_incomplete'));
+      return;
+    }
+    const fallbackContext = resolveExternalSQLExecutionContext();
+    const fileConnectionId = String(fileNode?.dataRef?.connectionId || '').trim();
+    const fallbackConnectionId = String(fallbackContext.connectionId || '').trim();
+    const connectionId = [fileConnectionId, fallbackConnectionId]
+      .find((candidate) => connections.some((connection) => connection.id === candidate)) || '';
+    const dbName = connectionId === fileConnectionId
+      ? String(fileNode?.dataRef?.dbName || '').trim()
+      : String(fallbackContext.dbName || '').trim();
+    setExternalSQLBindingTarget(fileNode);
+    externalSQLBindingForm.setFieldsValue({
+      connectionId: connectionId || undefined,
+      dbName: dbName || undefined,
+    });
+    setIsExternalSQLBindingModalOpen(true);
+    if (connectionId) {
+      void loadExternalSQLBindingDatabases(connectionId, dbName);
+    } else {
+      setExternalSQLBindingDatabases([]);
+      setExternalSQLBindingDatabaseError('');
+    }
+  };
+
+  const handleExternalSQLBindingConnectionChange = (connectionId: string) => {
+    externalSQLBindingForm.setFieldsValue({ dbName: undefined });
+    void loadExternalSQLBindingDatabases(connectionId);
+  };
+
+  const saveExternalSQLBindingTarget = async (
+    target: { connectionId: string; dbName: string } | null,
+  ) => {
+    const filePath = String(externalSQLBindingTarget?.dataRef?.path || '').trim();
+    const directoryId = String(externalSQLBindingTarget?.dataRef?.directoryId || '').trim();
+    const directory = externalSQLDirectories.find((item) => item.id === directoryId);
+    if (!filePath || !directory) {
+      message.error(t('sidebar.message.external_sql_directory_not_found'));
+      return false;
+    }
+    if (target) {
+      const connection = connections.find((item) => item.id === target.connectionId);
+      if (!connection || !getDataSourceCapabilities(connection.config).supportsQueryEditor) {
+        message.error(t('sidebar.message.connection_config_not_found'));
+        return false;
+      }
+    }
+    const nextDirectory = setExternalSQLFileBinding(directory, filePath, target);
+    saveExternalSQLDirectory(nextDirectory);
+    const nextDirectories = externalSQLDirectories.map((item) => (
+      item.id === directoryId ? nextDirectory : item
+    ));
+    await refreshGlobalExternalSQLRootNode(false, nextDirectories);
+    return true;
+  };
+
+  const handleExternalSQLBindingOk = async () => {
+    try {
+      const values = await externalSQLBindingForm.validateFields();
+      setSavingExternalSQLBinding(true);
+      const saved = await saveExternalSQLBindingTarget({
+        connectionId: String(values.connectionId || '').trim(),
+        dbName: String(values.dbName || '').trim(),
+      });
+      if (!saved) return;
+      message.success(t('sidebar.message.external_sql_file_binding_saved'));
+      closeExternalSQLBindingModal();
+    } catch (error) {
+      if (!(error && typeof error === 'object' && 'errorFields' in error)) {
+        message.error(error instanceof Error ? error.message : t('common.unknown'));
+      }
+    } finally {
+      setSavingExternalSQLBinding(false);
+    }
+  };
+
+  const handleClearExternalSQLBinding = async () => {
+    try {
+      setSavingExternalSQLBinding(true);
+      const saved = await saveExternalSQLBindingTarget(null);
+      if (!saved) return;
+      message.success(t('sidebar.message.external_sql_file_binding_cleared'));
+      closeExternalSQLBindingModal();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t('common.unknown'));
+    } finally {
+      setSavingExternalSQLBinding(false);
+    }
+  };
+
+  const transformExternalSQLDirectoryBindings = (
+    transform: (directory: ExternalSQLDirectory) => ExternalSQLDirectory,
+  ): ExternalSQLDirectory[] | undefined => {
+    let changed = false;
+    const nextDirectories = externalSQLDirectories.map((directory) => {
+      const nextDirectory = transform(directory);
+      if (nextDirectory !== directory) {
+        changed = true;
+        saveExternalSQLDirectory(nextDirectory);
+      }
+      return nextDirectory;
+    });
+    return changed ? nextDirectories : undefined;
+  };
+
   const openExternalSQLFile = async (fileNode: any) => {
+    const hasExplicitBinding = fileNode?.dataRef?.hasExplicitBinding === true;
     const fileContext = {
       connectionId: String(fileNode?.dataRef?.connectionId || '').trim(),
       dbName: String(fileNode?.dataRef?.dbName || '').trim(),
     };
     const fallbackContext = resolveExternalSQLExecutionContext();
-    const connectionId = fileContext.connectionId || fallbackContext.connectionId;
-    const dbName = fileContext.dbName || fallbackContext.dbName;
+    const connectionId = hasExplicitBinding
+      ? fileContext.connectionId
+      : fileContext.connectionId || fallbackContext.connectionId;
+    const dbName = hasExplicitBinding
+      ? fileContext.dbName
+      : fileContext.dbName || fallbackContext.dbName;
     const filePath = String(fileNode?.dataRef?.path || '').trim();
     const fileName = String(fileNode?.dataRef?.name || fileNode?.title || t('sidebar.sql_file.default_name')).trim() || t('sidebar.sql_file.default_name');
     if (!filePath) {
       message.error(t('sidebar.message.sql_file_path_incomplete'));
       return;
     }
-
     const res = await ReadSQLFile(filePath);
     if (!res.success) {
       if (res.message !== '已取消') {
@@ -583,10 +876,14 @@ export const useSidebarExternalSqlWorkflow = ({
         }
         const payload = (res.data && typeof res.data === 'object') ? res.data as Record<string, unknown> : {};
         const nextFilePath = String(payload.filePath || '').trim();
+        let nextDirectories: ExternalSQLDirectory[] | undefined;
         if (nextFilePath) {
           updateRecentSQLFilePath(filePath, nextFilePath);
+          nextDirectories = transformExternalSQLDirectoryBindings(
+            (directory) => moveExternalSQLFileBindings(directory, filePath, nextFilePath),
+          );
         }
-        await refreshGlobalExternalSQLRootNode(false);
+        await refreshGlobalExternalSQLRootNode(false, nextDirectories);
         message.success(t('sidebar.message.sql_file_renamed'));
       } else if (externalSQLFileModalMode === 'create-directory') {
         const directoryPath = getExternalSQLParentDirectoryPath(externalSQLFileTarget);
@@ -620,9 +917,9 @@ export const useSidebarExternalSqlWorkflow = ({
         }
         if (externalSQLFileTarget?.type === 'external-sql-directory') {
           const nextName = String(payload.name || name).trim();
-          const previousDirectoryPath = normalizeExternalSQLPath(directoryPath);
-          const matchingDirectories = externalSQLDirectories.filter(
-            (directory) => normalizeExternalSQLPath(directory.path) === previousDirectoryPath,
+          const matchingDirectories = findExternalSQLDirectoriesByPath(
+            externalSQLDirectories,
+            directoryPath,
           );
           if (!nextPath || matchingDirectories.length === 0) {
             message.error(t('sidebar.message.external_sql_directory_rename_sync_failed'));
@@ -636,8 +933,9 @@ export const useSidebarExternalSqlWorkflow = ({
           matchingDirectories.forEach((directory) => {
             const connectionId = String(directory.connectionId || '').trim();
             const dbName = String(directory.dbName || '').trim();
+            const movedDirectory = moveExternalSQLFileBindings(directory, directoryPath, nextPath);
             const nextDirectory: ExternalSQLDirectory = {
-              ...directory,
+              ...movedDirectory,
               id: buildExternalSQLDirectoryId(connectionId, dbName, nextPath),
               name: nextName || nextPath.split(/[\\/]/).filter(Boolean).pop() || t('sidebar.sql_directory.default_name'),
               path: nextPath,
@@ -656,7 +954,12 @@ export const useSidebarExternalSqlWorkflow = ({
           nextDirectoriesById.forEach((directory) => saveExternalSQLDirectory(directory));
           await refreshGlobalExternalSQLRootNode(false, nextDirectories);
         } else {
-          await refreshGlobalExternalSQLRootNode(false);
+          const nextDirectories = nextPath
+            ? transformExternalSQLDirectoryBindings(
+                (directory) => moveExternalSQLFileBindings(directory, directoryPath, nextPath),
+              )
+            : undefined;
+          await refreshGlobalExternalSQLRootNode(false, nextDirectories);
         }
         message.success(t('sidebar.message.sql_directory_renamed'));
       }
@@ -688,7 +991,10 @@ export const useSidebarExternalSqlWorkflow = ({
           return;
         }
         removeRecentSQLFilesByPath(filePath);
-        await refreshGlobalExternalSQLRootNode(false);
+        const nextDirectories = transformExternalSQLDirectoryBindings(
+          (directory) => removeExternalSQLFileBindings(directory, filePath),
+        );
+        await refreshGlobalExternalSQLRootNode(false, nextDirectories);
         message.success(t('sidebar.message.sql_file_deleted'));
       },
     });
@@ -718,9 +1024,9 @@ export const useSidebarExternalSqlWorkflow = ({
         removeRecentSQLFilesByDirectory(directoryPath);
 
         if (node?.type === 'external-sql-directory') {
-          const normalizedDirectoryPath = normalizeExternalSQLPath(directoryPath);
-          const matchingDirectories = externalSQLDirectories.filter(
-            (directory) => normalizeExternalSQLPath(directory.path) === normalizedDirectoryPath,
+          const matchingDirectories = findExternalSQLDirectoriesByPath(
+            externalSQLDirectories,
+            directoryPath,
           );
           if (matchingDirectories.length > 0) {
             const matchingDirectoryIds = new Set(matchingDirectories.map((directory) => directory.id));
@@ -731,7 +1037,10 @@ export const useSidebarExternalSqlWorkflow = ({
             await refreshGlobalExternalSQLRootNode(false);
           }
         } else {
-          await refreshGlobalExternalSQLRootNode(false);
+          const nextDirectories = transformExternalSQLDirectoryBindings(
+            (directory) => removeExternalSQLFileBindings(directory, directoryPath),
+          );
+          await refreshGlobalExternalSQLRootNode(false, nextDirectories);
         }
         message.success(t('sidebar.message.sql_directory_deleted'));
       },
@@ -782,13 +1091,18 @@ export const useSidebarExternalSqlWorkflow = ({
   };
 
   const handleRemoveExternalSQLDirectory = async (node: any) => {
-    const directoryId = String(node?.dataRef?.id || '').trim();
-    if (!directoryId) {
+    const directoryPath = String(node?.dataRef?.path || '').trim();
+    if (!directoryPath) {
       message.error(t('sidebar.message.external_sql_directory_not_found'));
       return;
     }
-    deleteExternalSQLDirectory(directoryId);
-    const nextDirectories = externalSQLDirectories.filter((item) => item.id !== directoryId);
+    const matchingDirectories = findExternalSQLDirectoriesByPath(
+      externalSQLDirectories,
+      directoryPath,
+    );
+    matchingDirectories.forEach((directory) => deleteExternalSQLDirectory(directory.id));
+    const matchingDirectoryIds = new Set(matchingDirectories.map((directory) => directory.id));
+    const nextDirectories = externalSQLDirectories.filter((item) => !matchingDirectoryIds.has(item.id));
     await refreshGlobalExternalSQLRootNode(false, nextDirectories);
     message.success(t('sidebar.message.external_sql_directory_removed'));
   };
@@ -803,6 +1117,7 @@ export const useSidebarExternalSqlWorkflow = ({
     handleRunSQLFile,
     handleOpenSQLFileFromToolbar,
     openExternalSQLFile,
+    openExternalSQLBindingModal,
     openCreateExternalSQLFileModal,
     openRenameExternalSQLFileModal,
     openCreateExternalSQLDirectoryModal,
@@ -819,6 +1134,23 @@ export const useSidebarExternalSqlWorkflow = ({
       form: externalSQLFileForm,
       onOk: handleExternalSQLFileModalOk,
       onCancel: closeExternalSQLFileModal,
+    },
+    externalSQLBindingModalProps: {
+      open: isExternalSQLBindingModalOpen,
+      form: externalSQLBindingForm,
+      connections,
+      filePath: String(externalSQLBindingTarget?.dataRef?.path || '').trim(),
+      databaseOptions: externalSQLBindingDatabases,
+      loadingDatabases: loadingExternalSQLBindingDatabases,
+      databaseLoadError: externalSQLBindingDatabaseError,
+      hasExplicitBinding: externalSQLBindingTarget?.dataRef?.hasExplicitBinding === true,
+      saving: savingExternalSQLBinding,
+      onConnectionChange: handleExternalSQLBindingConnectionChange,
+      onClearBinding: () => { void handleClearExternalSQLBinding(); },
+      onOk: () => { void handleExternalSQLBindingOk(); },
+      onCancel: () => {
+        if (!savingExternalSQLBinding) closeExternalSQLBindingModal();
+      },
     },
   };
 };

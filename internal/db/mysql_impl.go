@@ -21,9 +21,13 @@ import (
 )
 
 type MySQLDB struct {
-	conn        *sql.DB
-	pingTimeout time.Duration
+	conn                *sql.DB
+	pingTimeout         time.Duration
+	batchWritesEnabled  bool
+	sshNetworkRegistrar func(connection.SSHConfig) (string, error)
 }
+
+var _ BatchApplierContext = (*MySQLDB)(nil)
 
 const (
 	defaultMySQLPort            = 3306
@@ -477,6 +481,11 @@ func buildMySQLCompatibleConnectPlans(config connection.ConnectionConfig, protoc
 	}), nil
 }
 
+func mysqlDSNSupportsBatchWrites(dsn string) bool {
+	parsed, err := mysql.ParseDSN(dsn)
+	return err == nil && parsed.MultiStatements
+}
+
 func normalizeMySQLRawDSNCompatibilityParams(raw string) string {
 	text := strings.TrimSpace(raw)
 	queryIndex := strings.Index(text, "?")
@@ -773,7 +782,7 @@ func (m *MySQLDB) resolveProtocolAndAddress(config connection.ConnectionConfig) 
 	address := normalizeMySQLAddress(config.Host, config.Port)
 
 	if config.UseSSH {
-		netName, err := ssh.RegisterSSHNetwork(config.SSH)
+		netName, err := m.registerSSHNetwork(config.SSH)
 		if err != nil {
 			return "", "", fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -781,6 +790,13 @@ func (m *MySQLDB) resolveProtocolAndAddress(config connection.ConnectionConfig) 
 	}
 
 	return protocol, address, nil
+}
+
+func (m *MySQLDB) registerSSHNetwork(config connection.SSHConfig) (string, error) {
+	if m != nil && m.sshNetworkRegistrar != nil {
+		return m.sshNetworkRegistrar(config)
+	}
+	return ssh.RegisterSSHNetwork(config)
 }
 
 func (m *MySQLDB) getDSN(config connection.ConnectionConfig) (string, error) {
@@ -809,6 +825,7 @@ func resolveMySQLCredential(config connection.ConnectionConfig, addressIndex int
 }
 
 func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
+	m.batchWritesEnabled = false
 	runConfig := applyMySQLURI(config)
 	addresses := collectMySQLAddresses(runConfig)
 	if len(addresses) == 0 {
@@ -829,6 +846,9 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 
 		protocol, address, err := m.resolveProtocolAndAddress(candidateConfig)
 		if err != nil {
+			if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
+				return fmt.Errorf("MySQL %s 创建 SSH 隧道失败: %w", address, err)
+			}
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败: %v", address, err))
 			continue
 		}
@@ -870,6 +890,7 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 
 			m.conn = db
 			m.pingTimeout = timeout
+			m.batchWritesEnabled = mysqlDSNSupportsBatchWrites(plan.dsn)
 			return nil
 		}
 	}
@@ -878,6 +899,10 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 		return fmt.Errorf("连接建立后验证失败：未找到可用的 MySQL 地址")
 	}
 	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(errorDetails, "；"))
+}
+
+func (m *MySQLDB) SupportsBatchWrites() bool {
+	return m != nil && m.batchWritesEnabled
 }
 
 func (m *MySQLDB) Close() error {
@@ -904,7 +929,7 @@ func (m *MySQLDB) QueryMulti(query string) ([]connection.ResultSetData, error) {
 	if m.conn == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	rows, err := m.conn.Query(query)
+	rows, err := m.conn.QueryContext(metadataContextFor(m), query)
 	if err != nil {
 		return nil, err
 	}
@@ -943,7 +968,7 @@ func (m *MySQLDB) Query(query string) ([]map[string]interface{}, []string, error
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := m.conn.Query(query)
+	rows, err := m.conn.QueryContext(metadataContextFor(m), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1052,7 +1077,7 @@ func quoteMySQLIdentifier(ident string) string {
 	return "`" + strings.ReplaceAll(normalizeMySQLIdentifierPart(ident), "`", "``") + "`"
 }
 
-func mysqlQualifiedTableIdentifier(dbName, tableName string) string {
+func mysqlMetadataTableParts(dbName, tableName string) (string, string) {
 	schema := normalizeMySQLIdentifierPart(dbName)
 	table := strings.TrimSpace(tableName)
 	if parsedSchema, parsedTable := SplitSQLQualifiedName(table); parsedTable != "" {
@@ -1063,7 +1088,11 @@ func mysqlQualifiedTableIdentifier(dbName, tableName string) string {
 	} else {
 		table = normalizeMySQLIdentifierPart(table)
 	}
+	return schema, table
+}
 
+func mysqlQualifiedTableIdentifier(dbName, tableName string) string {
+	schema, table := mysqlMetadataTableParts(dbName, tableName)
 	if schema != "" {
 		return quoteMySQLIdentifier(schema) + "." + quoteMySQLIdentifier(table)
 	}
@@ -1076,6 +1105,37 @@ func buildMySQLShowCreateTableQuery(dbName, tableName string) string {
 
 func buildMySQLShowFullColumnsQuery(dbName, tableName string) string {
 	return "SHOW FULL COLUMNS FROM " + mysqlQualifiedTableIdentifier(dbName, tableName)
+}
+
+func buildMySQLShowIndexQuery(dbName, tableName string) string {
+	return "SHOW INDEX FROM " + mysqlQualifiedTableIdentifier(dbName, tableName)
+}
+
+func buildMySQLForeignKeysQuery() string {
+	return `SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+              FROM information_schema.KEY_COLUMN_USAGE
+              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL`
+}
+
+func buildMySQLShowTriggersQuery(dbName string) string {
+	schema := normalizeMySQLIdentifierPart(dbName)
+	query := "SHOW TRIGGERS"
+	if schema != "" {
+		query += " FROM " + quoteMySQLIdentifier(schema)
+	}
+	return query + " WHERE `Table` = ?"
+}
+
+func queryMetadataRowsWithArgs(conn *sql.DB, ctx context.Context, dialect, query string, args ...interface{}) ([]map[string]interface{}, []string, error) {
+	if conn == nil {
+		return nil, nil, fmt.Errorf("连接未打开")
+	}
+	rows, err := conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	return scanRowsForDialect(rows, dialect)
 }
 
 func (m *MySQLDB) GetCreateStatement(dbName, tableName string) (string, error) {
@@ -1131,12 +1191,7 @@ func (m *MySQLDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefin
 }
 
 func (m *MySQLDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
-	query := fmt.Sprintf("SHOW INDEX FROM `%s`.`%s`", dbName, tableName)
-	if dbName == "" {
-		query = fmt.Sprintf("SHOW INDEX FROM `%s`", tableName)
-	}
-
-	data, _, err := m.Query(query)
+	data, _, err := m.Query(buildMySQLShowIndexQuery(dbName, tableName))
 	if err != nil {
 		return nil, err
 	}
@@ -1184,11 +1239,8 @@ func (m *MySQLDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefini
 }
 
 func (m *MySQLDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
-	query := fmt.Sprintf(`SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME 
-              FROM information_schema.KEY_COLUMN_USAGE 
-              WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s' AND REFERENCED_TABLE_NAME IS NOT NULL`, dbName, tableName)
-
-	data, _, err := m.Query(query)
+	schema, table := mysqlMetadataTableParts(dbName, tableName)
+	data, _, err := queryMetadataRowsWithArgs(m.conn, metadataContextFor(m), "mysql", buildMySQLForeignKeysQuery(), schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -1208,8 +1260,8 @@ func (m *MySQLDB) GetForeignKeys(dbName, tableName string) ([]connection.Foreign
 }
 
 func (m *MySQLDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
-	query := fmt.Sprintf("SHOW TRIGGERS FROM `%s` WHERE `Table` = '%s'", dbName, tableName)
-	data, _, err := m.Query(query)
+	schema, table := mysqlMetadataTableParts(dbName, tableName)
+	data, _, err := queryMetadataRowsWithArgs(m.conn, metadataContextFor(m), "mysql", buildMySQLShowTriggersQuery(schema), table)
 	if err != nil {
 		return nil, err
 	}
@@ -1228,17 +1280,22 @@ func (m *MySQLDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDef
 }
 
 func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return m.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (m *MySQLDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if m.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
 
-	columnTypeMap := m.loadColumnTypeMap(tableName)
+	columnTypeMap := m.loadColumnTypeMapContext(ctx, tableName)
 
-	tx, err := m.conn.Begin()
+	tx, err := m.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
 
 	// 1. Deletes
 	for _, pk := range changes.Deletes {
@@ -1252,9 +1309,9 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM `%s` WHERE %s", tableName, strings.Join(wheres, " AND "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			return fmt.Errorf("删除失败：%v", err)
+			return markWriteOutcomeUnknownIfAmbiguous(ctx, fmt.Errorf("删除失败：%w", err))
 		}
 		if err := requireSingleRowAffected(res, rowMutationActionDelete); err != nil {
 			return err
@@ -1286,24 +1343,29 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 		}
 
 		query := fmt.Sprintf("UPDATE `%s` SET %s WHERE %s", tableName, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			return fmt.Errorf("更新失败：%v", err)
+			return markWriteOutcomeUnknownIfAmbiguous(ctx, fmt.Errorf("更新失败：%w", err))
 		}
 		if err := requireSingleRowAffected(res, rowMutationActionUpdate); err != nil {
 			return err
 		}
 	}
 
-	if err := m.applyInsertChanges(tx, tableName, changes.Inserts, columnTypeMap); err != nil {
+	if err := m.applyInsertChangesContext(ctx, tx, tableName, changes.Inserts, columnTypeMap); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	if err := commitWriteTransaction(tx); err != nil {
+		return err
+	}
+	transactionCommitted = true
+	return nil
 }
 
-func (m *MySQLDB) applyInsertChanges(tx *sql.Tx, tableName string, rows []map[string]interface{}, columnTypeMap map[string]string) error {
-	return execParameterizedInsertBatches(parameterizedInsertConfig{
+func (m *MySQLDB) applyInsertChangesContext(ctx context.Context, tx *sql.Tx, tableName string, rows []map[string]interface{}, columnTypeMap map[string]string) error {
+	var unknownWriteErr error
+	err := execParameterizedInsertBatches(parameterizedInsertConfig{
 		Table: fmt.Sprintf("`%s`", escapeMySQLBacktickIdent(tableName)),
 		Rows:  rows,
 		QuoteColumn: func(column string) string {
@@ -1314,7 +1376,12 @@ func (m *MySQLDB) applyInsertChanges(tx *sql.Tx, tableName string, rows []map[st
 			return normalizeMySQLValueForInsert(column, value, columnTypeMap)
 		},
 		Exec: func(query string, args ...interface{}) (sql.Result, error) {
-			return tx.Exec(query, args...)
+			result, err := tx.ExecContext(ctx, query, args...)
+			err = markWriteOutcomeUnknownIfAmbiguous(ctx, err)
+			if IsWriteOutcomeUnknown(err) {
+				unknownWriteErr = err
+			}
+			return result, err
 		},
 		MaxRows:         defaultMySQLInsertBatchSize,
 		MaxArgs:         maxMySQLInsertBatchArgs,
@@ -1323,6 +1390,10 @@ func (m *MySQLDB) applyInsertChanges(tx *sql.Tx, tableName string, rows []map[st
 			return fmt.Sprintf("INSERT INTO %s () VALUES ()", table)
 		},
 	})
+	if err != nil && unknownWriteErr != nil {
+		return fmt.Errorf("%s: %w", err.Error(), unknownWriteErr)
+	}
+	return err
 }
 
 func escapeMySQLBacktickIdent(ident string) string {
@@ -1379,20 +1450,21 @@ func normalizeMySQLDateTimeValue(value interface{}) interface{} {
 	return value
 }
 
-func (m *MySQLDB) loadColumnTypeMap(tableName string) map[string]string {
+func (m *MySQLDB) loadColumnTypeMapContext(ctx context.Context, tableName string) map[string]string {
 	result := map[string]string{}
 	table := strings.TrimSpace(tableName)
 	if table == "" {
 		return result
 	}
 
-	columns, err := m.GetColumns("", table)
+	data, _, err := m.QueryContext(ctx, buildMySQLShowFullColumnsQuery("", table))
 	if err != nil {
 		logger.Warnf("加载列元数据失败（不影响提交）：表=%s err=%v", table, err)
 		return result
 	}
 
-	for _, col := range columns {
+	for _, row := range data {
+		col := buildMySQLColumnDefinition(row)
 		name := strings.ToLower(strings.TrimSpace(col.Name))
 		if name == "" {
 			continue

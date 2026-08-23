@@ -34,7 +34,6 @@ func assertNoLegacyPreviewChinese(t *testing.T, text string) {
 	}
 }
 
-
 func TestPreviewCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -183,33 +182,6 @@ func TestPreviewUsesCurrentLanguageForPreflightErrors(t *testing.T) {
 				return err
 			},
 			wantKey: "data_sync.backend.error.preview_pk_required",
-		},
-		{
-			name: "preview composite primary key unsupported",
-			run: func(t *testing.T) error {
-				sourceCols := []connection.ColumnDefinition{
-					{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
-					{Name: "tenant_id", Type: "bigint", Nullable: "NO", Key: "PRI"},
-				}
-				useSyncDatabaseFactorySequence(t,
-					syncDatabaseFactoryStep{db: &fakeMigrationDB{
-						columns: map[string][]connection.ColumnDefinition{
-							"shop.users": sourceCols,
-						},
-					}},
-					syncDatabaseFactoryStep{db: &fakeMigrationDB{
-						columns: map[string][]connection.ColumnDefinition{
-							"app.users": sourceCols,
-						},
-					}},
-				)
-				_, err := NewSyncEngine(Reporter{}).Preview(basePreviewI18nConfig(), tableName, 20)
-				return err
-			},
-			wantKey: "data_sync.backend.error.preview_composite_pk_unsupported",
-			wantParams: map[string]any{
-				"columns": "id,tenant_id",
-			},
 		},
 	}
 

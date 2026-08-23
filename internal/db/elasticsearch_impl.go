@@ -87,12 +87,9 @@ func (e *ElasticsearchDB) ExecuteElasticsearchConsoleRequest(ctx context.Context
 	}
 	defer httpResponse.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(httpResponse.Body, maxElasticsearchConsoleResponseBytes+1))
+	body, err := readResponseBodyWithLimit(httpResponse.Body, maxElasticsearchConsoleResponseBytes, "Elasticsearch Console 响应")
 	if err != nil {
 		return ElasticsearchConsoleResponse{}, fmt.Errorf("读取 Elasticsearch Console 响应失败：%w", err)
-	}
-	if len(body) > maxElasticsearchConsoleResponseBytes {
-		return ElasticsearchConsoleResponse{}, fmt.Errorf("Elasticsearch Console 响应超过 32 MiB 上限")
 	}
 	return ElasticsearchConsoleResponse{
 		StatusCode:  httpResponse.StatusCode,
@@ -278,8 +275,11 @@ func (e *ElasticsearchDB) probeServerMajor(ctx context.Context) (int, error) {
 			Number string `json:"number"`
 		} `json:"version"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
-	if err := decoder.Decode(&payload); err != nil {
+	body, err := readResponseBodyWithLimit(response.Body, 1<<20, "Elasticsearch 版本响应")
+	if err != nil {
+		return 0, fmt.Errorf("读取版本响应失败：%w", err)
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
 		return 0, fmt.Errorf("解析版本响应失败：%w", err)
 	}
 	majorText, _, _ := strings.Cut(strings.TrimSpace(payload.Version.Number), ".")
@@ -344,7 +344,7 @@ func (e *ElasticsearchDB) Ping() error {
 
 // Query 执行 Elasticsearch 查询，支持 JSON DSL 和 query_string 两种模式。
 func (e *ElasticsearchDB) Query(query string) ([]map[string]interface{}, []string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultEsQueryTimeout)
+	ctx, cancel := context.WithTimeout(metadataContextFor(e), defaultEsQueryTimeout)
 	defer cancel()
 	return e.queryWithContext(ctx, query)
 }
@@ -562,7 +562,7 @@ func (e *ElasticsearchDB) GetDatabases() ([]string, error) {
 		catTimeout = totalTimeout
 	}
 
-	catCtx, cancelCat := context.WithTimeout(context.Background(), catTimeout)
+	catCtx, cancelCat := context.WithTimeout(metadataContextFor(e), catTimeout)
 	indices, catErr := e.getDatabasesViaCat(catCtx)
 	cancelCat()
 	if catErr == nil {
@@ -575,7 +575,7 @@ func (e *ElasticsearchDB) GetDatabases() ([]string, error) {
 		return nil, fmt.Errorf("获取索引列表失败：CAT Indices API: %v；Alias API: 总超时 %s 已耗尽", catErr, totalTimeout)
 	}
 
-	aliasCtx, cancelAlias := context.WithTimeout(context.Background(), remaining)
+	aliasCtx, cancelAlias := context.WithTimeout(metadataContextFor(e), remaining)
 	indices, aliasErr := e.getDatabasesViaAlias(aliasCtx)
 	cancelAlias()
 	if aliasErr == nil {
@@ -626,7 +626,11 @@ func (e *ElasticsearchDB) getDatabasesViaCatRequest(ctx context.Context, expandA
 	var rows []struct {
 		Index string `json:"index"`
 	}
-	if err := json.NewDecoder(res.Body).Decode(&rows); err != nil {
+	body, err := readLimitedJSONResponseBody(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取索引列表响应失败：%w", err)
+	}
+	if err := json.Unmarshal(body, &rows); err != nil {
 		return nil, fmt.Errorf("解析响应失败：%w", err)
 	}
 
@@ -656,7 +660,11 @@ func (e *ElasticsearchDB) getDatabasesViaAlias(ctx context.Context) ([]string, e
 	}
 
 	var indexMap map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&indexMap); err != nil {
+	body, err := readLimitedJSONResponseBody(res.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取别名响应失败：%w", err)
+	}
+	if err := json.Unmarshal(body, &indexMap); err != nil {
 		return nil, fmt.Errorf("解析响应失败：%w", err)
 	}
 
@@ -717,7 +725,7 @@ func (e *ElasticsearchDB) TableExists(dbName, tableName string) (bool, error) {
 		return false, fmt.Errorf("未指定索引名")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultEsPingTimeout)
+	ctx, cancel := context.WithTimeout(metadataContextFor(e), defaultEsPingTimeout)
 	defer cancel()
 	res, err := e.client.Indices.Exists(
 		[]string{indexName},
@@ -753,7 +761,7 @@ func (e *ElasticsearchDB) GetCreateStatement(dbName, tableName string) (string, 
 		return "", fmt.Errorf("未指定索引名")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(e), 10*time.Second)
 	defer cancel()
 
 	res, err := e.client.Indices.Get(
@@ -769,7 +777,7 @@ func (e *ElasticsearchDB) GetCreateStatement(dbName, tableName string) (string, 
 		return "", fmt.Errorf("获取索引定义失败：%s", res.Status())
 	}
 
-	body, err := io.ReadAll(res.Body)
+	body, err := readLimitedJSONResponseBody(res.Body)
 	if err != nil {
 		return "", fmt.Errorf("读取索引定义失败：%w", err)
 	}
@@ -843,7 +851,7 @@ func (e *ElasticsearchDB) GetIndexes(dbName, tableName string) ([]connection.Ind
 		return nil, fmt.Errorf("未指定索引名")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(e), 10*time.Second)
 	defer cancel()
 
 	res, err := e.client.Indices.GetSettings(
@@ -859,7 +867,7 @@ func (e *ElasticsearchDB) GetIndexes(dbName, tableName string) ([]connection.Ind
 		return nil, fmt.Errorf("获取索引设置失败：%s", res.Status())
 	}
 
-	body, err := io.ReadAll(res.Body)
+	body, err := readLimitedJSONResponseBody(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("读取索引设置失败：%w", err)
 	}
@@ -928,53 +936,65 @@ func (e *ElasticsearchDB) esBulkActionMeta(action, indexName string, docID strin
 	return map[string]interface{}{action: meta}
 }
 
-// resolveWriteIndex 解析别名对应的实际可写索引名。
-// 如果 indexOrAlias 是直接索引名，原样返回。
-// 如果是别名，返回该别名下最新的索引名（按名称倒序）。
+// resolveWriteIndex 解析别名 metadata 中唯一标记为 is_write_index 的索引。
+// 直接索引名通过 GetAlias 的 404 判定；别名缺失或冲突时拒绝写入。
 func (e *ElasticsearchDB) resolveWriteIndex(indexOrAlias string) (string, error) {
+	indexOrAlias = strings.TrimSpace(indexOrAlias)
+	if indexOrAlias == "" {
+		return "", fmt.Errorf("未指定索引或别名")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	res, err := e.client.Indices.GetAlias(
 		e.client.Indices.GetAlias.WithContext(ctx),
-		e.client.Indices.GetAlias.WithIndex(indexOrAlias),
+		e.client.Indices.GetAlias.WithName(indexOrAlias),
 	)
 	if err != nil {
-		return indexOrAlias, nil // 网络错误时回退到原名
+		return "", fmt.Errorf("读取别名 metadata 失败：%w", err)
 	}
 	defer res.Body.Close()
 
 	if res.IsError() {
-		// 404 表示不是别名而是直接索引名
-		return indexOrAlias, nil
+		if res.StatusCode == http.StatusNotFound {
+			// Alias API 的 404 表示该名称不是别名，按直接索引名处理。
+			_, _ = io.Copy(io.Discard, res.Body)
+			return indexOrAlias, nil
+		}
+		body, readErr := readLimitedJSONResponseBody(res.Body)
+		if readErr != nil {
+			return "", fmt.Errorf("读取别名 metadata 失败：%w", readErr)
+		}
+		return "", fmt.Errorf("读取别名 metadata 失败（HTTP %d）：%s", res.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	body, err := io.ReadAll(res.Body)
+	body, err := readLimitedJSONResponseBody(res.Body)
 	if err != nil {
-		return indexOrAlias, nil
+		return "", fmt.Errorf("读取别名 metadata 失败：%w", err)
 	}
 
-	var aliasMap map[string]interface{}
+	type aliasConfig struct {
+		IsWriteIndex *bool `json:"is_write_index"`
+	}
+	type indexAliasMetadata struct {
+		Aliases map[string]aliasConfig `json:"aliases"`
+	}
+	var aliasMap map[string]indexAliasMetadata
 	if err := json.Unmarshal(body, &aliasMap); err != nil {
-		return indexOrAlias, nil
+		return "", fmt.Errorf("解析别名 metadata 失败：%w", err)
 	}
 
-	// aliasMap 的 key 是实际索引名，如果没有 key 或只有一个，直接用
-	var indices []string
-	for name := range aliasMap {
-		indices = append(indices, name)
+	writeIndexes := make([]string, 0, 1)
+	for indexName, metadata := range aliasMap {
+		config, ok := metadata.Aliases[indexOrAlias]
+		if ok && config.IsWriteIndex != nil && *config.IsWriteIndex {
+			writeIndexes = append(writeIndexes, indexName)
+		}
 	}
-
-	if len(indices) == 0 {
-		return indexOrAlias, nil
+	if len(writeIndexes) != 1 {
+		return "", fmt.Errorf("别名 %q 必须且只能有一个 is_write_index=true 索引，实际 %d 个", indexOrAlias, len(writeIndexes))
 	}
-	if len(indices) == 1 {
-		return indices[0], nil
-	}
-
-	// 多个索引对应同一别名时，取名称最新的（ES 通常用日期后缀，倒序取第一个）
-	sort.Sort(sort.Reverse(sort.StringSlice(indices)))
-	return indices[0], nil
+	return writeIndexes[0], nil
 }
 
 // isESMetaField 判断字段名是否为 ES 元字段（不应写入文档 _source）。
@@ -1000,9 +1020,9 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 	var bulkBody bytes.Buffer
 
 	// 如果目标是别名（非直接索引），解析出实际的可写索引名。
-	writeIndexName := indexName
-	if resolved, err := e.resolveWriteIndex(indexName); err == nil && resolved != "" {
-		writeIndexName = resolved
+	writeIndexName, err := e.resolveWriteIndex(indexName)
+	if err != nil {
+		return fmt.Errorf("解析写入索引失败：%w", err)
 	}
 
 	// resolveWriteIndex 确定写操作的目标索引。
@@ -1092,7 +1112,7 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 	}
 	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
+	body, err := readLimitedJSONResponseBody(res.Body)
 	if err != nil {
 		return fmt.Errorf("读取 ES 批量操作响应失败：%w", err)
 	}

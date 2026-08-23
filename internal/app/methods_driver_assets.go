@@ -2,7 +2,6 @@ package app
 
 import (
 	"archive/zip"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -21,22 +20,6 @@ import (
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
 )
-
-const (
-	optionalDriverDownloadProbeBytes      = 256 << 10
-	optionalDriverDownloadProbeMinBytes   = 64 << 10
-	optionalDriverDownloadProbeTimeout    = 4 * time.Second
-	optionalDriverDownloadProbeSpeedRatio = 1.5
-)
-
-type optionalDriverDownloadProbeResult struct {
-	URL      string
-	Bytes    int64
-	Duration time.Duration
-	OK       bool
-}
-
-type optionalDriverDownloadProbeFunc func(context.Context, *http.Client, string) optionalDriverDownloadProbeResult
 
 func optionalDriverPublicTypeName(driverType string) string {
 	switch normalizeDriverType(driverType) {
@@ -271,7 +254,8 @@ func driverMirrorReleaseDownloadURL(tag string, assetName string) string {
 	if tagName == "" || asset == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/%s", driverReleaseMirrorBaseURL, url.PathEscape(tagName), url.PathEscape(asset))
+	assetPath := fmt.Sprintf("/drivers/releases/download/%s/%s", tagName, asset)
+	return downloadDispatcherURLForPath(assetPath)
 }
 
 func driverMirrorDevReleaseDownloadURL(tag string, assetName string) string {
@@ -280,7 +264,8 @@ func driverMirrorDevReleaseDownloadURL(tag string, assetName string) string {
 	if tagName == "" || asset == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/%s", driverReleaseMirrorDevBaseURL, url.PathEscape(tagName), url.PathEscape(asset))
+	assetPath := fmt.Sprintf("/drivers/dev/releases/download/%s/%s", tagName, asset)
+	return downloadDispatcherURLForPath(assetPath)
 }
 
 func driverMirrorReleaseDownloadURLForTags(releaseTag string, mirrorTag string, assetName string) string {
@@ -299,6 +284,12 @@ func driverReleaseDownloadCoordinates(rawURL string) (string, string, bool) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return "", "", false
+	}
+	if assetPath, ok := downloadDispatcherAssetPath(rawURL); ok {
+		parsed, err = url.Parse("https://download.syngnat.top" + assetPath)
+		if err != nil {
+			return "", "", false
+		}
 	}
 	segments := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
 	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
@@ -692,122 +683,18 @@ func acquireOptionalDriverBundlePath(bundleURL string, onProgress func(downloade
 	}
 }
 
-func optionalDriverDownloadSource(rawURL string) string {
+func keepOptionalDriverDownloadURLOrder(urls []string) []string {
+	// The common downloader resolves dispatcher candidates, applies its cached
+	// Range measurements, and pins each eight-Range attempt to one source.
+	return append([]string(nil), urls...)
+}
+
+func isDriverMirrorDownloadURL(rawURL string) bool {
+	if _, ok := downloadDispatcherAssetPath(rawURL); ok {
+		return true
+	}
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return ""
-	}
-	switch strings.ToLower(strings.TrimSpace(parsed.Hostname())) {
-	case "download.syngnat.top":
-		return "mirror"
-	case "github.com", "api.github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com":
-		return "github"
-	default:
-		return ""
-	}
-}
-
-func probeOptionalDriverDownloadURL(ctx context.Context, client *http.Client, rawURL string) optionalDriverDownloadProbeResult {
-	result := optionalDriverDownloadProbeResult{URL: strings.TrimSpace(rawURL)}
-	if result.URL == "" || client == nil {
-		return result
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, result.URL, nil)
-	if err != nil {
-		return result
-	}
-	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", optionalDriverDownloadProbeBytes-1))
-	applyGitHubDownloadRequestHeaders(req, isGitHubReleaseAssetAPIURL(result.URL))
-
-	startedAt := time.Now()
-	resp, err := doUpdateRequest(client, req)
-	if err != nil {
-		return result
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return result
-	}
-
-	written, err := io.Copy(io.Discard, io.LimitReader(resp.Body, optionalDriverDownloadProbeBytes))
-	result.Duration = time.Since(startedAt)
-	result.Bytes = written
-	result.OK = err == nil && written >= optionalDriverDownloadProbeMinBytes && result.Duration > 0
-	return result
-}
-
-func reorderOptionalDriverDownloadURLsBySpeedWithProbe(urls []string, probe optionalDriverDownloadProbeFunc) []string {
-	ordered := append([]string(nil), urls...)
-	if len(ordered) < 2 || probe == nil {
-		return ordered
-	}
-
-	mirrorURL := ""
-	githubURL := ""
-	for _, candidate := range ordered {
-		if !isOptionalDriverDownloadZipURL(candidate) {
-			continue
-		}
-		switch optionalDriverDownloadSource(candidate) {
-		case "mirror":
-			if mirrorURL == "" {
-				mirrorURL = candidate
-			}
-		case "github":
-			if githubURL == "" {
-				githubURL = candidate
-			}
-		}
-	}
-	if mirrorURL == "" || githubURL == "" {
-		return ordered
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), optionalDriverDownloadProbeTimeout)
-	defer cancel()
-	client := newHTTPClientWithGlobalProxy(optionalDriverDownloadProbeTimeout)
-	results := make(chan optionalDriverDownloadProbeResult, 2)
-	for _, candidate := range []string{mirrorURL, githubURL} {
-		candidateURL := candidate
-		go func() {
-			results <- probe(ctx, client, candidateURL)
-		}()
-	}
-
-	measured := make(map[string]optionalDriverDownloadProbeResult, 2)
-	for remaining := 2; remaining > 0; remaining-- {
-		select {
-		case result := <-results:
-			measured[result.URL] = result
-		case <-ctx.Done():
-			remaining = 0
-		}
-	}
-
-	mirrorResult := measured[mirrorURL]
-	githubResult := measured[githubURL]
-	preferGitHub := githubResult.OK && !mirrorResult.OK
-	if githubResult.OK && mirrorResult.OK {
-		mirrorSpeed := float64(mirrorResult.Bytes) / mirrorResult.Duration.Seconds()
-		githubSpeed := float64(githubResult.Bytes) / githubResult.Duration.Seconds()
-		preferGitHub = githubSpeed >= mirrorSpeed*optionalDriverDownloadProbeSpeedRatio
-	}
-	if !preferGitHub {
-		return ordered
-	}
-
-	reordered := make([]string, 0, len(ordered))
-	reordered = append(reordered, githubURL)
-	for _, candidate := range ordered {
-		if candidate != githubURL {
-			reordered = append(reordered, candidate)
-		}
-	}
-	return reordered
-}
-
-func reorderOptionalDriverDownloadURLsBySpeed(urls []string) []string {
-	return reorderOptionalDriverDownloadURLsBySpeedWithProbe(urls, probeOptionalDriverDownloadURL)
+	return err == nil && strings.EqualFold(parsed.Hostname(), "download.syngnat.top")
 }
 
 func resolveOptionalDriverAgentDownloadURLs(definition driverDefinition, rawURL string, selectedVersion string) []string {
@@ -830,8 +717,7 @@ func resolveOptionalDriverAgentDownloadURLs(definition driverDefinition, rawURL 
 	appendPublishedURL := func(tag string, publishedURL string) {
 		releaseTag := strings.TrimSpace(tag)
 		assetName := driverReleaseAssetNameFromURL(publishedURL)
-		parsed, _ := url.Parse(strings.TrimSpace(publishedURL))
-		if parsed != nil && strings.EqualFold(parsed.Hostname(), "download.syngnat.top") {
+		if isDriverMirrorDownloadURL(publishedURL) {
 			appendURL(publishedURL)
 			appendURL(driverReleaseDownloadURL(releaseTag, assetName))
 			return
@@ -869,7 +755,7 @@ func resolveOptionalDriverAgentDownloadURLs(definition driverDefinition, rawURL 
 		switch strings.ToLower(strings.TrimSpace(parsed.Scheme)) {
 		case "http", "https":
 			if tag, assetName, ok := driverReleaseDownloadCoordinates(parsed.String()); ok &&
-				!strings.EqualFold(parsed.Hostname(), "download.syngnat.top") {
+				!isDriverMirrorDownloadURL(parsed.String()) {
 				if strings.EqualFold(tag, driverReleaseDevTag) {
 					appendURL(readReleaseMirrorDownloadURLFromCache("tag:"+tag, assetName))
 				} else {
@@ -1379,6 +1265,7 @@ func loadReleaseAssetSizesCached(cacheKey string, fetch func() (*githubRelease, 
 	entry := driverReleaseAssetSizeCacheEntry{
 		LoadedAt:           time.Now(),
 		SizeByKey:          map[string]int64{},
+		SHA256ByKey:        map[string]string{},
 		PublishedAssets:    map[string]bool{},
 		MirrorDownloadURLs: map[string]string{},
 	}
@@ -1388,13 +1275,20 @@ func loadReleaseAssetSizesCached(cacheKey string, fetch func() (*githubRelease, 
 		entry.SizeByKey = buildReleaseAssetSizeMap(release)
 		entry.PublishedAssets = buildReleaseAssetNameMap(release)
 		entry.MirrorDownloadURLs = buildReleaseMirrorDownloadURLMap(release)
-		if indexSizes, indexErr := fetchDriverBundleAssetSizeIndex(release); indexErr == nil {
-			for name, size := range indexSizes {
+		if index, indexErr := fetchDriverBundleAssetIndex(release); indexErr == nil {
+			for name, size := range index.Assets {
 				trimmedName := strings.TrimSpace(name)
 				if trimmedName == "" || size <= 0 {
 					continue
 				}
 				entry.SizeByKey[trimmedName] = size
+			}
+			for name, digest := range index.AssetSHA256 {
+				trimmedName := strings.TrimSpace(name)
+				normalized := normalizeGitHubAssetSHA256(digest)
+				if trimmedName != "" && len(normalized) == 64 {
+					entry.SHA256ByKey[trimmedName] = normalized
+				}
 			}
 		}
 	}
@@ -1417,8 +1311,7 @@ func buildReleaseMirrorDownloadURLMap(release *githubRelease) map[string]string 
 	for _, asset := range release.Assets {
 		name := strings.TrimSpace(asset.Name)
 		downloadURL := strings.TrimSpace(asset.BrowserDownloadURL)
-		parsed, err := url.Parse(downloadURL)
-		if name == "" || err != nil || !strings.EqualFold(parsed.Hostname(), "download.syngnat.top") {
+		if name == "" || !isDriverMirrorDownloadURL(downloadURL) {
 			continue
 		}
 		urls[name] = downloadURL
@@ -1439,6 +1332,42 @@ func readReleaseMirrorDownloadURLFromCache(cacheKey string, assetName string) st
 		return ""
 	}
 	return strings.TrimSpace(cached.MirrorDownloadURLs[name])
+}
+
+func readReleaseAssetMetadataFromCache(cacheKey string, assetName string) (int64, string, bool) {
+	key := strings.TrimSpace(cacheKey)
+	name := strings.TrimSpace(assetName)
+	if key == "" || name == "" {
+		return 0, "", false
+	}
+	driverReleaseSizeMu.RLock()
+	cached, ok := driverReleaseSizeMap[key]
+	driverReleaseSizeMu.RUnlock()
+	if !ok || time.Since(cached.LoadedAt) >= driverReleaseAssetSizeCacheTTL {
+		return 0, "", false
+	}
+	size := cached.SizeByKey[name]
+	digest := normalizeGitHubAssetSHA256(cached.SHA256ByKey[name])
+	return size, digest, size > 0 && len(digest) == 64
+}
+
+func expectedDriverReleaseAssetMetadata(rawURL string) (int64, string, bool) {
+	tag, assetName, ok := driverReleaseDownloadCoordinates(rawURL)
+	if !ok {
+		return 0, "", false
+	}
+	cacheKeys := []string{"tag:" + tag, "tag:" + currentDriverReleaseTag(), "latest"}
+	seen := map[string]struct{}{}
+	for _, cacheKey := range cacheKeys {
+		if _, exists := seen[cacheKey]; exists {
+			continue
+		}
+		seen[cacheKey] = struct{}{}
+		if size, digest, found := readReleaseAssetMetadataFromCache(cacheKey, assetName); found {
+			return size, digest, true
+		}
+	}
+	return 0, "", false
 }
 
 func readReleaseAssetSizesFromCache(cacheKey string) (map[string]int64, map[string]bool, bool) {
@@ -1520,7 +1449,26 @@ func fetchDriverBundleAssetIndex(release *githubRelease) (driverBundleAssetIndex
 		return driverBundleAssetIndex{}, newLocalizedDriverBackendError("driver_manager.backend.error.bundle_index_asset_missing", nil, nil)
 	}
 
-	client := newHTTPClientWithGlobalProxy(driverReleaseAssetSizeProbeTimeout)
+	client := newStrictHTTPClientWithGlobalProxy(driverReleaseAssetSizeProbeTimeout)
+	candidates, resolveErr := resolveDispatcherDownloadCandidates(client, indexURL)
+	if resolveErr != nil {
+		candidates = []string{indexURL}
+	}
+	failures := make([]error, 0, len(candidates)+1)
+	if resolveErr != nil {
+		failures = append(failures, resolveErr)
+	}
+	for _, candidate := range candidates {
+		index, err := fetchDriverBundleAssetIndexCandidate(client, candidate)
+		if err == nil {
+			return index, nil
+		}
+		failures = append(failures, fmt.Errorf("%s: %w", redactDownloadURL(candidate), err))
+	}
+	return driverBundleAssetIndex{}, errors.Join(failures...)
+}
+
+func fetchDriverBundleAssetIndexCandidate(client *http.Client, indexURL string) (driverBundleAssetIndex, error) {
 	req, err := http.NewRequest(http.MethodGet, indexURL, nil)
 	if err != nil {
 		return driverBundleAssetIndex{}, err
@@ -1549,6 +1497,16 @@ func fetchDriverBundleAssetIndex(release *githubRelease) (driverBundleAssetIndex
 	}
 	if len(index.Assets) == 0 {
 		return driverBundleAssetIndex{}, newLocalizedDriverBackendError("driver_manager.backend.error.bundle_index_empty", nil, nil)
+	}
+	if len(index.AssetSHA256) != len(index.Assets) {
+		return driverBundleAssetIndex{}, newLocalizedDriverBackendError("driver_manager.backend.error.bundle_index_parse_failed", nil, errors.New("driver asset SHA256 metadata is incomplete"))
+	}
+	for name, size := range index.Assets {
+		digest := normalizeGitHubAssetSHA256(index.AssetSHA256[name])
+		if strings.TrimSpace(name) == "" || size <= 0 || len(digest) != 64 {
+			return driverBundleAssetIndex{}, newLocalizedDriverBackendError("driver_manager.backend.error.bundle_index_parse_failed", nil, errors.New("driver asset metadata is invalid"))
+		}
+		index.AssetSHA256[name] = digest
 	}
 	return index, nil
 }
@@ -1690,7 +1648,7 @@ func fetchDriverReleaseByURL(apiURL string) (*githubRelease, error) {
 		return nil, newLocalizedDriverBackendError("driver_manager.backend.error.api_url_empty", nil, nil)
 	}
 
-	client := newHTTPClientWithGlobalProxy(driverReleaseAssetSizeProbeTimeout)
+	client := newStrictHTTPClientWithGlobalProxy(driverReleaseAssetSizeProbeTimeout)
 	req, err := http.NewRequest(http.MethodGet, urlText, nil)
 	if err != nil {
 		return nil, err

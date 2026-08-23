@@ -186,3 +186,92 @@ func TestResolveDialConfigWithProxy_NacosProxyWithSSHForwardsGatewayOnly(t *test
 		t.Fatalf("proxy should only wrap the SSH gateway, got enabled=%v config=%#v", got.UseProxy, got.Proxy)
 	}
 }
+
+func TestResolveDialConfigWithProxyRejectsEmptySSHGatewayBeforeForwarding(t *testing.T) {
+	_, err := resolveDialConfigWithProxy(connection.ConnectionConfig{
+		Type:     "mysql",
+		UseProxy: true,
+		Proxy: connection.ProxyConfig{
+			Type: "socks5",
+			Host: "127.0.0.1",
+			Port: 1080,
+		},
+		UseSSH: true,
+		SSH: connection.SSHConfig{
+			Host: "   ",
+			Port: 22,
+		},
+	})
+	if err == nil {
+		t.Fatal("expected empty SSH gateway to be rejected before a proxy forwarder is created")
+	}
+}
+
+func TestResolveDialConfigWithProxy_RocketMQKeepsDynamicTargets(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  connection.ConnectionConfig
+		want connection.ProxyConfig
+	}{
+		{
+			name: "explicit socks5 proxy",
+			raw: connection.ConnectionConfig{
+				Type:     "rocketmq",
+				Host:     "nameserver.internal.test",
+				Port:     9876,
+				Hosts:    []string{"nameserver-backup.internal.test:9876"},
+				UseProxy: true,
+				Proxy: connection.ProxyConfig{
+					Type: "socks5h",
+					Host: "127.0.0.1",
+					Port: 1080,
+				},
+			},
+			want: connection.ProxyConfig{
+				Type: "socks5",
+				Host: "127.0.0.1",
+				Port: 1080,
+			},
+		},
+		{
+			name: "HTTP tunnel",
+			raw: connection.ConnectionConfig{
+				Type:          "rocketmq",
+				Host:          "nameserver.internal.test",
+				Port:          9876,
+				UseHTTPTunnel: true,
+				HTTPTunnel: connection.HTTPTunnelConfig{
+					Host:     "tunnel.internal.test",
+					Port:     8080,
+					User:     "tunnel-user",
+					Password: "tunnel-password",
+				},
+			},
+			want: connection.ProxyConfig{
+				Type:     "http",
+				Host:     "tunnel.internal.test",
+				Port:     8080,
+				User:     "tunnel-user",
+				Password: "tunnel-password",
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := resolveDialConfigWithProxy(testCase.raw)
+			if err != nil {
+				t.Fatalf("resolveDialConfigWithProxy: %v", err)
+			}
+			if got.Host != testCase.raw.Host || got.Port != testCase.raw.Port || !reflect.DeepEqual(got.Hosts, testCase.raw.Hosts) {
+				t.Fatalf("RocketMQ targets = %s:%d %v, want %s:%d %v", got.Host, got.Port, got.Hosts, testCase.raw.Host, testCase.raw.Port, testCase.raw.Hosts)
+			}
+			if !got.UseProxy || got.Proxy != testCase.want {
+				t.Fatalf("RocketMQ proxy = %#v (enabled=%v), want %#v", got.Proxy, got.UseProxy, testCase.want)
+			}
+			if got.UseHTTPTunnel || got.HTTPTunnel != (connection.HTTPTunnelConfig{}) {
+				t.Fatalf("HTTP tunnel was not normalized into proxy config: %#v", got.HTTPTunnel)
+			}
+		})
+	}
+}

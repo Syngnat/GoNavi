@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Dropdown, Segmented, Tag, Tabs, Tooltip, message, type MenuProps } from 'antd';
-import { BugOutlined, ClearOutlined, CloseOutlined, CopyOutlined, EyeInvisibleOutlined, PushpinOutlined, RobotOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowRightOutlined, BugOutlined, ClearOutlined, CloseOutlined, CopyOutlined, DiffOutlined, ExportOutlined, EyeInvisibleOutlined, PushpinOutlined, RobotOutlined } from '@ant-design/icons';
 
 import { useStore } from '../store';
 import type { EditRowLocator } from '../utils/rowLocator';
@@ -22,6 +22,7 @@ import DetachDragPreview, {
 } from './DetachDragPreview';
 import DataGrid from './DataGrid';
 import LogPanel from './LogPanel';
+import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 
 export type OpenResultInWindowPreferred = Partial<Pick<DetachedWindowBounds, 'x' | 'y' | 'width' | 'height'>>;
 
@@ -50,6 +51,10 @@ export type QueryEditorResultSet = {
     /** DDL 查询目标，与列元数据目标独立，避免多段限定名被误解析。 */
     ddlDbName?: string;
     ddlTableName?: string;
+    /** 查询执行时的连接参数快照，用于保持 PG schema/search_path 上下文。 */
+    executionConnectionParams?: string;
+    executionConnectionId?: string;
+    executionDbName?: string;
     pkColumns: string[];
     editLocator?: EditRowLocator;
     readOnly: boolean;
@@ -493,43 +498,66 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         return [
             {
                 key: result?.pinned ? 'unpin' : 'pin',
+                icon: <PushpinOutlined />,
                 label: t(result?.pinned
                     ? 'query_editor.results_panel.menu.unpin'
                     : 'query_editor.results_panel.menu.pin'),
                 onClick: () => onResultPinnedChange(key, !result?.pinned),
             },
-            { type: 'divider' as const },
             ...(onOpenResultInWindow
                 ? [{
                     key: 'open-in-window',
+                    icon: <ExportOutlined />,
                     label: t('query_editor.results_panel.menu.open_in_window'),
                     onClick: () => onOpenResultInWindow(key),
-                }, { type: 'divider' as const }]
+                }]
                 : []),
             ...(onCompareResult
                 ? [{
                     key: 'compare-results',
+                    icon: <DiffOutlined />,
                     label: t('query_editor.results_panel.menu.compare_results'),
                     disabled: comparableCount < 2,
                     onClick: () => onCompareResult(key),
-                }, { type: 'divider' as const }]
+                }]
                 : []),
-            { key: 'close-other', label: t('query_editor.results_panel.menu.close_other'), disabled: !hasClosableOtherResult, onClick: () => onCloseOtherResultTabs(key) },
-            { key: 'close-left', label: t('query_editor.results_panel.menu.close_left'), disabled: !hasClosableResultToLeft, onClick: () => onCloseResultTabsToLeft(key) },
-            { key: 'close-right', label: t('query_editor.results_panel.menu.close_right'), disabled: !hasClosableResultToRight, onClick: () => onCloseResultTabsToRight(key) },
             { type: 'divider' },
-            { key: 'close-all', label: t('query_editor.results_panel.menu.close_all'), disabled: !hasClosableResult, onClick: onCloseAllResultTabs },
+            { key: 'close-other', icon: <CloseOutlined />, label: t('query_editor.results_panel.menu.close_other'), disabled: !hasClosableOtherResult, onClick: () => onCloseOtherResultTabs(key) },
+            { key: 'close-left', icon: <ArrowLeftOutlined />, label: t('query_editor.results_panel.menu.close_left'), disabled: !hasClosableResultToLeft, onClick: () => onCloseResultTabsToLeft(key) },
+            { key: 'close-right', icon: <ArrowRightOutlined />, label: t('query_editor.results_panel.menu.close_right'), disabled: !hasClosableResultToRight, onClick: () => onCloseResultTabsToRight(key) },
+            { key: 'close-all', icon: <CloseOutlined />, label: t('query_editor.results_panel.menu.close_all'), disabled: !hasClosableResult, onClick: onCloseAllResultTabs },
         ];
     }
 
     const resultTabItems = resultSets.map((rs, idx) => ({
         key: rs.key,
         label: (
-            <Dropdown menu={{ items: buildResultTabMenuItems(rs.key, idx) }} trigger={['contextMenu']} rootClassName={isV2Ui ? 'gn-v2-tab-context-menu-popup' : undefined}>
+            <Dropdown
+                menu={{ items: buildResultTabMenuItems(rs.key, idx) }}
+                trigger={['contextMenu']}
+                rootClassName={isV2Ui ? 'gn-v2-tab-context-menu-popup' : undefined}
+                popupRender={(menu) => renderV2ActionMenuPopup(menu, isV2Ui, {
+                    title: rs.resultType === 'message'
+                        ? t('query_editor.results_panel.tab.message', { index: idx + 1 })
+                        : t('query_editor.results_panel.tab.result', { index: idx + 1 }),
+                    showHeader: false,
+                })}
+            >
                 <div
                     className={`query-result-tab-label${onOpenResultInWindow ? ' is-detachable' : ''}${draggingResultKey === rs.key ? ' is-dragging-detach' : ''}`}
                     title={onOpenResultInWindow ? t('query_editor.results_panel.menu.open_in_window') : undefined}
                     onContextMenu={(event) => event.preventDefault()}
+                    onMouseDown={(event) => {
+                        if (event.button !== 1) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }}
+                    onAuxClick={(event) => {
+                        if (event.button !== 1) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onCloseResult(rs.key);
+                    }}
                     onPointerDown={(event) => handleResultTabPointerDown(event, rs.key)}
                 >
                     <Tooltip title={rs.sql}>
@@ -692,10 +720,11 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                         exportScope="queryResult"
                         resultSql={rs.exportSql || rs.sql}
                         resultExportAllSql={rs.page?.exportAllSql}
-                        dbName={rs.metadataDbName || currentDb}
+                        dbName={rs.metadataDbName || rs.executionDbName || currentDb}
                         ddlDbName={rs.ddlDbName}
                         ddlTableName={rs.ddlTableName}
-                        connectionId={currentConnectionId}
+                        connectionId={rs.executionConnectionId || currentConnectionId}
+                        connectionParamsOverride={rs.executionConnectionParams}
                         initialViewMode={dataPreviewRequest?.resultKey === rs.key ? 'table' : undefined}
                         initialViewModeRequestId={dataPreviewRequest?.resultKey === rs.key ? dataPreviewRequest.requestId : undefined}
                         initialViewModeScope={dataPreviewRequest?.resultKey === rs.key ? 'local' : undefined}
@@ -791,12 +820,12 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         <>
             <style>{`
               .query-result-tabs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-              .query-result-tabs .ant-tabs-nav { flex: 0 0 auto; margin: 0; min-height: 38px; padding-right: 8px; }
+              .query-result-tabs .ant-tabs-nav { flex: 0 0 auto; margin: 0; min-height: 36px; padding-right: 8px; }
               .query-result-tabs .ant-tabs-nav-wrap { flex: 0 1 auto; min-width: 0; }
               .query-result-tabs .ant-tabs-extra-content { display: inline-flex; align-items: center; padding-left: 8px; }
               .query-result-tabs .ant-tabs-nav-list { align-items: center; width: auto; }
-              .query-result-tabs .ant-tabs-tab { width: auto !important; min-width: 0 !important; max-width: 148px !important; height: 30px !important; min-height: 30px; margin: 4px 6px 4px 0 !important; padding: 0 9px !important; border-radius: 8px !important; border: 0.5px solid transparent !important; border-right: 0.5px solid transparent !important; align-items: center !important; justify-content: center !important; }
-              .query-result-tabs .ant-tabs-tab-btn { width: auto !important; height: 100%; max-width: 100%; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 14px !important; line-height: 1 !important; }
+              .query-result-tabs .ant-tabs-tab { width: auto !important; min-width: 0 !important; max-width: 148px !important; height: 30px !important; min-height: 30px; margin: 0 !important; padding: 0 7px !important; border-radius: 6px !important; border: 0.5px solid transparent !important; border-right: 0.5px solid transparent !important; align-items: center !important; justify-content: center !important; }
+              .query-result-tabs .ant-tabs-tab-btn { width: auto !important; height: 100%; max-width: 100%; display: inline-flex !important; align-items: center !important; justify-content: center !important; font-size: 13px !important; line-height: 1 !important; }
               .query-result-tabs .ant-tabs-tab.ant-tabs-tab-active::after { display: none; }
               .query-result-tabs .ant-tabs-content-holder, .query-result-tabs .ant-tabs-content, .query-result-tabs .ant-tabs-tabpane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
               .query-result-tabs .ant-tabs-tabpane > div { flex: 1 1 auto; min-height: 0; }
@@ -812,9 +841,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 -webkit-user-select: none !important;
                 cursor: grabbing !important;
               }
-              .query-result-tab-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+              .query-result-tab-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
               .query-result-tab-pin { flex: 0 0 auto; font-size: 12px; }
-              .query-result-tab-count { flex: 0 0 auto; min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: rgba(148, 163, 184, 0.16); color: inherit; font-size: 11px; font-weight: 700; line-height: 17px; }
+              .query-result-tab-count { flex: 0 0 auto; height: 17px; padding: 0 5px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; background: var(--gn-bg-active, rgba(148, 163, 184, 0.16)); color: var(--gn-fg-4, inherit); font-family: var(--gn-font-mono); font-size: 9.5px; font-weight: 750; line-height: 17px; }
               .query-result-tab-close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 999px; color: #999; cursor: pointer; flex: 0 0 auto; }
               .query-result-tab-close:hover { background: rgba(0, 0, 0, 0.06); color: #666; }
               .query-result-panel-header { flex: 0 0 auto; min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.06); background: rgba(255, 255, 255, 0.9); }

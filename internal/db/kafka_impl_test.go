@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 
@@ -12,13 +13,38 @@ import (
 )
 
 type fakeKafkaRuntime struct {
-	listTopicsResult    []kafkaTopicInfo
-	describeResult      kafkaTopicDescription
-	fetchResult         []kafkaMessageRecord
-	publishAffected     int64
-	lastDescribeTopic   string
-	lastFetchRequest    kafkaFetchRequest
-	lastPublishCommand  kafkaPublishCommand
+	listTopicsResult   []kafkaTopicInfo
+	describeResult     kafkaTopicDescription
+	fetchResult        []kafkaMessageRecord
+	publishAffected    int64
+	lastDescribeTopic  string
+	lastFetchRequest   kafkaFetchRequest
+	lastPublishCommand kafkaPublishCommand
+	fetchCount         int
+}
+
+func TestKafkaRuntimeDoesNotDeriveRequestTimeoutFromConnectionTimeout(t *testing.T) {
+	runtime, err := newKafkaGoRuntime(connection.ConnectionConfig{
+		Type:    "kafka",
+		Host:    "127.0.0.1",
+		Port:    9092,
+		Timeout: 1,
+	})
+	if err != nil {
+		t.Fatalf("newKafkaGoRuntime: %v", err)
+	}
+	defer runtime.Close()
+
+	concrete, ok := runtime.(*kafkaGoRuntime)
+	if !ok {
+		t.Fatalf("runtime type = %T", runtime)
+	}
+	if concrete.client.Timeout != 0 {
+		t.Fatalf("connection timeout leaked into Kafka request timeout: %s", concrete.client.Timeout)
+	}
+	if concrete.dialer.Timeout != time.Second {
+		t.Fatalf("Kafka dial timeout = %s, want 1s", concrete.dialer.Timeout)
+	}
 }
 
 type kafkaOffsetSeekerRecorder struct {
@@ -59,6 +85,7 @@ func (f *fakeKafkaRuntime) DescribeTopic(ctx context.Context, topic string) (kaf
 }
 
 func (f *fakeKafkaRuntime) FetchMessages(ctx context.Context, request kafkaFetchRequest) ([]kafkaMessageRecord, error) {
+	f.fetchCount++
 	f.lastFetchRequest = request
 	return append([]kafkaMessageRecord(nil), f.fetchResult...), nil
 }
@@ -225,7 +252,7 @@ func TestKafkaExecPublishesJSONCommand(t *testing.T) {
 	}
 }
 
-func TestKafkaGetColumnsIncludesDerivedFields(t *testing.T) {
+func TestKafkaGetColumnsReturnsStaticFieldsWithoutFetchingMessages(t *testing.T) {
 	runtime := &fakeKafkaRuntime{
 		fetchResult: []kafkaMessageRecord{{
 			Message: kafka.Message{Topic: "orders.events"},
@@ -243,14 +270,22 @@ func TestKafkaGetColumnsIncludesDerivedFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetColumns failed: %v", err)
 	}
+	if runtime.fetchCount != 0 {
+		t.Fatalf("GetColumns must not read Kafka messages, fetches=%d", runtime.fetchCount)
+	}
 	names := make([]string, 0, len(columns))
 	for _, col := range columns {
 		names = append(names, col.Name)
 	}
 	joined := strings.Join(names, ",")
-	for _, want := range []string{"topic", "partition", "offset", "value.meta.ip", "headers.x-request-id"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("expected derived column %q in %s", want, joined)
+	for _, want := range []string{"topic", "partition", "offset", "value", "headers"} {
+		if !containsString(names, want) {
+			t.Fatalf("expected Kafka column %q in %s", want, joined)
+		}
+	}
+	for _, unexpected := range []string{"value.meta.ip", "headers.x-request-id"} {
+		if containsString(names, unexpected) {
+			t.Fatalf("unexpected sample-derived Kafka column %q in %s", unexpected, joined)
 		}
 	}
 }

@@ -110,7 +110,7 @@ func (c *CustomDB) Query(query string) ([]map[string]interface{}, []string, erro
 		return nil, nil, localizedDatabaseRuntimeError("db.backend.error.connection_not_open", nil)
 	}
 
-	rows, err := c.conn.Query(query)
+	rows, err := c.conn.QueryContext(metadataContextFor(c), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -419,10 +419,15 @@ func (c *CustomDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		return localizedDatabaseRuntimeError("db.backend.error.connection_not_open", nil)
 	}
 
-	tx, err := c.conn.Begin()
+	conn, tx, err := beginPinnedWriteTransaction(c.conn)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
 	defer tx.Rollback()
 
 	driver := strings.ToLower(strings.TrimSpace(c.driver))
@@ -546,7 +551,7 @@ func (c *CustomDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		return err
 	}
 
-	return tx.Commit()
+	return commitPinnedWriteTransaction(&conn, tx)
 }
 
 func customInsertMaxArgs(isSQLServer, isSQLite bool) int {

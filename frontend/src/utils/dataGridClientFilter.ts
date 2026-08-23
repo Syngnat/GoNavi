@@ -8,6 +8,8 @@ export type DataGridColumnValueCount = {
   count: number;
 };
 
+export type DataGridColumnValueCountSortOrder = 'ascend' | 'descend';
+
 const stableSerializeComplexValue = (value: unknown, seen = new WeakSet<object>()): string => {
   if (value === null) return 'null';
   if (value === undefined) return 'undefined';
@@ -75,8 +77,16 @@ export const countGridColumnValues = <T extends Record<string, any>>(
     }
   });
 
-  return Array.from(counts.values()).sort((left, right) => (
-    right.count - left.count
+  return sortGridColumnValueCounts(Array.from(counts.values()), 'descend');
+};
+
+export const sortGridColumnValueCounts = (
+  valueCounts: DataGridColumnValueCount[],
+  sortOrder: DataGridColumnValueCountSortOrder,
+): DataGridColumnValueCount[] => {
+  const direction = sortOrder === 'ascend' ? 1 : -1;
+  return [...valueCounts].sort((left, right) => (
+    direction * (left.count - right.count)
     || left.display.localeCompare(right.display, undefined, { numeric: true, sensitivity: 'base' })
     || left.key.localeCompare(right.key)
   ));

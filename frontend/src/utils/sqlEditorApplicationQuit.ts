@@ -7,7 +7,11 @@ import {
   isSQLFileQueryTab,
   normalizeSQLFileReadContent,
 } from './sqlFileTabDirty';
-import { getQueryTabDraft, getSQLFileTabDraft } from './sqlFileTabDrafts';
+import {
+  clearQueryTabDraft,
+  getQueryTabDraft,
+  getSQLFileTabDraft,
+} from './sqlFileTabDrafts';
 
 type QueryResultLike = {
   success?: boolean;
@@ -44,6 +48,24 @@ export type ApplicationQuitUnsavedSQLTarget =
 export type ReadSQLFileForQuit = (filePath: string) => Promise<QueryResultLike>;
 export type WriteSQLFileForQuit = (filePath: string, content: string) => Promise<QueryResultLike>;
 export type SaveQueryForQuit = (query: SavedQuery) => Promise<SavedQuery>;
+
+export type ApplicationQuitSavedSQLTarget = {
+  target: ApplicationQuitUnsavedSQLTarget;
+  savedQuery?: SavedQuery;
+};
+
+type ApplicationQuitSQLStateSnapshot = {
+  tabs: TabData[];
+  savedQueries: SavedQuery[];
+};
+
+type SaveLatestApplicationQuitUnsavedSQLStateArgs = {
+  getState: () => ApplicationQuitSQLStateSnapshot;
+  updateTabs: (update: (tabs: TabData[]) => TabData[]) => void;
+  saveQuery: SaveQueryForQuit;
+  readSQLFile?: ReadSQLFileForQuit;
+  writeSQLFile?: WriteSQLFileForQuit;
+};
 
 const toTrimmedString = (value: unknown): string => String(value ?? '').trim();
 
@@ -146,27 +168,30 @@ export const saveApplicationQuitUnsavedSQLTargets = async (
   targets: ApplicationQuitUnsavedSQLTarget[],
   saveQuery: SaveQueryForQuit,
   writeSQLFile: WriteSQLFileForQuit = WriteSQLFile,
-): Promise<void> => {
+): Promise<ApplicationQuitSavedSQLTarget[]> => {
+  const savedTargets: ApplicationQuitSavedSQLTarget[] = [];
   for (const target of targets) {
     if (target.kind === 'sql-file') {
       const res = await writeSQLFile(target.filePath, target.draft);
       if (!res?.success) {
         throw new Error(res?.message || target.filePath);
       }
+      savedTargets.push({ target });
       continue;
     }
 
     if (target.kind === 'saved-query') {
-      await saveQuery({
+      const savedQuery = await saveQuery({
         ...target.savedQuery,
         sql: target.draft,
         connectionId: target.connectionId,
         dbName: target.dbName,
       });
+      savedTargets.push({ target, savedQuery });
       continue;
     }
 
-    await saveQuery({
+    const savedQuery = await saveQuery({
       // Keep the tab identity so a restored tab resolves this saved query on
       // later exits instead of creating a new history copy every time.
       id: target.tabId,
@@ -176,5 +201,69 @@ export const saveApplicationQuitUnsavedSQLTargets = async (
       dbName: target.dbName,
       createdAt: Date.now(),
     });
+    savedTargets.push({ target, savedQuery });
   }
+  return savedTargets;
+};
+
+export const reconcileApplicationQuitSavedSQLTargets = (
+  tabs: TabData[],
+  savedTargets: ApplicationQuitSavedSQLTarget[],
+): TabData[] => {
+  const savedByTabId = new Map(
+    savedTargets.map((savedTarget) => [savedTarget.target.tabId, savedTarget]),
+  );
+  return tabs.map((tab) => {
+    const savedTarget = savedByTabId.get(tab.id);
+    if (!savedTarget) return tab;
+
+    if (savedTarget.target.kind === 'sql-file') {
+      return {
+        ...tab,
+        query: savedTarget.target.draft,
+      };
+    }
+
+    const savedQuery = savedTarget.savedQuery;
+    if (!savedQuery) return tab;
+    return {
+      ...tab,
+      title: savedQuery.name,
+      query: savedQuery.sql,
+      connectionId: savedQuery.connectionId,
+      dbName: savedQuery.dbName,
+      savedQueryId: savedQuery.id,
+    };
+  });
+};
+
+export const saveLatestApplicationQuitUnsavedSQLState = async ({
+  getState,
+  updateTabs,
+  saveQuery,
+  readSQLFile = ReadSQLFile,
+  writeSQLFile = WriteSQLFile,
+}: SaveLatestApplicationQuitUnsavedSQLStateArgs): Promise<ApplicationQuitSavedSQLTarget[]> => {
+  const latestState = getState();
+  const targets = await collectApplicationQuitUnsavedSQLTargets(
+    latestState.tabs,
+    latestState.savedQueries,
+    readSQLFile,
+  );
+  const savedTargets = await saveApplicationQuitUnsavedSQLTargets(
+    targets,
+    saveQuery,
+    writeSQLFile,
+  );
+
+  const changedWhileSaving = savedTargets.find(({ target }) => (
+    getQueryTabDraft(target.tabId, target.draft) !== target.draft
+  ));
+  if (changedWhileSaving) {
+    throw new Error(`SQL changed while saving: ${changedWhileSaving.target.title}`);
+  }
+
+  updateTabs((tabs) => reconcileApplicationQuitSavedSQLTargets(tabs, savedTargets));
+  savedTargets.forEach(({ target }) => clearQueryTabDraft(target.tabId));
+  return savedTargets;
 };

@@ -28,7 +28,6 @@ type MongoDB struct {
 	client      *mongo.Client
 	database    string
 	pingTimeout time.Duration
-	forwarder   *ssh.LocalForwarder
 }
 
 type mongoProxyDialer struct {
@@ -38,6 +37,31 @@ type mongoProxyDialer struct {
 func (d *mongoProxyDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	return proxytunnel.DialContext(ctx, d.proxyConfig, network, address)
 }
+
+type mongoSSHDialer struct {
+	sshConfig   connection.SSHConfig
+	dialContext func(context.Context, connection.SSHConfig, string, string) (net.Conn, error)
+}
+
+func (d *mongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	return d.dialContext(ctx, d.sshConfig, network, address)
+}
+
+func mongoConnectionDialer(config connection.ConnectionConfig) options.ContextDialer {
+	if config.UseSSH {
+		return &mongoSSHDialer{sshConfig: config.SSH, dialContext: ssh.DialContextThroughSSH}
+	}
+	if config.UseProxy {
+		return &mongoProxyDialer{proxyConfig: config.Proxy}
+	}
+	return nil
+}
+
+// mongoGetOrCreateSSHClient is kept as a narrow seam for testing the
+// synchronous SSH preflight. MongoDB invokes its dialer asynchronously while
+// selecting servers, which would otherwise flatten a host-key trust error into
+// the driver's aggregated string error before it reaches the application.
+var mongoGetOrCreateSSHClient = ssh.GetOrCreateSSHClient
 
 const defaultMongoPort = 27017
 const mongoObjectIDLocatorColumn = "__gonavi_mongodb_id_locator__"
@@ -335,48 +359,16 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 	runConfig := applyMongoURI(config)
 	connectConfig := runConfig
 	sshRouteHint := ""
-
-	if runConfig.UseSSH && runConfig.MongoSRV {
-		return fmt.Errorf("MongoDB SRV 记录模式暂不支持 SSH 隧道")
-	}
-
 	if runConfig.UseSSH {
-		seeds := collectMongoSeeds(runConfig)
-		if len(seeds) == 0 {
-			seeds = append(seeds, normalizeMongoAddress(runConfig.Host, runConfig.Port))
+		sshRouteHint = fmt.Sprintf("SSH隧道 %s:%d", runConfig.SSH.Host, runConfig.SSH.Port)
+		logger.Infof("MongoDB 使用 SSH 隧道连接：跳板=%s:%d", runConfig.SSH.Host, runConfig.SSH.Port)
+		// MongoDB creates connections through its driver dialer asynchronously and
+		// later combines failures into a plain string. Establish the cached SSH
+		// client before constructing the driver dialer so a structured host-key
+		// trust error remains unwrapable by the application layer.
+		if _, sshErr := mongoGetOrCreateSSHClient(runConfig.SSH); sshErr != nil {
+			return fmt.Errorf("创建 MongoDB SSH 隧道失败：%w", sshErr)
 		}
-		targetHost, targetPort, ok := parseHostPortWithDefault(seeds[0], defaultMongoPort)
-		if !ok {
-			return fmt.Errorf("MongoDB 连接失败：无效地址 %s", seeds[0])
-		}
-
-		logger.Infof("MongoDB 使用 SSH 连接：地址=%s:%d", targetHost, targetPort)
-
-		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, targetHost, targetPort)
-		if err != nil {
-			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
-		}
-		m.forwarder = forwarder
-
-		host, portStr, err := net.SplitHostPort(forwarder.LocalAddr)
-		if err != nil {
-			return fmt.Errorf("解析本地转发地址失败：%w", err)
-		}
-
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			return fmt.Errorf("解析本地端口失败：%w", err)
-		}
-
-		localConfig := runConfig
-		localConfig.Host = host
-		localConfig.Port = port
-		localConfig.UseSSH = false
-		localConfig.URI = ""
-		localConfig.Hosts = []string{normalizeMongoAddress(host, port)}
-		connectConfig = localConfig
-		sshRouteHint = fmt.Sprintf("SSH隧道 %s -> %s:%d", forwarder.LocalAddr, targetHost, targetPort)
-		logger.Infof("MongoDB 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, targetHost, targetPort)
 	}
 
 	m.pingTimeout = getConnectTimeout(connectConfig)
@@ -431,8 +423,8 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 			if tlsConfig != nil {
 				clientOpts.SetTLSConfig(tlsConfig)
 			}
-			if attemptConfig.UseProxy {
-				clientOpts.SetDialer(&mongoProxyDialer{proxyConfig: attemptConfig.Proxy})
+			if dialer := mongoConnectionDialer(attemptConfig); dialer != nil {
+				clientOpts.SetDialer(dialer)
 			}
 			client, err := mongo.Connect(clientOpts)
 			if err != nil {
@@ -478,13 +470,6 @@ func (m *MongoDB) Connect(config connection.ConnectionConfig) (err error) {
 }
 
 func (m *MongoDB) Close() error {
-	if m.forwarder != nil {
-		if err := m.forwarder.Release(); err != nil {
-			logger.Warnf("关闭 MongoDB SSH 端口转发失败：%v", err)
-		}
-		m.forwarder = nil
-	}
-
 	if m.client != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -1186,7 +1171,7 @@ func (m *MongoDB) GetDatabases() ([]string, error) {
 		return nil, fmt.Errorf("连接未打开")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(m), 10*time.Second)
 	defer cancel()
 
 	dbs, err := m.client.ListDatabaseNames(ctx, bson.M{})
@@ -1206,7 +1191,7 @@ func (m *MongoDB) GetTables(dbName string) ([]string, error) {
 		targetDB = m.database
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(m), 10*time.Second)
 	defer cancel()
 
 	collections, err := m.client.Database(targetDB).ListCollectionNames(ctx, bson.M{})
@@ -1242,7 +1227,7 @@ func (m *MongoDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefini
 		targetDB = m.database
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(m), 10*time.Second)
 	defer cancel()
 
 	collection := m.client.Database(targetDB).Collection(tableName)

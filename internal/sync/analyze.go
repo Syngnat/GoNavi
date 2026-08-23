@@ -7,22 +7,23 @@ import (
 )
 
 type TableDiffSummary struct {
-	Table              string   `json:"table"`
-	PKColumn           string   `json:"pkColumn,omitempty"`
-	CanSync            bool     `json:"canSync"`
-	Inserts            int      `json:"inserts"`
-	Updates            int      `json:"updates"`
-	Deletes            int      `json:"deletes"`
-	Same               int      `json:"same"`
-	SchemaDiffCount    int      `json:"schemaDiffCount,omitempty"`
-	Message            string   `json:"message,omitempty"`
-	HasSchema          bool     `json:"hasSchema,omitempty"`
-	TargetTableExists  bool     `json:"targetTableExists,omitempty"`
-	PlannedAction      string   `json:"plannedAction,omitempty"`
-	Warnings           []string `json:"warnings,omitempty"`
-	UnsupportedObjects []string `json:"unsupportedObjects,omitempty"`
-	IndexesToCreate    int      `json:"indexesToCreate,omitempty"`
-	IndexesSkipped     int      `json:"indexesSkipped,omitempty"`
+	Table              string            `json:"table"`
+	PKColumn           string            `json:"pkColumn,omitempty"`
+	CanSync            bool              `json:"canSync"`
+	Inserts            int               `json:"inserts"`
+	Updates            int               `json:"updates"`
+	Deletes            int               `json:"deletes"`
+	Same               int               `json:"same"`
+	SchemaDiffCount    int               `json:"schemaDiffCount,omitempty"`
+	Message            string            `json:"message,omitempty"`
+	HasSchema          bool              `json:"hasSchema,omitempty"`
+	TargetTableExists  bool              `json:"targetTableExists,omitempty"`
+	PlannedAction      string            `json:"plannedAction,omitempty"`
+	Warnings           []string          `json:"warnings,omitempty"`
+	UnsupportedObjects []string          `json:"unsupportedObjects,omitempty"`
+	UnmigratedIndexes  []UnmigratedIndex `json:"unmigratedIndexes,omitempty"`
+	IndexesToCreate    int               `json:"indexesToCreate,omitempty"`
+	IndexesSkipped     int               `json:"indexesSkipped,omitempty"`
 }
 
 type SyncAnalyzeResult struct {
@@ -33,7 +34,13 @@ type SyncAnalyzeResult struct {
 
 func (s *SyncEngine) Analyze(config SyncConfig) SyncAnalyzeResult {
 	config = normalizeSyncConnectionDatabases(config)
+	config = normalizeMappedSyncTables(config)
 	result := SyncAnalyzeResult{Success: true, Tables: []TableDiffSummary{}}
+	if err := validateSyncMappings(config); err != nil {
+		result.Success = false
+		result.Message = err.Error()
+		return result
+	}
 	if isRedisToMongoKeyspacePair(config) {
 		return s.analyzeRedisToMongo(config)
 	}
@@ -42,6 +49,11 @@ func (s *SyncEngine) Analyze(config SyncConfig) SyncAnalyzeResult {
 	}
 	if hasSourceQuery(config) {
 		return s.analyzeSourceQuery(config)
+	}
+	if err := ValidateMigrationCapability(config); err != nil {
+		result.Success = false
+		result.Message = err.Error()
+		return result
 	}
 
 	contentRaw := strings.ToLower(strings.TrimSpace(config.Content))
@@ -113,10 +125,17 @@ func (s *SyncEngine) Analyze(config SyncConfig) SyncAnalyzeResult {
 				result.Tables = append(result.Tables, summary)
 				return
 			}
+			projection, err := projectionForSyncTable(config, tableName)
+			if err != nil {
+				summary.Message = err.Error()
+				result.Tables = append(result.Tables, summary)
+				return
+			}
 			summary.TargetTableExists = plan.TargetTableExists
 			summary.PlannedAction = plan.PlannedAction
 			summary.Warnings = append(summary.Warnings, plan.Warnings...)
 			summary.UnsupportedObjects = append(summary.UnsupportedObjects, plan.UnsupportedObjects...)
+			summary.UnmigratedIndexes = append(summary.UnmigratedIndexes, plan.UnmigratedIndexes...)
 			summary.IndexesToCreate = plan.IndexesToCreate
 			summary.IndexesSkipped = plan.IndexesSkipped
 			summary.SchemaDiffCount = len(plan.PreDataSQL) + len(plan.PostDataSQL)
@@ -141,11 +160,11 @@ func (s *SyncEngine) Analyze(config SyncConfig) SyncAnalyzeResult {
 			}
 
 			tableMode := normalizeSyncMode(config.Mode)
-			pkCols := make([]string, 0, 2)
-			for _, c := range cols {
-				if c.Key == "PRI" || c.Key == "PK" {
-					pkCols = append(pkCols, c.Name)
-				}
+			pkCols, err := syncKeyColumnsForTable(config, tableName, cols)
+			if err != nil {
+				summary.Message = err.Error()
+				result.Tables = append(result.Tables, summary)
+				return
 			}
 
 			sourceType := resolveMigrationDBType(config.SourceConfig)
@@ -187,17 +206,28 @@ func (s *SyncEngine) Analyze(config SyncConfig) SyncAnalyzeResult {
 				result.Tables = append(result.Tables, summary)
 				return
 			}
-			if len(pkCols) > 1 {
-				summary.Message = localizedSyncBackendText("data_sync.backend.error.diff_composite_pk_unsupported", map[string]any{
-					"columns": strings.Join(pkCols, ","),
-				})
-				result.Tables = append(result.Tables, summary)
-				return
+			sourcePKCol := pkCols[0]
+			comparisonPKCols := append([]string(nil), pkCols...)
+			if hasExplicitSyncMappings(config) {
+				for index, sourceKey := range pkCols {
+					mappedPK, ok := projection.TargetColumn(sourceKey)
+					if !ok || strings.TrimSpace(mappedPK) == "" {
+						summary.Message = fmt.Sprintf("表 %s 的主键字段 %s 未映射到目标字段，无法执行差异分析", tableName, sourceKey)
+						result.Tables = append(result.Tables, summary)
+						return
+					}
+					comparisonPKCols[index] = mappedPK
+				}
 			}
-			summary.PKColumn = pkCols[0]
+			summary.PKColumn = strings.Join(comparisonPKCols, ",")
 
 			targetColSet := buildTargetColumnSet(targetCols)
-			handled, counts, scanErr := scanTableDiffInPages(sourceDB, targetDB, sourceType, targetType, plan, cols, targetCols, summary.PKColumn, targetColSet, true, nil)
+			handled := false
+			counts := pagedDiffCounts{}
+			var scanErr error
+			if !hasExplicitSyncMappings(config) && len(pkCols) == 1 {
+				handled, counts, scanErr = scanTableDiffInPages(sourceDB, targetDB, sourceType, targetType, plan, cols, targetCols, sourcePKCol, targetColSet, true, nil)
+			}
 			if handled {
 				if scanErr != nil {
 					summary.Message = scanErr.Error()
@@ -222,60 +252,23 @@ func (s *SyncEngine) Analyze(config SyncConfig) SyncAnalyzeResult {
 				result.Tables = append(result.Tables, summary)
 				return
 			}
-			targetRows, _, err := targetDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(config.TargetConfig.Type, plan.TargetQueryTable)))
+			if hasExplicitSyncMappings(config) {
+				sourceRows, err = projectSyncRows(projection, sourceRows)
+				if err != nil {
+					summary.Message = err.Error()
+					result.Tables = append(result.Tables, summary)
+					return
+				}
+			}
+			targetRows, _, err := targetDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, plan.TargetQueryTable)))
 			if err != nil {
 				summary.Message = localizedSyncBackendDetailText("data_sync.backend.error.read_target_table_failed", err)
 				result.Tables = append(result.Tables, summary)
 				return
 			}
 
-			pkCol := summary.PKColumn
-			targetMap := make(map[string]map[string]interface{}, len(targetRows))
-			for _, row := range targetRows {
-				if row[pkCol] == nil {
-					continue
-				}
-				pkVal := strings.TrimSpace(fmt.Sprintf("%v", row[pkCol]))
-				if pkVal == "" || pkVal == "<nil>" {
-					continue
-				}
-				targetMap[pkVal] = row
-			}
-
-			sourcePKSet := make(map[string]struct{}, len(sourceRows))
-			for _, sRow := range sourceRows {
-				if sRow[pkCol] == nil {
-					continue
-				}
-				pkVal := strings.TrimSpace(fmt.Sprintf("%v", sRow[pkCol]))
-				if pkVal == "" || pkVal == "<nil>" {
-					continue
-				}
-				sourcePKSet[pkVal] = struct{}{}
-
-				if tRow, exists := targetMap[pkVal]; exists {
-					changed := false
-					for k, v := range sRow {
-						if fmt.Sprintf("%v", v) != fmt.Sprintf("%v", tRow[k]) {
-							changed = true
-							break
-						}
-					}
-					if changed {
-						summary.Updates++
-					} else {
-						summary.Same++
-					}
-				} else {
-					summary.Inserts++
-				}
-			}
-
-			for pkVal := range targetMap {
-				if _, ok := sourcePKSet[pkVal]; !ok {
-					summary.Deletes++
-				}
-			}
+			inserts, updates, deletes, same := diffRowsByKeyColumns(comparisonPKCols, sourceRows, targetRows)
+			summary.Inserts, summary.Updates, summary.Deletes, summary.Same = len(inserts), len(updates), len(deletes), same
 
 			summary.CanSync = true
 			if strings.TrimSpace(summary.Message) == "" {

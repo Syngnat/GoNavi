@@ -2,7 +2,7 @@ package app
 
 import (
 	"archive/zip"
-	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,9 +41,9 @@ func TestDriverStatusItemJSONIncludesStableReasonCode(t *testing.T) {
 
 func TestDriverNetworkProbeItemJSONIncludesStableProbeCode(t *testing.T) {
 	item := driverNetworkProbeItem{
-		ProbeCode: driverNetworkProbeCodeGitHubRelease,
-		Name:      "GitHub driver release",
-		URL:       "https://github.com/example/release",
+		ProbeCode: driverNetworkProbeCodeDownloadMirror,
+		Name:      driverNetworkProbeNameDownloadMirror,
+		URL:       driverReleaseMirrorLatestIndexURL,
 	}
 
 	payload, err := json.Marshal(item)
@@ -51,7 +51,7 @@ func TestDriverNetworkProbeItemJSONIncludesStableProbeCode(t *testing.T) {
 		t.Fatalf("marshal driver network probe item: %v", err)
 	}
 
-	if !strings.Contains(string(payload), `"probeCode":"github_release"`) {
+	if !strings.Contains(string(payload), `"probeCode":"download_mirror"`) {
 		t.Fatalf("expected stable probeCode in payload, got %s", string(payload))
 	}
 }
@@ -74,6 +74,123 @@ func TestDriverDownloadMirrorProbeUsesProviderNeutralIdentity(t *testing.T) {
 	}
 	if !strings.Contains(serialized, `"name":"GoNavi Mirror"`) {
 		t.Fatalf("expected provider-neutral mirror name, got %s", serialized)
+	}
+}
+
+func TestCheckDriverNetworkStatusStopsAfterHealthyMirror(t *testing.T) {
+	var probeCodes []string
+	result := (&App{}).checkDriverNetworkStatusWithProbe(func(_ *http.Client, item driverNetworkProbeItem) driverNetworkProbeItem {
+		probeCodes = append(probeCodes, item.ProbeCode)
+		if item.ProbeCode != driverNetworkProbeCodeDownloadMirror {
+			t.Fatalf("healthy mirror must prevent fallback probe %q", item.ProbeCode)
+		}
+		item.Reachable = true
+		item.HTTPStatus = http.StatusOK
+		return item
+	})
+
+	if len(probeCodes) != 1 || probeCodes[0] != driverNetworkProbeCodeDownloadMirror {
+		t.Fatalf("probe sequence = %v, want mirror only", probeCodes)
+	}
+	data, ok := result.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected network result data: %#v", result.Data)
+	}
+	if data["mirrorReachable"] != true || data["fallbackChecked"] != false || data["usingFallback"] != false {
+		t.Fatalf("unexpected healthy mirror state: %#v", data)
+	}
+}
+
+func TestCheckDriverNetworkStatusProbesFallbacksOnlyAfterMirrorFailure(t *testing.T) {
+	var probeCodes []string
+	result := (&App{}).checkDriverNetworkStatusWithProbe(func(_ *http.Client, item driverNetworkProbeItem) driverNetworkProbeItem {
+		probeCodes = append(probeCodes, item.ProbeCode)
+		item.Reachable = true
+		item.HTTPStatus = http.StatusOK
+		if item.ProbeCode == driverNetworkProbeCodeDownloadMirror {
+			item.HTTPStatus = http.StatusNotFound
+		}
+		return item
+	})
+
+	wantCodes := []string{
+		driverNetworkProbeCodeDownloadMirror,
+		driverNetworkProbeCodeGitHubAPI,
+		driverNetworkProbeCodeGitHubRelease,
+		driverNetworkProbeCodeGitHubReleaseAsset,
+		driverNetworkProbeCodeGoModuleProxy,
+	}
+	if len(probeCodes) != len(wantCodes) {
+		t.Fatalf("probe sequence = %v, want %v", probeCodes, wantCodes)
+	}
+	for index, wantCode := range wantCodes {
+		if probeCodes[index] != wantCode {
+			t.Fatalf("probe sequence = %v, want %v", probeCodes, wantCodes)
+		}
+	}
+	data, ok := result.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected network result data: %#v", result.Data)
+	}
+	if data["reachable"] != true || data["allReachable"] != false || data["mirrorReachable"] != false || data["fallbackChecked"] != true || data["fallbackReachable"] != true || data["usingFallback"] != true {
+		t.Fatalf("unexpected fallback state: %#v", data)
+	}
+	if data["recommendedProxy"] != false {
+		t.Fatalf("working fallback must not recommend a proxy: %#v", data)
+	}
+}
+
+func TestCheckDriverNetworkStatusReportsAllDownloadRoutesUnavailable(t *testing.T) {
+	result := (&App{}).checkDriverNetworkStatusWithProbe(func(_ *http.Client, item driverNetworkProbeItem) driverNetworkProbeItem {
+		item.Reachable = false
+		item.Error = "blocked"
+		return item
+	})
+
+	data, ok := result.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("unexpected network result data: %#v", result.Data)
+	}
+	if data["reachable"] != false || data["fallbackReachable"] != false || data["usingFallback"] != false || data["downloadChainReachable"] != false {
+		t.Fatalf("unexpected unavailable state: %#v", data)
+	}
+	if data["recommendedProxy"] != true {
+		t.Fatalf("unavailable routes must recommend a proxy: %#v", data)
+	}
+}
+
+func TestBuildDriverNetworkProbeItemsUsesCurrentMirrorIndex(t *testing.T) {
+	originalVersion := AppVersion
+	t.Cleanup(func() {
+		AppVersion = originalVersion
+	})
+
+	tests := []struct {
+		name    string
+		version string
+		wantURL string
+	}{
+		{name: "stable", version: "1.2.3", wantURL: driverReleaseMirrorLatestIndexURL},
+		{name: "dev", version: "dev-a1b2c3d", wantURL: driverReleaseMirrorDevLatestIndexURL},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			AppVersion = test.version
+			items := buildDriverNetworkProbeItems()
+			if len(items) != 1 {
+				t.Fatalf("network probes = %v, want one mirror probe", items)
+			}
+			item := items[0]
+			if item.ProbeCode != driverNetworkProbeCodeDownloadMirror || item.Name != driverNetworkProbeNameDownloadMirror {
+				t.Fatalf("unexpected mirror probe identity: %#v", item)
+			}
+			if item.URL != test.wantURL {
+				t.Fatalf("mirror probe URL = %q, want %q", item.URL, test.wantURL)
+			}
+			if strings.Contains(strings.ToLower(item.URL), "github") {
+				t.Fatalf("mirror probe must not contact GitHub: %q", item.URL)
+			}
+		})
 	}
 }
 
@@ -184,65 +301,6 @@ func TestOptionalDriverReleaseZipAssetNamesArePlatformNeutralArchives(t *testing
 	}
 }
 
-func TestReorderOptionalDriverDownloadURLsBySpeedPrefersClearlyFasterGitHub(t *testing.T) {
-	mirrorURL := driverMirrorReleaseDownloadURL("v1.2.3", "mariadb-driver-agent-darwin-arm64.zip")
-	githubURL := driverReleaseDownloadURL("v1.2.3", "mariadb-driver-agent-darwin-arm64.zip")
-	got := reorderOptionalDriverDownloadURLsBySpeedWithProbe(
-		[]string{mirrorURL, githubURL},
-		func(_ context.Context, _ *http.Client, rawURL string) optionalDriverDownloadProbeResult {
-			duration := 2 * time.Second
-			if optionalDriverDownloadSource(rawURL) == "github" {
-				duration = 500 * time.Millisecond
-			}
-			return optionalDriverDownloadProbeResult{URL: rawURL, Bytes: optionalDriverDownloadProbeBytes, Duration: duration, OK: true}
-		},
-	)
-	if len(got) != 2 || got[0] != githubURL || got[1] != mirrorURL {
-		t.Fatalf("expected faster GitHub ZIP first without dropping mirror fallback, got %v", got)
-	}
-}
-
-func TestReorderOptionalDriverDownloadURLsBySpeedKeepsMirrorForSimilarOrFailedGitHub(t *testing.T) {
-	mirrorURL := driverMirrorReleaseDownloadURL("v1.2.3", "mariadb-driver-agent-darwin-arm64.zip")
-	githubURL := driverReleaseDownloadURL("v1.2.3", "mariadb-driver-agent-darwin-arm64.zip")
-	for name, githubResult := range map[string]optionalDriverDownloadProbeResult{
-		"similar": {Bytes: optionalDriverDownloadProbeBytes, Duration: 900 * time.Millisecond, OK: true},
-		"failed":  {},
-	} {
-		t.Run(name, func(t *testing.T) {
-			got := reorderOptionalDriverDownloadURLsBySpeedWithProbe(
-				[]string{mirrorURL, githubURL},
-				func(_ context.Context, _ *http.Client, rawURL string) optionalDriverDownloadProbeResult {
-					if optionalDriverDownloadSource(rawURL) == "github" {
-						githubResult.URL = rawURL
-						return githubResult
-					}
-					return optionalDriverDownloadProbeResult{URL: rawURL, Bytes: optionalDriverDownloadProbeBytes, Duration: time.Second, OK: true}
-				},
-			)
-			if len(got) != 2 || got[0] != mirrorURL || got[1] != githubURL {
-				t.Fatalf("expected mirror-first order to remain unchanged, got %v", got)
-			}
-		})
-	}
-}
-
-func TestProbeOptionalDriverDownloadURLUsesBoundedRange(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Range"); got != "bytes=0-262143" {
-			t.Errorf("unexpected Range header: %q", got)
-		}
-		w.WriteHeader(http.StatusPartialContent)
-		_, _ = w.Write(make([]byte, optionalDriverDownloadProbeBytes+1024))
-	}))
-	defer server.Close()
-
-	result := probeOptionalDriverDownloadURL(context.Background(), server.Client(), server.URL+"/driver.zip")
-	if !result.OK || result.Bytes != optionalDriverDownloadProbeBytes {
-		t.Fatalf("expected a valid bounded probe, got %#v", result)
-	}
-}
-
 func TestResolveOptionalDriverBundleDownloadURLsUsesDriverReleaseRepo(t *testing.T) {
 	originalVersion := AppVersion
 	AppVersion = "0.7.4"
@@ -295,6 +353,7 @@ func TestDriverReleaseDownloadCoordinates(t *testing.T) {
 
 func TestFetchDriverReleaseIndexByURLBuildsMirrorAssets(t *testing.T) {
 	disableGlobalProxyForTest(t)
+	assetSHA256 := strings.Repeat("a", 64)
 
 	for _, name := range []string{
 		"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
@@ -307,7 +366,7 @@ func TestFetchDriverReleaseIndexByURLBuildsMirrorAssets(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"assets":{"sqlserver-driver-agent-windows-amd64.exe":12345}}`)
+		_, _ = fmt.Fprintf(w, `{"assets":{"sqlserver-driver-agent-windows-amd64.exe":12345},"assetSha256":{"sqlserver-driver-agent-windows-amd64.exe":%q}}`, assetSHA256)
 	}))
 	defer server.Close()
 
@@ -331,7 +390,7 @@ func TestFetchDriverReleaseIndexByURLBuildsMirrorAssets(t *testing.T) {
 
 	latestServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"tagName":"v1.2.2","assets":{"sqlserver-driver-agent-windows-amd64.exe":12345}}`)
+		_, _ = fmt.Fprintf(w, `{"tagName":"v1.2.2","assets":{"sqlserver-driver-agent-windows-amd64.exe":12345},"assetSha256":{"sqlserver-driver-agent-windows-amd64.exe":%q}}`, assetSHA256)
 	}))
 	defer latestServer.Close()
 	latestRelease, err := fetchDriverReleaseIndexByURL("", latestServer.URL)
@@ -349,7 +408,7 @@ func TestFetchDriverReleaseIndexByURLBuildsMirrorAssets(t *testing.T) {
 
 	devServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"tagName":"dev-stale-logical-tag","mirrorTagName":"dev-a1b2c3d","assets":{"sqlserver-driver-agent-windows-amd64.exe":12345}}`)
+		_, _ = fmt.Fprintf(w, `{"tagName":"dev-stale-logical-tag","mirrorTagName":"dev-a1b2c3d","assets":{"sqlserver-driver-agent-windows-amd64.exe":12345},"assetSha256":{"sqlserver-driver-agent-windows-amd64.exe":%q}}`, assetSHA256)
 	}))
 	defer devServer.Close()
 	devRelease, err := fetchDriverReleaseIndexByURL(driverReleaseDevTag, devServer.URL)
@@ -651,6 +710,36 @@ func TestResolveOptionalDriverAgentDownloadURLsDoesNotFallbackForHistoricalVersi
 	}
 	if urls[0] != driverMirrorReleaseDownloadURL("v1.17.4", zipAssetName) || urls[1] != explicitURL {
 		t.Fatalf("unexpected historical URL candidate: %v", urls)
+	}
+}
+
+func TestValidateDownloadedDriverAssetMetadataChecksSizeAndSHA256(t *testing.T) {
+	payload := []byte("verified driver archive")
+	path := filepath.Join(t.TempDir(), "driver.zip")
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256(payload))
+	if err := validateDownloadedDriverAssetMetadata(path, digest, int64(len(payload)), digest); err != nil {
+		t.Fatalf("valid driver metadata rejected: %v", err)
+	}
+	if err := validateDownloadedDriverAssetMetadata(path, digest, int64(len(payload))+1, digest); err == nil {
+		t.Fatal("expected size mismatch")
+	}
+	if err := validateDownloadedDriverAssetMetadata(path, digest, int64(len(payload)), strings.Repeat("0", 64)); err == nil {
+		t.Fatal("expected SHA256 mismatch")
+	}
+}
+
+func TestFetchDriverBundleAssetIndexCandidateRequiresCompleteSHA256Metadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"assets":{"driver.zip":12},"assetSha256":{}}`)
+	}))
+	defer server.Close()
+
+	if _, err := fetchDriverBundleAssetIndexCandidate(server.Client(), server.URL); err == nil {
+		t.Fatal("expected incomplete driver SHA256 metadata to be rejected")
 	}
 }
 
@@ -2053,8 +2142,8 @@ func TestDownloadOptionalDriverAgentFromBundleSharesConcurrentDownload(t *testin
 			t.Fatalf("bundle install failed: %v", err)
 		}
 	}
-	if got := atomic.LoadInt32(&requestCount); got != 1 {
-		t.Fatalf("expected one shared bundle download, got %d requests", got)
+	if got, want := atomic.LoadInt32(&requestCount), int32(parallelDownloadWorkers+1); got != want {
+		t.Fatalf("expected one shared bundle task (probe plus %d ranges), got %d requests", parallelDownloadWorkers, got)
 	}
 }
 

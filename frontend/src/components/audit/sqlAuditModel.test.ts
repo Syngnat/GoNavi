@@ -4,6 +4,8 @@ import {
   DEFAULT_SQL_AUDIT_FILTER,
   getSQLAuditEnumLabelKey,
   getSQLAuditEventPreview,
+  getSQLAuditRecoveryState,
+  isSQLAuditEventRestorable,
   getSQLAuditPrimaryRowCount,
   getSQLAuditHealthPhase,
   normalizeSQLAuditEvent,
@@ -25,6 +27,9 @@ describe('sqlAuditModel', () => {
       sqlText: 'UPDATE users SET token = ?',
       sqlRedacted: true,
       rowsAffected: '2',
+      executedCount: '1',
+      failedIndex: '2',
+      outcomeUnknown: true,
       error: 'permission denied',
     });
 
@@ -37,8 +42,19 @@ describe('sqlAuditModel', () => {
       sqlText: 'UPDATE users SET token = ?',
       sqlRedacted: true,
       rowsAffected: 2,
+      executedCount: 1,
+      failedIndex: 2,
+      outcomeUnknown: true,
       error: 'permission denied',
     });
+  });
+
+  it('classifies complete, redacted and metadata-only SQL recovery states', () => {
+    expect(getSQLAuditRecoveryState({ sqlText: 'SELECT 1', sqlRedacted: false })).toBe('complete');
+    expect(getSQLAuditRecoveryState({ sqlText: 'SELECT ?', sqlRedacted: true })).toBe('redacted');
+    expect(getSQLAuditRecoveryState({ sqlText: '   ', sqlRedacted: true })).toBe('metadata');
+    expect(isSQLAuditEventRestorable({ eventType: 'query', sqlText: 'SELECT ?', sqlRedacted: true })).toBe(true);
+    expect(isSQLAuditEventRestorable({ eventType: 'audit_clear', sqlText: 'AUDIT CLEAR ALL', sqlRedacted: false })).toBe(false);
   });
 
   it('normalizes paged results and explicit summary field names', () => {
@@ -139,6 +155,23 @@ describe('sqlAuditModel', () => {
       toTimestamp: 2000,
       page: 3,
       pageSize: 25,
+    });
+  });
+
+  it('marks editor execution history requests without changing normal audit requests', () => {
+    const filter = {
+      ...DEFAULT_SQL_AUDIT_FILTER,
+      connectionId: 'conn-1',
+      database: 'analytics',
+      status: 'error',
+    };
+
+    expect(buildSQLAuditFilterPayload(filter)).not.toHaveProperty('executionHistory');
+    expect(buildSQLAuditFilterPayload(filter, { executionHistory: true })).toMatchObject({
+      connectionId: 'conn-1',
+      database: 'analytics',
+      status: 'error',
+      executionHistory: true,
     });
   });
 

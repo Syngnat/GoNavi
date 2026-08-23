@@ -1,0 +1,15 @@
+services:
+  gonavi-cli:
+    image: ghcr.io/syngnat/gonavi-cli:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.cli
+    environment:
+      GONAVI_DATA_ROOT: /data
+      GONAVI_LOG_DIR: /data/logs
+      HOME: /data
+    volumes:
+      - ${GONAVI_HOST_DATA_ROOT:?Set GONAVI_HOST_DATA_ROOT to the GoNavi data directory}:/data
+    user: "${GONAVI_CONTAINER_UID:?Set GONAVI_CONTAINER_UID to the host UID}:${GONAVI_CONTAINER_GID:?Set GONAVI_CONTAINER_GID to the host GID}"
+    entrypoint: ["/usr/local/bin/gonavi"]
+    command: ["--help"]

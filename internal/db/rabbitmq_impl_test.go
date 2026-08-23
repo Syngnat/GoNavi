@@ -112,6 +112,7 @@ func TestNormalizeRabbitMQConfigParsesURIAndParams(t *testing.T) {
 
 func TestRabbitMQQueryExecAndColumns(t *testing.T) {
 	var lastGetCount int
+	var getRequestCount int
 	var lastPublishBody map[string]interface{}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -166,6 +167,7 @@ func TestRabbitMQQueryExecAndColumns(t *testing.T) {
 				"page_count": 1,
 			})
 		case req.Method == http.MethodPost && escapedPath == "/api/queues/%2F/orders.events.v1/get":
+			getRequestCount++
 			var body map[string]interface{}
 			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 				t.Fatalf("decode get body failed: %v", err)
@@ -299,18 +301,22 @@ func TestRabbitMQQueryExecAndColumns(t *testing.T) {
 		t.Fatalf("unexpected publish payload: %#v", lastPublishBody)
 	}
 
+	getRequestCount = 0
 	columnDefs, err := client.GetColumns("/", "orders.events.v1")
 	if err != nil {
 		t.Fatalf("GetColumns failed: %v", err)
+	}
+	if getRequestCount != 0 {
+		t.Fatalf("GetColumns must not read queue messages, requests=%d", getRequestCount)
 	}
 	names := make([]string, 0, len(columnDefs))
 	for _, col := range columnDefs {
 		names = append(names, col.Name)
 	}
 	joined := strings.Join(names, ",")
-	for _, want := range []string{"queue", "payload.meta.ip", "headers.x-env", "properties.content_type"} {
+	for _, want := range []string{"queue", "payload", "headers", "properties"} {
 		if !strings.Contains(joined, want) {
-			t.Fatalf("expected derived rabbitmq column %q in %s", want, joined)
+			t.Fatalf("expected RabbitMQ column %q in %s", want, joined)
 		}
 	}
 

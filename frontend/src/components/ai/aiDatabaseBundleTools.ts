@@ -236,6 +236,11 @@ export const inspectDatabaseBundle = async ({
     const allColumns = allColumnsResult.status === 'fulfilled' && allColumnsResult.value?.success && Array.isArray(allColumnsResult.value.data)
       ? normalizeColumnsWithTable(allColumnsResult.value.data)
       : [];
+    const allColumnsMetadataWarnings = allColumnsResult.status === 'fulfilled' && allColumnsResult.value?.success
+      ? (Array.isArray(allColumnsResult.value.warnings)
+        ? allColumnsResult.value.warnings.map((warning: unknown) => String(warning || '').trim()).filter(Boolean)
+        : [])
+      : [];
     const tableNamesFromColumns = Array.from(new Set(allColumns.map((column) => column.tableName).filter(Boolean)));
     let tableNames: string[] = [];
     if (tablesResult.status === 'fulfilled' && tablesResult.value?.success && Array.isArray(tablesResult.value.data)) {
@@ -271,6 +276,9 @@ export const inspectDatabaseBundle = async ({
         String(allColumnsResult.reason),
       ));
     }
+    if (includeColumns && allColumnsResult.status === 'fulfilled' && allColumnsResult.value?.success && allColumnsResult.value?.partial) {
+      warnings.push(...allColumnsMetadataWarnings);
+    }
     const uniqueTableNames = Array.from(new Set(tableNames.filter(Boolean)));
     const visibleTableNames = uniqueTableNames.slice(0, tableLimit);
     const columnsByTable = new Map<string, ReturnType<typeof normalizeColumnsWithTable>>();
@@ -283,6 +291,7 @@ export const inspectDatabaseBundle = async ({
     });
     const payload: Record<string, unknown> = {
       dbName: safeDbName,
+      columnSummaryPartial: Boolean(allColumnsResult.status === 'fulfilled' && allColumnsResult.value?.partial),
       tableCount: uniqueTableNames.length,
       totalColumns: allColumns.length,
       tables: visibleTableNames,

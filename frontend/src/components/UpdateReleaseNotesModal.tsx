@@ -122,7 +122,7 @@ const UpdateReleaseNotesModal: React.FC<UpdateReleaseNotesModalProps> = ({
       onCancel={onClose}
       title={title}
       width={640}
-      style={{ top: 40 }}
+      centered
       zIndex={zIndex}
       styles={{
         body: {

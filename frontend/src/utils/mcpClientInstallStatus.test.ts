@@ -6,6 +6,8 @@ import {
   buildRemoteMCPClientQuickStart,
   EMPTY_MCP_CLIENT_STATUSES,
   formatMCPLaunchCommand,
+  isLocalMCPClientUnavailable,
+  isMCPClientConnected,
   isRemoteMCPClientStatus,
   normalizeMCPClientStatuses,
   pickPreferredMCPClient,
@@ -41,26 +43,40 @@ describe('mcpClientInstallStatus helpers', () => {
       EMPTY_MCP_CLIENT_STATUSES[2],
       EMPTY_MCP_CLIENT_STATUSES[3],
       EMPTY_MCP_CLIENT_STATUSES[4],
+      EMPTY_MCP_CLIENT_STATUSES[5],
+      EMPTY_MCP_CLIENT_STATUSES[6],
+      EMPTY_MCP_CLIENT_STATUSES[7],
+      EMPTY_MCP_CLIENT_STATUSES[8],
     ]);
   });
 
-  it('keeps OpenCode in the local auto-install client order', () => {
+  it('keeps all local one-click MCP clients in the auto-install client order', () => {
     expect(EMPTY_MCP_CLIENT_STATUSES.map((item) => item.client)).toEqual([
       'claude-code',
       'codex',
       'opencode',
+      'zcode',
+      'deepseek-harness',
+      'kimi',
+      'grok-build',
       'openclaw',
       'hermans',
     ]);
 
-    const openCode = EMPTY_MCP_CLIENT_STATUSES.find((item) => item.client === 'opencode');
-    expect(openCode).toMatchObject({
-      displayName: 'OpenCode',
-      installMode: 'auto',
-      clientCommand: 'opencode',
-    });
-    expect(supportsAutoMCPClientInstall(openCode)).toBe(true);
-    expect(isRemoteMCPClientStatus(openCode)).toBe(false);
+    expect(EMPTY_MCP_CLIENT_STATUSES.filter((item) => item.installMode === 'auto').map((item) => item.client)).toEqual([
+      'claude-code',
+      'codex',
+      'opencode',
+      'zcode',
+      'deepseek-harness',
+      'kimi',
+      'grok-build',
+    ]);
+    for (const client of ['opencode', 'zcode', 'deepseek-harness', 'kimi', 'grok-build']) {
+      const status = EMPTY_MCP_CLIENT_STATUSES.find((item) => item.client === client);
+      expect(supportsAutoMCPClientInstall(status)).toBe(true);
+      expect(isRemoteMCPClientStatus(status)).toBe(false);
+    }
   });
 
   it('prefers an already-installed but outdated client over a completely uninstalled one', () => {
@@ -77,11 +93,42 @@ describe('mcpClientInstallStatus helpers', () => {
         displayName: 'Codex',
         installed: true,
         matchesCurrent: false,
+        clientDetected: true,
+        clientCommand: 'codex',
         message: '已检测到 Codex 中的 GoNavi MCP 记录，但与当前 GoNavi 安装路径不一致，建议更新',
       },
     ];
 
     expect(pickPreferredMCPClient(statuses)).toBe('codex');
+  });
+
+  it('does not treat a matching config as connected or writable when its local client is absent', () => {
+    const unavailableClient: AIMCPClientInstallStatus = {
+      client: 'deepseek-harness',
+      displayName: 'DeepSeek Harness',
+      installMode: 'auto',
+      installed: true,
+      matchesCurrent: true,
+      clientDetected: false,
+      clientCommand: 'dsh',
+      message: 'A GoNavi MCP configuration was found',
+    };
+
+    expect(isLocalMCPClientUnavailable(unavailableClient)).toBe(true);
+    expect(isMCPClientConnected(unavailableClient)).toBe(false);
+    expect(pickPreferredMCPClient([
+      unavailableClient,
+      {
+        client: 'codex',
+        displayName: 'Codex',
+        installMode: 'auto',
+        installed: false,
+        matchesCurrent: false,
+        clientDetected: true,
+        clientCommand: 'codex',
+        message: 'No Codex user-level GoNavi MCP configuration was detected',
+      },
+    ])).toBe('codex');
   });
 
   it('prefers a locally detected client command when neither client has existing GoNavi MCP config', () => {
@@ -126,7 +173,7 @@ describe('mcpClientInstallStatus helpers', () => {
         displayName: 'Codex',
         installed: false,
         matchesCurrent: false,
-        clientDetected: false,
+        clientDetected: true,
         clientCommand: 'codex',
         message: 'Failed to locate Codex configuration: access denied',
       },
@@ -151,7 +198,7 @@ describe('mcpClientInstallStatus helpers', () => {
         displayName: 'Codex',
         installed: false,
         matchesCurrent: false,
-        clientDetected: false,
+        clientDetected: true,
         clientCommand: 'codex',
         message: 'Current GoNavi executable path is empty',
       },
@@ -188,6 +235,7 @@ describe('mcpClientInstallStatus helpers', () => {
   it('keeps the user-selected client when it is still present in the latest status list', () => {
     expect(pickPreferredMCPClient(EMPTY_MCP_CLIENT_STATUSES, 'codex')).toBe('codex');
     expect(pickPreferredMCPClient(EMPTY_MCP_CLIENT_STATUSES, 'opencode')).toBe('opencode');
+    expect(pickPreferredMCPClient(EMPTY_MCP_CLIENT_STATUSES, 'kimi')).toBe('kimi');
     expect(pickPreferredMCPClient(EMPTY_MCP_CLIENT_STATUSES, 'openclaw')).toBe('openclaw');
   });
 
@@ -207,6 +255,29 @@ describe('mcpClientInstallStatus helpers', () => {
     expect(pickPreferredMCPClient(statuses)).toBe('opencode');
   });
 
+  it('recognizes a Kimi configuration status error when ranking local clients', () => {
+    const statuses: AIMCPClientInstallStatus[] = [
+      {
+        client: 'claude-code',
+        displayName: 'Claude Code',
+        installed: false,
+        matchesCurrent: false,
+        message: 'No Claude Code user-level GoNavi MCP configuration was detected',
+      },
+      {
+        client: 'kimi',
+        displayName: 'Kimi Code',
+        installed: false,
+        matchesCurrent: false,
+        clientDetected: true,
+        clientCommand: 'kimi',
+        message: 'Failed to locate Kimi Code configuration: access denied',
+      },
+    ];
+
+    expect(pickPreferredMCPClient(statuses)).toBe('kimi');
+  });
+
   it('formats quoted launch commands for display and clipboard use', () => {
     expect(formatMCPLaunchCommand({
       command: 'C:/Program Files/GoNavi/GoNavi.exe',
@@ -223,7 +294,7 @@ describe('mcpClientInstallStatus helpers', () => {
     expect(guide).toContain('The cloud Agent does not need to store database passwords.');
     expect(guide).toContain('Remote access uses schema-only mode by default and does not register execute_sql');
     expect(guide).toContain('it cannot use the Windows local stdio command directly');
-    expect(guide).toContain('Claude Code / Codex / OpenCode');
+    expect(guide).toContain('Claude Code / Codex / OpenCode / ZCode / DeepSeek Harness / Kimi Code / Grok Build');
     expect(guide).toContain('allowMutating=true');
     expect(guide).toContain('"type": "streamable-http"');
     expect(guide).toContain('"Authorization": "Bearer <random-token>"');

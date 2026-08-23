@@ -98,11 +98,22 @@ func (p *CodeBuddyCLIProvider) ChatWithState(ctx context.Context, state json.Raw
 			requestErr = fmt.Errorf("CodeBuddy CLI timed out (%s); the current login session, Base URL, or API Key may not be returning a valid response", codebuddyCLIRequestTimeout)
 			return nil, nil, requestErr
 		}
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			requestErr = fmt.Errorf("CodeBuddy CLI execution failed: %s", string(exitErr.Stderr))
+		exitErr, exited := err.(*exec.ExitError)
+		if !exited && len(output) == 0 {
+			requestErr = fmt.Errorf("CodeBuddy CLI execution failed: %w", err)
 			return nil, nil, requestErr
 		}
-		requestErr = fmt.Errorf("CodeBuddy CLI execution failed: %w", err)
+		details := make([]string, 0, 3)
+		if exited {
+			if stderr := strings.TrimSpace(string(exitErr.Stderr)); stderr != "" {
+				details = append(details, "stderr: "+stderr)
+			}
+		}
+		if len(output) > 0 {
+			details = append(details, fmt.Sprintf("stdout: %d bytes omitted", len(output)))
+		}
+		details = append(details, "error: "+err.Error())
+		requestErr = fmt.Errorf("CodeBuddy CLI execution failed: %s", strings.Join(details, "; "))
 		return nil, nil, requestErr
 	}
 
@@ -449,33 +460,16 @@ func resolveCodeBuddyGitBashPath(env []string, goos string, lookPath func(string
 
 	if configured := strings.TrimSpace(envValue(env, "CODEBUDDY_CODE_GIT_BASH_PATH")); configured != "" {
 		if exists(configured) {
+			if isWindowsWSLBashLauncher(configured) {
+				return "", fmt.Errorf("Configured CODEBUDDY_CODE_GIT_BASH_PATH points to a WSL launcher instead of Git Bash on Windows: %s", configured)
+			}
 			return configured, nil
 		}
 		return "", fmt.Errorf("Configured CODEBUDDY_CODE_GIT_BASH_PATH does not exist on Windows: %s", configured)
 	}
 
-	for _, command := range []string{"bash.exe", "bash"} {
-		if bashPath, err := lookPath(command); err == nil && exists(bashPath) {
-			return bashPath, nil
-		}
-	}
-
-	if gitPath, err := lookPath("git.exe"); err == nil {
-		gitDir := parentWindowsPath(gitPath)
-		for _, candidate := range []string{
-			joinWindowsPath(parentWindowsPath(gitDir), "bin", "bash.exe"),
-			joinWindowsPath(gitDir, "bash.exe"),
-		} {
-			if candidate != "" && exists(candidate) {
-				return candidate, nil
-			}
-		}
-	}
-
-	for _, candidate := range windowsGitBashCandidates(env) {
-		if exists(candidate) {
-			return candidate, nil
-		}
+	if detected := detectWindowsGitBashPath(env, lookPath, exists); detected != "" {
+		return detected, nil
 	}
 
 	return "", nil

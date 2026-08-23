@@ -17,6 +17,8 @@ import {
   ReloadOutlined,
   RobotOutlined,
   SaveOutlined,
+  SelectOutlined,
+  SnippetsOutlined,
   TableOutlined,
   UndoOutlined,
   VerticalAlignBottomOutlined,
@@ -67,6 +69,8 @@ export interface DataGridToolbarFrameProps {
   allSelectedAreDeleted: boolean;
   cellEditMode: boolean;
   selectedCellsSize: number;
+  selectedCellRowCount: number;
+  fillTemplateTargetRowCount: number;
   copiedCellPatchColumnCount: number;
   hasChanges: boolean;
   pendingChangeCount: number;
@@ -164,11 +168,12 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   onReload,
   onToggleFilter,
   canModifyData,
-  selectedRowKeysLength,
   deleteTargetRowCount,
   allSelectedAreDeleted,
   cellEditMode,
   selectedCellsSize,
+  selectedCellRowCount,
+  fillTemplateTargetRowCount,
   copiedCellPatchColumnCount,
   hasChanges,
   pendingChangeCount,
@@ -267,27 +272,64 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
     ? `${translate('data_grid.toolbar.ai_insight_tooltip')} · ${aiShortcutLabel}`
     : translate('data_grid.toolbar.ai_insight_tooltip');
   const commitModeLabel = translate(`data_grid.toolbar.commit_mode.${dataEditCommitMode}`);
+  const cellSelectionModeLabel = translate('data_grid.toolbar.cell_selection_mode');
+  const cellSelectionActionLabel = translate(cellEditMode
+    ? 'data_grid.toolbar.cell_selection_exit'
+    : 'data_grid.toolbar.cell_selection_enter');
+  const canCopyFillTemplate = selectedCellRowCount === 1;
+  const copyFillTemplateTooltip = canCopyFillTemplate
+    ? translate('data_grid.toolbar.copy_selection_columns', { count: selectedCellsSize })
+    : translate('data_grid.toolbar.copy_selection_columns_same_row');
+  const hasCellContextActions = cellEditMode
+    && (selectedCellsSize > 0 || copiedCellPatchColumnCount > 0);
+  const applyFillTemplateLabel = translate('data_grid.toolbar.paste_to_selected_rows', {
+    count: fillTemplateTargetRowCount,
+  });
+  const selectFillTemplateTargetsHint = translate('data_grid.toolbar.select_fill_template_targets');
+  const applyFillTemplateTooltip = fillTemplateTargetRowCount > 0
+    ? `${applyFillTemplateLabel} · ${translate('data_grid.toolbar.copied_columns_count', { count: copiedCellPatchColumnCount })}`
+    : `${selectFillTemplateTargetsHint} · ${translate('data_grid.toolbar.copied_columns_count', { count: copiedCellPatchColumnCount })}`;
   const renderToolbarAction = ({
     label,
     tooltip = label,
     legacyContent = label,
+    disabledReason,
+    dataGridAction,
     className,
     ...buttonProps
   }: Omit<ButtonProps, 'aria-label' | 'children'> & {
     label: string;
     tooltip?: React.ReactNode;
     legacyContent?: React.ReactNode;
+    disabledReason?: string;
+    dataGridAction?: string;
   }) => {
     const resolvedClassName = [
       isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined,
       className,
     ].filter(Boolean).join(' ') || undefined;
 
+    const actionButton = (
+      <Button {...buttonProps} className={resolvedClassName} data-grid-action={dataGridAction} aria-label={label}>
+        {isV2Ui ? null : legacyContent}
+      </Button>
+    );
+    const tooltipTitle = isV2Ui || disabledReason ? tooltip : undefined;
+
     return (
-      <Tooltip title={isV2Ui ? tooltip : undefined}>
-        <Button {...buttonProps} className={resolvedClassName} aria-label={label}>
-          {isV2Ui ? null : legacyContent}
-        </Button>
+      <Tooltip title={tooltipTitle}>
+        {buttonProps.disabled && disabledReason ? (
+          <span
+            role="button"
+            tabIndex={0}
+            aria-disabled="true"
+            aria-label={`${label} — ${disabledReason}`}
+            data-grid-disabled-action={dataGridAction}
+            style={{ display: 'inline-flex' }}
+          >
+            {React.cloneElement(actionButton, { 'aria-hidden': true, tabIndex: -1 })}
+          </span>
+        ) : actionButton}
       </Tooltip>
     );
   };
@@ -387,34 +429,44 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             )}
             {!isV2Ui && deleteTargetRowCount > 0 && <span style={{ fontSize: '12px', color: '#888' }}>{translate('data_grid.toolbar.selected_count', { count: deleteTargetRowCount })}</span>}
             {renderToolbarDivider()}
-            <Tooltip title={isV2Ui ? translate('data_grid.toolbar.cell_editor') : undefined}>
+            <Tooltip title={cellSelectionActionLabel}>
               <Button
                 data-grid-cell-editor-action="true"
+                data-grid-cell-selection-action="true"
+                data-grid-action="cell-selection"
                 className={isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined}
-                aria-label={translate('data_grid.toolbar.cell_editor')}
-                icon={<EditOutlined />}
+                aria-label={cellSelectionModeLabel}
+                aria-pressed={cellEditMode}
+                icon={<SelectOutlined />}
                 type={cellEditMode ? 'primary' : 'default'}
                 onClick={onToggleCellEditMode}
               >
-                {isV2Ui ? null : translate('data_grid.toolbar.cell_editor')}
+                {isV2Ui ? null : cellSelectionActionLabel}
               </Button>
             </Tooltip>
+            {hasCellContextActions && renderToolbarDivider()}
             {cellEditMode && selectedCellsSize > 0 && (
               <>
                 {renderToolbarAction({
                   label: translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize }),
+                  dataGridAction: 'copy-selection',
                   icon: <CopyOutlined />,
                   onClick: onCopySelectedCellsToClipboard,
                 })}
                 {renderToolbarAction({
                   label: translate('data_grid.toolbar.copy_selection_columns', { count: selectedCellsSize }),
-                  icon: <CopyOutlined />,
+                  tooltip: copyFillTemplateTooltip,
+                  disabledReason: canCopyFillTemplate ? undefined : copyFillTemplateTooltip,
+                  dataGridAction: 'copy-fill-template',
+                  icon: <SnippetsOutlined />,
+                  disabled: !canCopyFillTemplate,
                   onClick: onCopySelectedColumnsFromRow,
                 })}
                 {renderToolbarAction({
                   label: translate('data_grid.toolbar.batch_fill', { count: selectedCellsSize }),
+                  dataGridAction: 'batch-fill',
                   icon: <EditOutlined />,
-                  type: 'primary',
+                  'aria-haspopup': 'dialog',
                   onClick: onOpenBatchEditModal,
                 })}
               </>
@@ -422,10 +474,12 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
             {cellEditMode && copiedCellPatchColumnCount > 0 && (
               <>
                 {renderToolbarAction({
-                  label: translate('data_grid.toolbar.paste_to_selected_rows', { count: selectedRowKeysLength }),
-                  tooltip: `${translate('data_grid.toolbar.paste_to_selected_rows', { count: selectedRowKeysLength })} · ${translate('data_grid.toolbar.copied_columns_count', { count: copiedCellPatchColumnCount })}`,
+                  label: applyFillTemplateLabel,
+                  tooltip: applyFillTemplateTooltip,
+                  disabledReason: fillTemplateTargetRowCount === 0 ? selectFillTemplateTargetsHint : undefined,
+                  dataGridAction: 'apply-fill-template',
                   icon: <VerticalAlignBottomOutlined />,
-                  disabled: selectedRowKeysLength === 0,
+                  disabled: fillTemplateTargetRowCount === 0,
                   onClick: onPasteCopiedColumnsToSelectedRows,
                 })}
                 {!isV2Ui && <span style={{ fontSize: '12px', color: '#888' }}>

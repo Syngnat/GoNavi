@@ -27,10 +27,12 @@ const backendApp = {
   GetDriverVersionPackageSize: vi.fn(),
   GetDriverStatusList: vi.fn(),
   InstallLocalDriverPackage: vi.fn(),
+  ListDriverDownloadTasks: vi.fn(),
   OpenDriverDownloadDirectory: vi.fn(),
   RemoveDriverPackage: vi.fn(),
   SelectDriverPackageDirectory: vi.fn(),
   SelectDriverPackageFile: vi.fn(),
+  StartDriverPackageDownload: vi.fn(),
 };
 
 const textContent = (node: any): string => {
@@ -238,9 +240,9 @@ describe('DriverManagerModal i18n', () => {
         proxyEnv: {},
         checks: [
           {
-            probeCode: 'github_api',
-            name: 'GitHub API',
-            url: 'https://api.github.com',
+            probeCode: 'download_mirror',
+            name: 'GoNavi Mirror',
+            url: 'https://download.syngnat.top/drivers/releases/latest/GoNavi-DriverAgents-Index.json',
             reachable: false,
             httpStatus: 403,
             error: 'HTTP 403',
@@ -253,10 +255,12 @@ describe('DriverManagerModal i18n', () => {
     backendApp.GetDriverVersionPackageSize.mockResolvedValue({ success: true, data: { packageSizeText: '12 MB' } });
     backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
     backendApp.InstallLocalDriverPackage.mockResolvedValue({ success: true });
+    backendApp.ListDriverDownloadTasks.mockResolvedValue({ success: true, data: [] });
     backendApp.OpenDriverDownloadDirectory.mockResolvedValue({ success: true });
     backendApp.RemoveDriverPackage.mockResolvedValue({ success: true });
     backendApp.SelectDriverPackageDirectory.mockResolvedValue({ success: false, message: '已取消' });
     backendApp.SelectDriverPackageFile.mockResolvedValue({ success: false, message: '已取消' });
+    backendApp.StartDriverPackageDownload.mockResolvedValue({ success: true, data: { task: null } });
   });
 
   it('updates visible copy when languagePreference changes while the modal stays open', async () => {
@@ -421,9 +425,9 @@ describe('DriverManagerModal i18n', () => {
         proxyEnv: {},
         checks: [
           {
-            probeCode: 'github_release',
-            name: 'GitHub driver release',
-            url: 'https://github.com/releases/latest/download/GoNavi-DriverAgents.zip',
+            probeCode: 'download_mirror',
+            name: 'GoNavi Mirror',
+            url: 'https://download.syngnat.top/drivers/releases/latest/GoNavi-DriverAgents-Index.json',
             reachable: true,
             httpStatus: 200,
             httpLatencyMs: 88,
@@ -567,6 +571,18 @@ describe('DriverManagerModal i18n', () => {
       'Driver download network is available. You can install drivers directly.',
     ],
     [
+      'mirror_fallback_available',
+      buildNetworkStatusResult({
+        reachable: true,
+        mirrorReachable: false,
+        fallbackChecked: true,
+        fallbackReachable: true,
+        usingFallback: true,
+      }),
+      'The GoNavi mirror is unavailable, but the GitHub fallback is available. Driver installation can continue.',
+      'Driver download network is available. You can install drivers directly.',
+    ],
+    [
       'unreachable_proxy_configured',
       buildNetworkStatusResult({
         reachable: false,
@@ -615,7 +631,7 @@ describe('DriverManagerModal i18n', () => {
     },
   );
 
-  it('renders en-US network punctuation while preserving raw GitHub error text', async () => {
+  it('renders en-US mirror network details while preserving raw error text', async () => {
     storeState.appearance.uiVersion = 'v2';
     backendApp.CheckDriverNetworkStatus.mockResolvedValueOnce({
       success: true,
@@ -623,10 +639,7 @@ describe('DriverManagerModal i18n', () => {
         reachable: true,
         summary: 'reachable',
         downloadChainReachable: true,
-        downloadRequiredHosts: [
-          'github.com',
-          'release-assets.githubusercontent.com',
-        ],
+        downloadRequiredHosts: ['download.syngnat.top'],
         recommendedProxy: false,
         proxyConfigured: true,
         proxyEnv: {
@@ -635,9 +648,9 @@ describe('DriverManagerModal i18n', () => {
         },
         checks: [
           {
-            probeCode: 'github_api',
-            name: 'GitHub API',
-            url: 'https://api.github.com',
+            probeCode: 'download_mirror',
+            name: 'GoNavi Mirror',
+            url: 'https://download.syngnat.top/drivers/releases/latest/GoNavi-DriverAgents-Index.json',
             reachable: true,
             httpStatus: 403,
             httpLatencyMs: 123,
@@ -669,10 +682,7 @@ describe('DriverManagerModal i18n', () => {
         reachable: false,
         summary: 'download chain blocked',
         downloadChainReachable: false,
-        downloadRequiredHosts: [
-          'github.com',
-          'release-assets.githubusercontent.com',
-        ],
+        downloadRequiredHosts: ['download.syngnat.top'],
         recommendedProxy: true,
         proxyConfigured: true,
         proxyEnv: {},
@@ -686,8 +696,7 @@ describe('DriverManagerModal i18n', () => {
     });
 
     const unreachableContent = textContent(renderer!.toJSON());
-    expect(unreachableContent).toContain('allow these hosts in the proxy rules: github.com, release-assets.githubusercontent.com.');
-    expect(unreachableContent).not.toContain('github.com、release-assets.githubusercontent.com');
+    expect(unreachableContent).toContain('allow these hosts in the proxy rules: download.syngnat.top.');
   });
 
   it('uses structured slim-build reason code instead of raw Chinese message when importing a directory', async () => {
@@ -732,27 +741,39 @@ describe('DriverManagerModal i18n', () => {
     expect(textContent(renderer!.toJSON())).toContain('ClickHouse is unavailable in this slim build');
   });
 
-  it('uses structured GitHub release probe code instead of raw Chinese probe name', async () => {
+  it('uses structured probe codes for mirror and fallback details', async () => {
     storeState.appearance.uiVersion = 'v2';
     backendApp.CheckDriverNetworkStatus.mockResolvedValueOnce({
       success: true,
       data: {
         reachable: true,
-        summary: 'reachable',
+        summary: 'fallback available',
+        mirrorReachable: false,
+        fallbackChecked: true,
+        fallbackReachable: true,
+        usingFallback: true,
         downloadChainReachable: true,
-        downloadRequiredHosts: [],
+        downloadRequiredHosts: ['github.com', 'release-assets.githubusercontent.com'],
         recommendedProxy: false,
         proxyConfigured: false,
         proxyEnv: {},
         checks: [
           {
-            probeCode: 'github_release',
-            name: 'GitHub driver release',
-            url: 'https://github.com/releases/latest/download/GoNavi-DriverAgents.zip',
+            probeCode: 'download_mirror',
+            name: '原始镜像名称',
+            url: 'https://download.syngnat.top/drivers/releases/latest/GoNavi-DriverAgents-Index.json',
             reachable: false,
             httpStatus: 403,
             httpLatencyMs: 321,
             error: 'HTTP 403',
+          },
+          {
+            probeCode: 'github_release',
+            name: '原始 GitHub 名称',
+            url: 'https://github.com/Syngnat/GoNavi-DriverAgents/releases/latest/download/GoNavi-DriverAgents.zip',
+            reachable: true,
+            httpStatus: 200,
+            httpLatencyMs: 456,
           },
         ],
         logPath: 'D:/logs/driver-network.log',
@@ -768,7 +789,10 @@ describe('DriverManagerModal i18n', () => {
     });
 
     const content = textContent(renderer!.toJSON());
-    expect(content).toContain('unreachable, 321ms, HTTP 403');
+    expect(content).toContain('GoNavi mirror connectivity: unreachable, 321ms, HTTP 403');
+    expect(content).toContain('GitHub driver release connectivity: reachable, 456ms');
+    expect(content).not.toContain('原始镜像名称');
+    expect(content).not.toContain('原始 GitHub 名称');
   });
 
   it('renders en-US frontend-generated operation log shell while preserving raw local import details', async () => {

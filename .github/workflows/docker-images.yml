@@ -24,6 +24,7 @@ jobs:
       matrix:
         image_name:
           - gonavi-mcp-server
+          - gonavi-cli
           - gonavi-web-server
           - gonavi-build-env
         platform:
@@ -33,6 +34,9 @@ jobs:
           - image_name: gonavi-mcp-server
             dockerfile: Dockerfile.mcp-server
             description: GoNavi MCP Server container image
+          - image_name: gonavi-cli
+            dockerfile: Dockerfile.cli
+            description: GoNavi command-line interface container image
           - image_name: gonavi-web-server
             dockerfile: Dockerfile.web-server
             description: GoNavi Web Server (browser UI) container image
@@ -66,6 +70,11 @@ jobs:
           set -euo pipefail
           echo "owner_lc=$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
           echo "platform_pair=$(printf '%s' "${{ matrix.platform }}" | tr '/' '-')" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -95,6 +104,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           load: true
           tags: codex-smoke/${{ matrix.image_name }}:local
+          build-args: |
+            VERSION=${{ steps.prep.outputs.version }}
           cache-from: type=gha,scope=${{ matrix.image_name }}-${{ steps.prep.outputs.platform_pair }}
 
       - name: Smoke test MCP Server image
@@ -106,13 +117,47 @@ jobs:
           trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           for _ in 1 2 3 4 5 6 7 8 9 10; do
             if curl --fail --silent http://127.0.0.1:8765/healthz >/dev/null; then
-              exit 0
+              break
             fi
             sleep 1
           done
-          docker logs "$cid"
-          echo "MCP Server image smoke test failed" >&2
-          exit 1
+          if ! curl --fail --silent http://127.0.0.1:8765/healthz >/dev/null; then
+            docker logs "$cid"
+            echo "MCP Server image smoke test failed" >&2
+            exit 1
+          fi
+          docker kill --signal=TERM "$cid" >/dev/null
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [[ "$(docker inspect -f '{{.State.Status}}' "$cid")" == "exited" ]]; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$(docker inspect -f '{{.State.Status}}' "$cid")" != "exited" ]]; then
+            docker logs "$cid"
+            echo "MCP Server image did not exit after SIGTERM" >&2
+            exit 1
+          fi
+          [[ "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" == "0" ]]
+
+      - name: Smoke test CLI image
+        if: matrix.image_name == 'gonavi-cli'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm codex-smoke/${{ matrix.image_name }}:local --version | grep -Fq '"version"'
+          docker run --rm codex-smoke/${{ matrix.image_name }}:local --help | grep -Fq 'GoNavi CLI'
+          data_dir="$(mktemp -d)"
+          trap 'rm -rf "$data_dir"' EXIT
+          printf '%s\n' '{"connections":[{"id":"cli-docker-smoke","name":"CLI Docker smoke","config":{"id":"cli-docker-smoke","type":"sqlite"}}]}' > "$data_dir/connections.json"
+          output="$(docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -e HOME=/data \
+            -e GONAVI_LOG_DIR=/data/logs \
+            -v "$data_dir:/data" \
+            codex-smoke/${{ matrix.image_name }}:local list-connections)"
+          grep -Fq '"id":"cli-docker-smoke"' <<< "$output"
+          grep -Fq '"name":"CLI Docker smoke"' <<< "$output"
 
       - name: Smoke test Web Server image
         if: matrix.image_name == 'gonavi-web-server'
@@ -149,6 +194,19 @@ jobs:
           grep -Fq '"success":true' <<<"$login"
           app_status="$(curl --silent --show-error -o /dev/null -w '%{http_code}' -b "$cookie_jar" "${base_url}/")"
           [[ "$app_status" == "200" ]]
+          docker kill --signal=TERM "$cid" >/dev/null
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [[ "$(docker inspect -f '{{.State.Status}}' "$cid")" == "exited" ]]; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$(docker inspect -f '{{.State.Status}}' "$cid")" != "exited" ]]; then
+            docker logs "$cid"
+            echo "Web Server image did not exit after SIGTERM" >&2
+            exit 1
+          fi
+          [[ "$(docker inspect -f '{{.State.ExitCode}}' "$cid")" == "0" ]]
 
       - name: Smoke test build environment image
         if: matrix.image_name == 'gonavi-build-env'
@@ -167,6 +225,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           tags: ghcr.io/${{ steps.prep.outputs.owner_lc }}/${{ matrix.image_name }}
+          build-args: |
+            VERSION=${{ steps.prep.outputs.version }}
           outputs: type=image,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.image_name }}-${{ steps.prep.outputs.platform_pair }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}-${{ steps.prep.outputs.platform_pair }}
@@ -197,6 +257,8 @@ jobs:
         include:
           - image_name: gonavi-mcp-server
             description: GoNavi MCP Server container image
+          - image_name: gonavi-cli
+            description: GoNavi command-line interface container image
           - image_name: gonavi-web-server
             description: GoNavi Web Server (browser UI) container image
           - image_name: gonavi-build-env

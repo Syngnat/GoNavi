@@ -587,6 +587,7 @@ export const V2ConnectionContextMenuView: React.FC<{
   driverLabel?: string;
   isRedis?: boolean;
   supportsCreateDatabase?: boolean;
+  supportsQueryEditor?: boolean;
   tags?: V2ConnectionContextMenuTagItem[];
   onAction?: (action: V2ConnectionContextMenuActionKey) => void;
 }> = ({
@@ -596,6 +597,7 @@ export const V2ConnectionContextMenuView: React.FC<{
   driverLabel,
   isRedis = false,
   supportsCreateDatabase = true,
+  supportsQueryEditor = true,
   tags = [],
   onAction,
 }) => {
@@ -626,8 +628,10 @@ export const V2ConnectionContextMenuView: React.FC<{
         ]) : renderItems([
           ...(supportsCreateDatabase ? [{ action: 'new-db' as const, icon: <DatabaseOutlined />, title: t('connection.sidebar.menu.createDatabase'), kbd: primaryShortcut('N', shortcutPlatform), featured: true }] : []),
           { action: 'refresh', icon: <ReloadOutlined />, title: t('connection.sidebar.menu.refresh'), kbd: primaryShortcut('R', shortcutPlatform) },
-          { action: 'new-query', icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query') },
-          { action: 'open-sql-file', icon: <FileAddOutlined />, title: t('sidebar.sql_file_exec.title') },
+          ...(supportsQueryEditor ? [
+            { action: 'new-query' as const, icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query') },
+            { action: 'open-sql-file' as const, icon: <FileAddOutlined />, title: t('sidebar.sql_file_exec.title') },
+          ] : []),
         ])}
 
         <div className="gn-v2-context-menu-section-title">{t('connection.sidebar.menu.section')}</div>
@@ -648,13 +652,11 @@ export const V2ConnectionContextMenuView: React.FC<{
                 kbd: tag.selected ? t('connection.sidebar.menu.current') : undefined,
                 selected: tag.selected,
               })),
-              {
+              ...(hasSelectedTag ? [{
                 action: 'move-to-ungrouped',
-                icon: hasSelectedTag ? <FolderOpenOutlined /> : <CheckSquareOutlined />,
+                icon: <FolderOpenOutlined />,
                 title: t('connection.sidebar.menu.moveToUngrouped'),
-                kbd: hasSelectedTag ? undefined : t('connection.sidebar.menu.current'),
-                selected: !hasSelectedTag,
-              },
+              }] : []),
             ])}
           </>
         )}

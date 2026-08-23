@@ -93,6 +93,36 @@ func TestIsReadOnlySQLQuery_TreatsSelectIntoAsWrite(t *testing.T) {
 	}
 }
 
+func TestIsReadOnlySQLQueryRejectsExecutableMySQLComments(t *testing.T) {
+	unsafeQueries := []struct {
+		dbType string
+		query  string
+	}{
+		{dbType: "mysql", query: "SELECT 1 /*!50000 INTO OUTFILE '/tmp/gonavi' */"},
+		{dbType: "mysql", query: "/*!50000 DELETE FROM accounts */ SELECT 1"},
+		{dbType: "mariadb", query: "SELECT 1 /*M!100100 INTO OUTFILE '/tmp/gonavi' */"},
+		{dbType: "oceanbase", query: "SELECT /*!50700 SQL_NO_CACHE */ 1"},
+	}
+	for _, test := range unsafeQueries {
+		if isReadOnlySQLQuery(test.dbType, test.query) {
+			t.Fatalf("%s executable comment was classified read-only: %q", test.dbType, test.query)
+		}
+	}
+
+	for _, query := range []string{
+		"SELECT /* ordinary comment */ 1",
+		"SELECT /*+ MAX_EXECUTION_TIME(1000) */ 1",
+		"SELECT '/*!50000 DELETE FROM accounts */'",
+	} {
+		if !isReadOnlySQLQuery("mysql", query) {
+			t.Fatalf("ordinary MySQL SELECT was classified as write: %q", query)
+		}
+	}
+	if !isReadOnlySQLQuery("postgres", "SELECT 1 /*!50000 ignored by PostgreSQL */") {
+		t.Fatal("non-MySQL dialect treated an ordinary block comment as executable")
+	}
+}
+
 func TestIsReadOnlySQLQuery_TreatsKafkaConsumeAsReadOnly(t *testing.T) {
 	if !isReadOnlySQLQuery("kafka", `CONSUME GROUP "analytics" FROM "orders.events" LIMIT 20`) {
 		t.Fatal("Kafka CONSUME should be treated as read-only")

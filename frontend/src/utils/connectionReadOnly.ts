@@ -271,10 +271,26 @@ const isReadOnlyMongoStatement = (statement: string): boolean => {
     if (MONGO_WRITE_COMMANDS.has(commandKey)) {
       return false;
     }
+    if (commandKey === "aggregate" && mongoAggregateHasWriteStage(parsed)) {
+      return false;
+    }
     return MONGO_READ_ONLY_COMMANDS.has(commandKey);
   } catch {
     return false;
   }
+};
+
+const mongoAggregateHasWriteStage = (command: Record<string, unknown>): boolean => {
+  const pipelineEntry = Object.entries(command).find(([key]) => key.trim().toLowerCase() === "pipeline");
+  if (!Array.isArray(pipelineEntry?.[1])) return false;
+  return (pipelineEntry[1] as unknown[]).some((stage) => (
+    !!stage
+    && typeof stage === "object"
+    && !Array.isArray(stage)
+    && Object.keys(stage as Record<string, unknown>).some((key) => (
+      key.trim().toLowerCase() === "$out" || key.trim().toLowerCase() === "$merge"
+    ))
+  ));
 };
 
 const isConnectionReadOnlyStatement = (

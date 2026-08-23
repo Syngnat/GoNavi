@@ -346,9 +346,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 presetKey: matchedPreset.key,
                 presetBackendType: matchedPreset.backendType,
                 presetFixedApiFormat: matchedPreset.fixedApiFormat,
+                presetDefaultApiFormat: matchedPreset.defaultApiFormat,
                 presetEndpoints: matchedPreset.endpoints,
                 valuesBaseUrl: editableProvider.baseUrl,
                 valuesApiFormat: editableProvider.apiFormat,
+                valuesModel: editableProvider.model,
             });
             applyProviderEditorSession(buildEditProviderEditorSession({
                 provider: { ...editableProvider, presetKey: matchedPreset.key } as any,
@@ -421,9 +423,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 presetKey: values.presetKey,
                 presetBackendType: preset.backendType,
                 presetFixedApiFormat: preset.fixedApiFormat,
+                presetDefaultApiFormat: preset.defaultApiFormat,
                 presetEndpoints: preset.endpoints,
                 valuesBaseUrl: finalBaseUrl,
                 valuesApiFormat: values.apiFormat,
+                valuesModel: values.model,
             });
             const apiKeyInput = usesLocalCLI ? '' : values.apiKey;
             const allowEmptySecret = values.presetKey === 'codebuddy';
@@ -723,9 +727,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 presetKey: values.presetKey || 'openai',
                 presetBackendType: preset.backendType,
                 presetFixedApiFormat: preset.fixedApiFormat,
+                presetDefaultApiFormat: preset.defaultApiFormat,
                 presetEndpoints: preset.endpoints,
                 valuesBaseUrl: finalBaseUrl,
                 valuesApiFormat: values.apiFormat,
+                valuesModel: finalModel,
             });
             const allowEmptySecret = values.presetKey === 'codebuddy';
             const apiKeyInput = usesLocalCLI ? '' : values.apiKey;
@@ -771,9 +777,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             presetKey,
             presetBackendType: preset.backendType,
             presetFixedApiFormat: preset.fixedApiFormat,
+            presetDefaultApiFormat: preset.defaultApiFormat,
             presetEndpoints: preset.endpoints,
             valuesBaseUrl: preset.defaultBaseUrl,
-            valuesApiFormat: form.getFieldValue('apiFormat'),
+            valuesApiFormat: preset.defaultApiFormat || form.getFieldValue('apiFormat'),
+            valuesModel: preset.defaultModel,
         });
         const { model: presetModel, models: presetModels } = resolvePresetModelSelection({
             presetKey,

@@ -147,7 +147,7 @@ func splitSQLStatementsForDialect(dbType, sql string) []string {
 			if token == "begin" && plsqlDeclareBeginSkips > 0 {
 				plsqlDeclareBeginSkips--
 				justClosedPLSQLBlock = false
-			} else if token == "begin" && shouldEnterPLSQLBlock(text, tokenEnd) {
+			} else if token == "begin" && shouldEnterPLSQLBlockForDialect(dbType, text, tokenEnd) {
 				plsqlDepth++
 				justClosedPLSQLBlock = false
 			} else if token == "declare" && shouldEnterPLSQLDeclareBlock(text, tokenEnd) {
@@ -494,20 +494,80 @@ func nextSQLSignificantByte(text string, pos int) byte {
 	return text[i]
 }
 
-func shouldEnterPLSQLBlock(text string, tokenEnd int) bool {
-	switch nextSQLSignificantByte(text, tokenEnd) {
-	case 0, ';':
+func sqlBeginStartsTransactionForDialect(dbType string, text string, tokenEnd int) bool {
+	second, secondEnd := nextSQLKeyword(text, tokenEnd)
+	switch normalizeSQLClassifierDBType(dbType) {
+	case "sqlserver":
+		switch second {
+		case "transaction", "tran":
+			return true
+		case "distributed":
+			third, _ := nextSQLKeyword(text, secondEnd)
+			return third == "transaction" || third == "tran"
+		default:
+			return false
+		}
+	case "oracle", "dameng":
 		return false
-	}
-	switch nextSQLSignificantToken(text, tokenEnd) {
-	case "transaction", "work", "isolation", "read", "write":
-		return false
+	case "sqlite":
+		switch second {
+		case "", "transaction", "deferred", "immediate", "exclusive":
+			return true
+		default:
+			return false
+		}
+	case "mysql", "mariadb", "diros", "starrocks", "sphinx", "oceanbase":
+		return second == "" || second == "work"
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb":
+		switch second {
+		case "", "work", "transaction", "isolation", "read", "write", "deferrable":
+			return true
+		case "not":
+			third, _ := nextSQLKeyword(text, secondEnd)
+			return third == "deferrable"
+		default:
+			return false
+		}
+	case "duckdb", "iris":
+		return second == "" || second == "work" || second == "transaction"
 	default:
-		return true
+		return false
 	}
 }
 
+func shouldEnterPLSQLBlockForDialect(dbType string, text string, tokenEnd int) bool {
+	nextPos := skipSQLTrivia(text, tokenEnd)
+	if nextPos >= len(text) || text[nextPos] == ';' {
+		return false
+	}
+	if sqlBeginStartsTransactionForDialect(dbType, text, tokenEnd) {
+		return false
+	}
+
+	nextToken, _ := nextSQLKeyword(text, tokenEnd)
+	normalizedType := normalizeSQLClassifierDBType(dbType)
+	if normalizedType == "sqlserver" && (nextToken == "dialog" || nextToken == "conversation") {
+		// BEGIN DIALOG CONVERSATION and BEGIN CONVERSATION TIMER are standalone
+		// Service Broker commands, not BEGIN ... END control-flow blocks.
+		return false
+	}
+	if normalizedType == "" {
+		// Preserve the historical dialect-neutral behavior for callers that do
+		// not know their target engine. Ambiguous forms are resolved only on the
+		// new dialect-aware paths.
+		switch nextToken {
+		case "transaction", "work", "isolation", "read", "write":
+			return false
+		}
+	}
+	return true
+}
+
 func isPLSQLBlockStatement(stmt string) bool {
+	return isPLSQLBlockStatementForDialect("", stmt)
+}
+
+func isPLSQLBlockStatementForDialect(dbType string, stmt string) bool {
 	text := strings.TrimSpace(stmt)
 	if text == "" {
 		return false
@@ -515,12 +575,12 @@ func isPLSQLBlockStatement(stmt string) bool {
 	if strings.HasSuffix(text, "/") {
 		text = strings.TrimSpace(strings.TrimSuffix(text, "/"))
 	}
-	token := nextSQLSignificantToken(text, 0)
+	token, tokenEnd := nextSQLKeyword(text, 0)
 	if token == "declare" {
-		return shouldEnterPLSQLDeclareBlock(text, len("declare"))
+		return shouldEnterPLSQLDeclareBlock(text, tokenEnd)
 	}
 	if token == "begin" {
-		return shouldEnterPLSQLBlock(text, len("begin"))
+		return shouldEnterPLSQLBlockForDialect(dbType, text, tokenEnd)
 	}
 	return isCreateRoutineHeaderPrefix(text)
 }

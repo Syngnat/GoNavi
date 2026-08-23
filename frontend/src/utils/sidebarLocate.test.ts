@@ -1,14 +1,33 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
+  dispatchSidebarLocateConnection,
   findSidebarNodePathByKey,
   findSidebarNodePathForLocate,
+  normalizeSidebarLocateConnectionRequest,
   normalizeSidebarLocateObjectRequest,
   normalizeSidebarLocateObjectRequestFromTab,
   resolveSidebarLocateTarget,
 } from './sidebarLocate';
 
 describe('sidebarLocate', () => {
+  it('normalizes and dispatches a connection navigation request', () => {
+    expect(normalizeSidebarLocateConnectionRequest({
+      connectionId: '  conn-1 ',
+      dbName: ' orders ',
+    })).toEqual({ connectionId: 'conn-1', dbName: 'orders' });
+    expect(normalizeSidebarLocateConnectionRequest({ connectionId: ' ' })).toBeNull();
+
+    const eventTarget = { dispatchEvent: vi.fn() };
+    expect(dispatchSidebarLocateConnection({
+      connectionId: 'conn-1',
+      dbName: 'orders',
+    }, eventTarget)).toBe(true);
+    const event = eventTarget.dispatchEvent.mock.calls[0]?.[0] as CustomEvent;
+    expect(event.type).toBe('gonavi:locate-sidebar-connection');
+    expect(event.detail).toEqual({ connectionId: 'conn-1', dbName: 'orders' });
+  });
+
   it('normalizes a table locate request and builds the direct tree path', () => {
     const request = normalizeSidebarLocateObjectRequest({
       tabId: 'conn-1-main-users',

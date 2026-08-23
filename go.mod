@@ -31,6 +31,7 @@ require (
 	github.com/xuri/excelize/v2 v2.10.0
 	go.mongodb.org/mongo-driver v1.17.9
 	go.mongodb.org/mongo-driver/v2 v2.5.0
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/crypto v0.48.0
 	golang.org/x/image v0.25.0
 	golang.org/x/mod v0.33.0
@@ -152,7 +153,6 @@ require (
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20260112195511-716be5621a96 // indirect
 	golang.org/x/sync v0.19.0
 	golang.org/x/telemetry v0.0.0-20260209163413-e7419c687ee4 // indirect

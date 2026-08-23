@@ -37,6 +37,7 @@ import {
   filterV2CommandSearchTreeItems,
   filterV2ExplorerTreeByKind,
   resolveSidebarNodeConnectionId,
+  resolveSidebarTreeVirtualHeight,
   resolveV2ActiveConnectionId,
   type SidebarTreeNode as TreeNode,
   type V2CommandSearchItem,
@@ -619,7 +620,7 @@ export const useSidebarSearchModel = ({
     ),
     [sidebarTableMetadataFields, treeViewportWidth, v2VisibleTreeData],
   );
-  const effectiveTreeHeight = treeHeight;
+  const effectiveTreeHeight = resolveSidebarTreeVirtualHeight(treeHeight, isV2Ui);
   const v2TreeMetrics = useMemo(() => {
     const databaseTableCounts = new Map<React.Key, number>();
     const objectGroupCounts = new Map<React.Key, number>();

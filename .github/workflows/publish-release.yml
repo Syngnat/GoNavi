@@ -10,6 +10,16 @@ on:
         description: Release tag to publish (for example, v0.8.7)
         required: true
         type: string
+      publish_npm:
+        description: Publish the optional npm CLI wrapper after the GitHub Release is public
+        required: false
+        default: false
+        type: boolean
+      tooling_ref:
+        description: Optional ref containing current release tooling for mirror-only re-syncs
+        required: false
+        default: ''
+        type: string
 
 permissions:
   actions: read
@@ -17,15 +27,19 @@ permissions:
 
 concurrency:
   # Stable and dev publications share the same mirror targets.
-  group: gonavi-release-publication
+  group: gonavi-download-publication
   cancel-in-progress: false
 
 jobs:
   publish:
     name: Validate, mirror, and publish release
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      # npm distribution is opt-in. Stable GitHub/edge publication must not depend
+      # on an npm organization, token, or registry availability.
+      PUBLISH_NPM: ${{ inputs.publish_npm && 'true' || 'false' }}
     steps:
       - name: Validate release
         id: validate
@@ -58,6 +72,18 @@ jobs:
               commitSha = annotatedTag.data.object.sha;
             }
 
+            const releaseListForValidation = await github.rest.repos.listReleases({
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const releaseForValidation = releaseListForValidation.data
+              .find((item) => item.tag_name === tag);
+            if (!releaseForValidation) {
+              core.setFailed('Release not found for ' + tag);
+              return;
+            }
+
             const workflowRuns = await github.rest.actions.listWorkflowRuns({
               owner,
               repo,
@@ -67,14 +93,66 @@ jobs:
               per_page: 100,
             });
             const runs = workflowRuns.data.workflow_runs;
-            const successfulRun = runs.find((run) => (
+            let successfulRun = runs.find((run) => (
               run.head_sha === commitSha
               && run.status === 'completed'
               && run.conclusion === 'success'
             ));
             if (!successfulRun) {
-              core.setFailed(`No successful Release workflow found for ${tag} at ${commitSha}`);
-              return;
+              const provenanceMatch = String(releaseForValidation.body || '').match(
+                /<!--\s*gonavi-release-provenance\s+(\{[\s\S]*?\})\s*-->/
+              );
+              if (!provenanceMatch) {
+                core.setFailed(
+                  'No successful tag-push Release workflow found for ' + tag
+                  + ' at ' + commitSha
+                  + ', and the draft release has no manual-release provenance'
+                );
+                return;
+              }
+              let provenance;
+              try {
+                provenance = JSON.parse(provenanceMatch[1]);
+              } catch (error) {
+                core.setFailed('Release provenance is not valid JSON: ' + error.message);
+                return;
+              }
+              const provenanceRunId = Number(provenance?.runId);
+              if (
+                !provenance
+                || provenance.schema !== 1
+                || provenance.tag !== tag
+                || String(provenance.commit || '').toLowerCase() !== commitSha.toLowerCase()
+                || !Number.isSafeInteger(provenanceRunId)
+                || provenanceRunId <= 0
+              ) {
+                core.setFailed('Release provenance does not bind this draft to its immutable tag');
+                return;
+              }
+              const repository = await github.rest.repos.get({ owner, repo });
+              const dispatchedWorkflowRuns = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'release.yml',
+                event: 'workflow_dispatch',
+                branch: repository.data.default_branch,
+                per_page: 100,
+              });
+              successfulRun = dispatchedWorkflowRuns.data.workflow_runs.find((run) => (
+                Number(run.id) === provenanceRunId
+                && run.status === 'completed'
+                && run.conclusion === 'success'
+              ));
+              if (!successfulRun) {
+                core.setFailed(
+                  'No successful manual Release workflow matches provenance run ' + provenanceRunId
+                );
+                return;
+              }
+              core.notice(
+                'Validated manual Release workflow ' + provenanceRunId
+                + ' for immutable tag ' + tag
+              );
             }
 
             const releaseList = await github.rest.repos.listReleases({
@@ -123,7 +201,7 @@ jobs:
             }
 
             const version = tag.slice(1);
-            const expectedAssets = [
+            const requiredAssets = [
               'LICENSE',
               'NOTICE',
               'SHA256SUMS',
@@ -139,14 +217,52 @@ jobs:
               `GoNavi-${version}-Windows-Arm64-Installer.msi`,
               `GoNavi-${version}-Windows-Arm64-Portable.exe`,
               `GoNavi-${version}-Windows-Arm64-Portable.zip`,
+              `gonavi-cli_${version}_darwin_amd64.tar.gz`,
+              `gonavi-cli_${version}_darwin_arm64.tar.gz`,
+              `gonavi-cli_${version}_linux_amd64.tar.gz`,
+              `gonavi-cli_${version}_linux_arm64.tar.gz`,
+              `gonavi-cli_${version}_windows_amd64.zip`,
+              `gonavi-cli_${version}_windows_arm64.zip`,
+              `gonavi-cli_${version}_checksums.txt`,
+            ];
+            // Linux AppImage creation is best-effort in release.yml because it
+            // depends on external linuxdeploy downloads. Accept either variant
+            // when present without making a transient tooling outage block the
+            // required tar.gz release contract.
+            const optionalAssets = [
+              `GoNavi-${version}-Linux-Amd64.AppImage`,
+              `GoNavi-${version}-Linux-Amd64-WebKit41.AppImage`,
             ];
             const assetsByName = new Map(release.assets.map((asset) => [asset.name, asset]));
-            const missingAssets = expectedAssets.filter((name) => {
+            const allowedAssetNames = new Set([...requiredAssets, ...optionalAssets]);
+            const duplicateAssets = release.assets
+              .map((asset) => asset.name)
+              .filter((name, index, names) => names.indexOf(name) !== index);
+            const unexpectedAssets = release.assets
+              .filter((asset) => !allowedAssetNames.has(asset.name))
+              .map((asset) => asset.name);
+            if (duplicateAssets.length > 0 || unexpectedAssets.length > 0) {
+              const details = [
+                duplicateAssets.length > 0 ? `duplicates: ${[...new Set(duplicateAssets)].join(', ')}` : '',
+                unexpectedAssets.length > 0 ? `unexpected: ${[...new Set(unexpectedAssets)].join(', ')}` : '',
+              ].filter(Boolean).join('; ');
+              core.setFailed(`Release assets are not an exact contract: ${details}`);
+              return;
+            }
+            const missingAssets = requiredAssets.filter((name) => {
               const asset = assetsByName.get(name);
               return !asset || asset.state !== 'uploaded' || asset.size <= 0;
             });
             if (missingAssets.length > 0) {
               core.setFailed(`Release assets are incomplete: ${missingAssets.join(', ')}`);
+              return;
+            }
+            const invalidOptionalAssets = optionalAssets.filter((name) => {
+              const asset = assetsByName.get(name);
+              return asset && (asset.state !== 'uploaded' || asset.size <= 0);
+            });
+            if (invalidOptionalAssets.length > 0) {
+              core.setFailed(`Optional release assets are incomplete: ${invalidOptionalAssets.join(', ')}`);
               return;
             }
 
@@ -157,6 +273,17 @@ jobs:
 
       - name: Checkout release tooling
         uses: actions/checkout@v5
+        with:
+          # Normal releases use the exact immutable tag whose assets were
+          # validated above. A mirror-only re-sync may opt into a newer tooling
+          # ref so an older release can receive newly added edge destinations.
+          ref: ${{ inputs.tooling_ref || steps.validate.outputs.tag }}
+
+      - name: Validate stable npm CLI package version
+        env:
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+        shell: bash
+        run: python3 tools/validate-npm-cli-package-version.py --tag "$RELEASE_TAG"
 
       - name: Prepare and verify stable mirror payload
         id: mirror_payload
@@ -176,6 +303,49 @@ jobs:
           driver_dir="${RUNNER_TEMP}/driver-release"
           mkdir -p "${app_dir}" "${driver_dir}"
           gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --dir "${app_dir}"
+          [[ -s "${app_dir}/SHA256SUMS" ]] || {
+            echo "SHA256SUMS is missing from the GitHub Release" >&2
+            exit 1
+          }
+          (cd "${app_dir}" && sha256sum --check SHA256SUMS)
+          cli_checksum_name="gonavi-cli_${RELEASE_TAG#v}_checksums.txt"
+          cli_assets=(
+            "gonavi-cli_${RELEASE_TAG#v}_darwin_amd64.tar.gz"
+            "gonavi-cli_${RELEASE_TAG#v}_darwin_arm64.tar.gz"
+            "gonavi-cli_${RELEASE_TAG#v}_linux_amd64.tar.gz"
+            "gonavi-cli_${RELEASE_TAG#v}_linux_arm64.tar.gz"
+            "gonavi-cli_${RELEASE_TAG#v}_windows_amd64.zip"
+            "gonavi-cli_${RELEASE_TAG#v}_windows_arm64.zip"
+          )
+          [[ -s "${app_dir}/${cli_checksum_name}" ]] || {
+            echo "CLI checksum file is missing from the GitHub Release" >&2
+            exit 1
+          }
+          if ! awk 'NF != 2 || length($1) != 64 || $1 !~ /^[0-9a-fA-F]+$/ { exit 1 }' "${app_dir}/${cli_checksum_name}"; then
+            echo "CLI checksum file contents are invalid" >&2
+            exit 1
+          fi
+          mapfile -t listed_cli_assets < <(awk '{ print $2 }' "${app_dir}/${cli_checksum_name}" | sort)
+          expected_cli_list="$(printf '%s\n' "${cli_assets[@]}" | sort)"
+          actual_cli_list="$(printf '%s\n' "${listed_cli_assets[@]}")"
+          if [[ "${actual_cli_list}" != "${expected_cli_list}" ]]; then
+            echo "CLI checksum file contents are invalid" >&2
+            printf 'expected:\n%s\nactual:\n%s\n' "${expected_cli_list}" "${actual_cli_list}" >&2
+            exit 1
+          fi
+          (cd "${app_dir}" && sha256sum --check "${cli_checksum_name}")
+          for cli_asset in "${cli_assets[@]}"; do
+            grep -Fq "  ${cli_asset}" "${app_dir}/SHA256SUMS" || {
+              echo "CLI asset is missing from SHA256SUMS: ${cli_asset}" >&2
+              exit 1
+            }
+            global_digest="$(awk -v name="${cli_asset}" '$2 == name { print $1 }' "${app_dir}/SHA256SUMS")"
+            cli_digest="$(awk -v name="${cli_asset}" '$2 == name { print $1 }' "${app_dir}/${cli_checksum_name}")"
+            [[ -n "${global_digest}" && "${global_digest}" == "${cli_digest}" ]] || {
+              echo "CLI checksums disagree for ${cli_asset}" >&2
+              exit 1
+            }
+          done
 
           driver_release_json="${RUNNER_TEMP}/driver-release.json"
           driver_status="$(curl --silent --show-error \
@@ -204,19 +374,14 @@ jobs:
           esac
           echo "has_driver_release=${has_driver_release}" >> "$GITHUB_OUTPUT"
 
-          jq -e \
-            --arg tag "${RELEASE_TAG}" \
-            --arg mirror_base "https://download.syngnat.top/gonavi/releases/download" \
-            --arg github_base "https://github.com/${GITHUB_REPOSITORY}/releases/download" \
-            '
-              .tagName == $tag
-              and (.assets | type == "array" and length > 0)
-              and all(.assets[];
-                (.url | type == "string" and startswith($mirror_base + "/" + $tag + "/"))
-                and (.apiUrl | type == "string" and startswith($github_base + "/" + $tag + "/"))
-                and (.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$"))
-              )
-            ' "${app_dir}/latest.json" >/dev/null
+          python3 tools/validate-gui-update-manifest.py \
+            --channel stable \
+            --app-tag "${RELEASE_TAG}" \
+            --app-dir "${app_dir}" \
+            --manifest "${app_dir}/latest.json" \
+            --github-repository "${GITHUB_REPOSITORY}" \
+            --download-dispatcher-url "https://download-dispatch.syngnat.top/v1/resolve" \
+            --download-path-prefix "/gonavi/releases/download"
           if [[ "${has_driver_release}" == true ]]; then
             jq -e '.assets | type == "object" and length > 0' \
               "${driver_dir}/GoNavi-DriverAgents-Index.json" >/dev/null
@@ -225,10 +390,24 @@ jobs:
               exit 1
             }
             (cd "${driver_dir}" && sha256sum --check SHA256SUMS)
+            driver_version_index="${RUNNER_TEMP}/driver-version-index.json"
+            driver_hashes="${RUNNER_TEMP}/driver-asset-sha256.json"
             jq --arg tag "${RELEASE_TAG}" \
-              '.tagName = $tag' \
+              '.tagName = $tag | del(.mirrorTagName) | del(.assets["GoNavi-DriverAgents.zip"]) | del(.assetSha256)' \
               "${driver_dir}/GoNavi-DriverAgents-Index.json" \
-              > "${RUNNER_TEMP}/driver-latest-index.json"
+              > "${RUNNER_TEMP}/driver-version-index-base.json"
+            while IFS= read -r name; do
+              [[ "${name}" == "$(basename "${name}")" && -f "${driver_dir}/${name}" ]] || {
+                echo "Invalid or missing driver asset: ${name}" >&2
+                exit 1
+              }
+              printf '%s\t%s\n' "${name}" "$(sha256sum "${driver_dir}/${name}" | awk '{print $1}')"
+            done < <(jq -r '.assets | keys[]' "${RUNNER_TEMP}/driver-version-index-base.json") \
+              | jq -Rn '[inputs | split("\t") | {(.[0]): .[1]}] | add // {}' > "${driver_hashes}"
+            jq --slurpfile hashes "${driver_hashes}" \
+              '.assetSha256 = $hashes[0]' \
+              "${RUNNER_TEMP}/driver-version-index-base.json" > "${driver_version_index}"
+            cp "${driver_version_index}" "${RUNNER_TEMP}/driver-latest-index.json"
           fi
 
           while IFS=$'\t' read -r name expected_size expected_sha; do
@@ -320,7 +499,142 @@ jobs:
             }
             core.notice(`Verified GitHub latest release ${tag}`);
 
-      - name: Mirror stable release to Gatewaysentry
+      - name: Validate npm publication credentials
+        if: ${{ env.PUBLISH_NPM == 'true' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${NPM_TOKEN:?NPM_TOKEN secret is required; refusing to skip npm publication}"
+
+      # npm postinstall downloads the exact CLI archive from GitHub.  The
+      # release must therefore be public and verified before npm publish.
+      - name: Verify public CLI release assets for npm postinstall
+        if: ${{ env.PUBLISH_NPM == 'true' }}
+        env:
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          release_base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}"
+          cli_assets=(
+            "gonavi-cli_${version}_darwin_amd64.tar.gz"
+            "gonavi-cli_${version}_darwin_arm64.tar.gz"
+            "gonavi-cli_${version}_linux_amd64.tar.gz"
+            "gonavi-cli_${version}_linux_arm64.tar.gz"
+            "gonavi-cli_${version}_windows_amd64.zip"
+            "gonavi-cli_${version}_windows_arm64.zip"
+          )
+          for asset in "${cli_assets[@]}"; do
+            curl --retry 5 --retry-delay 2 --retry-all-errors --fail --silent --show-error \
+              --head --location "${release_base}/${asset}" >/dev/null
+          done
+
+      - name: Setup Node for npm CLI publication
+        if: ${{ env.PUBLISH_NPM == 'true' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish npm CLI package
+        if: ${{ env.PUBLISH_NPM == 'true' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${NPM_TOKEN:?NPM_TOKEN secret is required; refusing to skip npm publication}"
+          version="${RELEASE_TAG#v}"
+          package_name="@syngnat/gonavi-cli"
+          existing_metadata="$RUNNER_TEMP/npm-cli-existing-${version}.json"
+          existing_error="$RUNNER_TEMP/npm-cli-existing-${version}.err"
+          if npm view "${package_name}@${version}" --json >"$existing_metadata" 2>"$existing_error"; then
+            echo "npm ${package_name}@${version} already exists; metadata will be verified after this step"
+          else
+            status=$?
+            if ! grep -Eiq '(^|[^0-9])E404([^0-9]|$)|404 Not Found' "$existing_error"; then
+              cat "$existing_error" >&2
+              exit "$status"
+            fi
+            npm publish npm/gonavi-cli --access public --ignore-scripts
+          fi
+
+      - name: Verify npm CLI package metadata
+        if: ${{ env.PUBLISH_NPM == 'true' }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${NPM_TOKEN:?NPM_TOKEN secret is required; refusing to skip npm metadata verification}"
+          version="${RELEASE_TAG#v}"
+          metadata_file="$RUNNER_TEMP/npm-cli-${version}.json"
+          metadata_error="$RUNNER_TEMP/npm-cli-${version}.err"
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if npm view "@syngnat/gonavi-cli@${version}" --json >"$metadata_file" 2>"$metadata_error"; then
+              break
+            fi
+            if [[ "$attempt" == 12 ]]; then
+              cat "$metadata_error" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          node - "$metadata_file" "$version" <<'NODE'
+          const fs = require('node:fs');
+          const [metadataPath, expectedVersion] = process.argv.slice(2);
+          const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
+          if (!metadata || metadata.name !== '@syngnat/gonavi-cli' || metadata.version !== expectedVersion) {
+            throw new Error(`npm metadata identity mismatch: ${JSON.stringify(metadata)}`);
+          }
+          if (!metadata.dist || typeof metadata.dist.tarball !== 'string' || !metadata.dist.tarball.startsWith('https://registry.npmjs.org/')) {
+            throw new Error('npm metadata has no public registry tarball URL');
+          }
+          if (typeof metadata.dist.integrity !== 'string' || !metadata.dist.integrity.startsWith('sha512-')) {
+            throw new Error('npm metadata has no sha512 integrity value');
+          }
+          console.log(`verified npm metadata for ${metadata.name}@${metadata.version}`);
+          NODE
+
+      - name: Skip npm CLI publication
+        if: ${{ env.PUBLISH_NPM != 'true' }}
+        run: echo "npm CLI publication is disabled for this release; GitHub and edge downloads remain enabled."
+
+      - name: Generate and retain WinGet CLI manifest
+        env:
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          output_dir="$RUNNER_TEMP/winget-cli-manifest"
+          mkdir -p "$output_dir"
+          python3 tools/generate-winget-cli-manifest.py \
+            --version "$version" \
+            --checksums "$RUNNER_TEMP/gonavi-release/gonavi-cli_${version}_checksums.txt" \
+            --output "$output_dir/Syngnat.GoNavi.CLI.yaml"
+          test -s "$output_dir/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "PackageIdentifier: Syngnat.GoNavi.CLI" "$output_dir/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "PackageVersion: ${version}" "$output_dir/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "gonavi-cli_${version}_windows_amd64.zip" "$output_dir/Syngnat.GoNavi.CLI.yaml"
+          grep -Fq "gonavi-cli_${version}_windows_arm64.zip" "$output_dir/Syngnat.GoNavi.CLI.yaml"
+
+      - name: Upload WinGet CLI manifest artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: winget-cli-manifest-${{ steps.validate.outputs.tag }}
+          path: ${{ runner.temp }}/winget-cli-manifest/Syngnat.GoNavi.CLI.yaml
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish stable release to verified static edge
         uses: ./.github/actions/publish-vps-mirror
         with:
           channel: stable
@@ -330,10 +644,19 @@ jobs:
           driver-enabled: ${{ steps.mirror_payload.outputs.has_driver_release }}
           driver-tag: ${{ steps.validate.outputs.tag }}
           driver-dir: ${{ runner.temp }}/driver-release
-          driver-version-index: ${{ runner.temp }}/driver-release/GoNavi-DriverAgents-Index.json
+          driver-version-index: ${{ runner.temp }}/driver-version-index.json
           driver-latest-index: ${{ runner.temp }}/driver-latest-index.json
-          ssh-host: ${{ secrets.MIRROR_SSH_HOST }}
-          ssh-port: ${{ secrets.MIRROR_SSH_PORT }}
-          ssh-user: ${{ secrets.MIRROR_SSH_USER }}
-          ssh-private-key: ${{ secrets.MIRROR_SSH_PRIVATE_KEY }}
-          ssh-known-hosts: ${{ secrets.MIRROR_SSH_KNOWN_HOSTS }}
+          dmit-ssh-host: ${{ secrets.CDN_DMIT_SSH_HOST }}
+          dmit-ssh-port: ${{ secrets.CDN_DMIT_SSH_PORT }}
+          dmit-ssh-user: ${{ secrets.CDN_DMIT_SSH_USER }}
+          dmit-ssh-private-key: ${{ secrets.CDN_DMIT_SSH_PRIVATE_KEY }}
+          dmit-ssh-known-hosts: ${{ secrets.CDN_DMIT_SSH_KNOWN_HOSTS }}
+          bero-ssh-host: ${{ secrets.CDN_BERO_SSH_HOST }}
+          bero-ssh-port: ${{ secrets.CDN_BERO_SSH_PORT }}
+          bero-ssh-user: ${{ secrets.CDN_BERO_SSH_USER }}
+          bero-ssh-private-key: ${{ secrets.CDN_BERO_SSH_PRIVATE_KEY }}
+          bero-ssh-known-hosts: ${{ secrets.CDN_BERO_SSH_KNOWN_HOSTS }}
+          bero-base-url: ${{ vars.CDN_BERO_BASE_URL }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_KV_API_TOKEN }}
+          routing-state-kv-id: ${{ vars.ROUTING_STATE_KV_ID }}

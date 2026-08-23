@@ -7,13 +7,16 @@ import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities';
 import { BrowserOpenURL, Environment, EventsOn, WindowFullscreen, WindowGetPosition, WindowGetSize, WindowIsFullscreen, WindowIsMaximised, WindowIsMinimised, WindowIsNormal, WindowMaximise, WindowMinimise, WindowSetDarkTheme, WindowSetLightTheme, WindowSetPosition, WindowSetSize, WindowSetSystemDefaultTheme, WindowUnfullscreen, WindowUnmaximise } from '../wailsjs/runtime';
 import Sidebar from './components/Sidebar';
-import TitleBarPrimaryActions from './components/TitleBarPrimaryActions';
+import TitleBarPrimaryActions, {
+  resolveTitleBarPrimaryActionShortcut,
+} from './components/TitleBarPrimaryActions';
 import TabManager from './components/TabManager';
 import FloatingWorkbenchWindows from './components/FloatingWorkbenchWindows';
 import FloatingAIChatWindow from './components/FloatingAIChatWindow';
 import FloatingQueryResultWindows from './components/FloatingQueryResultWindows';
 import NativeDetachedWindowController from './components/NativeDetachedWindowController';
 import ConnectionModal from './components/ConnectionModal';
+import ConnectionHealthModal from './components/ConnectionHealthModal';
 import SnippetSettingsModal from './components/SnippetSettingsModal';
 import ConnectionPackagePasswordModal from './components/ConnectionPackagePasswordModal';
 import UpdateReleaseNotesModal from './components/UpdateReleaseNotesModal';
@@ -100,6 +103,9 @@ import {
 import { downloadBrowserTextFile } from './utils/browserFileTransfer';
 import { buildDataSyncWorkbenchTab } from './utils/dataSyncTab';
 import { buildSqlAuditWorkbenchTab } from './utils/sqlAuditTab';
+import { buildRequestDiagnosticsWorkbenchTab } from './utils/requestDiagnosticsTab';
+import { getDataSourceCapabilities, resolveDataSourceType } from './utils/dataSourceCapabilities';
+import { buildContextualNewQueryTemplate } from './utils/objectQueryTemplates';
 import {
   extractCustomThemeAntTokens,
 } from './utils/customTheme';
@@ -222,8 +228,9 @@ import {
 import {
   buildApplicationQuitUnsavedSQLLabel,
   collectApplicationQuitUnsavedSQLTargets,
-  saveApplicationQuitUnsavedSQLTargets,
+  saveLatestApplicationQuitUnsavedSQLState,
 } from './utils/sqlEditorApplicationQuit';
+import { prepareApplicationQuitPersistence } from './utils/applicationQuitPersistence';
 import { flushQueryTabDraftSnapshots } from './utils/sqlFileTabDrafts';
 import {
   APP_APPLICATION_QUIT_MODAL_Z_INDEX,
@@ -234,6 +241,7 @@ import {
 import { useAppUpdateManager } from './hooks/useAppUpdateManager';
 import { useAppLogPanelResize } from './hooks/useAppLogPanelResize';
 import { useAppSidebarResize } from './hooks/useAppSidebarResize';
+import { canInheritNewQueryTableContext, resolveNewQueryContext } from './utils/newQueryContext';
 import { useAppUtilityStyles } from './hooks/useAppUtilityStyles';
 import { useWorkbenchTabs } from './hooks/useWorkbenchTabs';
 import {
@@ -746,6 +754,8 @@ function App() {
   const [isConnectionModalMounted, setIsConnectionModalMounted] = useState(false);
   const [isDriverModalOpen, setIsDriverModalOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<SavedConnection | null>(null);
+  const [isConnectionHealthModalOpen, setIsConnectionHealthModalOpen] = useState(false);
+  const [connectionHealthTargetIds, setConnectionHealthTargetIds] = useState<string[]>([]);
   const pendingConnectionTagIdRef = useRef<string | null>(null);
   const connectionModalWarmupDoneRef = useRef(false);
   const windowState = useStore(state => state.windowState);
@@ -1150,6 +1160,7 @@ function App() {
   const windowDiagSequenceRef = React.useRef(0);
   const windowDiagLastSignatureRef = React.useRef('');
   const windowDiagLastAtRef = React.useRef(0);
+  const captureMainWindowStateRef = React.useRef<() => Promise<void>>(async () => undefined);
   const connectionWorkbenchState = getConnectionWorkbenchState(isStoreHydrated, hasLoadedSecureConfig);
   const securityUpdateStatusMeta = useMemo(
       () => getSecurityUpdateStatusMeta(securityUpdateStatus, t),
@@ -1429,6 +1440,28 @@ function App() {
           return false;
       };
 
+      const waitForNativeWindowBounds = (bounds: {
+          width: number;
+          height: number;
+          x: number;
+          y: number;
+      }): Promise<boolean> => waitForWindowCondition({
+          read: async () => {
+              const [size, position] = await Promise.all([
+                  WindowGetSize(),
+                  WindowGetPosition(),
+              ]);
+              return Math.abs(Math.trunc(Number(size?.w)) - bounds.width) <= 2
+                  && Math.abs(Math.trunc(Number(size?.h)) - bounds.height) <= 2
+                  && Math.abs(Math.trunc(Number(position?.x)) - bounds.x) <= 2
+                  && Math.abs(Math.trunc(Number(position?.y)) - bounds.y) <= 2;
+          },
+          wait,
+          isCancelled: () => cancelled,
+          maxChecks: 16,
+          intervalMs: 40,
+      });
+
       const waitForStartupPreferenceApplied = (): Promise<boolean> => waitForWindowCondition({
           read: checkStartupPreferenceApplied,
           wait,
@@ -1480,22 +1513,7 @@ function App() {
               });
               WindowSetPosition(setPosition.x, setPosition.y);
               WindowSetSize(nextBounds.width, nextBounds.height);
-              const boundsApplied = await waitForWindowCondition({
-                  read: async () => {
-                      const [size, position] = await Promise.all([
-                          WindowGetSize(),
-                          WindowGetPosition(),
-                      ]);
-                      return Math.abs(Math.trunc(Number(size?.w)) - nextBounds.width) <= 2
-                          && Math.abs(Math.trunc(Number(size?.h)) - nextBounds.height) <= 2
-                          && Math.abs(Math.trunc(Number(position?.x)) - nextBounds.x) <= 2
-                          && Math.abs(Math.trunc(Number(position?.y)) - nextBounds.y) <= 2;
-                  },
-                  wait,
-                  isCancelled: () => cancelled,
-                  maxChecks: 16,
-                  intervalMs: 40,
-              });
+              const boundsApplied = await waitForNativeWindowBounds(nextBounds);
               if (!boundsApplied) {
                   return false;
               }
@@ -1579,24 +1597,12 @@ function App() {
           }, delayMs);
       };
 
-      const restoreNormalWindowBounds = async (bounds: {
+      const applyRestoredWindowBounds = (bounds: {
           width: number;
           height: number;
           x: number;
           y: number;
       }) => {
-          try {
-              if (await WindowIsFullscreen()) {
-                  WindowUnfullscreen();
-                  await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
-              }
-              if (await WindowIsMaximised()) {
-                  WindowUnmaximise();
-                  await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
-              }
-          } catch (e) {
-              console.warn('Failed to restore normal window chrome', e);
-          }
           const state = useStore.getState();
           const viewport = readCurrentVisibleViewport();
           const nextBounds = resolveVisibleStartupWindowBounds(bounds, viewport);
@@ -1617,7 +1623,37 @@ function App() {
           });
           WindowSetPosition(setPosition.x, setPosition.y);
           state.setWindowBounds(nextBounds);
-          state.setWindowState('normal');
+          return nextBounds;
+      };
+
+      const restoreNormalWindowBounds = async (bounds: {
+          width: number;
+          height: number;
+          x: number;
+          y: number;
+      }) => {
+          try {
+              if (await WindowIsFullscreen()) {
+                  WindowUnfullscreen();
+                  await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
+              }
+              if (await WindowIsMaximised()) {
+                  WindowUnmaximise();
+                  await new Promise((resolve) => window.setTimeout(resolve, settleDelayMs));
+              }
+          } catch (e) {
+              console.warn('Failed to restore normal window chrome', e);
+          }
+          const appliedBounds = applyRestoredWindowBounds(bounds);
+          // Wails can finish the native normal-window transition before the
+          // WebView2 controller receives its first size update. Wait for the
+          // native rect, then explicitly resize the controller just as the
+          // maximised startup path does.
+          if (isWindowsPlatform()) {
+              await waitForNativeWindowBounds(appliedBounds);
+              await tryRefreshStartupWebViewBounds();
+          }
+          useStore.getState().setWindowState('normal');
       };
 
       const restoreWindowState = async () => {
@@ -1632,19 +1668,28 @@ function App() {
           restoredOnce = true;
 
           const state = useStore.getState();
+          const bounds = state.windowBounds;
           const restoreMode = resolveStartupWindowRestoreMode(
               state.startupFullscreen,
+              state.windowState,
           );
           if (restoreMode !== 'normal') {
+              if (bounds && bounds.width >= 400 && bounds.height >= 300) {
+                  try {
+                      // Seed the OS restore rectangle before maximising so a later
+                      // unmaximise returns to the user's last normal window bounds.
+                      applyRestoredWindowBounds(bounds);
+                  } catch (e) {
+                      console.warn('Failed to prepare remembered normal window bounds', e);
+                  }
+              }
               markStartupWindowRestorePending(startupRestoreGraceMs);
               applyStartupWindowChrome(1);
               return;
           }
 
-          // The disabled preference is strict: restore a normal window even if
-          // an older build persisted an automatic maximised/fullscreen state.
+          // Without a remembered maximised state, restore the last normal bounds.
           markStartupWindowRestorePending(startupRestoreGraceMs);
-          const bounds = state.windowBounds;
           const viewport = readCurrentVisibleViewport();
           try {
               if (!bounds || bounds.width < 400 || bounds.height < 300) {
@@ -1747,6 +1792,7 @@ function App() {
                 // 静默忽略
             }
       };
+      captureMainWindowStateRef.current = saveWindowState;
 
       const scheduleWindowStateSave = (delayMs = 120) => {
           if (cancelled || !hydrated) {
@@ -1880,6 +1926,9 @@ function App() {
       });
       return () => {
           cancelled = true;
+          if (captureMainWindowStateRef.current === saveWindowState) {
+              captureMainWindowStateRef.current = async () => undefined;
+          }
           if (eventSaveTimer !== null) {
               window.clearTimeout(eventSaveTimer);
           }
@@ -2446,6 +2495,16 @@ function App() {
       || (runtimePlatform === '' && /mac/i.test(detectNavigatorPlatform()));
   const useNativeMacWindowControls = isMacRuntime;
   const activeShortcutPlatform = getShortcutPlatform(isMacRuntime);
+  const titleBarNewQueryShortcut = resolveTitleBarPrimaryActionShortcut(
+      shortcutOptions,
+      'newQueryTab',
+      activeShortcutPlatform,
+  );
+  const titleBarNewConnectionShortcut = resolveTitleBarPrimaryActionShortcut(
+      shortcutOptions,
+      'newConnection',
+      activeShortcutPlatform,
+  );
   const macWindowDiagnosticsEnabled = shouldEnableMacWindowDiagnostics(
       isMacRuntime,
       import.meta.env.DEV,
@@ -2709,33 +2768,42 @@ function App() {
   }, [emitWindowDiagnostic, macWindowDiagnosticsEnabled]);
 
   const handleNewQuery = useCallback(() => {
-      let connId = '';
-      let db = '';
-
-      // Priority: Active Tab Context (if connection still valid) > Sidebar Selection (activeContext)
-      if (activeTabId) {
-          const currentTab = tabs.find(t => t.id === activeTabId);
-          if (currentTab && currentTab.connectionId && connections.some(c => c.id === currentTab.connectionId)) {
-              connId = currentTab.connectionId;
-              db = currentTab.dbName || '';
-          }
-      }
-
-      // Fallback: Sidebar selection context (only if connection still valid)
-      if (!connId && activeContext?.connectionId && connections.some(c => c.id === activeContext.connectionId)) {
-          connId = activeContext.connectionId;
-          db = activeContext.dbName || '';
-      }
+      const currentTab = activeTabId ? tabs.find(tab => tab.id === activeTabId) : undefined;
+      // 只继承支持查询编辑器的活动连接；Nacos/JVM 等工作台活动时不预选连接，
+      // 避免新建查询落入必然失败的 SQL 工作流。
+      const validConnectionIds = new Set(
+          connections
+              .filter(connection => getDataSourceCapabilities(connection.config).supportsQueryEditor)
+              .map(connection => connection.id),
+      );
+      const targetContext = resolveNewQueryContext({
+          sidebarContext: activeContext,
+          activeTab: currentTab,
+          validConnectionIds,
+      });
+      const connection = connections.find(c => c.id === targetContext.connectionId);
+      const inheritsTableContext = canInheritNewQueryTableContext({
+          activeTab: currentTab,
+          targetContext,
+      });
+      const tableName = inheritsTableContext ? String(currentTab?.tableName || '').trim() : '';
+      const contextualQuery = tableName && connection
+          ? buildContextualNewQueryTemplate({
+              dbType: resolveDataSourceType(connection.config),
+              tableName,
+              customTemplate: appearance.newQuerySqlTemplate,
+          })
+          : null;
 
       addTab({
           id: `query-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
           title: t('query.new'),
           type: 'query',
-          connectionId: connId,
-          dbName: db,
-          query: ''
+          connectionId: targetContext.connectionId,
+          dbName: targetContext.dbName,
+          query: contextualQuery ?? '',
       });
-  }, [activeTabId, tabs, connections, activeContext, addTab, t]);
+  }, [activeTabId, tabs, connections, activeContext, addTab, appearance.newQuerySqlTemplate, t]);
 
   const switchActiveTabByOffset = useCallback((offset: 1 | -1) => {
       if (tabs.length < 2) return;
@@ -2775,8 +2843,11 @@ function App() {
       const runConfirmedAction = async (): Promise<boolean> => {
           let accepted = false;
           try {
-              flushQueryTabDraftSnapshots();
-              await flushAppStatePersistence();
+              await prepareApplicationQuitPersistence({
+                  captureWindowState: () => captureMainWindowStateRef.current(),
+                  flushDrafts: flushQueryTabDraftSnapshots,
+                  flushAppState: flushAppStatePersistence,
+              });
               if (confirmedAction) {
                   accepted = await confirmedAction();
               } else {
@@ -2818,61 +2889,119 @@ function App() {
       }
 
       const label = buildApplicationQuitUnsavedSQLLabel(targets);
-      let destroyConfirm: (() => void) | null = null;
-      const confirmRef = Modal.confirm({
-          title: t('app.quit.unsaved_sql.title'),
-          content: t(targets.length === 1
-              ? 'app.quit.unsaved_sql.content_single'
-              : 'app.quit.unsaved_sql.content_multiple', { label }),
-          okText: t('app.quit.unsaved_sql.save_exit'),
-          cancelText: t('app.quit.unsaved_sql.cancel'),
+      await new Promise<void>((resolve) => {
+          let finished = false;
+          const finish = () => {
+              if (finished) return;
+              finished = true;
+              resolve();
+          };
+          const runConfirmedActionAndFinish = async () => {
+              try {
+                  await runConfirmedAction();
+              } finally {
+                  finish();
+              }
+          };
+
+          let destroyConfirm: (() => void) | null = null;
+          const confirmRef = Modal.confirm({
+              title: t('app.quit.unsaved_sql.title'),
+              content: t(targets.length === 1
+                  ? 'app.quit.unsaved_sql.content_single'
+                  : 'app.quit.unsaved_sql.content_multiple', { label }),
+              okText: t('app.quit.unsaved_sql.save_exit'),
+              cancelText: t('app.quit.unsaved_sql.cancel'),
+              centered: true,
+              closable: true,
+              maskClosable: false,
+              zIndex: applicationQuitModalZIndex,
+              okButtonProps: { danger: true, type: 'primary' },
+              footer: (_, { OkBtn, CancelBtn }) => (
+                  <>
+                      <Button
+                        onClick={() => {
+                            destroyConfirm?.();
+                            applicationQuitConfirmRef.current = null;
+                            void runConfirmedActionAndFinish();
+                        }}
+                      >
+                          {t('app.quit.unsaved_sql.confirm_exit')}
+                      </Button>
+                      <CancelBtn />
+                      <OkBtn />
+                  </>
+              ),
+              onCancel: () => {
+                  cancelRequest();
+                  finish();
+              },
+              onOk: async () => {
+                  try {
+                      await saveLatestApplicationQuitUnsavedSQLState({
+                          getState: () => {
+                              const latestState = useStore.getState();
+                              return {
+                                  tabs: latestState.tabs,
+                                  savedQueries: latestState.savedQueries,
+                              };
+                          },
+                          updateTabs: (update) => {
+                              useStore.setState((state) => ({ tabs: update(state.tabs) }));
+                          },
+                          saveQuery,
+                      });
+                      message.success(t('app.quit.unsaved_sql.saved'));
+                  } catch (error) {
+                      cancelRequest();
+                      finish();
+                      message.error(t('app.quit.unsaved_sql.save_failed_cancel_exit', {
+                          detail: error instanceof Error ? error.message : String(error),
+                      }));
+                      throw error;
+                  }
+                  await runConfirmedActionAndFinish();
+              },
+          });
+          destroyConfirm = confirmRef.destroy;
+          applicationQuitConfirmRef.current = confirmRef;
+      });
+  }, [applicationQuitModalZIndex, ensureSavedQueriesLoaded, forceQuitApplication, resetApplicationQuitRequest, saveQuery, t]);
+
+  const handleInstallUpdateRequest = useCallback(async () => {
+      let pendingCloseInstanceCount: number | null = null;
+      hideUpdateDownloadProgress();
+      await handleApplicationQuitRequest(
+          () => handleInstallFromProgress(false, (instanceCount) => {
+              pendingCloseInstanceCount = instanceCount;
+          }),
+          () => {
+              if (pendingCloseInstanceCount === null) {
+                  showUpdateDownloadProgress();
+              }
+          },
+      );
+      if (pendingCloseInstanceCount === null) {
+          return;
+      }
+      Modal.confirm({
+          title: t('app.about.update_install_confirm.close_instances_title', { count: pendingCloseInstanceCount }),
+          content: t('app.about.update_install_confirm.close_instances_content'),
+          okText: t('app.about.update_install_confirm.close_instances_ok'),
+          cancelText: t('common.cancel'),
+          centered: true,
           closable: true,
           maskClosable: false,
           zIndex: applicationQuitModalZIndex,
           okButtonProps: { danger: true, type: 'primary' },
-          footer: (_, { OkBtn, CancelBtn }) => (
-              <>
-                  <Button
-                    onClick={() => {
-                        destroyConfirm?.();
-                        applicationQuitConfirmRef.current = null;
-                        void runConfirmedAction();
-                    }}
-                  >
-                      {t('app.quit.unsaved_sql.confirm_exit')}
-                  </Button>
-                  <CancelBtn />
-                  <OkBtn />
-              </>
-          ),
           onCancel: () => {
-              cancelRequest();
+              showUpdateDownloadProgress();
           },
           onOk: async () => {
-              try {
-                  await saveApplicationQuitUnsavedSQLTargets(targets, saveQuery);
-                  message.success(t('app.quit.unsaved_sql.saved'));
-              } catch (error) {
-                  cancelRequest();
-                  message.error(t('app.quit.unsaved_sql.save_failed_cancel_exit', {
-                      detail: error instanceof Error ? error.message : String(error),
-                  }));
-                  throw error;
-              }
-              await runConfirmedAction();
+              await handleInstallFromProgress(true);
           },
       });
-      destroyConfirm = confirmRef.destroy;
-      applicationQuitConfirmRef.current = confirmRef;
-  }, [applicationQuitModalZIndex, ensureSavedQueriesLoaded, forceQuitApplication, resetApplicationQuitRequest, saveQuery, t]);
-
-  const handleInstallUpdateRequest = useCallback(async () => {
-      hideUpdateDownloadProgress();
-      await handleApplicationQuitRequest(
-          () => handleInstallFromProgress(false),
-          showUpdateDownloadProgress,
-      );
-  }, [handleApplicationQuitRequest, handleInstallFromProgress, hideUpdateDownloadProgress, showUpdateDownloadProgress]);
+  }, [applicationQuitModalZIndex, handleApplicationQuitRequest, handleInstallFromProgress, hideUpdateDownloadProgress, showUpdateDownloadProgress, t]);
 
   useEffect(() => {
       const offBeforeClose = EventsOn('app:before-close-request', () => {
@@ -4297,6 +4426,10 @@ function App() {
           openSecurityUpdateSettings();
       }
   };
+  const handleOpenConnectionHealth = useCallback((connectionIds: string[] = []) => {
+      setConnectionHealthTargetIds(Array.from(new Set(connectionIds.filter((id) => String(id || '').trim() !== ''))));
+      setIsConnectionHealthModalOpen(true);
+  }, []);
 
   const handleOpenDriverManagerFromConnection = () => {
       pendingConnectionTagIdRef.current = null;
@@ -4404,9 +4537,17 @@ function App() {
           if (isMaximised) {
               WindowUnmaximise();
           } else {
+              // Preserve the latest normal bounds before the native maximise transition
+              // makes WindowGetSize report the maximised surface.
+              await captureMainWindowStateRef.current();
               WindowMaximise();
           }
-          await new Promise((resolve) => window.setTimeout(resolve, 96));
+          await waitForWindowCondition({
+              read: async () => (await WindowIsMaximised()) !== isMaximised,
+              wait: (delayMs) => new Promise((resolve) => window.setTimeout(resolve, delayMs)),
+              maxChecks: 16,
+              intervalMs: 40,
+          });
           await syncWindowStateFromRuntime();
           void emitWindowDiagnostic('action:titlebar-toggle:after-set-maximise-state');
       } catch (_) {
@@ -7856,6 +7997,8 @@ function App() {
                   <TitleBarPrimaryActions
                     newQueryLabel={t('query.new')}
                     newConnectionLabel={t('connection.new')}
+                    newQueryShortcut={titleBarNewQueryShortcut}
+                    newConnectionShortcut={titleBarNewConnectionShortcut}
                     onNewQuery={handleNewQuery}
                     onNewConnection={handleCreateConnection}
                   />
@@ -8282,8 +8425,17 @@ function App() {
             initialValues={editingConnection}
             onOpenDriverManager={handleOpenDriverManagerFromConnection}
             onSaved={handleConnectionSaved}
+            onOpenConnectionHealth={(connection) => {
+              handleCloseModal();
+              handleOpenConnectionHealth([connection.id]);
+            }}
           />
           )}
+          <ConnectionHealthModal
+            open={isConnectionHealthModalOpen}
+            targetConnectionIds={connectionHealthTargetIds}
+            onClose={() => setIsConnectionHealthModalOpen(false)}
+          />
           {isSettingsModalOpen && (() => {
             const toolCenterGroups: SettingsCenterNavigationGroup[] = [
               {
@@ -8308,6 +8460,16 @@ function App() {
                     description: t('app.tools.entry.export.description'),
                     onClick: () => {
                       void handleExportConnections('config');
+                    },
+                  },
+                  {
+                    key: 'connection-health',
+                    icon: <SafetyCertificateOutlined />,
+                    title: t('app.tools.entry.connection_health.title'),
+                    description: t('app.tools.entry.connection_health.description'),
+                    onClick: () => {
+                      handleCancelSettingsCenterPane();
+                      handleOpenConnectionHealth();
                     },
                   },
                   {
@@ -8408,6 +8570,16 @@ function App() {
                     onClick: () => {
                       handleCancelSettingsCenterPane();
                       addTab(buildSqlAuditWorkbenchTab());
+                    },
+                  },
+                  {
+                    key: 'request-diagnostics',
+                    icon: <BugOutlined />,
+                    title: '请求诊断',
+                    description: '按请求 ID 查看默认脱敏、可复制导出的调用追踪。',
+                    onClick: () => {
+                      handleCancelSettingsCenterPane();
+                      addTab(buildRequestDiagnosticsWorkbenchTab());
                     },
                   },
                 ],

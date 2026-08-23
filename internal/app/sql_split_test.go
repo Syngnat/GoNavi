@@ -14,6 +14,50 @@ func TestSplitSQLStatements_BasicSplit(t *testing.T) {
 	}
 }
 
+func TestSplitSQLStatements_TransactionBeginFormsAreNotProceduralBlocks(t *testing.T) {
+	tests := []struct {
+		dbType string
+		begin  string
+	}{
+		{dbType: "sqlserver", begin: "BEGIN TRAN"},
+		{dbType: "sqlserver", begin: "BEGIN DISTRIBUTED TRANSACTION"},
+		{dbType: "sqlserver", begin: "BEGIN DIALOG CONVERSATION @handle"},
+		{dbType: "sqlserver", begin: "BEGIN CONVERSATION TIMER (@handle) TIMEOUT = 30"},
+		{dbType: "sqlite", begin: "BEGIN IMMEDIATE"},
+		{dbType: "postgres", begin: "BEGIN NOT DEFERRABLE"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.dbType+" "+test.begin, func(t *testing.T) {
+			input := test.begin + "; UPDATE demo SET value = 2; COMMIT;"
+			got := splitSQLStatementsForDialect(test.dbType, input)
+			want := []string{test.begin, "UPDATE demo SET value = 2", "COMMIT"}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("splitSQLStatementsForDialect(%q, %q) = %#v, want %#v", test.dbType, input, got, want)
+			}
+		})
+	}
+}
+
+func TestSplitSQLStatements_KeepsMariaDBNotAtomicBlockTogether(t *testing.T) {
+	block := "BEGIN NOT ATOMIC\n  SET @value = 1;\nEND"
+	input := block + "; SELECT 1;"
+	got := splitSQLStatementsForDialect("mariadb", input)
+	want := []string{block + ";", "SELECT 1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("splitSQLStatements(%q) = %#v, want %#v", input, got, want)
+	}
+}
+
+func TestSplitSQLStatements_UsesDialectForAmbiguousBeginTran(t *testing.T) {
+	input := "BEGIN\n  TRAN;\nEND;\nSELECT 1 FROM dual;"
+	got := splitSQLStatementsForDialect("oracle", input)
+	want := []string{"BEGIN\n  TRAN;\nEND;", "SELECT 1 FROM dual"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Oracle BEGIN TRAN procedure block = %#v, want %#v", got, want)
+	}
+}
+
 func TestSplitSQLStatements_QuotedSemicolon(t *testing.T) {
 	input := `SELECT 'hello;world'; SELECT 2`
 	got := splitSQLStatements(input)

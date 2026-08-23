@@ -35,6 +35,7 @@ import {
 } from './sidebar/useSidebarTreeLoaders';
 export { formatSidebarDriverAgentUpdateWarning } from './sidebar/useSidebarTreeLoaders';
 import {
+  ExternalSQLBindingModal,
   ExternalSQLFileModal,
   useSidebarExternalSqlWorkflow,
 } from './sidebar/SidebarExternalSqlWorkflow';
@@ -147,19 +148,25 @@ import FindInDatabaseModal from './FindInDatabaseModal';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { buildSqlAnalysisWorkbenchTab } from '../utils/sqlAnalysisTab';
 import { buildSqlAuditWorkbenchTab } from '../utils/sqlAuditTab';
-import { resolveDataSourceType } from '../utils/dataSourceCapabilities';
+import {
+    normalizeSidebarDatabaseRefreshRequest,
+    SIDEBAR_DATABASE_REFRESH_EVENT,
+} from '../utils/sidebarDatabaseRefresh';
+import { getDataSourceCapabilities, resolveDataSourceType } from '../utils/dataSourceCapabilities';
 import { isConnectionStructureEditRestricted } from '../utils/connectionReadOnly';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
 import {
   resolveSidebarRuntimeDatabase,
 } from '../utils/sidebarMetadata';
 import {
-    findSidebarNodePathByKey,
-    findSidebarNodePathForLocate,
-    normalizeSidebarLocateObjectRequest,
-    normalizeSidebarLocateObjectRequestFromTab,
-    resolveSidebarLocateTarget,
-    type SidebarLocateTreeNodeLike,
+  findSidebarNodePathByKey,
+  findSidebarNodePathForLocate,
+  SIDEBAR_LOCATE_CONNECTION_EVENT,
+  normalizeSidebarLocateConnectionRequest,
+  normalizeSidebarLocateObjectRequest,
+  normalizeSidebarLocateObjectRequestFromTab,
+  resolveSidebarLocateTarget,
+  type SidebarLocateTreeNodeLike,
 } from '../utils/sidebarLocate';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../utils/connectionVisual';
 import {
@@ -181,6 +188,7 @@ import { buildJVMDiagnosticActionDescriptor, buildJVMMonitoringActionDescriptors
 import {
   DATA_IMPORT_WORKBENCH_TAB_ID,
   resolveDataImportWorkbenchLaunchTab,
+  type BuildDataImportWorkbenchTabInput,
 } from '../utils/dataImportTab';
 import { useExportProgressDialog } from './ExportProgressModal';
 import { getShortcutPlatform, resolveShortcutDisplay } from '../utils/shortcuts';
@@ -214,9 +222,12 @@ import {
   normalizeSidebarTreeRelativeDropPosition,
   resolveSidebarConnectionIdFromKey,
   resolveSidebarConnectionRefreshKeys,
+  resolveSidebarDropDomHit,
+  resolveSidebarHostGroupDropDestination,
   resolveSidebarDropInsertBefore,
   resolveSidebarDropNodeFromDomEvent,
   resolveSidebarDropTargetMetricsFromDomEvent,
+  resolveSidebarTreeDropPlacement,
   resolveSidebarDatabaseTreePruneKeys,
   resolveSidebarNodeConnectionId,
   resolveSidebarSingleDatabaseExpandedKeys,
@@ -232,6 +243,7 @@ import {
   shouldRunV2CommandSearchEnter,
   sortSidebarTableEntries,
   type SidebarConnectionState,
+  type SidebarTreeDropPlacement,
   type SidebarTreeNode as TreeNode,
   type V2CommandSearchItem,
 } from './sidebarV2Utils';
@@ -253,9 +265,12 @@ export {
   normalizeSidebarTreeRelativeDropPosition,
   resolveSidebarConnectionIdFromKey,
   resolveSidebarConnectionRefreshKeys,
+  resolveSidebarDropDomHit,
+  resolveSidebarHostGroupDropDestination,
   resolveSidebarDropInsertBefore,
   resolveSidebarDropNodeFromDomEvent,
   resolveSidebarDropTargetMetricsFromDomEvent,
+  resolveSidebarTreeDropPlacement,
   resolveSidebarDatabaseTreePruneKeys,
   resolveSidebarNodeConnectionId,
   resolveV2ActiveConnectionId,
@@ -268,7 +283,7 @@ export {
   sortSidebarTableEntries,
 };
 export { resolveSidebarTagDropInsertBefore } from './sidebarV2Utils';
-export type { V2CommandSearchItem, V2RailConnectionGroup } from './sidebarV2Utils';
+export type { SidebarDropDomHit, SidebarTreeDropPlacement, V2CommandSearchItem, V2RailConnectionGroup } from './sidebarV2Utils';
 
 type SidebarTreeSwitcherNodeLike = {
   key?: React.Key;
@@ -324,6 +339,51 @@ const SIDEBAR_LOCATE_LOAD_WAIT_INTERVAL_MS = 50;
 const SIDEBAR_LOCATE_LOAD_WAIT_ATTEMPTS = 160;
 const SIDEBAR_CACHED_DATABASE_TREE_LIMIT = 12;
 const NACOS_SERVICES_CHANGED_EVENT = 'gonavi:nacos-services-changed';
+const SIDEBAR_GROUP_HOVER_EXPAND_DELAY_MS = 500;
+const SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS = 2000;
+
+type SidebarTreeDragEventLike = {
+  dataTransfer?: DataTransfer | null;
+  target?: EventTarget | null;
+};
+
+const createSidebarTreeDragPreview = (
+  event: SidebarTreeDragEventLike,
+  node: Pick<TreeNode, 'title' | 'type'>,
+): HTMLElement | null => {
+  if (typeof document === 'undefined' || !document.body || !event.dataTransfer) return null;
+
+  const preview = document.createElement('div');
+  preview.className = 'gn-v2-sidebar-tree-drag-preview';
+  preview.setAttribute('aria-hidden', 'true');
+  preview.setAttribute('data-node-type', String(node.type || ''));
+
+  const sourceRow = event.target && typeof (event.target as Element).closest === 'function'
+    ? (event.target as Element).closest('.ant-tree-treenode')
+    : null;
+  const sourceIcon = sourceRow?.querySelector('.ant-tree-iconEle > *');
+  const icon = document.createElement('span');
+  icon.className = 'gn-v2-sidebar-tree-drag-preview-icon';
+  if (sourceIcon) {
+    icon.appendChild(sourceIcon.cloneNode(true));
+  }
+  preview.appendChild(icon);
+
+  const label = document.createElement('span');
+  label.className = 'gn-v2-sidebar-tree-drag-preview-label';
+  label.textContent = String(node.title || '');
+  preview.appendChild(label);
+  document.body.appendChild(preview);
+
+  try {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setDragImage(preview, 18, 15);
+  } catch {
+    preview.remove();
+    return null;
+  }
+  return preview;
+};
 
 type NacosServiceRefreshTreeNode = {
   key: React.Key;
@@ -812,6 +872,14 @@ const Sidebar: React.FC<{
   const connectionReloadSignaturesRef = useRef<Record<string, string>>({});
   expandedKeysRef.current = expandedKeys;
   const connectionIds = useMemo(() => connections.map((conn) => conn.id), [connections]);
+  const queryCapableConnectionIds = useMemo(
+      () => new Set(
+          connections
+              .filter((conn) => getDataSourceCapabilities(conn.config).supportsQueryEditor)
+              .map((conn) => conn.id),
+      ),
+      [connections],
+  );
   const connectionIdSet = useMemo(() => new Set(connectionIds), [connectionIds]);
   const unmatchedSavedQueries = useMemo(
       () => savedQueries.filter((query) => isSavedQueryUnmatchedForConnectionIds(query, connectionIdSet)),
@@ -994,7 +1062,7 @@ const Sidebar: React.FC<{
       treeScrollIdleTimerRef.current = window.setTimeout(() => {
           treeScrollIdleTimerRef.current = null;
           setIsTreeScrolling(false);
-      }, 500);
+      }, SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS);
   }, [isV2Ui]);
 
   const handleTreeWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
@@ -1055,6 +1123,22 @@ const Sidebar: React.FC<{
   // Connection Status State: key -> 'loading' | 'success' | 'error'
   const [connectionStates, setConnectionStates] = useState<Record<string, SidebarConnectionState>>({});
   const [isTreeDragging, setIsTreeDragging] = useState(false);
+  const [sidebarTreeDragNodeType, setSidebarTreeDragNodeType] = useState<string | null>(null);
+  const [sidebarTreeDropPreview, setSidebarTreeDropPreview] = useState<{
+      nodeKey: string;
+      placement: SidebarTreeDropPlacement;
+  } | null>(null);
+  const sidebarTreeDragNodeRef = useRef<TreeNode | null>(null);
+  const sidebarTreeDropPreviewRef = useRef<typeof sidebarTreeDropPreview>(null);
+  const sidebarTreeDragPreviewElementRef = useRef<HTMLElement | null>(null);
+  const sidebarGroupHoverExpandTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+      if (sidebarGroupHoverExpandTimerRef.current !== null) {
+          window.clearTimeout(sidebarGroupHoverExpandTimerRef.current);
+      }
+      sidebarTreeDragPreviewElementRef.current?.remove();
+  }, []);
 
   // Create Database Modal
   const [isCreateDbModalOpen, setIsCreateDbModalOpen] = useState(false);
@@ -1198,6 +1282,8 @@ const Sidebar: React.FC<{
           key: conn.id,
           icon: getDbIcon(iconType, iconColor, 22),
           type: 'connection',
+          'data-sidebar-node-key': conn.id,
+          'data-sidebar-node-type': 'connection',
           dataRef: nacosNamespaceDiscoveryMode
             ? { ...conn, nacosNamespaceDiscoveryMode }
             : conn,
@@ -1222,6 +1308,8 @@ const Sidebar: React.FC<{
             </span>
           ),
           type: 'tag',
+          'data-sidebar-node-key': `tag-${item.tag.id}`,
+          'data-sidebar-node-type': 'tag',
           dataRef: item.tag,
           isLeaf: false,
           children: item.children.map(buildTreeNode),
@@ -1395,7 +1483,7 @@ const Sidebar: React.FC<{
         case 'external-sql-root':
           return <FolderOpenOutlined />;
         case 'external-sql-directory':
-          return <HddOutlined />;
+          return node.dataRef.directoryStatus === 'missing' ? <WarningOutlined /> : <HddOutlined />;
         case 'external-sql-folder':
           return <FolderOutlined />;
         default:
@@ -1413,9 +1501,14 @@ const Sidebar: React.FC<{
   const buildExternalSQLRootTreeNode = useCallback((
       directories: ExternalSQLDirectory[] = externalSQLDirectories,
       directoryTrees: Record<string, ExternalSQLTreeEntry[]> = externalSQLDirectoryTreesRef.current,
+      directoryStatuses: Record<string, 'missing'> = {},
   ): TreeNode => decorateExternalSQLTreeNode(buildExternalSQLRootNode({
       directories,
       directoryTrees,
+      directoryStatuses,
+      labels: {
+          missingDirectory: t('sidebar.message.external_sql_directory_not_found'),
+      },
   })), [externalSQLDirectories]);
 
   const refreshGlobalExternalSQLRootNode = useCallback(async (
@@ -1424,16 +1517,22 @@ const Sidebar: React.FC<{
   ) => {
       const targetDirectories = directoriesOverride || externalSQLDirectories;
       const directoryTrees: Record<string, ExternalSQLTreeEntry[]> = {};
+      const directoryStatuses: Record<string, 'missing'> = {};
       await Promise.all(targetDirectories.map(async (directory) => {
           const directoryRes = await ListSQLDirectory(directory.path);
           if (!directoryRes.success) {
-              message.warning({
-                  key: `external-sql-${directory.id}`,
-                  content: t('sidebar.message.external_sql_directory_read_failed', {
-                      name: directory.name,
-                      error: directoryRes.message,
-                  }),
-              });
+              const errorCode = String((directoryRes.data as Record<string, unknown> | undefined)?.errorCode || '').trim();
+              if (errorCode === 'directory_not_found') {
+                  directoryStatuses[directory.id] = 'missing';
+              } else {
+                  message.warning({
+                      key: `external-sql-${directory.id}`,
+                      content: t('sidebar.message.external_sql_directory_read_failed', {
+                          name: directory.name,
+                          error: directoryRes.message,
+                      }),
+                  });
+              }
               directoryTrees[directory.id] = [];
               return;
           }
@@ -1442,7 +1541,7 @@ const Sidebar: React.FC<{
               : [];
       }));
       externalSQLDirectoryTreesRef.current = directoryTrees;
-      const rootNode = buildExternalSQLRootTreeNode(targetDirectories, directoryTrees);
+      const rootNode = buildExternalSQLRootTreeNode(targetDirectories, directoryTrees, directoryStatuses);
       setTreeData((prev) => {
           const withoutExternalRoot = prev.filter((node) => node.type !== 'external-sql-root');
           const nextTreeData = [...withoutExternalRoot, rootNode];
@@ -1458,10 +1557,16 @@ const Sidebar: React.FC<{
       void refreshGlobalExternalSQLRootNode(false);
   }, [refreshGlobalExternalSQLRootNode]);
 
+  const openDataImportWorkbench = useCallback((input: BuildDataImportWorkbenchTabInput) => {
+    const existingImportTab = tabs.find((tab) => tab.id === DATA_IMPORT_WORKBENCH_TAB_ID);
+    addTab(resolveDataImportWorkbenchLaunchTab(existingImportTab, input));
+  }, [addTab, tabs]);
+
   const {
       handleRunSQLFile,
       handleOpenSQLFileFromToolbar,
       openExternalSQLFile,
+      openExternalSQLBindingModal,
       openCreateExternalSQLFileModal,
       openRenameExternalSQLFileModal,
       openCreateExternalSQLDirectoryModal,
@@ -1472,6 +1577,7 @@ const Sidebar: React.FC<{
       handleRemoveExternalSQLDirectory,
       handleRefreshExternalSQLDirectory,
       externalSQLFileModalProps,
+      externalSQLBindingModalProps,
   } = useSidebarExternalSqlWorkflow({
       connections,
       externalSQLDirectories,
@@ -1479,6 +1585,7 @@ const Sidebar: React.FC<{
       connectionIds,
       selectedNodesRef,
       addTab,
+      openDataImportWorkbench,
       saveExternalSQLDirectory,
       deleteExternalSQLDirectory,
       updateRecentSQLFilePath,
@@ -1703,6 +1810,24 @@ const Sidebar: React.FC<{
       };
   }, []);
 
+  useEffect(() => {
+      const handleSidebarDatabaseRefresh = (event: Event) => {
+          const request = normalizeSidebarDatabaseRefreshRequest((event as CustomEvent).detail);
+          if (!request) return;
+          const dbNode = findTreeNodeByKeyRef.current(
+              treeDataRef.current,
+              `${request.connectionId}-${request.dbName}`,
+          );
+          if (dbNode) {
+              void loadTables(dbNode, { ensureFresh: true });
+          }
+      };
+      window.addEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, handleSidebarDatabaseRefresh as EventListener);
+      return () => {
+          window.removeEventListener(SIDEBAR_DATABASE_REFRESH_EVENT, handleSidebarDatabaseRefresh as EventListener);
+      };
+  }, []);
+
   const onLoadData = async ({ key, children, dataRef, type }: any) => {
     if (type === 'tag' || type === 'all-saved-queries' || type === 'saved-query-group' || type === 'saved-query-manual-group' || type === 'unmatched-saved-queries') return;
     if (hasSidebarLazyChildren(children)) return;
@@ -1770,13 +1895,13 @@ const Sidebar: React.FC<{
   };
 
   const openDesign = (node: any, initialTab: string, readOnly: boolean = false) => {
-      const { tableName, dbName, id } = node.dataRef;
+      const { tableName, dbName, id, schemaName } = node.dataRef;
       const conn = connections.find(c => c.id === id);
       const forceReadOnly = readOnly
           || isStructureOnlyDbType(id)
           || isConnectionStructureEditRestricted(conn?.config);
       addTab({
-          id: `design-${id}-${dbName}-${tableName}`,
+          id: `design-${id}-${dbName}-${schemaName || 'default'}-${tableName}`,
           title: forceReadOnly
               ? t('sidebar.tab.table_structure', { table: tableName })
               : t('sidebar.tab.design_table', { table: tableName }),
@@ -1784,13 +1909,14 @@ const Sidebar: React.FC<{
           connectionId: id,
           dbName: dbName,
           tableName: tableName,
+          schemaName,
           initialTab: initialTab,
           readOnly: forceReadOnly
       });
   };
 
   const openNewTableDesign = (node: any) => {
-      const { dbName, id } = node.dataRef;
+      const { dbName, id, schemaName } = node.dataRef;
       const conn = connections.find(c => c.id === id);
       if (isStructureOnlyDbType(id) || isConnectionStructureEditRestricted(conn?.config)) {
           message.warning(t('sidebar.message.visual_new_table_unsupported'));
@@ -1803,6 +1929,7 @@ const Sidebar: React.FC<{
           connectionId: id,
           dbName: dbName,
           tableName: '', // Empty tableName signals creation mode
+          schemaName,
           initialTab: 'columns',
           readOnly: false
       });
@@ -1948,6 +2075,17 @@ const Sidebar: React.FC<{
   };
 
   const onExpand = (newExpandedKeys: React.Key[], info?: any) => {
+    // rc-tree auto-expands any loaded node after a drag hover. During a V2 Host
+    // move, group expansion is controlled by the explicit 500ms inside target;
+    // ignore rc-tree's competing expansion so connection resource rows do not
+    // unexpectedly open and move the target under the pointer.
+    if (
+        isV2Ui
+        && isTreeDragging
+        && sidebarTreeDragNodeRef.current?.type === 'connection'
+    ) {
+        return;
+    }
     if (!info?.expanded && shouldClearSidebarNodeChildrenOnCollapse(info?.node)) {
         const collapsedKey = String(info.node?.key || '').trim();
         const keysToClear = [
@@ -2672,6 +2810,7 @@ const Sidebar: React.FC<{
       openEditRoutine,
       openCreateRoutine,
       handleDropRoutine,
+      handleCompileOracleObject,
       resolveMessagePublishTarget,
       openMessagePublishModal,
       handleMessagePublishSuccess,
@@ -2950,9 +3089,13 @@ const Sidebar: React.FC<{
       restoreTreeSelectionAfterDrag,
       treeDragSelectSuppressUntilRef,
       setIsTreeDragging,
+      sidebarDropPlacement: sidebarTreeDropPreview?.nodeKey === String(node.key || '')
+          ? sidebarTreeDropPreview.placement
+          : null,
   }), [
       restoreTreeSelectionAfterDrag,
       setIsTreeDragging,
+      sidebarTreeDropPreview,
       sidebarTableMetadataFields,
       snapshotTreeSelectionBeforeDrag,
       treeDragSelectSuppressUntilRef,
@@ -2969,6 +3112,7 @@ const Sidebar: React.FC<{
       closeV2CommandSearch,
       commandSearchFlatItems,
       connectionIds,
+      queryCapableConnectionIds,
       findTreeNodeByKeyRef,
       locateObjectInSidebar,
       loadDatabases,
@@ -2985,9 +3129,52 @@ const Sidebar: React.FC<{
   expandConnectionFromRailRef.current = (connectionId: string) => {
       const conn = connections.find((item) => item.id === connectionId);
       if (conn) {
-          selectConnectionFromRail(conn);
+          void selectConnectionFromRail(conn);
       }
   };
+
+  const locateConnectionInSidebar = useCallback(async (detail: unknown) => {
+      const request = normalizeSidebarLocateConnectionRequest(detail);
+      if (!request) return;
+
+      const connection = connections.find((item) => item.id === request.connectionId);
+      if (!connection) return;
+
+      onExpandSidebar?.();
+      setSearchValue('');
+      await selectConnectionFromRail(connection);
+
+      if (!request.dbName) {
+          scrollSidebarTreeToKey(connection.id);
+          return;
+      }
+
+      await waitForSidebarLoadKey(`dbs-${connection.id}`);
+      const databaseNode = findTreeNodeByKeyRef.current(
+          treeDataRef.current,
+          `${connection.id}-${request.dbName}`,
+      );
+      if (!databaseNode) {
+          scrollSidebarTreeToKey(connection.id);
+          return;
+      }
+
+      const dbName = String(databaseNode.dataRef?.dbName || request.dbName).trim();
+      setSelectedKeys([databaseNode.key]);
+      selectedNodesRef.current = [databaseNode];
+      setActiveContext({ connectionId: connection.id, dbName });
+      scrollSidebarTreeToKey(databaseNode.key);
+  }, [connections, findTreeNodeByKeyRef, onExpandSidebar, scrollSidebarTreeToKey, selectConnectionFromRail, selectedNodesRef, setActiveContext, setSearchValue, setSelectedKeys, treeDataRef]);
+
+  useEffect(() => {
+      const handleLocateSidebarConnection = (event: Event) => {
+          void locateConnectionInSidebar((event as CustomEvent).detail);
+      };
+      window.addEventListener(SIDEBAR_LOCATE_CONNECTION_EVENT, handleLocateSidebarConnection as EventListener);
+      return () => {
+          window.removeEventListener(SIDEBAR_LOCATE_CONNECTION_EVENT, handleLocateSidebarConnection as EventListener);
+      };
+  }, [locateConnectionInSidebar]);
 
   const getNodeMenuItems = (node: any): MenuProps['items'] => buildSidebarLegacyNodeMenuItems(node, {
     addTab,
@@ -3040,6 +3227,7 @@ const Sidebar: React.FC<{
     openRoutineDefinition,
     openEditRoutine,
     handleDropRoutine,
+    handleCompileOracleObject,
     openEventDefinition,
     openEditEvent,
     openSequenceDefinition,
@@ -3085,6 +3273,7 @@ const Sidebar: React.FC<{
     handleDeleteExternalSQLDirectory,
     handleRemoveExternalSQLDirectory,
     openExternalSQLFile,
+    openExternalSQLBindingModal,
     openRenameExternalSQLFileModal,
     handleDeleteExternalSQLFile,
     extractObjectName,
@@ -3132,6 +3321,127 @@ const Sidebar: React.FC<{
       return null;
   };
 
+  const clearSidebarGroupHoverExpandTimer = () => {
+      if (sidebarGroupHoverExpandTimerRef.current === null) return;
+      window.clearTimeout(sidebarGroupHoverExpandTimerRef.current);
+      sidebarGroupHoverExpandTimerRef.current = null;
+  };
+
+  const updateSidebarTreeDropPreview = (
+      nextPreview: { nodeKey: string; placement: SidebarTreeDropPlacement } | null,
+  ) => {
+      const previousPreview = sidebarTreeDropPreviewRef.current;
+      if (
+          previousPreview?.nodeKey === nextPreview?.nodeKey
+          && previousPreview?.placement === nextPreview?.placement
+      ) {
+          return;
+      }
+
+      clearSidebarGroupHoverExpandTimer();
+      sidebarTreeDropPreviewRef.current = nextPreview;
+      setSidebarTreeDropPreview(nextPreview);
+      if (!nextPreview || nextPreview.placement !== 'inside') return;
+      if (expandedKeysRef.current.some((key) => String(key) === nextPreview.nodeKey)) return;
+
+      sidebarGroupHoverExpandTimerRef.current = window.setTimeout(() => {
+          sidebarGroupHoverExpandTimerRef.current = null;
+          const activePreview = sidebarTreeDropPreviewRef.current;
+          if (
+              activePreview?.nodeKey !== nextPreview.nodeKey
+              || activePreview.placement !== 'inside'
+          ) {
+              return;
+          }
+          setExpandedKeys((previous) => previous.some((key) => String(key) === nextPreview.nodeKey)
+              ? previous
+              : [...previous, nextPreview.nodeKey]);
+          setAutoExpandParent(false);
+      }, SIDEBAR_GROUP_HOVER_EXPAND_DELAY_MS);
+  };
+
+  const clearSidebarTreeDragVisuals = () => {
+      clearSidebarGroupHoverExpandTimer();
+      sidebarTreeDropPreviewRef.current = null;
+      setSidebarTreeDropPreview(null);
+      sidebarTreeDragNodeRef.current = null;
+      setSidebarTreeDragNodeType(null);
+      sidebarTreeDragPreviewElementRef.current?.remove();
+      sidebarTreeDragPreviewElementRef.current = null;
+      setIsTreeDragging(false);
+  };
+
+  const resolveSidebarHostGroupDropAtEvent = (event: {
+      clientX?: number;
+      clientY?: number;
+      target?: EventTarget | null;
+  }) => {
+      if (!isV2Ui) return null;
+      const dragNode = sidebarTreeDragNodeRef.current;
+      if (dragNode?.type !== 'connection') return null;
+      const hit = resolveSidebarDropDomHit(event);
+      if (!hit || hit.type !== 'tag') return null;
+      const dropNode = findTreeNodeByKeyRef.current(treeDataRef.current, hit.key);
+      if (!dropNode || dropNode.type !== 'tag') return null;
+      const placement = resolveSidebarTreeDropPlacement({
+          dragNodeType: dragNode.type,
+          dropNodeType: dropNode.type,
+          relativeDropPosition: 0,
+          dropToGap: undefined,
+          fallbackInsertBefore: false,
+          metrics: hit.metrics ? {
+              clientY: event.clientY,
+              top: hit.metrics.top,
+              height: hit.metrics.height,
+          } : null,
+      });
+      return { dragNode, dropNode, hit, placement };
+  };
+
+  const handleSidebarTreeDragOverCapture = (event: React.DragEvent<HTMLDivElement>) => {
+      const resolvedDrop = resolveSidebarHostGroupDropAtEvent(event);
+      if (!resolvedDrop) {
+          updateSidebarTreeDropPreview(null);
+          return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = 'move';
+      }
+      updateSidebarTreeDropPreview({
+          nodeKey: resolvedDrop.hit.key,
+          placement: resolvedDrop.placement,
+      });
+  };
+
+  const handleSidebarTreeDropCapture = (event: React.DragEvent<HTMLDivElement>) => {
+      const resolvedDrop = resolveSidebarHostGroupDropAtEvent(event);
+      if (!resolvedDrop) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const connectionId = String(resolvedDrop.dragNode.key || '').trim();
+      const tagId = String(resolvedDrop.dropNode?.dataRef?.id || '').trim();
+      if (connectionId && tagId) {
+          const destination = resolveSidebarHostGroupDropDestination({
+              targetTagId: tagId,
+              targetTagParentId: getTagParentId(tagId),
+              targetTagToken: getNodeOrderToken(resolvedDrop.dropNode),
+              placement: resolvedDrop.placement,
+          });
+          moveConnectionToTag(
+              connectionId,
+              destination.targetParentTagId,
+              destination.targetToken,
+              destination.insertBefore,
+          );
+      }
+      restoreTreeSelectionAfterDrag();
+      clearSidebarTreeDragVisuals();
+  };
+
   const allowSidebarTreeDrop = ({ dragNode, dropNode, dropPosition }: any): boolean => {
       if (!dragNode || !dropNode) return false;
       if ((dragNode.type !== 'tag' && dragNode.type !== 'connection') || (dropNode.type !== 'tag' && dropNode.type !== 'connection')) {
@@ -3151,13 +3461,14 @@ const Sidebar: React.FC<{
   };
 
   const handleDrop = (info: any) => {
-      setIsTreeDragging(false);
+      clearSidebarTreeDragVisuals();
       const dropPosition = normalizeSidebarTreeRelativeDropPosition(
           Number(info.dropPosition || 0),
           info?.node?.pos,
       );
-      const domDropNode = resolveSidebarDropNodeFromDomEvent(info?.event);
-      const dropTargetMetrics = resolveSidebarDropTargetMetricsFromDomEvent(info?.event);
+      const domDropHit = resolveSidebarDropDomHit(info?.event);
+      const domDropNode = domDropHit ? { key: domDropHit.key, type: domDropHit.type } : null;
+      const dropTargetMetrics = domDropHit?.metrics || null;
       const insertBefore = resolveSidebarDropInsertBefore(dropPosition, dropTargetMetrics ? {
           clientY: info?.event?.clientY,
           top: dropTargetMetrics.top,
@@ -3171,14 +3482,28 @@ const Sidebar: React.FC<{
               : info.node);
       if (!dragNode || !dropNode) return;
 
-      const droppingIntoTag = dropNode.type === 'tag' && (
-          info?.dropToGap === false || (info?.dropToGap === undefined && dropPosition === 0)
-      );
+      const placement: SidebarTreeDropPlacement = isV2Ui
+          ? resolveSidebarTreeDropPlacement({
+              dragNodeType: dragNode.type,
+              dropNodeType: dropNode.type,
+              relativeDropPosition: dropPosition,
+              dropToGap: info?.dropToGap,
+              fallbackInsertBefore: insertBefore,
+              metrics: dropTargetMetrics ? {
+                  clientY: info?.event?.clientY,
+                  top: dropTargetMetrics.top,
+                  height: dropTargetMetrics.height,
+              } : null,
+          })
+          : (dropNode.type === 'tag' && info?.dropToGap === false
+              ? 'inside'
+              : (insertBefore ? 'before' : 'after'));
+      const droppingIntoTag = dropNode.type === 'tag' && placement === 'inside';
       const targetParentTagId = droppingIntoTag
           ? String(dropNode?.dataRef?.id || '').trim() || null
           : getNodeParentTagId(dropNode);
       const targetToken = droppingIntoTag ? null : getNodeOrderToken(dropNode);
-      const targetInsertBefore = droppingIntoTag ? false : insertBefore;
+      const targetInsertBefore = droppingIntoTag ? false : placement === 'before';
 
       if (dragNode.type === 'tag') {
           const dragTagId = String(dragNode?.dataRef?.id || '').trim();
@@ -3358,12 +3683,8 @@ const Sidebar: React.FC<{
     ).trim();
     const mode = node?.type === 'database' ? 'database' : 'table';
 
-    const existingImportTab = tabs.find((tab) => tab.id === DATA_IMPORT_WORKBENCH_TAB_ID);
-    addTab(resolveDataImportWorkbenchLaunchTab(
-      existingImportTab,
-      { connectionId, dbName, tableName, mode },
-    ));
-  }, [activeContext?.connectionId, activeContext?.dbName, activeTabId, addTab, tabs]);
+    openDataImportWorkbench({ connectionId, dbName, tableName, mode });
+  }, [activeContext?.connectionId, activeContext?.dbName, activeTabId, openDataImportWorkbench, tabs]);
 
   const handleOpenSlowQueryWorkbench = useCallback(() => {
     if (!activeTabHasConnection || !activeTab?.connectionId) return;
@@ -4018,9 +4339,18 @@ const Sidebar: React.FC<{
 
         <div
             ref={treeContainerRef}
-            className={`sidebar-tree-scroll-shell${isV2Ui ? ' gn-v2-explorer-tree-shell' : ''}${isTreeScrolling ? ' is-vertical-scrolling' : ''}`}
+            className={`sidebar-tree-scroll-shell${isV2Ui ? ' gn-v2-explorer-tree-shell' : ''}${isTreeScrolling ? ' is-vertical-scrolling' : ''}${sidebarTreeDragNodeType === 'connection' ? ' is-host-tree-dragging' : ''}${sidebarTreeDropPreview ? ' has-host-group-drop-preview' : ''}`}
             onWheelCapture={handleTreeWheel}
             onTouchMoveCapture={markTreeScrollActivity}
+            onDragEnterCapture={handleSidebarTreeDragOverCapture}
+            onDragOverCapture={handleSidebarTreeDragOverCapture}
+            onDropCapture={handleSidebarTreeDropCapture}
+            onDragLeaveCapture={(event) => {
+                const relatedTarget = event.relatedTarget as Node | null;
+                if (!relatedTarget || !event.currentTarget.contains(relatedTarget)) {
+                    updateSidebarTreeDropPreview(null);
+                }
+            }}
             style={{
                 flex: 1,
                 overflow: 'hidden',
@@ -4037,9 +4367,16 @@ const Sidebar: React.FC<{
                         nodeDraggable: (node: any) => node.type === 'connection' || node.type === 'tag'
                     }}
                     allowDrop={allowSidebarTreeDrop}
-                    onDragStart={() => {
+                    onDragStart={({ event, node }: any) => {
                         snapshotTreeSelectionBeforeDrag();
                         treeDragSelectSuppressUntilRef.current = Date.now() + 600;
+                        sidebarTreeDragNodeRef.current = node;
+                        setSidebarTreeDragNodeType(isV2Ui ? String(node?.type || '') || null : null);
+                        if (isV2Ui) updateSidebarTreeDropPreview(null);
+                        sidebarTreeDragPreviewElementRef.current?.remove();
+                        sidebarTreeDragPreviewElementRef.current = isV2Ui
+                            ? createSidebarTreeDragPreview(event, node)
+                            : null;
                         setIsTreeDragging(true);
                     }}
                     onDragEnter={() => {
@@ -4048,7 +4385,7 @@ const Sidebar: React.FC<{
                     }}
                     onDragEnd={() => {
                         restoreTreeSelectionAfterDrag();
-                        setIsTreeDragging(false);
+                        clearSidebarTreeDragVisuals();
                     }}
                     onDrop={handleDrop}
                     loadData={onLoadData}
@@ -4265,6 +4602,7 @@ const Sidebar: React.FC<{
         </Modal>
 
         <ExternalSQLFileModal {...externalSQLFileModalProps} />
+        <ExternalSQLBindingModal {...externalSQLBindingModalProps} />
 
         <FindInDatabaseModal
             open={findInDbContext.open}

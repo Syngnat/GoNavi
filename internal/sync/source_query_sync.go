@@ -3,6 +3,7 @@ package sync
 import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"context"
 	"fmt"
 	"strings"
 )
@@ -15,8 +16,10 @@ type sourceQuerySyncContext struct {
 	TargetType       string
 	TargetCols       []connection.ColumnDefinition
 	PKColumn         string
+	PKColumns        []string
 	SourceRows       []map[string]interface{}
 	TargetRows       []map[string]interface{}
+	SkippedRows      int
 }
 
 func hasSourceQuery(config SyncConfig) bool {
@@ -50,6 +53,17 @@ func validateSourceQuerySyncConfig(config SyncConfig) (string, error) {
 		return "", syncTextError("data_sync.backend.validation.query_mode_data_only", nil)
 	}
 
+	mapping, mapped, err := sourceQueryMapping(config)
+	if err != nil {
+		return "", err
+	}
+	if mapped {
+		if len(config.Tables) > 1 {
+			return "", syncTextError("data_sync.backend.validation.single_target_table_required", nil)
+		}
+		return syncObjectRefIdentifier(mapping.Source), nil
+	}
+
 	if len(config.Tables) != 1 {
 		return "", syncTextError("data_sync.backend.validation.single_target_table_required", nil)
 	}
@@ -64,11 +78,20 @@ func validateSourceQuerySyncConfig(config SyncConfig) (string, error) {
 func resolveTargetQueryTable(config SyncConfig, tableName string) (string, string, string, string) {
 	targetType := resolveMigrationDBType(config.TargetConfig)
 	targetSchema, targetTable := normalizeSyncTargetSchemaAndTable(config, tableName)
+	if mapping, mapped, err := sourceQueryMapping(config); err == nil && mapped {
+		if value := strings.TrimSpace(mapping.Target.Schema); value != "" {
+			targetSchema = value
+		}
+		if value := strings.TrimSpace(mapping.Target.Name); value != "" {
+			targetTable = value
+		}
+		tableName = syncObjectRefIdentifier(mapping.Target)
+	}
 	targetQueryTable := qualifiedNameForQuery(targetType, targetSchema, targetTable, tableName)
 	return targetType, targetSchema, targetTable, targetQueryTable
 }
 
-func resolveSinglePKColumn(cols []connection.ColumnDefinition) (string, error) {
+func resolvePKColumns(cols []connection.ColumnDefinition) ([]string, error) {
 	pkCols := make([]string, 0, 2)
 	for _, col := range cols {
 		if col.Key == "PRI" || col.Key == "PK" {
@@ -76,17 +99,16 @@ func resolveSinglePKColumn(cols []connection.ColumnDefinition) (string, error) {
 		}
 	}
 	if len(pkCols) == 0 {
-		return "", syncTextError("data_sync.backend.error.target_pk_required_for_query_diff", nil)
+		return nil, syncTextError("data_sync.backend.error.target_pk_required_for_query_diff", nil)
 	}
-	if len(pkCols) > 1 {
-		return "", syncTextError("data_sync.backend.error.target_composite_pk_query_diff_unsupported", map[string]any{
-			"columns": strings.Join(pkCols, ","),
-		})
-	}
-	return pkCols[0], nil
+	return pkCols, nil
 }
 
 func loadSourceQuerySyncContext(config SyncConfig, sourceDB db.Database, targetDB db.Database, needSourceRows bool, needTargetRows bool, requirePK bool) (sourceQuerySyncContext, error) {
+	return loadSourceQuerySyncContextWithContext(context.Background(), config, sourceDB, targetDB, needSourceRows, needTargetRows, requirePK)
+}
+
+func loadSourceQuerySyncContextWithContext(runCtx context.Context, config SyncConfig, sourceDB db.Database, targetDB db.Database, needSourceRows bool, needTargetRows bool, requirePK bool) (sourceQuerySyncContext, error) {
 	tableName, err := validateSourceQuerySyncConfig(config)
 	if err != nil {
 		return sourceQuerySyncContext{}, err
@@ -102,6 +124,13 @@ func loadSourceQuerySyncContext(config SyncConfig, sourceDB db.Database, targetD
 			"table": tableName,
 		})
 	}
+	projection, err := projectionForSourceQuery(config)
+	if err != nil {
+		return sourceQuerySyncContext{}, err
+	}
+	if missing := projection.MissingTargetColumns(targetCols, nil); len(missing) > 0 {
+		return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果映射目标表缺少字段：%s", strings.Join(missing, ", "))
+	}
 
 	ctx := sourceQuerySyncContext{
 		TableName:        tableName,
@@ -115,23 +144,58 @@ func loadSourceQuerySyncContext(config SyncConfig, sourceDB db.Database, targetD
 	}
 
 	if needSourceRows {
-		sourceRows, _, err := sourceDB.Query(strings.TrimSpace(config.SourceQuery))
+		sourceRows, _, err := querySyncDatabaseContext(runCtx, sourceDB, strings.TrimSpace(config.SourceQuery))
 		if err != nil {
 			return sourceQuerySyncContext{}, syncWrapDetailError("data_sync.backend.error.execute_source_query_failed", err)
 		}
-		ctx.SourceRows = sourceRows
+		projectedRows, skippedRows, err := projectSnapshotRowsWithPolicy(runCtx, config, tableName, projection, sourceRows)
+		if err != nil {
+			return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果字段投影失败: %w", err)
+		}
+		ctx.SourceRows = projectedRows
+		ctx.SkippedRows = skippedRows
 	}
 
 	if requirePK {
-		pkColumn, err := resolveSinglePKColumn(targetCols)
+		pkColumns, err := resolvePKColumns(targetCols)
 		if err != nil {
 			return sourceQuerySyncContext{}, err
 		}
-		ctx.PKColumn = pkColumn
+		if mapping, mapped, mappingErr := sourceQueryMapping(config); mappingErr != nil {
+			return sourceQuerySyncContext{}, mappingErr
+		} else if mapped {
+			if len(mapping.KeyColumns) != len(pkColumns) {
+				return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果 insert_update 的 keyColumns 必须与目标表主键列数量一致")
+			}
+			targetPKSet := make(map[string]string, len(pkColumns))
+			for _, targetKey := range pkColumns {
+				targetPKSet[strings.ToLower(strings.TrimSpace(targetKey))] = targetKey
+			}
+			mappedPKSet := make(map[string]struct{}, len(mapping.KeyColumns))
+			for _, sourceKey := range mapping.KeyColumns {
+				mappedKey, ok := projection.TargetColumn(sourceKey)
+				mappedLower := strings.ToLower(strings.TrimSpace(mappedKey))
+				if !ok || mappedLower == "" {
+					return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果映射后的稳定 key %s 必须与目标表主键一致", mappedKey)
+				}
+				if _, exists := targetPKSet[mappedLower]; !exists {
+					if len(pkColumns) == 1 {
+						return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果映射后的稳定 key %s 必须与目标表主键 %s 一致", mappedKey, pkColumns[0])
+					}
+					return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果映射后的稳定 key %s 必须属于目标表主键 (%s)", mappedKey, strings.Join(pkColumns, ","))
+				}
+				if _, duplicate := mappedPKSet[mappedLower]; duplicate {
+					return sourceQuerySyncContext{}, fmt.Errorf("SQL 结果映射后的稳定 key 重复指向目标主键 %s", targetPKSet[mappedLower])
+				}
+				mappedPKSet[mappedLower] = struct{}{}
+			}
+		}
+		ctx.PKColumns = pkColumns
+		ctx.PKColumn = strings.Join(pkColumns, ",")
 	}
 
 	if needTargetRows {
-		targetRows, _, err := targetDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable)))
+		targetRows, _, err := querySyncDatabaseContext(runCtx, targetDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, targetQueryTable)))
 		if err != nil {
 			return sourceQuerySyncContext{}, syncWrapDetailError("data_sync.backend.error.read_target_table_failed", err)
 		}
@@ -141,60 +205,15 @@ func loadSourceQuerySyncContext(config SyncConfig, sourceDB db.Database, targetD
 	return ctx, nil
 }
 
-func diffRowsByPK(pkCol string, sourceRows, targetRows []map[string]interface{}) ([]map[string]interface{}, []connection.UpdateRow, []map[string]interface{}, int) {
-	targetMap := make(map[string]map[string]interface{}, len(targetRows))
-	for _, row := range targetRows {
-		if row[pkCol] == nil {
-			continue
-		}
-		pkVal := strings.TrimSpace(fmt.Sprintf("%v", row[pkCol]))
-		if pkVal == "" || pkVal == "<nil>" {
-			continue
-		}
-		targetMap[pkVal] = row
+func projectionForSourceQuery(config SyncConfig) (*CompiledProjection, error) {
+	mapping, mapped, err := sourceQueryMapping(config)
+	if err != nil {
+		return nil, err
 	}
-
-	sourcePKSet := make(map[string]struct{}, len(sourceRows))
-	inserts := make([]map[string]interface{}, 0)
-	updates := make([]connection.UpdateRow, 0)
-	same := 0
-	for _, sourceRow := range sourceRows {
-		if sourceRow[pkCol] == nil {
-			continue
-		}
-		pkVal := strings.TrimSpace(fmt.Sprintf("%v", sourceRow[pkCol]))
-		if pkVal == "" || pkVal == "<nil>" {
-			continue
-		}
-		sourcePKSet[pkVal] = struct{}{}
-		if targetRow, exists := targetMap[pkVal]; exists {
-			changes := make(map[string]interface{})
-			for key, value := range sourceRow {
-				if fmt.Sprintf("%v", value) != fmt.Sprintf("%v", targetRow[key]) {
-					changes[key] = value
-				}
-			}
-			if len(changes) == 0 {
-				same++
-				continue
-			}
-			updates = append(updates, connection.UpdateRow{
-				Keys:   map[string]interface{}{pkCol: sourceRow[pkCol]},
-				Values: changes,
-			})
-			continue
-		}
-		inserts = append(inserts, sourceRow)
+	if !mapped {
+		return CompileProjection(SyncObjectMapping{})
 	}
-
-	deletes := make([]map[string]interface{}, 0)
-	for pkVal, row := range targetMap {
-		if _, exists := sourcePKSet[pkVal]; exists {
-			continue
-		}
-		deletes = append(deletes, map[string]interface{}{pkCol: row[pkCol]})
-	}
-	return inserts, updates, deletes, same
+	return CompileProjection(mapping)
 }
 
 func buildTargetColumnSet(cols []connection.ColumnDefinition) map[string]struct{} {
@@ -265,7 +284,12 @@ func (s *SyncEngine) analyzeSourceQuery(config SyncConfig) SyncAnalyzeResult {
 	}
 
 	sourceType := resolveMigrationDBType(config.SourceConfig)
-	handled, counts, scanErr := scanSourceQueryDiffInPages(sourceDB, targetDB, sourceType, ctx.TargetType, strings.TrimSpace(config.SourceQuery), ctx.TargetQueryTable, ctx.TargetCols, ctx.PKColumn, true, nil)
+	handled := false
+	counts := pagedDiffCounts{}
+	var scanErr error
+	if !hasExplicitSyncMappings(config) && len(ctx.PKColumns) == 1 {
+		handled, counts, scanErr = scanSourceQueryDiffInPages(sourceDB, targetDB, sourceType, ctx.TargetType, strings.TrimSpace(config.SourceQuery), ctx.TargetQueryTable, ctx.TargetCols, ctx.PKColumn, true, nil)
+	}
 	if handled {
 		if scanErr != nil {
 			summary.Message = scanErr.Error()
@@ -297,7 +321,7 @@ func (s *SyncEngine) analyzeSourceQuery(config SyncConfig) SyncAnalyzeResult {
 		return result
 	}
 
-	inserts, updates, deletes, same := diffRowsByPK(ctx.PKColumn, ctx.SourceRows, ctx.TargetRows)
+	inserts, updates, deletes, same := diffRowsByKeyColumns(ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
 	summary.CanSync = true
 	summary.PKColumn = ctx.PKColumn
 	summary.Inserts = len(inserts)
@@ -342,6 +366,7 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 	out := TableDiffPreview{
 		Table:         ctx.TableName,
 		PKColumn:      ctx.PKColumn,
+		PKColumns:     append([]string(nil), ctx.PKColumns...),
 		ColumnTypes:   make(map[string]string, len(ctx.TargetCols)),
 		SchemaSummary: previewSummary,
 		Inserts:       make([]PreviewRow, 0, limit),
@@ -357,45 +382,49 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 		out.ColumnTypes[name] = typ
 	}
 
-	handled, _, scanErr := scanSourceQueryDiffInPages(sourceDB, targetDB, sourceType, ctx.TargetType, strings.TrimSpace(config.SourceQuery), ctx.TargetQueryTable, ctx.TargetCols, ctx.PKColumn, true, func(page pagedDiffPage) error {
-		out.TotalInserts += len(page.Inserts)
-		out.TotalUpdates += len(page.Updates)
-		out.TotalDeletes += len(page.Deletes)
-		for _, row := range page.Inserts {
-			if len(out.Inserts) >= limit {
-				break
+	handled := false
+	var scanErr error
+	if !hasExplicitSyncMappings(config) && len(ctx.PKColumns) == 1 {
+		handled, _, scanErr = scanSourceQueryDiffInPages(sourceDB, targetDB, sourceType, ctx.TargetType, strings.TrimSpace(config.SourceQuery), ctx.TargetQueryTable, ctx.TargetCols, ctx.PKColumn, true, func(page pagedDiffPage) error {
+			out.TotalInserts += len(page.Inserts)
+			out.TotalUpdates += len(page.Updates)
+			out.TotalDeletes += len(page.Deletes)
+			for _, row := range page.Inserts {
+				if len(out.Inserts) >= limit {
+					break
+				}
+				pk := strings.TrimSpace(fmt.Sprintf("%v", row[ctx.PKColumn]))
+				if pk != "" && pk != "<nil>" {
+					out.Inserts = append(out.Inserts, PreviewRow{PK: pk, Row: row})
+				}
 			}
-			pk := strings.TrimSpace(fmt.Sprintf("%v", row[ctx.PKColumn]))
-			if pk != "" && pk != "<nil>" {
-				out.Inserts = append(out.Inserts, PreviewRow{PK: pk, Row: row})
+			for _, update := range page.Updates {
+				if len(out.Updates) >= limit {
+					break
+				}
+				pk := strings.TrimSpace(fmt.Sprintf("%v", update.UpdateRow.Keys[ctx.PKColumn]))
+				if pk == "" || pk == "<nil>" {
+					continue
+				}
+				out.Updates = append(out.Updates, PreviewUpdateRow{
+					PK:             pk,
+					ChangedColumns: append([]string(nil), update.ChangedColumns...),
+					Source:         update.Source,
+					Target:         update.Target,
+				})
 			}
-		}
-		for _, update := range page.Updates {
-			if len(out.Updates) >= limit {
-				break
+			for _, row := range page.Deletes {
+				if len(out.Deletes) >= limit {
+					break
+				}
+				pk := strings.TrimSpace(fmt.Sprintf("%v", row[ctx.PKColumn]))
+				if pk != "" && pk != "<nil>" {
+					out.Deletes = append(out.Deletes, PreviewRow{PK: pk, Row: row})
+				}
 			}
-			pk := strings.TrimSpace(fmt.Sprintf("%v", update.UpdateRow.Keys[ctx.PKColumn]))
-			if pk == "" || pk == "<nil>" {
-				continue
-			}
-			out.Updates = append(out.Updates, PreviewUpdateRow{
-				PK:             pk,
-				ChangedColumns: append([]string(nil), update.ChangedColumns...),
-				Source:         update.Source,
-				Target:         update.Target,
-			})
-		}
-		for _, row := range page.Deletes {
-			if len(out.Deletes) >= limit {
-				break
-			}
-			pk := strings.TrimSpace(fmt.Sprintf("%v", row[ctx.PKColumn]))
-			if pk != "" && pk != "<nil>" {
-				out.Deletes = append(out.Deletes, PreviewRow{PK: pk, Row: row})
-			}
-		}
-		return nil
-	})
+			return nil
+		})
+	}
 	if handled {
 		if scanErr != nil {
 			return TableDiffPreview{}, scanErr
@@ -408,10 +437,11 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 		return TableDiffPreview{}, err
 	}
 
-	inserts, updates, deletes, _ := diffRowsByPK(ctx.PKColumn, ctx.SourceRows, ctx.TargetRows)
+	inserts, updates, deletes, _ := diffRowsByKeyColumns(ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
 	out = TableDiffPreview{
 		Table:         ctx.TableName,
 		PKColumn:      ctx.PKColumn,
+		PKColumns:     append([]string(nil), ctx.PKColumns...),
 		ColumnTypes:   make(map[string]string, len(ctx.TargetCols)),
 		SchemaSummary: previewSummary,
 		TotalInserts:  len(inserts),
@@ -434,24 +464,32 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 		if idx >= limit {
 			break
 		}
-		pk := strings.TrimSpace(fmt.Sprintf("%v", row[ctx.PKColumn]))
-		out.Inserts = append(out.Inserts, PreviewRow{PK: pk, Row: row})
+		key, ok := selectionRowKey(row, ctx.PKColumns)
+		if ok {
+			out.Inserts = append(out.Inserts, PreviewRow{PK: key, Row: row})
+		}
 	}
 	for idx, update := range updates {
 		if idx >= limit {
 			break
 		}
-		pk := strings.TrimSpace(fmt.Sprintf("%v", update.Keys[ctx.PKColumn]))
+		identityKey, ok := syncRowKey(update.Keys, ctx.PKColumns)
+		if !ok {
+			continue
+		}
+		displayKey, _ := selectionRowKey(update.Keys, ctx.PKColumns)
 		targetRow := map[string]interface{}{}
 		for _, row := range ctx.TargetRows {
-			if fmt.Sprintf("%v", row[ctx.PKColumn]) == fmt.Sprintf("%v", update.Keys[ctx.PKColumn]) {
+			rowKey, rowOK := syncRowKey(row, ctx.PKColumns)
+			if rowOK && rowKey == identityKey {
 				targetRow = row
 				break
 			}
 		}
 		sourceRow := map[string]interface{}{}
 		for _, row := range ctx.SourceRows {
-			if fmt.Sprintf("%v", row[ctx.PKColumn]) == fmt.Sprintf("%v", update.Keys[ctx.PKColumn]) {
+			rowKey, rowOK := syncRowKey(row, ctx.PKColumns)
+			if rowOK && rowKey == identityKey {
 				sourceRow = row
 				break
 			}
@@ -461,7 +499,7 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 			changedColumns = append(changedColumns, column)
 		}
 		out.Updates = append(out.Updates, PreviewUpdateRow{
-			PK:             pk,
+			PK:             displayKey,
 			ChangedColumns: changedColumns,
 			Source:         sourceRow,
 			Target:         targetRow,
@@ -471,14 +509,19 @@ func (s *SyncEngine) previewSourceQuery(config SyncConfig, limit int) (TableDiff
 		if idx >= limit {
 			break
 		}
-		pk := strings.TrimSpace(fmt.Sprintf("%v", row[ctx.PKColumn]))
-		out.Deletes = append(out.Deletes, PreviewRow{PK: pk, Row: row})
+		key, ok := selectionRowKey(row, ctx.PKColumns)
+		if ok {
+			out.Deletes = append(out.Deletes, PreviewRow{PK: key, Row: row})
+		}
 	}
 	return out, nil
 }
 
 func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 	result := SyncResult{Success: true, Logs: []string{}}
+	if err := s.contextError(); err != nil {
+		return s.fail(config.JobID, 1, result, err.Error())
+	}
 	tableName, err := validateSourceQuerySyncConfig(config)
 	if err != nil {
 		return s.fail(config.JobID, 1, result, err.Error())
@@ -503,15 +546,24 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		return s.fail(config.JobID, totalTables, result, localizedSyncBackendDetailText("data_sync.backend.error.init_target_driver_failed", err))
 	}
 
+	if err := s.contextError(); err != nil {
+		return s.fail(config.JobID, totalTables, result, err.Error())
+	}
 	if err := sourceDB.Connect(config.SourceConfig); err != nil {
 		return s.fail(config.JobID, totalTables, result, localizedSyncBackendDetailText("data_sync.backend.error.connect_source_failed", err))
 	}
 	defer sourceDB.Close()
+	if err := s.contextError(); err != nil {
+		return s.fail(config.JobID, totalTables, result, err.Error())
+	}
 
 	if err := targetDB.Connect(config.TargetConfig); err != nil {
 		return s.fail(config.JobID, totalTables, result, localizedSyncBackendDetailText("data_sync.backend.error.connect_target_failed", err))
 	}
 	defer targetDB.Close()
+	if err := s.contextError(); err != nil {
+		return s.fail(config.JobID, totalTables, result, err.Error())
+	}
 
 	opts := TableOptions{Insert: true, Update: true, Delete: false}
 	if config.TableOptions != nil {
@@ -531,7 +583,7 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 
 	needTargetRows := tableMode == "insert_update"
 	requirePK := tableMode == "insert_update"
-	ctx, err := loadSourceQuerySyncContext(config, sourceDB, targetDB, false, false, requirePK)
+	ctx, err := loadSourceQuerySyncContextWithContext(s.context(), config, sourceDB, targetDB, false, false, requirePK)
 	if err != nil {
 		return s.fail(config.JobID, totalTables, result, err.Error())
 	}
@@ -561,15 +613,16 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		return result
 	}
 
-	ctx, err = loadSourceQuerySyncContext(config, sourceDB, targetDB, true, needTargetRows, requirePK)
+	ctx, err = loadSourceQuerySyncContextWithContext(s.context(), config, sourceDB, targetDB, true, needTargetRows, requirePK)
 	if err != nil {
 		return s.fail(config.JobID, totalTables, result, err.Error())
 	}
+	result.RowsSkipped += ctx.SkippedRows
 	if tableMode == "insert_update" {
-		inserts, updates, deletes, _ = diffRowsByPK(ctx.PKColumn, ctx.SourceRows, ctx.TargetRows)
-		inserts = filterRowsByPKSelection(ctx.PKColumn, inserts, opts.Insert, opts.SelectedInsertPKs)
-		updates = filterUpdatesByPKSelection(ctx.PKColumn, updates, opts.Update, opts.SelectedUpdatePKs)
-		deletes = filterRowsByPKSelection(ctx.PKColumn, deletes, opts.Delete, opts.SelectedDeletePKs)
+		inserts, updates, deletes, _ = diffRowsByKeyColumns(ctx.PKColumns, ctx.SourceRows, ctx.TargetRows)
+		inserts = filterRowsByKeySelection(ctx.PKColumns, inserts, opts.Insert, opts.SelectedInsertPKs)
+		updates = filterUpdatesByKeySelection(ctx.PKColumns, updates, opts.Update, opts.SelectedUpdatePKs)
+		deletes = filterRowsByKeySelection(ctx.PKColumns, deletes, opts.Delete, opts.SelectedDeletePKs)
 	} else {
 		inserts = ctx.SourceRows
 		if !opts.Insert {
@@ -598,26 +651,29 @@ func (s *SyncEngine) runSourceQuerySync(config SyncConfig) SyncResult {
 		if ctx.TargetType == "mysql" {
 			clearSQL = fmt.Sprintf("TRUNCATE TABLE %s", quoteQualifiedIdentByType(ctx.TargetType, ctx.TargetQueryTable))
 		}
-		if _, err := targetDB.Exec(clearSQL); err != nil {
+		if _, err := execSyncDatabaseContext(s.context(), targetDB, clearSQL); err != nil {
 			return s.fail(config.JobID, totalTables, result, "清空目标表失败: "+err.Error())
 		}
 	}
 
 	if !hasChanges {
+		if err := s.contextError(); err != nil {
+			return s.fail(config.JobID, totalTables, result, err.Error())
+		}
 		s.appendLog(config.JobID, &result, "info", "SQL 结果集与目标表一致，无需应用变更")
 		result.TablesSynced++
 		s.progress(config.JobID, totalTables, totalTables, tableName, "同步完成")
 		return result
 	}
 
-	applied, err := s.applyChangesInBatches(config.JobID, &result, applyTableName, applier, changeSet)
+	applied, err := s.applySnapshotChanges(config, &result, tableName, applyTableName, applier, changeSet, 0)
 	applied.addToResult(&result)
 	if err != nil {
 		return s.fail(config.JobID, totalTables, result, "应用 SQL 结果集变更失败: "+err.Error())
 	}
 
 	result.TablesSynced++
-	s.appendLog(config.JobID, &result, "info", fmt.Sprintf("SQL 结果集同步完成：插入=%d 更新=%d 删除=%d", len(changeSet.Inserts), len(changeSet.Updates), len(changeSet.Deletes)))
+	s.appendLog(config.JobID, &result, "info", fmt.Sprintf("SQL 结果集同步完成：插入=%d 更新=%d 删除=%d", applied.Inserts, applied.Updates, applied.Deletes))
 	s.progress(config.JobID, totalTables, totalTables, tableName, "同步完成")
 	return result
 }

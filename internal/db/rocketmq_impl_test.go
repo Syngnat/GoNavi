@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"net"
 	"reflect"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ type fakeRocketMQRuntime struct {
 	lastDescribe       rocketmqDescribeRequest
 	lastFetch          rocketmqFetchRequest
 	lastPublish        rocketmqPublishCommand
+	fetchCount         int
 }
 
 func (f *fakeRocketMQRuntime) Close() error { return nil }
@@ -43,6 +45,7 @@ func (f *fakeRocketMQRuntime) DescribeTopic(ctx context.Context, request rocketm
 }
 
 func (f *fakeRocketMQRuntime) FetchMessages(ctx context.Context, request rocketmqFetchRequest) ([]rocketmqMessageRecord, error) {
+	f.fetchCount++
 	f.lastFetch = request
 	items := append([]rocketmqMessageRecord(nil), f.fetchResult...)
 	if request.Offset > 0 {
@@ -87,6 +90,104 @@ func TestNormalizeRocketMQConfigParsesURIAndParams(t *testing.T) {
 	}
 	if params.Get("producerGroup") != "writer" || params.Get("sendTimeoutMs") != "6000" {
 		t.Fatalf("unexpected rocketmq producer params: %#v", params)
+	}
+}
+
+func TestRocketMQConnectSupportsNetworkTunnels(t *testing.T) {
+	tests := []struct {
+		name   string
+		config connection.ConnectionConfig
+	}{
+		{
+			name: "SSH",
+			config: connection.ConnectionConfig{
+				Type:   "rocketmq",
+				Host:   "nameserver.internal.test",
+				Port:   9876,
+				UseSSH: true,
+				SSH: connection.SSHConfig{
+					Host: "ssh.internal.test",
+					Port: 22,
+					User: "ssh-user",
+				},
+			},
+		},
+		{
+			name: "proxy",
+			config: connection.ConnectionConfig{
+				Type:     "rocketmq",
+				Host:     "nameserver.internal.test",
+				Port:     9876,
+				UseProxy: true,
+				Proxy: connection.ProxyConfig{
+					Type: "socks5",
+					Host: "proxy.internal.test",
+					Port: 1080,
+				},
+			},
+		},
+		{
+			name: "HTTP tunnel",
+			config: connection.ConnectionConfig{
+				Type:          "rocketmq",
+				Host:          "nameserver.internal.test",
+				Port:          9876,
+				UseHTTPTunnel: true,
+				HTTPTunnel: connection.HTTPTunnelConfig{
+					Host: "tunnel.internal.test",
+					Port: 8080,
+				},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			var runtimeConfig connection.ConnectionConfig
+			originalFactory := newRocketMQRuntime
+			originalEnsure := rocketMQEnsureSSHClient
+			ensureCalls := 0
+			if testCase.config.UseSSH {
+				rocketMQEnsureSSHClient = func(config connection.SSHConfig) error {
+					ensureCalls++
+					if config.Host != testCase.config.SSH.Host || config.Port != testCase.config.SSH.Port {
+						t.Fatalf("prepared SSH config = %#v, want %#v", config, testCase.config.SSH)
+					}
+					return nil
+				}
+			}
+			newRocketMQRuntime = func(config connection.ConnectionConfig) (rocketmqRuntime, error) {
+				runtimeConfig = config
+				return &fakeRocketMQRuntime{}, nil
+			}
+			defer func() {
+				newRocketMQRuntime = originalFactory
+				rocketMQEnsureSSHClient = originalEnsure
+			}()
+
+			client := &RocketMQDB{}
+			if err := client.Connect(testCase.config); err != nil {
+				t.Fatalf("Connect failed: %v", err)
+			}
+
+			if runtimeConfig.UseSSH || runtimeConfig.UseProxy || runtimeConfig.UseHTTPTunnel {
+				t.Fatalf("runtime received unresolved tunnel config: %#v", runtimeConfig)
+			}
+			if runtimeConfig.Host != "127.0.0.1" || runtimeConfig.Port <= 0 {
+				t.Fatalf("runtime NameServer = %s:%d, want local forwarded address", runtimeConfig.Host, runtimeConfig.Port)
+			}
+			if testCase.config.UseSSH && ensureCalls != 1 {
+				t.Fatalf("SSH client preparation calls = %d, want 1", ensureCalls)
+			}
+			localAddress := rocketmqFormatHostPort(runtimeConfig.Host, runtimeConfig.Port)
+			if err := client.Close(); err != nil {
+				t.Fatalf("Close failed: %v", err)
+			}
+			if conn, err := net.DialTimeout("tcp", localAddress, 50*time.Millisecond); err == nil {
+				_ = conn.Close()
+				t.Fatalf("RocketMQ tunnel listener still accepts connections after Close: %s", localAddress)
+			}
+		})
 	}
 }
 
@@ -230,18 +331,27 @@ func TestRocketMQQueryExecAndColumns(t *testing.T) {
 		t.Fatalf("unexpected publish properties: %#v", fakeRuntime.lastPublish.Properties)
 	}
 
+	fakeRuntime.fetchCount = 0
 	columnDefs, err := client.GetColumns(rocketMQSyntheticDatabase, "orders.events")
 	if err != nil {
 		t.Fatalf("GetColumns failed: %v", err)
+	}
+	if fakeRuntime.fetchCount != 0 {
+		t.Fatalf("GetColumns must not read RocketMQ messages, fetches=%d", fakeRuntime.fetchCount)
 	}
 	names := make([]string, 0, len(columnDefs))
 	for _, col := range columnDefs {
 		names = append(names, col.Name)
 	}
 	joined := strings.Join(names, ",")
-	for _, want := range []string{"topic", "body.meta.source", "properties.trace"} {
-		if !strings.Contains(joined, want) {
+	for _, want := range []string{"topic", "body", "properties"} {
+		if !containsString(names, want) {
 			t.Fatalf("expected rocketmq column %q in %s", want, joined)
+		}
+	}
+	for _, unexpected := range []string{"body.meta.source", "properties.trace"} {
+		if containsString(names, unexpected) {
+			t.Fatalf("unexpected sample-derived RocketMQ column %q in %s", unexpected, joined)
 		}
 	}
 

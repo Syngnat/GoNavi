@@ -17,6 +17,7 @@ const MIN_STARTUP_WIDTH = 900;
 const MIN_STARTUP_HEIGHT = 600;
 
 export type StartupWindowRestoreMode = 'normal' | 'maximised';
+export type PersistedMainWindowState = 'normal' | 'maximized' | 'fullscreen';
 
 export type StartupWindowSurfaceSnapshot = {
   surfaceWidth: number;
@@ -31,13 +32,15 @@ export type StartupMaximisedWindowSnapshot = StartupWindowSurfaceSnapshot & {
 
 const MIN_MAXIMISED_SURFACE_COVERAGE = 0.95;
 
-/**
- * The explicit startup preference is authoritative. A disabled preference must
- * not be overridden by a previously maximised window or a size heuristic.
- */
+/** Force maximise when requested; otherwise restore the last observed window state. */
 export const resolveStartupWindowRestoreMode = (
   startupMaximised: boolean,
-): StartupWindowRestoreMode => startupMaximised ? 'maximised' : 'normal';
+  persistedWindowState: PersistedMainWindowState = 'normal',
+): StartupWindowRestoreMode => (
+  startupMaximised || persistedWindowState === 'maximized' || persistedWindowState === 'fullscreen'
+    ? 'maximised'
+    : 'normal'
+);
 
 /**
  * Determine whether the native maximised state has also reached the WebView surface.

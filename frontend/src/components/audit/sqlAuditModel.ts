@@ -20,6 +20,9 @@ export interface SQLAuditEvent {
   sqlFingerprint: string;
   statementIndex: number;
   statementCount: number;
+  executedCount: number;
+  failedIndex: number;
+  outcomeUnknown: boolean;
   durationMs: number;
   rowsAffected?: number;
   rowsReturned?: number;
@@ -78,6 +81,7 @@ export interface SQLAuditHealth {
 }
 
 export type SQLAuditHealthPhase = 'healthy' | 'disabled' | 'degraded' | 'recovered' | 'historical_gap' | 'unknown';
+export type SQLAuditRecoveryState = 'complete' | 'redacted' | 'metadata';
 
 export const DEFAULT_SQL_AUDIT_FILTER: SQLAuditFilter = {
   search: '',
@@ -188,6 +192,9 @@ export const normalizeSQLAuditEvent = (value: unknown, index = 0): SQLAuditEvent
     sqlFingerprint: toStringValue(raw.sqlFingerprint),
     statementIndex: Math.max(0, toFiniteNumber(raw.statementIndex)),
     statementCount: Math.max(0, toFiniteNumber(raw.statementCount)),
+    executedCount: Math.max(0, toFiniteNumber(raw.executedCount)),
+    failedIndex: Math.max(0, toFiniteNumber(raw.failedIndex)),
+    outcomeUnknown: raw.outcomeUnknown === true,
     durationMs: Math.max(0, toFiniteNumber(raw.durationMs)),
     rowsAffected: toOptionalFiniteNumber(raw.rowsAffected),
     rowsReturned: toOptionalFiniteNumber(raw.rowsReturned),
@@ -264,8 +271,11 @@ export const getSQLAuditHealthPhase = (health: SQLAuditHealth): SQLAuditHealthPh
   return 'historical_gap';
 };
 
-export const buildSQLAuditFilterPayload = (filter: SQLAuditFilter): Record<string, string | number> => {
-  const payload: Record<string, string | number> = {
+export const buildSQLAuditFilterPayload = (
+  filter: SQLAuditFilter,
+  options: { executionHistory?: boolean } = {},
+): Record<string, string | number | boolean> => {
+  const payload: Record<string, string | number | boolean> = {
     page: Math.max(1, Math.round(filter.page)),
     pageSize: Math.max(1, Math.round(filter.pageSize)),
   };
@@ -285,6 +295,7 @@ export const buildSQLAuditFilterPayload = (filter: SQLAuditFilter): Record<strin
   });
   if (Number.isFinite(filter.fromTimestamp)) payload.fromTimestamp = Number(filter.fromTimestamp);
   if (Number.isFinite(filter.toTimestamp)) payload.toTimestamp = Number(filter.toTimestamp);
+  if (options.executionHistory === true) payload.executionHistory = true;
   return payload;
 };
 
@@ -293,6 +304,21 @@ export const getSQLAuditEventPreview = (event: SQLAuditEvent, maxLength = 180): 
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, Math.max(0, maxLength - 1))}…`;
 };
+
+export const getSQLAuditRecoveryState = (
+  event: Pick<SQLAuditEvent, 'sqlText' | 'sqlRedacted'>,
+): SQLAuditRecoveryState => {
+  if (!String(event.sqlText || '').trim()) return 'metadata';
+  return event.sqlRedacted ? 'redacted' : 'complete';
+};
+
+export const isSQLAuditEventRestorable = (
+  event: Pick<SQLAuditEvent, 'eventType' | 'sqlText' | 'sqlRedacted'>,
+): boolean => (
+  getSQLAuditRecoveryState(event) !== 'metadata'
+  && ['query', 'query_statement', 'transaction_statement', 'transaction_begin']
+    .includes(String(event.eventType || '').trim().toLowerCase())
+);
 
 export const getSQLAuditPrimaryRowCount = (event: Pick<SQLAuditEvent, 'rowsAffected' | 'rowsReturned'>): number => {
   const rowsReturned = Math.max(0, toFiniteNumber(event.rowsReturned));

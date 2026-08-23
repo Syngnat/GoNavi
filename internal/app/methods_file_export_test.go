@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,14 +32,17 @@ type fakeExportQueryDB struct {
 	queries            []string
 	lastContextTimeout time.Duration
 	hasContextDeadline bool
+	lastQueryContext   context.Context
 }
 
 type fakeStreamExportDB struct {
 	fakeExportQueryDB
-	streamData []map[string]interface{}
-	streamCols []string
-	streamHits int
-	queryHits  int
+	streamData    []map[string]interface{}
+	streamCols    []string
+	streamHits    int
+	queryHits     int
+	streamStarted chan context.Context
+	streamBlock   bool
 }
 
 type fakeValueStreamExportDB struct {
@@ -57,11 +61,25 @@ type fakeGeneratedValueStreamExportDB struct {
 	valueHits  int
 }
 
+type exportContextTestConsumer struct{}
+
+func (exportContextTestConsumer) SetColumns([]string) error               { return nil }
+func (exportContextTestConsumer) ConsumeRow(map[string]interface{}) error { return nil }
+
 type fakeSQLDumpExportDB struct {
 	fakeExportQueryDB
 	tables    []string
 	createSQL string
 	createErr error
+}
+
+type fakePostgresCommentExportDB struct {
+	fakeSQLDumpExportDB
+	tableComment      string
+	tableCommentErr   error
+	commentSchema     string
+	commentTable      string
+	tableCommentCalls int
 }
 
 type captureExportProgressEmitter struct {
@@ -89,6 +107,7 @@ func (f *fakeExportQueryDB) Query(query string) ([]map[string]interface{}, []str
 func (f *fakeExportQueryDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
 	f.lastQuery = query
 	f.queries = append(f.queries, query)
+	f.lastQueryContext = ctx
 	if deadline, ok := ctx.Deadline(); ok {
 		f.hasContextDeadline = true
 		f.lastContextTimeout = time.Until(deadline)
@@ -127,6 +146,13 @@ func (f *fakeSQLDumpExportDB) GetCreateStatement(dbName, tableName string) (stri
 	return f.createSQL, f.createErr
 }
 
+func (f *fakePostgresCommentExportDB) GetTableComment(dbName, tableName string) (string, error) {
+	f.tableCommentCalls++
+	f.commentSchema = dbName
+	f.commentTable = tableName
+	return f.tableComment, f.tableCommentErr
+}
+
 func (f *fakeStreamExportDB) Query(query string) ([]map[string]interface{}, []string, error) {
 	f.queryHits++
 	return f.fakeExportQueryDB.Query(query)
@@ -141,9 +167,20 @@ func (f *fakeStreamExportDB) StreamQuery(query string, consumer db.QueryStreamCo
 	return f.StreamQueryContext(context.Background(), query, consumer)
 }
 
-func (f *fakeStreamExportDB) StreamQueryContext(_ context.Context, query string, consumer db.QueryStreamConsumer) error {
+func (f *fakeStreamExportDB) StreamQueryContext(ctx context.Context, query string, consumer db.QueryStreamConsumer) error {
 	f.streamHits++
 	f.lastQuery = query
+	f.lastQueryContext = ctx
+	if f.streamStarted != nil {
+		select {
+		case f.streamStarted <- ctx:
+		default:
+		}
+	}
+	if f.streamBlock {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	if err := consumer.SetColumns(f.streamCols); err != nil {
 		return err
 	}
@@ -621,6 +658,78 @@ func TestQueryDataForExport_UsesMinimumTimeout(t *testing.T) {
 	}
 }
 
+type exportMetadataContextKey struct{}
+
+func TestQueryDataForExportUsesBoundMetadataContext(t *testing.T) {
+	fake := &fakeExportQueryDB{
+		data: []map[string]interface{}{{"v": 1}},
+		cols: []string{"v"},
+	}
+	parent := context.WithValue(context.Background(), exportMetadataContextKey{}, "metadata-request")
+	db.BindMetadataContext(fake, parent)
+	defer db.ClearMetadataContext(fake)
+
+	if _, _, err := queryDataForExport(fake, connection.ConnectionConfig{Timeout: 10}, "SELECT 1"); err != nil {
+		t.Fatalf("queryDataForExport 返回错误: %v", err)
+	}
+	if got := fake.lastQueryContext.Value(exportMetadataContextKey{}); got != "metadata-request" {
+		t.Fatalf("导出查询未继承元数据请求上下文值，got=%v", got)
+	}
+}
+
+func TestStreamQueryDataForExportUsesBoundMetadataContext(t *testing.T) {
+	fake := &fakeStreamExportDB{
+		fakeExportQueryDB: fakeExportQueryDB{data: []map[string]interface{}{{"v": 1}}, cols: []string{"v"}},
+		streamCols:        []string{"v"},
+		streamData:        []map[string]interface{}{{"v": 1}},
+	}
+	parent := context.WithValue(context.Background(), exportMetadataContextKey{}, "metadata-request")
+	db.BindMetadataContext(fake, parent)
+	defer db.ClearMetadataContext(fake)
+
+	if err := streamQueryDataForExport(fake, connection.ConnectionConfig{Timeout: 10}, "SELECT 1", exportContextTestConsumer{}); err != nil {
+		t.Fatalf("streamQueryDataForExport 返回错误: %v", err)
+	}
+	if got := fake.lastQueryContext.Value(exportMetadataContextKey{}); got != "metadata-request" {
+		t.Fatalf("流式导出查询未继承元数据请求上下文值，got=%v", got)
+	}
+}
+
+func TestStreamQueryDataForExportCancellationUsesBoundMetadataContext(t *testing.T) {
+	fake := &fakeStreamExportDB{
+		fakeExportQueryDB: fakeExportQueryDB{data: []map[string]interface{}{{"v": 1}}, cols: []string{"v"}},
+		streamStarted:     make(chan context.Context, 1),
+		streamBlock:       true,
+	}
+	parent, cancel := context.WithCancel(context.WithValue(context.Background(), exportMetadataContextKey{}, "metadata-request"))
+	defer cancel()
+	db.BindMetadataContext(fake, parent)
+	defer db.ClearMetadataContext(fake)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- streamQueryDataForExport(fake, connection.ConnectionConfig{Timeout: 10}, "SELECT 1", exportContextTestConsumer{})
+	}()
+	select {
+	case queryCtx := <-fake.streamStarted:
+		if queryCtx.Value(exportMetadataContextKey{}) != "metadata-request" {
+			t.Fatalf("流式导出查询未继承元数据请求上下文值，got=%v", queryCtx.Value(exportMetadataContextKey{}))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("流式导出查询未启动")
+	}
+	cancel()
+
+	select {
+	case err := <-resultCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("取消后的流式导出错误 = %v，期望 context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("流式导出查询未因取消而退出")
+	}
+}
+
 func TestQueryDataForExport_UsesLargerConfiguredTimeout(t *testing.T) {
 	fake := &fakeExportQueryDB{
 		data: []map[string]interface{}{{"v": 1}},
@@ -638,6 +747,34 @@ func TestQueryDataForExport_UsesLargerConfiguredTimeout(t *testing.T) {
 	upperBound := expected + 5*time.Second
 	if fake.lastContextTimeout < lowerBound || fake.lastContextTimeout > upperBound {
 		t.Fatalf("导出配置超时异常，want≈%s got=%s", expected, fake.lastContextTimeout)
+	}
+}
+
+func TestGetExportQueryTimeout_ExplicitQueryTimeoutOverridesExportMinimum(t *testing.T) {
+	timeout := getExportQueryTimeout(connection.ConnectionConfig{
+		Type:         "mysql",
+		Timeout:      900,
+		QueryTimeout: 17,
+	})
+	if timeout != 17*time.Second {
+		t.Fatalf("explicit query timeout should take precedence, want=%s got=%s", 17*time.Second, timeout)
+	}
+}
+
+func TestQueryDataForExportWithContext_PreservesCallerCancellation(t *testing.T) {
+	fake := &fakeExportQueryDB{
+		data: []map[string]interface{}{{"v": 1}},
+		cols: []string{"v"},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := queryDataForExportWithContext(ctx, fake, connection.ConnectionConfig{QueryTimeout: 60}, "SELECT 1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("buffered export fallback should return caller cancellation, got %v", err)
+	}
+	if !fake.hasContextDeadline {
+		t.Fatal("buffered export fallback must still apply its query deadline")
 	}
 }
 
@@ -1546,6 +1683,13 @@ func TestFormatImportSQLValue_LeavesTextLiteralUntouched(t *testing.T) {
 	}
 }
 
+func TestFormatImportSQLValue_MySQLHexLookingTextRemainsText(t *testing.T) {
+	got := formatImportSQLValue("mysql", "varchar(32)", "0xDEADBEEF")
+	if got != "'0xDEADBEEF'" {
+		t.Fatalf("hex-looking text must remain quoted during import, got %q", got)
+	}
+}
+
 func TestFormatImportSQLValue_PostgresBooleanColumnUsesBooleanLiteral(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -1608,6 +1752,86 @@ func TestDumpTableSQL_PostgresBooleanBackupUsesBooleanLiterals(t *testing.T) {
 	}
 	if strings.Contains(content, "VALUES (1, 0)") {
 		t.Fatalf("PostgreSQL bool 备份不应输出数字布尔值，content=%s", content)
+	}
+}
+
+func TestDumpTableSQL_PostgresBackupExportIncludesEscapedTableComment(t *testing.T) {
+	fake := &fakePostgresCommentExportDB{
+		fakeSQLDumpExportDB: fakeSQLDumpExportDB{
+			fakeExportQueryDB: fakeExportQueryDB{
+				defs: []connection.ColumnDefinition{{Name: "ID", Type: "bigint", Nullable: "NO"}},
+			},
+			createSQL: "-- SHOW CREATE TABLE not fully supported for PostgreSQL in this MVP.",
+		},
+		tableComment: "Owner's archive\\path\n第二行",
+	}
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+
+	err := dumpTableSQL(
+		writer,
+		fake,
+		connection.ConnectionConfig{Type: "postgres"},
+		"app",
+		`"Sales.Schema"."Order.Items"`,
+		true,
+		true,
+		map[string]string{},
+	)
+	if err != nil {
+		t.Fatalf("dumpTableSQL returned error: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush exported SQL: %v", err)
+	}
+
+	content := buf.String()
+	for _, want := range []string{
+		`CREATE TABLE "Sales.Schema"."Order.Items"`,
+		"COMMENT ON TABLE \"Sales.Schema\".\"Order.Items\" IS 'Owner''s archive\\path\n第二行';",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected PostgreSQL backup export to contain %q, got %s", want, content)
+		}
+	}
+	if fake.tableCommentCalls != 1 || fake.commentSchema != "Sales.Schema" || fake.commentTable != "Order.Items" {
+		t.Fatalf("unexpected table-comment metadata target: calls=%d target=%q.%q", fake.tableCommentCalls, fake.commentSchema, fake.commentTable)
+	}
+}
+
+func TestDumpTableSQL_PostgresSchemaExportOmitsEmptyTableComment(t *testing.T) {
+	fake := &fakePostgresCommentExportDB{
+		fakeSQLDumpExportDB: fakeSQLDumpExportDB{
+			fakeExportQueryDB: fakeExportQueryDB{
+				defs: []connection.ColumnDefinition{{Name: "id", Type: "bigint", Nullable: "NO"}},
+			},
+			createSQL: "-- SHOW CREATE TABLE not fully supported for PostgreSQL in this MVP.",
+		},
+	}
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+
+	if err := dumpTableSQL(
+		writer,
+		fake,
+		connection.ConnectionConfig{Type: "postgres"},
+		"app",
+		"public.orders",
+		true,
+		false,
+		map[string]string{},
+	); err != nil {
+		t.Fatalf("dumpTableSQL returned error: %v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush exported SQL: %v", err)
+	}
+
+	if content := buf.String(); strings.Contains(content, "COMMENT ON TABLE") {
+		t.Fatalf("empty PostgreSQL table comment should not emit DDL, got %s", content)
+	}
+	if fake.tableCommentCalls != 1 {
+		t.Fatalf("expected one table-comment metadata lookup, got %d", fake.tableCommentCalls)
 	}
 }
 

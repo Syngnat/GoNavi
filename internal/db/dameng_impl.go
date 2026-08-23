@@ -184,7 +184,7 @@ func (d *DamengDB) Query(query string) ([]map[string]interface{}, []string, erro
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := d.conn.Query(query)
+	rows, err := d.conn.QueryContext(metadataContextFor(d), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -242,11 +242,18 @@ func (d *DamengDB) OpenTransactionExecer(ctx context.Context) (TransactionExecer
 		return nil, err
 	}
 	// Do not bind the transaction to ctx: the editor finishes it in a later RPC.
-	tx, err := d.conn.Begin()
+	// Keep the pinned connection so failed finalization can evict it instead of
+	// returning an unresolved transaction to database/sql's idle pool.
+	conn, err := d.conn.Conn(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	return NewSQLTxStatementExecer(tx), nil
+	tx, err := conn.BeginTx(context.Background(), nil)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return NewSQLTxStatementExecerWithConn(tx, conn), nil
 }
 
 func (d *DamengDB) GetDatabases() ([]string, error) {
@@ -258,9 +265,10 @@ func (d *DamengDB) GetDatabases() ([]string, error) {
 func (d *DamengDB) GetTables(dbName string) ([]string, error) {
 	// 始终返回 OWNER.TABLE_NAME，与 Oracle 实现对齐，避免下游 SQL 缺少 schema 前缀（refs issue #445）
 	// 列别名用双引号包裹强制大写，避免不同驱动版本返回不一致 case 导致 row map 取值失败
+	escapedDBName := escapeDamengMetadataLiteral(dbName)
 	var query string
-	if dbName != "" {
-		query = fmt.Sprintf(`SELECT owner AS "OWNER", table_name AS "TABLE_NAME" FROM all_tables WHERE owner = '%s' ORDER BY table_name`, strings.ToUpper(dbName))
+	if escapedDBName != "" {
+		query = fmt.Sprintf(`SELECT owner AS "OWNER", table_name AS "TABLE_NAME" FROM all_tables WHERE owner = '%s' ORDER BY table_name`, escapedDBName)
 	} else {
 		query = `SELECT USER AS "OWNER", table_name AS "TABLE_NAME" FROM user_tables ORDER BY table_name`
 	}
@@ -291,11 +299,13 @@ func (d *DamengDB) GetCreateStatement(dbName, tableName string) (string, error) 
 	// We'll try a common DM approach.
 	// SELECT DBMS_METADATA.GET_DDL('TABLE', 'TABLE_NAME', 'OWNER') FROM DUAL;
 
+	escapedDBName := escapeDamengMetadataLiteral(dbName)
+	escapedTableName := escapeDamengMetadataLiteral(tableName)
 	query := fmt.Sprintf("SELECT DBMS_METADATA.GET_DDL('TABLE', '%s', '%s') as ddl FROM DUAL",
-		strings.ToUpper(tableName), strings.ToUpper(dbName))
+		escapedTableName, escapedDBName)
 
-	if dbName == "" {
-		query = fmt.Sprintf("SELECT DBMS_METADATA.GET_DDL('TABLE', '%s') as ddl FROM DUAL", strings.ToUpper(tableName))
+	if escapedDBName == "" {
+		query = fmt.Sprintf("SELECT DBMS_METADATA.GET_DDL('TABLE', '%s') as ddl FROM DUAL", escapedTableName)
 	}
 
 	data, _, err := d.Query(query)
@@ -382,7 +392,7 @@ func (d *DamengDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 	query := fmt.Sprintf(`SELECT trigger_name, trigger_type, triggering_event 
 		FROM all_triggers 
 		WHERE table_owner = '%s' AND table_name = '%s'`,
-		strings.ToUpper(dbName), strings.ToUpper(tableName))
+		escapeDamengMetadataLiteral(dbName), escapeDamengMetadataLiteral(tableName))
 
 	data, _, err := d.Query(query)
 	if err != nil {
@@ -403,15 +413,20 @@ func (d *DamengDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 }
 
 func (d *DamengDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return d.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if d.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
 
-	tx, err := d.conn.Begin()
+	tx, err := d.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
 
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
@@ -446,7 +461,7 @@ func (d *DamengDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("删除失败：%v", err)
 		}
 	}
@@ -479,7 +494,7 @@ func (d *DamengDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		}
 
 		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("更新失败：%v", err)
 		}
 	}
@@ -503,12 +518,16 @@ func (d *DamengDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		}
 
 		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("插入失败：%v", err)
 		}
 	}
 
-	return tx.Commit()
+	if err := commitWriteTransaction(tx); err != nil {
+		return err
+	}
+	transactionCommitted = true
+	return nil
 }
 
 func (d *DamengDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
@@ -517,7 +536,7 @@ func (d *DamengDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 		FROM all_tab_columns c
 		LEFT JOIN all_col_comments cc
 		  ON cc.owner = c.owner AND cc.table_name = c.table_name AND cc.column_name = c.column_name
-		WHERE c.owner = '%s'`, strings.ReplaceAll(strings.ToUpper(dbName), "'", "''"))
+		WHERE c.owner = '%s'`, escapeDamengMetadataLiteral(dbName))
 
 	data, _, err := d.Query(query)
 	if err != nil {

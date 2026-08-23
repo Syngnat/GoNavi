@@ -6,6 +6,9 @@ import {
   buildRemoteMCPClientQuickStart,
   EMPTY_MCP_CLIENT_STATUSES,
   formatMCPLaunchCommand,
+  isMCPClientKey,
+  isLocalMCPClientUnavailable,
+  isMCPClientConnected,
   isRemoteMCPClientStatus,
   normalizeMCPClientStatuses,
   pickPreferredMCPClient,
@@ -13,6 +16,7 @@ import {
 } from '../../utils/mcpClientInstallStatus';
 import {
   translateMCPClientInstallCopy,
+  resolveMCPClientCommandName,
   type MCPClientInstallTranslator,
 } from './mcpClientInstallPanelState';
 
@@ -35,7 +39,23 @@ interface AIMCPClientInstallerService {
   AIInstallClaudeCodeMCP?: () => Promise<MCPClientInstallResult>;
   AIInstallCodexMCP?: () => Promise<MCPClientInstallResult>;
   AIInstallOpenCodeMCP?: () => Promise<MCPClientInstallResult>;
+  AIInstallZCodeMCP?: () => Promise<MCPClientInstallResult>;
+  AIInstallDeepSeekHarnessMCP?: () => Promise<MCPClientInstallResult>;
+  AIInstallKimiMCP?: () => Promise<MCPClientInstallResult>;
+  AIInstallGrokBuildMCP?: () => Promise<MCPClientInstallResult>;
 }
+
+const MCP_CLIENT_DISPLAY_NAMES: Record<MCPClientKey, string> = {
+  'claude-code': 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+  zcode: 'ZCode',
+  'deepseek-harness': 'DeepSeek Harness',
+  kimi: 'Kimi Code',
+  'grok-build': 'Grok Build',
+  openclaw: 'OpenClaw',
+  hermans: 'Hermans',
+};
 
 interface UseAIMCPClientInstallerOptions {
   copyTextToClipboard: (text: string, successMessage: string) => Promise<void>;
@@ -121,15 +141,9 @@ export const useAIMCPClientInstaller = ({
 
   const handleInstallSelectedMCPClient = useCallback(async () => {
     const remoteClient = isRemoteMCPClientStatus(selectedMCPClientStatus);
-    const selectedClient = selectedMCPClientStatus?.client;
-    const targetClient = selectedClient === 'codex'
-      ? 'codex'
-      : selectedClient === 'opencode'
-        ? 'opencode'
-        : 'claude-code';
-    const targetLabel = selectedMCPClientStatus?.displayName || (
-      targetClient === 'codex' ? 'Codex' : targetClient === 'opencode' ? 'OpenCode' : 'Claude Code'
-    );
+    const selectedClient = String(selectedMCPClientStatus?.client || '').trim();
+    const targetClient: MCPClientKey = isMCPClientKey(selectedClient) ? selectedClient : 'claude-code';
+    const targetLabel = selectedMCPClientStatus?.displayName || MCP_CLIENT_DISPLAY_NAMES[targetClient];
     if (remoteClient) {
       try {
         await onBeforeInstall?.();
@@ -145,7 +159,15 @@ export const useAIMCPClientInstaller = ({
       }
       return;
     }
-    if (selectedMCPClientStatus?.matchesCurrent) {
+    if (isLocalMCPClientUnavailable(selectedMCPClientStatus)) {
+      void messageApi.warning(copy(
+        'ai_chat.mcp_client.install.message.client_not_detected',
+        '{{label}} was not detected locally. Install or enable it, add {{command}} to PATH, then refresh detection before writing MCP configuration.',
+        { label: targetLabel, command: resolveMCPClientCommandName(selectedMCPClientStatus) },
+      ));
+      return;
+    }
+    if (isMCPClientConnected(selectedMCPClientStatus)) {
       try {
         await onBeforeInstall?.();
         void messageApi.success(copy('ai_chat.mcp_client.install.message.already_connected', '{{label}} is already connected to current GoNavi MCP. No repeated write is needed.', { label: targetLabel }));
@@ -160,21 +182,48 @@ export const useAIMCPClientInstaller = ({
       await onBeforeInstall?.();
       setMCPClientSelectionTouched(true);
       const service = await resolveAIService();
-      if (targetClient === 'opencode') {
-        if (typeof service?.AIInstallOpenCodeMCP !== 'function') {
-          throw new Error(copy('ai_chat.mcp_client.install.message.opencode_not_supported', 'This version does not support automatic OpenCode MCP installation yet'));
-        }
-        await service.AIInstallOpenCodeMCP();
-      } else if (targetClient === 'codex') {
-        if (typeof service?.AIInstallCodexMCP !== 'function') {
-          throw new Error(copy('ai_chat.mcp_client.install.message.codex_not_supported', 'This version does not support automatic Codex MCP installation yet'));
-        }
-        await service.AIInstallCodexMCP();
-      } else {
-        if (typeof service?.AIInstallClaudeCodeMCP !== 'function') {
-          throw new Error(copy('ai_chat.mcp_client.install.message.claude_not_supported', 'This version does not support automatic Claude Code MCP installation yet'));
-        }
-        await service.AIInstallClaudeCodeMCP();
+      switch (targetClient) {
+        case 'opencode':
+          if (typeof service?.AIInstallOpenCodeMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.opencode_not_supported', 'This version does not support automatic OpenCode MCP installation yet'));
+          }
+          await service.AIInstallOpenCodeMCP();
+          break;
+        case 'codex':
+          if (typeof service?.AIInstallCodexMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.codex_not_supported', 'This version does not support automatic Codex MCP installation yet'));
+          }
+          await service.AIInstallCodexMCP();
+          break;
+        case 'zcode':
+          if (typeof service?.AIInstallZCodeMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.auto_install_not_supported', 'This version does not support automatic {{label}} MCP installation yet', { label: targetLabel }));
+          }
+          await service.AIInstallZCodeMCP();
+          break;
+        case 'deepseek-harness':
+          if (typeof service?.AIInstallDeepSeekHarnessMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.auto_install_not_supported', 'This version does not support automatic {{label}} MCP installation yet', { label: targetLabel }));
+          }
+          await service.AIInstallDeepSeekHarnessMCP();
+          break;
+        case 'kimi':
+          if (typeof service?.AIInstallKimiMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.auto_install_not_supported', 'This version does not support automatic {{label}} MCP installation yet', { label: targetLabel }));
+          }
+          await service.AIInstallKimiMCP();
+          break;
+        case 'grok-build':
+          if (typeof service?.AIInstallGrokBuildMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.auto_install_not_supported', 'This version does not support automatic {{label}} MCP installation yet', { label: targetLabel }));
+          }
+          await service.AIInstallGrokBuildMCP();
+          break;
+        default:
+          if (typeof service?.AIInstallClaudeCodeMCP !== 'function') {
+            throw new Error(copy('ai_chat.mcp_client.install.message.claude_not_supported', 'This version does not support automatic Claude Code MCP installation yet'));
+          }
+          await service.AIInstallClaudeCodeMCP();
       }
       await loadMCPClientStatuses({ silent: true });
       onConfigChanged?.();

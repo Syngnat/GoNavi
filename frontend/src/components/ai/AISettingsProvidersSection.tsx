@@ -122,10 +122,10 @@ const AISettingsProvidersSection: React.FC<AISettingsProvidersSectionProps> = ({
   const usesLocalCLI = presetFromForm?.authMode === 'local-cli';
   const supportsAdvancedEndpoint = presetKeyFromForm === 'custom' || presetKeyFromForm === 'ollama' || presetKeyFromForm === 'codebuddy' || presetKeyFromForm === 'cursor';
   const supportsModelList = supportsAdvancedEndpoint || usesLocalCLI;
-  const showsApiFormat = presetKeyFromForm === 'custom' || presetKeyFromForm === 'openai';
+  const showsApiFormat = presetKeyFromForm === 'custom' || presetKeyFromForm === 'openai' || presetKeyFromForm === 'deepseek';
   const codeBuddyUsesOptionalSecret = presetKeyFromForm === 'codebuddy';
   const cursorUsesOptionalModel = presetKeyFromForm === 'cursor';
-  const apiFormatOptions = presetKeyFromForm === 'openai'
+  const apiFormatOptions = presetKeyFromForm === 'openai' || presetKeyFromForm === 'deepseek'
     ? [
         { value: 'openai', label: 'OpenAI Chat' },
         { value: 'openai-responses', label: 'OpenAI Responses' },

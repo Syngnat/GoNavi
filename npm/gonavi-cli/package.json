@@ -1,0 +1,29 @@
+{
+  "name": "@syngnat/gonavi-cli",
+  "version": "0.9.4",
+  "description": "Verified platform wrapper for the GoNavi headless CLI",
+  "bin": {
+    "gonavi": "bin/gonavi.js"
+  },
+  "files": [
+    "bin",
+    "install.js",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Syngnat/GoNavi.git",
+    "directory": "npm/gonavi-cli"
+  },
+  "homepage": "https://github.com/Syngnat/GoNavi",
+  "publishConfig": {
+    "access": "public"
+  }
+}

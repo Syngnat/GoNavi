@@ -249,12 +249,17 @@ export async function executeDatabaseToolCall(
           const allColumns = normalizeColumnsWithTable(result.data);
           const tableNames = Array.from(new Set(allColumns.map((column) => column.tableName).filter(Boolean)));
           const limitedColumns = allColumns.slice(0, 400);
+          const warnings = Array.isArray(result.warnings)
+            ? result.warnings.map((warning: unknown) => String(warning || '').trim()).filter(Boolean)
+            : [];
           return {
             content: JSON.stringify({
               dbName: safeDbName,
               tableCount: tableNames.length,
               totalColumns: allColumns.length,
               truncated: allColumns.length > limitedColumns.length,
+              partial: Boolean(result.partial),
+              warnings,
               columns: limitedColumns,
             }),
             success: true,

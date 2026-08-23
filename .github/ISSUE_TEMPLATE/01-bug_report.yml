@@ -104,7 +104,7 @@ body:
         - TLS/SSL
         - 不适用
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: description
@@ -129,7 +129,7 @@ body:
         3. 点击/执行 ...
         4. 观察到 ...
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: expected
@@ -146,7 +146,7 @@ body:
       description: 请粘贴完整错误信息，不要只填写“报错”或错误截图
       placeholder: 描述实际结果，并粘贴完整错误文本
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: logs

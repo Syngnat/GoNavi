@@ -9,11 +9,46 @@ vi.mock('../../wailsjs/go/app/App', () => ({
 }));
 
 import {
+  buildContextualNewQueryTemplate,
   buildTableSelectQuery,
   extractTableSelectColumnNames,
   isElasticsearchDbType,
   resolveTableSelectQuery,
 } from './objectQueryTemplates';
+
+describe('buildContextualNewQueryTemplate', () => {
+  it('builds a dialect-aware select for the active table with the default template', () => {
+    expect(buildContextualNewQueryTemplate({
+      dbType: 'mysql',
+      tableName: 'Order Items',
+      customTemplate: null,
+    })).toBe('SELECT * FROM `Order Items`;');
+  });
+
+  it('appends the active table when a custom template ends with FROM', () => {
+    expect(buildContextualNewQueryTemplate({
+      dbType: 'postgres',
+      tableName: 'public.OrderItems',
+      customTemplate: 'SELECT id, total FROM ',
+    })).toBe('SELECT id, total FROM public."OrderItems"');
+  });
+
+  it('preserves custom templates that do not expose a table insertion point', () => {
+    expect(buildContextualNewQueryTemplate({
+      dbType: 'mysql',
+      tableName: 'users',
+      customTemplate: 'SELECT CURRENT_TIMESTAMP;',
+    })).toBeNull();
+  });
+
+  it('builds the native query format for an active Elasticsearch index', () => {
+    expect(buildContextualNewQueryTemplate({
+      dbType: 'elasticsearch',
+      tableName: 'orders-v1',
+      customTemplate: null,
+    })).toBe('GET /orders-v1/_search\n{\n  "query": {\n    "match_all": {}\n  }\n}\n');
+  });
+});
 
 describe('buildTableSelectQuery', () => {
   it('quotes uppercase postgres table names in new query templates', () => {

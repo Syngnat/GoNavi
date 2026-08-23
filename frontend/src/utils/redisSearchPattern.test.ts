@@ -45,6 +45,20 @@ describe('normalizeRedisSearchInput', () => {
     });
   });
 
+  it('adds leading and trailing wildcards for fuzzy matching', () => {
+    expect(normalizeRedisSearchInput('mpP', 'fuzzy')).toEqual({
+      keyword: 'mpP',
+      pattern: '*[mM][pP][pP]*',
+    });
+  });
+
+  it('keeps redis glob special characters literal in fuzzy mode', () => {
+    expect(normalizeRedisSearchInput('mp*?[id]\\', 'fuzzy')).toEqual({
+      keyword: 'mp*?[id]\\',
+      pattern: '*[mM][pP]\\*\\?\\[[iI][dD]\\]\\\\*',
+    });
+  });
+
   it('marks empty draft changes for immediate reset search', () => {
     expect(normalizeRedisSearchDraftChange('')).toEqual({
       keyword: '',

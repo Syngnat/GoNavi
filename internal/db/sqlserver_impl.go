@@ -297,7 +297,7 @@ func (s *SqlServerDB) Query(query string) ([]map[string]interface{}, []string, e
 }
 
 func (s *SqlServerDB) QueryWithMessages(query string) ([]map[string]interface{}, []string, []string, error) {
-	return s.QueryContextWithMessages(context.Background(), query)
+	return s.QueryContextWithMessages(metadataContextFor(s), query)
 }
 
 func (s *SqlServerDB) ExecContext(ctx context.Context, query string) (int64, error) {
@@ -530,7 +530,7 @@ ORDER BY s.name, t.name`, safeDB, safeDB)
 }
 
 func (s *SqlServerDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	return fmt.Sprintf("-- SHOW CREATE TABLE not supported for SQL Server in this version.\n-- Table: %s.%s", dbName, tableName), nil
+	return "", localizedDatabaseRuntimeError("db.backend.error.sqlserver_create_statement_unsupported", nil)
 }
 
 func (s *SqlServerDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
@@ -840,15 +840,20 @@ ORDER BY tr.name`,
 }
 
 func (s *SqlServerDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return s.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (s *SqlServerDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if s.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
 
-	tx, err := s.conn.Begin()
+	tx, err := s.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
 
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
@@ -883,7 +888,7 @@ func (s *SqlServerDB) ApplyChanges(tableName string, changes connection.ChangeSe
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("删除失败：%v", err)
 		}
 	}
@@ -916,7 +921,7 @@ func (s *SqlServerDB) ApplyChanges(tableName string, changes connection.ChangeSe
 		}
 
 		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		if _, err := tx.Exec(query, args...); err != nil {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return fmt.Errorf("更新失败：%v", err)
 		}
 	}
@@ -932,12 +937,16 @@ func (s *SqlServerDB) ApplyChanges(tableName string, changes connection.ChangeSe
 			return sql.Named(fmt.Sprintf("p%d", idx), value)
 		},
 		Exec: func(query string, args ...interface{}) (sql.Result, error) {
-			return tx.Exec(query, args...)
+			return tx.ExecContext(ctx, query, args...)
 		},
 		MaxArgs: sqlServerBatchInsertArgs,
 	}); err != nil {
 		return err
 	}
 
-	return tx.Commit()
+	if err := commitWriteTransaction(tx); err != nil {
+		return err
+	}
+	transactionCommitted = true
+	return nil
 }

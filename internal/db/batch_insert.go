@@ -296,10 +296,14 @@ func execLiteralInsertBatch(config literalInsertConfig, rows []preparedInsertRow
 	)
 	res, err := config.Exec(query)
 	if err != nil {
-		return localizedDatabaseRuntimeError("db.backend.error.batch_insert_failed_with_sql", map[string]any{
+		resultErr := localizedDatabaseRuntimeError("db.backend.error.batch_insert_failed_with_sql", map[string]any{
 			"detail": err.Error(),
 			"sql":    query,
 		})
+		if IsAmbiguousWriteResponse(err) {
+			return MarkWriteOutcomeUnknown(resultErr)
+		}
+		return resultErr
 	}
 	if config.RequireAffected {
 		if err := requireInsertAffected(res); err != nil {

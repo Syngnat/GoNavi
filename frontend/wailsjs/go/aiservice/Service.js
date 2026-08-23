@@ -114,8 +114,24 @@ export function AIInstallCodexMCP() {
   return window['go']['aiservice']['Service']['AIInstallCodexMCP']();
 }
 
+export function AIInstallDeepSeekHarnessMCP() {
+  return window['go']['aiservice']['Service']['AIInstallDeepSeekHarnessMCP']();
+}
+
+export function AIInstallGrokBuildMCP() {
+  return window['go']['aiservice']['Service']['AIInstallGrokBuildMCP']();
+}
+
+export function AIInstallKimiMCP() {
+  return window['go']['aiservice']['Service']['AIInstallKimiMCP']();
+}
+
 export function AIInstallOpenCodeMCP() {
   return window['go']['aiservice']['Service']['AIInstallOpenCodeMCP']();
+}
+
+export function AIInstallZCodeMCP() {
+  return window['go']['aiservice']['Service']['AIInstallZCodeMCP']();
 }
 
 export function AIListMCPTools() {

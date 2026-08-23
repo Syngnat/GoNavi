@@ -90,6 +90,10 @@ export type ResultDiffComparableResult = {
   rows: Record<string, unknown>[];
   pkColumns?: string[];
   truncated?: boolean;
+  /** Query execution context snapshot. SQL replay is safe only when both sides match. */
+  executionConnectionId?: string;
+  executionDbName?: string;
+  executionConnectionParams?: string;
   /** 列元数据所属库（跨库 SELECT 时可能与当前库不同） */
   metadataDbName?: string;
   /** 列元数据查询用表名 */

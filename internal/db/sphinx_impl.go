@@ -3,6 +3,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -16,6 +17,14 @@ const sphinxDefaultDatabaseName = "default"
 type SphinxDB struct {
 	MySQLDB
 	fallbackDatabase string
+}
+
+func (s *SphinxDB) bindMetadataContext(ctx context.Context) {
+	BindMetadataContext(&s.MySQLDB, ctx)
+}
+
+func (s *SphinxDB) clearMetadataContext() {
+	ClearMetadataContext(&s.MySQLDB)
 }
 
 func isSphinxUnsupportedFeatureError(err error) bool {

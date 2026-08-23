@@ -30,6 +30,8 @@
 <p align="center">
   <b>语言</b>：<a href="README.md">English</a> · 简体中文
   &nbsp;·&nbsp;
+  <a href="https://gonavi.org"><b>🌐 官网</b></a>
+  ·
   <a href="https://github.com/Syngnat/GoNavi/releases"><b>⬇ 下载</b></a>
   ·
   <a href="#-快速开始"><b>⚡ 快速开始</b></a>
@@ -258,6 +260,50 @@ wails build -clean   # 发布前推荐
 前往 **[Releases](https://github.com/Syngnat/GoNavi/releases)** 下载  
 （macOS AMD64/ARM64 · Windows AMD64 · Linux WebKitGTK 4.0/4.1）。
 
+### 独立 CLI
+
+独立 CLI 发布链正在首发。dev 构建已经包含无界面的 `gonavi` 归档；首个
+稳定 CLI Release 将使用 `gonavi-cli_${VERSION}_${GOOS}_${GOARCH}` 命名空间，
+并附带对应的 `gonavi-cli_${VERSION}_checksums.txt`。稳定版首发前请只将 dev
+归档用于测试。解压归档后可直接运行：
+
+```bash
+gonavi list-connections
+gonavi query --conn CONNECTION_ID --sql 'SELECT * FROM orders LIMIT 10'
+gonavi export --conn CONNECTION_ID --output orders.csv --sql 'SELECT * FROM orders'
+gonavi batch --conn CONNECTION_ID --file migration.sql --allow-write
+```
+
+首个稳定 CLI Release 发布后，经过校验的 npm 平台包装器会按当前平台下载对应
+归档，并先验证独立的 checksum 文件。在 npm 包实际出现前，请改用 Release
+归档安装；npm 包发布后可执行：
+
+```bash
+npm install -g @syngnat/gonavi-cli
+```
+
+稳定发布工作流还会生成并保留使用同一 checksum 的 WinGet manifest artifact，
+包 ID 为 `Syngnat.GoNavi.CLI`。该 manifest 还需通过 WinGet 社区仓库审核后才可
+安装；它与既有桌面版 GoNavi 包相互独立。审核通过后可执行：
+
+```powershell
+winget install --id Syngnat.GoNavi.CLI -e
+```
+
+CLI 与桌面版共用活动数据根，优先级为：`GONAVI_DATA_ROOT`、
+`~/.gonavi/storage_root.json`、`~/.gonavi`。临时凭据只能放在属主可读的
+`0600` `--connection-file` 中，不能通过命令行参数传入。查询默认输出 JSONL，
+诊断信息输出到 stderr。变更类 SQL 还必须同时通过已保存的 AI 安全级别、连接保护和
+`--allow-write` 确认。
+
+Linux 容器可复制 `docker.cli.env.example`，设置宿主数据目录及 UID/GID，
+再通过同一个挂载到 `/data` 的目录运行：
+
+```bash
+cp docker.cli.env.example docker.cli.env
+docker compose --env-file docker.cli.env -f docker-compose.cli.yml run --rm gonavi-cli list-connections
+```
+
 ---
 
 ## 🌐 Web Server（实验中）
@@ -416,15 +462,9 @@ Bootstrapper 在完全断网环境会失败。请改用 **Evergreen Standalone I
 </details>
 
 <details>
-<summary><b>macOS：提示「应用已损坏，无法打开」</b></summary>
+<summary><b>macOS Gatekeeper</b></summary>
 
-未做 Apple Notarization 时，Gatekeeper 可能拦截：
-
-```bash
-sudo xattr -rd com.apple.quarantine /Applications/GoNavi.app
-```
-
-也可在 Finder 中右键打开。建议先移到「应用程序」。
+下一稳定版 macOS DMG 的发布门禁包含 Developer ID 签名和 Apple 公证。请从对应 GitHub Release 下载，移到「应用程序」后正常打开；不要移除 Gatekeeper 的隔离属性。
 
 </details>
 

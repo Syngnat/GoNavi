@@ -170,6 +170,27 @@ func newHTTPClientWithGlobalProxy(timeout time.Duration) *http.Client {
 	return client
 }
 
+func newStrictHTTPClientWithGlobalProxy(timeout time.Duration) *http.Client {
+	client := &http.Client{
+		Timeout:       timeout,
+		CheckRedirect: strictHTTPSRedirectPolicy,
+	}
+	if transport := buildStrictHTTPTransportWithGlobalProxy(); transport != nil {
+		client.Transport = transport
+	}
+	return client
+}
+
+func strictHTTPSRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
+		return errors.New("refusing non-HTTPS redirect for update or driver download")
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
+
 func (a *App) ensurePersistedGlobalProxyRuntime() {
 	if currentGlobalProxyConfig().Enabled {
 		return
@@ -217,6 +238,29 @@ func buildHTTPTransportWithGlobalProxy() http.RoundTripper {
 		return transport
 	}
 	return transportWithProxy
+}
+
+func buildStrictHTTPTransportWithGlobalProxy() http.RoundTripper {
+	baseTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok || baseTransport == nil {
+		return nil
+	}
+	transport := baseTransport.Clone()
+	snapshot := currentGlobalProxyConfig()
+	if !snapshot.Enabled {
+		transport.Proxy = http.ProxyFromEnvironment
+		return transport
+	}
+	proxyURL, err := buildProxyURLFromConfig(snapshot.Proxy)
+	if err != nil {
+		logger.Warnf("全局代理配置无效，严格 TLS 请求回退系统代理：%v", err)
+		transport.Proxy = http.ProxyFromEnvironment
+		return transport
+	}
+	transport.Proxy = http.ProxyURL(proxyURL)
+	// Update and driver downloads must always use the platform trust store,
+	// including when the destination is an HTTPS IP with an IP SAN certificate.
+	return transport
 }
 
 func buildHTTPTransportForProxyConfig(proxyConfig connection.ProxyConfig) (http.RoundTripper, error) {

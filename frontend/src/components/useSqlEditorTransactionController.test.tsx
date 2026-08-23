@@ -237,4 +237,24 @@ describe('useSqlEditorTransactionController', () => {
       message: 'SQLSTATE 40001 serialization failure',
     }));
   });
+
+  it('keeps an unknown transaction finish outcome visible to the user', async () => {
+    backendApp.DBCommitTransactionWithTrigger.mockResolvedValueOnce({
+      success: false,
+      message: 'commit response lost',
+      outcomeUnknown: true,
+    });
+    renderController({ translate });
+
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction());
+      await controller?.finishPendingSqlTransaction('commit', 'manual');
+    });
+
+    expect(messageApi.error).toHaveBeenLastCalledWith('Commit failed: commit response lost (Transaction outcome may be unknown)');
+    expect(storeState.addSqlLog).toHaveBeenLastCalledWith(expect.objectContaining({
+      status: 'error',
+      message: 'commit response lost (Transaction outcome may be unknown)',
+    }));
+  });
 });

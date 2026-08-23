@@ -1,7 +1,6 @@
 package jvm
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,16 +104,6 @@ func TestAgentProviderGetMonitoringSnapshotDecodesResponse(t *testing.T) {
 }
 
 func TestAgentProviderRealAgentRoundTrip(t *testing.T) {
-	if _, err := exec.LookPath("java"); err != nil {
-		t.Skipf("java 不可用，跳过真实 Agent 集成测试: %v", err)
-	}
-	if _, err := exec.LookPath("javac"); err != nil {
-		t.Skipf("javac 不可用，跳过真实 Agent 集成测试: %v", err)
-	}
-	if _, err := exec.LookPath("jar"); err != nil {
-		t.Skipf("jar 不可用，跳过真实 Agent 集成测试: %v", err)
-	}
-
 	provider := NewAgentProvider()
 	fixture := startAgentFixture(t)
 	cfg := newAgentProviderTestConfig(fixture.baseURL+"/gonavi/agent/jvm", 5)
@@ -212,24 +201,12 @@ func TestAgentProviderRealAgentRoundTrip(t *testing.T) {
 type agentFixtureProcess struct {
 	port    int
 	baseURL string
-	cmd     *exec.Cmd
 }
 
 func startAgentFixture(t *testing.T) agentFixtureProcess {
 	t.Helper()
 
-	javaBin, err := exec.LookPath("java")
-	if err != nil {
-		t.Fatalf("look up java failed: %v", err)
-	}
-	javacBin, err := exec.LookPath("javac")
-	if err != nil {
-		t.Fatalf("look up javac failed: %v", err)
-	}
-	jarBin, err := exec.LookPath("jar")
-	if err != nil {
-		t.Fatalf("look up jar failed: %v", err)
-	}
+	toolchain := requireJVMFixtureToolchain(t, true)
 
 	classesDir := filepath.Join(t.TempDir(), "agent-fixture-classes")
 	if err := os.MkdirAll(classesDir, 0o755); err != nil {
@@ -244,12 +221,7 @@ func startAgentFixture(t *testing.T) agentFixtureProcess {
 		t.Fatalf("expected agent fixture java files under %s", sourceRoot)
 	}
 
-	compileArgs := append([]string{"-encoding", "UTF-8", "-d", classesDir}, javaFiles...)
-	compileCmd := exec.Command(javacBin, compileArgs...)
-	output, err := compileCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("compile agent fixture failed: %v\n%s", err, strings.TrimSpace(string(output)))
-	}
+	compileJVMFixture(t, toolchain, "agent", classesDir, javaFiles)
 
 	manifestPath := filepath.Join(t.TempDir(), "agent-manifest.mf")
 	manifest := strings.Join([]string{
@@ -275,60 +247,23 @@ func startAgentFixture(t *testing.T) agentFixtureProcess {
 	t.Cleanup(func() {
 		_ = os.Remove(agentJar)
 	})
-	jarCmd := exec.Command(jarBin, "cmf", manifestPath, agentJar, "-C", classesDir, "com")
-	output, err = jarCmd.CombinedOutput()
+	jarCmd := exec.Command(toolchain.JarBin, "cmf", manifestPath, agentJar, "-C", classesDir, "com")
+	output, err := jarCmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("package agent jar failed: %v\n%s", err, strings.TrimSpace(string(output)))
+		t.Fatalf("package agent jar failed: %v; output: %s; toolchain: %s", err, nonEmptyJVMFixtureText(strings.TrimSpace(string(output)), "<empty>"), toolchain.summary())
 	}
 
 	port := reserveTCPPort(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	cmd := exec.CommandContext(
-		ctx,
-		javaBin,
+	process, stdout := startJVMFixtureCommand(
+		t,
+		toolchain,
+		"agent",
 		fmt.Sprintf("-javaagent:%s=port=%d,token=secret-token", agentJar, port),
 		"-cp",
 		classesDir,
 		"com.gonavi.fixture.AgentHostApp",
 	)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("agent fixture stdout pipe failed: %v", err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start agent fixture failed: %v", err)
-	}
-	t.Cleanup(func() {
-		cancel()
-		_ = cmd.Wait()
-	})
-
-	ready := make(chan error, 1)
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			if strings.TrimSpace(scanner.Text()) == "AGENT_READY" {
-				ready <- nil
-				return
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			ready <- fmt.Errorf("agent fixture readiness read failed: %w", err)
-			return
-		}
-		ready <- fmt.Errorf("agent fixture terminated before readiness signal")
-	}()
-
-	select {
-	case err := <-ready:
-		if err != nil {
-			t.Fatalf("wait agent fixture ready failed: %v", err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("agent fixture did not become ready within 20s")
-	}
+	waitForJVMFixtureReady(t, process, stdout, toolchain, "agent", "AGENT_READY", 20*time.Second)
 
 	waitForTest(t, 10*time.Second, func() error {
 		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
@@ -342,7 +277,6 @@ func startAgentFixture(t *testing.T) agentFixtureProcess {
 	return agentFixtureProcess{
 		port:    port,
 		baseURL: fmt.Sprintf("http://127.0.0.1:%d", port),
-		cmd:     cmd,
 	}
 }
 

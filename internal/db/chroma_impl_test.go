@@ -47,6 +47,14 @@ func writeChromaJSON(w http.ResponseWriter, value interface{}) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+func columnDefinitionNames(columns []connection.ColumnDefinition) []string {
+	names := make([]string, 0, len(columns))
+	for _, column := range columns {
+		names = append(names, column.Name)
+	}
+	return names
+}
+
 func TestChromaConnectDetectsV2(t *testing.T) {
 	server := newMockChromaServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2/heartbeat" {
@@ -159,6 +167,57 @@ func TestChromaSelectConvertsToGetRows(t *testing.T) {
 	}
 }
 
+func TestChromaSelectPassesWhereToGetAndCount(t *testing.T) {
+	var bodies []map[string]interface{}
+	server := newMockChromaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v2/heartbeat":
+			writeChromaJSON(w, map[string]interface{}{"ok": true})
+		case strings.HasSuffix(r.URL.Path, "/collections"):
+			writeChromaJSON(w, []chromaCollection{{ID: "col-products", Name: "products"}})
+		case strings.HasSuffix(r.URL.Path, "/collections/col-products/get"):
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			bodies = append(bodies, body)
+			writeChromaJSON(w, chromaGetResponse{})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	db := newTestChromaDB(t, server.URL)
+
+	queries := []string{
+		`SELECT * FROM "products" WHERE metadata.category = 'book' AND price >= 10 LIMIT 10 OFFSET 2`,
+		"select count(*) from `products` where active = true OR price < 5",
+	}
+	for _, query := range queries {
+		if _, _, err := db.Query(query); err != nil {
+			t.Fatalf("Query(%q) failed: %v", query, err)
+		}
+	}
+	if len(bodies) != 2 || bodies[0]["where"] == nil || bodies[1]["where"] == nil {
+		t.Fatalf("WHERE was not passed to Chroma: %#v", bodies)
+	}
+	first := bodies[0]["where"].(map[string]interface{})
+	if first["$and"] == nil {
+		t.Fatalf("compound WHERE = %#v, want $and", first)
+	}
+	second := bodies[1]["where"].(map[string]interface{})
+	if second["$or"] == nil {
+		t.Fatalf("COUNT WHERE = %#v, want $or", second)
+	}
+}
+
+func TestChromaSelectRejectsUnsupportedWhereWithoutDataRequest(t *testing.T) {
+	db := &ChromaDB{client: &http.Client{Transport: vectorWhereRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("unsupported WHERE must not make an HTTP request")
+		return nil, nil
+	})}}
+	if _, _, err := db.Query(`SELECT * FROM products WHERE category LIKE 'book%'`); err == nil || !strings.Contains(err.Error(), "不支持") {
+		t.Fatalf("error = %v, want unsupported syntax error", err)
+	}
+}
+
 func TestChromaJSONQueryFlattensResults(t *testing.T) {
 	server := newMockChromaServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -188,6 +247,35 @@ func TestChromaJSONQueryFlattensResults(t *testing.T) {
 	}
 	if !containsString(columns, "distance") || !containsString(columns, "metadata.category") {
 		t.Fatalf("columns = %v", columns)
+	}
+}
+
+func TestChromaGetColumnsDoesNotReadDocumentsOrEmbeddings(t *testing.T) {
+	dataReadRequests := 0
+	server := newMockChromaServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v2/heartbeat":
+			writeChromaJSON(w, map[string]interface{}{"ok": true})
+		case strings.HasSuffix(r.URL.Path, "/collections"):
+			writeChromaJSON(w, []chromaCollection{{ID: "col-products", Name: "products", Database: "default_database"}})
+		case strings.HasSuffix(r.URL.Path, "/get"):
+			dataReadRequests++
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	db := newTestChromaDB(t, server.URL)
+	columns, err := db.GetColumns("default_database", "products")
+	if err != nil {
+		t.Fatalf("GetColumns failed: %v", err)
+	}
+	if dataReadRequests != 0 {
+		t.Fatalf("GetColumns must not read Chroma documents or embeddings, requests=%d", dataReadRequests)
+	}
+	if got := columnDefinitionNames(columns); strings.Join(got, ",") != "id,document,metadata,embedding" {
+		t.Fatalf("columns = %v", got)
 	}
 }
 

@@ -455,9 +455,9 @@ func (r *RedisClientImpl) Connect(config connection.ConnectionConfig) (err error
 	if config.UseSSH {
 		forwarder, err := ssh.AcquireLocalForwarder(config.SSH, config.Host, config.Port)
 		if err != nil {
-			return localizedRedisBackendError("redis.backend.error.ssh_tunnel_create_failed", map[string]any{
+			return localizedRedisBackendErrorWithCause("redis.backend.error.ssh_tunnel_create_failed", map[string]any{
 				"detail": err.Error(),
-			})
+			}, err)
 		}
 		r.forwarder = forwarder
 		addr = forwarder.LocalAddr
@@ -588,13 +588,13 @@ func (r *RedisClientImpl) ScanKeys(pattern string, cursor uint64, count int64) (
 		maxDuration = redisSearchMaxDuration
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), maxDuration+5*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), maxDuration+5*time.Second)
 	defer cancel()
 
 	// 集群模式：逐 master 节点 SCAN 后合并去重
 	if r.isCluster && r.clusterClient != nil {
 		if isSearchPattern && !isExactPattern {
-			searchCtx, searchCancel := context.WithTimeout(context.Background(), maxDuration)
+			searchCtx, searchCancel := context.WithTimeout(metadataContextFor(r), maxDuration)
 			defer searchCancel()
 
 			keys := make([]string, 0, int(targetCount))
@@ -1782,7 +1782,7 @@ func (r *RedisClientImpl) GetDatabases() ([]RedisDBInfo, error) {
 	if r.client == nil {
 		return nil, fmt.Errorf("Redis 客户端未连接")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 10*time.Second)
 	defer cancel()
 
 	if r.isCluster && r.clusterClient != nil {

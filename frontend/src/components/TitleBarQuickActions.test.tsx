@@ -93,6 +93,12 @@ describe('TitleBarQuickActions', () => {
     expect(dropdowns).toHaveLength(4);
     const batchDropdown = dropdowns.find((dropdown) => dropdown.props.menu.items.some((item: { key: string }) => item.key === 'batch-tables'));
     expect(batchDropdown).toBeDefined();
+    const batchPopup = create(batchDropdown?.props.popupRender(<div data-menu-content="true" />));
+    expect(batchPopup.root.findAllByProps({ className: 'gn-v2-context-menu-header gn-v2-action-menu-header' })).toHaveLength(0);
+    expect(batchPopup.root.findAllByProps({ 'data-menu-content': 'true' })).toHaveLength(1);
+    const moreDropdown = dropdowns.find((dropdown) => dropdown.props.menu.items.some((item: { key: string }) => item.key === 'open-external-sql-file'));
+    const morePopup = create(moreDropdown?.props.popupRender(<div data-menu-content="true" />));
+    expect(morePopup.root.findAllByProps({ className: 'gn-v2-context-menu-header gn-v2-action-menu-header' })).toHaveLength(0);
     const textOf = (instance: ReactTestInstance) => instance
       .findAllByType('span')
       .flatMap((span) => span.children.filter((child): child is string => typeof child === 'string'))

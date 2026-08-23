@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,17 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 )
+
+func TestDuckDBApplyChangesMarksCommitFailureOutcomeUnknown(t *testing.T) {
+	commitErr := errors.New("commit response lost")
+	database := openWriteOutcomeTransactionDB(t, &writeOutcomeTransactionState{commitErr: commitErr})
+	err := (&DuckDB{conn: database}).ApplyChanges("users", connection.ChangeSet{
+		Deletes: []map[string]interface{}{{"id": int64(1)}},
+	})
+	if !IsWriteOutcomeUnknown(err) || !errors.Is(err, commitErr) {
+		t.Fatalf("commit error must be outcome unknown, got %v", err)
+	}
+}
 
 const duckdbRecordingDriverName = "gonavi_duckdb_recording"
 

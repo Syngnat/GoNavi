@@ -8,6 +8,7 @@ import {
   suggestKeyColumns,
 } from '../../utils/resultDiff/client';
 import { resolveResultDiffColumnMeta } from '../../utils/resultDiff/columnMeta';
+import { canReplayResultDiffSqlInOneContext } from '../../utils/resultDiff/executionContext';
 import { collectExportColumns } from '../../utils/resultDiff/exportDiff';
 import type {
   ResultDiffColumnMeta,
@@ -23,6 +24,7 @@ export type ResultDiffWizardProps = {
   initialRightKey?: string;
   connectionConfig: unknown;
   database: string;
+  resolveExecutionConnectionConfig?: (result: ResultDiffComparableResult) => unknown;
   onCancel: () => void;
   onCompleted: (payload: {
     jobId: string;
@@ -40,6 +42,7 @@ const ResultDiffWizard: React.FC<ResultDiffWizardProps> = ({
   initialRightKey,
   connectionConfig,
   database,
+  resolveExecutionConnectionConfig,
   onCancel,
   onCompleted,
 }) => {
@@ -89,6 +92,7 @@ const ResultDiffWizard: React.FC<ResultDiffWizardProps> = ({
 
   const leftResult = gridResults.find((r) => r.key === leftKey);
   const rightResult = gridResults.find((r) => r.key === rightKey);
+  const sqlReplayAvailable = canReplayResultDiffSqlInOneContext(leftResult, rightResult, database);
 
   const commonColumns = useMemo(() => {
     if (!leftResult || !rightResult) return [];
@@ -108,6 +112,12 @@ const ResultDiffWizard: React.FC<ResultDiffWizardProps> = ({
     });
   }, [leftKey, rightKey, leftResult, rightResult, commonColumns]);
 
+  useEffect(() => {
+    if (!sqlReplayAvailable && mode === 'sql') {
+      setMode('rows');
+    }
+  }, [mode, sqlReplayAvailable]);
+
   const handleStart = async () => {
     if (gridResults.length < 2) {
       message.warning(t('result_diff.wizard.need_two_results'));
@@ -125,20 +135,24 @@ const ResultDiffWizard: React.FC<ResultDiffWizardProps> = ({
       message.warning(t('result_diff.wizard.need_keys'));
       return;
     }
-    if (mode === 'sql' && (!leftResult.sql?.trim() || !rightResult.sql?.trim())) {
+    const effectiveMode = mode === 'sql' && sqlReplayAvailable ? 'sql' : 'rows';
+    if (effectiveMode === 'sql' && (!leftResult.sql?.trim() || !rightResult.sql?.trim())) {
       message.warning(t('result_diff.wizard.need_sql'));
       return;
     }
 
     setLoading(true);
     try {
+      const executionConnectionConfig = resolveExecutionConnectionConfig?.(leftResult)
+        ?? connectionConfig;
+      const executionDatabase = String(leftResult.executionDbName || database || '').trim();
       const { jobId, summary } = await runResultDiffCompare({
-        config: connectionConfig,
-        database,
+        config: executionConnectionConfig,
+        database: executionDatabase,
         left: leftResult,
         right: rightResult,
         keyColumns,
-        mode,
+        mode: effectiveMode,
         options,
       });
       // 拉取列类型/注释，供并排预览表头展示（失败不阻断对比）
@@ -148,6 +162,7 @@ const ResultDiffWizard: React.FC<ResultDiffWizardProps> = ({
         columnMeta = await resolveResultDiffColumnMeta({
           connectionConfig,
           database,
+          resolveExecutionConnectionConfig,
           left: leftResult,
           right: rightResult,
           columnNames: columnNames.length > 0
@@ -237,7 +252,11 @@ const ResultDiffWizard: React.FC<ResultDiffWizardProps> = ({
             value={mode}
             options={[
               { value: 'rows', label: t('result_diff.wizard.mode.rows') },
-              { value: 'sql', label: t('result_diff.wizard.mode.sql') },
+              {
+                value: 'sql',
+                label: t('result_diff.wizard.mode.sql'),
+                disabled: !sqlReplayAvailable,
+              },
             ]}
             onChange={(v) => setMode(v)}
           />

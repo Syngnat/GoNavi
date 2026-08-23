@@ -40,6 +40,19 @@ DRIVERS = [
 BUNDLE_NAME = "GoNavi-DriverAgents.zip"
 
 
+def asset_download_url(asset):
+    """Prefer the public release URL over the API asset endpoint.
+
+    GitHub's asset API endpoint is subject to REST quota and can reject an
+    otherwise public release asset. The public URL redirects directly to the
+    short-lived release object URL without consuming that API request.
+    """
+    public_url = str(asset.get("browser_download_url") or "").strip()
+    if public_url:
+        return public_url
+    return str(asset.get("url") or "").strip()
+
+
 def required_assets():
     assets = []
     for driver in DRIVERS:
@@ -77,9 +90,14 @@ def fetch_json(url):
 
 
 def download_asset(asset, destination):
-    headers = github_headers()
-    headers["Accept"] = "application/octet-stream"
-    req = urllib.request.Request(asset["url"], headers=headers)
+    url = asset_download_url(asset)
+    if not url:
+        raise ValueError(f"release asset is missing a download URL: {asset.get('name', '<unnamed>')}")
+    headers = {"User-Agent": "GoNavi-CI"}
+    if url == str(asset.get("url") or "").strip():
+        headers = github_headers()
+        headers["Accept"] = "application/octet-stream"
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=120) as resp:
         with open(destination, "wb") as out:
             shutil.copyfileobj(resp, out)

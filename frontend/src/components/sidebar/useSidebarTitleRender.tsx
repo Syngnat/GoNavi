@@ -15,6 +15,7 @@ import {
   splitQualifiedName,
 } from './sidebarMetadataLoaders';
 import { resolveV2ObjectGroupTitle } from './sidebarHelpers';
+import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
 
 type UseSidebarTitleRenderArgs = {
   connectionStates: Record<string, SidebarConnectionState>;
@@ -78,6 +79,24 @@ export const useSidebarTitleRender = ({
   } else if (node.type === 'external-sql-directory' || node.type === 'external-sql-folder' || node.type === 'external-sql-file') {
     hoverTitle = String(node?.dataRef?.path || displayTitle);
   }
+  const objectCompileStatus = (node.type === 'routine' || node.type === 'db-trigger')
+    ? normalizeOracleObjectCompileStatus(node?.dataRef?.objectStatus)
+    : '';
+  const objectCompileStatusLabel = objectCompileStatus
+    ? t(`sidebar.object_status.${objectCompileStatus.toLowerCase()}`)
+    : '';
+  if (objectCompileStatusLabel) {
+    hoverTitle = `${hoverTitle}\n${t('sidebar.object_status.tooltip', { status: objectCompileStatusLabel })}`;
+  }
+  const objectCompileStatusBadge = !isV2Ui && objectCompileStatus ? (
+    <span
+      className={`gonavi-sidebar-object-status is-${objectCompileStatus.toLowerCase()}`}
+      data-sidebar-object-status={objectCompileStatus}
+      title={t('sidebar.object_status.tooltip', { status: objectCompileStatusLabel })}
+    >
+      {objectCompileStatusLabel}
+    </span>
+  ) : null;
 
   if (node.type === 'jvm-mode') {
     return (
@@ -161,12 +180,12 @@ export const useSidebarTitleRender = ({
           setIsTreeDragging(false);
         }}
       >
-        {statusBadge}{displayTitle}
+        {statusBadge}{displayTitle}{objectCompileStatusBadge}
       </span>
     );
   }
 
-  return <span title={hoverTitle}>{statusBadge}{displayTitle}</span>;
+  return <span title={hoverTitle}>{statusBadge}{displayTitle}{objectCompileStatusBadge}</span>;
 }, [
   connectionStates,
   isV2Ui,

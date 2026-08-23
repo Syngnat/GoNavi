@@ -26,6 +26,9 @@ func ensureDataSyncTargetProtection(config sync.SyncConfig) error {
 		}
 	}
 	if touchesData {
+		if err := ensureConnectionAllowsDataEdit(config.TargetConfig, "connection.backend.action.data_sync_write"); err != nil {
+			return err
+		}
 		if err := ensureConnectionAllowsDataImport(config.TargetConfig, "connection.backend.action.data_sync_write"); err != nil {
 			return err
 		}
@@ -76,6 +79,12 @@ func (a *App) resolveDataSyncEndpointConfig(raw connection.ConnectionConfig, sel
 		return resolved, selected, err
 	}
 	return effectiveConfig, selected, nil
+}
+
+// DataSyncCapability returns the effective migration support for a connection
+// pair without opening either endpoint or mutating application state.
+func (a *App) DataSyncCapability(sourceConfig connection.ConnectionConfig, targetConfig connection.ConnectionConfig) sync.MigrationCapability {
+	return sync.ResolveMigrationCapability(sourceConfig, targetConfig)
 }
 
 // DataSync executes a data synchronization task

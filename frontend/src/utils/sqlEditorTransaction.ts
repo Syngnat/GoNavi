@@ -1,3 +1,5 @@
+import { getDataSourceCapabilityContract } from './dataSourceCapabilities';
+
 const SQL_EDITOR_DML_KEYWORDS = new Set(['insert', 'update', 'delete', 'replace', 'merge', 'upsert']);
 const SQL_EDITOR_READ_KEYWORDS = new Set(['select', 'with', 'show', 'describe', 'desc', 'explain', 'pragma', 'values']);
 const SQL_EDITOR_TRANSACTION_CONTROL_KEYWORDS = new Set(['begin', 'commit', 'rollback', 'savepoint', 'release']);
@@ -13,17 +15,6 @@ const SQL_EDITOR_BEGIN_TRANSACTION_CONTROL_KEYWORDS = new Set([
     'exclusive',
     'distributed',
 ]);
-const SQL_EDITOR_MANAGED_TRANSACTION_UNSUPPORTED_TYPES = new Set([
-    'trino',
-    'tdengine',
-    'clickhouse',
-    'iotdb',
-    'rocketmq',
-    'mqtt',
-    'kafka',
-    'rabbitmq',
-]);
-
 type SqlEditorWithAnalysis = {
     keyword: string;
     cteHasManagedWrite: boolean;
@@ -255,6 +246,19 @@ export const resolveSqlEditorOperationKeyword = (statement: string): string => {
     return resolveSqlEditorWithAnalysis(text, leading.end).keyword || leading.keyword;
 };
 
+export const hasTopLevelSqlEditorForUpdate = (statement: string): boolean => {
+    const text = String(statement || '');
+    if (resolveSqlEditorOperationKeyword(text) !== 'select') return false;
+    let searchFrom = 0;
+    while (searchFrom < text.length) {
+        const forEnd = findTopLevelSqlEditorKeyword(text, searchFrom, 'for');
+        if (forEnd < 0) return false;
+        if (readSqlEditorKeyword(text, forEnd).keyword === 'update') return true;
+        searchFrom = forEnd;
+    }
+    return false;
+};
+
 const sqlEditorStatementHasManagedWrite = (statement: string): boolean => {
     const text = String(statement || '');
     const leading = readSqlEditorKeyword(text, 0);
@@ -324,11 +328,26 @@ const isSqlEditorManagedBlockWrite = (type: string, statement: string): boolean 
     return [...SQL_EDITOR_DML_KEYWORDS].some((keyword) => sqlEditorStatementContainsKeyword(text, keyword));
 };
 
+type DataSourceCapabilityInput = Parameters<typeof getDataSourceCapabilityContract>[0];
+
+const supportsSqlEditorManagedTransaction = (
+    type: string,
+    connectionConfig?: DataSourceCapabilityInput,
+): boolean => {
+    const normalizedType = String(type || '').trim();
+    // Statement-only utilities intentionally keep their historical generic SQL
+    // behavior. Real query entry points pass their saved connection so custom
+    // drivers can use the runtime-probe profile from the shared registry.
+    if (!normalizedType) return true;
+    return getDataSourceCapabilityContract(connectionConfig ?? { type: normalizedType }).transaction.supported;
+};
+
 export const shouldUseSqlEditorManagedTransactionForType = (
     type: string,
     statements: string[],
+    connectionConfig?: DataSourceCapabilityInput,
 ): boolean => {
-    if (SQL_EDITOR_MANAGED_TRANSACTION_UNSUPPORTED_TYPES.has(String(type || '').trim().toLowerCase())) {
+    if (!supportsSqlEditorManagedTransaction(type, connectionConfig)) {
         return false;
     }
     let hasManagedWrite = false;
@@ -357,8 +376,9 @@ export const shouldUseSqlEditorManagedTransaction = (statements: string[]): bool
 export const canReusePendingSqlEditorTransactionForType = (
     type: string,
     statements: string[],
+    connectionConfig?: DataSourceCapabilityInput,
 ): boolean => {
-    if (SQL_EDITOR_MANAGED_TRANSACTION_UNSUPPORTED_TYPES.has(String(type || '').trim().toLowerCase())) {
+    if (!supportsSqlEditorManagedTransaction(type, connectionConfig)) {
         return false;
     }
     let hasReadStatement = false;

@@ -3,6 +3,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net"
@@ -25,6 +26,14 @@ const defaultGaussDBPort = 5432
 // 元数据与大多数 SQL 行为按 PG-like 路径复用。
 type GaussDB struct {
 	PostgresDB
+}
+
+func (g *GaussDB) bindMetadataContext(ctx context.Context) {
+	BindMetadataContext(&g.PostgresDB, ctx)
+}
+
+func (g *GaussDB) clearMetadataContext() {
+	ClearMetadataContext(&g.PostgresDB)
 }
 
 func applyGaussDBURI(config connection.ConnectionConfig) connection.ConnectionConfig {

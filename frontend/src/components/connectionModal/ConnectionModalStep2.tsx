@@ -58,6 +58,7 @@ import ConnectionModalNetworkSecuritySection from "./ConnectionModalNetworkSecur
 import type { MongoMemberInfo } from "../../types";
 import ConnectionEnvironmentSelect from "../ConnectionEnvironmentSelect";
 import { DEFAULT_CONNECTION_ENVIRONMENT } from "../../utils/connectionEnvironment";
+import { supportsRedisSshTunnel } from "../../utils/redisTopologySsh";
 
 const { Text } = Typography;
 
@@ -159,6 +160,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     onOpenDriverManager,
     oracleMode,
     primaryPasswordVisible,
+    handlePrimaryPasswordVisibleChange,
     proxyType,
     redisDbList,
     redisTopology,
@@ -179,7 +181,6 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     setCustomIconType,
     setDbType,
     setMongoMembers,
-    setPrimaryPasswordVisible,
     setRedisDbList,
     setTestErrorLogOpen,
     setTestResult,
@@ -1480,7 +1481,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                           {...noAutoCapInputProps}
                           visibilityToggle={{
                             visible: primaryPasswordVisible,
-                            onVisibleChange: setPrimaryPasswordVisible,
+                            onVisibleChange: handlePrimaryPasswordVisibleChange,
                           }}
                           placeholder={getStoredSecretPlaceholder({
                             hasStoredSecret: initialValues?.hasPrimaryPassword,
@@ -1511,34 +1512,59 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
             )}
 
             {isRedis && (
-              <div className="gn-conn-f-row">
-                {denseLabel(
-                  t("connection.modal.dense.password"),
-                  t("connection.modal.field.redisPassword.label"),
-                )}
-                <div className="gn-conn-f-ctrl gn-conn-f-inline">
-                  <div className="gn-conn-w gn-conn-w-pass">
-                    <Form.Item name="password" style={{ marginBottom: 0 }}>
-                      <Input.Password
-                        {...noAutoCapInputProps}
-                        visibilityToggle={{
-                          visible: primaryPasswordVisible,
-                          onVisibleChange: setPrimaryPasswordVisible,
-                        }}
-                        placeholder={getStoredSecretPlaceholder({
-                          hasStoredSecret: initialValues?.hasPrimaryPassword,
-                          emptyPlaceholder: t(
-                            "connection.modal.field.redisPassword.placeholder",
-                          ),
-                          retainedLabel: t(
-                            "connection.modal.field.redisPassword.retained",
-                          ),
-                        })}
-                      />
-                    </Form.Item>
+              <>
+                <div className="gn-conn-f-row">
+                  {denseLabel(
+                    t("connection.modal.dense.auth"),
+                    t("connection.modal.field.username.label"),
+                  )}
+                  <div className="gn-conn-f-ctrl gn-conn-f-inline">
+                    <div className="gn-conn-w gn-conn-w-user">
+                      <Form.Item name="user" style={{ marginBottom: 0 }}>
+                        <Input
+                          {...noAutoCapInputProps}
+                          placeholder={t(
+                            "connection.modal.field.username.optional_placeholder",
+                          )}
+                        />
+                      </Form.Item>
+                    </div>
+                    <div className="gn-conn-w gn-conn-w-pass">
+                      <Form.Item name="password" style={{ marginBottom: 0 }}>
+                        <Input.Password
+                          {...noAutoCapInputProps}
+                          visibilityToggle={{
+                            visible: primaryPasswordVisible,
+                            onVisibleChange: handlePrimaryPasswordVisibleChange,
+                          }}
+                          placeholder={getStoredSecretPlaceholder({
+                            hasStoredSecret: initialValues?.hasPrimaryPassword,
+                            emptyPlaceholder: t(
+                              "connection.modal.field.redisPassword.placeholder",
+                            ),
+                            retainedLabel: t(
+                              "connection.modal.field.redisPassword.retained",
+                            ),
+                          })}
+                        />
+                      </Form.Item>
+                    </div>
                   </div>
                 </div>
-              </div>
+                {initialValues?.hasPrimaryPassword
+                  ? renderStoredSecretControls({
+                      fieldName: "password",
+                      clearKey: "primaryPassword",
+                      hasStoredSecret: initialValues?.hasPrimaryPassword,
+                      clearLabel: t(
+                        "connection.modal.secret.clear_saved_password",
+                      ),
+                      description: t(
+                        "connection.modal.secret.saved_redis_password",
+                      ),
+                    })
+                  : null}
+              </>
             )}
 
             {isRedis && redisTopology === "sentinel" && (
@@ -2716,6 +2742,8 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
         sslKeyPath: "",
         useSSH: false,
         sshPort: 22,
+        sshKnownHostsPath: "",
+        sshHostKeyFingerprint: "",
         useProxy: false,
         proxyType: "socks5",
         proxyPort: 1080,
@@ -2898,6 +2926,14 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
               supportedDbs,
             ),
           );
+          // Cluster/Sentinel 与 SSH 组合后端不支持：切换拓扑时关闭 SSH 开关，
+          // 已填写的隧道字段保留在表单中，切回单机拓扑可恢复。
+          if (
+            !supportsRedisSshTunnel(nextRedisTopology) &&
+            form.getFieldValue("useSSH")
+          ) {
+            form.setFieldValue("useSSH", false);
+          }
         }
         if (
           changed.type !== undefined ||

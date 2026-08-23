@@ -1,8 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SavedQuery, TabData } from '../types';
-import { clearQueryTabDraft, setQueryTabDraft, setSQLFileTabDraft } from './sqlFileTabDrafts';
+import {
+  clearQueryTabDraft,
+  getQueryTabDraft,
+  hasQueryTabDraft,
+  setQueryTabDraft,
+  setSQLFileTabDraft,
+} from './sqlFileTabDrafts';
 import {
   collectApplicationQuitUnsavedSQLTargets,
+  saveLatestApplicationQuitUnsavedSQLState,
   saveApplicationQuitUnsavedSQLTargets,
 } from './sqlEditorApplicationQuit';
 
@@ -183,5 +190,150 @@ describe('sqlEditorApplicationQuit', () => {
 
     expect(savedQuery.id).toBe(tab.id);
     expect(targetsAfterRestart).toEqual([]);
+  });
+
+  it('persists the latest saved-query draft into the restored tab before application quit', async () => {
+    const savedQuery = createSavedQuery({ sql: 'select stale_snapshot;' });
+    let tabs = [createQueryTab({
+      id: 'tab-3',
+      title: savedQuery.name,
+      query: 'select stale_snapshot;',
+      savedQueryId: savedQuery.id,
+    })];
+    const savedQueries: SavedQuery[] = [savedQuery];
+    setQueryTabDraft('tab-3', 'select prompt_snapshot;');
+
+    const promptTargets = await collectApplicationQuitUnsavedSQLTargets(
+      tabs,
+      savedQueries,
+      vi.fn(),
+    );
+    expect(promptTargets[0]).toMatchObject({ draft: 'select prompt_snapshot;' });
+
+    setQueryTabDraft('tab-3', 'select latest_before_click;');
+    const saveQuery = vi.fn(async (query: SavedQuery) => query);
+
+    await saveLatestApplicationQuitUnsavedSQLState({
+      getState: () => ({ tabs, savedQueries }),
+      updateTabs: (update) => {
+        tabs = update(tabs);
+      },
+      saveQuery,
+      readSQLFile: vi.fn(),
+    });
+
+    expect(saveQuery).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'saved-1',
+      sql: 'select latest_before_click;',
+    }));
+    expect(tabs[0]).toMatchObject({
+      id: 'tab-3',
+      query: 'select latest_before_click;',
+      savedQueryId: 'saved-1',
+    });
+    expect(hasQueryTabDraft('tab-3')).toBe(false);
+  });
+
+  it('turns the latest unnamed query draft into the saved query restored after application quit', async () => {
+    let tabs = [createQueryTab({
+      id: 'tab-3',
+      title: 'New query',
+      query: 'select stale_snapshot;',
+    })];
+    setQueryTabDraft('tab-3', 'select latest_before_click;');
+    const saveQuery = vi.fn(async (query: SavedQuery) => query);
+
+    await saveLatestApplicationQuitUnsavedSQLState({
+      getState: () => ({ tabs, savedQueries: [] }),
+      updateTabs: (update) => {
+        tabs = update(tabs);
+      },
+      saveQuery,
+      readSQLFile: vi.fn(),
+    });
+
+    expect(saveQuery).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'tab-3',
+      name: 'New query',
+      sql: 'select latest_before_click;',
+    }));
+    expect(tabs[0]).toMatchObject({
+      id: 'tab-3',
+      query: 'select latest_before_click;',
+      savedQueryId: 'tab-3',
+    });
+    expect(hasQueryTabDraft('tab-3')).toBe(false);
+  });
+
+  it('persists the latest external SQL file draft into the restored tab after writing it', async () => {
+    let tabs = [createQueryTab({
+      id: 'tab-3',
+      title: 'report.sql',
+      filePath: '/tmp/report.sql',
+      query: 'select stale_snapshot;',
+    })];
+    setSQLFileTabDraft('tab-3', 'select latest_before_click;');
+    const saveQuery = vi.fn(async (query: SavedQuery) => query);
+    const readSQLFile = vi.fn(async () => ({
+      success: true,
+      data: { content: 'select stale_snapshot;' },
+    }));
+    const writeSQLFile = vi.fn(async () => ({ success: true }));
+
+    await saveLatestApplicationQuitUnsavedSQLState({
+      getState: () => ({ tabs, savedQueries: [] }),
+      updateTabs: (update) => {
+        tabs = update(tabs);
+      },
+      saveQuery,
+      readSQLFile,
+      writeSQLFile,
+    });
+
+    expect(writeSQLFile).toHaveBeenCalledWith(
+      '/tmp/report.sql',
+      'select latest_before_click;',
+    );
+    expect(saveQuery).not.toHaveBeenCalled();
+    expect(tabs[0]?.query).toBe('select latest_before_click;');
+    expect(hasQueryTabDraft('tab-3')).toBe(false);
+  });
+
+  it('keeps the newer draft and cancels quit when SQL changes while saving', async () => {
+    const savedQuery = createSavedQuery({ sql: 'select stale_snapshot;' });
+    let tabs = [createQueryTab({
+      id: 'tab-3',
+      title: savedQuery.name,
+      query: 'select stale_snapshot;',
+      savedQueryId: savedQuery.id,
+    })];
+    setQueryTabDraft('tab-3', 'select before_save;');
+
+    let releaseSave!: () => void;
+    let markSaveStarted!: () => void;
+    const saveStarted = new Promise<void>((resolve) => {
+      markSaveStarted = resolve;
+    });
+    const saveQuery = vi.fn((query: SavedQuery) => new Promise<SavedQuery>((resolve) => {
+      releaseSave = () => resolve(query);
+      markSaveStarted();
+    }));
+
+    const savePromise = saveLatestApplicationQuitUnsavedSQLState({
+      getState: () => ({ tabs, savedQueries: [savedQuery] }),
+      updateTabs: (update) => {
+        tabs = update(tabs);
+      },
+      saveQuery,
+      readSQLFile: vi.fn(),
+    });
+    await saveStarted;
+    setQueryTabDraft('tab-3', 'select changed_during_save;');
+    releaseSave();
+
+    await expect(savePromise).rejects.toThrow('SQL changed while saving: Saved query');
+    expect(tabs[0]?.query).toBe('select stale_snapshot;');
+    expect(getQueryTabDraft('tab-3')).toBe('select changed_during_save;');
+    expect(hasQueryTabDraft('tab-3')).toBe(true);
   });
 });

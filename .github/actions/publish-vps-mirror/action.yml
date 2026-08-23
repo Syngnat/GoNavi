@@ -1,213 +1,95 @@
-name: Publish VPS download mirror
-description: Verify, upload, and atomically publish a GoNavi release to the VPS mirror
+name: Publish verified download edges
+description: Publish immutable assets to the DMIT edge and Bero origin before mutable pointers and KV control
 
 inputs:
-  channel:
-    description: stable or dev
-    required: true
-  app-tag:
-    description: Physical application release directory name
-    required: true
-  app-dir:
-    description: Directory containing application release assets
-    required: true
-  app-manifest:
-    description: Application latest manifest path
-    required: true
-  driver-enabled:
-    description: Whether this deployment must publish driver assets
-    required: true
-  driver-tag:
-    description: Physical driver release directory name
-    required: false
-    default: ''
-  driver-dir:
-    description: Directory containing driver release assets
-    required: false
-    default: ''
-  driver-version-index:
-    description: Versioned driver index path
-    required: false
-    default: ''
-  driver-latest-index:
-    description: Mutable latest driver index path
-    required: false
-    default: ''
-  ssh-host:
-    description: Mirror origin SSH host
-    required: true
-  ssh-port:
-    description: Mirror origin SSH port
-    required: true
-  ssh-user:
-    description: Unprivileged mirror deployment user
-    required: true
-  ssh-private-key:
-    description: SSH private key for the deployment user
-    required: true
-  ssh-known-hosts:
-    description: Pinned known_hosts entry for the mirror origin
-    required: true
+  channel: { required: true, description: stable or dev }
+  app-tag: { required: true, description: Physical application release tag }
+  app-dir: { required: true, description: Application release assets }
+  app-manifest: { required: true, description: Mutable application manifest }
+  driver-enabled: { required: true, description: Whether driver assets are included }
+  driver-tag: { required: false, default: '', description: Physical driver release tag }
+  driver-dir: { required: false, default: '', description: Driver release assets }
+  driver-version-index: { required: false, default: '', description: Versioned driver index }
+  driver-latest-index: { required: false, default: '', description: Mutable driver index }
+  dmit-ssh-host: { required: true, description: DMIT SSH host }
+  dmit-ssh-port: { required: true, description: DMIT SSH port }
+  dmit-ssh-user: { required: true, description: Restricted gonavi-cdn user }
+  dmit-ssh-private-key: { required: true, description: DMIT deployment key }
+  dmit-ssh-known-hosts: { required: true, description: Pinned DMIT host key }
+  bero-ssh-host: { required: true, description: Bero origin SSH host; must be 94.103.173.47 }
+  bero-ssh-port: { required: true, description: Bero origin SSH port; must be 37167 }
+  bero-ssh-user: { required: true, description: Restricted gonavi-cdn user }
+  bero-ssh-private-key: { required: true, description: Bero origin deployment key }
+  bero-ssh-known-hosts: { required: true, description: Pinned Bero origin host key }
+  bero-base-url: { required: true, description: HTTPS Cloudflare-proxied Bero origin base URL }
+  cloudflare-account-id: { required: true, description: Cloudflare account ID }
+  cloudflare-api-token: { required: true, description: Token restricted to Workers KV Storage Write }
+  routing-state-kv-id: { required: true, description: Download dispatcher routing KV namespace ID }
+  throughput-warning-mbps: { required: false, default: '20', description: Observability-only public eight-Range warning threshold }
+  dmit-max-bytes: { required: false, default: '9000000000', description: Maximum DMIT mirror bytes }
+  dmit-reserve-free-bytes: { required: false, default: '2000000000', description: Minimum free bytes preserved on DMIT }
+  bero-max-bytes: { required: false, default: '9000000000', description: Maximum Bero origin bytes }
+  bero-reserve-free-bytes: { required: false, default: '2000000000', description: Minimum free bytes preserved on Bero }
 
 runs:
   using: composite
   steps:
-    - name: Prepare, upload, and commit mirror payload
+    - name: Validate GUI update manifest for dispatcher publication
       shell: bash
       env:
-        MIRROR_CHANNEL: ${{ inputs.channel }}
-        MIRROR_APP_TAG: ${{ inputs.app-tag }}
-        MIRROR_APP_DIR: ${{ inputs.app-dir }}
-        MIRROR_APP_MANIFEST: ${{ inputs.app-manifest }}
-        MIRROR_DRIVER_ENABLED: ${{ inputs.driver-enabled }}
-        MIRROR_DRIVER_TAG: ${{ inputs.driver-tag }}
-        MIRROR_DRIVER_DIR: ${{ inputs.driver-dir }}
-        MIRROR_DRIVER_VERSION_INDEX: ${{ inputs.driver-version-index }}
-        MIRROR_DRIVER_LATEST_INDEX: ${{ inputs.driver-latest-index }}
-        MIRROR_SSH_HOST: ${{ inputs.ssh-host }}
-        MIRROR_SSH_PORT: ${{ inputs.ssh-port }}
-        MIRROR_SSH_USER: ${{ inputs.ssh-user }}
-        MIRROR_SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
-        MIRROR_SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
+        PUB_CHANNEL: ${{ inputs.channel }}
+        PUB_APP_TAG: ${{ inputs.app-tag }}
+        PUB_APP_DIR: ${{ inputs.app-dir }}
+        PUB_APP_MANIFEST: ${{ inputs.app-manifest }}
       run: |
         set -euo pipefail
-        mirror_root="/srv/gonavi-downloads"
-        [[ "${MIRROR_CHANNEL}" == "stable" || "${MIRROR_CHANNEL}" == "dev" ]] || {
-          echo "Invalid mirror channel: ${MIRROR_CHANNEL}" >&2
-          exit 1
-        }
-        [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]+$ && "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]+$ ]] || {
-          echo "Invalid GitHub run identity" >&2
-          exit 1
-        }
-        deployment_id="${MIRROR_CHANNEL}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-        stage_dir="${RUNNER_TEMP}/gonavi-vps-mirror-${deployment_id}"
-        ssh_dir="${RUNNER_TEMP}/gonavi-vps-ssh-${deployment_id}"
-        remote_stage="${mirror_root}/.incoming/${deployment_id}"
-        effective_driver_tag=""
-        remote=""
-        remote_cleanup_enabled=false
-        ssh_options=()
-
-        cleanup() {
-          local exit_code=$?
-          local cleanup_remote_command=""
-          trap - EXIT
-          set +e
-          if [[ "${remote_cleanup_enabled}" == true && -n "${remote}" ]]; then
-            printf -v cleanup_remote_command 'rm -rf -- %q' "${remote_stage}"
-            ssh "${ssh_options[@]}" "${remote}" "${cleanup_remote_command}" >/dev/null 2>&1 || true
-          fi
-          rm -rf -- "${ssh_dir}" "${stage_dir}"
-          exit "${exit_code}"
-        }
-        trap cleanup EXIT
-
-        [[ "${MIRROR_SSH_PORT}" =~ ^[0-9]+$ ]] || {
-          echo "Invalid mirror SSH port" >&2
-          exit 1
-        }
-        mkdir -p "${ssh_dir}"
-        chmod 0700 "${ssh_dir}"
-        printf '%s\n' "${MIRROR_SSH_PRIVATE_KEY}" > "${ssh_dir}/id_ed25519"
-        printf '%s\n' "${MIRROR_SSH_KNOWN_HOSTS}" > "${ssh_dir}/known_hosts"
-        chmod 0600 "${ssh_dir}/id_ed25519" "${ssh_dir}/known_hosts"
-        ssh-keygen -y -f "${ssh_dir}/id_ed25519" >/dev/null
-
-        prepare_args=(
-          --channel "${MIRROR_CHANNEL}"
-          --app-tag "${MIRROR_APP_TAG}"
-          --app-dir "${MIRROR_APP_DIR}"
-          --app-manifest "${MIRROR_APP_MANIFEST}"
-          --output "${stage_dir}"
-        )
-        case "${MIRROR_DRIVER_ENABLED}" in
-          true)
-            [[ -n "${MIRROR_DRIVER_TAG}" ]] || {
-              echo "Driver mirror publication is enabled but driver-tag is empty" >&2
-              exit 1
-            }
-            [[ -n "${MIRROR_DRIVER_DIR}" && -d "${MIRROR_DRIVER_DIR}" ]] || {
-              echo "Driver mirror publication is enabled but driver-dir is missing" >&2
-              exit 1
-            }
-            [[ -n "$(find "${MIRROR_DRIVER_DIR}" -maxdepth 1 -type f -print -quit)" ]] || {
-              echo "Driver mirror publication is enabled but driver-dir is empty" >&2
-              exit 1
-            }
-            [[ -n "${MIRROR_DRIVER_VERSION_INDEX}" && -s "${MIRROR_DRIVER_VERSION_INDEX}" ]] || {
-              echo "Driver mirror publication is enabled but driver-version-index is missing or empty" >&2
-              exit 1
-            }
-            [[ -n "${MIRROR_DRIVER_LATEST_INDEX}" && -s "${MIRROR_DRIVER_LATEST_INDEX}" ]] || {
-              echo "Driver mirror publication is enabled but driver-latest-index is missing or empty" >&2
-              exit 1
-            }
-            effective_driver_tag="${MIRROR_DRIVER_TAG}"
-            prepare_args+=(
-              --driver-tag "${effective_driver_tag}"
-              --driver-dir "${MIRROR_DRIVER_DIR}"
-              --driver-version-index "${MIRROR_DRIVER_VERSION_INDEX}"
-              --driver-latest-index "${MIRROR_DRIVER_LATEST_INDEX}"
-            )
-            ;;
-          false)
-            echo "Driver mirror publication explicitly disabled"
-            ;;
-          *)
-            echo "Invalid driver-enabled value: ${MIRROR_DRIVER_ENABLED}" >&2
-            exit 1
-            ;;
+        case "${PUB_CHANNEL}" in
+          stable) download_path_prefix=/gonavi/releases/download ;;
+          dev) download_path_prefix=/gonavi/dev/releases/download ;;
+          *) echo "Invalid publication channel: ${PUB_CHANNEL}" >&2; exit 1 ;;
         esac
-        python3 "${GITHUB_WORKSPACE}/tools/prepare-vps-release-payload.py" "${prepare_args[@]}"
-        cp "${GITHUB_WORKSPACE}/tools/vps-release-commit.sh" "${stage_dir}/vps-release-commit.sh"
-        chmod 0755 "${stage_dir}/vps-release-commit.sh"
+        python3 "${GITHUB_WORKSPACE}/tools/validate-gui-update-manifest.py" \
+          --channel "${PUB_CHANNEL}" \
+          --app-tag "${PUB_APP_TAG}" \
+          --app-dir "${PUB_APP_DIR}" \
+          --manifest "${PUB_APP_MANIFEST}" \
+          --github-repository "${GITHUB_REPOSITORY}" \
+          --download-dispatcher-url "https://download-dispatch.syngnat.top/v1/resolve" \
+          --download-path-prefix "${download_path_prefix}"
 
-        ssh_options=(
-          -i "${ssh_dir}/id_ed25519"
-          -p "${MIRROR_SSH_PORT}"
-          -o BatchMode=yes
-          -o IdentitiesOnly=yes
-          -o StrictHostKeyChecking=yes
-          -o "UserKnownHostsFile=${ssh_dir}/known_hosts"
-        )
-        remote="${MIRROR_SSH_USER}@${MIRROR_SSH_HOST}"
-        printf -v stale_cleanup_script '%s\n' \
-          'set -euo pipefail' \
-          "root=$(printf '%q' "${mirror_root}")" \
-          'marker="$(cat "${root}/.gonavi-mirror-root" 2>/dev/null || true)"' \
-          '[[ "${marker}" == "gonavi-download-mirror-v1" ]] || { echo "mirror root marker is missing or invalid" >&2; exit 1; }' \
-          'incoming="${root}/.incoming"' \
-          'mkdir -p "${incoming}"' \
-          'find "${incoming}" -mindepth 1 -maxdepth 1 -type d -mmin +1440 -exec rm -rf -- {} +'
-        printf -v stale_cleanup_command 'bash -c %q' "${stale_cleanup_script}"
-        ssh "${ssh_options[@]}" "${remote}" "${stale_cleanup_command}"
-
-        payload_bytes="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["payloadBytes"])' "${stage_dir}/deployment.json")"
-        available_kib="$(ssh "${ssh_options[@]}" "${remote}" "LC_ALL=C df -Pk '${mirror_root}' | awk 'NR == 2 { print \$4 }'")"
-        [[ "${available_kib}" =~ ^[0-9]+$ ]] || {
-          echo "Mirror origin returned an invalid free space value: ${available_kib:-<empty>}" >&2
-          exit 1
-        }
-        available_bytes="$((available_kib * 1024))"
-        required_bytes="$((payload_bytes + 2000000000))"
-        if (( available_bytes < required_bytes )); then
-          echo "Mirror origin has insufficient free space: available=${available_bytes} required=${required_bytes}" >&2
-          exit 1
-        fi
-
-        remote_cleanup_enabled=true
-        ssh "${ssh_options[@]}" "${remote}" "mkdir -p '${remote_stage}'"
-        rsync -rlt --delete --partial \
-          --chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r \
-          -e "ssh -i ${ssh_dir}/id_ed25519 -p ${MIRROR_SSH_PORT} -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${ssh_dir}/known_hosts" \
-          "${stage_dir}/" "${remote}:${remote_stage}/"
-
-        printf -v remote_command 'bash %q %q %q %q %q %q' \
-          "${remote_stage}/vps-release-commit.sh" \
-          "${mirror_root}" \
-          "${remote_stage}" \
-          "${MIRROR_CHANNEL}" \
-          "${MIRROR_APP_TAG}" \
-          "${effective_driver_tag}"
-        ssh "${ssh_options[@]}" "${remote}" "${remote_command}"
+    - name: Publish verified static edges and KV control
+      shell: bash
+      env:
+        PUB_CHANNEL: ${{ inputs.channel }}
+        PUB_APP_TAG: ${{ inputs.app-tag }}
+        PUB_APP_DIR: ${{ inputs.app-dir }}
+        PUB_APP_MANIFEST: ${{ inputs.app-manifest }}
+        PUB_DRIVER_ENABLED: ${{ inputs.driver-enabled }}
+        PUB_DRIVER_TAG: ${{ inputs.driver-tag }}
+        PUB_DRIVER_DIR: ${{ inputs.driver-dir }}
+        PUB_DRIVER_VERSION_INDEX: ${{ inputs.driver-version-index }}
+        PUB_DRIVER_LATEST_INDEX: ${{ inputs.driver-latest-index }}
+        PUB_GENERATION: ${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
+        PUB_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        PUB_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        PUB_ROUTING_STATE_KV_ID: ${{ inputs.routing-state-kv-id }}
+        PUB_THROUGHPUT_WARN_MBPS: ${{ inputs.throughput-warning-mbps }}
+        EDGE_DMIT_HOST: ${{ inputs.dmit-ssh-host }}
+        EDGE_DMIT_PORT: ${{ inputs.dmit-ssh-port }}
+        EDGE_DMIT_USER: ${{ inputs.dmit-ssh-user }}
+        EDGE_DMIT_PRIVATE_KEY: ${{ inputs.dmit-ssh-private-key }}
+        EDGE_DMIT_KNOWN_HOSTS: ${{ inputs.dmit-ssh-known-hosts }}
+        EDGE_DMIT_ROOT: /srv/gonavi-downloads
+        EDGE_DMIT_BASE_URL: https://download.syngnat.top
+        EDGE_DMIT_MAX_BYTES: ${{ inputs.dmit-max-bytes }}
+        EDGE_DMIT_RESERVE_FREE_BYTES: ${{ inputs.dmit-reserve-free-bytes }}
+        EDGE_BERO_HOST: ${{ inputs.bero-ssh-host }}
+        EDGE_BERO_PORT: ${{ inputs.bero-ssh-port }}
+        EDGE_BERO_USER: ${{ inputs.bero-ssh-user }}
+        EDGE_BERO_PRIVATE_KEY: ${{ inputs.bero-ssh-private-key }}
+        EDGE_BERO_KNOWN_HOSTS: ${{ inputs.bero-ssh-known-hosts }}
+        EDGE_BERO_ROOT: /srv/gonavi-downloads
+        EDGE_BERO_BASE_URL: ${{ inputs.bero-base-url }}
+        EDGE_BERO_MAX_BYTES: ${{ inputs.bero-max-bytes }}
+        EDGE_BERO_RESERVE_FREE_BYTES: ${{ inputs.bero-reserve-free-bytes }}
+      run: bash "${GITHUB_WORKSPACE}/tools/publish-edge-release.sh"

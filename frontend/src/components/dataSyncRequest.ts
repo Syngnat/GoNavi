@@ -290,8 +290,10 @@ export const validateDataSyncExecutionReadiness = ({
       };
     }
 
-    const targetNeedsCreation = analysis.targetTableExists === false;
-    const hasSchemaWork = syncContent !== 'schema'
+    const schemaChangesAllowed = syncContent !== 'data';
+    const targetNeedsCreation = schemaChangesAllowed
+      && analysis.targetTableExists === false;
+    const hasSchemaWork = schemaChangesAllowed
       && normalizedCount(analysis.schemaDiffCount) > 0;
     let hasDataWork = false;
     if (mode === 'full_overwrite') {

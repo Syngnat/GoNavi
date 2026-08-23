@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("prepare-vps-release-payload.py")
-PUBLISH_ACTION = SCRIPT.parents[1] / ".github/actions/publish-vps-mirror/action.yml"
+PUBLISH_SCRIPT = SCRIPT.parents[1] / "tools/publish-edge-release.sh"
 DEV_WORKFLOW = SCRIPT.parents[1] / ".github/workflows/dev-build.yml"
 PUBLISH_RELEASE_WORKFLOW = SCRIPT.parents[1] / ".github/workflows/publish-release.yml"
 
@@ -519,23 +519,22 @@ class PrepareVPSReleasePayloadTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("invalid app asset name", result.stderr)
 
-    def test_publish_action_reads_remote_capacity_with_posix_df(self) -> None:
-        source = PUBLISH_ACTION.read_text(encoding="utf-8")
+    def test_publish_script_reads_remote_capacity_with_posix_df(self) -> None:
+        source = PUBLISH_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn("df -Pk '${mirror_root}'", source)
+        self.assertIn("df -Pk '${root}'", source)
         self.assertNotIn("--output=avail", source)
         self.assertIn("available_kib", source)
         self.assertIn("available_kib * 1024", source)
 
-    def test_publish_action_requires_explicit_driver_mode_and_cleans_staging(self) -> None:
-        source = PUBLISH_ACTION.read_text(encoding="utf-8")
+    def test_publish_script_requires_explicit_driver_mode_and_controlled_staging(self) -> None:
+        source = PUBLISH_SCRIPT.read_text(encoding="utf-8")
 
-        self.assertIn("driver-enabled:", source)
-        self.assertIn("MIRROR_DRIVER_ENABLED", source)
-        self.assertIn('case "${MIRROR_DRIVER_ENABLED}"', source)
+        self.assertIn("PUB_DRIVER_ENABLED", source)
+        self.assertIn('case "${PUB_DRIVER_ENABLED}"', source)
         self.assertIn("trap cleanup EXIT", source)
         self.assertIn(".gonavi-mirror-root", source)
-        self.assertIn("-mindepth 1 -maxdepth 1 -type d -mmin +1440", source)
+        self.assertIn("gonavi-edge-transaction", source)
 
     def test_workflows_pass_explicit_driver_mode(self) -> None:
         dev_source = DEV_WORKFLOW.read_text(encoding="utf-8")

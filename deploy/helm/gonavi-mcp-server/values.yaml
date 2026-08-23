@@ -18,6 +18,7 @@ mcp:
   dataRoot: /data
   logDir: /var/lib/gonavi/logs
   httpAddr: 0.0.0.0:8765
+  allowNonLoopback: true
   httpPath: /mcp
   schemaOnly: true
   extraArgs: []

@@ -107,7 +107,7 @@ func (m *MilvusDB) Ping() error {
 	if m.client == nil {
 		return fmt.Errorf("connection is not open")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(m), 10*time.Second)
 	defer cancel()
 	_, err := m.listCollections(ctx, m.database)
 	return err
@@ -196,7 +196,7 @@ func (m *MilvusDB) GetDatabases() ([]string, error) {
 	if m.client == nil {
 		return nil, fmt.Errorf("connection is not open")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(m), 10*time.Second)
 	defer cancel()
 
 	var raw interface{}
@@ -215,11 +215,11 @@ func (m *MilvusDB) GetDatabases() ([]string, error) {
 }
 
 func (m *MilvusDB) GetTables(dbName string) ([]string, error) {
-	return m.listCollections(context.Background(), m.databaseName(dbName))
+	return m.listCollections(metadataContextFor(m), m.databaseName(dbName))
 }
 
 func (m *MilvusDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	info, err := m.getCollectionInfo(context.Background(), m.databaseName(dbName), tableNameOrDB(dbName, tableName))
+	info, err := m.getCollectionInfo(metadataContextFor(m), m.databaseName(dbName), tableNameOrDB(dbName, tableName))
 	if err != nil {
 		return "", err
 	}
@@ -228,7 +228,7 @@ func (m *MilvusDB) GetCreateStatement(dbName, tableName string) (string, error) 
 }
 
 func (m *MilvusDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	info, err := m.getCollectionInfo(context.Background(), m.databaseName(dbName), tableNameOrDB(dbName, tableName))
+	info, err := m.getCollectionInfo(metadataContextFor(m), m.databaseName(dbName), tableNameOrDB(dbName, tableName))
 	if err != nil {
 		return nil, err
 	}
@@ -269,9 +269,11 @@ func (m *MilvusDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 		return nil, err
 	}
 	result := make([]connection.ColumnDefinitionWithTable, 0)
+	var failures []MetadataObjectFailure
 	for _, table := range tables {
 		columns, columnErr := m.GetColumns(dbName, table)
 		if columnErr != nil {
+			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: columnErr})
 			continue
 		}
 		for _, column := range columns {
@@ -283,11 +285,11 @@ func (m *MilvusDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWi
 			})
 		}
 	}
-	return result, nil
+	return result, NewPartialMetadataError(failures)
 }
 
 func (m *MilvusDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
-	info, err := m.getCollectionInfo(context.Background(), m.databaseName(dbName), tableNameOrDB(dbName, tableName))
+	info, err := m.getCollectionInfo(metadataContextFor(m), m.databaseName(dbName), tableNameOrDB(dbName, tableName))
 	if err != nil {
 		return nil, err
 	}
@@ -515,16 +517,20 @@ func milvusAuthHeaders(config connection.ConnectionConfig) map[string]string {
 
 func buildMilvusHTTPClient(config connection.ConnectionConfig) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	dialTimeout := getConnectTimeout(config)
+	transport.DialContext = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	if tlsConfig, err := resolveGenericTLSConfig(config); err == nil && tlsConfig != nil {
 		transport.TLSClientConfig = tlsConfig
 	}
 	if config.UseProxy {
 		proxyConfig := config.Proxy
 		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
-			return proxytunnel.DialContext(ctx, proxyConfig, network, address)
+			dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+			defer cancel()
+			return proxytunnel.DialContext(dialCtx, proxyConfig, network, address)
 		}
 	}
-	return &http.Client{Transport: transport, Timeout: getConnectTimeout(config)}
+	return &http.Client{Transport: transport}
 }
 
 func (m *MilvusDB) doJSON(ctx context.Context, method, path string, body interface{}, out interface{}) error {
@@ -559,9 +565,9 @@ func (m *MilvusDB) doJSON(ctx context.Context, method, path string, body interfa
 		return err
 	}
 	defer response.Body.Close()
-	responseBody, err := io.ReadAll(response.Body)
+	responseBody, err := readLimitedJSONResponseBody(response.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf("read Milvus response: %w", err)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		message := strings.TrimSpace(string(responseBody))

@@ -85,6 +85,40 @@ func TestExecuteSQLCallToolReturnsSelectResultContent(t *testing.T) {
 	}
 }
 
+func TestGetObjectsCallToolRetainsStructuredBaseMetadataFailure(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		objectsResult: connection.QueryResult{
+			Success:           false,
+			Partial:           true,
+			Retryable:         true,
+			Message:           "读取 table 对象元数据失败: permission denied",
+			Warnings:          []string{"读取 table 对象元数据失败: permission denied"},
+			FailedObjectTypes: []string{"table"},
+		},
+	}
+
+	result := callServerTool(t, NewServer(backend), "get_objects", map[string]any{
+		"connectionId": "mysql-main",
+		"dbName":       "app",
+	})
+	if !result.IsError {
+		t.Fatalf("expected base metadata failure tool result, got %#v", result)
+	}
+	structured, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("failed to marshal structuredContent: %v", err)
+	}
+	for _, expected := range []string{`"partial":true`, `"retryable":true`, `"failedObjectTypes":["table"]`, `"warnings":["读取 table 对象元数据失败: permission denied"]`} {
+		if !strings.Contains(string(structured), expected) {
+			t.Fatalf("expected structured base metadata failure to contain %s, got %s", expected, string(structured))
+		}
+	}
+}
+
 func listServerToolNames(t *testing.T, server *mcp.Server) map[string]bool {
 	t.Helper()
 

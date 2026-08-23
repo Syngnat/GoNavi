@@ -1,5 +1,9 @@
 import type { AIMCPClientInstallStatus } from '../../types';
-import { isRemoteMCPClientStatus } from '../../utils/mcpClientInstallStatus';
+import {
+  isLocalMCPClientUnavailable,
+  isMCPClientConnected,
+  isRemoteMCPClientStatus,
+} from '../../utils/mcpClientInstallStatus';
 
 export type MCPClientInstallCopyParams = Record<string, string | number | boolean | null | undefined>;
 export type MCPClientInstallTranslator = (key: string, params?: MCPClientInstallCopyParams) => string;
@@ -40,7 +44,14 @@ export const getMCPClientStatusTone = (
   translate?: MCPClientInstallTranslator,
 ): MCPClientInstallStatusTone => {
   const copy = (key: string, fallback: string) => translateMCPClientInstallCopy(translate, key, fallback);
-  if (status?.matchesCurrent) {
+  if (isLocalMCPClientUnavailable(status)) {
+    return {
+      label: copy('ai_chat.mcp_client.install.status_tone.client_not_detected', 'Client not detected'),
+      color: '#d97706',
+      bg: darkMode ? 'rgba(245,158,11,0.18)' : 'rgba(245,158,11,0.12)',
+    };
+  }
+  if (isMCPClientConnected(status)) {
     return {
       label: copy('ai_chat.mcp_client.install.status_tone.connected', 'Connected'),
       color: '#16a34a',
@@ -79,7 +90,10 @@ export const getMCPClientInstallStateLabel = (
   status: AIMCPClientInstallStatus | undefined,
   translate?: MCPClientInstallTranslator,
 ): string => {
-  if (status?.matchesCurrent) {
+  if (isLocalMCPClientUnavailable(status)) {
+    return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.state.client_not_detected', 'External tool connection status: client not detected');
+  }
+  if (isMCPClientConnected(status)) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.state.connected', 'External tool connection status: connected to this GoNavi');
   }
   if (status?.installed) {
@@ -105,6 +119,18 @@ export const resolveMCPClientCommandName = (status: AIMCPClientInstallStatus | u
   if (status?.client === 'opencode') {
     return 'opencode';
   }
+  if (status?.client === 'zcode') {
+    return 'zcode';
+  }
+  if (status?.client === 'deepseek-harness') {
+    return 'dsh';
+  }
+  if (status?.client === 'kimi') {
+    return 'kimi';
+  }
+  if (status?.client === 'grok-build') {
+    return 'grok';
+  }
   return 'claude';
 };
 
@@ -113,7 +139,10 @@ export const getMCPClientStatusSummary = (
   translate?: MCPClientInstallTranslator,
 ): string => {
   const label = status?.displayName || 'this client';
-  if (status?.matchesCurrent) {
+  if (isLocalMCPClientUnavailable(status)) {
+    return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.summary.client_not_detected', '{{label}} was not detected locally. Install or enable it and refresh detection before writing or using its MCP config.', { label });
+  }
+  if (isMCPClientConnected(status)) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.summary.connected', '{{label}} is connected to this GoNavi MCP and can call it directly.', { label });
   }
   if (status?.installed) {
@@ -132,7 +161,10 @@ export const getMCPClientOptionSummary = (
   status: AIMCPClientInstallStatus | undefined,
   translate?: MCPClientInstallTranslator,
 ): string => {
-  if (status?.matchesCurrent) {
+  if (isLocalMCPClientUnavailable(status)) {
+    return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.option.client_not_detected', 'The local client was not detected. Install or enable it before GoNavi writes MCP configuration.');
+  }
+  if (isMCPClientConnected(status)) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.option.connected', 'This GoNavi MCP is already connected to this client.');
   }
   if (status?.installed) {
@@ -156,17 +188,23 @@ export const getMCPClientDetectionSummary = (
   if (isRemoteMCPClientStatus(status)) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.detection.remote', '{{label}} usually does not run on this Windows machine. No local {{command}} command detection is needed; configure a remote MCP bridge URL in the cloud.', { label, command });
   }
+  if (isLocalMCPClientUnavailable(status)) {
+    return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.detection.not_detected', 'Local {{command}} command was not detected. Install or enable {{label}}, add the command to PATH, then refresh detection; configuration writing is disabled until then.', { label, command });
+  }
   if (status?.clientDetected) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.detection.detected', 'Detected local {{command}} command. After connecting or updating, restart {{label}} to verify.', { label, command });
   }
-  return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.detection.not_detected', 'Local {{command}} command was not detected. If the CLI is not in PATH yet, you can still write {{label}} config first and restart later.', { label, command });
+  return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.detection.not_detected', 'Local {{command}} command was not detected. Install or enable {{label}}, add the command to PATH, then refresh detection; configuration writing is disabled until then.', { label, command });
 };
 
 export const getSelectedMCPClientStateLine = (
   status: AIMCPClientInstallStatus | undefined,
   translate?: MCPClientInstallTranslator,
 ): string => {
-  if (status?.matchesCurrent) {
+  if (isLocalMCPClientUnavailable(status)) {
+    return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.selected.client_not_detected', 'Client was not detected locally; install or enable it before writing MCP configuration');
+  }
+  if (isMCPClientConnected(status)) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.selected.connected', 'Connected to current GoNavi; no repeated action needed');
   }
   if (status?.installed) {
@@ -186,7 +224,10 @@ export const resolveMCPClientInstallActionLabel = (
   translate?: MCPClientInstallTranslator,
 ): string => {
   const label = status?.displayName || 'target client';
-  if (status?.matchesCurrent) {
+  if (isLocalMCPClientUnavailable(status)) {
+    return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.action.install_client_first', 'Install or enable {{label}} first', { label });
+  }
+  if (isMCPClientConnected(status)) {
     return translateMCPClientInstallCopy(translate, 'ai_chat.mcp_client.install.action.connected', '{{label}} is connected; no reinstall needed', { label });
   }
   if (status?.installed) {

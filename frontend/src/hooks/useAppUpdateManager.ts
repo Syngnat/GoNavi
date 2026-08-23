@@ -34,11 +34,13 @@ export type UpdateInfo = {
 };
 
 type UpdateDownloadProgressEvent = {
+  taskId?: string;
   status?: 'start' | 'downloading' | 'done' | 'error';
   percent?: number;
   downloaded?: number;
   total?: number;
   message?: string;
+  info?: UpdateInfo;
 };
 
 type UpdateDownloadResultData = {
@@ -51,6 +53,39 @@ type UpdateDownloadResultData = {
   installMode?: UpdateInstallMode | string;
   packageType?: UpdatePackageType | string;
 };
+
+type UpdateDownloadTaskStatus = 'start' | 'downloading' | 'done' | 'error';
+
+type UpdateDownloadProgressState = {
+  open: boolean;
+  version: string;
+  key: string;
+  status: 'idle' | UpdateDownloadTaskStatus;
+  percent: number;
+  downloaded: number;
+  total: number;
+  message: string;
+};
+
+type UpdateDownloadTaskSnapshot = {
+  taskId: string;
+  status: UpdateDownloadTaskStatus;
+  percent: number;
+  downloaded: number;
+  total: number;
+  message?: string;
+  running: boolean;
+  info?: UpdateInfo;
+  result?: UpdateDownloadResultData;
+};
+
+type UpdateDownloadTaskSession = {
+  epoch: number;
+  channel: UpdateChannel;
+  enforceChannel: boolean;
+};
+
+type UpdateDownloadTaskSnapshotSource = 'hydration' | 'start' | 'event';
 
 /** 启动发现更新时打开「设置中心-关于」页（替代旧版关于弹窗） */
 export type UpdateCenterBridge = {
@@ -86,11 +121,11 @@ const DEFAULT_ABOUT_INFO: AboutInfo = {
   communityUrl: 'https://aibook.ren',
 };
 
-const createEmptyDownloadProgress = () => ({
+const createEmptyDownloadProgress = (): UpdateDownloadProgressState => ({
   open: false,
   version: '',
   key: '',
-  status: 'idle' as 'idle' | 'start' | 'downloading' | 'done' | 'error',
+  status: 'idle',
   percent: 0,
   downloaded: 0,
   total: 0,
@@ -119,6 +154,79 @@ const normalizeUpdateInfo = (value: unknown): UpdateInfo => {
     channel: normalizeUpdateChannel(source.channel),
     installMode: normalizeUpdateInstallMode(source.installMode),
     packageType: normalizeUpdatePackageType(source.packageType),
+  };
+};
+
+const isUpdateDownloadTaskStatus = (value: unknown): value is UpdateDownloadTaskStatus => (
+  value === 'start' || value === 'downloading' || value === 'done' || value === 'error'
+);
+
+const isUpdateDownloadTaskActive = (status: UpdateDownloadTaskStatus | 'idle' | undefined): boolean => (
+  status === 'start' || status === 'downloading'
+);
+
+const isUpdateDownloadTaskTerminal = (status: UpdateDownloadTaskStatus | 'idle' | undefined): boolean => (
+  status === 'done' || status === 'error'
+);
+
+const normalizeFiniteNonNegativeNumber = (value: unknown): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const normalizeMaybeUpdateInfo = (value: unknown): UpdateInfo | undefined => (
+  value && typeof value === 'object' ? normalizeUpdateInfo(value) : undefined
+);
+
+const normalizeUpdateDownloadResultData = (value: unknown): UpdateDownloadResultData | undefined => {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const source = value as Record<string, unknown>;
+  const info = normalizeMaybeUpdateInfo(source.info);
+  const result: UpdateDownloadResultData = {
+    info,
+    downloadPath: String(source.downloadPath || '').trim() || undefined,
+    installLogPath: String(source.installLogPath || '').trim() || undefined,
+    installTarget: String(source.installTarget || '').trim() || undefined,
+    platform: String(source.platform || '').trim() || undefined,
+    installMode: String(source.installMode || '').trim() || undefined,
+    packageType: String(source.packageType || '').trim() || undefined,
+    autoRelaunch: typeof source.autoRelaunch === 'boolean' ? source.autoRelaunch : undefined,
+  };
+  return info
+    || result.downloadPath
+    || result.installLogPath
+    || result.installTarget
+    || result.platform
+    || result.installMode
+    || result.packageType
+    || typeof result.autoRelaunch === 'boolean'
+    ? result
+    : undefined;
+};
+
+const normalizeUpdateDownloadTaskSnapshot = (value: unknown): UpdateDownloadTaskSnapshot | null => {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const source = value as Record<string, unknown>;
+  const taskId = String(source.taskId || '').trim();
+  const status = String(source.status || '').trim().toLowerCase();
+  if (!taskId || !isUpdateDownloadTaskStatus(status)) {
+    return null;
+  }
+  const result = normalizeUpdateDownloadResultData(source.result);
+  return {
+    taskId,
+    status,
+    percent: Math.min(100, normalizeFiniteNonNegativeNumber(source.percent)),
+    downloaded: normalizeFiniteNonNegativeNumber(source.downloaded),
+    total: normalizeFiniteNonNegativeNumber(source.total),
+    message: String(source.message || '').trim() || undefined,
+    running: source.running === true,
+    info: normalizeMaybeUpdateInfo(source.info) || result?.info,
+    result,
   };
 };
 
@@ -192,7 +300,21 @@ export const useAppUpdateManager = ({
     (state) => state.autoCheckForUpdatesIntervalMinutes,
   );
   const updateCheckInFlightRef = useRef(false);
+  const updateCheckCompletionRef = useRef<Promise<void> | null>(null);
   const updateDownloadInFlightRef = useRef(false);
+  // A task can outlive this hook, so every local ownership change gets a new
+  // epoch. This prevents a response/event from a previous channel from being
+  // adopted after the user has already switched channels.
+  const updateDownloadTaskEpochRef = useRef(0);
+  const updateDownloadTaskEpochByIdRef = useRef(new Map<string, number>());
+  const intendedUpdateChannelRef = useRef<UpdateChannel>('latest');
+  const hasExplicitUpdateChannelIntentRef = useRef(false);
+  const updateChannelChangeRequestRef = useRef(0);
+  const updateDownloadHydrationRequestRef = useRef(0);
+  const updateDownloadStartRequestRef = useRef(0);
+  const updateDownloadTaskIdRef = useRef<string | null>(null);
+  const updateDownloadTaskStatusRef = useRef<UpdateDownloadProgressState['status']>('idle');
+  const updateDownloadTaskHydratingRef = useRef(true);
   const updateUserDismissedRef = useRef(false);
   const updateDownloadedVersionRef = useRef<string | null>(null);
   const updateInstallTriggeredVersionRef = useRef<string | null>(null);
@@ -231,11 +353,16 @@ export const useAppUpdateManager = ({
   const [aboutUpdateStatus, setAboutUpdateStatus] = useState<string>('');
   const [lastUpdateInfo, setLastUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updateDownloadProgress, setUpdateDownloadProgress] = useState(createEmptyDownloadProgress);
+  const updateDownloadProgressRef = useRef<UpdateDownloadProgressState>(updateDownloadProgress);
   const aboutDisplayVersion = resolveAboutDisplayVersion(
     runtimeBuildType,
     normalizeAboutVersion(aboutInfo.version) || normalizeAboutVersion(lastUpdateInfo?.currentVersion),
   );
   const lastUpdateKey = buildUpdateKey(lastUpdateInfo);
+
+  useEffect(() => {
+    updateDownloadProgressRef.current = updateDownloadProgress;
+  }, [updateDownloadProgress]);
 
   const formatAboutUpdateStatus = useCallback((info: UpdateInfo | null): string => {
     if (!info) {
@@ -266,15 +393,270 @@ export const useAppUpdateManager = ({
     return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
   }, []);
 
+  const captureUpdateDownloadTaskSession = useCallback((): UpdateDownloadTaskSession => ({
+    epoch: updateDownloadTaskEpochRef.current,
+    channel: intendedUpdateChannelRef.current,
+    enforceChannel: hasExplicitUpdateChannelIntentRef.current,
+  }), []);
+
+  const isCurrentUpdateDownloadTaskSession = useCallback((session: UpdateDownloadTaskSession): boolean => (
+    session.epoch === updateDownloadTaskEpochRef.current
+      && (!session.enforceChannel || session.channel === intendedUpdateChannelRef.current)
+  ), []);
+
+  const advanceUpdateDownloadTaskSession = useCallback((): UpdateDownloadTaskSession => {
+    updateDownloadTaskEpochRef.current += 1;
+    // Keep the taskId -> epoch history. Clearing only the current ID used to
+    // make a queued event from the old task look like a brand-new task.
+    updateDownloadTaskIdRef.current = null;
+    updateDownloadTaskStatusRef.current = 'idle';
+    updateDownloadHydrationRequestRef.current += 1;
+    updateDownloadTaskHydratingRef.current = false;
+    updateDownloadStartRequestRef.current += 1;
+    updateDownloadInFlightRef.current = false;
+    return captureUpdateDownloadTaskSession();
+  }, [captureUpdateDownloadTaskSession]);
+
   const resetLocalUpdateArtifacts = useCallback(() => {
+    advanceUpdateDownloadTaskSession();
     updateDownloadedVersionRef.current = null;
     updateInstallTriggeredVersionRef.current = null;
     updateDownloadMetaRef.current = null;
-    setUpdateDownloadProgress(createEmptyDownloadProgress());
+    const emptyProgress = createEmptyDownloadProgress();
+    updateDownloadProgressRef.current = emptyProgress;
+    setUpdateDownloadProgress(emptyProgress);
+  }, [advanceUpdateDownloadTaskSession]);
+
+  const resolveUpdateDownloadTaskInfo = useCallback((task: UpdateDownloadTaskSnapshot): UpdateInfo | undefined => {
+    const baseInfo = task.result?.info || task.info;
+    if (!baseInfo) {
+      return undefined;
+    }
+    return normalizeUpdateInfo({
+      ...baseInfo,
+      downloaded: task.status === 'done' ? true : Boolean(baseInfo.downloaded),
+      downloadPath: task.result?.downloadPath || baseInfo.downloadPath,
+      installMode: task.result?.installMode || baseInfo.installMode,
+      packageType: task.result?.packageType || baseInfo.packageType,
+      autoRelaunch: task.result?.autoRelaunch ?? baseInfo.autoRelaunch,
+    });
   }, []);
 
+  const resolveUpdateDownloadTaskMessage = useCallback((
+    task: UpdateDownloadTaskSnapshot,
+    info: UpdateInfo | undefined,
+  ): string => {
+    if (task.message) {
+      return task.message;
+    }
+    if (task.status === 'done') {
+      return resolveUpdateInstallAction(info) === 'restart'
+        ? t('app.about.download_progress.ready_to_restart')
+        : t('app.about.download_progress.ready_to_install');
+    }
+    if (task.status === 'start' || task.status === 'downloading') {
+      return t('app.about.download_progress.downloading');
+    }
+    return t('common.unknown');
+  }, [t]);
+
+  const canApplyUpdateDownloadTaskSnapshot = useCallback((
+    task: UpdateDownloadTaskSnapshot,
+    session: UpdateDownloadTaskSession,
+    source: UpdateDownloadTaskSnapshotSource,
+  ): boolean => {
+    if (!isCurrentUpdateDownloadTaskSession(session)) {
+      return false;
+    }
+    const taskEpoch = updateDownloadTaskEpochByIdRef.current.get(task.taskId);
+    if (taskEpoch !== undefined && taskEpoch !== session.epoch) {
+      return false;
+    }
+    if (session.enforceChannel
+      && task.info
+      && normalizeUpdateChannel(task.info.channel) !== session.channel) {
+      return false;
+    }
+    if (taskEpoch === undefined && source === 'event') {
+      // Events can win the initial hydration/start RPC race, but once that
+      // window has passed an unknown task is necessarily stale noise.
+      if (!updateDownloadTaskHydratingRef.current && !updateDownloadInFlightRef.current) {
+        return false;
+      }
+      const expectedKey = updateDownloadProgressRef.current.key;
+      const taskKey = buildUpdateKey(task.info);
+      if (expectedKey && (!taskKey || taskKey !== expectedKey)) {
+        return false;
+      }
+    }
+    return true;
+  }, [isCurrentUpdateDownloadTaskSession]);
+
+  const applyUpdateDownloadTaskSnapshot = useCallback((
+    task: UpdateDownloadTaskSnapshot,
+    options: {
+      session: UpdateDownloadTaskSession;
+      source: UpdateDownloadTaskSnapshotSource;
+      notifyTerminal?: boolean;
+      suppressOpen?: boolean;
+    },
+  ): boolean => {
+    if (!canApplyUpdateDownloadTaskSnapshot(task, options.session, options.source)) {
+      return false;
+    }
+    const knownTaskId = updateDownloadTaskIdRef.current;
+    const previousTaskStatus = updateDownloadTaskStatusRef.current;
+    const previousProgress = updateDownloadProgressRef.current;
+    if (knownTaskId === task.taskId && isUpdateDownloadTaskTerminal(previousTaskStatus)) {
+      return false;
+    }
+    if (knownTaskId === task.taskId
+      && previousTaskStatus === 'downloading'
+      && task.status === 'start') {
+      return false;
+    }
+    if (knownTaskId && knownTaskId !== task.taskId && isUpdateDownloadTaskActive(previousTaskStatus)) {
+      return false;
+    }
+
+    const isSameTask = knownTaskId === task.taskId;
+    const resolvedInfo = resolveUpdateDownloadTaskInfo(task);
+    const taskKey = buildUpdateKey(resolvedInfo);
+    const preserveMonotonicProgress = isSameTask
+      && isUpdateDownloadTaskActive(previousTaskStatus)
+      && isUpdateDownloadTaskActive(task.status);
+    const total = task.total > 0
+      ? task.total
+      : (resolvedInfo?.assetSize || previousProgress.total);
+    const downloaded = task.status === 'done' && total > 0
+      ? total
+      : (preserveMonotonicProgress
+        ? Math.max(previousProgress.downloaded, task.downloaded)
+        : task.downloaded);
+    const percent = task.status === 'done'
+      ? 100
+      : (preserveMonotonicProgress
+        ? Math.max(previousProgress.percent, task.percent)
+        : task.percent);
+    const nextProgress: UpdateDownloadProgressState = {
+      open: options?.suppressOpen
+        ? previousProgress.open
+        : (previousProgress.open || !updateUserDismissedRef.current),
+      version: resolvedInfo?.latestVersion || previousProgress.version,
+      key: taskKey || previousProgress.key,
+      status: task.status,
+      percent,
+      downloaded,
+      total,
+      message: resolveUpdateDownloadTaskMessage(task, resolvedInfo),
+    };
+
+    updateDownloadTaskIdRef.current = task.taskId;
+    updateDownloadTaskEpochByIdRef.current.set(task.taskId, options.session.epoch);
+    updateDownloadTaskStatusRef.current = task.status;
+    updateDownloadProgressRef.current = nextProgress;
+    setUpdateDownloadProgress(nextProgress);
+
+    if (resolvedInfo) {
+      if (!hasExplicitUpdateChannelIntentRef.current) {
+        intendedUpdateChannelRef.current = normalizeUpdateChannel(resolvedInfo.channel);
+      }
+      setLastUpdateInfo(resolvedInfo);
+      setUpdateChannelState(normalizeUpdateChannel(resolvedInfo.channel));
+      setInstallMode(normalizeUpdateInstallMode(resolvedInfo.installMode));
+      if (task.status === 'done') {
+        const downloadedKey = buildUpdateKey(resolvedInfo);
+        if (downloadedKey) {
+          updateDownloadedVersionRef.current = downloadedKey;
+        }
+        updateDownloadMetaRef.current = {
+          ...(task.result || {}),
+          info: resolvedInfo,
+          downloadPath: task.result?.downloadPath || resolvedInfo.downloadPath,
+          installMode: task.result?.installMode || resolvedInfo.installMode,
+          packageType: task.result?.packageType || resolvedInfo.packageType,
+          autoRelaunch: task.result?.autoRelaunch ?? resolvedInfo.autoRelaunch,
+        };
+      }
+      setAboutUpdateStatus(formatAboutUpdateStatus(resolvedInfo));
+    }
+
+    const enteredTerminal = isUpdateDownloadTaskTerminal(task.status)
+      && !isUpdateDownloadTaskTerminal(previousTaskStatus);
+    if (options?.notifyTerminal && enteredTerminal) {
+      if (task.status === 'done') {
+        const installAction = resolveUpdateInstallAction(resolvedInfo);
+        void message.success({
+          content: installAction === 'restart'
+            ? (resolvedInfo?.downloadPath
+              ? t('app.about.message.download_ready_restart_with_path', { path: resolvedInfo.downloadPath })
+              : t('app.about.message.download_ready_restart'))
+            : (resolvedInfo?.downloadPath
+              ? t('app.about.message.download_ready_install_with_path', { path: resolvedInfo.downloadPath })
+              : t('app.about.message.download_ready_install')),
+          duration: 4,
+        });
+      } else {
+        void message.error({
+          content: t('app.about.message.download_failed_with_error', {
+            error: task.message || t('common.unknown'),
+          }),
+          duration: 4,
+        });
+      }
+    }
+    return true;
+  }, [canApplyUpdateDownloadTaskSnapshot, formatAboutUpdateStatus, resolveUpdateDownloadTaskInfo, resolveUpdateDownloadTaskMessage, t]);
+
+  const refreshUpdateDownloadTask = useCallback(async (
+    options?: { restoreInBackground?: boolean; session?: UpdateDownloadTaskSession },
+  ): Promise<boolean> => {
+    const backendApp = (window as any).go?.app?.App;
+    if (typeof backendApp?.GetUpdateDownloadTask !== 'function') {
+      return false;
+    }
+    const session = options?.session || captureUpdateDownloadTaskSession();
+    const hydrationRequest = options?.restoreInBackground
+      ? ++updateDownloadHydrationRequestRef.current
+      : null;
+    if (options?.restoreInBackground) {
+      updateDownloadTaskHydratingRef.current = true;
+    }
+    try {
+      const response = await backendApp.GetUpdateDownloadTask();
+      if (!isCurrentUpdateDownloadTaskSession(session)) {
+        return false;
+      }
+      if (!response?.success) {
+        return false;
+      }
+      const task = normalizeUpdateDownloadTaskSnapshot(response?.data?.task ?? response?.data);
+      if (task && options?.restoreInBackground && !updateDownloadProgressRef.current.open) {
+        // A restored root did not explicitly ask to show this surface. Keep it
+        // in the background just like a user-dismissed progress dialog; the
+        // About page still exposes the task through "download progress".
+        updateUserDismissedRef.current = true;
+      }
+      return task
+        ? applyUpdateDownloadTaskSnapshot(task, {
+          session,
+          source: 'hydration',
+          suppressOpen: options?.restoreInBackground,
+        })
+        : false;
+    } catch (error) {
+      console.warn('Wails API: GetUpdateDownloadTask unavailable', error);
+      return false;
+    } finally {
+      if (options?.restoreInBackground
+        && hydrationRequest === updateDownloadHydrationRequestRef.current) {
+        updateDownloadTaskHydratingRef.current = false;
+      }
+    }
+  }, [applyUpdateDownloadTaskSnapshot, captureUpdateDownloadTaskSession, isCurrentUpdateDownloadTaskSession]);
+
   const downloadUpdate = useCallback(async (info: UpdateInfo, silent: boolean) => {
-    if (updateDownloadInFlightRef.current) return;
+    if (updateDownloadInFlightRef.current || isUpdateDownloadTaskActive(updateDownloadTaskStatusRef.current)) return;
     const targetKey = buildUpdateKey(info);
     if (updateDownloadedVersionRef.current === targetKey) {
       if (!silent) {
@@ -286,10 +668,12 @@ export const useAppUpdateManager = ({
       }
       return;
     }
+    const session = advanceUpdateDownloadTaskSession();
+    const startRequest = ++updateDownloadStartRequestRef.current;
     updateDownloadInFlightRef.current = true;
     updateUserDismissedRef.current = false;
     updateDownloadMetaRef.current = null;
-    setUpdateDownloadProgress({
+    const startingProgress: UpdateDownloadProgressState = {
       open: true,
       version: info.latestVersion,
       key: targetKey,
@@ -297,15 +681,80 @@ export const useAppUpdateManager = ({
       percent: 0,
       downloaded: 0,
       total: info.assetSize || 0,
-      message: '',
-    });
+      message: t('app.about.download_progress.downloading'),
+    };
+    updateDownloadProgressRef.current = startingProgress;
+    setUpdateDownloadProgress(startingProgress);
+
+    const backendApp = (window as any).go?.app?.App;
+    if (typeof backendApp?.StartUpdateDownload === 'function') {
+      let startResult: any = null;
+      try {
+        startResult = await backendApp.StartUpdateDownload();
+      } catch (error) {
+        console.warn('Wails API: StartUpdateDownload unavailable', error);
+      } finally {
+        if (startRequest === updateDownloadStartRequestRef.current) {
+          updateDownloadInFlightRef.current = false;
+        }
+      }
+      if (!isCurrentUpdateDownloadTaskSession(session)
+        || startRequest !== updateDownloadStartRequestRef.current) {
+        return;
+      }
+      if (!startResult?.success) {
+        const errorText = startResult?.message || t('common.unknown');
+        updateDownloadTaskStatusRef.current = 'error';
+        const nextProgress: UpdateDownloadProgressState = {
+          ...updateDownloadProgressRef.current,
+          status: 'error',
+          message: errorText,
+        };
+        updateDownloadProgressRef.current = nextProgress;
+        setUpdateDownloadProgress(nextProgress);
+        if (!silent) {
+          void message.error({ content: t('app.about.message.download_failed_with_error', { error: errorText }), duration: 4 });
+        }
+        return;
+      }
+      const task = normalizeUpdateDownloadTaskSnapshot(startResult?.data?.task ?? startResult?.data);
+      if (task) {
+        applyUpdateDownloadTaskSnapshot(task, { session, source: 'start' });
+        return;
+      }
+      if (await refreshUpdateDownloadTask({ session })) {
+        return;
+      }
+      const errorText = startResult?.message || t('common.unknown');
+      updateDownloadTaskStatusRef.current = 'error';
+      const nextProgress: UpdateDownloadProgressState = {
+        ...updateDownloadProgressRef.current,
+        status: 'error',
+        message: errorText,
+      };
+      updateDownloadProgressRef.current = nextProgress;
+      setUpdateDownloadProgress(nextProgress);
+      if (!silent) {
+        void message.error({ content: t('app.about.message.download_failed_with_error', { error: errorText }), duration: 4 });
+      }
+      return;
+    }
+
+    // Keep source-tree/browser-preview compatibility while an older backend is
+    // connected. Production Wails builds use StartUpdateDownload above.
     let res: any = null;
     try {
-      res = await (window as any).go.app.App.DownloadUpdate();
+      res = await backendApp?.DownloadUpdate?.();
     } catch (e) {
       console.warn('Wails API: DownloadUpdate unavailable', e);
     }
-    updateDownloadInFlightRef.current = false;
+    if (startRequest === updateDownloadStartRequestRef.current) {
+      updateDownloadInFlightRef.current = false;
+    }
+    if (!isCurrentUpdateDownloadTaskSession(session)
+      || startRequest !== updateDownloadStartRequestRef.current) {
+      return;
+    }
     if (res?.success) {
       const resultData = (res?.data || {}) as UpdateDownloadResultData;
       const downloadedInfo = normalizeUpdateInfo({
@@ -320,35 +769,27 @@ export const useAppUpdateManager = ({
       const downloadedKey = buildUpdateKey(downloadedInfo) || targetKey;
       updateDownloadMetaRef.current = resultData;
       updateDownloadedVersionRef.current = downloadedKey;
+      updateDownloadTaskStatusRef.current = 'done';
       setInstallMode(normalizeUpdateInstallMode(downloadedInfo.installMode));
-      setUpdateDownloadProgress((prev) => {
-        const total = prev.total > 0 ? prev.total : (info.assetSize || 0);
-        return {
-          ...prev,
-          version: downloadedInfo.latestVersion,
-          key: downloadedKey,
-          status: 'done',
-          percent: 100,
-          downloaded: total,
-          total,
-          message: '',
-          open: prev.open || !updateUserDismissedRef.current,
-        };
-      });
-      setLastUpdateInfo(downloadedInfo);
+      const previousProgress = updateDownloadProgressRef.current;
+      const total = previousProgress.total > 0 ? previousProgress.total : (info.assetSize || 0);
       const installAction = resolveUpdateInstallAction(downloadedInfo);
-      // 下载到 100% 后停留在就绪态，由用户确认当前安装方式对应的更新动作。
-      setUpdateDownloadProgress((prev) => ({
-        ...prev,
+      const completedProgress: UpdateDownloadProgressState = {
+        ...previousProgress,
         version: downloadedInfo.latestVersion,
-        open: prev.open || !updateUserDismissedRef.current,
+        key: downloadedKey,
         status: 'done',
         percent: 100,
-        downloaded: prev.total > 0 ? prev.total : (info.assetSize || prev.downloaded),
+        downloaded: total,
+        total,
         message: installAction === 'restart'
           ? t('app.about.download_progress.ready_to_restart')
           : t('app.about.download_progress.ready_to_install'),
-      }));
+        open: previousProgress.open || !updateUserDismissedRef.current,
+      };
+      updateDownloadProgressRef.current = completedProgress;
+      setUpdateDownloadProgress(completedProgress);
+      setLastUpdateInfo(downloadedInfo);
       void message.success({
         content: installAction === 'restart'
           ? (downloadedInfo.downloadPath
@@ -361,24 +802,32 @@ export const useAppUpdateManager = ({
       });
       setAboutUpdateStatus(formatAboutUpdateStatus(downloadedInfo));
     } else {
-      setUpdateDownloadProgress((prev) => ({
-        ...prev,
+      updateDownloadTaskStatusRef.current = 'error';
+      const failedProgress: UpdateDownloadProgressState = {
+        ...updateDownloadProgressRef.current,
         status: 'error',
         message: res?.message || t('common.unknown'),
-      }));
+      };
+      updateDownloadProgressRef.current = failedProgress;
+      setUpdateDownloadProgress(failedProgress);
       void message.error({ content: t('app.about.message.download_failed_with_error', { error: res?.message || t('common.unknown') }), duration: 4 });
     }
-  }, [formatAboutUpdateStatus, t]);
+  }, [advanceUpdateDownloadTaskSession, applyUpdateDownloadTaskSnapshot, formatAboutUpdateStatus, isCurrentUpdateDownloadTaskSession, refreshUpdateDownloadTask, t]);
 
   const showUpdateDownloadProgress = useCallback(() => {
-    setUpdateDownloadProgress((prev) => {
-      if (prev.status === 'idle') return prev;
-      return { ...prev, open: true };
-    });
+    const previousProgress = updateDownloadProgressRef.current;
+    if (previousProgress.status === 'idle') {
+      return;
+    }
+    const nextProgress = { ...previousProgress, open: true };
+    updateDownloadProgressRef.current = nextProgress;
+    setUpdateDownloadProgress(nextProgress);
   }, []);
 
   const hideUpdateDownloadProgress = useCallback(() => {
-    setUpdateDownloadProgress((prev) => ({ ...prev, open: false }));
+    const nextProgress = { ...updateDownloadProgressRef.current, open: false };
+    updateDownloadProgressRef.current = nextProgress;
+    setUpdateDownloadProgress(nextProgress);
   }, []);
 
   const isLatestUpdateDownloaded = Boolean(lastUpdateInfo?.hasUpdate) && (
@@ -395,7 +844,10 @@ export const useAppUpdateManager = ({
   const canShowProgressEntry = (isLatestUpdateDownloaded || isBackgroundProgressForLatestUpdate)
     && updateInstallTriggeredVersionRef.current !== (lastUpdateKey || null);
 
-  const handleInstallFromProgress = useCallback(async (closeAllWindowsInstancesConfirmed = false): Promise<boolean> => {
+  const handleInstallFromProgress = useCallback(async (
+    closeAllWindowsInstancesConfirmed = false,
+    onCloseInstancesConfirmationRequired?: (instanceCount: number) => void,
+  ): Promise<boolean> => {
     const canInstall = updateDownloadProgress.status === 'done'
       || (Boolean(lastUpdateInfo?.hasUpdate) && (Boolean(lastUpdateInfo?.downloaded) || updateDownloadedVersionRef.current === lastUpdateKey));
     if (!canInstall) {
@@ -420,6 +872,21 @@ export const useAppUpdateManager = ({
       res = { success: false, message: error?.message || t('common.unknown') };
     }
     if (!res?.success) {
+      if (res?.data?.requiresCloseConfirmation === true) {
+        const parsedInstanceCount = Number(res?.data?.instanceCount);
+        const instanceCount = Number.isFinite(parsedInstanceCount) && parsedInstanceCount > 0
+          ? Math.floor(parsedInstanceCount)
+          : 1;
+        setUpdateDownloadProgress((prev) => ({
+          ...prev,
+          open: false,
+          status: 'done',
+          percent: 100,
+          message: '',
+        }));
+        onCloseInstancesConfirmationRequired?.(instanceCount);
+        return false;
+      }
       if (res?.data?.cancelled === true) {
         setUpdateDownloadProgress((prev) => ({
           ...prev,
@@ -474,7 +941,24 @@ export const useAppUpdateManager = ({
   }, [t]);
 
   const checkForUpdates = useCallback(async (silent: boolean, openReleaseNotes = false) => {
-    if (updateCheckInFlightRef.current) return;
+    if (updateCheckInFlightRef.current) {
+      return updateCheckCompletionRef.current || Promise.resolve();
+    }
+    const session = captureUpdateDownloadTaskSession();
+    const channelChangeRequest = updateChannelChangeRequestRef.current;
+    let resolveCompletion: (() => void) | null = null;
+    const completion = new Promise<void>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    updateCheckCompletionRef.current = completion;
+    const finishUpdateCheck = () => {
+      updateCheckInFlightRef.current = false;
+      setIsCheckingForUpdates(false);
+      if (updateCheckCompletionRef.current === completion) {
+        updateCheckCompletionRef.current = null;
+      }
+      resolveCompletion?.();
+    };
     updateCheckInFlightRef.current = true;
     setIsCheckingForUpdates(true);
     if (!silent) {
@@ -487,9 +971,14 @@ export const useAppUpdateManager = ({
     let res: any = null;
     try {
       res = await checkFn();
-    } finally {
-      updateCheckInFlightRef.current = false;
-      setIsCheckingForUpdates(false);
+    } catch (error) {
+      finishUpdateCheck();
+      throw error;
+    }
+    if (!isCurrentUpdateDownloadTaskSession(session)
+      || channelChangeRequest !== updateChannelChangeRequestRef.current) {
+      finishUpdateCheck();
+      return;
     }
     if (!res?.success) {
       if (!silent) {
@@ -497,11 +986,25 @@ export const useAppUpdateManager = ({
         void message.error(t('app.about.message.check_failed_with_error', { error }));
         setAboutUpdateStatus(t('app.about.update_status.check_failed', { error }));
       }
+      finishUpdateCheck();
       return;
     }
     const info = normalizeUpdateInfo(res.data || {});
-    if (!info) return;
-    setUpdateChannelState(normalizeUpdateChannel(info.channel));
+    if (!info) {
+      finishUpdateCheck();
+      return;
+    }
+    const infoChannel = normalizeUpdateChannel(info.channel);
+    if (!hasExplicitUpdateChannelIntentRef.current) {
+      intendedUpdateChannelRef.current = infoChannel;
+      hasExplicitUpdateChannelIntentRef.current = true;
+    } else if (infoChannel !== intendedUpdateChannelRef.current) {
+      // A successful explicit channel change has already retired the old
+      // session. Do not let an unexpected/old check reply select another one.
+      finishUpdateCheck();
+      return;
+    }
+    setUpdateChannelState(infoChannel);
     setInstallMode(normalizeUpdateInstallMode(info.installMode));
     const aboutOpen = isUpdateCenterOpen();
     if (info.hasUpdate) {
@@ -606,7 +1109,8 @@ export const useAppUpdateManager = ({
     } else {
       setLastUpdateInfo(info);
     }
-  }, [formatAboutUpdateStatus, isUpdateCenterOpen, onManualCheckHasUpdateRef, openUpdateCenter, t]);
+    finishUpdateCheck();
+  }, [captureUpdateDownloadTaskSession, formatAboutUpdateStatus, isCurrentUpdateDownloadTaskSession, isUpdateCenterOpen, onManualCheckHasUpdateRef, openUpdateCenter, t]);
 
   const loadAboutInfo = useCallback(async () => {
     setAboutLoading(true);
@@ -643,24 +1147,39 @@ export const useAppUpdateManager = ({
     if (typeof backendApp?.GetUpdateChannel !== 'function') {
       return;
     }
+    const session = captureUpdateDownloadTaskSession();
+    const channelChangeRequest = updateChannelChangeRequestRef.current;
     setIsUpdateChannelLoading(true);
     try {
       const res = await backendApp.GetUpdateChannel();
-      if (res?.success) {
-        setUpdateChannelState(normalizeUpdateChannel(res?.data?.channel));
-        setInstallMode(normalizeUpdateInstallMode(res?.data?.installMode));
+      if (!res?.success
+        || !isCurrentUpdateDownloadTaskSession(session)
+        || channelChangeRequest !== updateChannelChangeRequestRef.current) {
+        return;
       }
+      const channel = normalizeUpdateChannel(res?.data?.channel);
+      if (hasExplicitUpdateChannelIntentRef.current
+        && channel !== intendedUpdateChannelRef.current) {
+        return;
+      }
+      if (!hasExplicitUpdateChannelIntentRef.current) {
+        intendedUpdateChannelRef.current = channel;
+      }
+      setUpdateChannelState(channel);
+      setInstallMode(normalizeUpdateInstallMode(res?.data?.installMode));
     } catch (e) {
       console.warn('Wails API: GetUpdateChannel unavailable', e);
     } finally {
       setIsUpdateChannelLoading(false);
     }
-  }, []);
+  }, [captureUpdateDownloadTaskSession, isCurrentUpdateDownloadTaskSession]);
 
   const changeUpdateChannel = useCallback(async (nextChannel: UpdateChannel | string) => {
     const normalizedChannel = normalizeUpdateChannel(nextChannel);
     const backendApp = (window as any).go?.app?.App;
     if (typeof backendApp?.SetUpdateChannel !== 'function') {
+      intendedUpdateChannelRef.current = normalizedChannel;
+      hasExplicitUpdateChannelIntentRef.current = true;
       setUpdateChannelState(normalizedChannel);
       resetLocalUpdateArtifacts();
       setLastUpdateInfo(null);
@@ -668,20 +1187,36 @@ export const useAppUpdateManager = ({
       return;
     }
 
+    // Ignore check replies already in flight while SetUpdateChannel is
+    // pending. The download epoch itself advances only after the backend has
+    // accepted the explicit channel change.
+    const channelChangeRequest = ++updateChannelChangeRequestRef.current;
     setIsUpdateChannelSaving(true);
     try {
       const res = await backendApp.SetUpdateChannel(normalizedChannel);
+      if (channelChangeRequest !== updateChannelChangeRequestRef.current) {
+        return;
+      }
       if (!res?.success) {
         void message.error(t('app.about.message.channel_switch_failed_with_error', { error: res?.message || t('common.unknown') }));
         return;
       }
 
       const effectiveChannel = normalizeUpdateChannel(res?.data?.channel || normalizedChannel);
+      intendedUpdateChannelRef.current = effectiveChannel;
+      hasExplicitUpdateChannelIntentRef.current = true;
       setUpdateChannelState(effectiveChannel);
       setInstallMode(normalizeUpdateInstallMode(res?.data?.installMode || installMode));
       resetLocalUpdateArtifacts();
       setLastUpdateInfo(null);
       setAboutUpdateStatus(t('app.about.update_status.not_checked'));
+      // A prior check may still own the single-flight slot. Its response is
+      // request-invalidated above, then we run one real check for the newly
+      // accepted channel before this action resolves.
+      const pendingCheck = updateCheckCompletionRef.current;
+      if (pendingCheck) {
+        await pendingCheck;
+      }
       await checkForUpdates(false);
     } catch (e: any) {
       const error = e?.message || t('common.unknown');
@@ -739,6 +1274,73 @@ export const useAppUpdateManager = ({
     try {
       offDownloadProgress = EventsOn('update:download-progress', (event: UpdateDownloadProgressEvent) => {
         if (!event) return;
+        const session = captureUpdateDownloadTaskSession();
+        const taskId = String(event.taskId || '').trim();
+        if (taskId) {
+          const task = normalizeUpdateDownloadTaskSnapshot({
+            taskId,
+            status: event.status || 'downloading',
+            percent: event.percent,
+            downloaded: event.downloaded,
+            total: event.total,
+            message: event.message,
+            info: event.info,
+          });
+          if (!task) {
+            return;
+          }
+          const eventKey = buildUpdateKey(task.info);
+          if (updateInstallTriggeredVersionRef.current
+            && eventKey
+            && updateInstallTriggeredVersionRef.current === eventKey) {
+            return;
+          }
+          applyUpdateDownloadTaskSnapshot(task, {
+            session,
+            source: 'event',
+            notifyTerminal: true,
+            suppressOpen: updateDownloadTaskHydratingRef.current && !updateDownloadProgressRef.current.open,
+          });
+          return;
+        }
+
+        // Older backends did not include taskId. Keep their event stream
+        // usable only when there is no task-scoped download to protect a new
+        // background task from stale legacy events.
+        if (updateDownloadTaskIdRef.current) {
+          return;
+        }
+        const eventInfo = event.info && typeof event.info === 'object'
+          ? normalizeUpdateInfo(event.info)
+          : null;
+        const eventKey = buildUpdateKey(eventInfo);
+        if (hasExplicitUpdateChannelIntentRef.current
+          && eventInfo
+          && normalizeUpdateChannel(eventInfo.channel) !== session.channel) {
+          return;
+        }
+        // A legacy event has no task ID to bind to an epoch. It can only win
+        // the initial hydration/start race; after a reset it is unsafe to
+        // treat it as a new task.
+        if (!updateDownloadTaskHydratingRef.current && !updateDownloadInFlightRef.current) {
+          return;
+        }
+        const expectedKey = updateDownloadProgressRef.current.key;
+        if (expectedKey && eventKey && eventKey !== expectedKey) {
+          return;
+        }
+        if (eventInfo) {
+          setLastUpdateInfo((current) => {
+            if (buildUpdateKey(current) === eventKey
+              && Boolean(current?.downloaded) === Boolean(eventInfo.downloaded)
+              && current?.downloadPath === eventInfo.downloadPath) {
+              return current;
+            }
+            return eventInfo;
+          });
+          setUpdateChannelState(normalizeUpdateChannel(eventInfo.channel));
+          setInstallMode(normalizeUpdateInstallMode(eventInfo.installMode));
+        }
         const status = event.status || 'downloading';
         const nextStatus: 'idle' | 'start' | 'downloading' | 'done' | 'error' =
           status === 'start' || status === 'downloading' || status === 'done' || status === 'error'
@@ -750,33 +1352,37 @@ export const useAppUpdateManager = ({
           ? event.percent
           : (total > 0 ? (downloaded / total) * 100 : 0);
         const percent = Math.max(0, Math.min(100, percentRaw));
-        setUpdateDownloadProgress((prev) => {
-          // 用户已确认安装时，不让残留的下载事件把 100% 就绪态打回中间态文案。
-          if (updateInstallTriggeredVersionRef.current && prev.key && updateInstallTriggeredVersionRef.current === prev.key) {
-            return prev;
+        const previousProgress = updateDownloadProgressRef.current;
+        // 用户已确认安装时，不让残留的下载事件把 100% 就绪态打回中间态文案。
+        if (updateInstallTriggeredVersionRef.current
+          && previousProgress.key
+          && updateInstallTriggeredVersionRef.current === previousProgress.key) {
+          return;
+        }
+        const eventMessage = String(event.message || '');
+        let eventMessageText = eventMessage;
+        if (!eventMessageText) {
+          if (nextStatus === 'done') {
+            eventMessageText = resolveUpdateInstallAction(eventInfo || lastUpdateInfo) === 'restart'
+              ? t('app.about.download_progress.ready_to_restart')
+              : t('app.about.download_progress.ready_to_install');
+          } else if (nextStatus === 'start' || nextStatus === 'downloading') {
+            eventMessageText = t('app.about.download_progress.downloading');
           }
-          const eventMessage = String(event.message || '');
-          let message = eventMessage;
-          if (!message) {
-            if (nextStatus === 'done') {
-              message = resolveUpdateInstallAction(lastUpdateInfo) === 'restart'
-                ? t('app.about.download_progress.ready_to_restart')
-                : t('app.about.download_progress.ready_to_install');
-            } else if (nextStatus === 'start' || nextStatus === 'downloading') {
-              message = t('app.about.download_progress.downloading');
-            }
-          }
-          return {
-            open: prev.open || !updateUserDismissedRef.current,
-            version: prev.version,
-            key: prev.key,
-            status: nextStatus,
-            percent: nextStatus === 'done' ? 100 : percent,
-            downloaded: nextStatus === 'done' && total > 0 ? total : downloaded,
-            total: total > 0 ? total : prev.total,
-            message,
-          };
-        });
+        }
+        const nextProgress: UpdateDownloadProgressState = {
+          open: previousProgress.open || !updateUserDismissedRef.current,
+          version: eventInfo?.latestVersion || previousProgress.version,
+          key: eventKey || previousProgress.key,
+          status: nextStatus,
+          percent: nextStatus === 'done' ? 100 : percent,
+          downloaded: nextStatus === 'done' && total > 0 ? total : downloaded,
+          total: total > 0 ? total : previousProgress.total,
+          message: eventMessageText,
+        };
+        updateDownloadTaskStatusRef.current = nextStatus;
+        updateDownloadProgressRef.current = nextProgress;
+        setUpdateDownloadProgress(nextProgress);
       });
     } catch (e) {
       console.warn('Wails API: EventsOn unavailable', e);
@@ -784,7 +1390,13 @@ export const useAppUpdateManager = ({
     return () => {
       if (offDownloadProgress) offDownloadProgress();
     };
-  }, [lastUpdateInfo?.autoRelaunch, lastUpdateInfo?.packageType, t]);
+  }, [applyUpdateDownloadTaskSnapshot, captureUpdateDownloadTaskSession, lastUpdateInfo?.autoRelaunch, lastUpdateInfo?.packageType, t]);
+
+  // The listener is registered in the effect above first. Hydrating second
+  // avoids a replay gap if a background task changes state during mount.
+  useEffect(() => {
+    void refreshUpdateDownloadTask({ restoreInBackground: true });
+  }, [refreshUpdateDownloadTask]);
 
   const updateInstallAction = resolveUpdateInstallAction(lastUpdateInfo);
 

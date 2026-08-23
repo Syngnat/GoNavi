@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { countGridColumnValues, filterRowsByGridConditions } from './dataGridClientFilter';
+import {
+  countGridColumnValues,
+  filterRowsByGridConditions,
+  sortGridColumnValueCounts,
+} from './dataGridClientFilter';
 
 describe('countGridColumnValues', () => {
   it('counts nullish, empty, scalar, and stable complex values separately', () => {
@@ -36,6 +40,26 @@ describe('countGridColumnValues', () => {
       { key: 'string:10', count: 2 },
       { key: 'number:2', count: 1 },
       { key: 'string:2', count: 1 },
+    ]);
+  });
+
+  it('sorts value counts by count in either direction without changing tie ordering', () => {
+    const valueCounts = countGridColumnValues([
+      { value: 'z' },
+      { value: 'a' },
+      { value: 'b' },
+      { value: 'z' },
+    ], 'value');
+
+    expect(sortGridColumnValueCounts(valueCounts, 'ascend').map(({ display, count }) => ({ display, count }))).toEqual([
+      { display: 'a', count: 1 },
+      { display: 'b', count: 1 },
+      { display: 'z', count: 2 },
+    ]);
+    expect(sortGridColumnValueCounts(valueCounts, 'descend').map(({ display, count }) => ({ display, count }))).toEqual([
+      { display: 'z', count: 2 },
+      { display: 'a', count: 1 },
+      { display: 'b', count: 1 },
     ]);
   });
 });

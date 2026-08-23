@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	stdRuntime "runtime"
+	"sort"
 	"strings"
 
 	"GoNavi-Wails/internal/appdata"
@@ -20,8 +21,9 @@ import (
 )
 
 var dataRootMigrationExcludedEntries = map[string]struct{}{
-	filepath.Base(appdata.BootstrapPath()):     {},
-	filepath.Base(appdata.BootstrapLockPath()): {},
+	filepath.Base(appdata.BootstrapPath()):           {},
+	filepath.Base(appdata.BootstrapLockPath()):       {},
+	filepath.Base(appdata.SharedStorageLockPath("")): {},
 }
 
 type dataRootTextFunc func(string, map[string]any) string
@@ -144,9 +146,25 @@ func (a *App) ApplyDataRootDirectory(directory string, migrate bool) connection.
 		}
 	}
 
-	// The audit database uses SQLite WAL journaling. Pause it and checkpoint/close
-	// every audit connection before copying or switching the data root so the
-	// migration never copies a live database or an incomplete WAL sidecar.
+	// Both audit and data-sync task stores use SQLite WAL journaling. Stop the
+	// sync scheduler/runs first, then checkpoint and close both stores so root
+	// migration never copies a live WAL or starts the same scheduled run twice.
+	resumeDataSyncJobs, suspendSyncErr := a.suspendDataSyncJobs()
+	if suspendSyncErr != nil {
+		a.resumeDataSyncJobs(resumeDataSyncJobs)
+		return connection.QueryResult{
+			Success: false,
+			Message: dataRootErrorWithDetail(
+				a.appText,
+				"app.data_root.backend.error.migrate_directory_failed",
+				suspendSyncErr.Error(),
+				suspendSyncErr,
+				map[string]any{"entry": "data_sync"},
+			).Error(),
+		}
+	}
+	defer a.resumeDataSyncJobs(resumeDataSyncJobs)
+
 	resumeSQLAudit, suspendErr := a.suspendSQLAudit()
 	if suspendErr != nil {
 		a.resumeSQLAudit(resumeSQLAudit)
@@ -234,6 +252,24 @@ func migrateDataRootContentsWithText(sourceRoot string, targetRoot string, text 
 	if err := os.MkdirAll(targetRoot, 0o755); err != nil {
 		return dataRootWrapError(text, "app.data_root.backend.error.create_target_failed", err, nil)
 	}
+	sourceInfo, err := os.Stat(sourceRoot)
+	if err != nil {
+		return dataRootWrapError(text, "app.data_root.backend.error.read_source_root_failed", err, nil)
+	}
+	targetInfo, err := os.Stat(targetRoot)
+	if err != nil {
+		return dataRootWrapError(text, "app.data_root.backend.error.create_target_failed", err, nil)
+	}
+	if os.SameFile(sourceInfo, targetInfo) {
+		return nil
+	}
+
+	return withDataRootSharedStorageLocks(sourceRoot, targetRoot, text, func() error {
+		return migrateDataRootContentsUnlocked(sourceRoot, targetRoot, text)
+	})
+}
+
+func migrateDataRootContentsUnlocked(sourceRoot string, targetRoot string, text dataRootTextFunc) error {
 	entries, err := os.ReadDir(sourceRoot)
 	if err != nil {
 		return dataRootWrapError(text, "app.data_root.backend.error.read_source_root_failed", err, nil)
@@ -275,6 +311,56 @@ func migrateDataRootContentsWithText(sourceRoot string, targetRoot string, text 
 		return dataRootWrapError(text, "app.data_root.backend.error.migrate_directory_failed", err, map[string]any{"entry": "audit"})
 	}
 	return nil
+}
+
+type dataRootSharedStorageLockTarget struct {
+	key  string
+	root string
+}
+
+func withDataRootSharedStorageLocks(sourceRoot string, targetRoot string, text dataRootTextFunc, operation func() error) error {
+	targets := make([]dataRootSharedStorageLockTarget, 0, 2)
+	for _, root := range []string{sourceRoot, targetRoot} {
+		canonical, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return dataRootWrapError(text, "app.data_root.backend.error.migrate_directory_failed", err, map[string]any{"entry": "storage_lock"})
+		}
+		canonical = filepath.Clean(canonical)
+		key := canonical
+		if stdRuntime.GOOS == "windows" {
+			key = strings.ToLower(key)
+		}
+		targets = append(targets, dataRootSharedStorageLockTarget{key: key, root: canonical})
+	}
+	sort.Slice(targets, func(i, j int) bool {
+		return targets[i].key < targets[j].key
+	})
+
+	locks := make([]io.Closer, 0, len(targets))
+	for index, target := range targets {
+		if index > 0 && target.key == targets[index-1].key {
+			continue
+		}
+		lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(target.root))
+		if err != nil {
+			var closeErr error
+			for closeIndex := len(locks) - 1; closeIndex >= 0; closeIndex-- {
+				closeErr = errors.Join(closeErr, locks[closeIndex].Close())
+			}
+			return dataRootWrapError(text, "app.data_root.backend.error.migrate_directory_failed", errors.Join(err, closeErr), map[string]any{"entry": "storage_lock"})
+		}
+		locks = append(locks, lock)
+	}
+
+	operationErr := operation()
+	var closeErr error
+	for index := len(locks) - 1; index >= 0; index-- {
+		closeErr = errors.Join(closeErr, locks[index].Close())
+	}
+	if closeErr != nil {
+		closeErr = dataRootWrapError(text, "app.data_root.backend.error.migrate_directory_failed", closeErr, map[string]any{"entry": "storage_lock"})
+	}
+	return errors.Join(operationErr, closeErr)
 }
 
 func replaceMigratedAuditDirectory(sourceRoot string, targetRoot string) error {

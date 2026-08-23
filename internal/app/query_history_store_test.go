@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -391,16 +392,16 @@ func TestBuildQueryPreview_FoldsWhitespace(t *testing.T) {
 	if containsNewline(preview) {
 		t.Fatalf("预览不应含换行符：%q", preview)
 	}
-	if !containsStr(preview, "SELECT * FROM users WHERE id = 1") {
-		t.Fatalf("预览应折叠空白：%q", preview)
+	if !containsStr(preview, "SELECT * FROM users WHERE id = ?") {
+		t.Fatalf("预览应折叠空白并脱敏字面量：%q", preview)
 	}
 }
 
 func TestBuildQueryExecutionRecord_KeepsBoundedFullSQL(t *testing.T) {
 	shortSQL := "SELECT *\nFROM users WHERE id = 1"
 	short := buildQueryExecutionRecord(connection.ConnectionConfig{Type: "sqlite", Database: "test.db"}, "", "sqlite", shortSQL, 1000, 0, 2)
-	if short.SQLText != shortSQL || short.SQLTruncated {
-		t.Fatalf("短 SQL 应原样保存且不标记截断，got text=%q truncated=%v", short.SQLText, short.SQLTruncated)
+	if short.SQLText != "SELECT *\nFROM users WHERE id = ?" || short.SQLTruncated {
+		t.Fatalf("短 SQL 应保留结构、脱敏字面量且不标记截断，got text=%q truncated=%v", short.SQLText, short.SQLTruncated)
 	}
 	if short.ExecutionCount != 1 || short.MaxDurationMs != 1000 || short.AvgDurationMs != 1000 {
 		t.Fatalf("新记录应初始化聚合字段，got=%+v", short)
@@ -430,6 +431,76 @@ func TestBuildQueryExecutionRecord_KeepsBoundedFullSQL(t *testing.T) {
 	}
 }
 
+func TestBuildQueryExecutionRecord_RedactsSensitiveSQL(t *testing.T) {
+	sql := "SELECT * FROM users WHERE phone = '13800138000' AND token = 'raw-token' AND id = 42"
+	record := buildQueryExecutionRecord(connection.ConnectionConfig{Type: "postgres", Database: "test"}, "", "postgres", sql, 1000, 0, 1)
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{name: "SQLPreview", value: record.SQLPreview},
+		{name: "SQLText", value: record.SQLText},
+	} {
+		if strings.Contains(field.value, "13800138000") || strings.Contains(field.value, "raw-token") || strings.Contains(field.value, "42") {
+			t.Fatalf("%s leaked raw SQL literal: %q", field.name, field.value)
+		}
+	}
+	if !strings.Contains(record.SQLText, "SELECT") || !strings.Contains(record.SQLText, "FROM users") {
+		t.Fatalf("redacted history should retain SQL structure: %q", record.SQLText)
+	}
+}
+
+func TestQueryHistoryStore_RedactsLegacyRawSQLOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	store := newQueryHistoryStore(dir, "legacy-raw")
+	payload := `{"id":"raw","connectionFp":"legacy-raw","sqlFp":"raw-fp","sqlPreview":"SELECT * FROM users WHERE token = 'raw-token'","sqlText":"SELECT * FROM users WHERE token = 'raw-token'","dbType":"postgres","durationMs":1000,"executedAt":"2026-08-17T00:00:00Z"}` + "\n"
+	if err := os.MkdirAll(filepath.Dir(store.filePath), 0o700); err != nil {
+		t.Fatalf("create history directory: %v", err)
+	}
+	if err := os.WriteFile(store.filePath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write legacy history: %v", err)
+	}
+
+	records, err := store.LoadTopN("recent", 10, false)
+	if err != nil {
+		t.Fatalf("load legacy history: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected one legacy record, got %d", len(records))
+	}
+	if strings.Contains(records[0].SQLPreview, "raw-token") || strings.Contains(records[0].SQLText, "raw-token") {
+		t.Fatalf("legacy history returned raw SQL: %+v", records[0])
+	}
+}
+func TestQueryHistoryStore_RedactsLegacyRawSQLThroughEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	app := &App{configDir: dir}
+	config := connection.ConnectionConfig{Type: "postgres", Host: "db.internal", Port: 5432, User: "app"}
+	fingerprint, ok := buildQueryHistoryConnectionFingerprint(config, "analytics")
+	if !ok {
+		t.Fatal("expected query history fingerprint")
+	}
+	store := newQueryHistoryStore(dir, fingerprint)
+	if err := os.MkdirAll(filepath.Dir(store.filePath), 0o700); err != nil {
+		t.Fatalf("create history directory: %v", err)
+	}
+	payload := `{"id":"endpoint-raw","connectionFp":"legacy","sqlFp":"endpoint-fp","sqlPreview":"SELECT * FROM users WHERE phone = '13800138000'","sqlText":"SELECT * FROM users WHERE phone = '13800138000'","dbType":"postgres","durationMs":1000,"executedAt":"2026-08-17T00:00:00Z"}` + "\n"
+	if err := os.WriteFile(store.filePath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write legacy history: %v", err)
+	}
+
+	result := app.GetSlowQueries(config, "analytics", "recent", 10)
+	if !result.Success {
+		t.Fatalf("GetSlowQueries failed: %s", result.Message)
+	}
+	records, ok := result.Data.([]connection.QueryExecutionRecord)
+	if !ok || len(records) != 1 {
+		t.Fatalf("unexpected endpoint records: %#v", result.Data)
+	}
+	if strings.Contains(records[0].SQLPreview, "13800138000") || strings.Contains(records[0].SQLText, "13800138000") {
+		t.Fatalf("GetSlowQueries returned raw SQL: %+v", records[0])
+	}
+}
 func TestQueryHistoryStore_LoadsLegacyJSONL(t *testing.T) {
 	dir := t.TempDir()
 	store := newQueryHistoryStore(dir, "legacy-conn")

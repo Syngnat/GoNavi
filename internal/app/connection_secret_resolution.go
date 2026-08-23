@@ -11,32 +11,47 @@ import (
 )
 
 func (a *App) resolveConnectionSecrets(config connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+	if config.HasResolvedSavedSnapshot() {
+		return config, nil
+	}
 	if strings.TrimSpace(config.ID) == "" {
 		return config, nil
 	}
 
 	repo := newSavedConnectionRepository(a.configDir, a.secretStore)
-	view, err := repo.Find(config.ID)
+	view, bundle, err := repo.loadConnectionSnapshot(config.ID)
 	if err != nil {
 		if shouldFallbackToInlineConnectionSecrets(config, err) {
-			return config, nil
+			base := config
+			if strings.TrimSpace(view.ID) != "" && (a.headlessRuntime || connectionMetadataLooksEmpty(base)) {
+				base = view.Config
+			}
+			resolved := mergeInlineConnectionSecrets(base, config)
+			if a.headlessRuntime {
+				resolved = resolved.WithResolvedSavedSnapshot()
+			}
+			return resolved, nil
 		}
 		return config, a.normalizeConnectionSecretResolutionError(config, err)
 	}
 
 	base := config
-	if connectionMetadataLooksEmpty(base) {
+	if a.headlessRuntime {
+		// Headless callers resolve a stable saved ID. Always pair the current
+		// metadata with the secret bundle captured under the same lock instead
+		// of trusting a view that may have been read before a concurrent save.
 		base = view.Config
-	}
-	bundle, err := repo.loadSecretBundle(view)
-	if err != nil {
-		if shouldFallbackToInlineConnectionSecrets(config, err) {
-			return mergeInlineConnectionSecrets(base, config), nil
+		if config.QueryTimeout > 0 {
+			base.QueryTimeout = config.QueryTimeout
 		}
-		return base, a.normalizeConnectionSecretResolutionError(base, err)
+	} else if connectionMetadataLooksEmpty(base) {
+		base = view.Config
 	}
 	resolved := mergeConnectionSecretBundleIntoConfig(base, bundle)
 	resolved.ID = view.ID
+	if a.headlessRuntime {
+		resolved = resolved.WithResolvedSavedSnapshot()
+	}
 
 	return resolved, nil
 }
@@ -61,7 +76,15 @@ func connectionConfigCarriesInlineSecrets(config connection.ConnectionConfig) bo
 		strings.TrimSpace(config.MongoReplicaPassword) != "" ||
 		strings.TrimSpace(config.RedisSentinelPassword) != "" ||
 		strings.TrimSpace(config.URI) != "" ||
-		strings.TrimSpace(config.DSN) != ""
+		strings.TrimSpace(config.DSN) != "" ||
+		strings.TrimSpace(config.JVM.JMX.Password) != "" ||
+		strings.TrimSpace(config.JVM.Endpoint.APIKey) != "" ||
+		strings.TrimSpace(config.JVM.Agent.APIKey) != "" ||
+		strings.TrimSpace(config.JVM.Diagnostic.APIKey) != "" ||
+		func() bool {
+			_, sensitive := partitionConnectionParams(config.ConnectionParams)
+			return strings.TrimSpace(sensitive) != ""
+		}()
 }
 
 func mergeInlineConnectionSecrets(base connection.ConnectionConfig, inline connection.ConnectionConfig) connection.ConnectionConfig {
@@ -92,6 +115,24 @@ func mergeInlineConnectionSecrets(base connection.ConnectionConfig, inline conne
 	}
 	if strings.TrimSpace(inline.DSN) != "" {
 		merged.DSN = inline.DSN
+	}
+	if strings.TrimSpace(inline.JVM.JMX.Password) != "" {
+		merged.JVM.JMX.Password = inline.JVM.JMX.Password
+	}
+	if strings.TrimSpace(inline.JVM.Endpoint.APIKey) != "" {
+		merged.JVM.Endpoint.APIKey = inline.JVM.Endpoint.APIKey
+	}
+	if strings.TrimSpace(inline.JVM.Agent.APIKey) != "" {
+		merged.JVM.Agent.APIKey = inline.JVM.Agent.APIKey
+	}
+	if strings.TrimSpace(inline.JVM.Diagnostic.APIKey) != "" {
+		merged.JVM.Diagnostic.APIKey = inline.JVM.Diagnostic.APIKey
+	}
+	publicParams, sensitiveParams := partitionConnectionParams(inline.ConnectionParams)
+	if strings.TrimSpace(sensitiveParams) != "" {
+		merged.ConnectionParams = mergeConnectionParams(merged.ConnectionParams, sensitiveParams)
+	} else if strings.TrimSpace(merged.ConnectionParams) == "" {
+		merged.ConnectionParams = publicParams
 	}
 	return merged
 }
@@ -157,5 +198,18 @@ func mergeConnectionSecretBundleIntoConfig(config connection.ConnectionConfig, b
 	if strings.TrimSpace(merged.DSN) == "" {
 		merged.DSN = bundle.OpaqueDSN
 	}
+	if strings.TrimSpace(merged.JVM.JMX.Password) == "" {
+		merged.JVM.JMX.Password = bundle.JVMJMXPassword
+	}
+	if strings.TrimSpace(merged.JVM.Endpoint.APIKey) == "" {
+		merged.JVM.Endpoint.APIKey = bundle.JVMEndpointAPIKey
+	}
+	if strings.TrimSpace(merged.JVM.Agent.APIKey) == "" {
+		merged.JVM.Agent.APIKey = bundle.JVMAgentAPIKey
+	}
+	if strings.TrimSpace(merged.JVM.Diagnostic.APIKey) == "" {
+		merged.JVM.Diagnostic.APIKey = bundle.JVMDiagnosticAPIKey
+	}
+	merged.ConnectionParams = mergeConnectionParams(merged.ConnectionParams, bundle.SensitiveParams)
 	return merged
 }

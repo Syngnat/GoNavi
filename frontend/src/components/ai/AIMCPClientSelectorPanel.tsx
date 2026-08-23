@@ -2,6 +2,7 @@ import React from 'react';
 import { CheckCircleFilled } from '@ant-design/icons';
 import type { AIMCPClientInstallStatus } from '../../types';
 import {
+  isLocalMCPClientUnavailable,
   isMCPClientKey,
   isRemoteMCPClientStatus,
   type MCPClientKey,
@@ -31,14 +32,14 @@ const MCP_CLIENT_INSTALL_STEPS = [
     titleKey: 'ai_chat.mcp_client.install.selector.step.target.title',
     titleFallback: 'Choose target client',
     detailKey: 'ai_chat.mcp_client.install.selector.step.target.detail',
-    detailFallback: 'Local Claude/Codex/OpenCode can be installed automatically. OpenClaw/Hermans use remote connection guidance.',
+    detailFallback: 'Detected local Claude Code, Codex, OpenCode, ZCode, DeepSeek Harness, Kimi Code, and Grok Build clients can be configured automatically. OpenClaw/Hermans use remote connection guidance.',
   },
   {
     step: '2',
     titleKey: 'ai_chat.mcp_client.install.selector.step.write.title',
     titleFallback: 'Write or copy config',
     detailKey: 'ai_chat.mcp_client.install.selector.step.write.detail',
-    detailFallback: 'Automatic install only changes user-level MCP config. Remote Agents copy bridge guidance.',
+    detailFallback: 'After local CLI detection, automatic install only changes user-level MCP config. Remote Agents copy bridge guidance.',
   },
   {
     step: '3',
@@ -78,7 +79,7 @@ const AIMCPClientSelectorPanel: React.FC<AIMCPClientSelectorPanelProps> = ({
         <div className="gonavi-ai-mcp-line-clamp" style={{ fontSize: 12, color: overlayTheme.mutedText, lineHeight: 1.6 }}>
           {copy(
             'ai_chat.mcp_client.install.selector.description',
-            'Choose one target client first. Local CLIs can write or update config automatically; remote Agents must access current GoNavi through an MCP bridge or tunnel and should not store database passwords.',
+            'Choose one target client first. GoNavi writes or updates a local MCP config only after it detects that client\'s CLI; remote Agents must access current GoNavi through an MCP bridge or tunnel and should not store database passwords.',
           )}
         </div>
       </div>
@@ -95,6 +96,7 @@ const AIMCPClientSelectorPanel: React.FC<AIMCPClientSelectorPanelProps> = ({
           {statuses.map((status, statusIndex) => {
             const client = isMCPClientKey(status.client) ? status.client : 'claude-code';
             const remoteClient = isRemoteMCPClientStatus(status);
+            const localClientUnavailable = isLocalMCPClientUnavailable(status);
             const active = selectedClient === client;
             const tone = getMCPClientStatusTone(status, darkMode, t);
             const optionSummary = getMCPClientOptionSummary(status, t);
@@ -102,7 +104,9 @@ const AIMCPClientSelectorPanel: React.FC<AIMCPClientSelectorPanelProps> = ({
             const optionHint = active
               ? (remoteClient
                 ? copy('ai_chat.mcp_client.install.selector.hint.active_remote', 'Selected. The remote connection guide will be copied.')
-                : copy('ai_chat.mcp_client.install.selector.hint.active_local', 'Selected. Only this client will be written or updated.'))
+                : localClientUnavailable
+                  ? copy('ai_chat.mcp_client.install.selector.hint.active_local_unavailable', 'Selected. Install or enable this client and refresh detection before GoNavi can write its MCP config.')
+                  : copy('ai_chat.mcp_client.install.selector.hint.active_local', 'Selected. Only this client will be written or updated.'))
               : (remoteClient
                 ? copy('ai_chat.mcp_client.install.selector.hint.inactive_remote', 'Click to view the remote connection method.')
                 : copy('ai_chat.mcp_client.install.selector.hint.inactive_local', 'Click to switch to this client.'));
@@ -178,7 +182,7 @@ const AIMCPClientSelectorPanel: React.FC<AIMCPClientSelectorPanelProps> = ({
           <span className="gonavi-ai-mcp-summary-note" style={{ color: overlayTheme.mutedText }}>
             {copy(
               'ai_chat.mcp_client.install.intro.description',
-              'Claude Code, Codex, and OpenCode write local user-level MCP config. Cloud Agents such as OpenClaw and Hermans use remote connection guidance so database passwords are not copied to the cloud.',
+              'After their local command is detected, Claude Code, Codex, OpenCode, ZCode, DeepSeek Harness, Kimi Code, and Grok Build can receive a user-level MCP config. Cloud Agents such as OpenClaw and Hermans use remote connection guidance so database passwords are not copied to the cloud.',
             )}
           </span>
         </summary>
@@ -186,7 +190,7 @@ const AIMCPClientSelectorPanel: React.FC<AIMCPClientSelectorPanelProps> = ({
           <div style={{ fontWeight: 700, fontSize: 12, color: overlayTheme.titleText, lineHeight: 1.6 }}>
             {copy(
               'ai_chat.mcp_client.install.intro.title',
-              'This connects GoNavi MCP to Claude Code / Codex / OpenCode / OpenClaw / Hermans for external tool calls. It is not installing a plugin into GoNavi itself.',
+              'This connects GoNavi MCP to supported local clients or remote Agents for external tool calls. It is not installing a plugin into GoNavi itself.',
             )}
           </div>
           <div

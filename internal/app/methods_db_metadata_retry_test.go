@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/redis"
 	"GoNavi-Wails/internal/secretstore"
 )
 
@@ -27,8 +29,10 @@ type fakeMetadataRetryDB struct {
 	tables           []string
 	columns          []connection.ColumnDefinition
 	allColumns       []connection.ColumnDefinitionWithTable
+	allColumnsErr    error
 	indexes          []connection.IndexDefinition
 	createStatement  string
+	tablesErr        error
 	columnsErr       error
 	indexesErr       error
 	queryResults     []fakeMetadataQueryResult
@@ -88,10 +92,22 @@ func (f *fakeMetadataRetryDB) Query(query string) ([]map[string]interface{}, []s
 	return f.queryRows, f.queryFields, nil
 }
 func (f *fakeMetadataRetryDB) Exec(query string) (int64, error) { return 0, nil }
-func (f *fakeMetadataRetryDB) GetDatabases() ([]string, error)  { return nil, nil }
+func (f *fakeMetadataRetryDB) ApplyChanges(string, connection.ChangeSet) error {
+	return nil
+}
+func (f *fakeMetadataRetryDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return f.ApplyChanges(tableName, changes)
+}
+func (f *fakeMetadataRetryDB) GetDatabases() ([]string, error) { return nil, nil }
 func (f *fakeMetadataRetryDB) GetTables(dbName string) ([]string, error) {
 	f.tableCalls++
 	f.tableSchema = dbName
+	if f.tablesErr != nil {
+		return nil, f.tablesErr
+	}
 	return f.tables, nil
 }
 func (f *fakeMetadataRetryDB) GetCreateStatement(dbName, tableName string) (string, error) {
@@ -112,7 +128,7 @@ func (f *fakeMetadataRetryDB) GetColumns(dbName, tableName string) ([]connection
 func (f *fakeMetadataRetryDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
 	f.allColumnCalls++
 	f.allColumnSchema = dbName
-	return f.allColumns, nil
+	return f.allColumns, f.allColumnsErr
 }
 func (f *fakeMetadataRetryDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
 	f.indexCalls++
@@ -285,6 +301,42 @@ func TestDBGetAllColumnsReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *
 	}
 }
 
+func TestDBGetAllColumnsPreservesPartialMetadataResult(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		allColumns: []connection.ColumnDefinitionWithTable{{TableName: "healthy", Name: "id", Type: "integer"}},
+		allColumnsErr: db.NewPartialMetadataError([]db.MetadataObjectFailure{{
+			ObjectName: "restricted",
+			Err:        errors.New("metadata permission denied password=secret-token"),
+		}}),
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetAllColumns(fixture.config, "CRH_AC")
+	if !result.Success || !result.Partial {
+		t.Fatalf("expected partial DBGetAllColumns success, got %#v", result)
+	}
+	columns, ok := result.Data.([]connection.ColumnDefinitionWithTable)
+	if !ok || len(columns) != 1 || columns[0].TableName != "healthy" {
+		t.Fatalf("expected successful columns to be preserved, got %#v", result.Data)
+	}
+	if len(result.Warnings) != 1 || !strings.Contains(result.Warnings[0], "restricted") {
+		t.Fatalf("expected warning for restricted object, got %#v", result.Warnings)
+	}
+	if strings.Contains(result.Warnings[0], "secret-token") {
+		t.Fatalf("partial result leaked sensitive detail: %#v", result.Warnings)
+	}
+}
+
+func TestDBGetAllColumnsFailsWhenBaseMetadataReadFails(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{allColumnsErr: errors.New("base metadata permission denied")}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetAllColumns(fixture.config, "CRH_AC")
+	if result.Success || result.Partial || result.Message != "base metadata permission denied" {
+		t.Fatalf("expected ordinary metadata failure, got %#v", result)
+	}
+}
+
 func TestDBTableExistsReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
 	dbInst := &fakeMetadataRetryDB{tables: []string{"CRH_AC.ORDERS"}}
 	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
@@ -331,6 +383,199 @@ func TestDBGetSchemaMetadataReusesOceanBaseOracleBaseConnectionForSelectedSchema
 	}
 	if !strings.Contains(strings.Join(dbInst.queries, "\n"), "FROM all_views WHERE OWNER = 'CRH_AC'") {
 		t.Fatalf("expected explicit CRH_AC owner view query, got %v", dbInst.queries)
+	}
+}
+
+func TestDBGetObjectsMarksExtensionMetadataFailuresPartial(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		tables:   []string{"CRH_AC.ORDERS"},
+		queryErr: errors.New("metadata permission denied"),
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetObjects(fixture.config, "CRH_AC")
+	if !result.Success || !result.Partial || !result.Retryable {
+		t.Fatalf("expected retryable partial object metadata result, got %#v", result)
+	}
+	if !strings.Contains(strings.Join(result.FailedObjectTypes, ","), "view") {
+		t.Fatalf("expected failed view metadata to be identified, got %#v", result.FailedObjectTypes)
+	}
+	if !strings.Contains(strings.Join(result.Warnings, "\n"), "metadata permission denied") {
+		t.Fatalf("expected query error summary in warnings, got %#v", result.Warnings)
+	}
+	objects, ok := result.Data.([]connection.DatabaseObject)
+	if !ok || len(objects) != 1 || objects[0].Name != "ORDERS" || objects[0].Type != "table" {
+		t.Fatalf("expected discovered table to be retained, got %#v", result.Data)
+	}
+}
+
+func TestDBGetObjectsFailsWhenBaseTableMetadataFails(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{tablesErr: errors.New("table metadata permission denied")}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetObjects(fixture.config, "CRH_AC")
+	if result.Success || !result.Partial || !result.Retryable {
+		t.Fatalf("expected retryable base metadata failure, got %#v", result)
+	}
+	if len(result.FailedObjectTypes) != 1 || result.FailedObjectTypes[0] != "table" {
+		t.Fatalf("expected table failure type, got %#v", result.FailedObjectTypes)
+	}
+	if !strings.Contains(result.Message, "table metadata permission denied") {
+		t.Fatalf("expected base error summary, got %q", result.Message)
+	}
+}
+
+func TestDBGetObjectsMarksRedisKeyMetadataFailuresPartial(t *testing.T) {
+	originalNewRedisClientFunc := newRedisClientFunc
+	t.Cleanup(func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		CloseAllRedisClients()
+	})
+	CloseAllRedisClients()
+	newRedisClientFunc = func() redis.RedisClient {
+		return &capturingRedisClient{scanErr: errors.New("key scan denied")}
+	}
+
+	result := NewApp().DBGetObjects(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis.local",
+		Port: 6379,
+	}, "0")
+	if result.Success || !result.Partial || !result.Retryable {
+		t.Fatalf("expected retryable Redis key metadata failure, got %#v", result)
+	}
+	if len(result.FailedObjectTypes) != 1 || result.FailedObjectTypes[0] != "key" {
+		t.Fatalf("expected key failure type, got %#v", result.FailedObjectTypes)
+	}
+	if !strings.Contains(result.Message, "key scan denied") {
+		t.Fatalf("expected key scan error summary, got %q", result.Message)
+	}
+}
+
+func TestDBGetTablesRedisCursorState(t *testing.T) {
+	testCases := []struct {
+		name          string
+		scanResults   []*redis.RedisScanResult
+		wantKeys      int
+		wantPartial   bool
+		wantTruncated bool
+		wantWarning   string
+		wantScanCalls int
+	}{
+		{
+			name: "invalid cursor",
+			scanResults: []*redis.RedisScanResult{{
+				Keys:   []redis.RedisKeyInfo{{Key: "orders"}},
+				Cursor: "not-a-cursor",
+			}},
+			wantKeys:      1,
+			wantPartial:   true,
+			wantTruncated: true,
+			wantWarning:   "invalid cursor",
+		},
+		{
+			name: "repeated cursor",
+			scanResults: []*redis.RedisScanResult{
+				{Keys: []redis.RedisKeyInfo{{Key: "orders"}}, Cursor: "7"},
+				{Keys: []redis.RedisKeyInfo{{Key: "users"}}, Cursor: "7"},
+			},
+			wantKeys:      2,
+			wantPartial:   true,
+			wantTruncated: true,
+			wantWarning:   "cursor loop detected",
+			wantScanCalls: 2,
+		},
+		{
+			name: "cursor loop",
+			scanResults: []*redis.RedisScanResult{
+				{Keys: []redis.RedisKeyInfo{{Key: "orders"}}, Cursor: "7"},
+				{Keys: []redis.RedisKeyInfo{{Key: "users"}}, Cursor: "8"},
+				{Keys: []redis.RedisKeyInfo{{Key: "products"}}, Cursor: "7"},
+			},
+			wantKeys:      3,
+			wantPartial:   true,
+			wantTruncated: true,
+			wantWarning:   "cursor loop detected",
+			wantScanCalls: 3,
+		},
+		{
+			name: "normal zero cursor",
+			scanResults: []*redis.RedisScanResult{{
+				Keys:   []redis.RedisKeyInfo{{Key: "orders"}},
+				Cursor: "0",
+			}},
+			wantKeys: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			originalNewRedisClientFunc := newRedisClientFunc
+			t.Cleanup(func() {
+				newRedisClientFunc = originalNewRedisClientFunc
+				CloseAllRedisClients()
+			})
+			CloseAllRedisClients()
+			client := &capturingRedisClient{scanResults: tc.scanResults}
+			newRedisClientFunc = func() redis.RedisClient {
+				return client
+			}
+
+			result := NewApp().DBGetTables(connection.ConnectionConfig{
+				Type: "redis",
+				Host: "redis-" + tc.name + ".local",
+				Port: 6379,
+			}, "0")
+			if !result.Success {
+				t.Fatalf("expected scan result, got failure: %#v", result)
+			}
+			rows, ok := result.Data.([]map[string]string)
+			if !ok || len(rows) != tc.wantKeys {
+				t.Fatalf("expected %d scanned keys, got %#v", tc.wantKeys, result.Data)
+			}
+			if result.Partial != tc.wantPartial || result.Truncated != tc.wantTruncated {
+				t.Fatalf("unexpected cursor state: %#v", result)
+			}
+			if result.ScannedCount != tc.wantKeys {
+				t.Fatalf("expected scannedCount=%d, got %d", tc.wantKeys, result.ScannedCount)
+			}
+			if tc.wantWarning != "" && !strings.Contains(strings.Join(result.Warnings, "\n"), tc.wantWarning) {
+				t.Fatalf("expected warning containing %q, got %#v", tc.wantWarning, result.Warnings)
+			}
+			if tc.wantScanCalls > 0 && client.scanCalls != tc.wantScanCalls {
+				t.Fatalf("expected %d scan calls, got %d", tc.wantScanCalls, client.scanCalls)
+			}
+		})
+	}
+}
+
+func TestDBGetObjectsPreservesRedisCursorTruncation(t *testing.T) {
+	originalNewRedisClientFunc := newRedisClientFunc
+	t.Cleanup(func() {
+		newRedisClientFunc = originalNewRedisClientFunc
+		CloseAllRedisClients()
+	})
+	CloseAllRedisClients()
+	newRedisClientFunc = func() redis.RedisClient {
+		return &capturingRedisClient{scanResults: []*redis.RedisScanResult{{
+			Keys:   []redis.RedisKeyInfo{{Key: "orders"}},
+			Cursor: "invalid",
+		}}}
+	}
+
+	result := NewApp().DBGetObjects(connection.ConnectionConfig{
+		Type: "redis",
+		Host: "redis-object-cursor.local",
+		Port: 6379,
+	}, "0")
+	if !result.Success || !result.Partial || !result.Truncated || !result.Retryable {
+		t.Fatalf("expected partial Redis object result, got %#v", result)
+	}
+	if len(result.FailedObjectTypes) != 1 || result.FailedObjectTypes[0] != "key" {
+		t.Fatalf("expected key failure type, got %#v", result.FailedObjectTypes)
+	}
+	if result.ScannedCount != 1 || !strings.Contains(result.Message, "invalid cursor") {
+		t.Fatalf("expected cursor warning and count, got %#v", result)
 	}
 }
 
@@ -455,6 +700,80 @@ func TestDBGetIndexesUsesSearchPathForPostgresPureTableMetadata(t *testing.T) {
 	}
 	if dbInst.indexSchema != "" || dbInst.indexTable != "users" {
 		t.Fatalf("expected postgres pure table index metadata to pass empty schema/users, got %q.%q", dbInst.indexSchema, dbInst.indexTable)
+	}
+}
+
+func TestDBGetForeignKeysAndTriggersUseSearchPathForPostgresPureTableMetadata(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	dbInst := &fakeMetadataRetryDB{}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return dbInst, nil
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	config := connection.ConnectionConfig{
+		Type:     "postgres",
+		Host:     "127.0.0.1",
+		Port:     5432,
+		User:     "postgres",
+		Database: "demo_db",
+	}
+
+	if result := app.DBGetForeignKeys(config, "demo_db", "users"); !result.Success {
+		t.Fatalf("expected DBGetForeignKeys success, got failure: %s", result.Message)
+	}
+	if dbInst.foreignKeySchema != "" || dbInst.foreignKeyTable != "users" {
+		t.Fatalf("expected postgres pure table foreign-key metadata to pass empty schema/users, got %q.%q", dbInst.foreignKeySchema, dbInst.foreignKeyTable)
+	}
+
+	if result := app.DBGetTriggers(config, "demo_db", "users"); !result.Success {
+		t.Fatalf("expected DBGetTriggers success, got failure: %s", result.Message)
+	}
+	if dbInst.triggerSchema != "" || dbInst.triggerTable != "users" {
+		t.Fatalf("expected postgres pure table trigger metadata to pass empty schema/users, got %q.%q", dbInst.triggerSchema, dbInst.triggerTable)
+	}
+}
+
+func TestDBGetForeignKeysAndTriggersKeepExplicitPostgresSchema(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	dbInst := &fakeMetadataRetryDB{}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return dbInst, nil
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	config := connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432, User: "postgres", Database: "demo_db"}
+
+	if result := app.DBGetForeignKeys(config, "demo_db", "public.users"); !result.Success {
+		t.Fatalf("expected DBGetForeignKeys success, got failure: %s", result.Message)
+	}
+	if dbInst.foreignKeySchema != "public" || dbInst.foreignKeyTable != "users" {
+		t.Fatalf("expected explicit postgres foreign-key metadata to pass public/users, got %q.%q", dbInst.foreignKeySchema, dbInst.foreignKeyTable)
+	}
+
+	if result := app.DBGetTriggers(config, "demo_db", "public.users"); !result.Success {
+		t.Fatalf("expected DBGetTriggers success, got failure: %s", result.Message)
+	}
+	if dbInst.triggerSchema != "public" || dbInst.triggerTable != "users" {
+		t.Fatalf("expected explicit postgres trigger metadata to pass public/users, got %q.%q", dbInst.triggerSchema, dbInst.triggerTable)
 	}
 }
 

@@ -33,11 +33,15 @@ const compareTableNames = (left: string, right: string): number =>
 
 export const buildTableOverviewSearchIndex = <T extends TableOverviewFilterRow>(
   rows: T[],
-): TableOverviewSearchIndexItem<T>[] => rows.map((row) => ({
-    row,
-    searchText: `${row.name}\n${row.comment || ''}`.toLowerCase(),
-    sortName: row.name.toLowerCase(),
-  }));
+  getDisplayName: (row: T) => string = (row) => row.name,
+): TableOverviewSearchIndexItem<T>[] => rows.map((row) => {
+    const displayName = getDisplayName(row);
+    return {
+      row,
+      searchText: `${displayName}\n${row.comment || ''}`.toLowerCase(),
+      sortName: displayName.toLowerCase(),
+    };
+  });
 
 export const filterAndSortTableOverviewRows = <T extends TableOverviewFilterRow>(
   indexedRows: TableOverviewSearchIndexItem<T>[],

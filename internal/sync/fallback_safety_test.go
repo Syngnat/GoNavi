@@ -73,6 +73,114 @@ func TestRunSyncFallbackFullOverwriteValidatesColumnsBeforeClear(t *testing.T) {
 	}
 }
 
+func TestRunSyncDataOnlyRejectsPlannedSchemaChanges(t *testing.T) {
+	columns := []connection.ColumnDefinition{
+		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+		{Name: "name", Type: "varchar(255)", Nullable: "YES"},
+	}
+	sourceDB := &fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{"source_db.users": columns},
+		indexes: map[string][]connection.IndexDefinition{"source_db.users": {
+			{Name: "idx_users_name", ColumnName: "name", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE"},
+		}},
+	}
+	targetDB := &recordingExecSyncTargetDB{fakeQuerySyncTargetDB: fakeQuerySyncTargetDB{fakeMigrationDB: fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{"target_db.users": {columns[0]}},
+	}}}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:   connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase: "source_db",
+		TargetDatabase: "target_db",
+		Tables:         []string{"users"},
+		Content:        "data",
+		Mode:           "insert_update",
+		AutoAddColumns: true,
+		CreateIndexes:  true,
+		TableOptions:   map[string]TableOptions{"users": {}},
+	})
+
+	if result.Success || !strings.Contains(result.Message, "仅同步数据") {
+		t.Fatalf("expected data-only schema-change rejection, got %+v", result)
+	}
+	if len(targetDB.execLog) != 0 {
+		t.Fatalf("data-only sync must not execute schema SQL: %v", targetDB.execLog)
+	}
+}
+
+func TestRunSyncDataOnlyRejectsMissingTargetAutoCreate(t *testing.T) {
+	columns := []connection.ColumnDefinition{{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"}}
+	sourceDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{"source_db.users": columns}}
+	targetDB := &recordingNonBatchSyncTargetDB{}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:        connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase:      "source_db",
+		TargetDatabase:      "target_db",
+		Tables:              []string{"users"},
+		Content:             "data",
+		Mode:                "insert_update",
+		TargetTableStrategy: "auto_create_if_missing",
+		TableOptions:        map[string]TableOptions{"users": {}},
+	})
+
+	if result.Success || !strings.Contains(result.Message, "仅同步数据") {
+		t.Fatalf("expected data-only target-create rejection, got %+v", result)
+	}
+	if len(targetDB.execLog) != 0 {
+		t.Fatalf("data-only sync must not create a missing target: %v", targetDB.execLog)
+	}
+}
+
+func TestRunSyncDataOnlyRejectsPostDataSchemaChanges(t *testing.T) {
+	columns := []connection.ColumnDefinition{
+		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+		{Name: "name", Type: "varchar(255)", Nullable: "YES"},
+	}
+	sourceDB := &fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{"source_db.users": columns},
+		indexes: map[string][]connection.IndexDefinition{"source_db.users": {
+			{Name: "idx_users_name", ColumnName: "name", NonUnique: 1, SeqInIndex: 1, IndexType: "BTREE"},
+		}},
+	}
+	targetDB := &recordingNonBatchSyncTargetDB{fakeMigrationDB: fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{"target_db.users": columns},
+	}}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:   connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase: "source_db",
+		TargetDatabase: "target_db",
+		Tables:         []string{"users"},
+		Content:        "data",
+		Mode:           "insert_update",
+		CreateIndexes:  true,
+		TableOptions:   map[string]TableOptions{"users": {}},
+	})
+
+	if !result.Success {
+		t.Fatalf("data-only no-op should remain successful, got %+v", result)
+	}
+	if len(targetDB.execLog) != 0 {
+		t.Fatalf("data-only sync must not create indexes: %v", targetDB.execLog)
+	}
+}
+
 func TestRunSyncFallbackFullOverwriteChecksApplierBeforeClear(t *testing.T) {
 	columns := []connection.ColumnDefinition{{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"}}
 	sourceDB := &staticRowsSyncSourceDB{

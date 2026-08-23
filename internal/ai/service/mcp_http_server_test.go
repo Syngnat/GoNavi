@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -68,6 +69,55 @@ func newMCPHTTPTestServiceForActiveRoot(t *testing.T) *Service {
 		service.Shutdown()
 	})
 	return service
+}
+
+func TestResolveMCPHTTPCommandUsesDedicatedServerForWailsDevelopmentBuild(t *testing.T) {
+	repoRoot := t.TempDir()
+	developmentExecutable := filepath.Join(repoRoot, "build", "bin", "GoNavi-dev.exe")
+	if err := os.MkdirAll(filepath.Dir(developmentExecutable), 0o755); err != nil {
+		t.Fatalf("MkdirAll development output directory returned error: %v", err)
+	}
+	if err := os.WriteFile(developmentExecutable, []byte("development executable"), 0o755); err != nil {
+		t.Fatalf("WriteFile development executable returned error: %v", err)
+	}
+	developmentServer := filepath.Join(repoRoot, "build", "bin", "gonavi-mcp-server-dev.exe")
+	if err := os.WriteFile(developmentServer, []byte("development MCP server"), 0o755); err != nil {
+		t.Fatalf("WriteFile development MCP server returned error: %v", err)
+	}
+
+	command, args, err := resolveMCPHTTPCommand(developmentExecutable, mcpHTTPProcessStartOptions{
+		Addr:       "127.0.0.1:9876",
+		Path:       "/mcp",
+		SchemaOnly: true,
+	}, nil)
+	if err != nil {
+		t.Fatalf("resolveMCPHTTPCommand returned error: %v", err)
+	}
+	if command != developmentServer {
+		t.Fatalf("command = %q, want %q", command, developmentServer)
+	}
+	wantArgs := []string{"http", "--addr", "127.0.0.1:9876", "--path", "/mcp", "--schema-only"}
+	if strings.Join(args, "\u0000") != strings.Join(wantArgs, "\u0000") {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveMCPHTTPCommandKeepsProductionMainBinary(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "GoNavi.exe")
+	command, args, err := resolveMCPHTTPCommand(executable, mcpHTTPProcessStartOptions{
+		Addr: "127.0.0.1:8765",
+		Path: "/mcp",
+	}, nil)
+	if err != nil {
+		t.Fatalf("resolveMCPHTTPCommand returned error: %v", err)
+	}
+	if command != executable {
+		t.Fatalf("command = %q, want %q", command, executable)
+	}
+	wantArgs := []string{"mcp-server", "http", "--addr", "127.0.0.1:8765", "--path", "/mcp"}
+	if strings.Join(args, "\u0000") != strings.Join(wantArgs, "\u0000") {
+		t.Fatalf("args = %#v, want %#v", args, wantArgs)
+	}
 }
 
 func TestMCPHTTPServerLifecycleFromAIService(t *testing.T) {

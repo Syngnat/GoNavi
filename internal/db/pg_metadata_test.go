@@ -23,6 +23,25 @@ func TestBuildPGLikeMetadataQueriesUseVisibleRelationForPureTable(t *testing.T) 
 	if strings.Contains(indexQuery, "n.nspname = 'public'") || strings.Contains(indexQuery, "current_schema()") {
 		t.Fatalf("pure table index metadata should not force public/current_schema, got %s", indexQuery)
 	}
+
+	foreignKeyQuery := buildPGLikeForeignKeysMetadataQuery("", "users")
+	if !strings.Contains(foreignKeyQuery, "pg_catalog.pg_table_is_visible(c.oid)") {
+		t.Fatalf("expected visible relation predicate for foreign-key metadata, got %s", foreignKeyQuery)
+	}
+	if strings.Contains(foreignKeyQuery, "n.nspname = 'public'") || strings.Contains(foreignKeyQuery, "current_schema()") {
+		t.Fatalf("pure table foreign-key metadata should not force public/current_schema, got %s", foreignKeyQuery)
+	}
+	if !strings.Contains(foreignKeyQuery, "ccu.constraint_catalog = tc.constraint_catalog") || !strings.Contains(foreignKeyQuery, "ccu.constraint_schema = tc.constraint_schema") || strings.Contains(foreignKeyQuery, "ccu.table_schema = tc.table_schema") {
+		t.Fatalf("foreign-key metadata should join constraint usage by constraint schema to preserve cross-schema references, got %s", foreignKeyQuery)
+	}
+
+	triggerQuery := buildPGLikeTriggersMetadataQuery("", "users")
+	if !strings.Contains(triggerQuery, "pg_catalog.pg_table_is_visible(c.oid)") {
+		t.Fatalf("expected visible relation predicate for trigger metadata, got %s", triggerQuery)
+	}
+	if strings.Contains(triggerQuery, "n.nspname = 'public'") || strings.Contains(triggerQuery, "current_schema()") {
+		t.Fatalf("pure table trigger metadata should not force public/current_schema, got %s", triggerQuery)
+	}
 }
 
 func TestBuildPGLikeMetadataQueriesKeepExplicitSchema(t *testing.T) {
@@ -34,6 +53,62 @@ func TestBuildPGLikeMetadataQueriesKeepExplicitSchema(t *testing.T) {
 	}
 	if strings.Contains(columnQuery, "pg_catalog.pg_table_is_visible") {
 		t.Fatalf("explicit schema metadata should not use visibility predicate, got %s", columnQuery)
+	}
+
+	foreignKeyQuery := buildPGLikeForeignKeysMetadataQuery("audit", "users")
+	if !strings.Contains(foreignKeyQuery, "n.nspname = 'audit'") {
+		t.Fatalf("expected explicit schema predicate for foreign-key metadata, got %s", foreignKeyQuery)
+	}
+	if strings.Contains(foreignKeyQuery, "pg_catalog.pg_table_is_visible") {
+		t.Fatalf("explicit schema foreign-key metadata should not use visibility predicate, got %s", foreignKeyQuery)
+	}
+
+	triggerQuery := buildPGLikeTriggersMetadataQuery("audit", "users")
+	if !strings.Contains(triggerQuery, "n.nspname = 'audit'") {
+		t.Fatalf("expected explicit schema predicate for trigger metadata, got %s", triggerQuery)
+	}
+	if strings.Contains(triggerQuery, "pg_catalog.pg_table_is_visible") {
+		t.Fatalf("explicit schema trigger metadata should not use visibility predicate, got %s", triggerQuery)
+	}
+}
+
+func TestBuildPGLikeTableCommentMetadataQueryEscapesNames(t *testing.T) {
+	t.Parallel()
+
+	query := buildPGLikeTableCommentMetadataQuery("audit'schema", "order'items")
+	for _, want := range []string{
+		"pg_catalog.obj_description(c.oid, 'pg_class') AS table_comment",
+		"n.nspname = 'audit''schema'",
+		"c.relname = 'order''items'",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("expected table-comment metadata query to contain %q, got %s", want, query)
+		}
+	}
+	if strings.Contains(query, "pg_catalog.pg_table_is_visible") {
+		t.Fatalf("explicit schema table-comment metadata should not use visibility predicate, got %s", query)
+	}
+}
+
+func TestBuildPGLikeTableCommentMetadataQueryUsesVisibleRelationWithoutSchema(t *testing.T) {
+	t.Parallel()
+
+	query := buildPGLikeTableCommentMetadataQuery("", "orders")
+	if !strings.Contains(query, "pg_catalog.pg_table_is_visible(c.oid)") {
+		t.Fatalf("expected visible relation predicate for table-comment metadata, got %s", query)
+	}
+}
+
+func TestParsePGLikeTableCommentHandlesMissingAndSpecialValues(t *testing.T) {
+	t.Parallel()
+
+	if got := parsePGLikeTableComment(nil); got != "" {
+		t.Fatalf("missing table comment = %q, want empty", got)
+	}
+	want := "  Owner's archive\\path\n第二行  "
+	got := parsePGLikeTableComment([]map[string]interface{}{{"TABLE_COMMENT": want}})
+	if got != want {
+		t.Fatalf("special table comment = %q, want %q", got, want)
 	}
 }
 

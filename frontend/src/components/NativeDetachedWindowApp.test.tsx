@@ -721,6 +721,9 @@ describe('NativeDetachedWindowApp', () => {
             tableName: 'APP.USERS',
             metadataTableName: 'USERS',
             metadataDbName: 'APP',
+            executionConnectionId: 'connection-snapshot',
+            executionDbName: 'snapshot_db',
+            executionConnectionParams: 'application_name=gonavi&options=-c%20search_path%3DAPP%2Cpublic',
             pkColumns: ['id'],
             readOnly: false,
           },
@@ -751,6 +754,8 @@ describe('NativeDetachedWindowApp', () => {
       expect(detachedResultGridProps.current).toMatchObject({
         tableName: 'APP.USERS',
         dbName: 'APP',
+        connectionId: 'connection-snapshot',
+        connectionParamsOverride: 'application_name=gonavi&options=-c%20search_path%3DAPP%2Cpublic',
       });
       expect(client.sync).toHaveBeenCalledWith(expect.objectContaining({
         resultWindow: expect.objectContaining({

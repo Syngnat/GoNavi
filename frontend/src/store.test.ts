@@ -729,6 +729,37 @@ describe('store appearance persistence', () => {
     expect(config?.oceanBaseProtocol).toBe('mysql');
   });
 
+  it('preserves SSH host key verification metadata when replacing saved connections', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'ssh-host-key-1',
+        name: 'SSH host key',
+        config: {
+          id: 'ssh-host-key-1',
+          type: 'mysql',
+          host: 'db.local',
+          port: 3306,
+          user: 'root',
+          useSSH: true,
+          ssh: {
+            host: 'jump.local',
+            port: 2222,
+            user: 'ops',
+            knownHostsPath: ' /home/user/.ssh/known_hosts ',
+            hostKeyFingerprint: ' SHA256:pinned-host-key ',
+          },
+        },
+      },
+    ]);
+
+    expect(useStore.getState().connections[0]?.config.ssh).toMatchObject({
+      knownHostsPath: '/home/user/.ssh/known_hosts',
+      hostKeyFingerprint: 'SHA256:pinned-host-key',
+    });
+  });
+
   it('preserves JVM Arthas diagnostic config when replacing saved connections', async () => {
     const { useStore } = await importStore();
 
@@ -1449,6 +1480,45 @@ describe('store appearance persistence', () => {
     ]);
   });
 
+  it('persists the table designer schema per connection and clears it with the connection', async () => {
+    const { useStore } = await importStore();
+    useStore.getState().replaceConnections([{
+      id: 'pg-conn',
+      name: 'PostgreSQL',
+      config: { id: 'pg-conn', type: 'postgres', host: 'localhost', port: 5432, user: 'postgres' },
+    }]);
+
+    useStore.getState().setTableDesignerSchema('pg-conn', 'sales');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useStore.getState().tableDesignerSchemaByConnection).toEqual({ 'pg-conn': 'sales' });
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').state.tableDesignerSchemaByConnection)
+      .toEqual({ 'pg-conn': 'sales' });
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().tableDesignerSchemaByConnection).toEqual({ 'pg-conn': 'sales' });
+
+    reloaded.useStore.getState().removeConnection('pg-conn');
+    expect(reloaded.useStore.getState().tableDesignerSchemaByConnection).toEqual({});
+  });
+
+  it('clears remembered table designer schemas when connections are replaced', async () => {
+    const { useStore } = await importStore();
+    useStore.getState().replaceConnections([
+      { id: 'pg-1', name: 'PG 1', config: { id: 'pg-1', type: 'postgres', host: 'one', port: 5432, user: 'postgres' } },
+      { id: 'pg-2', name: 'PG 2', config: { id: 'pg-2', type: 'postgres', host: 'two', port: 5432, user: 'postgres' } },
+    ]);
+    useStore.getState().setTableDesignerSchema('pg-1', 'sales');
+    useStore.getState().setTableDesignerSchema('pg-2', 'archive');
+
+    useStore.getState().replaceConnections([
+      { id: 'pg-2', name: 'PG 2', config: { id: 'pg-2', type: 'postgres', host: 'two', port: 5432, user: 'postgres' } },
+    ]);
+
+    expect(useStore.getState().tableDesignerSchemaByConnection).toEqual({ 'pg-2': 'archive' });
+  });
+
   it('migrates flat v15 connection groups to explicit root child order', async () => {
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
@@ -1919,6 +1989,13 @@ describe('store appearance persistence', () => {
       id: 'ext-1',
       name: 'scripts',
       path: 'D:/sql/scripts',
+      fileBindings: [
+        {
+          filePath: 'D:\\sql\\scripts\\report.sql',
+          connectionId: 'conn-2',
+          dbName: 'reporting',
+        },
+      ],
       createdAt: 1,
     });
 
@@ -1928,6 +2005,13 @@ describe('store appearance persistence', () => {
         id: 'ext-1',
         name: 'scripts',
         path: 'D:/sql/scripts',
+        fileBindings: [
+          {
+            filePath: 'D:/sql/scripts/report.sql',
+            connectionId: 'conn-2',
+            dbName: 'reporting',
+          },
+        ],
         createdAt: 1,
       },
     ]);
@@ -1957,6 +2041,13 @@ describe('store appearance persistence', () => {
         id: 'ext-1',
         name: 'scripts',
         path: 'D:/sql/scripts',
+        fileBindings: [
+          {
+            filePath: 'D:/sql/scripts/report.sql',
+            connectionId: 'conn-2',
+            dbName: 'reporting',
+          },
+        ],
         createdAt: 1,
       },
       {
@@ -1968,6 +2059,39 @@ describe('store appearance persistence', () => {
         createdAt: 2,
       },
     ]);
+  });
+
+  it('persists an external SQL file binding with an explicitly empty database', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().saveExternalSQLDirectory({
+      id: 'ext-no-db',
+      name: 'bootstrap scripts',
+      path: 'D:/sql/bootstrap',
+      connectionId: 'conn-1',
+      dbName: 'orders',
+      fileBindings: [{
+        filePath: 'D:/sql/bootstrap/create-database.sql',
+        connectionId: 'conn-1',
+        dbName: '',
+      }],
+      createdAt: 1,
+    });
+
+    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
+    expect(persisted.state.externalSQLDirectories[0].fileBindings).toEqual([{
+      filePath: 'D:/sql/bootstrap/create-database.sql',
+      connectionId: 'conn-1',
+      dbName: '',
+    }]);
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().externalSQLDirectories[0].fileBindings).toEqual([{
+      filePath: 'D:/sql/bootstrap/create-database.sql',
+      connectionId: 'conn-1',
+      dbName: '',
+    }]);
   });
 
   it('records recent workbench targets and SQL files with their database binding', async () => {
@@ -2351,6 +2475,7 @@ describe('store appearance persistence', () => {
       query: 'select * from orders where status = "paid";',
       connectionId: 'conn-2',
       dbName: 'reporting',
+      schemaName: 'sales',
       formatRestoreSnapshot: {
         query: 'select * from orders where status="paid";',
         createdAt: 123,
@@ -2365,6 +2490,7 @@ describe('store appearance persistence', () => {
         type: 'query',
         connectionId: 'conn-2',
         dbName: 'reporting',
+        schemaName: 'sales',
         query: 'select * from orders where status = "paid";',
         formatRestoreSnapshot: {
           query: 'select * from orders where status="paid";',
@@ -2382,6 +2508,7 @@ describe('store appearance persistence', () => {
         type: 'query',
         connectionId: 'conn-2',
         dbName: 'reporting',
+        schemaName: 'sales',
         query: 'select * from orders where status = "paid";',
         formatRestoreSnapshot: {
           query: 'select * from orders where status="paid";',
@@ -2746,6 +2873,56 @@ describe('store appearance persistence', () => {
       title: '修改函数/存储过程: reporting.refresh_stats',
       query: expect.stringContaining('CREATE OR REPLACE FUNCTION reporting.refresh_stats()'),
     }));
+  });
+
+  it('keeps saved-query source and copy tabs distinct when reopening the source', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().addTab({
+      id: 'saved-source',
+      title: '原查询',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      query: 'select 1;',
+      savedQueryId: 'saved-source',
+    });
+    useStore.getState().addTab({
+      id: 'saved-copy',
+      title: '查询副本',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      query: 'select 9;',
+      savedQueryId: 'saved-copy',
+    });
+
+    expect(useStore.getState().tabs).toHaveLength(2);
+    expect(useStore.getState().activeTabId).toBe('saved-copy');
+
+    useStore.getState().addTab({
+      id: 'saved-source',
+      title: '原查询',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      query: 'select 1; -- reloaded',
+      savedQueryId: 'saved-source',
+    });
+
+    expect(useStore.getState().tabs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'saved-source',
+        savedQueryId: 'saved-source',
+        query: 'select 1; -- reloaded',
+      }),
+      expect.objectContaining({
+        id: 'saved-copy',
+        savedQueryId: 'saved-copy',
+        query: 'select 9;',
+      }),
+    ]));
+    expect(useStore.getState().activeTabId).toBe('saved-source');
   });
 
   it('reuses the same table-export tab for the same connection and table identity', async () => {
@@ -3223,6 +3400,33 @@ describe('store appearance persistence', () => {
     });
   });
 
+  it('persists save query as shortcut with platform defaults', async () => {
+    const { useStore } = await importStore();
+
+    expect(useStore.getState().shortcutOptions.saveQueryAs).toEqual({
+      mac: { combo: 'Meta+Shift+S', enabled: true },
+      windows: { combo: 'Ctrl+Shift+S', enabled: true },
+    });
+
+    useStore.getState().updateShortcut('saveQueryAs', {
+      combo: 'Meta+Alt+S',
+      enabled: true,
+    }, 'mac');
+
+    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
+    expect(persisted.state.shortcutOptions.saveQueryAs).toEqual({
+      mac: { combo: 'Meta+Alt+S', enabled: true },
+      windows: { combo: 'Ctrl+Shift+S', enabled: true },
+    });
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().shortcutOptions.saveQueryAs).toEqual({
+      mac: { combo: 'Meta+Alt+S', enabled: true },
+      windows: { combo: 'Ctrl+Shift+S', enabled: true },
+    });
+  });
+
   it('persists startup fullscreen immediately so next launch does not miss maximize preference', async () => {
     const { useStore } = await importStore();
 
@@ -3662,5 +3866,54 @@ describe('sidebar database pin persistence', () => {
 
     reloaded.useStore.getState().setSidebarDatabasePinned('conn-1', 'analytics', false);
     expect(reloaded.useStore.getState().pinnedSidebarDatabases).toEqual([]);
+  });
+});
+
+describe('connection type pin persistence', () => {
+  let storage: MemoryStorage;
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('persists an ordered and sanitized list of pinned connection types', async () => {
+    const { updatePinnedConnectionTypeKeys, useStore } = await importStore();
+
+    expect(updatePinnedConnectionTypeKeys(['mysql'], ' Redis ', true)).toEqual([
+      'redis',
+      'mysql',
+    ]);
+    expect(updatePinnedConnectionTypeKeys(['redis', 'mysql'], 'redis', true)).toEqual([
+      'redis',
+      'mysql',
+    ]);
+    expect(updatePinnedConnectionTypeKeys(['redis', 'mysql'], '../bad', true)).toEqual([
+      'redis',
+      'mysql',
+    ]);
+
+    useStore.getState().setConnectionTypePinned('mysql', true);
+    useStore.getState().setConnectionTypePinned('redis', true);
+    expect(useStore.getState().pinnedConnectionTypes).toEqual(['redis', 'mysql']);
+
+    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
+    expect(persisted.state.pinnedConnectionTypes).toEqual(['redis', 'mysql']);
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().pinnedConnectionTypes).toEqual([
+      'redis',
+      'mysql',
+    ]);
+
+    reloaded.useStore.getState().setConnectionTypePinned('redis', false);
+    expect(reloaded.useStore.getState().pinnedConnectionTypes).toEqual(['mysql']);
   });
 });

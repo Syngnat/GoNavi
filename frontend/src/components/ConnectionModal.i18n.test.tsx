@@ -10,6 +10,14 @@ import { getCustomConnectionDriverHelp } from "../utils/driverImportGuidance";
 const storeState = {
   addConnection: vi.fn(),
   updateConnection: vi.fn(),
+  pinnedConnectionTypes: [] as string[],
+  setConnectionTypePinned: vi.fn((dbType: string, pinned: boolean) => {
+    const normalized = dbType.trim().toLowerCase();
+    storeState.pinnedConnectionTypes = pinned
+      ? [normalized, ...storeState.pinnedConnectionTypes.filter((item) => item !== normalized)]
+      : storeState.pinnedConnectionTypes.filter((item) => item !== normalized);
+    notifyStoreSubscribers();
+  }),
   theme: "light",
   languagePreference: "zh-CN",
   setLanguagePreference: vi.fn((languagePreference: "zh-CN" | "en-US") => {
@@ -41,11 +49,18 @@ const backendApp = {
   MongoDiscoverMembers: vi.fn(),
   SaveConnection: vi.fn(),
   TestConnection: vi.fn(),
+  TestConnectionWithProgress: vi.fn(),
   RedisConnect: vi.fn(),
+  NacosTestConnection: vi.fn(),
+  NacosTestConnectionWithProgress: vi.fn(),
+  CancelConnectionTest: vi.fn(),
+  RevealSavedConnectionPrimaryPassword: vi.fn(),
   SelectDatabaseFile: vi.fn(),
   SelectCertificateFile: vi.fn(),
   SelectSSHKeyFile: vi.fn(),
+  SelectSSHKnownHostsFile: vi.fn(),
   TestJVMConnection: vi.fn(),
+  TrustSSHHostKeyForConnection: vi.fn(),
 };
 
 const textContent = (node: any): string => {
@@ -92,6 +107,16 @@ const findConnectionTypeGroup = (
       node.props?.["data-connection-group-key"] === groupKey,
   )[0];
 
+const findConnectionTypePin = (
+  renderer: ReactTestRenderer,
+  dbType: string,
+) =>
+  renderer.root.findAll(
+    (node) =>
+      node.type === "button" &&
+      node.props?.["data-connection-type-pin"] === dbType,
+  )[0];
+
 const findInputByPlaceholder = (
   renderer: ReactTestRenderer,
   placeholder: string,
@@ -120,6 +145,7 @@ const flushConnectionTestTick = async () => {
 };
 
 const source = readFileSync(new URL("./ConnectionModal.tsx", import.meta.url), "utf8");
+const appCssSource = readFileSync(new URL("../App.css", import.meta.url), "utf8");
 const step2Source = readFileSync(new URL("./connectionModal/ConnectionModalStep2.tsx", import.meta.url), "utf8");
 const networkSecuritySource = readFileSync(
   new URL("./connectionModal/ConnectionModalNetworkSecuritySection.tsx", import.meta.url),
@@ -210,6 +236,7 @@ vi.mock("@ant-design/icons", () => {
     DownOutlined: Icon,
     RightOutlined: Icon,
     SearchOutlined: Icon,
+    PushpinOutlined: Icon,
   };
 });
 
@@ -228,9 +255,38 @@ vi.mock("antd", () => {
       {children}
     </input>
   );
-  Input.Password = ({ value, onChange, placeholder, ...rest }: any) => (
-    <input value={value} onChange={onChange} placeholder={placeholder} {...rest} />
-  );
+  Input.Password = ({ value, onChange, placeholder, visibilityToggle, ...rest }: any) => {
+    const visibilityControlled =
+      typeof visibilityToggle === "object" && visibilityToggle.visible !== undefined;
+    const [visible, setVisible] = React.useState(
+      visibilityControlled ? visibilityToggle.visible : false,
+    );
+    React.useEffect(() => {
+      if (visibilityControlled) {
+        setVisible(visibilityToggle.visible);
+      }
+    }, [visibilityControlled, visibilityToggle]);
+    const simulatedVisibilityToggle =
+      typeof visibilityToggle === "object"
+        ? {
+            ...visibilityToggle,
+            onVisibleChange: async (nextVisible: boolean) => {
+              setVisible(nextVisible);
+              return visibilityToggle.onVisibleChange?.(nextVisible);
+            },
+          }
+        : visibilityToggle;
+    return (
+      <input
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        visibilityToggle={simulatedVisibilityToggle}
+        {...rest}
+      />
+    );
+  };
   Input.TextArea = ({ value, onChange, placeholder, ...rest }: any) => (
     <textarea value={value} onChange={onChange} placeholder={placeholder} {...rest} />
   );
@@ -406,6 +462,7 @@ describe("ConnectionModal i18n", () => {
     storeState.languagePreference = "zh-CN";
     storeState.appearance.uiVersion = "legacy";
     storeState.appearance.opacity = 1;
+    storeState.pinnedConnectionTypes = [];
     backendApp.GetDriverStatusList.mockResolvedValue({ success: true, data: { drivers: [] } });
     backendApp.SaveConnection.mockReset();
     backendApp.SaveConnection.mockImplementation(async (input) => ({
@@ -413,13 +470,26 @@ describe("ConnectionModal i18n", () => {
       config: { ...input.config, password: "" },
     }));
     backendApp.TestConnection.mockResolvedValue({ success: false, message: "saved connection not found: conn-1" });
+    backendApp.TestConnectionWithProgress.mockReset();
+    backendApp.TestConnectionWithProgress.mockResolvedValue({ success: true, message: "ok" });
+    backendApp.NacosTestConnection.mockReset();
+    backendApp.NacosTestConnection.mockResolvedValue({ success: true, message: "ok" });
+    backendApp.NacosTestConnectionWithProgress.mockReset();
+    backendApp.NacosTestConnectionWithProgress.mockResolvedValue({ success: true, message: "ok" });
+    backendApp.CancelConnectionTest.mockReset();
+    backendApp.CancelConnectionTest.mockResolvedValue({ success: true, data: { cancelled: true } });
     backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [] });
     backendApp.MongoDiscoverMembers.mockResolvedValue({ success: true, data: { members: [] } });
     backendApp.RedisConnect.mockResolvedValue({ success: true, message: "ok" });
+    backendApp.RevealSavedConnectionPrimaryPassword.mockReset();
+    backendApp.RevealSavedConnectionPrimaryPassword.mockResolvedValue("stored-secret");
     backendApp.TestJVMConnection.mockResolvedValue({ success: true, message: "ok" });
     backendApp.SelectDatabaseFile.mockReset();
     backendApp.SelectCertificateFile.mockReset();
     backendApp.SelectSSHKeyFile.mockReset();
+    backendApp.SelectSSHKnownHostsFile.mockReset();
+    backendApp.TrustSSHHostKeyForConnection.mockReset();
+    backendApp.TrustSSHHostKeyForConnection.mockResolvedValue({ success: true, message: "saved" });
     antdMessage.error.mockReset();
     antdMessage.warning.mockReset();
     antdMessage.success.mockReset();
@@ -427,6 +497,7 @@ describe("ConnectionModal i18n", () => {
     modalConfirm.mockReset();
     storeState.addConnection.mockReset();
     storeState.updateConnection.mockReset();
+    storeState.setConnectionTypePinned.mockClear();
     storeState.setLanguagePreference.mockClear();
     mockFormValues = {};
     mockValidateFields = undefined;
@@ -482,6 +553,597 @@ describe("ConnectionModal i18n", () => {
     );
     expect(onClose).toHaveBeenCalledTimes(1);
   }, 15000);
+
+  it("shows a staged SSH tunnel result instead of only a generic connection spinner", async () => {
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = initialConnection("mysql", {
+      useSSH: true,
+      ssh: {
+        host: "bastion.example.com",
+        port: 22,
+        user: "ops",
+        password: "secret",
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+    });
+    await act(async () => {
+      findButton(renderer!, "测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(backendApp.TestConnectionWithProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ useSSH: true }),
+      expect.stringMatching(/^ssh-test-/),
+    );
+    expect(textContent(renderer!.toJSON())).toContain("正在验证 SSH 隧道");
+    expect(textContent(renderer!.toJSON())).toContain("网络连接");
+    expect(textContent(renderer!.toJSON())).toContain("数据库验证");
+  });
+
+  it("shows staged SSH progress and logs when testing a Nacos connection", async () => {
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = initialConnection("nacos", {
+      useSSH: true,
+      ssh: {
+        host: "bastion.example.com",
+        port: 22,
+        user: "ops",
+        password: "secret",
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+    });
+    await act(async () => {
+      findButton(renderer!, "测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(backendApp.NacosTestConnectionWithProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "nacos", useSSH: true }),
+      expect.stringMatching(/^ssh-test-/),
+    );
+    expect(backendApp.NacosTestConnection).not.toHaveBeenCalled();
+    expect(textContent(renderer!.toJSON())).toContain("正在验证 SSH 隧道");
+    expect(textContent(renderer!.toJSON())).toContain("网络连接");
+    expect(textContent(renderer!.toJSON())).toContain("数据库验证");
+    expect(textContent(renderer!.toJSON())).toContain("准备连接检查");
+  });
+
+  it("shows a driver preflight failure in the SSH log without blaming the network", async () => {
+    const revisionMismatch =
+      "clickhouse 驱动代理 revision 不匹配（已安装：src-old，当前需要：src-new）";
+    backendApp.TestConnectionWithProgress.mockResolvedValue({
+      success: false,
+      message: revisionMismatch,
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = initialConnection("clickhouse", {
+      useSSH: true,
+      ssh: {
+        host: "bastion.example.com",
+        port: 22,
+        user: "ops",
+        password: "secret",
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+    });
+    await act(async () => {
+      findButton(renderer!, "测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(textContent(renderer!.toJSON())).toContain("连接测试失败");
+    const progressLog = renderer!.root.findAll(
+      (node) => node.props?.role === "log",
+    )[0];
+    expect(textContent(progressLog)).toContain(revisionMismatch);
+    const networkStep = renderer!.root.findAll(
+      (node) => node.type === "li" && textContent(node).includes("网络连接"),
+    )[0];
+    expect(networkStep.props["data-status"]).toBe("pending");
+    expect(
+      renderer!.root.findAll(
+        (node) => node.type === "li" && node.props?.["data-status"] === "error",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("guides an unknown SSH host through automatic confirmation without a manual field", async () => {
+    const fingerprint = "SHA256:QWERTYuiopASDFghjklZXCVbnm1234567890abcd";
+    backendApp.TestConnectionWithProgress.mockReset();
+    backendApp.TestConnectionWithProgress
+      .mockResolvedValueOnce({
+        success: false,
+        message: "confirmation required",
+        data: {
+          sshHostKeyTrust: {
+            state: "unknown",
+            source: "discovered",
+            host: "bastion.example.com",
+            port: 2222,
+            address: "bastion.example.com:2222",
+            keyType: "ssh-ed25519",
+            fingerprint,
+          },
+        },
+      })
+      .mockResolvedValueOnce({ success: true, message: "ok" });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = initialConnection("mysql", {
+      useSSH: true,
+      ssh: {
+        host: "bastion.example.com",
+        port: 2222,
+        user: "ops",
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+    });
+    await act(async () => {
+      findButton(renderer!, "测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    const pageText = textContent(renderer!.toJSON());
+    expect(pageText).toContain("确认 SSH 服务器身份");
+    expect(pageText).toContain("bastion.example.com:2222");
+    expect(pageText).toContain(fingerprint);
+    expect(findButton(renderer!, "仅本次继续")).toBeDefined();
+    expect(findButton(renderer!, "信任并保存")).toBeDefined();
+
+    await act(async () => {
+      findButton(renderer!, "仅本次继续").props.onClick();
+      await flushConnectionTestTick();
+    });
+    expect(backendApp.TestConnectionWithProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        useSSH: true,
+        ssh: expect.objectContaining({ hostKeyFingerprint: fingerprint }),
+      }),
+      expect.stringMatching(/^ssh-test-/),
+    );
+    expect(backendApp.TrustSSHHostKeyForConnection).not.toHaveBeenCalled();
+  });
+
+  it("saves an explicitly approved SSH host key before retrying", async () => {
+    const fingerprint = "SHA256:ZXCVbnm1234567890abcdQWERTYuiopASDFghjkl";
+    backendApp.TestConnectionWithProgress.mockReset();
+    backendApp.TestConnectionWithProgress
+      .mockResolvedValueOnce({
+        success: false,
+        message: "confirmation required",
+        data: {
+          sshHostKeyTrust: {
+            state: "changed",
+            source: "gonavi",
+            host: "bastion.example.com",
+            port: 22,
+            address: "bastion.example.com:22",
+            keyType: "ssh-ed25519",
+            fingerprint,
+            previousFingerprint: "SHA256:previous",
+          },
+        },
+      })
+      .mockResolvedValueOnce({ success: true, message: "ok" });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal
+          open
+          onClose={vi.fn()}
+          initialValues={initialConnection("mysql", {
+            useSSH: true,
+            ssh: {
+              host: "bastion.example.com",
+              port: 22,
+              user: "ops",
+              hostKeyFingerprint: "SHA256:legacy",
+            },
+          })}
+        />,
+      );
+      await flushConnectionTestTick();
+    });
+    await act(async () => {
+      findButton(renderer!, "测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(textContent(renderer!.toJSON())).toContain("SSH 服务器密钥已变化");
+    expect(textContent(renderer!.toJSON())).toContain("SHA256:previous");
+    await act(async () => {
+      findButton(renderer!, "替换并信任").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(backendApp.TrustSSHHostKeyForConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        useSSH: true,
+        ssh: expect.objectContaining({
+          host: "bastion.example.com",
+          port: 22,
+        }),
+      }),
+      fingerprint,
+    );
+    expect(backendApp.TestConnectionWithProgress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        ssh: expect.objectContaining({ hostKeyFingerprint: "" }),
+      }),
+      expect.stringMatching(/^ssh-test-/),
+    );
+  });
+
+  it("reveals a saved primary password when the password visibility button is opened", async () => {
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+    });
+
+    const passwordInput = findInputByPlaceholder(
+      renderer!,
+      "••••••（留空表示继续沿用已保存密码）",
+    );
+    await act(async () => {
+      await passwordInput.props.visibilityToggle.onVisibleChange(true);
+      await flushConnectionTestTick();
+    });
+
+    expect(backendApp.RevealSavedConnectionPrimaryPassword).toHaveBeenCalledWith(
+      "mysql-conn",
+    );
+    expect(mockFormValues.password).toBe("stored-secret");
+    expect(
+      findInputByPlaceholder(
+        renderer!,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.visible,
+    ).toBe(true);
+    expect(textContent(renderer!.toJSON())).not.toContain(
+      "已输入新值，保存时会替换当前已保存内容。",
+    );
+  });
+
+  it("returns the password input to hidden mode when revealing fails", async () => {
+    backendApp.RevealSavedConnectionPrimaryPassword.mockRejectedValue(
+      new Error("secret store unavailable"),
+    );
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+    });
+
+    const placeholder = "••••••（留空表示继续沿用已保存密码）";
+    await act(async () => {
+      await findInputByPlaceholder(
+        renderer!,
+        placeholder,
+      ).props.visibilityToggle.onVisibleChange(true);
+      await flushConnectionTestTick();
+    });
+
+    expect(findInputByPlaceholder(renderer!, placeholder).props.type).toBe(
+      "password",
+    );
+    expect(antdMessage.error).toHaveBeenCalledWith(
+      expect.stringContaining("系统密文存储当前不可用"),
+    );
+  });
+
+  it("does not let a delayed password reveal overwrite a user replacement", async () => {
+    let resolveReveal: ((value: string) => void) | undefined;
+    backendApp.RevealSavedConnectionPrimaryPassword.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveReveal = resolve;
+        }),
+    );
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+
+    let renderer: ReactTestRenderer;
+    let revealRequest: Promise<void>;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+      revealRequest = findInputByPlaceholder(
+        renderer,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.onVisibleChange(true);
+      await Promise.resolve();
+    });
+
+    expect(
+      findInputByPlaceholder(
+        renderer!,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.type,
+    ).toBe("password");
+    mockFormValues = { ...mockFormValues, password: "user-replacement" };
+    await act(async () => {
+      resolveReveal?.("stored-secret");
+      await revealRequest!;
+      await flushConnectionTestTick();
+    });
+
+    expect(mockFormValues.password).toBe("user-replacement");
+  });
+
+  it("does not let a delayed password reveal undo an explicit clear", async () => {
+    let resolveReveal: ((value: string) => void) | undefined;
+    backendApp.RevealSavedConnectionPrimaryPassword.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveReveal = resolve;
+        }),
+    );
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+
+    let renderer: ReactTestRenderer;
+    let revealRequest: Promise<void>;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+      revealRequest = findInputByPlaceholder(
+        renderer,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.onVisibleChange(true);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      renderer!.root.findAll(
+        (node) =>
+          textContent(node).includes("清除已保存密码") &&
+          typeof node.props.onChange === "function",
+      )[0].props.onChange({ target: { checked: true } });
+    });
+    await act(async () => {
+      resolveReveal?.("stored-secret");
+      await revealRequest!;
+      await flushConnectionTestTick();
+    });
+
+    expect(String(mockFormValues.password ?? "")).toBe("");
+    await act(async () => {
+      findButton(renderer!, "保存").props.onClick();
+      await flushConnectionTestTick();
+    });
+    expect(backendApp.SaveConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ clearPrimaryPassword: true }),
+    );
+  });
+
+  it("clears revealed password state when the modal closes or switches connections", async () => {
+    let resolveReveal: ((value: string) => void) | undefined;
+    backendApp.RevealSavedConnectionPrimaryPassword.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveReveal = resolve;
+        }),
+    );
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const firstConnection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+    const secondConnection = {
+      ...initialConnection("postgres"),
+      hasPrimaryPassword: true,
+    };
+
+    let renderer: ReactTestRenderer;
+    let revealRequest: Promise<void>;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={firstConnection} />,
+      );
+      await flushConnectionTestTick();
+      revealRequest = findInputByPlaceholder(
+        renderer,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.onVisibleChange(true);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      renderer!.update(
+        <ConnectionModal
+          open={false}
+          onClose={vi.fn()}
+          initialValues={firstConnection}
+        />,
+      );
+    });
+    expect(String(mockFormValues.password ?? "")).toBe("");
+
+    await act(async () => {
+      renderer!.update(
+        <ConnectionModal open onClose={vi.fn()} initialValues={secondConnection} />,
+      );
+      await flushConnectionTestTick();
+    });
+    expect(
+      findInputByPlaceholder(
+        renderer!,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.visible,
+    ).toBe(false);
+
+    await act(async () => {
+      resolveReveal?.("first-connection-secret");
+      await revealRequest!;
+      await flushConnectionTestTick();
+    });
+    expect(String(mockFormValues.password ?? "")).toBe("");
+  });
+
+  it("removes an already revealed password as soon as the modal closes", async () => {
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+    const onClose = vi.fn();
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={onClose} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+      await findInputByPlaceholder(
+        renderer,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.onVisibleChange(true);
+      await flushConnectionTestTick();
+    });
+    expect(mockFormValues.password).toBe("stored-secret");
+
+    await act(async () => {
+      findButton(renderer!, "取消").props.onClick();
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(String(mockFormValues.password ?? "")).toBe("");
+  });
+
+  it("preserves a revealed password unless the user actually replaces it", async () => {
+    Object.assign(window, {
+      go: { app: { App: backendApp } },
+    });
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = {
+      ...initialConnection("mysql"),
+      hasPrimaryPassword: true,
+    };
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+      await findInputByPlaceholder(
+        renderer,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.onVisibleChange(true);
+      await flushConnectionTestTick();
+    });
+    await act(async () => {
+      findButton(renderer!, "保存").props.onClick();
+      await flushConnectionTestTick();
+    });
+    expect(backendApp.SaveConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clearPrimaryPassword: false,
+        config: expect.objectContaining({ password: "" }),
+      }),
+    );
+
+    await act(async () => {
+      renderer!.unmount();
+    });
+    backendApp.SaveConnection.mockClear();
+    let replacementRenderer: ReactTestRenderer;
+    await act(async () => {
+      replacementRenderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+      await flushConnectionTestTick();
+      await findInputByPlaceholder(
+        replacementRenderer,
+        "••••••（留空表示继续沿用已保存密码）",
+      ).props.visibilityToggle.onVisibleChange(true);
+      await flushConnectionTestTick();
+    });
+    mockFormValues = { ...mockFormValues, password: "user-replacement" };
+    await act(async () => {
+      findButton(replacementRenderer!, "保存").props.onClick();
+      await flushConnectionTestTick();
+    });
+    expect(backendApp.SaveConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clearPrimaryPassword: false,
+        config: expect.objectContaining({ password: "user-replacement" }),
+      }),
+    );
+  });
 
   it("updates visible copy when languagePreference changes while the modal stays open", async () => {
     const { default: ConnectionModal } = await import("./ConnectionModal");
@@ -806,6 +1468,7 @@ describe("ConnectionModal i18n", () => {
 
     pageText = textContent(renderer!.toJSON());
     expect(pageText).toContain("Cluster mode");
+    expect(pageText).toContain("Leave empty when authentication is disabled");
     expect(pageText).toContain("Redis password");
     expect(pageText).toContain("Scope");
   });
@@ -1154,6 +1817,7 @@ describe("ConnectionModal i18n", () => {
     ].forEach((snippet) => {
     });
     expect(combinedConnectionModalSource.match(/isBackendCancelledResult\(res\)/g) ?? []).toHaveLength(3);
+    expect(combinedConnectionModalSource).not.toContain("SelectSSHKnownHostsFile");
   });
 
   it("renders English URI feedback and file picker error shell while preserving raw detail", async () => {
@@ -1429,6 +2093,55 @@ describe("ConnectionModal i18n", () => {
     expect(findButton(renderer!, "保存").props.disabled).toBe(false);
   });
 
+  it("cancels an in-flight Nacos test and ignores its late result", async () => {
+    storeState.appearance.uiVersion = "legacy";
+    setCurrentLanguage("zh-CN");
+    let resolveConnection: ((value: unknown) => void) | undefined;
+    backendApp.NacosTestConnectionWithProgress.mockReset();
+    backendApp.NacosTestConnectionWithProgress.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConnection = resolve;
+      }),
+    );
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    const connection = initialConnection("nacos", { port: 8848 });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <ConnectionModal open onClose={vi.fn()} initialValues={connection} />,
+      );
+    });
+    await act(async () => {
+      findButton(renderer!, "测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(backendApp.NacosTestConnectionWithProgress).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "nacos", useSSH: false }),
+      expect.stringMatching(/^nacos-test-/),
+    );
+    const runID = backendApp.NacosTestConnectionWithProgress.mock.calls[0][1];
+    expect(findButton(renderer!, "取消测试连接")).toBeDefined();
+
+    await act(async () => {
+      findButton(renderer!, "取消测试连接").props.onClick();
+      await flushConnectionTestTick();
+    });
+
+    expect(backendApp.CancelConnectionTest).toHaveBeenCalledWith(runID);
+    expect(findButton(renderer!, "测试连接").props.disabled).toBe(false);
+    expect(findButton(renderer!, "保存").props.disabled).toBe(false);
+
+    await act(async () => {
+      resolveConnection?.({ success: false, message: "late Nacos failure" });
+      await flushConnectionTestTick();
+    });
+
+    expect(textContent(renderer!.toJSON())).not.toContain("late Nacos failure");
+    expect(findButton(renderer!, "测试连接").props.disabled).toBe(false);
+  });
+
   it("renders English data source groups and hints for the remaining step one copy", async () => {
     storeState.appearance.uiVersion = "legacy";
     setCurrentLanguage("en-US");
@@ -1570,6 +2283,74 @@ describe("ConnectionModal i18n", () => {
     ).toBe("button");
     expect(findClickableCard(renderer!, "MySQL").type).toBe("button");
     expect(findClickableCard(renderer!, "MySQL").props.type).toBe("button");
+  });
+
+  it("pins data source types without opening the form and restores their personal order", async () => {
+    setCurrentLanguage("en-US");
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ConnectionModal open onClose={vi.fn()} />);
+    });
+
+    expect(
+      findConnectionTypeButtons(renderer!).slice(0, 3).map(
+        (node) => node.props["data-connection-type-key"],
+      ),
+    ).toEqual(["mysql", "mariadb", "diros"]);
+    expect(findConnectionTypePin(renderer!, "postgres").props["aria-pressed"]).toBe(false);
+    expect(findConnectionTypePin(renderer!, "postgres").props["aria-label"]).toBe(
+      "Pin PostgreSQL",
+    );
+
+    await act(async () => {
+      findConnectionTypePin(renderer!, "postgres").props.onClick();
+    });
+
+    expect(storeState.setConnectionTypePinned).toHaveBeenCalledWith("postgres", true);
+    expect(findConnectionTypeButtons(renderer!)[0].props["data-connection-type-key"]).toBe(
+      "postgres",
+    );
+    expect(findConnectionTypePin(renderer!, "postgres").props["aria-pressed"]).toBe(true);
+    expect(findConnectionTypePin(renderer!, "postgres").props["aria-label"]).toBe(
+      "Unpin PostgreSQL",
+    );
+    expect(
+      renderer!.root.findAll(
+        (node) => node.props?.["data-connection-step"] === "1",
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      findConnectionTypePin(renderer!, "redis").props.onClick();
+    });
+    expect(
+      findConnectionTypeButtons(renderer!).slice(0, 3).map(
+        (node) => node.props["data-connection-type-key"],
+      ),
+    ).toEqual(["redis", "postgres", "mysql"]);
+
+    await act(async () => {
+      findConnectionTypePin(renderer!, "redis").props.onClick();
+    });
+    expect(findConnectionTypeButtons(renderer!)[0].props["data-connection-type-key"]).toBe(
+      "postgres",
+    );
+  });
+
+  it("keeps the pinned button frame level while rotating only the pushpin icon", () => {
+    const pinnedButtonRule = appCssSource.match(
+      /\.gn-conn-type-card-pin\[aria-pressed='true'\]\s*\{([^}]*)\}/,
+    );
+    const pinnedIconRule = appCssSource.match(
+      /\.gn-conn-type-card-pin\[aria-pressed='true'\]\s+\.anticon\s*\{([^}]*)\}/,
+    );
+
+    expect(pinnedButtonRule).not.toBeNull();
+    expect(pinnedButtonRule?.[1]).not.toMatch(/transform\s*:/);
+    expect(pinnedIconRule).not.toBeNull();
+    expect(pinnedIconRule?.[1]).toMatch(/transform:\s*rotate\(-18deg\)/);
   });
 
   it("renders English custom driver DSN copy after the module was loaded in another language", async () => {

@@ -2,8 +2,11 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/ai"
 	appcore "GoNavi-Wails/internal/app"
@@ -30,6 +33,58 @@ type fakeBackend struct {
 	inspection          appcore.SQLInspection
 	safetyLevel         ai.SQLPermissionLevel
 	queryCalled         bool
+	queryContext        context.Context
+	authorizeErr        error
+	authorizeCalls      int
+	authorizedConfig    connection.ConnectionConfig
+	authorizedSQL       string
+	events              []string
+}
+
+type cancellableTablesBackend struct {
+	*fakeBackend
+	started chan struct{}
+	calls   atomic.Int32
+}
+
+func (b *cancellableTablesBackend) DBGetTables(ctx context.Context, _ connection.ConnectionConfig, _ string) connection.QueryResult {
+	if b.calls.Add(1) > 1 {
+		return b.tablesResult
+	}
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return connection.QueryResult{Success: false, Message: ctx.Err().Error()}
+}
+
+type cancellableViewsBackend struct {
+	*fakeBackend
+	started chan struct{}
+}
+
+type cancellableColumnsBackend struct {
+	*fakeBackend
+	started chan struct{}
+}
+
+func (b *cancellableViewsBackend) DBGetViews(ctx context.Context, _ connection.ConnectionConfig, _ string) connection.QueryResult {
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return connection.QueryResult{Success: false, Message: ctx.Err().Error()}
+}
+
+func (b *cancellableColumnsBackend) DBGetColumns(ctx context.Context, _ connection.ConnectionConfig, _ string, _ string) connection.QueryResult {
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	<-ctx.Done()
+	return connection.QueryResult{Success: false, Message: ctx.Err().Error()}
 }
 
 func (f *fakeBackend) Close(context.Context) error {
@@ -44,48 +99,50 @@ func (f *fakeBackend) GetEditableSavedConnection(id string) (connection.SavedCon
 	return f.editableConnection, f.editableErr
 }
 
-func (f *fakeBackend) DBGetDatabases(config connection.ConnectionConfig) connection.QueryResult {
+func (f *fakeBackend) DBGetDatabases(context.Context, connection.ConnectionConfig) connection.QueryResult {
 	return f.databasesResult
 }
 
-func (f *fakeBackend) DBGetTables(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+func (f *fakeBackend) DBGetTables(context.Context, connection.ConnectionConfig, string) connection.QueryResult {
 	return f.tablesResult
 }
 
-func (f *fakeBackend) DBGetViews(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+func (f *fakeBackend) DBGetViews(context.Context, connection.ConnectionConfig, string) connection.QueryResult {
 	return f.viewsResult
 }
 
-func (f *fakeBackend) DBGetObjects(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+func (f *fakeBackend) DBGetObjects(context.Context, connection.ConnectionConfig, string) connection.QueryResult {
 	return f.objectsResult
 }
 
-func (f *fakeBackend) DBGetAllColumns(config connection.ConnectionConfig, dbName string) connection.QueryResult {
+func (f *fakeBackend) DBGetAllColumns(context.Context, connection.ConnectionConfig, string) connection.QueryResult {
 	return f.allColumnsResult
 }
 
-func (f *fakeBackend) DBGetColumns(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
+func (f *fakeBackend) DBGetColumns(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.columnsResult
 }
 
-func (f *fakeBackend) DBGetIndexes(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
+func (f *fakeBackend) DBGetIndexes(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.indexesResult
 }
 
-func (f *fakeBackend) DBGetForeignKeys(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
+func (f *fakeBackend) DBGetForeignKeys(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.foreignKeysResult
 }
 
-func (f *fakeBackend) DBGetTriggers(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
+func (f *fakeBackend) DBGetTriggers(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.triggersResult
 }
 
-func (f *fakeBackend) DBShowCreateTable(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
+func (f *fakeBackend) DBShowCreateTable(context.Context, connection.ConnectionConfig, string, string) connection.QueryResult {
 	return f.ddlResult
 }
 
-func (f *fakeBackend) ExecuteSQLFromMCP(config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
+func (f *fakeBackend) ExecuteSQLFromMCP(ctx context.Context, config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
 	f.queryCalled = true
+	f.queryContext = ctx
+	f.events = append(f.events, "query")
 	return f.queryResult
 }
 
@@ -98,6 +155,168 @@ func (f *fakeBackend) GetSQLSafetyLevel() ai.SQLPermissionLevel {
 		return ai.PermissionReadOnly
 	}
 	return f.safetyLevel
+}
+
+func (f *fakeBackend) AuthorizeSQLConnection(config connection.ConnectionConfig, sql string) error {
+	f.authorizeCalls++
+	f.authorizedConfig = config
+	f.authorizedSQL = sql
+	f.events = append(f.events, "authorize")
+	return f.authorizeErr
+}
+
+func TestGetTablesForwardsCancellationWithoutAffectingConcurrentRequests(t *testing.T) {
+	backend := &cancellableTablesBackend{
+		fakeBackend: &fakeBackend{
+			editableConnection: connection.SavedConnectionView{
+				ID:     "mysql-main",
+				Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+			},
+			tablesResult: connection.QueryResult{
+				Success: true,
+				Data:    []map[string]string{{"Table": "users"}},
+			},
+		},
+		started: make(chan struct{}, 1),
+	}
+	service := NewService(backend)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type callResult struct {
+		result *mcp.CallToolResult
+		output getTablesResult
+		err    error
+	}
+	firstResult := make(chan callResult, 1)
+	go func() {
+		result, output, err := service.GetTables(ctx, nil, databaseArgs{ConnectionID: "mysql-main", DBName: "app"})
+		firstResult <- callResult{result: result, output: output, err: err}
+	}()
+
+	select {
+	case <-backend.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetTables did not reach the cancellable backend")
+	}
+
+	secondResult, secondOutput, secondErr := service.GetTables(context.Background(), nil, databaseArgs{ConnectionID: "mysql-main", DBName: "app"})
+	if secondErr != nil || secondResult == nil || secondResult.IsError {
+		t.Fatalf("concurrent GetTables failed: result=%#v err=%v", secondResult, secondErr)
+	}
+	if len(secondOutput.Tables) != 1 || secondOutput.Tables[0] != "users" {
+		t.Fatalf("unexpected concurrent GetTables output: %#v", secondOutput)
+	}
+
+	cancel()
+	select {
+	case received := <-firstResult:
+		if received.err != nil {
+			t.Fatalf("cancelled GetTables returned transport error: %v", received.err)
+		}
+		if received.result == nil || !received.result.IsError {
+			t.Fatalf("cancelled GetTables should return a tool error, got %#v", received.result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled GetTables did not return")
+	}
+}
+
+func TestGetTablesReturnsCancellationWhenViewLookupIsCancelled(t *testing.T) {
+	backend := &cancellableViewsBackend{
+		fakeBackend: &fakeBackend{
+			editableConnection: connection.SavedConnectionView{
+				ID:     "mysql-main",
+				Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+			},
+			tablesResult: connection.QueryResult{
+				Success: true,
+				Data:    []map[string]string{{"Table": "users"}},
+			},
+		},
+		started: make(chan struct{}, 1),
+	}
+	service := NewService(backend)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type callResult struct {
+		result *mcp.CallToolResult
+		output getTablesResult
+		err    error
+	}
+	results := make(chan callResult, 1)
+	go func() {
+		result, output, err := service.GetTables(ctx, nil, databaseArgs{ConnectionID: "mysql-main", DBName: "app"})
+		results <- callResult{result: result, output: output, err: err}
+	}()
+
+	select {
+	case <-backend.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetTables did not reach the cancellable view lookup")
+	}
+	cancel()
+
+	select {
+	case received := <-results:
+		if received.err != nil {
+			t.Fatalf("cancelled GetTables returned transport error: %v", received.err)
+		}
+		if received.result == nil || !received.result.IsError {
+			t.Fatalf("cancelled view lookup should return a tool error, got %#v", received.result)
+		}
+		if len(received.output.Tables) != 0 || len(received.output.Views) != 0 {
+			t.Fatalf("cancelled view lookup returned partial metadata: %#v", received.output)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled view lookup did not return")
+	}
+}
+
+func TestGetColumnsForwardsCancellation(t *testing.T) {
+	backend := &cancellableColumnsBackend{
+		fakeBackend: &fakeBackend{
+			editableConnection: connection.SavedConnectionView{
+				ID:     "mysql-main",
+				Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+			},
+		},
+		started: make(chan struct{}, 1),
+	}
+	service := NewService(backend)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	type callResult struct {
+		result *mcp.CallToolResult
+		output getColumnsResult
+		err    error
+	}
+	results := make(chan callResult, 1)
+	go func() {
+		result, output, err := service.GetColumns(ctx, nil, tableArgs{ConnectionID: "mysql-main", DBName: "app", TableName: "orders"})
+		results <- callResult{result: result, output: output, err: err}
+	}()
+
+	select {
+	case <-backend.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("GetColumns 未到达可取消后端")
+	}
+	cancel()
+
+	select {
+	case received := <-results:
+		if received.err != nil {
+			t.Fatalf("取消的 GetColumns 返回传输错误：%v", received.err)
+		}
+		if received.result == nil || !received.result.IsError {
+			t.Fatalf("取消的 GetColumns 应返回工具错误，实际为 %#v", received.result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("取消的 GetColumns 未返回")
+	}
 }
 
 func TestGetConnectionsReturnsSavedConnectionSummaries(t *testing.T) {
@@ -222,6 +441,42 @@ func TestGetAllColumnsReturnsCrossTableColumnSummaries(t *testing.T) {
 	}
 }
 
+func TestGetAllColumnsPreservesPartialMetadataWarnings(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		allColumnsResult: connection.QueryResult{
+			Success:  true,
+			Partial:  true,
+			Message:  "Column summary is incomplete",
+			Warnings: []string{"Failed to read column metadata for restricted: permission denied"},
+			Data: []connection.ColumnDefinitionWithTable{
+				{TableName: "healthy", Name: "id", Type: "bigint"},
+			},
+		},
+	}
+
+	service := NewService(backend)
+	result, out, err := service.GetAllColumns(context.Background(), nil, databaseArgs{
+		ConnectionID: "mysql-main",
+		DBName:       "app",
+	})
+	if err != nil {
+		t.Fatalf("GetAllColumns returned error: %v", err)
+	}
+	if result == nil || result.IsError || !out.Partial {
+		t.Fatalf("expected partial success result, got %#v / %#v", result, out)
+	}
+	if len(out.Columns) != 1 || out.Columns[0].TableName != "healthy" {
+		t.Fatalf("expected successful columns, got %#v", out.Columns)
+	}
+	if out.Message != "Column summary is incomplete" || len(out.Warnings) != 1 || !strings.Contains(out.Warnings[0], "restricted") {
+		t.Fatalf("expected partial metadata details, got %#v", out)
+	}
+}
+
 func TestGetViewsReturnsViewNames(t *testing.T) {
 	backend := &fakeBackend{
 		editableConnection: connection.SavedConnectionView{
@@ -298,6 +553,39 @@ func TestGetTablesIncludesViewsInDedicatedField(t *testing.T) {
 	}
 }
 
+func TestGetTablesPreservesPartialMetadataWarnings(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "redis-main",
+			Config: connection.ConnectionConfig{Type: "redis", Database: "0"},
+		},
+		tablesResult: connection.QueryResult{
+			Success:      true,
+			Message:      "Redis key scan truncated after 2 keys: cursor loop detected",
+			Partial:      true,
+			Truncated:    true,
+			Retryable:    true,
+			ScannedCount: 2,
+			Warnings:     []string{"Redis key scan truncated after 2 keys: cursor loop detected"},
+			Data:         []map[string]string{{"Table": "orders"}, {"Table": "users"}},
+		},
+	}
+
+	result, out, err := NewService(backend).GetTables(context.Background(), nil, databaseArgs{
+		ConnectionID: "redis-main",
+		DBName:       "0",
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected partial table metadata success, result=%#v err=%v", result, err)
+	}
+	if !out.Partial || !out.Truncated || !out.Retryable || out.ScannedCount != 2 || len(out.Warnings) != 1 {
+		t.Fatalf("partial table metadata details were lost: %#v", out)
+	}
+	if out.Message != backend.tablesResult.Message || out.Warnings[0] != backend.tablesResult.Warnings[0] {
+		t.Fatalf("expected table metadata message and warnings to propagate, got %#v", out)
+	}
+}
+
 func TestGetObjectsReturnsDatabaseObjectsAndFiltersByType(t *testing.T) {
 	backend := &fakeBackend{
 		editableConnection: connection.SavedConnectionView{
@@ -338,6 +626,58 @@ func TestGetObjectsReturnsDatabaseObjectsAndFiltersByType(t *testing.T) {
 	}
 	if out.Objects[1].Name != "orders.events" {
 		t.Fatalf("queue names must preserve dots, got %#v", out.Objects[1])
+	}
+}
+
+func TestGetObjectsPreservesPartialMetadataWarnings(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		objectsResult: connection.QueryResult{
+			Success:           true,
+			Partial:           true,
+			Retryable:         true,
+			Truncated:         true,
+			ScannedCount:      1,
+			Warnings:          []string{"读取 view 对象元数据失败: permission denied"},
+			FailedObjectTypes: []string{"view"},
+			Data:              []connection.DatabaseObject{{Database: "app", Name: "users", Type: "table"}},
+		},
+	}
+
+	result, out, err := NewService(backend).GetObjects(context.Background(), nil, objectsArgs{ConnectionID: "mysql-main", DBName: "app"})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected partial metadata success, result=%#v err=%v", result, err)
+	}
+	if !out.Partial || !out.Retryable || !out.Truncated || out.ScannedCount != 1 || len(out.Warnings) != 1 || len(out.FailedObjectTypes) != 1 || out.FailedObjectTypes[0] != "view" {
+		t.Fatalf("partial metadata details were lost: %#v", out)
+	}
+}
+
+func TestGetObjectsMarksBaseMetadataFailureRetryable(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{ID: "mysql-main", Config: connection.ConnectionConfig{Type: "mysql", Database: "app"}},
+		objectsResult: connection.QueryResult{
+			Success:           false,
+			Partial:           true,
+			Retryable:         true,
+			Message:           "读取 table 对象元数据失败: permission denied",
+			FailedObjectTypes: []string{"table"},
+		},
+	}
+
+	result, out, err := NewService(backend).GetObjects(context.Background(), nil, objectsArgs{ConnectionID: "mysql-main", DBName: "app"})
+	if err != nil || result == nil || !result.IsError {
+		t.Fatalf("expected retryable tool error, result=%#v err=%v", result, err)
+	}
+	text := firstTextContent(result)
+	if !strings.Contains(text, "table") || !strings.Contains(text, "可重试") {
+		t.Fatalf("expected failure category and retry guidance, got %q", text)
+	}
+	if !out.Partial || !out.Retryable || len(out.Warnings) != 1 || len(out.FailedObjectTypes) != 1 || out.FailedObjectTypes[0] != "table" {
+		t.Fatalf("expected structured retry metadata, got %#v", out)
 	}
 }
 
@@ -640,6 +980,224 @@ func TestExecuteSQLAllowsDMLWhenAISafetyIsReadWriteAndAllowMutating(t *testing.T
 	}
 	if out.ReadOnly {
 		t.Fatalf("expected mutating SQL result, got %#v", out)
+	}
+}
+
+func TestExecuteSQLRejectsConnectionWriteProtection(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       false,
+			Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "update", ReadOnly: false}},
+		},
+		safetyLevel:  ai.PermissionReadWrite,
+		authorizeErr: errors.New("data editing is disabled for this connection"),
+	}
+
+	result, _, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID:  "mysql-main",
+		SQL:           "UPDATE users SET active = 1",
+		AllowMutating: true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || !result.IsError || backend.queryCalled {
+		t.Fatalf("connection protection should stop execution: result=%#v called=%t", result, backend.queryCalled)
+	}
+	if !strings.Contains(firstTextContent(result), "data editing is disabled") {
+		t.Fatalf("unexpected protection error: %q", firstTextContent(result))
+	}
+	if backend.authorizeCalls != 1 {
+		t.Fatalf("connection authorization calls = %d, want 1", backend.authorizeCalls)
+	}
+}
+
+func TestExecuteSQLAuthorizesExactlyOnceBeforeExecution(t *testing.T) {
+	tests := []struct {
+		name          string
+		sql           string
+		keyword       string
+		readOnly      bool
+		safetyLevel   ai.SQLPermissionLevel
+		allowMutating bool
+	}{
+		{name: "query", sql: "SELECT 1", keyword: "select", readOnly: true, safetyLevel: ai.PermissionReadOnly},
+		{name: "DML", sql: "UPDATE users SET active = 1", keyword: "update", safetyLevel: ai.PermissionReadWrite, allowMutating: true},
+		{name: "DDL", sql: "CREATE TABLE audit_probe(id INT)", keyword: "create", safetyLevel: ai.PermissionFull, allowMutating: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := connection.ConnectionConfig{ID: "postgres-main", Type: "postgres", Database: "app"}
+			backend := &fakeBackend{
+				editableConnection: connection.SavedConnectionView{ID: config.ID, Config: config},
+				inspection: appcore.SQLInspection{
+					StatementCount: 1,
+					ReadOnly:       test.readOnly,
+					Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: test.keyword, ReadOnly: test.readOnly}},
+				},
+				safetyLevel: test.safetyLevel,
+				queryResult: connection.QueryResult{Success: true, Data: []connection.ResultSetData{}},
+			}
+
+			result, _, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+				ConnectionID:  config.ID,
+				SQL:           test.sql,
+				AllowMutating: test.allowMutating,
+			})
+			if err != nil || result == nil || result.IsError {
+				t.Fatalf("ExecuteSQL result=%#v err=%v", result, err)
+			}
+			if backend.authorizeCalls != 1 || backend.authorizedConfig.ID != config.ID || backend.authorizedSQL != test.sql {
+				t.Fatalf("authorization calls=%d config=%#v sql=%q", backend.authorizeCalls, backend.authorizedConfig, backend.authorizedSQL)
+			}
+			if strings.Join(backend.events, ",") != "authorize,query" {
+				t.Fatalf("execution order = %v, want authorize before query", backend.events)
+			}
+		})
+	}
+}
+
+func TestExecuteSQLRejectsInconsistentSafetyInspection(t *testing.T) {
+	tests := []struct {
+		name       string
+		inspection appcore.SQLInspection
+	}{
+		{
+			name: "statement count mismatch",
+			inspection: appcore.SQLInspection{
+				StatementCount: 1,
+				ReadOnly:       true,
+			},
+		},
+		{
+			name: "aggregate read-only mismatch",
+			inspection: appcore.SQLInspection{
+				StatementCount: 1,
+				ReadOnly:       true,
+				Statements:     []appcore.SQLStatementInspection{{Index: 1, Keyword: "update", ReadOnly: false}},
+			},
+		},
+		{
+			name: "non-sequential statement index",
+			inspection: appcore.SQLInspection{
+				StatementCount: 1,
+				ReadOnly:       false,
+				Statements:     []appcore.SQLStatementInspection{{Index: 2, Keyword: "update", ReadOnly: false}},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			backend := &fakeBackend{
+				editableConnection: connection.SavedConnectionView{
+					ID:     "postgres-main",
+					Config: connection.ConnectionConfig{Type: "postgres", Database: "app"},
+				},
+				inspection:  test.inspection,
+				safetyLevel: ai.PermissionFull,
+				queryResult: connection.QueryResult{Success: true, Data: []connection.ResultSetData{}},
+			}
+
+			result, _, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+				ConnectionID:  "postgres-main",
+				SQL:           "UPDATE users SET active = 1",
+				AllowMutating: true,
+			})
+			if err != nil {
+				t.Fatalf("ExecuteSQL returned error: %v", err)
+			}
+			if result == nil || !result.IsError || backend.authorizeCalls != 0 || backend.queryCalled {
+				t.Fatalf("inconsistent inspection crossed execution boundary: result=%#v authorize=%d query=%t", result, backend.authorizeCalls, backend.queryCalled)
+			}
+			if !strings.Contains(firstTextContent(result), "安全检查结果无效") {
+				t.Fatalf("unexpected error text: %q", firstTextContent(result))
+			}
+		})
+	}
+}
+
+func TestExecuteSQLForwardsRequestContextToBackend(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID: "postgres-main",
+			Config: connection.ConnectionConfig{
+				Type:     "postgres",
+				Database: "app",
+			},
+		},
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       true,
+			Statements: []appcore.SQLStatementInspection{
+				{Index: 1, Keyword: "select", ReadOnly: true},
+			},
+		},
+		queryResult: connection.QueryResult{Success: true, Data: []connection.ResultSetData{}},
+	}
+
+	requestCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, _, err := NewService(backend).ExecuteSQL(requestCtx, nil, executeSQLArgs{
+		ConnectionID: "postgres-main",
+		SQL:          "SELECT 1",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || result.IsError || !backend.queryCalled {
+		t.Fatalf("ExecuteSQL did not reach the backend: result=%#v called=%t", result, backend.queryCalled)
+	}
+	if backend.queryContext == nil || backend.queryContext.Err() != context.Canceled {
+		t.Fatalf("backend request context = %v, want cancelled request context", backend.queryContext)
+	}
+}
+
+func TestExecuteSQLExposesUnsupportedCancellationState(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID: "legacy-main",
+			Config: connection.ConnectionConfig{
+				Type:     "custom",
+				Database: "app",
+			},
+		},
+		inspection: appcore.SQLInspection{
+			StatementCount: 1,
+			ReadOnly:       true,
+			Statements: []appcore.SQLStatementInspection{
+				{Index: 1, Keyword: "select", ReadOnly: true},
+			},
+		},
+		queryResult: connection.QueryResult{
+			Success:           true,
+			Message:           "driver cannot stop the underlying SQL",
+			CancellationState: connection.QueryCancellationStateUnsupported,
+			Data:              []connection.ResultSetData{},
+		},
+	}
+
+	result, out, err := NewService(backend).ExecuteSQL(context.Background(), nil, executeSQLArgs{
+		ConnectionID: "legacy-main",
+		SQL:          "SELECT 1",
+	})
+	if err != nil {
+		t.Fatalf("ExecuteSQL returned error: %v", err)
+	}
+	if result == nil || result.IsError {
+		t.Fatalf("expected the completed SQL result with explicit cancellation state, got %#v", result)
+	}
+	if out.CancellationState != connection.QueryCancellationStateUnsupported {
+		t.Fatalf("unsupported cancellation state was lost from structured MCP output: %#v", out)
+	}
+	if text := firstTextContent(result); !strings.Contains(text, "取消状态：unsupported") {
+		t.Fatalf("unsupported cancellation state was lost at the MCP boundary: %q", text)
 	}
 }
 

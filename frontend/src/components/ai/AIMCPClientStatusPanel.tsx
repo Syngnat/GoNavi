@@ -141,7 +141,7 @@ const AIMCPClientStatusPanel: React.FC<AIMCPClientStatusPanelProps> = ({
                 ? copy('ai_chat.mcp_client.install.status.cli.remote', 'Remote Agent does not need local {{command}} command detection', { command: resolveMCPClientCommandName(selectedStatus) })
                 : selectedStatus?.clientDetected
                   ? copy('ai_chat.mcp_client.install.status.cli.detected', 'Detected {{command}}', { command: resolveMCPClientCommandName(selectedStatus) })
-                  : copy('ai_chat.mcp_client.install.status.cli.not_detected', '{{command}} was not detected; config can still be written first', { command: resolveMCPClientCommandName(selectedStatus) }),
+                  : copy('ai_chat.mcp_client.install.status.cli.not_detected', '{{command}} was not detected. Install or enable the client, add the command to PATH, and refresh before writing MCP configuration.', { command: resolveMCPClientCommandName(selectedStatus) }),
             })}
           </div>
           {selectedStatus?.clientPath && (

@@ -170,7 +170,7 @@ func (o *OceanBaseDB) getDSN(config connection.ConnectionConfig) (string, error)
 	address := normalizeMySQLAddress(config.Host, config.Port)
 
 	if config.UseSSH {
-		netName, err := ssh.RegisterSSHNetwork(config.SSH)
+		netName, err := oceanBaseRegisterSSHNetwork(config.SSH)
 		if err != nil {
 			return "", fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -457,7 +457,11 @@ type oceanBaseMySQLWireProbeResult struct {
 	err            error
 }
 
-var oceanBaseProbeDialContext = defaultOceanBaseProbeDialContext
+var (
+	oceanBaseProbeDialContext      = defaultOceanBaseProbeDialContext
+	oceanBaseAcquireLocalForwarder = ssh.AcquireLocalForwarder
+	oceanBaseRegisterSSHNetwork    = ssh.RegisterSSHNetwork
+)
 
 func defaultOceanBaseProbeDialContext(ctx context.Context, config connection.ConnectionConfig, address string) (net.Conn, error) {
 	if config.UseSSH {
@@ -605,8 +609,11 @@ func (o *OceanBaseDB) connectOracleViaOBClient(config connection.ConnectionConfi
 
 		if candidateConfig.UseSSH {
 			var err error
-			forwarder, err = ssh.AcquireLocalForwarder(candidateConfig.SSH, host, port)
+			forwarder, err = oceanBaseAcquireLocalForwarder(candidateConfig.SSH, host, port)
 			if err != nil {
+				if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
+					return fmt.Errorf("OceanBase Oracle (OBClient 路径) %s 创建 SSH 本地转发失败：%w", address, err)
+				}
 				errorDetails = append(errorDetails, fmt.Sprintf("%s 创建 SSH 本地转发失败：%v", address, err))
 				continue
 			}
@@ -678,6 +685,7 @@ func (o *OceanBaseDB) bindConnectedDatabase(db *sql.DB, timeout time.Duration, p
 	o.oracle = nil
 	o.conn = nil
 	o.pingTimeout = 0
+	o.batchWritesEnabled = false
 	if protocol == oceanBaseProtocolOracle {
 		o.oracle = &OracleDB{conn: db, pingTimeout: timeout, scanDialect: oceanBaseOracleScanDialect}
 		o.protocol = oceanBaseProtocolOracle
@@ -688,8 +696,16 @@ func (o *OceanBaseDB) bindConnectedDatabase(db *sql.DB, timeout time.Duration, p
 	o.protocol = oceanBaseProtocolMySQL
 }
 
+func (o *OceanBaseDB) setMySQLBatchWritesFromDSN(dsn string) {
+	if o == nil {
+		return
+	}
+	o.batchWritesEnabled = mysqlDSNSupportsBatchWrites(dsn)
+}
+
 func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	_ = o.Close()
+	o.batchWritesEnabled = false
 	defer func() {
 		if err != nil {
 			_ = o.Close()
@@ -759,6 +775,9 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 
 		dsn, err := o.getDSN(candidateConfig)
 		if err != nil {
+			if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
+				return fmt.Errorf("OceanBase %s 创建 SSH 隧道失败：%w", address, err)
+			}
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败：%v", address, err))
 			continue
 		}
@@ -782,6 +801,7 @@ func (o *OceanBaseDB) Connect(config connection.ConnectionConfig) (err error) {
 		o.conn = db
 		o.pingTimeout = timeout
 		o.protocol = oceanBaseProtocolMySQL
+		o.setMySQLBatchWritesFromDSN(dsn)
 		return nil
 	}
 
@@ -795,6 +815,9 @@ func (o *OceanBaseDB) connectOracleViaOBClientThenTNS(config connection.Connecti
 	obclientErr := o.connectOracleViaOBClient(config)
 	if obclientErr == nil {
 		return nil
+	}
+	if _, requiresTrust := ssh.HostKeyTrustStatusFromError(obclientErr); requiresTrust {
+		return obclientErr
 	}
 	if strings.TrimSpace(config.Database) == "" {
 		return fmt.Errorf("OceanBase Oracle OBClient/MySQL-wire 路径连接失败：%v；当前未填写 Service Name，已跳过 TNS 路径。若连接的是 OBClient/OBServer MySQL-wire 入口，Service Name 可继续留空，请检查主机、端口、用户名、密码和 driver-agent 是否为当前版本；Service Name 只用于 OBProxy Oracle listener/TNS 入口", obclientErr)
@@ -812,6 +835,14 @@ func (o *OceanBaseDB) activeDatabase() Database {
 		return o.oracle
 	}
 	return &o.MySQLDB
+}
+
+func (o *OceanBaseDB) bindMetadataContext(ctx context.Context) {
+	BindMetadataContext(o.activeDatabase(), ctx)
+}
+
+func (o *OceanBaseDB) clearMetadataContext() {
+	ClearMetadataContext(o.activeDatabase())
 }
 
 func (o *OceanBaseDB) Close() error {
@@ -995,11 +1026,21 @@ func (o *OceanBaseDB) GetTriggers(dbName, tableName string) ([]connection.Trigge
 }
 
 func (o *OceanBaseDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return o.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (o *OceanBaseDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
 	// Oracle 协议走 OBClient 路径时，o.oracle.conn 实际上是 mysql wire 的 *sql.DB，
 	// Oracle 风格 SQL（双引号引用 + ROWID）由 OceanBase 服务端按 Oracle 解析器处理，
 	// 但占位符必须是 mysql 风格的 "?"，不能用 OracleDB.ApplyChanges 的 ":1" Oracle bind 风格。
 	if o.protocol == oceanBaseProtocolOracle && o.oracle != nil {
-		return o.applyOracleChangesMySQLWire(tableName, changes)
+		return o.applyOracleChangesMySQLWireContext(ctx, tableName, changes)
+	}
+	if applier, ok := o.activeDatabase().(BatchApplierContext); ok {
+		return applier.ApplyChangesContext(ctx, tableName, changes)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if applier, ok := o.activeDatabase().(BatchApplier); ok {
 		return applier.ApplyChanges(tableName, changes)
@@ -1064,20 +1105,31 @@ func buildOceanBaseOracleAssignment(columnName string, value interface{}, column
 // applyOracleChangesMySQLWire 在 OceanBase Oracle 租户的 mysql wire 连接上执行
 // DELETE/UPDATE/INSERT，使用 Oracle 风格双引号引用标识符 + mysql wire 风格 "?" 占位符。
 func (o *OceanBaseDB) applyOracleChangesMySQLWire(tableName string, changes connection.ChangeSet) error {
+	return o.applyOracleChangesMySQLWireContext(context.Background(), tableName, changes)
+}
+
+func (o *OceanBaseDB) applyOracleChangesMySQLWireContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if o.oracle == nil || o.oracle.conn == nil {
 		return fmt.Errorf("连接未打开")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	columnTypeMap, err := o.oracle.loadColumnTypeMap(tableName)
 	if err != nil {
 		return fmt.Errorf("OceanBase Oracle 租户 %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	tx, err := o.oracle.conn.Begin()
+	tx, err := o.oracle.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
 
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
@@ -1126,7 +1178,7 @@ func (o *OceanBaseDB) applyOracleChangesMySQLWire(tableName string, changes conn
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("删除失败：%v", err)
 		}
@@ -1157,7 +1209,7 @@ func (o *OceanBaseDB) applyOracleChangesMySQLWire(tableName string, changes conn
 		}
 
 		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("更新失败：%v", err)
 		}
@@ -1183,7 +1235,7 @@ func (o *OceanBaseDB) applyOracleChangesMySQLWire(tableName string, changes conn
 		}
 
 		query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", qualifiedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("插入失败：%v", err)
 		}
@@ -1192,5 +1244,9 @@ func (o *OceanBaseDB) applyOracleChangesMySQLWire(tableName string, changes conn
 		}
 	}
 
-	return tx.Commit()
+	if err := commitWriteTransaction(tx); err != nil {
+		return err
+	}
+	transactionCommitted = true
+	return nil
 }

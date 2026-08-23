@@ -90,6 +90,12 @@ type getTablesResult struct {
 	DBName       string   `json:"dbName,omitempty"`
 	Tables       []string `json:"tables"`
 	Views        []string `json:"views"`
+	Message      string   `json:"message,omitempty"`
+	Partial      bool     `json:"partial,omitempty"`
+	Warnings     []string `json:"warnings,omitempty"`
+	Retryable    bool     `json:"retryable,omitempty"`
+	Truncated    bool     `json:"truncated,omitempty"`
+	ScannedCount int      `json:"scannedCount,omitempty"`
 }
 
 type getViewsResult struct {
@@ -99,15 +105,25 @@ type getViewsResult struct {
 }
 
 type getObjectsResult struct {
-	ConnectionID string                      `json:"connectionId"`
-	DBName       string                      `json:"dbName,omitempty"`
-	Objects      []connection.DatabaseObject `json:"objects"`
+	ConnectionID      string                      `json:"connectionId"`
+	DBName            string                      `json:"dbName,omitempty"`
+	Objects           []connection.DatabaseObject `json:"objects"`
+	Message           string                      `json:"message,omitempty"`
+	Partial           bool                        `json:"partial,omitempty"`
+	Warnings          []string                    `json:"warnings,omitempty"`
+	FailedObjectTypes []string                    `json:"failedObjectTypes,omitempty"`
+	Retryable         bool                        `json:"retryable,omitempty"`
+	Truncated         bool                        `json:"truncated,omitempty"`
+	ScannedCount      int                         `json:"scannedCount,omitempty"`
 }
 
 type getAllColumnsResult struct {
 	ConnectionID string                                 `json:"connectionId"`
 	DBName       string                                 `json:"dbName,omitempty"`
 	Columns      []connection.ColumnDefinitionWithTable `json:"columns"`
+	Message      string                                 `json:"message,omitempty"`
+	Partial      bool                                   `json:"partial,omitempty"`
+	Warnings     []string                               `json:"warnings,omitempty"`
 }
 
 type getColumnsResult struct {
@@ -161,15 +177,17 @@ type sqlResultSet struct {
 }
 
 type executeSQLResult struct {
-	ConnectionID   string                `json:"connectionId"`
-	DBName         string                `json:"dbName,omitempty"`
-	StatementCount int                   `json:"statementCount"`
-	ReadOnly       bool                  `json:"readOnly"`
-	QueryID        string                `json:"queryId,omitempty"`
-	Message        string                `json:"message,omitempty"`
-	Truncated      bool                  `json:"truncated,omitempty"`
-	Statements     []sqlStatementSummary `json:"statements"`
-	Results        []sqlResultSet        `json:"results"`
+	RequestID         string                `json:"requestId,omitempty"`
+	ConnectionID      string                `json:"connectionId"`
+	DBName            string                `json:"dbName,omitempty"`
+	StatementCount    int                   `json:"statementCount"`
+	ReadOnly          bool                  `json:"readOnly"`
+	QueryID           string                `json:"queryId,omitempty"`
+	CancellationState string                `json:"cancellationState,omitempty"`
+	Message           string                `json:"message,omitempty"`
+	Truncated         bool                  `json:"truncated,omitempty"`
+	Statements        []sqlStatementSummary `json:"statements"`
+	Results           []sqlResultSet        `json:"results"`
 }
 
 func (s *Service) GetConnections(ctx context.Context, req *mcp.CallToolRequest, args emptyArgs) (*mcp.CallToolResult, getConnectionsResult, error) {
@@ -207,7 +225,6 @@ func (s *Service) GetConnections(ctx context.Context, req *mcp.CallToolRequest, 
 }
 
 func (s *Service) GetDatabases(ctx context.Context, req *mcp.CallToolRequest, args connectionIDArgs) (*mcp.CallToolResult, getDatabasesResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -215,7 +232,7 @@ func (s *Service) GetDatabases(ctx context.Context, req *mcp.CallToolRequest, ar
 		return errResult, getDatabasesResult{}, nil
 	}
 
-	queryResult := s.backend.DBGetDatabases(view.Config)
+	queryResult := s.backend.DBGetDatabases(ctx, view.Config)
 	if !queryResult.Success {
 		return toolError("获取数据库列表失败: %s", strings.TrimSpace(queryResult.Message)), getDatabasesResult{}, nil
 	}
@@ -232,7 +249,6 @@ func (s *Service) GetDatabases(ctx context.Context, req *mcp.CallToolRequest, ar
 }
 
 func (s *Service) GetTables(ctx context.Context, req *mcp.CallToolRequest, args databaseArgs) (*mcp.CallToolResult, getTablesResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -241,7 +257,7 @@ func (s *Service) GetTables(ctx context.Context, req *mcp.CallToolRequest, args 
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetTables(view.Config, dbName)
+	queryResult := s.backend.DBGetTables(ctx, view.Config, dbName)
 	if !queryResult.Success {
 		return toolError("获取表列表失败: %s", strings.TrimSpace(queryResult.Message)), getTablesResult{}, nil
 	}
@@ -250,9 +266,15 @@ func (s *Service) GetTables(ctx context.Context, req *mcp.CallToolRequest, args 
 	if err != nil {
 		return toolError("解析表列表失败: %v", err), getTablesResult{}, nil
 	}
+	if err := ctx.Err(); err != nil {
+		return toolError("获取表列表失败: %s", err), getTablesResult{}, nil
+	}
 
 	views := []string{}
-	viewResult := s.backend.DBGetViews(view.Config, dbName)
+	viewResult := s.backend.DBGetViews(ctx, view.Config, dbName)
+	if err := ctx.Err(); err != nil {
+		return toolError("获取表列表失败: %s", err), getTablesResult{}, nil
+	}
 	if viewResult.Success {
 		if decodedViews, decodeErr := decodeNamedStringSlice(viewResult.Data, "View", "view", "name"); decodeErr == nil {
 			views = decodedViews
@@ -264,11 +286,16 @@ func (s *Service) GetTables(ctx context.Context, req *mcp.CallToolRequest, args 
 		DBName:       dbName,
 		Tables:       ensureNonNilStrings(tables),
 		Views:        ensureNonNilStrings(views),
+		Message:      strings.TrimSpace(queryResult.Message),
+		Partial:      queryResult.Partial,
+		Warnings:     objectMetadataWarnings(queryResult),
+		Retryable:    queryResult.Retryable,
+		Truncated:    queryResult.Truncated,
+		ScannedCount: queryResult.ScannedCount,
 	}, nil
 }
 
 func (s *Service) GetViews(ctx context.Context, req *mcp.CallToolRequest, args databaseArgs) (*mcp.CallToolResult, getViewsResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -277,7 +304,7 @@ func (s *Service) GetViews(ctx context.Context, req *mcp.CallToolRequest, args d
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetViews(view.Config, dbName)
+	queryResult := s.backend.DBGetViews(ctx, view.Config, dbName)
 	if !queryResult.Success {
 		return toolError("获取视图列表失败: %s", strings.TrimSpace(queryResult.Message)), getViewsResult{}, nil
 	}
@@ -295,7 +322,6 @@ func (s *Service) GetViews(ctx context.Context, req *mcp.CallToolRequest, args d
 }
 
 func (s *Service) GetObjects(ctx context.Context, req *mcp.CallToolRequest, args objectsArgs) (*mcp.CallToolResult, getObjectsResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -304,9 +330,28 @@ func (s *Service) GetObjects(ctx context.Context, req *mcp.CallToolRequest, args
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetObjects(view.Config, dbName)
+	queryResult := s.backend.DBGetObjects(ctx, view.Config, dbName)
 	if !queryResult.Success {
-		return toolError("获取数据库对象列表失败: %s", strings.TrimSpace(queryResult.Message)), getObjectsResult{}, nil
+		output := getObjectsResult{
+			ConnectionID:      view.ID,
+			DBName:            dbName,
+			Objects:           []connection.DatabaseObject{},
+			Message:           strings.TrimSpace(queryResult.Message),
+			Partial:           queryResult.Partial,
+			Warnings:          objectMetadataWarnings(queryResult),
+			FailedObjectTypes: queryResult.FailedObjectTypes,
+			Retryable:         queryResult.Retryable,
+			Truncated:         queryResult.Truncated,
+			ScannedCount:      queryResult.ScannedCount,
+		}
+		if queryResult.Retryable {
+			failedTypes := strings.Join(queryResult.FailedObjectTypes, ", ")
+			if failedTypes != "" {
+				return toolError("获取数据库对象列表失败（失败类别: %s，可重试）: %s", failedTypes, strings.TrimSpace(queryResult.Message)), output, nil
+			}
+			return toolError("获取数据库对象列表失败（可重试）: %s", strings.TrimSpace(queryResult.Message)), output, nil
+		}
+		return toolError("获取数据库对象列表失败: %s", strings.TrimSpace(queryResult.Message)), output, nil
 	}
 
 	objects, err := decodeDatabaseObjects(queryResult.Data)
@@ -315,14 +360,30 @@ func (s *Service) GetObjects(ctx context.Context, req *mcp.CallToolRequest, args
 	}
 
 	return successResult(), getObjectsResult{
-		ConnectionID: view.ID,
-		DBName:       dbName,
-		Objects:      filterDatabaseObjects(objects, args.ObjectTypes),
+		ConnectionID:      view.ID,
+		DBName:            dbName,
+		Objects:           filterDatabaseObjects(objects, args.ObjectTypes),
+		Message:           strings.TrimSpace(queryResult.Message),
+		Partial:           queryResult.Partial,
+		Warnings:          objectMetadataWarnings(queryResult),
+		FailedObjectTypes: queryResult.FailedObjectTypes,
+		Retryable:         queryResult.Retryable,
+		Truncated:         queryResult.Truncated,
+		ScannedCount:      queryResult.ScannedCount,
 	}, nil
 }
 
+func objectMetadataWarnings(result connection.QueryResult) []string {
+	if len(result.Warnings) > 0 {
+		return result.Warnings
+	}
+	if message := strings.TrimSpace(result.Message); message != "" {
+		return []string{message}
+	}
+	return nil
+}
+
 func (s *Service) GetAllColumns(ctx context.Context, req *mcp.CallToolRequest, args databaseArgs) (*mcp.CallToolResult, getAllColumnsResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -335,7 +396,7 @@ func (s *Service) GetAllColumns(ctx context.Context, req *mcp.CallToolRequest, a
 		return toolError("dbName 不能为空"), getAllColumnsResult{}, nil
 	}
 
-	queryResult := s.backend.DBGetAllColumns(view.Config, dbName)
+	queryResult := s.backend.DBGetAllColumns(ctx, view.Config, dbName)
 	if !queryResult.Success {
 		return toolError("获取全库字段摘要失败: %s", strings.TrimSpace(queryResult.Message)), getAllColumnsResult{}, nil
 	}
@@ -349,11 +410,13 @@ func (s *Service) GetAllColumns(ctx context.Context, req *mcp.CallToolRequest, a
 		ConnectionID: view.ID,
 		DBName:       dbName,
 		Columns:      ensureNonNilColumnsWithTable(columns),
+		Message:      strings.TrimSpace(queryResult.Message),
+		Partial:      queryResult.Partial,
+		Warnings:     objectMetadataWarnings(queryResult),
 	}, nil
 }
 
 func (s *Service) GetColumns(ctx context.Context, req *mcp.CallToolRequest, args tableArgs) (*mcp.CallToolResult, getColumnsResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -367,7 +430,7 @@ func (s *Service) GetColumns(ctx context.Context, req *mcp.CallToolRequest, args
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetColumns(view.Config, dbName, tableName)
+	queryResult := s.backend.DBGetColumns(ctx, view.Config, dbName, tableName)
 	if !queryResult.Success {
 		return toolError("获取字段列表失败: %s", strings.TrimSpace(queryResult.Message)), getColumnsResult{}, nil
 	}
@@ -386,7 +449,6 @@ func (s *Service) GetColumns(ctx context.Context, req *mcp.CallToolRequest, args
 }
 
 func (s *Service) GetIndexes(ctx context.Context, req *mcp.CallToolRequest, args tableArgs) (*mcp.CallToolResult, getIndexesResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -400,7 +462,7 @@ func (s *Service) GetIndexes(ctx context.Context, req *mcp.CallToolRequest, args
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetIndexes(view.Config, dbName, tableName)
+	queryResult := s.backend.DBGetIndexes(ctx, view.Config, dbName, tableName)
 	if !queryResult.Success {
 		return toolError("获取索引定义失败: %s", strings.TrimSpace(queryResult.Message)), getIndexesResult{}, nil
 	}
@@ -419,7 +481,6 @@ func (s *Service) GetIndexes(ctx context.Context, req *mcp.CallToolRequest, args
 }
 
 func (s *Service) GetForeignKeys(ctx context.Context, req *mcp.CallToolRequest, args tableArgs) (*mcp.CallToolResult, getForeignKeysResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -433,7 +494,7 @@ func (s *Service) GetForeignKeys(ctx context.Context, req *mcp.CallToolRequest, 
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetForeignKeys(view.Config, dbName, tableName)
+	queryResult := s.backend.DBGetForeignKeys(ctx, view.Config, dbName, tableName)
 	if !queryResult.Success {
 		return toolError("获取外键关系失败: %s", strings.TrimSpace(queryResult.Message)), getForeignKeysResult{}, nil
 	}
@@ -452,7 +513,6 @@ func (s *Service) GetForeignKeys(ctx context.Context, req *mcp.CallToolRequest, 
 }
 
 func (s *Service) GetTriggers(ctx context.Context, req *mcp.CallToolRequest, args tableArgs) (*mcp.CallToolResult, getTriggersResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -466,7 +526,7 @@ func (s *Service) GetTriggers(ctx context.Context, req *mcp.CallToolRequest, arg
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBGetTriggers(view.Config, dbName, tableName)
+	queryResult := s.backend.DBGetTriggers(ctx, view.Config, dbName, tableName)
 	if !queryResult.Success {
 		return toolError("获取触发器定义失败: %s", strings.TrimSpace(queryResult.Message)), getTriggersResult{}, nil
 	}
@@ -485,7 +545,6 @@ func (s *Service) GetTriggers(ctx context.Context, req *mcp.CallToolRequest, arg
 }
 
 func (s *Service) GetTableDDL(ctx context.Context, req *mcp.CallToolRequest, args tableArgs) (*mcp.CallToolResult, getTableDDLResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -499,7 +558,7 @@ func (s *Service) GetTableDDL(ctx context.Context, req *mcp.CallToolRequest, arg
 	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.DBShowCreateTable(view.Config, dbName, tableName)
+	queryResult := s.backend.DBShowCreateTable(ctx, view.Config, dbName, tableName)
 	if !queryResult.Success {
 		return toolError("获取建表语句失败: %s", strings.TrimSpace(queryResult.Message)), getTableDDLResult{}, nil
 	}
@@ -518,7 +577,6 @@ func (s *Service) GetTableDDL(ctx context.Context, req *mcp.CallToolRequest, arg
 }
 
 func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args executeSQLArgs) (*mcp.CallToolResult, executeSQLResult, error) {
-	_ = ctx
 	_ = req
 
 	view, errResult := s.resolveConnection(args.ConnectionID)
@@ -535,6 +593,9 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	if inspection.StatementCount == 0 {
 		return toolError("未识别到可执行的 SQL 语句"), executeSQLResult{}, nil
 	}
+	if !isConsistentSQLInspection(inspection) {
+		return toolError("SQL 安全检查结果无效，已拒绝执行"), executeSQLResult{}, nil
+	}
 
 	safetyLevel := normalizeSQLSafetyLevel(s.backend.GetSQLSafetyLevel())
 	safetyDecision := evaluateSQLSafety(safetyLevel, inspection)
@@ -544,10 +605,16 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	if safetyDecision.requiresConfirm && !args.AllowMutating {
 		return toolError("当前 SQL 已通过 GoNavi AI 安全控制（%s），但包含非只读语句 %s，请显式传入 allowMutating=true 后重试", safetyLevelDisplayName(safetyLevel), formatSafetyStatements(safetyDecision.confirmRequired)), executeSQLResult{}, nil
 	}
+	if err := s.backend.AuthorizeSQLConnection(view.Config, sqlText); err != nil {
+		return toolError("连接写保护拒绝 SQL 执行: %s", strings.TrimSpace(err.Error())), executeSQLResult{}, nil
+	}
 
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.backend.ExecuteSQLFromMCP(view.Config, dbName, sqlText)
+	queryResult := s.executeAuthorizedSQL(ctx, view, dbName, sqlText, args.AllowMutating)
 	if !queryResult.Success {
+		if queryResult.CancellationState != "" {
+			return toolError("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message)), executeSQLResult{}, nil
+		}
 		return toolError("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message)), executeSQLResult{}, nil
 	}
 
@@ -558,17 +625,26 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 
 	normalizedResults, truncated := normalizeResultSets(resultSets, normalizeMaxRowsPerResult(args.MaxRowsPerResult))
 	output := executeSQLResult{
-		ConnectionID:   view.ID,
-		DBName:         dbName,
-		StatementCount: inspection.StatementCount,
-		ReadOnly:       inspection.ReadOnly,
-		QueryID:        strings.TrimSpace(queryResult.QueryID),
-		Message:        strings.TrimSpace(queryResult.Message),
-		Truncated:      truncated,
-		Statements:     toStatementSummaries(inspection.Statements),
-		Results:        normalizedResults,
+		RequestID:         mcpRequestID(ctx),
+		ConnectionID:      view.ID,
+		DBName:            dbName,
+		StatementCount:    inspection.StatementCount,
+		ReadOnly:          inspection.ReadOnly,
+		QueryID:           strings.TrimSpace(queryResult.QueryID),
+		CancellationState: strings.TrimSpace(queryResult.CancellationState),
+		Message:           strings.TrimSpace(queryResult.Message),
+		Truncated:         truncated,
+		Statements:        toStatementSummaries(inspection.Statements),
+		Results:           normalizedResults,
 	}
 	return textResult(formatExecuteSQLResultContent(output)), output, nil
+}
+
+func (s *Service) executeAuthorizedSQL(ctx context.Context, view connection.SavedConnectionView, dbName string, sqlText string, allowMutating bool) connection.QueryResult {
+	if backend, ok := s.backend.(executionAuthorizingBackend); ok {
+		return backend.ExecuteAuthorizedSQLFromMCP(ctx, view.ID, view.Config, dbName, sqlText, allowMutating)
+	}
+	return s.backend.ExecuteSQLFromMCP(ctx, view.Config, dbName, sqlText)
 }
 
 func successResult() *mcp.CallToolResult {
@@ -945,6 +1021,10 @@ func formatExecuteSQLResultContent(result executeSQLResult) string {
 	if result.Truncated {
 		builder.WriteString("，结果已截断")
 	}
+	if result.CancellationState != "" {
+		builder.WriteString("\n取消状态：")
+		builder.WriteString(result.CancellationState)
+	}
 	if result.Message != "" {
 		builder.WriteString("\n消息：")
 		builder.WriteString(result.Message)
@@ -1140,6 +1220,22 @@ type sqlSafetyDecision struct {
 	requiresConfirm bool
 	disallowed      []sqlSafetyStatement
 	confirmRequired []sqlSafetyStatement
+}
+
+func isConsistentSQLInspection(inspection appcore.SQLInspection) bool {
+	if inspection.StatementCount <= 0 || inspection.StatementCount != len(inspection.Statements) {
+		return false
+	}
+	readOnly := true
+	for index, statement := range inspection.Statements {
+		if statement.Index != index+1 {
+			return false
+		}
+		if !statement.ReadOnly {
+			readOnly = false
+		}
+	}
+	return inspection.ReadOnly == readOnly
 }
 
 func evaluateSQLSafety(level ai.SQLPermissionLevel, inspection appcore.SQLInspection) sqlSafetyDecision {

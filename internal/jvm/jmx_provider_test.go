@@ -1,13 +1,11 @@
 package jvm
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -280,13 +278,6 @@ func TestJMXProviderGetValueRejectsUnknownResourcePath(t *testing.T) {
 }
 
 func TestJMXProviderRealJMXRoundTrip(t *testing.T) {
-	if _, err := exec.LookPath("java"); err != nil {
-		t.Skipf("java 不可用，跳过真实 JMX 集成测试: %v", err)
-	}
-	if _, err := exec.LookPath("javac"); err != nil {
-		t.Skipf("javac 不可用，跳过真实 JMX 集成测试: %v", err)
-	}
-
 	provider := NewJMXProvider()
 	monitoringProvider, ok := provider.(MonitoringCapableProvider)
 	if !ok {
@@ -760,20 +751,12 @@ func TestJMXProviderRealJMXRoundTrip(t *testing.T) {
 
 type jmxFixtureProcess struct {
 	port int
-	cmd  *exec.Cmd
 }
 
 func startJMXFixture(t *testing.T) jmxFixtureProcess {
 	t.Helper()
 
-	javaBin, err := exec.LookPath("java")
-	if err != nil {
-		t.Fatalf("look up java failed: %v", err)
-	}
-	javacBin, err := exec.LookPath("javac")
-	if err != nil {
-		t.Fatalf("look up javac failed: %v", err)
-	}
+	toolchain := requireJVMFixtureToolchain(t, false)
 
 	classesDir := filepath.Join(t.TempDir(), "fixture-classes")
 	if err := os.MkdirAll(classesDir, 0o755); err != nil {
@@ -788,18 +771,10 @@ func startJMXFixture(t *testing.T) jmxFixtureProcess {
 		t.Fatalf("expected fixture java files under %s", sourceRoot)
 	}
 
-	compileArgs := append([]string{"-encoding", "UTF-8", "-d", classesDir}, javaFiles...)
-	compileCmd := exec.Command(javacBin, compileArgs...)
-	output, err := compileCmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("compile fixture failed: %v\n%s", err, strings.TrimSpace(string(output)))
-	}
+	compileJVMFixture(t, toolchain, "JMX", classesDir, javaFiles)
 
 	port := reserveTCPPort(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	cmd := exec.CommandContext(ctx, javaBin,
+	process, stdout := startJVMFixtureCommand(t, toolchain, "JMX",
 		fmt.Sprintf("-Dcom.sun.management.jmxremote.port=%d", port),
 		fmt.Sprintf("-Dcom.sun.management.jmxremote.rmi.port=%d", port),
 		"-Dcom.sun.management.jmxremote.authenticate=false",
@@ -810,40 +785,7 @@ func startJMXFixture(t *testing.T) jmxFixtureProcess {
 		"-cp", classesDir,
 		"com.gonavi.fixture.JMXTestServer",
 	)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		t.Fatalf("fixture stdout pipe failed: %v", err)
-	}
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("start fixture failed: %v", err)
-	}
-	t.Cleanup(func() {
-		cancel()
-		_ = cmd.Wait()
-	})
-
-	ready := make(chan error, 1)
-	go func() {
-		line, readErr := bufio.NewReader(stdout).ReadString('\n')
-		if readErr != nil {
-			ready <- fmt.Errorf("fixture readiness read failed: %w", readErr)
-			return
-		}
-		if strings.TrimSpace(line) != "READY" {
-			ready <- fmt.Errorf("unexpected fixture readiness line: %q", strings.TrimSpace(line))
-			return
-		}
-		ready <- nil
-	}()
-
-	select {
-	case err := <-ready:
-		if err != nil {
-			t.Fatalf("wait fixture ready failed: %v", err)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("fixture did not become ready within 20s")
-	}
+	waitForJVMFixtureReady(t, process, stdout, toolchain, "JMX", "READY", 20*time.Second)
 
 	waitForTest(t, 10*time.Second, func() error {
 		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 500*time.Millisecond)
@@ -854,7 +796,7 @@ func startJMXFixture(t *testing.T) jmxFixtureProcess {
 		return nil
 	})
 
-	return jmxFixtureProcess{port: port, cmd: cmd}
+	return jmxFixtureProcess{port: port}
 }
 
 func waitForTest(t *testing.T, timeout time.Duration, fn func() error) {

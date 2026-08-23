@@ -1,11 +1,8 @@
 package app
 
 import (
-	"context"
 	"fmt"
 	"strings"
-
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func otherWindowsUpdateProcessIDs(processes []windowsUpdateProcess) []uint32 {
@@ -18,24 +15,6 @@ func otherWindowsUpdateProcessIDs(processes []windowsUpdateProcess) []uint32 {
 
 func windowsUpdateCloseConfirmationRequired(goos string, confirmed bool, otherInstanceCount int) bool {
 	return strings.EqualFold(strings.TrimSpace(goos), "windows") && !confirmed && otherInstanceCount > 0
-}
-
-func showWindowsUpdateCloseConfirmation(ctx context.Context, title, message string) (bool, error) {
-	if ctx == nil {
-		return false, fmt.Errorf("application window is not ready")
-	}
-	response, err := wailsRuntime.MessageDialog(ctx, wailsRuntime.MessageDialogOptions{
-		Type:          wailsRuntime.QuestionDialog,
-		Title:         title,
-		Message:       message,
-		Buttons:       []string{"Yes", "No"},
-		DefaultButton: "No",
-		CancelButton:  "No",
-	})
-	if err != nil {
-		return false, err
-	}
-	return strings.EqualFold(strings.TrimSpace(response), "yes"), nil
 }
 
 func closeOtherWindowsUpdateInstancesForInstall(targetPaths []string, currentPID int) ([]uint32, error) {

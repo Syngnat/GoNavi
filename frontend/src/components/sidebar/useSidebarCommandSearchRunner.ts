@@ -11,6 +11,7 @@ type UseSidebarCommandSearchRunnerArgs = {
   closeV2CommandSearch: () => void;
   commandSearchFlatItems: V2CommandSearchItem[];
   connectionIds: string[];
+  queryCapableConnectionIds: ReadonlySet<string>;
   findTreeNodeByKeyRef: MutableRefObject<(nodes: TreeNode[], targetKey: React.Key) => TreeNode | null>;
   locateObjectInSidebar: (detail: unknown) => Promise<void>;
   loadDatabases: (node: any) => Promise<void>;
@@ -25,6 +26,27 @@ type UseSidebarCommandSearchRunnerArgs = {
   v2CommandActiveIndex: number;
 };
 
+// 按优先级从最近 SQL 的候选连接中选出第一个支持查询编辑器的连接，
+// 避免把最近 SQL 绑定到 Nacos/JVM 等无查询工作流的活动连接。
+export const resolveRecentQueryConnectionId = ({
+  itemConnectionId,
+  activeContextConnectionId,
+  activeTabConnectionId,
+  queryCapableConnectionIds,
+}: {
+  itemConnectionId?: unknown;
+  activeContextConnectionId?: unknown;
+  activeTabConnectionId?: unknown;
+  queryCapableConnectionIds: ReadonlySet<string>;
+}): string => {
+  const candidate = [
+    itemConnectionId,
+    activeContextConnectionId,
+    activeTabConnectionId,
+  ].find((id): id is string => typeof id === 'string' && id !== '' && queryCapableConnectionIds.has(id));
+  return candidate || '';
+};
+
 export const useSidebarCommandSearchRunner = ({
   activeContext,
   activeTab,
@@ -32,6 +54,7 @@ export const useSidebarCommandSearchRunner = ({
   closeV2CommandSearch,
   commandSearchFlatItems,
   connectionIds,
+  queryCapableConnectionIds,
   findTreeNodeByKeyRef,
   locateObjectInSidebar,
   loadDatabases,
@@ -45,7 +68,7 @@ export const useSidebarCommandSearchRunner = ({
   treeDataRef,
   v2CommandActiveIndex,
 }: UseSidebarCommandSearchRunnerArgs) => {
-  const selectConnectionFromRail = useCallback((conn: SavedConnection) => {
+  const selectConnectionFromRail = useCallback((conn: SavedConnection): Promise<void> => {
     const key = conn.id;
     const connectionNode = findTreeNodeByKeyRef.current(treeDataRef.current, key);
     setSelectedKeys([key]);
@@ -57,7 +80,7 @@ export const useSidebarCommandSearchRunner = ({
       dataRef: conn,
       type: 'connection',
     };
-    void loadDatabases(targetNode);
+    return loadDatabases(targetNode);
   }, [findTreeNodeByKeyRef, loadDatabases, mergeExpandedTreeKeys, selectedNodesRef, setActiveContext, setSelectedKeys, treeDataRef]);
 
   const runCommandSearchItem = useCallback((item?: V2CommandSearchItem) => {
@@ -68,11 +91,19 @@ export const useSidebarCommandSearchRunner = ({
       return;
     }
     if (item.kind === 'recent') {
+      // 只继承支持查询编辑器的连接，避免把最近 SQL 绑定到
+      // Nacos/JVM 等无查询工作流的活动连接。
+      const recentConnectionId = resolveRecentQueryConnectionId({
+        itemConnectionId: item.connectionId,
+        activeContextConnectionId: activeContext?.connectionId,
+        activeTabConnectionId: activeTab?.connectionId,
+        queryCapableConnectionIds,
+      });
       addTab({
         id: `query-${Date.now()}`,
         title: t('sidebar.tab.recent_query'),
         type: 'query',
-        connectionId: item.connectionId || activeContext?.connectionId || activeTab?.connectionId || '',
+        connectionId: recentConnectionId,
         dbName: item.dbName || activeContext?.dbName || activeTab?.dbName || '',
         query: item.sql,
       });
@@ -82,7 +113,7 @@ export const useSidebarCommandSearchRunner = ({
     const node = item.node;
     const dataRef = node.dataRef || {};
     if (node.type === 'connection') {
-      selectConnectionFromRail(dataRef as SavedConnection);
+      void selectConnectionFromRail(dataRef as SavedConnection);
       return;
     }
     if (node.type === 'database') {

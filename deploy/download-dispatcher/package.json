@@ -1,0 +1,16 @@
+{
+  "name": "gonavi-download-dispatcher",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "wrangler types --check && tsc --noEmit && vitest run && wrangler deploy --dry-run",
+    "test": "vitest run",
+    "typecheck": "wrangler types --check && tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.21.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10",
+    "wrangler": "^4.121.0"
+  }
+}

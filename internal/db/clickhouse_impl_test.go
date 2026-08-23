@@ -232,7 +232,6 @@ func TestClickHouseCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
-
 func TestClickHouseApplyChangesErrorsUseCurrentLanguage(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
 	t.Cleanup(func() {
@@ -314,6 +313,58 @@ func TestClickHouseApplyChangesErrorsUseCurrentLanguage(t *testing.T) {
 	}
 }
 
+func TestClickHouseApplyChangesMarksAmbiguousMutationOutcomeUnknown(t *testing.T) {
+	registerFakeClickHouseDriverOnce.Do(func() {
+		sql.Register(fakeClickHouseDriverName, fakeClickHouseDriver{})
+	})
+
+	tests := []struct {
+		name    string
+		changes connection.ChangeSet
+		wantSQL string
+	}{
+		{
+			name:    "delete",
+			changes: connection.ChangeSet{Deletes: []map[string]interface{}{{"id": int64(42)}}},
+			wantSQL: "ALTER TABLE `analytics`.`orders` DELETE",
+		},
+		{
+			name: "update",
+			changes: connection.ChangeSet{Updates: []connection.UpdateRow{{
+				Keys: map[string]interface{}{"id": int64(42)}, Values: map[string]interface{}{"name": "Alice"},
+			}}},
+			wantSQL: "ALTER TABLE `analytics`.`orders` UPDATE",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			conn, err := sql.Open(fakeClickHouseDriverName, "")
+			if err != nil {
+				t.Fatalf("open fake clickhouse db: %v", err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+
+			fakeClickHouseStateMu.Lock()
+			fakeClickHouseState.execErr = io.ErrUnexpectedEOF
+			fakeClickHouseState.lastExec = ""
+			fakeClickHouseState.execQueries = nil
+			fakeClickHouseStateMu.Unlock()
+
+			err = (&ClickHouseDB{conn: conn, database: "analytics"}).ApplyChanges("orders", testCase.changes)
+			if !IsWriteOutcomeUnknown(err) || !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("ambiguous ClickHouse mutation must mark outcome unknown, got %v", err)
+			}
+			fakeClickHouseStateMu.Lock()
+			query := fakeClickHouseState.lastExec
+			fakeClickHouseStateMu.Unlock()
+			if !strings.Contains(query, testCase.wantSQL) {
+				t.Fatalf("executed SQL = %q, want %q", query, testCase.wantSQL)
+			}
+		})
+	}
+}
+
 func TestClickHouseTableNameRequiredUsesCurrentLanguage(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
 	t.Cleanup(func() {
@@ -332,7 +383,6 @@ func TestClickHouseTableNameRequiredUsesCurrentLanguage(t *testing.T) {
 		t.Fatalf("expected no raw Chinese table-name-required text, got %q", err.Error())
 	}
 }
-
 
 func TestClickHouseApplyChangesCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -636,7 +686,6 @@ func TestClickHouseConnectFailureSummaryUsesCurrentLanguage(t *testing.T) {
 		t.Fatalf("expected no Chinese auto summary, got %q", auto)
 	}
 }
-
 
 func TestClickHouseProtocolFailureCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()

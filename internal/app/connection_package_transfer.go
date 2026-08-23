@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -139,6 +140,24 @@ func (a *App) buildConnectionPackagePayload(
 	connectionIDs []string,
 ) (connectionPackagePayload, error) {
 	repo := a.savedConnectionRepository()
+	var payload connectionPackagePayload
+	err := repo.withWriteLock(func() error {
+		var buildErr error
+		payload, buildErr = a.buildConnectionPackagePayloadUnlocked(repo, redisDbAliases, connectionIDs)
+		return buildErr
+	})
+	return payload, err
+}
+
+// buildConnectionPackagePayloadUnlocked must run while the saved-connection
+// shared storage lock is held. Keeping the metadata and daily-secret reads in
+// one critical section prevents a package or cloud snapshot from pairing two
+// different connection revisions.
+func (a *App) buildConnectionPackagePayloadUnlocked(
+	repo *savedConnectionRepository,
+	redisDbAliases map[string]map[string]string,
+	connectionIDs []string,
+) (connectionPackagePayload, error) {
 	items, err := repo.List()
 	if err != nil {
 		return connectionPackagePayload{}, err
@@ -226,6 +245,11 @@ func newSavedConnectionInputFromPackageItem(item connectionPackageItem) connecti
 	config.RedisSentinelPassword = secrets.RedisSentinelPassword
 	config.URI = secrets.OpaqueURI
 	config.DSN = secrets.OpaqueDSN
+	config.JVM.JMX.Password = secrets.JVMJMXPassword
+	config.JVM.Endpoint.APIKey = secrets.JVMEndpointAPIKey
+	config.JVM.Agent.APIKey = secrets.JVMAgentAPIKey
+	config.JVM.Diagnostic.APIKey = secrets.JVMDiagnosticAPIKey
+	config.ConnectionParams = mergeConnectionParams(config.ConnectionParams, secrets.SensitiveParams)
 
 	return connection.SavedConnectionInput{
 		ID:                         id,
@@ -249,6 +273,11 @@ func newSavedConnectionInputFromPackageItem(item connectionPackageItem) connecti
 		ClearRedisSentinelPassword: strings.TrimSpace(secrets.RedisSentinelPassword) == "",
 		ClearOpaqueURI:             strings.TrimSpace(secrets.OpaqueURI) == "",
 		ClearOpaqueDSN:             strings.TrimSpace(secrets.OpaqueDSN) == "",
+		ClearJVMJMXPassword:        strings.TrimSpace(secrets.JVMJMXPassword) == "",
+		ClearJVMEndpointAPIKey:     strings.TrimSpace(secrets.JVMEndpointAPIKey) == "",
+		ClearJVMAgentAPIKey:        strings.TrimSpace(secrets.JVMAgentAPIKey) == "",
+		ClearJVMDiagnosticAPIKey:   strings.TrimSpace(secrets.JVMDiagnosticAPIKey) == "",
+		ClearSensitiveParams:       strings.TrimSpace(secrets.SensitiveParams) == "",
 	}
 }
 
@@ -315,24 +344,43 @@ func normalizeImportedSavedConnectionInput(input connection.SavedConnectionInput
 
 func (a *App) importSavedConnectionsAtomically(inputs []connection.SavedConnectionInput) ([]connection.SavedConnectionView, error) {
 	repo := a.savedConnectionRepository()
-	normalizedInputs := make([]connection.SavedConnectionInput, 0, len(inputs))
-	for _, input := range inputs {
-		normalizedInputs = append(normalizedInputs, normalizeImportedSavedConnectionInput(input))
+	var result []connection.SavedConnectionView
+	err := repo.withWriteLock(func() error {
+		var importErr error
+		result, importErr = a.importSavedConnectionsUnlocked(repo, inputs)
+		return importErr
+	})
+	if err != nil {
+		return nil, err
 	}
-	finalInputs := dedupeImportedSavedConnectionInputs(normalizedInputs)
+	return result, nil
+}
+
+// importSavedConnectionsUnlocked applies an import while the caller owns the
+// saved-connection shared storage lock. Cloud restore uses this form so its
+// pre-restore snapshot, import, and any rollback remain one atomic operation.
+func (a *App) importSavedConnectionsUnlocked(repo *savedConnectionRepository, inputs []connection.SavedConnectionInput) ([]connection.SavedConnectionView, error) {
+	preparedInputs := make([]connection.SavedConnectionInput, 0, len(inputs))
+	for _, input := range inputs {
+		prepared, err := prepareSavedConnectionInput(normalizeImportedSavedConnectionInput(input))
+		if err != nil {
+			return nil, err
+		}
+		preparedInputs = append(preparedInputs, prepared)
+	}
+	finalInputs := dedupeImportedSavedConnectionInputs(preparedInputs)
+	result := make([]connection.SavedConnectionView, 0, len(finalInputs))
 	rollbackSnapshot, err := captureConnectionImportRollbackSnapshot(a, finalInputs)
 	if err != nil {
 		return nil, err
 	}
-
-	result := make([]connection.SavedConnectionView, 0, len(finalInputs))
 	for _, input := range finalInputs {
-		view, err := repo.Save(input)
-		if err != nil {
-			if rollbackErr := rollbackSnapshot.restore(a); rollbackErr != nil {
-				return nil, errors.Join(err, fmt.Errorf("restore connection import rollback: %w", rollbackErr))
+		view, saveErr := repo.saveUnlocked(input)
+		if saveErr != nil {
+			if rollbackErr := rollbackSnapshot.restoreUnlocked(a); rollbackErr != nil {
+				return nil, errors.Join(saveErr, fmt.Errorf("restore connection import rollback: %w", rollbackErr))
 			}
-			return nil, err
+			return nil, saveErr
 		}
 		result = append(result, view)
 	}
@@ -345,6 +393,14 @@ func (a *App) importConnectionPackagePayload(payload connectionPackagePayload) (
 		inputs = append(inputs, newSavedConnectionInputFromPackageItem(item))
 	}
 	return a.importSavedConnectionsAtomically(inputs)
+}
+
+func (a *App) importConnectionPackagePayloadUnlocked(repo *savedConnectionRepository, payload connectionPackagePayload) ([]connection.SavedConnectionView, error) {
+	inputs := make([]connection.SavedConnectionInput, 0, len(payload.Connections))
+	for _, item := range payload.Connections {
+		inputs = append(inputs, newSavedConnectionInputFromPackageItem(item))
+	}
+	return a.importSavedConnectionsUnlocked(repo, inputs)
 }
 
 func connectionPackageImportResultFromViews(views []connection.SavedConnectionView, redisDbAliases map[string]map[string]string) ConnectionPackageImportResult {
@@ -461,10 +517,12 @@ func (a *App) ImportConnectionsPayload(raw string, password string) (ConnectionP
 }
 
 type connectionPackageImportRollbackSnapshot struct {
-	connectionsFileExists bool
-	connectionsFileData   []byte
-	connectionSecrets     map[string]securityUpdateSecretSnapshot
-	connectionCleanupRefs []string
+	connectionsFileExists  bool
+	connectionsFileData    []byte
+	dailySecretsFileExists bool
+	dailySecretsFileData   []byte
+	connectionSecrets      map[string]securityUpdateSecretSnapshot
+	connectionCleanupRefs  []string
 }
 
 func captureConnectionImportRollbackSnapshot(a *App, inputs []connection.SavedConnectionInput) (connectionPackageImportRollbackSnapshot, error) {
@@ -479,6 +537,12 @@ func captureConnectionImportRollbackSnapshot(a *App, inputs []connection.SavedCo
 	}
 	snapshot.connectionsFileExists = connectionFileExists
 	snapshot.connectionsFileData = connectionFileData
+	dailySecretsFileData, dailySecretsFileExists, err := readOptionalFile(repo.dailySecrets().Path())
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.dailySecretsFileExists = dailySecretsFileExists
+	snapshot.dailySecretsFileData = dailySecretsFileData
 
 	existingConnections, err := repo.load()
 	if err != nil {
@@ -537,14 +601,22 @@ func captureConnectionImportRollbackSnapshot(a *App, inputs []connection.SavedCo
 	return snapshot, nil
 }
 
-func (s connectionPackageImportRollbackSnapshot) restore(a *App) error {
+func (s connectionPackageImportRollbackSnapshot) restoreUnlocked(a *App) error {
 	repo := a.savedConnectionRepository()
-	if err := restoreOptionalFile(repo.connectionsPath(), s.connectionsFileExists, s.connectionsFileData); err != nil {
-		return err
+	var restoreErr error
+	if err := repo.dailySecrets().RestoreUnlocked(s.dailySecretsFileExists, s.dailySecretsFileData); err != nil {
+		restoreErr = errors.Join(restoreErr, err)
+	}
+	if s.connectionsFileExists {
+		if err := writeSavedConnectionsFileAtomic(repo.connectionsPath(), s.connectionsFileData); err != nil {
+			restoreErr = errors.Join(restoreErr, err)
+		}
+	} else if err := os.Remove(repo.connectionsPath()); err != nil && !os.IsNotExist(err) {
+		restoreErr = errors.Join(restoreErr, err)
 	}
 	for ref, secretSnapshot := range s.connectionSecrets {
 		if err := restoreSecurityUpdateSecretSnapshot(a.secretStore, ref, secretSnapshot); err != nil {
-			return err
+			restoreErr = errors.Join(restoreErr, err)
 		}
 	}
 	for _, ref := range s.connectionCleanupRefs {
@@ -552,10 +624,10 @@ func (s connectionPackageImportRollbackSnapshot) restore(a *App) error {
 			continue
 		}
 		if err := deleteSecurityUpdateSecretRef(a.secretStore, ref); err != nil {
-			return err
+			restoreErr = errors.Join(restoreErr, err)
 		}
 	}
-	return nil
+	return restoreErr
 }
 
 // --- MySQL Workbench XML import ---

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// savedConnectionsMu 串行化 connections.json 的「读取→修改→整体重写」序列。
+// savedConnectionsMu 串行化单进程内 connections.json 的「读取→修改→整体重写」序列。
 //
 // 必须是包级锁：savedConnectionRepository() 每次调用都返回一个新实例
 // （methods_saved_connections.go:9-11），实例级锁起不到任何作用。
@@ -23,7 +24,8 @@ import (
 // web-server 多请求都会真并发进入这些写路径；无锁时后写者会用自己那份旧列表整体覆盖前写者，
 // 导致已保存的连接静默丢失，或产生「有密码标记但密文已被删除」的僵尸连接。
 //
-// 注意不要把锁下沉进 load()/saveAll()：Save/Delete/Duplicate 内部都会调用它们，会造成重入死锁。
+// 跨进程写路径还必须持有 connections.json.lock。注意不要把锁下沉进
+// load()/saveAll()：Save/Delete/Duplicate 内部都会调用它们，会造成重入死锁。
 var savedConnectionsMu sync.Mutex
 
 const (
@@ -60,6 +62,11 @@ type connectionSecretBundle struct {
 	RedisSentinelPassword string `json:"redisSentinelPassword,omitempty"`
 	OpaqueURI             string `json:"opaqueURI,omitempty"`
 	OpaqueDSN             string `json:"opaqueDSN,omitempty"`
+	JVMJMXPassword        string `json:"jvmJMXPassword,omitempty"`
+	JVMEndpointAPIKey     string `json:"jvmEndpointAPIKey,omitempty"`
+	JVMAgentAPIKey        string `json:"jvmAgentAPIKey,omitempty"`
+	JVMDiagnosticAPIKey   string `json:"jvmDiagnosticAPIKey,omitempty"`
+	SensitiveParams       string `json:"sensitiveConnectionParams,omitempty"`
 }
 
 type savedConnectionsFile struct {
@@ -94,7 +101,12 @@ func (b connectionSecretBundle) hasAny() bool {
 		strings.TrimSpace(b.MongoReplicaPassword) != "" ||
 		strings.TrimSpace(b.RedisSentinelPassword) != "" ||
 		strings.TrimSpace(b.OpaqueURI) != "" ||
-		strings.TrimSpace(b.OpaqueDSN) != ""
+		strings.TrimSpace(b.OpaqueDSN) != "" ||
+		strings.TrimSpace(b.JVMJMXPassword) != "" ||
+		strings.TrimSpace(b.JVMEndpointAPIKey) != "" ||
+		strings.TrimSpace(b.JVMAgentAPIKey) != "" ||
+		strings.TrimSpace(b.JVMDiagnosticAPIKey) != "" ||
+		strings.TrimSpace(b.SensitiveParams) != ""
 }
 
 func mergeConnectionSecretBundles(base, overlay connectionSecretBundle) connectionSecretBundle {
@@ -125,6 +137,21 @@ func mergeConnectionSecretBundles(base, overlay connectionSecretBundle) connecti
 	}
 	if strings.TrimSpace(overlay.OpaqueDSN) != "" {
 		merged.OpaqueDSN = overlay.OpaqueDSN
+	}
+	if strings.TrimSpace(overlay.JVMJMXPassword) != "" {
+		merged.JVMJMXPassword = overlay.JVMJMXPassword
+	}
+	if strings.TrimSpace(overlay.JVMEndpointAPIKey) != "" {
+		merged.JVMEndpointAPIKey = overlay.JVMEndpointAPIKey
+	}
+	if strings.TrimSpace(overlay.JVMAgentAPIKey) != "" {
+		merged.JVMAgentAPIKey = overlay.JVMAgentAPIKey
+	}
+	if strings.TrimSpace(overlay.JVMDiagnosticAPIKey) != "" {
+		merged.JVMDiagnosticAPIKey = overlay.JVMDiagnosticAPIKey
+	}
+	if strings.TrimSpace(overlay.SensitiveParams) != "" {
+		merged.SensitiveParams = overlay.SensitiveParams
 	}
 	return merged
 }
@@ -157,6 +184,21 @@ func applyConnectionSecretClears(bundle connectionSecretBundle, input connection
 	}
 	if input.ClearOpaqueDSN {
 		cleared.OpaqueDSN = ""
+	}
+	if input.ClearJVMJMXPassword {
+		cleared.JVMJMXPassword = ""
+	}
+	if input.ClearJVMEndpointAPIKey {
+		cleared.JVMEndpointAPIKey = ""
+	}
+	if input.ClearJVMAgentAPIKey {
+		cleared.JVMAgentAPIKey = ""
+	}
+	if input.ClearJVMDiagnosticAPIKey {
+		cleared.JVMDiagnosticAPIKey = ""
+	}
+	if input.ClearSensitiveParams {
+		cleared.SensitiveParams = ""
 	}
 	return cleared
 }
@@ -332,6 +374,11 @@ func splitConnectionSecrets(input connection.SavedConnectionInput) (connection.S
 		HasRedisSentinelPassword:   strings.TrimSpace(bundle.RedisSentinelPassword) != "",
 		HasOpaqueURI:               strings.TrimSpace(bundle.OpaqueURI) != "",
 		HasOpaqueDSN:               strings.TrimSpace(bundle.OpaqueDSN) != "",
+		HasJVMJMXPassword:          strings.TrimSpace(bundle.JVMJMXPassword) != "",
+		HasJVMEndpointAPIKey:       strings.TrimSpace(bundle.JVMEndpointAPIKey) != "",
+		HasJVMAgentAPIKey:          strings.TrimSpace(bundle.JVMAgentAPIKey) != "",
+		HasJVMDiagnosticAPIKey:     strings.TrimSpace(bundle.JVMDiagnosticAPIKey) != "",
+		HasSensitiveParams:         strings.TrimSpace(bundle.SensitiveParams) != "",
 	}
 	return view, bundle
 }
@@ -342,6 +389,93 @@ func (r *savedConnectionRepository) connectionsPath() string {
 
 func (r *savedConnectionRepository) dailySecrets() *dailysecret.Store {
 	return dailysecret.NewStore(r.configDir)
+}
+
+func (r *savedConnectionRepository) withWriteLock(operation func() error) (resultErr error) {
+	savedConnectionsMu.Lock()
+	defer savedConnectionsMu.Unlock()
+	if err := os.MkdirAll(r.configDir, 0o755); err != nil {
+		return err
+	}
+	sharedLock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(r.configDir))
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, sharedLock.Close())
+	}()
+	fileLock, err := appdata.AcquireFileLock(r.connectionsPath() + ".lock")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, fileLock.Close())
+	}()
+	if operation == nil {
+		return nil
+	}
+	return operation()
+}
+
+type savedConnectionFilesSnapshot struct {
+	connectionsExists bool
+	connectionsData   []byte
+	secretsExists     bool
+	secretsData       []byte
+}
+
+func (r *savedConnectionRepository) captureFilesSnapshotUnlocked() (savedConnectionFilesSnapshot, error) {
+	var snapshot savedConnectionFilesSnapshot
+	connectionsData, connectionsExists, err := readOptionalFile(r.connectionsPath())
+	if err != nil {
+		return snapshot, err
+	}
+	secretsData, secretsExists, err := readOptionalFile(r.dailySecrets().Path())
+	if err != nil {
+		return snapshot, err
+	}
+	snapshot.connectionsExists = connectionsExists
+	snapshot.connectionsData = connectionsData
+	snapshot.secretsExists = secretsExists
+	snapshot.secretsData = secretsData
+	return snapshot, nil
+}
+
+func (snapshot savedConnectionFilesSnapshot) restoreUnlocked(r *savedConnectionRepository) error {
+	var restoreErr error
+	if err := r.dailySecrets().RestoreUnlocked(snapshot.secretsExists, snapshot.secretsData); err != nil {
+		restoreErr = errors.Join(restoreErr, err)
+	}
+	if snapshot.connectionsExists {
+		if err := writeSavedConnectionsFileAtomic(r.connectionsPath(), snapshot.connectionsData); err != nil {
+			restoreErr = errors.Join(restoreErr, err)
+		}
+	} else if err := os.Remove(r.connectionsPath()); err != nil && !os.IsNotExist(err) {
+		restoreErr = errors.Join(restoreErr, err)
+	}
+	return restoreErr
+}
+
+// withWriteTransaction keeps the metadata and daily-secret files coherent
+// when a multi-file mutation reports an error. The shared cross-process lock
+// remains held while both the mutation and any rollback are performed.
+func (r *savedConnectionRepository) withWriteTransaction(operation func() error) error {
+	return r.withWriteLock(func() error {
+		snapshot, err := r.captureFilesSnapshotUnlocked()
+		if err != nil {
+			return err
+		}
+		if operation == nil {
+			return nil
+		}
+		if err := operation(); err != nil {
+			if restoreErr := snapshot.restoreUnlocked(r); restoreErr != nil {
+				return errors.Join(err, fmt.Errorf("restore saved connection files: %w", restoreErr))
+			}
+			return err
+		}
+		return nil
+	})
 }
 
 func (r *savedConnectionRepository) load() ([]connection.SavedConnectionView, error) {
@@ -392,8 +526,10 @@ func (r *savedConnectionRepository) saveAll(connections []connection.SavedConnec
 	// （或并发读者恰好进入）会得到一个空的/半截的 connections.json，全部已保存连接一次性丢失。
 	// 改成临时文件 + Sync + rename 后，读者要么看到旧文件、要么看到完整新文件，
 	// 因此 List/Find 这类只读路径无需加锁。
-	return writeSavedConnectionsFileAtomic(r.connectionsPath(), payload)
+	return writeSavedConnectionsFileAtomicFunc(r.connectionsPath(), payload)
 }
+
+var writeSavedConnectionsFileAtomicFunc = writeSavedConnectionsFileAtomic
 
 // writeSavedConnectionsFileAtomic 以「临时文件 + Sync + 原子替换」写入 connections.json。
 // 复用 replaceSavedQueryTempFile 的替换逻辑（其中包含 Windows 上 rename 失败的回退处理）。
@@ -433,14 +569,12 @@ func writeSavedConnectionsFileAtomic(targetPath string, payload []byte) error {
 	return nil
 }
 
-func (r *savedConnectionRepository) Save(input connection.SavedConnectionInput) (connection.SavedConnectionView, error) {
-	savedConnectionsMu.Lock()
-	defer savedConnectionsMu.Unlock()
+func prepareSavedConnectionInput(input connection.SavedConnectionInput) (connection.SavedConnectionInput, error) {
 	if err := validateDatabasePatterns("include", input.IncludeDatabasePatterns); err != nil {
-		return connection.SavedConnectionView{}, err
+		return connection.SavedConnectionInput{}, err
 	}
 	if err := validateDatabasePatterns("exclude", input.ExcludeDatabasePatterns); err != nil {
-		return connection.SavedConnectionView{}, err
+		return connection.SavedConnectionInput{}, err
 	}
 
 	if strings.TrimSpace(input.ID) == "" && strings.TrimSpace(input.Config.ID) == "" {
@@ -450,7 +584,13 @@ func (r *savedConnectionRepository) Save(input connection.SavedConnectionInput) 
 		input.ID = strings.TrimSpace(input.Config.ID)
 	}
 	input.Config.ID = input.ID
+	return input, nil
+}
 
+// saveUnlocked persists one already-normalized connection while the caller
+// holds withWriteLock. Keeping this operation separate lets a multi-item import
+// retain the same cross-process lock across snapshot, every item, and rollback.
+func (r *savedConnectionRepository) saveUnlocked(input connection.SavedConnectionInput) (connection.SavedConnectionView, error) {
 	connections, err := r.load()
 	if err != nil {
 		return connection.SavedConnectionView{}, err
@@ -500,6 +640,24 @@ func (r *savedConnectionRepository) Save(input connection.SavedConnectionInput) 
 	return view, nil
 }
 
+func (r *savedConnectionRepository) Save(input connection.SavedConnectionInput) (connection.SavedConnectionView, error) {
+	prepared, err := prepareSavedConnectionInput(input)
+	if err != nil {
+		return connection.SavedConnectionView{}, err
+	}
+
+	var saved connection.SavedConnectionView
+	err = r.withWriteTransaction(func() error {
+		var saveErr error
+		saved, saveErr = r.saveUnlocked(prepared)
+		return saveErr
+	})
+	if err != nil {
+		return connection.SavedConnectionView{}, err
+	}
+	return saved, nil
+}
+
 func (r *savedConnectionRepository) Find(id string) (connection.SavedConnectionView, error) {
 	connections, err := r.load()
 	if err != nil {
@@ -513,12 +671,41 @@ func (r *savedConnectionRepository) Find(id string) (connection.SavedConnectionV
 	return connection.SavedConnectionView{}, fmt.Errorf("saved connection not found: %s", id)
 }
 
+// loadConnectionSnapshot reads one saved connection and its daily-secret
+// bundle while holding the same cross-process lock used by writers. This is
+// the only read path that may return both files' contents as one execution
+// snapshot.
+func (r *savedConnectionRepository) loadConnectionSnapshot(id string) (connection.SavedConnectionView, connectionSecretBundle, error) {
+	var view connection.SavedConnectionView
+	var bundle connectionSecretBundle
+	err := r.withWriteLock(func() error {
+		connections, err := r.load()
+		if err != nil {
+			return err
+		}
+		connectionID := strings.TrimSpace(id)
+		for _, item := range connections {
+			if item.ID != connectionID {
+				continue
+			}
+			view = item
+			bundle, err = r.loadSecretBundle(item)
+			return err
+		}
+		return fmt.Errorf("saved connection not found: %s", id)
+	})
+	if err != nil {
+		return view, bundle, err
+	}
+	return view, bundle, nil
+}
+
 func (r *savedConnectionRepository) saveSecretBundle(id string, bundle connectionSecretBundle) error {
-	return r.dailySecrets().PutConnection(id, toDailyConnectionBundle(bundle))
+	return r.dailySecrets().PutConnectionUnlocked(id, toDailyConnectionBundle(bundle))
 }
 
 func (r *savedConnectionRepository) deleteSecretBundle(id string) error {
-	return r.dailySecrets().DeleteConnection(id)
+	return r.dailySecrets().DeleteConnectionUnlocked(id)
 }
 
 func (r *savedConnectionRepository) storeSecretBundle(id string, existingRef string, bundle connectionSecretBundle) (string, error) {
@@ -589,7 +776,8 @@ func (r *savedConnectionRepository) loadSecretBundleFromStore(view connection.Sa
 
 func savedConnectionViewHasSecrets(view connection.SavedConnectionView) bool {
 	return view.HasPrimaryPassword || view.HasSSHPassword || view.HasProxyPassword || view.HasHTTPTunnelPassword ||
-		view.HasMySQLReplicaPassword || view.HasMongoReplicaPassword || view.HasRedisSentinelPassword || view.HasOpaqueURI || view.HasOpaqueDSN
+		view.HasMySQLReplicaPassword || view.HasMongoReplicaPassword || view.HasRedisSentinelPassword || view.HasOpaqueURI || view.HasOpaqueDSN ||
+		view.HasJVMJMXPassword || view.HasJVMEndpointAPIKey || view.HasJVMAgentAPIKey || view.HasJVMDiagnosticAPIKey || view.HasSensitiveParams
 }
 
 func applyConnectionBundleFlags(view *connection.SavedConnectionView, bundle connectionSecretBundle) {
@@ -602,6 +790,11 @@ func applyConnectionBundleFlags(view *connection.SavedConnectionView, bundle con
 	view.HasRedisSentinelPassword = strings.TrimSpace(bundle.RedisSentinelPassword) != ""
 	view.HasOpaqueURI = strings.TrimSpace(bundle.OpaqueURI) != ""
 	view.HasOpaqueDSN = strings.TrimSpace(bundle.OpaqueDSN) != ""
+	view.HasJVMJMXPassword = strings.TrimSpace(bundle.JVMJMXPassword) != ""
+	view.HasJVMEndpointAPIKey = strings.TrimSpace(bundle.JVMEndpointAPIKey) != ""
+	view.HasJVMAgentAPIKey = strings.TrimSpace(bundle.JVMAgentAPIKey) != ""
+	view.HasJVMDiagnosticAPIKey = strings.TrimSpace(bundle.JVMDiagnosticAPIKey) != ""
+	view.HasSensitiveParams = strings.TrimSpace(bundle.SensitiveParams) != ""
 }
 
 func buildDuplicateConnectionName(baseName string, existing []connection.SavedConnectionView, unnamedName string, copySuffix string) string {
@@ -636,70 +829,74 @@ func (r *savedConnectionRepository) List() ([]connection.SavedConnectionView, er
 }
 
 func (r *savedConnectionRepository) Delete(id string) error {
-	savedConnectionsMu.Lock()
-	defer savedConnectionsMu.Unlock()
-
-	connections, err := r.load()
-	if err != nil {
-		return err
-	}
-	filtered := make([]connection.SavedConnectionView, 0, len(connections))
-	for _, item := range connections {
-		if item.ID == strings.TrimSpace(id) {
-			if deleteErr := r.deleteSecretBundle(item.ID); deleteErr != nil {
-				return deleteErr
-			}
-			continue
+	return r.withWriteTransaction(func() error {
+		connections, err := r.load()
+		if err != nil {
+			return err
 		}
-		filtered = append(filtered, item)
-	}
-	return r.saveAll(filtered)
+		filtered := make([]connection.SavedConnectionView, 0, len(connections))
+		for _, item := range connections {
+			if item.ID == strings.TrimSpace(id) {
+				if deleteErr := r.deleteSecretBundle(item.ID); deleteErr != nil {
+					return deleteErr
+				}
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		return r.saveAll(filtered)
+	})
 }
 
 func (r *savedConnectionRepository) Duplicate(id string, unnamedName string, copySuffix string) (connection.SavedConnectionView, error) {
-	savedConnectionsMu.Lock()
-	defer savedConnectionsMu.Unlock()
+	var saved connection.SavedConnectionView
+	err := r.withWriteTransaction(func() error {
+		connections, err := r.load()
+		if err != nil {
+			return err
+		}
 
-	connections, err := r.load()
+		index := -1
+		for i, item := range connections {
+			if item.ID == strings.TrimSpace(id) {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return fmt.Errorf("saved connection not found: %s", id)
+		}
+
+		original := connections[index]
+		duplicate := original
+		duplicate.ID = "conn-" + uuid.New().String()[:8]
+		duplicate.Config.ID = duplicate.ID
+		duplicate.Name = buildDuplicateConnectionName(original.Name, connections, unnamedName, copySuffix)
+		duplicate.IncludeDatabasePatterns = cloneStringSlice(original.IncludeDatabasePatterns)
+		duplicate.ExcludeDatabasePatterns = cloneStringSlice(original.ExcludeDatabasePatterns)
+		duplicate.SchemaVisibilityByDatabase = cloneSchemaVisibilityByDatabase(original.SchemaVisibilityByDatabase)
+
+		bundle, err := r.loadSecretBundle(original)
+		if err != nil {
+			return err
+		}
+		if bundle.hasAny() {
+			if storeErr := r.saveSecretBundle(duplicate.ID, bundle); storeErr != nil {
+				return storeErr
+			}
+		}
+		duplicate.SecretRef = ""
+		applyConnectionBundleFlags(&duplicate, bundle)
+
+		connections = append(connections, duplicate)
+		if err := r.saveAll(connections); err != nil {
+			return err
+		}
+		saved = duplicate
+		return nil
+	})
 	if err != nil {
 		return connection.SavedConnectionView{}, err
 	}
-
-	index := -1
-	for i, item := range connections {
-		if item.ID == strings.TrimSpace(id) {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
-		return connection.SavedConnectionView{}, fmt.Errorf("saved connection not found: %s", id)
-	}
-
-	original := connections[index]
-	duplicate := original
-	duplicate.ID = "conn-" + uuid.New().String()[:8]
-	duplicate.Config.ID = duplicate.ID
-	duplicate.Name = buildDuplicateConnectionName(original.Name, connections, unnamedName, copySuffix)
-	duplicate.IncludeDatabasePatterns = cloneStringSlice(original.IncludeDatabasePatterns)
-	duplicate.ExcludeDatabasePatterns = cloneStringSlice(original.ExcludeDatabasePatterns)
-	duplicate.SchemaVisibilityByDatabase = cloneSchemaVisibilityByDatabase(original.SchemaVisibilityByDatabase)
-
-	bundle, err := r.loadSecretBundle(original)
-	if err != nil {
-		return connection.SavedConnectionView{}, err
-	}
-	if bundle.hasAny() {
-		if storeErr := r.saveSecretBundle(duplicate.ID, bundle); storeErr != nil {
-			return connection.SavedConnectionView{}, storeErr
-		}
-	}
-	duplicate.SecretRef = ""
-	applyConnectionBundleFlags(&duplicate, bundle)
-
-	connections = append(connections, duplicate)
-	if err := r.saveAll(connections); err != nil {
-		return connection.SavedConnectionView{}, err
-	}
-	return duplicate, nil
+	return saved, nil
 }

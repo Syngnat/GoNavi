@@ -55,10 +55,28 @@ export const parseHostPort = (
   raw: string,
   defaultPort: number,
 ): { host: string; port: number } | null => {
-  const text = String(raw || "").trim();
+  let text = String(raw || "").trim();
   if (!text) {
     return null;
   }
+
+  const schemeMatch = text.match(/^(?:mqtt|tcp):\/\//i);
+  if (schemeMatch) {
+    text = text.slice(schemeMatch[0].length);
+    const authorityEnd = text.search(/[/?#]/);
+    if (authorityEnd >= 0) {
+      text = text.slice(0, authorityEnd);
+    }
+    const userInfoEnd = text.lastIndexOf("@");
+    if (userInfoEnd >= 0) {
+      text = text.slice(userInfoEnd + 1);
+    }
+    text = text.trim();
+  }
+  if (!text) {
+    return null;
+  }
+
   if (text.startsWith("[")) {
     const closingBracket = text.indexOf("]");
     if (closingBracket > 0) {
@@ -79,6 +97,32 @@ export const parseHostPort = (
   }
 
   const colonCount = (text.match(/:/g) || []).length;
+  const colonParts = text.split(":");
+  const isIPv6Address =
+    text.includes("::") ||
+    (colonParts.length === 8 &&
+      colonParts.every((part) => /^[0-9a-f]{1,4}$/i.test(part)));
+  if (colonCount > 1 && !isIPv6Address) {
+    const parts = colonParts;
+    let suffixStart = parts.length;
+    while (
+      suffixStart > 1 &&
+      /^\d+$/.test(String(parts[suffixStart - 1] || "").trim())
+    ) {
+      suffixStart -= 1;
+    }
+    const host = parts.slice(0, suffixStart).join(":").trim();
+    if (suffixStart < parts.length && host && !host.includes(":")) {
+      const parsedPort = Number(String(parts[suffixStart] || "").trim());
+      return {
+        host,
+        port:
+          Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535
+            ? parsedPort
+            : defaultPort,
+      };
+    }
+  }
   if (colonCount === 1) {
     const splitIndex = text.lastIndexOf(":");
     const host = text.slice(0, splitIndex).trim();
@@ -102,7 +146,14 @@ export const toAddress = (host: string, port: number, defaultPort: number) => {
     Number.isFinite(Number(port)) && Number(port) > 0
       ? Number(port)
       : defaultPort;
-  return `${safeHost}:${safePort}`;
+  const parsed = parseHostPort(safeHost, safePort);
+  const normalizedHost = parsed?.host || "localhost";
+  const normalizedPort = parsed?.port || safePort;
+  const formattedHost =
+    normalizedHost.includes(":") && !normalizedHost.startsWith("[")
+      ? `[${normalizedHost}]`
+      : normalizedHost;
+  return `${formattedHost}:${normalizedPort}`;
 };
 
 export const normalizeAddressList = (

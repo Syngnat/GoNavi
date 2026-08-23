@@ -25,6 +25,8 @@ type PostgresDB struct {
 	forwarder   *ssh.LocalForwarder // Store SSH tunnel forwarder
 }
 
+var _ BatchApplierContext = (*PostgresDB)(nil)
+
 type postgresSessionExecer struct {
 	*sqlConnStatementExecer
 }
@@ -244,7 +246,7 @@ func (p *PostgresDB) Query(query string) ([]map[string]interface{}, []string, er
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := p.conn.Query(query)
+	rows, err := p.conn.QueryContext(metadataContextFor(p), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -253,7 +255,7 @@ func (p *PostgresDB) Query(query string) ([]map[string]interface{}, []string, er
 }
 
 func (p *PostgresDB) QueryWithMessages(query string) ([]map[string]interface{}, []string, []string, error) {
-	return p.QueryContextWithMessages(context.Background(), query)
+	return p.QueryContextWithMessages(metadataContextFor(p), query)
 }
 
 func (p *PostgresDB) ExecBatchContext(ctx context.Context, query string) (int64, error) {
@@ -404,6 +406,19 @@ func (p *PostgresDB) GetCreateStatement(dbName, tableName string) (string, error
 	return fmt.Sprintf("-- SHOW CREATE TABLE not fully supported for PostgreSQL in this MVP.\n-- Table: %s", tableName), nil
 }
 
+func (p *PostgresDB) GetTableComment(dbName, tableName string) (string, error) {
+	schema, table := normalizePGLikeMetadataTable(dbName, tableName)
+	if table == "" {
+		return "", localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
+	}
+
+	data, _, err := p.Query(buildPGLikeTableCommentMetadataQuery(schema, table))
+	if err != nil {
+		return "", err
+	}
+	return parsePGLikeTableComment(data), nil
+}
+
 func (p *PostgresDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
 	schema, table := normalizePGLikeMetadataTable(dbName, tableName)
 	if table == "" {
@@ -433,37 +448,12 @@ func (p *PostgresDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 }
 
 func (p *PostgresDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
-	schema := strings.TrimSpace(dbName)
-	if schema == "" {
-		schema = "public"
-	}
-	table := strings.TrimSpace(tableName)
+	schema, table := normalizePGLikeMetadataTable(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
-
-	query := fmt.Sprintf(`
-SELECT
-	tc.constraint_name AS constraint_name,
-	kcu.column_name AS column_name,
-	ccu.table_schema AS foreign_table_schema,
-	ccu.table_name AS foreign_table_name,
-	ccu.column_name AS foreign_column_name
-FROM information_schema.table_constraints AS tc
-JOIN information_schema.key_column_usage AS kcu
-  ON tc.constraint_name = kcu.constraint_name
-  AND tc.table_schema = kcu.table_schema
-JOIN information_schema.constraint_column_usage AS ccu
-  ON ccu.constraint_name = tc.constraint_name
-  AND ccu.table_schema = tc.table_schema
-WHERE tc.constraint_type = 'FOREIGN KEY'
-  AND tc.table_name = '%s'
-  AND tc.table_schema = '%s'
-ORDER BY tc.constraint_name, kcu.ordinal_position`, esc(table), esc(schema))
-
-	data, _, err := p.Query(query)
+	data, _, err := p.Query(buildPGLikeForeignKeysMetadataQuery(schema, table))
 	if err != nil {
 		return nil, err
 	}
@@ -493,25 +483,12 @@ ORDER BY tc.constraint_name, kcu.ordinal_position`, esc(table), esc(schema))
 }
 
 func (p *PostgresDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
-	schema := strings.TrimSpace(dbName)
-	if schema == "" {
-		schema = "public"
-	}
-	table := strings.TrimSpace(tableName)
+	schema, table := normalizePGLikeMetadataTable(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	esc := func(s string) string { return strings.ReplaceAll(s, "'", "''") }
-
-	query := fmt.Sprintf(`
-SELECT trigger_name, action_timing, event_manipulation, action_statement
-FROM information_schema.triggers
-WHERE event_object_table = '%s'
-  AND event_object_schema = '%s'
-ORDER BY trigger_name, event_manipulation`, esc(table), esc(schema))
-
-	data, _, err := p.Query(query)
+	data, _, err := p.Query(buildPGLikeTriggersMetadataQuery(schema, table))
 	if err != nil {
 		return nil, err
 	}
@@ -570,12 +547,24 @@ ORDER BY c.table_schema, c.table_name, c.ordinal_position`
 	return cols, nil
 }
 
+func postgresDSNHasExplicitSearchPath(dsn string) bool {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(u.Query().Get("search_path")) != ""
+}
+
 // ensureSearchPath 查询当前数据库中所有用户 schema，通过重建连接池将 search_path 写入 DSN。
 // 仅使用 SET search_path 只对连接池中的单个连接生效，后续查询可能拿到未设置的连接。
 // 将 search_path 写入 DSN (lib/pq 支持任意 PostgreSQL runtime parameter)，
 // 使连接池中每个连接建立时自动携带 search_path，与金仓行为一致。
 func (p *PostgresDB) ensureSearchPath(baseDSN string) {
 	if p.conn == nil {
+		return
+	}
+	if postgresDSNHasExplicitSearchPath(baseDSN) {
 		return
 	}
 
@@ -645,7 +634,7 @@ func (p *PostgresDB) queryUserSchemas() []string {
 		  AND nspname NOT LIKE 'pg|_%' ESCAPE '|'
 		ORDER BY nspname`
 
-	rows, err := p.conn.Query(query)
+	rows, err := p.conn.QueryContext(metadataContextFor(p), query)
 	if err != nil {
 		logger.Warnf("PostgreSQL 查询用户 schema 失败：%v", err)
 		return nil
@@ -667,15 +656,20 @@ func (p *PostgresDB) queryUserSchemas() []string {
 }
 
 func (p *PostgresDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return p.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (p *PostgresDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if p.conn == nil {
 		return fmt.Errorf("连接未打开")
 	}
 
-	tx, err := p.conn.Begin()
+	tx, err := p.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
 
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
@@ -715,7 +709,7 @@ func (p *PostgresDB) ApplyChanges(tableName string, changes connection.ChangeSet
 			continue
 		}
 		query := fmt.Sprintf("DELETE FROM %s WHERE %s", qualifiedTable, strings.Join(wheres, " AND "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("删除失败：%v", err)
 		}
@@ -752,7 +746,7 @@ func (p *PostgresDB) ApplyChanges(tableName string, changes connection.ChangeSet
 		}
 
 		query := fmt.Sprintf("UPDATE %s SET %s WHERE %s", qualifiedTable, strings.Join(sets, ", "), strings.Join(wheres, " AND "))
-		res, err := tx.Exec(query, args...)
+		res, err := tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			return fmt.Errorf("更新失败：%v", err)
 		}
@@ -769,7 +763,7 @@ func (p *PostgresDB) ApplyChanges(tableName string, changes connection.ChangeSet
 			return fmt.Sprintf("$%d", idx)
 		},
 		Exec: func(query string, args ...interface{}) (sql.Result, error) {
-			return tx.Exec(query, args...)
+			return tx.ExecContext(ctx, query, args...)
 		},
 		EmptyInsertSQL: func(table string) string {
 			return fmt.Sprintf("INSERT INTO %s DEFAULT VALUES", table)
@@ -778,5 +772,9 @@ func (p *PostgresDB) ApplyChanges(tableName string, changes connection.ChangeSet
 		return err
 	}
 
-	return tx.Commit()
+	if err := commitWriteTransaction(tx); err != nil {
+		return err
+	}
+	transactionCommitted = true
+	return nil
 }

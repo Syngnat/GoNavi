@@ -15,6 +15,33 @@ export type ConnectionTypeCatalogGroup = {
   items: ConnectionTypeCatalogItem[];
 };
 
+export const orderConnectionTypeCatalogItems = (
+  items: readonly ConnectionTypeCatalogItem[],
+  pinnedTypes: readonly string[],
+): ConnectionTypeCatalogItem[] => {
+  const pinnedRank = new Map<string, number>();
+  pinnedTypes.forEach((type, index) => {
+    const normalized = String(type || "").trim().toLowerCase();
+    if (normalized && !pinnedRank.has(normalized)) {
+      pinnedRank.set(normalized, index);
+    }
+  });
+
+  return items
+    .map((item, originalIndex) => ({ item, originalIndex }))
+    .sort((left, right) => {
+      const leftRank = pinnedRank.get(left.item.key.toLowerCase());
+      const rightRank = pinnedRank.get(right.item.key.toLowerCase());
+      if (leftRank !== undefined && rightRank !== undefined) {
+        return leftRank - rightRank;
+      }
+      if (leftRank !== undefined) return -1;
+      if (rightRank !== undefined) return 1;
+      return left.originalIndex - right.originalIndex;
+    })
+    .map(({ item }) => item);
+};
+
 const translateCatalogCopy = (
   translate: ConnectionTypeCatalogTranslator | undefined,
   key: string,

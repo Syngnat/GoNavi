@@ -109,4 +109,37 @@ describe('aiDatabaseBundleTools i18n', () => {
     expect(result.content).not.toContain('表列表获取失败');
     expect(missingDbName.content).toBe('T:ai_chat.inspection.database_bundle.error.db_name_required');
   });
+
+  it('keeps partial column summaries and their warnings in the database bundle', async () => {
+    const result = await executeLocalAIToolCall({
+      toolCall: buildToolCall('inspect_database_bundle', {
+        connectionId: 'conn-1',
+        dbName: 'crm',
+      }),
+      connections: [buildConnection()],
+      mcpTools: [],
+      toolContextMap: new Map(),
+      translate,
+      runtime: {
+        getDatabases: vi.fn(),
+        getTables: vi.fn().mockResolvedValue({ success: true, data: [{ Table: 'healthy' }, { Table: 'restricted' }] }),
+        getAllColumns: vi.fn().mockResolvedValue({
+          success: true,
+          partial: true,
+          warnings: ['Failed to read column metadata for restricted: permission denied'],
+          data: [{ TableName: 'healthy', Name: 'id', Type: 'bigint' }],
+        }),
+      },
+    });
+
+    const payload = JSON.parse(result.content) as {
+      columnSummaryPartial: boolean;
+      warnings: string[];
+      tables: string[];
+    };
+    expect(result.success).toBe(true);
+    expect(payload.columnSummaryPartial).toBe(true);
+    expect(payload.warnings).toContain('Failed to read column metadata for restricted: permission denied');
+    expect(payload.tables).toContain('healthy');
+  });
 });

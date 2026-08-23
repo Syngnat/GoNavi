@@ -1,7 +1,7 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, Dropdown, message, Tabs, Tooltip } from 'antd';
-import { CloseOutlined, ConsoleSqlOutlined, DatabaseOutlined, EditOutlined, FileTextOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, PushpinOutlined, RightOutlined, RobotOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowRightOutlined, CloseCircleOutlined, CloseOutlined, ConsoleSqlOutlined, DatabaseOutlined, EditOutlined, ExportOutlined, FileTextOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, PushpinOutlined, RightOutlined, RobotOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import type { MenuProps, TabsProps } from 'antd';
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent, DragMoveEvent, DragStartEvent } from '@dnd-kit/core';
@@ -12,6 +12,8 @@ import type { ExternalSQLDirectory, SavedConnection, SavedQuery, TabData } from 
 import { t } from '../i18n';
 import {
   buildTabDisplayModel,
+  buildConnectionGroupNameIndex,
+  getConnectionGroupName,
   resolveConnectionHostSummary,
   type TabDisplayPart,
   type TabDisplayModel,
@@ -26,7 +28,11 @@ import {
   normalizeSQLFileReadContent,
 } from '../utils/sqlFileTabDirty';
 import { clearSQLFileTabDraft, getSQLFileTabDraft } from '../utils/sqlFileTabDrafts';
-import { buildExternalSQLTabId } from '../utils/externalSqlTree';
+import {
+  buildExternalSQLTabId,
+  normalizeExternalSQLPath,
+  resolveExternalSQLFileBinding,
+} from '../utils/externalSqlTree';
 import { buildSQLFileExecutionWorkbenchTab } from '../utils/sqlFileExecutionTab';
 import { getDataSourceCapabilities } from '../utils/dataSourceCapabilities';
 import { CLOSE_ACTIVE_WORKSPACE_TAB_EVENT, resolveDockedActiveTabId } from '../utils/closeTabShortcut';
@@ -48,6 +54,10 @@ import { useWorkbenchTabs } from '../hooks/useWorkbenchTabs';
 import { resolveConnectionEnvironmentPresentation } from '../utils/connectionEnvironment';
 import { createSidebarResizeAwareFrameScheduler } from '../utils/sidebarResizeLifecycle';
 import { QUERY_TAB_RENAME_REQUEST_EVENT } from '../utils/queryTabTitle';
+import { getDbIcon } from './DatabaseIcons';
+import { resolveConnectionAccentColor, resolveConnectionIconType } from '../utils/connectionVisual';
+import { dispatchSidebarLocateConnection } from '../utils/sidebarLocate';
+import { renderV2ActionMenuPopup } from './common/V2ActionMenuPopup';
 
 const getTabKindLabel = (tab: TabData): string => {
   if (tab.type === 'query') return t('tab_manager.kind_badge.query');
@@ -111,10 +121,18 @@ export const resolveV2WorkbenchTabWidth = (availableWidth: number, tabCount: num
   );
 };
 
-type RecentConnectionShortcut = {
+export type RecentConnectionShortcut = {
   connection: SavedConnection;
   dbName?: string;
 };
+
+export const dispatchRecentConnectionShortcut = (
+  shortcut: Pick<RecentConnectionShortcut, 'connection' | 'dbName'>,
+  eventTarget?: Pick<Window, 'dispatchEvent'> | null,
+): boolean => dispatchSidebarLocateConnection({
+  connectionId: shortcut.connection.id,
+  ...(shortcut.dbName ? { dbName: shortcut.dbName } : {}),
+}, eventTarget);
 
 export type PinnedTableShortcut = {
   connection: SavedConnection;
@@ -135,10 +153,7 @@ export const buildRecentConnectionShortcuts = (
   connections: SavedConnection[],
   recentTargets: RecentConnectionTarget[],
 ): RecentConnectionShortcut[] => {
-  const queryCapableConnections = connections.filter((connection) =>
-    getDataSourceCapabilities(connection.config).supportsQueryEditor,
-  );
-  const connectionById = new Map(queryCapableConnections.map((connection) => [connection.id, connection]));
+  const connectionById = new Map(connections.map((connection) => [connection.id, connection]));
   const seen = new Set<string>();
   const seenConnectionIds = new Set<string>();
   const result: RecentConnectionShortcut[] = [];
@@ -158,13 +173,35 @@ export const buildRecentConnectionShortcuts = (
       append(connection, target.dbName);
     }
   });
-  queryCapableConnections.forEach((connection) => {
+  connections.forEach((connection) => {
     if (!seenConnectionIds.has(connection.id)) {
       append(connection);
     }
   });
   return result;
 };
+
+export const RecentConnectionShortcutItem: React.FC<{
+  shortcut: RecentConnectionShortcut;
+  onOpen: (shortcut: RecentConnectionShortcut) => void;
+}> = ({ shortcut, onOpen }) => (
+  <button
+    type="button"
+    className="gn-v2-empty-recent-item"
+    onClick={() => onOpen(shortcut)}
+  >
+    {getDbIcon(
+      resolveConnectionIconType(shortcut.connection),
+      resolveConnectionAccentColor(shortcut.connection),
+      22,
+    )}
+    <span>
+      <strong title={shortcut.connection.name}>{shortcut.connection.name}</strong>
+      <small>{shortcut.dbName || t('tab_manager.empty.recent.connection.default_database')}</small>
+    </span>
+    <RightOutlined className="gn-v2-empty-recent-arrow" />
+  </button>
+);
 
 export const buildPinnedTableShortcuts = (
   connections: SavedConnection[],
@@ -199,6 +236,37 @@ export const buildPinnedTableShortcuts = (
     }
   }
   return result;
+};
+
+export const buildRecentSQLFileShortcuts = (
+  connections: SavedConnection[],
+  directories: ExternalSQLDirectory[],
+  recentFiles: RecentSQLFile[],
+): RecentSQLFile[] => {
+  const connectionIds = new Set(connections.map((connection) => connection.id));
+  const seenFilePaths = new Set<string>();
+  return [...recentFiles]
+    .map((file) => {
+      const binding = resolveExternalSQLFileBinding(directories, file.filePath, {
+        connectionId: file.connectionId,
+        dbName: file.dbName,
+      });
+      return binding
+        ? { ...file, connectionId: binding.connectionId, dbName: binding.dbName }
+        : file;
+    })
+    .filter((file) => connectionIds.has(file.connectionId))
+    .sort((left, right) => right.openedAt - left.openedAt)
+    .filter((file) => {
+      const normalizedPath = normalizeExternalSQLPath(file.filePath);
+      const filePathKey = /^[a-z]:\//iu.test(normalizedPath) || normalizedPath.startsWith('//')
+        ? normalizedPath.toLowerCase()
+        : normalizedPath;
+      if (!filePathKey || seenFilePaths.has(filePathKey)) return false;
+      seenFilePaths.add(filePathKey);
+      return true;
+    })
+    .slice(0, RECENT_WORKBENCH_ITEM_LIMIT);
 };
 
 const buildLinkedExternalSQLDirectoryShortcuts = (
@@ -565,6 +633,10 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
       trigger={['contextMenu']}
       onOpenChange={handleTabMenuOpenChange}
       rootClassName={isV2Ui ? 'gn-v2-tab-context-menu-popup' : undefined}
+      popupRender={(menu) => renderV2ActionMenuPopup(menu, Boolean(isV2Ui), {
+        title: displayTitle,
+        showHeader: false,
+      })}
     >
       {wrappedLabel}
     </Dropdown>
@@ -733,6 +805,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   const tabs = useWorkbenchTabs();
   const detachedWorkbenchWindows = useStore(state => state.detachedWorkbenchWindows);
   const connections = useStore(state => state.connections);
+  const connectionTags = useStore(state => state.connectionTags);
   const savedQueries = useStore(state => state.savedQueries);
   const externalSQLDirectories = useStore(state => state.externalSQLDirectories);
   const recentConnectionTargets = useStore(state => state.recentConnectionTargets);
@@ -758,6 +831,10 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   const dockedTabs = useMemo(
     () => tabs.filter((tab) => !detachedTabIdSet.has(tab.id)),
     [detachedTabIdSet, tabs],
+  );
+  const connectionGroupNameById = useMemo(
+    () => buildConnectionGroupNameIndex(connectionTags),
+    [connectionTags],
   );
   const tabsNavBorderColor = theme === 'dark' ? 'rgba(255, 255, 255, 0.09)' : 'rgba(0, 0, 0, 0.08)';
   const tabWorkbenchRef = useRef<HTMLDivElement>(null);
@@ -1052,7 +1129,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
     const tab = dockedTabs.find((item) => item.id === sourceId);
     const connection = connections.find((conn) => conn.id === tab?.connectionId);
     const displayModel = tab
-      ? buildTabDisplayModel(tab, connection, appearance.tabDisplay, t)
+      ? buildTabDisplayModel(tab, connection, appearance.tabDisplay, t, getConnectionGroupName(connectionGroupNameById, tab.connectionId))
       : null;
     const title = displayModel?.fullTitle || tab?.title || t('tab_manager.detached.title_fallback');
     const pointerEvent = event.activatorEvent as PointerEvent | MouseEvent | undefined;
@@ -1242,10 +1319,10 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   const hasDoubleLineTabLabel = useMemo(() => (
     dockedTabs.some((tab) => {
       const connection = connections.find((conn) => conn.id === tab.connectionId);
-      const displayModel = buildTabDisplayModel(tab, connection, appearance.tabDisplay, t);
+      const displayModel = buildTabDisplayModel(tab, connection, appearance.tabDisplay, t, getConnectionGroupName(connectionGroupNameById, tab.connectionId));
       return displayModel.layout === 'double' && Boolean(displayModel.secondaryText);
     })
-  ), [appearance.tabDisplay, connections, dockedTabs]);
+  ), [appearance.tabDisplay, connections, connectionGroupNameById, dockedTabs]);
 
   const renderTabBar: TabsProps['renderTabBar'] = (tabBarProps, DefaultTabBar) => (
     <DefaultTabBar {...tabBarProps}>
@@ -1255,7 +1332,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
 
   const items = useMemo(() => dockedTabs.map((tab, index) => {
     const connection = connections.find((conn) => conn.id === tab.connectionId);
-    const displayModel = buildTabDisplayModel(tab, connection, appearance.tabDisplay, t);
+    const displayModel = buildTabDisplayModel(tab, connection, appearance.tabDisplay, t, getConnectionGroupName(connectionGroupNameById, tab.connectionId));
     const environment = connection
       ? resolveConnectionEnvironmentPresentation(connection, t)
       : undefined;
@@ -1287,6 +1364,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       },
       {
         key: 'open-in-window',
+        icon: <ExportOutlined />,
         label: t('tab_manager.menu.open_in_window'),
         disabled: isBackgroundTaskWorkbenchTab(tab),
         onClick: () => detachTabToWindow(tab.id),
@@ -1294,25 +1372,28 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       { type: 'divider' },
       {
         key: 'close-other',
+        icon: <CloseCircleOutlined />,
         label: t('tab_manager.menu.close_other'),
         disabled: tabs.length <= 1,
         onClick: () => closeTabsWithSQLFilePrompt(getCloseOtherTabIds(tabs, tab.id), () => closeOtherTabs(tab.id)),
       },
       {
         key: 'close-left',
+        icon: <ArrowLeftOutlined />,
         label: t('tab_manager.menu.close_left'),
         disabled: index === 0,
         onClick: () => closeTabsWithSQLFilePrompt(getCloseTabsToLeftIds(dockedTabs, tab.id), () => closeTabsToLeft(tab.id)),
       },
       {
         key: 'close-right',
+        icon: <ArrowRightOutlined />,
         label: t('tab_manager.menu.close_right'),
         disabled: index === dockedTabs.length - 1,
         onClick: () => closeTabsWithSQLFilePrompt(getCloseTabsToRightIds(dockedTabs, tab.id), () => closeTabsToRight(tab.id)),
       },
-      { type: 'divider' },
       {
         key: 'close-all',
+        icon: <CloseOutlined />,
         label: t('tab_manager.menu.close_all'),
         disabled: tabs.length === 0,
         onClick: () => closeTabsWithSQLFilePrompt(tabs.map((item) => item.id), () => closeAllTabs()),
@@ -1339,7 +1420,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       closable: !isV2Ui,
       children: <WorkbenchTabContent tab={tab} isActive={tabIsActive} />,
     };
-  }), [dockedTabs, dockedActiveTabId, tabs, connections, appearance.tabDisplay, closeOtherTabs, closeTabsToLeft, closeTabsToRight, closeAllTabs, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, isV2Ui, languagePreference]);
+  }), [dockedTabs, dockedActiveTabId, tabs, connections, connectionGroupNameById, appearance.tabDisplay, closeOtherTabs, closeTabsToLeft, closeTabsToRight, closeAllTabs, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, isV2Ui, languagePreference]);
 
   const queryCapableConnections = useMemo(
     () => connections.filter((connection) => getDataSourceCapabilities(connection.config).supportsQueryEditor),
@@ -1361,11 +1442,8 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
     [connectionById, savedQueries],
   );
   const recentSQLFileShortcuts = useMemo(
-    () => [...recentSQLFiles]
-      .filter((file) => connectionById.has(file.connectionId))
-      .sort((left, right) => right.openedAt - left.openedAt)
-      .slice(0, RECENT_WORKBENCH_ITEM_LIMIT),
-    [connectionById, recentSQLFiles],
+    () => buildRecentSQLFileShortcuts(queryCapableConnections, externalSQLDirectories, recentSQLFiles),
+    [externalSQLDirectories, queryCapableConnections, recentSQLFiles],
   );
   const pinnedTableShortcuts = useMemo(
     () => buildPinnedTableShortcuts(queryCapableConnections, pinnedSidebarTables),
@@ -1398,6 +1476,10 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   };
 
   const handleOpenRecentConnection = useCallback((shortcut: RecentConnectionShortcut) => {
+    dispatchRecentConnectionShortcut(shortcut);
+  }, []);
+
+  const handleCreateQueryForConnection = useCallback((shortcut: Pick<RecentConnectionShortcut, 'connection' | 'dbName'>) => {
     addTab({
       id: buildWorkbenchQueryTabId(),
       title: t('query.new'),
@@ -1443,9 +1525,17 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   }, [addTab, connectionById]);
 
   const handleOpenRecentSQLFile = useCallback(async (file: RecentSQLFile) => {
-    const connectionId = String(file.connectionId || '').trim();
-    const dbName = String(file.dbName || '').trim();
     const filePath = String(file.filePath || '').trim();
+    const fileBinding = resolveExternalSQLFileBinding(externalSQLDirectories, filePath, {
+      connectionId: file.connectionId,
+      dbName: file.dbName,
+    });
+    const connectionId = String(
+      fileBinding ? fileBinding.connectionId : file.connectionId || '',
+    ).trim();
+    const dbName = String(
+      fileBinding ? fileBinding.dbName : file.dbName || '',
+    ).trim();
     if (!connectionId || !connectionById.has(connectionId)) {
       message.error(t('sidebar.message.connection_config_not_found'));
       return;
@@ -1473,6 +1563,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
           filePath: String(payload.filePath || '').trim() || filePath,
           fileName: file.fileName,
           fileSizeMB: String(payload.fileSizeMB || '').trim() || undefined,
+          autoStart: false,
         }));
         return;
       }
@@ -1493,7 +1584,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
     } finally {
       setOpeningRecentSQLFileKey((current) => current === openKey ? null : current);
     }
-  }, [addTab, connectionById]);
+  }, [addTab, connectionById, externalSQLDirectories]);
 
   const EmptyWorkbench = (
     <div className="gn-v2-empty-workbench">
@@ -1530,19 +1621,11 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
           {recentConnectionShortcuts.length > 0 ? (
             <div className="gn-v2-empty-recent-list">
               {recentConnectionShortcuts.map((shortcut) => (
-                <button
+                <RecentConnectionShortcutItem
                   key={`${shortcut.connection.id}::${shortcut.dbName || ''}`}
-                  type="button"
-                  className="gn-v2-empty-recent-item"
-                  onClick={() => handleOpenRecentConnection(shortcut)}
-                >
-                  <DatabaseOutlined />
-                  <span>
-                    <strong title={shortcut.connection.name}>{shortcut.connection.name}</strong>
-                    <small>{shortcut.dbName || t('tab_manager.empty.recent.connection.default_database')}</small>
-                  </span>
-                  <RightOutlined className="gn-v2-empty-recent-arrow" />
-                </button>
+                  shortcut={shortcut}
+                  onOpen={handleOpenRecentConnection}
+                />
               ))}
             </div>
           ) : (
@@ -1663,7 +1746,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
                   key={shortcut.directory.id}
                   type="button"
                   className="gn-v2-empty-recent-item"
-                  onClick={() => handleOpenRecentConnection(shortcut)}
+                  onClick={() => handleCreateQueryForConnection(shortcut)}
                 >
                   <FolderOpenOutlined />
                   <span>

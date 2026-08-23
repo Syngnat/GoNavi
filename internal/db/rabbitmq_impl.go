@@ -318,7 +318,7 @@ func (r *RabbitMQDB) GetDatabases() ([]string, error) {
 	if r.client == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 10*time.Second)
 	defer cancel()
 
 	items, err := r.listVHosts(ctx, 0)
@@ -342,7 +342,7 @@ func (r *RabbitMQDB) GetTables(dbName string) ([]string, error) {
 	if r.client == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 10*time.Second)
 	defer cancel()
 
 	vhost := rabbitmqResolveVHost(dbName, r.defaultVHost)
@@ -369,7 +369,7 @@ func (r *RabbitMQDB) GetCreateStatement(dbName, tableName string) (string, error
 	if queue == "" {
 		return "", fmt.Errorf("RabbitMQ queue 不能为空")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 10*time.Second)
 	defer cancel()
 
 	info, err := r.getQueueInfo(ctx, vhost, queue)
@@ -384,19 +384,11 @@ func (r *RabbitMQDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 	if r.client == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	vhost := rabbitmqResolveVHost(dbName, r.defaultVHost)
 	queue := rabbitmqResolveQueue(tableName, r.defaultQueue)
 	if queue == "" {
 		return nil, fmt.Errorf("RabbitMQ queue 不能为空")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
-	items, err := r.getQueueMessages(ctx, vhost, queue, 20)
-	if err != nil {
-		return nil, err
-	}
-	rows := rabbitmqMessageRows(vhost, queue, items)
 	columns := []connection.ColumnDefinition{
 		{Name: "vhost", Type: "string", Nullable: "NO", Comment: "RabbitMQ virtual host"},
 		{Name: "queue", Type: "string", Nullable: "NO", Key: "PRI", Comment: "RabbitMQ queue"},
@@ -409,28 +401,6 @@ func (r *RabbitMQDB) GetColumns(dbName, tableName string) ([]connection.ColumnDe
 		{Name: "payload_bytes", Type: "int", Nullable: "YES", Comment: "Payload size in bytes"},
 		{Name: "properties", Type: "json", Nullable: "YES", Comment: "AMQP properties"},
 		{Name: "headers", Type: "json", Nullable: "YES", Comment: "AMQP headers"},
-	}
-	seen := map[string]struct{}{
-		"vhost": {}, "queue": {}, "exchange": {}, "routing_key": {}, "redelivered": {},
-		"message_count": {}, "payload": {}, "payload_encoding": {}, "payload_bytes": {},
-		"properties": {}, "headers": {},
-	}
-	for _, row := range rows {
-		for key, value := range row {
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			if !strings.HasPrefix(key, "payload.") && !strings.HasPrefix(key, "properties.") && !strings.HasPrefix(key, "headers.") {
-				continue
-			}
-			seen[key] = struct{}{}
-			columns = append(columns, connection.ColumnDefinition{
-				Name:     key,
-				Type:     inferChromaValueType(value),
-				Nullable: "YES",
-				Comment:  "Derived RabbitMQ field",
-			})
-		}
 	}
 	return columns, nil
 }
@@ -613,16 +583,20 @@ func buildRabbitMQBaseURL(config connection.ConnectionConfig) string {
 
 func buildRabbitMQHTTPClient(config connection.ConnectionConfig) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	dialTimeout := getConnectTimeout(config)
+	transport.DialContext = (&net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}).DialContext
 	if tlsConfig, err := resolveGenericTLSConfig(config); err == nil && tlsConfig != nil {
 		transport.TLSClientConfig = tlsConfig
 	}
 	if config.UseProxy {
 		proxyCfg := config.Proxy
 		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return proxytunnel.DialContext(ctx, proxyCfg, network, addr)
+			dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+			defer cancel()
+			return proxytunnel.DialContext(dialCtx, proxyCfg, network, addr)
 		}
 	}
-	return &http.Client{Transport: transport, Timeout: getConnectTimeout(config)}
+	return &http.Client{Transport: transport}
 }
 
 func rabbitmqAuthHeaders(config connection.ConnectionConfig) map[string]string {
@@ -669,9 +643,9 @@ func (r *RabbitMQDB) doJSON(ctx context.Context, method, path string, body inter
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := readLimitedJSONResponseBody(resp.Body)
 	if err != nil {
-		return err
+		return fmt.Errorf("读取 RabbitMQ HTTP API 响应失败：%w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		message := strings.TrimSpace(string(data))

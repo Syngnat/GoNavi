@@ -5,6 +5,7 @@ export type TableMetadataRequestKey = {
   dbName: string;
   tableName: string;
   kind: TableMetadataRequestKind;
+  connectionParams?: string;
 };
 
 type TableMetadataRequestOptions = {
@@ -25,6 +26,7 @@ const serializeTableMetadataRequestKey = (key: TableMetadataRequestKey): string 
   String(key.connectionId || '').trim(),
   String(key.dbName || '').trim(),
   String(key.tableName || '').trim(),
+  String(key.connectionParams || ''),
 ]);
 
 const pruneTableMetadataRequests = (now: number) => {

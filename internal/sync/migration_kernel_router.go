@@ -48,6 +48,9 @@ type tdengineToPGLikePlanner struct{}
 type mongoToRelationalPlanner struct{}
 
 func buildSchemaMigrationPlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
+	if hasExplicitSyncMappings(config) {
+		return buildMappedExistingTargetPlan(config, tableName, sourceDB, targetDB)
+	}
 	ctx := MigrationBuildContext{
 		Config:    config,
 		TableName: tableName,
@@ -119,13 +122,13 @@ func isMySQLLikeType(dbType string) bool {
 
 func classifyMigrationDataModel(dbType string) MigrationDataModel {
 	switch normalizeMigrationDBType(dbType) {
-	case "mysql", "mariadb", "oceanbase", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "oracle", "sqlserver", "dameng", "sqlite", "duckdb":
+	case "mysql", "mariadb", "oceanbase", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "oracle", "sqlserver", "dameng", "sqlite", "duckdb", "iris", "trino":
 		return MigrationDataModelRelational
 	case "mongodb":
 		return MigrationDataModelDocument
 	case "clickhouse", "diros", "starrocks", "sphinx":
 		return MigrationDataModelColumnar
-	case "tdengine":
+	case "tdengine", "iotdb":
 		return MigrationDataModelTimeSeries
 	case "redis":
 		return MigrationDataModelKeyValue

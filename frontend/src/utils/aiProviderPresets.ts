@@ -5,6 +5,14 @@ export const LEGACY_QWEN_CODING_PLAN_OPENAI_BASE_URL = 'https://coding.dashscope
 export const QWEN_BAILIAN_ANTHROPIC_BASE_URL = 'https://dashscope.aliyuncs.com/apps/anthropic';
 export const QWEN_CODING_PLAN_ANTHROPIC_BASE_URL = 'https://coding.dashscope.aliyuncs.com/apps/anthropic';
 export const QWEN_BAILIAN_MODELS_BASE_URL = LEGACY_QWEN_BAILIAN_OPENAI_BASE_URL;
+export const ATLAS_CLOUD_BASE_URL = 'https://api.atlascloud.ai/v1';
+export const ATLAS_CLOUD_DEFAULT_MODEL = 'qwen/qwen3.8-max';
+export const ORCAROUTER_BASE_URL = 'https://api.orcarouter.ai/v1';
+export const ORCAROUTER_DEFAULT_MODEL = 'orcarouter/auto';
+export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
+export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
+export const MOONSHOT_OPENAI_BASE_URL = 'https://api.moonshot.cn/v1';
+export const MOONSHOT_ANTHROPIC_BASE_URL = 'https://api.moonshot.cn/anthropic';
 
 export const QWEN_CODING_PLAN_MODELS = [
   'qwen3.5-plus',
@@ -49,9 +57,11 @@ export interface ResolvePresetTransportInput {
   presetKey?: string;
   presetBackendType: AIProviderType;
   presetFixedApiFormat?: string;
+  presetDefaultApiFormat?: string;
   presetEndpoints?: ProviderPresetEndpoint[];
   valuesBaseUrl?: string;
   valuesApiFormat?: string;
+  valuesModel?: string;
 }
 
 export interface ResolvePresetTransportResult {
@@ -65,13 +75,12 @@ export interface ProviderPresetMatcher {
   defaultBaseUrl: string;
   endpoints?: ProviderPresetEndpoint[];
   fixedApiFormat?: string;
+  defaultApiFormat?: string;
   authMode?: AIProviderAuthMode;
 }
 
-export type ProviderPresetCandidate = Pick<
-  AIProviderConfig,
-  'type' | 'baseUrl' | 'apiFormat' | 'authMode'
-> & Partial<Pick<AIProviderConfig, 'apiKey' | 'hasSecret' | 'secretRef'>>;
+export type ProviderPresetCandidate = Pick<AIProviderConfig, 'type' | 'baseUrl'>
+  & Partial<Pick<AIProviderConfig, 'apiFormat' | 'authMode' | 'model' | 'apiKey' | 'hasSecret' | 'secretRef'>>;
 
 export const isLocalCLISubscriptionProvider = (
   provider: Pick<AIProviderConfig, 'type' | 'apiFormat' | 'authMode'>,
@@ -143,6 +152,16 @@ export const matchQwenPresetKey = (provider: ProviderPresetCandidate): string | 
   return null;
 };
 
+export const matchDeepSeekPresetKey = (provider: ProviderPresetCandidate): string | null => {
+  if (
+    provider.type === 'openai'
+    && getProviderHostname(provider.baseUrl) === 'api.deepseek.com'
+  ) {
+    return 'deepseek';
+  }
+  return null;
+};
+
 export const resolveProviderPresetKey = (
   provider: ProviderPresetCandidate,
   presets: ProviderPresetMatcher[],
@@ -151,6 +170,10 @@ export const resolveProviderPresetKey = (
   const qwenPresetKey = matchQwenPresetKey(provider);
   if (qwenPresetKey) {
     return qwenPresetKey;
+  }
+  const deepSeekPresetKey = matchDeepSeekPresetKey(provider);
+  if (deepSeekPresetKey) {
+    return deepSeekPresetKey;
   }
 
   const fingerprint = getProviderFingerprint(provider.baseUrl);
@@ -196,13 +219,6 @@ export const resolveProviderPresetKey = (
   }
 
   const host = getProviderHostname(provider.baseUrl);
-  if (provider.type === 'anthropic' && host.endsWith('moonshot.cn')) {
-    const moonshotPreset = presets.find((preset) => preset.key === 'moonshot');
-    if (moonshotPreset) {
-      return moonshotPreset.key;
-    }
-  }
-
   const hostPreset = presets.find((preset) =>
     preset.backendType === provider.type
     && host !== ''
@@ -263,9 +279,11 @@ export const resolvePresetTransport = ({
   presetKey,
   presetBackendType,
   presetFixedApiFormat,
+  presetDefaultApiFormat,
   presetEndpoints,
   valuesBaseUrl,
   valuesApiFormat,
+  valuesModel,
 }: ResolvePresetTransportInput): ResolvePresetTransportResult => {
   const valuesFingerprint = getProviderFingerprint(valuesBaseUrl);
   const selectedEndpoint = presetEndpoints?.find((endpoint) =>
@@ -290,6 +308,17 @@ export const resolvePresetTransport = ({
     return {
       type: presetBackendType,
       apiFormat: valuesApiFormat || 'openai',
+    };
+  }
+
+  if (presetKey === 'deepseek') {
+    const model = String(valuesModel || '').trim().toLowerCase();
+    return {
+      type: presetBackendType,
+      apiFormat: valuesApiFormat
+        || (model && model !== DEEPSEEK_DEFAULT_MODEL ? 'openai' : undefined)
+        || presetDefaultApiFormat
+        || 'openai-responses',
     };
   }
 

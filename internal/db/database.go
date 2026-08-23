@@ -7,14 +7,83 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 )
 
+// metadataContexts 让元数据入口复用既有驱动实现，同时把请求上下文传给 Query。
+// 元数据请求使用独立的 Database 实例，因此不会与常规缓存连接的操作重叠。
+var metadataContexts sync.Map
+
+type metadataContextKey struct {
+	typ reflect.Type
+	ptr uintptr
+}
+
+type metadataContextChildBinder interface {
+	bindMetadataContext(context.Context)
+	clearMetadataContext()
+}
+
+func metadataContextKeyFor(database any) (metadataContextKey, bool) {
+	value := reflect.ValueOf(database)
+	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+		return metadataContextKey{}, false
+	}
+	return metadataContextKey{typ: value.Type(), ptr: value.Pointer()}, true
+}
+
+// BindMetadataContext 将独立数据库实例与元数据请求上下文关联。
+// 请求结束后必须调用 ClearMetadataContext。
+func BindMetadataContext(database Database, ctx context.Context) {
+	key, ok := metadataContextKeyFor(database)
+	if !ok || ctx == nil {
+		return
+	}
+	metadataContexts.Store(key, ctx)
+	if child, ok := database.(metadataContextChildBinder); ok {
+		child.bindMetadataContext(ctx)
+	}
+}
+
+// ClearMetadataContext 移除由 BindMetadataContext 建立的关联。
+func ClearMetadataContext(database Database) {
+	if key, ok := metadataContextKeyFor(database); ok {
+		metadataContexts.Delete(key)
+	}
+	if child, ok := database.(metadataContextChildBinder); ok {
+		child.clearMetadataContext()
+	}
+}
+
+// MetadataContext 返回绑定到隔离元数据连接的请求上下文。
+func MetadataContext(database Database) context.Context {
+	return metadataContextFor(database)
+}
+
+// metadataContextFor 返回隔离元数据数据库关联的请求上下文。
+// 常规查询路径保持原有的 Background 上下文行为。
+func metadataContextFor(database any) context.Context {
+	if key, ok := metadataContextKeyFor(database); ok {
+		if ctx, ok := metadataContexts.Load(key); ok {
+			if requestCtx, ok := ctx.(context.Context); ok && requestCtx != nil {
+				return requestCtx
+			}
+		}
+	}
+	return context.Background()
+}
+
 // Database 定义了统一的数据源访问接口。
 // 所有数据库驱动（MySQL、PostgreSQL、Oracle 等）均需实现此接口。
 // 方法调用方可通过 NewDatabase 工厂函数获取对应驱动的实例。
+//
+// 取消契约：MCP 元数据请求通过 BindMetadataContext 把请求上下文绑定到隔离的
+// Database 实例，驱动实现必须在底层调用中传递 metadataContextFor 返回的上下文
+// （如 QueryContext / HTTP request context）。若驱动忽略该上下文，取消将退化为
+// 等待查询自然结束，连接与 goroutine 会残留至查询完成。
 type Database interface {
 	// Connect 根据连接配置建立数据库连接。
 	Connect(config connection.ConnectionConfig) error
@@ -44,7 +113,10 @@ type Database interface {
 	GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error)
 }
 
-const maxElasticsearchConsoleResponseBytes = 32 << 20
+const (
+	maxRemoteJSONResponseBytes           = 32 << 20
+	maxElasticsearchConsoleResponseBytes = maxRemoteJSONResponseBytes
+)
 
 // ElasticsearchConsoleBodyKind identifies how an Elasticsearch REST request
 // body must be encoded on the wire.
@@ -100,6 +172,12 @@ type ElasticsearchServerVersionProvider interface {
 // at a time.
 type DatabaseForeignKeyProvider interface {
 	GetDatabaseForeignKeys(dbName string) (map[string][]connection.ForeignKeyDefinition, error)
+}
+
+// TableCommentProvider is an optional metadata interface for drivers that can
+// load a table-level comment for schema/backup DDL generation.
+type TableCommentProvider interface {
+	GetTableComment(dbName, tableName string) (string, error)
 }
 
 // TableExistsChecker is an optional point lookup for a table's canonical
@@ -244,6 +322,18 @@ type MultiResultQuerier interface {
 	QueryMulti(query string) ([]connection.ResultSetData, error)
 }
 
+// QueryContexter is the optional cancellation-capable query contract.
+// Callers must not assume Database.Query can be interrupted without it.
+type QueryContexter interface {
+	QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error)
+}
+
+// ExecContexter is the optional cancellation-capable write contract.
+// Callers must not assume Database.Exec can be interrupted without it.
+type ExecContexter interface {
+	ExecContext(ctx context.Context, query string) (int64, error)
+}
+
 // MultiResultQuerierContext 是带 context 的多结果集查询接口。
 type MultiResultQuerierContext interface {
 	QueryMultiContext(ctx context.Context, query string) ([]connection.ResultSetData, error)
@@ -254,6 +344,13 @@ type MultiResultQuerierContext interface {
 // 实现此接口可大幅减少批量 INSERT/UPDATE/DELETE 的网络往返次数。
 type BatchWriteExecer interface {
 	ExecBatchContext(ctx context.Context, query string) (int64, error)
+}
+
+// BatchWriteCapability lets a driver that conditionally supports the
+// multi-statement protocol opt out at runtime. MySQL uses this when the
+// connection had to fall back to multiStatements=false.
+type BatchWriteCapability interface {
+	SupportsBatchWrites() bool
 }
 
 // StatementExecer is a single-session SQL execution handle.
@@ -511,13 +608,24 @@ func (e *sqlConnStatementExecer) Discard() error {
 }
 
 type sqlConnTransactionExecer struct {
-	mu          sync.Mutex
-	conn        *sql.Conn
-	done        bool
-	commitSQL   string
-	rollbackSQL string
-	scanDialect string
+	mu                sync.Mutex
+	conn              *sql.Conn
+	done              bool
+	state             sqlTransactionState
+	rollbackAttempted bool
+	commitSQL         string
+	rollbackSQL       string
+	scanDialect       string
 }
+
+type sqlTransactionState uint8
+
+const (
+	sqlTransactionStateOpen sqlTransactionState = iota
+	sqlTransactionStateFinishing
+	sqlTransactionStateFinished
+	sqlTransactionStateUnknown
+)
 
 func NewSQLConnTransactionExecer(conn *sql.Conn, commitSQL string, rollbackSQL string) TransactionExecer {
 	return NewSQLConnTransactionExecerWithDialect(conn, commitSQL, rollbackSQL, "")
@@ -541,7 +649,7 @@ func (e *sqlConnTransactionExecer) activeConn() (*sql.Conn, error) {
 	if e.conn == nil {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.connection_not_open", nil)
 	}
-	if e.done {
+	if e.done || e.state != sqlTransactionStateOpen {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.transaction_already_finished", nil)
 	}
 	return e.conn, nil
@@ -614,31 +722,54 @@ func (e *sqlConnTransactionExecer) QueryMulti(query string) ([]connection.Result
 	return e.QueryMultiContext(context.Background(), query)
 }
 
-func (e *sqlConnTransactionExecer) finish(sqlText string) error {
+func (e *sqlConnTransactionExecer) finish(sqlText string, commit bool) error {
 	if e == nil {
 		return nil
 	}
 	e.mu.Lock()
-	if e.conn == nil || e.done {
+	if e.conn == nil || e.done || e.state == sqlTransactionStateFinished || e.state == sqlTransactionStateFinishing {
+		e.mu.Unlock()
+		return nil
+	}
+	if e.state == sqlTransactionStateUnknown && (commit || e.rollbackAttempted) {
 		e.mu.Unlock()
 		return nil
 	}
 	conn := e.conn
-	e.done = true
+	e.state = sqlTransactionStateFinishing
+	if !commit {
+		e.rollbackAttempted = true
+	}
 	e.mu.Unlock()
 	if strings.TrimSpace(sqlText) == "" {
+		e.mu.Lock()
+		e.state = sqlTransactionStateFinished
+		e.done = true
+		e.mu.Unlock()
 		return nil
 	}
 	_, err := conn.ExecContext(context.Background(), sqlText)
+	e.mu.Lock()
+	if err == nil {
+		e.state = sqlTransactionStateFinished
+		e.done = true
+	} else {
+		e.state = sqlTransactionStateUnknown
+		e.done = false
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return MarkWriteOutcomeUnknown(err)
+	}
 	return err
 }
 
 func (e *sqlConnTransactionExecer) Commit() error {
-	return e.finish(e.commitSQL)
+	return e.finish(e.commitSQL, true)
 }
 
 func (e *sqlConnTransactionExecer) Rollback() error {
-	return e.finish(e.rollbackSQL)
+	return e.finish(e.rollbackSQL, false)
 }
 
 func (e *sqlConnTransactionExecer) Close() error {
@@ -650,32 +781,69 @@ func (e *sqlConnTransactionExecer) Close() error {
 		e.mu.Unlock()
 		return nil
 	}
-	conn := e.conn
-	shouldRollback := !e.done && e.rollbackSQL != ""
-	rollbackSQL := e.rollbackSQL
-	e.conn = nil
-	e.done = true
+	shouldRollback := !e.done && strings.TrimSpace(e.rollbackSQL) != "" &&
+		(e.state == sqlTransactionStateOpen || (e.state == sqlTransactionStateUnknown && !e.rollbackAttempted))
+	shouldDiscard := !e.done && !shouldRollback
 	e.mu.Unlock()
 
-	var rollbackErr error
 	if shouldRollback {
-		_, rollbackErr = conn.ExecContext(context.Background(), rollbackSQL)
+		if err := e.Rollback(); err != nil {
+			if discardErr := e.Discard(); discardErr != nil {
+				return errors.Join(err, discardErr)
+			}
+			return err
+		}
 	}
-	closeErr := conn.Close()
-	if rollbackErr != nil {
-		return rollbackErr
+	if shouldDiscard {
+		return e.Discard()
 	}
-	return closeErr
+
+	e.mu.Lock()
+	if e.conn == nil {
+		e.mu.Unlock()
+		return nil
+	}
+	conn := e.conn
+	e.conn = nil
+	e.done = true
+	e.state = sqlTransactionStateFinished
+	e.mu.Unlock()
+
+	return conn.Close()
+}
+
+func (e *sqlConnTransactionExecer) Discard() error {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	conn := e.conn
+	e.conn = nil
+	e.done = true
+	e.state = sqlTransactionStateFinished
+	e.mu.Unlock()
+	return discardSQLConn(&conn)
 }
 
 type sqlTxStatementExecer struct {
-	mu   sync.Mutex
-	tx   *sql.Tx
-	done bool
+	mu                sync.Mutex
+	tx                *sql.Tx
+	conn              *sql.Conn
+	done              bool
+	state             sqlTransactionState
+	rollbackAttempted bool
+	lastFinishErr     error
 }
 
 func NewSQLTxStatementExecer(tx *sql.Tx) TransactionExecer {
 	return &sqlTxStatementExecer{tx: tx}
+}
+
+// NewSQLTxStatementExecerWithConn keeps the pinned *sql.Conn alongside a
+// database/sql transaction so a failed finalization can evict the physical
+// connection instead of returning an unresolved transaction to the pool.
+func NewSQLTxStatementExecerWithConn(tx *sql.Tx, conn *sql.Conn) TransactionExecer {
+	return &sqlTxStatementExecer{tx: tx, conn: conn}
 }
 
 func (e *sqlTxStatementExecer) activeTx() (*sql.Tx, error) {
@@ -684,7 +852,7 @@ func (e *sqlTxStatementExecer) activeTx() (*sql.Tx, error) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.done {
+	if e.done || e.state != sqlTransactionStateOpen {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.transaction_already_finished", nil)
 	}
 	return e.tx, nil
@@ -757,35 +925,96 @@ func (e *sqlTxStatementExecer) QueryMulti(query string) ([]connection.ResultSetD
 	return e.QueryMultiContext(context.Background(), query)
 }
 
-func (e *sqlTxStatementExecer) finish(action func(*sql.Tx) error) error {
+func (e *sqlTxStatementExecer) finish(action func(*sql.Tx) error, commit bool) error {
 	if e == nil || e.tx == nil {
 		return nil
 	}
 	e.mu.Lock()
-	if e.done {
+	if e.done || e.state == sqlTransactionStateFinished || e.state == sqlTransactionStateFinishing {
+		e.mu.Unlock()
+		return nil
+	}
+	if e.state == sqlTransactionStateUnknown && (commit || e.rollbackAttempted) {
 		e.mu.Unlock()
 		return nil
 	}
 	tx := e.tx
-	e.done = true
+	e.state = sqlTransactionStateFinishing
+	if !commit {
+		e.rollbackAttempted = true
+	}
 	e.mu.Unlock()
-	return action(tx)
+	err := action(tx)
+	e.mu.Lock()
+	if err == nil {
+		e.done = true
+		e.state = sqlTransactionStateFinished
+		e.lastFinishErr = nil
+	} else {
+		e.done = false
+		e.state = sqlTransactionStateUnknown
+		e.lastFinishErr = MarkWriteOutcomeUnknown(err)
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return MarkWriteOutcomeUnknown(err)
+	}
+	return nil
 }
 
 func (e *sqlTxStatementExecer) Commit() error {
 	return e.finish(func(tx *sql.Tx) error {
 		return tx.Commit()
-	})
+	}, true)
 }
 
 func (e *sqlTxStatementExecer) Rollback() error {
 	return e.finish(func(tx *sql.Tx) error {
 		return tx.Rollback()
-	})
+	}, false)
 }
 
 func (e *sqlTxStatementExecer) Close() error {
-	return e.Rollback()
+	if e == nil || e.tx == nil {
+		return nil
+	}
+	e.mu.Lock()
+	if e.state == sqlTransactionStateUnknown && e.rollbackAttempted && e.lastFinishErr != nil {
+		err := e.lastFinishErr
+		e.mu.Unlock()
+		if discardErr := e.Discard(); discardErr != nil {
+			return errors.Join(err, discardErr)
+		}
+		return err
+	}
+	e.mu.Unlock()
+	if err := e.Rollback(); err != nil {
+		if discardErr := e.Discard(); discardErr != nil {
+			return errors.Join(err, discardErr)
+		}
+		return err
+	}
+	e.mu.Lock()
+	conn := e.conn
+	e.conn = nil
+	e.mu.Unlock()
+	if conn != nil {
+		return conn.Close()
+	}
+	return nil
+}
+
+func (e *sqlTxStatementExecer) Discard() error {
+	if e == nil {
+		return nil
+	}
+	e.mu.Lock()
+	conn := e.conn
+	e.conn = nil
+	e.done = true
+	e.state = sqlTransactionStateFinished
+	e.mu.Unlock()
+	return discardSQLConn(&conn)
 }
 
 // BatchApplier 定义了批量变更提交接口。
@@ -793,6 +1022,15 @@ func (e *sqlTxStatementExecer) Close() error {
 type BatchApplier interface {
 	// ApplyChanges 将一组变更（新增、修改、删除）批量提交到指定表。
 	ApplyChanges(tableName string, changes connection.ChangeSet) error
+}
+
+// BatchApplierContext is the optional cancellation-aware form of BatchApplier.
+// Long-running import and synchronization jobs prefer it so cancellation can
+// reach an in-flight driver transaction. BatchApplier remains for backwards
+// compatibility with drivers that cannot yet expose context cancellation.
+type BatchApplierContext interface {
+	BatchApplier
+	ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error
 }
 
 // ChangePreviewer 是可选的变更预览接口。

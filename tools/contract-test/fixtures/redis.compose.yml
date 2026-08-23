@@ -1,0 +1,10 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 10
+      start_period: 1s

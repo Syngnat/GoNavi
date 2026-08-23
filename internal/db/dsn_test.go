@@ -642,7 +642,7 @@ func TestClickHouseOptions_UsesStructuredTimeoutAndAuth(t *testing.T) {
 	if opts.DialTimeout != 15*time.Second {
 		t.Fatalf("dial timeout 不符合预期：%s", opts.DialTimeout)
 	}
-	if opts.ReadTimeout != minClickHouseReadTimeout {
+	if opts.ReadTimeout != clickHouseNoAutomaticReadTimeout {
 		t.Fatalf("read timeout 不符合预期：%s", opts.ReadTimeout)
 	}
 	if _, ok := opts.Settings["write_timeout"]; ok {
@@ -687,7 +687,7 @@ func TestClickHouseOptions_MergesConnectionParamsIntoOptionsAndSettings(t *testi
 	}
 }
 
-func TestClickHouseOptions_ReadTimeoutUsesLargerConfiguredTimeout(t *testing.T) {
+func TestClickHouseOptions_ConnectionTimeoutDoesNotBecomeReadTimeout(t *testing.T) {
 	c := &ClickHouseDB{}
 	cfg := normalizeClickHouseConfig(connection.ConnectionConfig{
 		Type:     "clickhouse",
@@ -709,7 +709,7 @@ func TestClickHouseOptions_ReadTimeoutUsesLargerConfiguredTimeout(t *testing.T) 
 	if opts.DialTimeout != 900*time.Second {
 		t.Fatalf("dial timeout 不符合预期：%s", opts.DialTimeout)
 	}
-	if opts.ReadTimeout != 900*time.Second {
+	if opts.ReadTimeout != clickHouseNoAutomaticReadTimeout {
 		t.Fatalf("read timeout 不符合预期：%s", opts.ReadTimeout)
 	}
 }

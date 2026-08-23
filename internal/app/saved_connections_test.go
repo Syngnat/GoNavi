@@ -42,6 +42,36 @@ func TestSplitConnectionSecretsStripsPasswordsAndOpaqueDSN(t *testing.T) {
 	}
 }
 
+func TestSplitConnectionSecretsPreservesSSHHostKeyVerificationMetadata(t *testing.T) {
+	input := connection.SavedConnectionInput{
+		ID:   "ssh-host-key-metadata",
+		Name: "SSH host key metadata",
+		Config: connection.ConnectionConfig{
+			ID:       "ssh-host-key-metadata",
+			Type:     "postgres",
+			UseSSH:   true,
+			Password: "database-secret",
+			SSH: connection.SSHConfig{
+				Host:               "jump.local",
+				Port:               2222,
+				User:               "ops",
+				Password:           "ssh-secret",
+				KnownHostsPath:     "/home/user/.ssh/known_hosts",
+				HostKeyFingerprint: "SHA256:pinned-host-key",
+			},
+		},
+	}
+
+	view, bundle := splitConnectionSecrets(input)
+	if view.Config.SSH.KnownHostsPath != input.Config.SSH.KnownHostsPath ||
+		view.Config.SSH.HostKeyFingerprint != input.Config.SSH.HostKeyFingerprint {
+		t.Fatalf("SSH host key metadata was not preserved: %#v", view.Config.SSH)
+	}
+	if view.Config.SSH.Password != "" || bundle.SSHPassword != "ssh-secret" {
+		t.Fatalf("SSH password crossed the metadata boundary: view=%q bundle=%q", view.Config.SSH.Password, bundle.SSHPassword)
+	}
+}
+
 func TestSavedConnectionRepositoryDefaultsLegacyEnvironmentToLocal(t *testing.T) {
 	repo := newSavedConnectionRepository(t.TempDir(), newFakeAppSecretStore())
 	if err := repo.saveAll([]connection.SavedConnectionView{

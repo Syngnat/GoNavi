@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -130,5 +131,112 @@ func TestServeAgentRequestsHandlesFinalLineWithoutNewline(t *testing.T) {
 	responses := decodeAgentResponses(t, out.Bytes())
 	if len(responses) != 1 || responses[0].ID != 5 {
 		t.Fatalf("末行无换行符的请求未被处理：%#v", responses)
+	}
+}
+
+func TestServeAgentRequestsReportsOversizedRequestAndStops(t *testing.T) {
+	huge := strings.Repeat("x", db.OptionalDriverAgentMaxJSONLineBytes)
+	payload, err := json.Marshal(agentRequest{ID: 1, Method: agentMethodMetadata, SessionID: huge})
+	if err != nil {
+		t.Fatalf("构造超限请求失败：%v", err)
+	}
+	var out bytes.Buffer
+	writer := bufio.NewWriter(&out)
+	runtimeState := &agentRuntime{sessions: make(map[string]db.StatementExecer)}
+
+	err = serveAgentRequests(bytes.NewReader(append(payload, '\n')), writer, runtimeState)
+	if !errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
+		t.Fatalf("serveAgentRequests 超限错误 = %v，want ErrOptionalDriverAgentJSONLineTooLarge", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush 失败：%v", err)
+	}
+	responses := decodeAgentResponses(t, out.Bytes())
+	if len(responses) != 1 || responses[0].Success || !strings.Contains(responses[0].Error, "32 MiB") {
+		t.Fatalf("超限请求响应 = %#v，want one diagnostic failure", responses)
+	}
+}
+
+func TestWriteResponseEnforcesFrameLimit(t *testing.T) {
+	var out bytes.Buffer
+	writer := bufio.NewWriter(&out)
+	err := writeResponse(writer, agentResponse{
+		ID:      1,
+		Success: true,
+		Data:    strings.Repeat("x", db.OptionalDriverAgentMaxJSONLineBytes),
+	})
+	if !errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
+		t.Fatalf("超限普通响应写出错误 = %v，want ErrOptionalDriverAgentJSONLineTooLarge", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("超限响应仍写出 %d 字节，want 0", out.Len())
+	}
+
+	out.Reset()
+	writer = bufio.NewWriter(&out)
+	if err := writeResponse(writer, agentResponse{
+		ID:      2,
+		Success: true,
+		Data:    strings.Repeat("x", 4<<20),
+	}); err != nil {
+		t.Fatalf("上限内大响应写出失败：%v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("上限内响应 Flush 失败：%v", err)
+	}
+	if out.Len() == 0 {
+		t.Fatal("上限内大响应未写出")
+	}
+}
+
+func TestAgentStreamResponseWriterKeepsLargeChunkWithinFrameLimit(t *testing.T) {
+	var out bytes.Buffer
+	writer := bufio.NewWriter(&out)
+	stream := newAgentStreamResponseWriter(writer, 3)
+	if err := stream.SetColumns([]string{"payload"}); err != nil {
+		t.Fatalf("写出流式列定义失败：%v", err)
+	}
+	if err := stream.ConsumeRowValues([]interface{}{strings.Repeat("x", 4<<20)}); err != nil {
+		t.Fatalf("写入上限内大流式行失败：%v", err)
+	}
+	if err := stream.finish(); err != nil {
+		t.Fatalf("Flush 上限内大流式行失败：%v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush 流式输出失败：%v", err)
+	}
+	responses := decodeAgentResponses(t, out.Bytes())
+	if len(responses) != 2 || responses[1].ChunkType != agentChunkRows {
+		t.Fatalf("流式大 chunk 输出 = %#v，want columns + rows", responses)
+	}
+}
+
+func TestAgentStreamResponseWriterSplitsOversizedBatchByBytes(t *testing.T) {
+	const rowBytes = 1 << 20
+	const rowCount = 40
+	var out bytes.Buffer
+	writer := bufio.NewWriter(&out)
+	stream := newAgentStreamResponseWriter(writer, 4)
+	if err := stream.SetColumns([]string{"payload"}); err != nil {
+		t.Fatalf("写出流式列定义失败：%v", err)
+	}
+	for i := 0; i < rowCount; i++ {
+		stream.rows = append(stream.rows, []interface{}{strings.Repeat("x", rowBytes)})
+	}
+	stream.rowCount = rowCount
+	if err := stream.finish(); err != nil {
+		t.Fatalf("大批次拆分失败：%v", err)
+	}
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("Flush 流式输出失败：%v", err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(out.Bytes()), []byte{'\n'})
+	if len(lines) < 3 {
+		t.Fatalf("大批次只输出 %d 个 frame，want columns + 多个 rows frame", len(lines))
+	}
+	for index, line := range lines {
+		if len(line)+1 > db.OptionalDriverAgentMaxJSONLineBytes {
+			t.Fatalf("frame %d 大小 %d 超过上限", index, len(line)+1)
+		}
 	}
 }

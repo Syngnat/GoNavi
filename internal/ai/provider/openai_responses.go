@@ -22,7 +22,7 @@ type OpenAIResponsesProvider struct {
 }
 
 func NewOpenAIResponsesProvider(config ai.ProviderConfig) (Provider, error) {
-	baseURL := NormalizeOpenAICompatibleBaseURL(config.BaseURL)
+	baseURL := normalizeOpenAIResponsesBaseURL(config.BaseURL)
 	model := strings.TrimSpace(config.Model)
 	if model == "" {
 		return nil, fmt.Errorf("model ID is required; select or enter a model in Settings")
@@ -54,6 +54,22 @@ func NewOpenAIResponsesProvider(config ai.ProviderConfig) (Provider, error) {
 	}, nil
 }
 
+func normalizeOpenAIResponsesBaseURL(raw string) string {
+	baseURL := NormalizeOpenAICompatibleBaseURL(raw)
+	if isDeepSeekHost(baseURL) {
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+	}
+	return strings.TrimRight(baseURL, "/")
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
+func isDeepSeekResponsesBaseURL(baseURL string) bool {
+	return isDeepSeekHost(baseURL)
+}
+
 func (p *OpenAIResponsesProvider) Name() string {
 	if strings.TrimSpace(p.config.Name) != "" {
 		return p.config.Name
@@ -74,7 +90,7 @@ type openAIResponsesRequest struct {
 	Temperature     float64                   `json:"temperature,omitempty"`
 	MaxOutputTokens int                       `json:"max_output_tokens,omitempty"`
 	Stream          bool                      `json:"stream"`
-	Store           bool                      `json:"store"`
+	Store           *bool                     `json:"store,omitempty"`
 	Include         []string                  `json:"include,omitempty"`
 	Tools           []openAIResponsesTool     `json:"tools,omitempty"`
 	Reasoning       *openAIResponsesReasoning `json:"reasoning,omitempty"`
@@ -184,6 +200,15 @@ func buildOpenAIResponsesTools(tools []ai.Tool) []openAIResponsesTool {
 }
 
 func buildOpenAIResponsesInput(messages []ai.Message, baseURL string) []openAIResponsesInputItem {
+	return buildOpenAIResponsesInputWithToolCallIDs(messages, baseURL, nil)
+}
+
+func buildOpenAIResponsesInputWithToolCallIDs(messages []ai.Message, baseURL string, toolCallIDs map[string]struct{}) []openAIResponsesInputItem {
+	if toolCallIDs == nil {
+		messages = normalizeToolCallHistoryForResponses(messages)
+	} else {
+		messages = normalizeToolCallHistoryForResponsesWithSession(messages, toolCallIDs)
+	}
 	items := make([]openAIResponsesInputItem, 0, len(messages))
 	for _, message := range messages {
 		if message.Role == "tool" {
@@ -270,6 +295,23 @@ func decodeOpenAIResponsesSessionState(state json.RawMessage) (openAIResponsesSe
 	return decoded, true
 }
 
+func responsesSessionToolCallIDs(items []json.RawMessage) map[string]struct{} {
+	ids := make(map[string]struct{})
+	for _, rawItem := range items {
+		var item struct {
+			Type   string `json:"type"`
+			CallID string `json:"call_id"`
+		}
+		if err := json.Unmarshal(rawItem, &item); err != nil || item.Type != "function_call" {
+			continue
+		}
+		if id := strings.TrimSpace(item.CallID); id != "" {
+			ids[id] = struct{}{}
+		}
+	}
+	return ids
+}
+
 func encodeOpenAIResponsesSessionState(input []json.RawMessage, output []json.RawMessage) (json.RawMessage, error) {
 	combined := make([]json.RawMessage, 0, len(input)+len(output))
 	combined = append(combined, cloneOpenAIResponsesRawItems(input)...)
@@ -303,13 +345,20 @@ func (p *OpenAIResponsesProvider) buildRequest(req ai.ChatRequest, stream bool) 
 		Temperature:     temperature,
 		MaxOutputTokens: maxOutputTokens,
 		Stream:          stream,
-		Store:           false,
-		Include:         []string{"reasoning.encrypted_content"},
 		Tools:           buildOpenAIResponsesTools(req.Tools),
+	}
+	if !isDeepSeekResponsesBaseURL(p.baseURL) {
+		body.Store = boolPointer(false)
+	}
+	if !isDeepSeekResponsesBaseURL(p.baseURL) {
+		body.Include = []string{"reasoning.encrypted_content"}
 	}
 	if intensity := NormalizeThinkingIntensity(p.config.ThinkingIntensity); intensity != "" {
 		if effort := openAIReasoningEffort(intensity); effort != "" {
-			body.Reasoning = &openAIResponsesReasoning{Effort: effort, Summary: "auto"}
+			body.Reasoning = &openAIResponsesReasoning{Effort: effort}
+			if !isDeepSeekResponsesBaseURL(p.baseURL) {
+				body.Reasoning.Summary = "auto"
+			}
 		}
 	}
 	return body
@@ -336,6 +385,11 @@ func parseOpenAIResponsesOutput(result openAIResponsesResponse) *ai.ChatResponse
 			}
 		case "reasoning":
 			for _, part := range item.Summary {
+				if part.Text != "" {
+					reasoning.WriteString(part.Text)
+				}
+			}
+			for _, part := range item.Content {
 				if part.Text != "" {
 					reasoning.WriteString(part.Text)
 				}
@@ -398,7 +452,17 @@ func (p *OpenAIResponsesProvider) ChatWithState(
 		if !ok {
 			return nil, state, fmt.Errorf("parse OpenAI Responses session state failed")
 		}
-		body.Input = append(previous.Input, body.Input...)
+		requestMessages := prepareOpenAIRequestMessagesForRequest(
+			req.Messages,
+			p.config.Model,
+			p.baseURL,
+			req.ImageFallbackPrompt,
+			req.ImageOmittedNotice,
+		)
+		body.Input = append(
+			cloneOpenAIResponsesRawItems(previous.Input),
+			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previous.Input)))...,
+		)
 	}
 	respBody, err := p.doRequest(ctx, body)
 	if err != nil {
@@ -451,7 +515,17 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 		if !ok {
 			return state, fmt.Errorf("parse OpenAI Responses session state failed")
 		}
-		body.Input = append(previous.Input, body.Input...)
+		requestMessages := prepareOpenAIRequestMessagesForRequest(
+			req.Messages,
+			p.config.Model,
+			p.baseURL,
+			req.ImageFallbackPrompt,
+			req.ImageOmittedNotice,
+		)
+		body.Input = append(
+			cloneOpenAIResponsesRawItems(previous.Input),
+			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previous.Input)))...,
+		)
 	}
 	respBody, err := p.doRequest(ctx, body)
 	if err != nil {
@@ -516,7 +590,7 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 				receivedText = true
 				callback(ai.StreamChunk{Content: event.Delta})
 			}
-		case "response.reasoning_summary_text.delta":
+		case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
 			if event.Delta != "" {
 				receivedReasoning = true
 				callback(ai.StreamChunk{Thinking: event.Delta, ReasoningContent: event.Delta})
@@ -672,6 +746,9 @@ func (p *OpenAIResponsesProvider) doRequest(ctx context.Context, body openAIResp
 	}
 
 	endpoint := ResolveOpenAICompatibleEndpoint(p.baseURL, "responses")
+	if isDeepSeekResponsesBaseURL(p.baseURL) {
+		endpoint = strings.TrimRight(p.baseURL, "/") + "/responses"
+	}
 	requestLog := logAIUpstreamRequestStart(p.Name(), http.MethodPost, endpoint, body)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(jsonBody))
 	if err != nil {
@@ -696,8 +773,7 @@ func (p *OpenAIResponsesProvider) doRequest(ctx context.Context, body openAIResp
 	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		statusErr := fmt.Errorf("OpenAI Responses API returned error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+		statusErr := fmt.Errorf("OpenAI Responses API returned error (HTTP %d): %s", resp.StatusCode, readProviderErrorBody(resp.Body, resp.ContentLength))
 		logAIUpstreamRequestFinish(requestLog, resp.StatusCode, statusErr)
 		return nil, statusErr
 	}

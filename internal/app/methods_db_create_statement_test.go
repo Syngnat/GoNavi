@@ -623,7 +623,7 @@ func TestResolveCreateStatementWithFallback_SQLServerBuildsFallbackDDL(t *testin
 
 	defaultValue := "((0))"
 	dbInst := &fakeCreateStatementDB{
-		createSQL: "-- SHOW CREATE TABLE not supported for SQL Server in this version.",
+		createErr: errors.New("SQL Server DDL unsupported"),
 		columns: []connection.ColumnDefinition{
 			{Name: "id", Type: "int", Nullable: "NO", Key: "PRI", Extra: "auto_increment", Comment: "主键"},
 			{Name: "display_name", Type: "nvarchar(128)", Nullable: "YES", Default: &defaultValue, Comment: "显示名's"},

@@ -188,7 +188,7 @@ func (i *IoTDBDB) Ping() error {
 }
 
 func (i *IoTDBDB) Query(query string) ([]map[string]interface{}, []string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultIoTDBQueryTimeout)
+	ctx, cancel := context.WithTimeout(metadataContextFor(i), defaultIoTDBQueryTimeout)
 	defer cancel()
 	return i.QueryContext(ctx, query)
 }
@@ -201,8 +201,11 @@ func (i *IoTDBDB) QueryContext(ctx context.Context, query string) ([]map[string]
 	if text == "" {
 		return nil, nil, fmt.Errorf("查询语句不能为空")
 	}
-	timeoutMs := int64(i.effectiveTimeout().Milliseconds())
-	ds, err := i.session.Query(ctx, text, &timeoutMs)
+	var timeoutMs *int64
+	if remaining := timeoutMsFromContext(ctx); remaining > 0 {
+		timeoutMs = &remaining
+	}
+	ds, err := i.session.Query(ctx, text, timeoutMs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -388,9 +391,11 @@ func (i *IoTDBDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWit
 		return nil, err
 	}
 	var result []connection.ColumnDefinitionWithTable
+	var failures []MetadataObjectFailure
 	for _, table := range tables {
 		cols, err := i.GetColumns(dbName, table)
 		if err != nil {
+			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: err})
 			continue
 		}
 		for _, col := range cols {
@@ -402,7 +407,7 @@ func (i *IoTDBDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWit
 			})
 		}
 	}
-	return result, nil
+	return result, NewPartialMetadataError(failures)
 }
 
 func (i *IoTDBDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {

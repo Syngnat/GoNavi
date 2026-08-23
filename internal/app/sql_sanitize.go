@@ -448,6 +448,9 @@ func isReadOnlySQLQuery(dbType string, query string) bool {
 		batch, err := esconsole.ParseSource(query, "gonavi-default-index")
 		return err == nil && !batch.Blocked && !batch.ContainsWrite && !batch.ContainsScript
 	}
+	if hasExecutableSQLComment(dbType, query) {
+		return false
+	}
 
 	keyword, withHasWrite := sqlDataOperationInfo(query)
 	if withHasWrite {

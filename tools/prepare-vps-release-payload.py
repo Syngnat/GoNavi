@@ -31,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--driver-dir", type=Path)
     parser.add_argument("--driver-version-index", type=Path)
     parser.add_argument("--driver-latest-index", type=Path)
+    parser.add_argument(
+        "--generation",
+        default="",
+        help="Globally unique publication generation shared by every edge node",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -254,6 +259,10 @@ def write_checksums(payload_dir: Path, output: Path) -> tuple[int, int]:
 
 def build(args: argparse.Namespace) -> dict[str, Any]:
     app_tag = validate_tag(args.app_tag, "app tag")
+    generation = validate_tag(
+        args.generation.strip() or f"{args.channel}-{app_tag}",
+        "generation",
+    )
     if args.output.exists():
         fail(f"output path already exists: {args.output}")
 
@@ -305,13 +314,22 @@ def build(args: argparse.Namespace) -> dict[str, Any]:
 
     args.output.mkdir(parents=True, exist_ok=True)
     file_count, payload_bytes = write_checksums(payload_dir, args.output / "SHA256SUMS")
+    probe_asset = max(
+        manifest["assets"],
+        key=lambda entry: int(entry["size"]),
+    )
     metadata = {
+        "schemaVersion": 2,
+        "generation": generation,
         "channel": args.channel,
         "appTag": app_tag,
         "driverEnabled": driver_enabled,
         "driverTag": driver_tag,
         "fileCount": file_count,
         "payloadBytes": payload_bytes,
+        "probePath": (version_dir / probe_asset["name"]).as_posix(),
+        "probeSize": probe_asset["size"],
+        "probeSha256": probe_asset["sha256"].lower(),
     }
     (args.output / "deployment.json").write_text(
         json.dumps(metadata, ensure_ascii=True, sort_keys=True) + "\n",

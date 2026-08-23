@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 
@@ -16,13 +17,19 @@ import (
 )
 
 type fakeIoTDBSession struct {
-	queryResults map[string][]map[string]interface{}
-	execs        []string
+	queryResults  map[string][]map[string]interface{}
+	execs         []string
+	queryTimeouts []int64
 }
 
 func (f *fakeIoTDBSession) Close() error { return nil }
 
-func (f *fakeIoTDBSession) Query(_ context.Context, sql string, _ *int64) (iotdbDataSet, error) {
+func (f *fakeIoTDBSession) Query(_ context.Context, sql string, timeoutMs *int64) (iotdbDataSet, error) {
+	timeout := int64(-1)
+	if timeoutMs != nil {
+		timeout = *timeoutMs
+	}
+	f.queryTimeouts = append(f.queryTimeouts, timeout)
 	rows := f.queryResults[sql]
 	return &fakeIoTDBDataSet{rows: rows, columns: fakeIoTDBColumns(rows)}, nil
 }
@@ -204,6 +211,32 @@ func TestIoTDBConfigParsesURIAndConnectionParams(t *testing.T) {
 func TestNormalizeIoTDBValueConvertsBinaryText(t *testing.T) {
 	if got := normalizeIoTDBValue(iotdbclient.NewBinary([]byte("ok"))); got != "ok" {
 		t.Fatalf("expected binary text to become string, got %#v", got)
+	}
+}
+
+func TestIoTDBQueryContextOnlySendsExplicitDeadlineToServer(t *testing.T) {
+	session := &fakeIoTDBSession{queryResults: map[string][]map[string]interface{}{
+		"SELECT * FROM root.sg.d1": {},
+	}}
+	client := &IoTDBDB{session: session, pingTimeout: time.Second}
+
+	if _, _, err := client.QueryContext(context.Background(), "SELECT * FROM root.sg.d1"); err != nil {
+		t.Fatalf("QueryContext without deadline: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, _, err := client.QueryContext(ctx, "SELECT * FROM root.sg.d1"); err != nil {
+		t.Fatalf("QueryContext with deadline: %v", err)
+	}
+
+	if len(session.queryTimeouts) != 2 {
+		t.Fatalf("query timeout calls = %v", session.queryTimeouts)
+	}
+	if session.queryTimeouts[0] != -1 {
+		t.Fatalf("connection timeout leaked into IoTDB query timeout: %dms", session.queryTimeouts[0])
+	}
+	if session.queryTimeouts[1] <= 0 || session.queryTimeouts[1] > 2000 {
+		t.Fatalf("explicit context deadline was not propagated: %dms", session.queryTimeouts[1])
 	}
 }
 

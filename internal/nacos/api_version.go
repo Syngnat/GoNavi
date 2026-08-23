@@ -111,7 +111,7 @@ func routesForNacosAPI(family nacosAPIFamily) nacosAPIRoutes {
 			serviceList:        "/v2/ns/service/list",
 			serviceListByGroup: "/v2/ns/service/list",
 			instance:           "/v2/ns/instance",
-			instanceList:       "/v2/ns/instance/list",
+			instanceList:       "/v2/ns/catalog/instances",
 			health:             "/v2/ns/health/instance",
 		}
 	default:
@@ -127,7 +127,7 @@ func routesForNacosAPI(family nacosAPIFamily) nacosAPIRoutes {
 			serviceList:        "/v1/ns/catalog/services",
 			serviceListByGroup: "/v1/ns/service/list",
 			instance:           "/v1/ns/instance",
-			instanceList:       "/v1/ns/instance/list",
+			instanceList:       "/v1/ns/catalog/instances",
 			health:             "/v1/ns/health/instance",
 		}
 	}

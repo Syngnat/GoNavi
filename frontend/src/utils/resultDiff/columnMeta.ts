@@ -4,6 +4,7 @@ import {
   getColumnDefinitionName,
   getColumnDefinitionType,
 } from '../columnDefinition';
+import { buildResultDiffExecutionContextKey } from './executionContext';
 import type { ResultDiffColumnMeta, ResultDiffComparableResult } from './types';
 
 type QueryResultLike = {
@@ -97,6 +98,7 @@ async function fetchTableColumnMeta(
 export async function resolveResultDiffColumnMeta(params: {
   connectionConfig: unknown;
   database: string;
+  resolveExecutionConnectionConfig?: (result: ResultDiffComparableResult) => unknown;
   left?: ResultDiffComparableResult | null;
   right?: ResultDiffComparableResult | null;
   columnNames?: string[];
@@ -109,18 +111,25 @@ export async function resolveResultDiffColumnMeta(params: {
 
   const tasks: Array<Promise<Record<string, ResultDiffColumnMeta>>> = [];
   const seenTables = new Set<string>();
-  const enqueue = (dbName: string | undefined, tableName: string | undefined) => {
-    const db = String(dbName || database || '').trim();
-    const table = String(tableName || '').trim();
+  const enqueue = (result: ResultDiffComparableResult | null | undefined) => {
+    if (!result) return;
+    const db = String(result.metadataDbName || result.executionDbName || database || '').trim();
+    const table = String(result.metadataTableName || '').trim();
     if (!db || !table) return;
-    const key = `${db.toLowerCase()}::${table.toLowerCase()}`;
+    const key = JSON.stringify([
+      buildResultDiffExecutionContextKey(result, database),
+      db.toLowerCase(),
+      table.toLowerCase(),
+    ]);
     if (seenTables.has(key)) return;
     seenTables.add(key);
-    tasks.push(fetchTableColumnMeta(connectionConfig, db, table));
+    const resultConnectionConfig = params.resolveExecutionConnectionConfig?.(result)
+      ?? connectionConfig;
+    tasks.push(fetchTableColumnMeta(resultConnectionConfig, db, table));
   };
 
-  enqueue(left?.metadataDbName || database, left?.metadataTableName);
-  enqueue(right?.metadataDbName || database, right?.metadataTableName);
+  enqueue(left);
+  enqueue(right);
 
   const fetched = await Promise.all(tasks);
   for (const map of fetched) {

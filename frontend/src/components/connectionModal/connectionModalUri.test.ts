@@ -5,13 +5,41 @@ import {
   extractOracleSIDParam,
   getConnectionParamsPlaceholder,
   getUriPlaceholder,
+  parseHostPort,
   parseTrinoUriToValues,
   parseUriToValues,
   resolveOracleConnectionTarget,
+  toAddress,
   withOracleSIDParam,
   withoutOracleSIDFromURI,
   withoutOracleSIDParam,
 } from './connectionModalUri';
+
+describe('connectionModalUri host normalization', () => {
+  it.each([
+    ['beebox.hmao.cn', 'beebox.hmao.cn:1883'],
+    ['beebox.hmao.cn:1883', 'beebox.hmao.cn:1883'],
+    ['tcp://beebox.hmao.cn', 'beebox.hmao.cn:1883'],
+    ['tcp://beebox.hmao.cn:1883', 'beebox.hmao.cn:1883'],
+    ['tcp://beebox.hmao.cn:1883:1883:1883', 'beebox.hmao.cn:1883'],
+  ])('keeps MQTT-style host %s idempotent', (host, expected) => {
+    expect(toAddress(host, 1883, 1883)).toBe(expected);
+    expect(parseHostPort(expected, 1883)).toEqual({
+      host: 'beebox.hmao.cn',
+      port: 1883,
+    });
+  });
+
+  it.each([
+    ['2001:db8::1', '[2001:db8::1]:1883'],
+    [
+      '2001:0000:0000:0000:0000:0000:0000:0001',
+      '[2001:0000:0000:0000:0000:0000:0000:0001]:1883',
+    ],
+  ])('does not mistake IPv6 host %s for repeated ports', (host, expected) => {
+    expect(toAddress(host, 1883, 1883)).toBe(expected);
+  });
+});
 
 describe('connectionModalUri trino support', () => {
   it('parses catalog and schema from a Trino URI into the database field', () => {

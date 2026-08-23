@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Empty, Progress, Typography } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Button, Checkbox, Empty, Progress, Typography } from 'antd';
 import {
   ClockCircleOutlined,
   FileTextOutlined,
@@ -7,83 +7,129 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 
-import { ExecuteSQLFile, CancelSQLFileExecution } from '../../wailsjs/go/app/App';
+import {
+  CancelSQLFileExecution,
+  DataImportCapability as LoadDataImportCapability,
+  ImportDatabaseSQLWithOptions,
+  PreflightDatabaseSQLImport,
+} from '../../wailsjs/go/app/App';
 import { useStore } from '../store';
 import type { TabData } from '../types';
-import { t } from '../i18n';
+import { t as defaultTranslate } from '../i18n';
+import { useOptionalI18n } from '../i18n/provider';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
+import { confirmProductionRisk } from '../utils/productionRiskConfirm';
 import { resolveConnectionHostSummary } from '../utils/tabDisplay';
 import { formatExportElapsed, resolveExportElapsedMs } from '../utils/exportProgress';
+import { resolveDataImportCapabilityReasonKey } from './dataImportCapability';
+import {
+  loadDataImportPreferences,
+  saveDataImportPreferences,
+} from './dataImportPreferences';
 import {
   useSQLFileExecutionRunner,
   type SQLFileExecutionRunnerStatus,
   type SQLFileExecutionState,
 } from './useSQLFileExecutionRunner';
+import Modal from './common/ResizableDraggableModal';
+import {
+  requestMySQLGTIDImportMode,
+  type MySQLGTIDImportMode,
+} from './MySQLGTIDImportModePrompt';
 
 const { Paragraph, Text, Title } = Typography;
+const t = defaultTranslate;
 
 type SQLFileExecutionHistoryEntry = SQLFileExecutionState & {
   requestKey: string;
 };
 
 const EMPTY_HISTORY: SQLFileExecutionHistoryEntry[] = [];
+const LOCALIZED_IMPORT_STAGES = new Set([
+  'prepare',
+  'preflight',
+  'read',
+  'parse',
+  'write',
+  'finalize',
+]);
 
-const formatDateTime = (timestamp: number): string => {
+const formatDateTime = (timestamp: number, locale: string): string => {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return '-';
   }
-  return new Date(timestamp).toLocaleString('zh-CN', { hour12: false });
+  return new Date(timestamp).toLocaleString(locale, { hour12: false });
 };
 
-const resolveStatusMeta = (status: SQLFileExecutionRunnerStatus): {
+const getFileName = (filePath: string): string => {
+  const parts = String(filePath || '').split(/[\\/]/);
+  return parts[parts.length - 1] || filePath;
+};
+
+type SQLFileExecutionStatusMeta = {
   label: string;
   border: string;
   bg: string;
   text: string;
-} => {
-  const meta: Record<SQLFileExecutionRunnerStatus, { label: string; border: string; bg: string; text: string }> = {
+};
+
+const resolvePreferenceStorage = (): Storage | null => {
+  try {
+    return typeof globalThis.localStorage === 'undefined' ? null : globalThis.localStorage;
+  } catch {
+    return null;
+  }
+};
+
+const resolveStatusMeta = (status: SQLFileExecutionRunnerStatus): SQLFileExecutionStatusMeta => {
+  const meta: Record<SQLFileExecutionRunnerStatus, SQLFileExecutionStatusMeta> = {
     idle: {
       label: t('sidebar.sql_file_exec.workbench.empty.not_started'),
-      border: 'rgba(148, 163, 184, 0.35)',
-      bg: 'rgba(148, 163, 184, 0.12)',
-      text: '#475467',
+      border: 'var(--gn-br-2, rgba(148, 163, 184, 0.35))',
+      bg: 'var(--gn-bg-subtle, rgba(148, 163, 184, 0.12))',
+      text: 'var(--gn-fg-2, #475467)',
     },
     start: {
       label: t('sidebar.sql_file_exec.workbench.stage.preparing'),
-      border: 'rgba(59, 130, 246, 0.3)',
-      bg: 'rgba(59, 130, 246, 0.12)',
-      text: '#1d4ed8',
+      border: 'color-mix(in srgb, var(--gn-info, #3b82f6) 30%, transparent)',
+      bg: 'var(--gn-info-soft, rgba(59, 130, 246, 0.12))',
+      text: 'var(--gn-info, #1d4ed8)',
     },
     running: {
       label: t('sidebar.sql_file_exec.status.running'),
-      border: 'rgba(16, 185, 129, 0.3)',
-      bg: 'rgba(16, 185, 129, 0.14)',
-      text: '#047857',
+      border: 'color-mix(in srgb, var(--gn-status-connected, #10b981) 30%, transparent)',
+      bg: 'color-mix(in srgb, var(--gn-status-connected, #10b981) 14%, transparent)',
+      text: 'var(--gn-status-connected, #047857)',
+    },
+    stopping: {
+      label: t('sidebar.sql_file_exec.status.stopping'),
+      border: 'color-mix(in srgb, var(--gn-warn, #f97316) 30%, transparent)',
+      bg: 'var(--gn-warn-soft, rgba(249, 115, 22, 0.12))',
+      text: 'var(--gn-warn, #c2410c)',
     },
     done: {
       label: t('sidebar.sql_file_exec.status.done'),
-      border: 'rgba(34, 197, 94, 0.3)',
-      bg: 'rgba(34, 197, 94, 0.14)',
-      text: '#15803d',
+      border: 'color-mix(in srgb, var(--gn-status-connected, #22c55e) 30%, transparent)',
+      bg: 'color-mix(in srgb, var(--gn-status-connected, #22c55e) 14%, transparent)',
+      text: 'var(--gn-status-connected, #15803d)',
     },
     cancelled: {
       label: t('sidebar.sql_file_exec.status.cancelled'),
-      border: 'rgba(249, 115, 22, 0.3)',
-      bg: 'rgba(249, 115, 22, 0.12)',
-      text: '#c2410c',
+      border: 'color-mix(in srgb, var(--gn-warn, #f97316) 30%, transparent)',
+      bg: 'var(--gn-warn-soft, rgba(249, 115, 22, 0.12))',
+      text: 'var(--gn-warn, #c2410c)',
     },
     error: {
       label: t('sidebar.sql_file_exec.status.error'),
-      border: 'rgba(239, 68, 68, 0.32)',
-      bg: 'rgba(239, 68, 68, 0.12)',
-      text: '#dc2626',
+      border: 'color-mix(in srgb, var(--gn-danger, #ef4444) 32%, transparent)',
+      bg: 'color-mix(in srgb, var(--gn-danger, #ef4444) 12%, transparent)',
+      text: 'var(--gn-danger, #dc2626)',
     },
   };
   return meta[status];
 };
 
-const renderStatusPill = (status: SQLFileExecutionRunnerStatus) => {
-  const meta = resolveStatusMeta(status);
+const renderStatusPill = (meta: SQLFileExecutionStatusMeta) => {
   return (
     <span
       style={{
@@ -106,29 +152,61 @@ const renderStatusPill = (status: SQLFileExecutionRunnerStatus) => {
 };
 
 const formatExecutionSummary = (executed: number, failed: number): string =>
-  `${t('sidebar.sql_file_exec.executed_label')}${executed.toLocaleString()}${t('sidebar.sql_file_exec.rows_separator')}${failed.toLocaleString()}${t('sidebar.sql_file_exec.rows_suffix')}`;
+  `${t('sidebar.sql_file_exec.executed_label')}${executed.toLocaleString()}${t('sidebar.sql_file_exec.statements_separator')}${failed.toLocaleString()}${t('sidebar.sql_file_exec.statements_suffix')}`;
 
 const resolveProgressStatus = (status: SQLFileExecutionRunnerStatus): 'active' | 'success' | 'exception' | 'normal' => {
   if (status === 'done') return 'success';
   if (status === 'error') return 'exception';
-  if (status === 'start' || status === 'running') return 'active';
+  if (status === 'start' || status === 'running' || status === 'stopping') return 'active';
   return 'normal';
 };
 
+const resolveStageLabel = (
+  stage: string,
+  status: SQLFileExecutionRunnerStatus,
+): string => {
+  const normalizedStage = String(stage || '').trim();
+  if (LOCALIZED_IMPORT_STAGES.has(normalizedStage)) {
+    return t(`import_preview.stage.${normalizedStage}`);
+  }
+  return normalizedStage || resolveStatusMeta(status).label;
+};
+
 const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
+  const i18n = useOptionalI18n();
+  const t = i18n?.t ?? defaultTranslate;
+  const locale = i18n?.language ?? 'zh-CN';
   const connections = useStore((state) => state.connections);
   const theme = useStore((state) => state.theme);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [historyEntries, setHistoryEntries] = useState<SQLFileExecutionHistoryEntry[]>(EMPTY_HISTORY);
+  const [capabilityRequestToken, setCapabilityRequestToken] = useState(0);
+  const [executionPending, setExecutionPending] = useState(false);
+  const [preflightError, setPreflightError] = useState('');
+  const [capabilityState, setCapabilityState] = useState<{
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    supported: boolean;
+    supportsContinue: boolean;
+    reason: string;
+  }>({ status: 'idle', supported: false, supportsContinue: false, reason: '' });
+  const [continueOnErrorPreference, setContinueOnErrorPreference] = useState(() => (
+    loadDataImportPreferences(resolvePreferenceStorage(), 'database').continueOnError
+  ));
   const lastRequestKeyRef = useRef('');
   const darkMode = theme === 'dark';
-  const shellBg = darkMode ? '#101319' : '#f5f7fb';
-  const panelBg = darkMode ? '#161b22' : '#ffffff';
-  const panelBorder = darkMode ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(15,23,42,0.08)';
-  const dividerColor = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)';
-  const headingColor = darkMode ? 'rgba(255,255,255,0.96)' : '#101828';
-  const secondaryTextColor = darkMode ? 'rgba(255,255,255,0.68)' : '#667085';
-  const subtleBg = darkMode ? 'rgba(255,255,255,0.04)' : '#f8fafc';
+  const shellBg = `var(--gn-bg-panel-2, ${darkMode ? '#101319' : '#f5f7fb'})`;
+  const panelBg = `var(--gn-bg-panel, ${darkMode ? '#161b22' : '#ffffff'})`;
+  const panelBorder = `1px solid var(--gn-br-1, ${darkMode
+    ? 'rgba(255,255,255,0.08)'
+    : 'rgba(15,23,42,0.08)'})`;
+  const dividerColor = `var(--gn-br-1, ${darkMode
+    ? 'rgba(255,255,255,0.08)'
+    : 'rgba(15,23,42,0.08)'})`;
+  const headingColor = `var(--gn-fg-1, ${darkMode ? 'rgba(255,255,255,0.96)' : '#101828'})`;
+  const secondaryTextColor = `var(--gn-fg-3, ${darkMode ? 'rgba(255,255,255,0.68)' : '#667085'})`;
+  const subtleBg = `var(--gn-bg-subtle, var(--gn-bg-panel-2, ${darkMode
+    ? 'rgba(255,255,255,0.04)'
+    : '#f8fafc'}))`;
   const connection = useMemo(
     () => connections.find((item) => item.id === String(tab.connectionId || '').trim()),
     [connections, tab.connectionId],
@@ -137,6 +215,10 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     () => (connection ? buildRpcConnectionConfig(connection.config) : null),
     [connection],
   );
+  const connectionConfigKey = useMemo(
+    () => JSON.stringify(connectionConfig || null),
+    [connectionConfig],
+  );
   const hostSummary = useMemo(
     () => resolveConnectionHostSummary(connection?.config),
     [connection?.config],
@@ -144,6 +226,56 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   const { state, reset, cancelExecution, runSQLFileExecutionWithProgress, isRunning } = useSQLFileExecutionRunner({
     showToast: true,
   });
+  const terminal = state.status === 'done'
+    || state.status === 'cancelled'
+    || state.status === 'error';
+  const completedWithErrors = state.status === 'done' && state.failed > 0;
+  const capabilityAllowsExecution = capabilityState.status === 'ready'
+    && capabilityState.supported;
+  const capabilityAllowsContinue = capabilityAllowsExecution && capabilityState.supportsContinue;
+  const continueOnError = capabilityAllowsContinue && continueOnErrorPreference;
+  const capabilityReason = capabilityState.status === 'loading'
+    ? 'loading'
+    : capabilityState.status === 'error'
+      ? 'rpc_failed'
+      : capabilityState.status === 'ready' && !capabilityState.supported
+        ? (capabilityState.reason || 'capability_unavailable')
+        : '';
+  const capabilityMessageKey = capabilityReason === 'loading'
+    ? 'data_import.capability.loading'
+    : capabilityReason === 'rpc_failed'
+      ? 'data_import.capability.rpc_failed'
+      : capabilityReason
+        ? resolveDataImportCapabilityReasonKey(capabilityReason)
+        : '';
+
+  useEffect(() => {
+    if (!connectionConfig) {
+      setCapabilityState({ status: 'idle', supported: false, supportsContinue: false, reason: '' });
+      return undefined;
+    }
+    let active = true;
+    setCapabilityState({ status: 'loading', supported: false, supportsContinue: false, reason: '' });
+    void Promise.resolve()
+      .then(() => LoadDataImportCapability(connectionConfig as any))
+      .then((capability) => {
+        if (!active) return;
+        const sqlFileImport = capability?.sqlFileImport;
+        setCapabilityState({
+          status: 'ready',
+          supported: sqlFileImport?.supported === true,
+          supportsContinue: sqlFileImport?.supportsContinue === true,
+          reason: String(sqlFileImport?.reason || ''),
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setCapabilityState({ status: 'error', supported: false, supportsContinue: false, reason: 'capability_unavailable' });
+      });
+    return () => {
+      active = false;
+    };
+  }, [capabilityRequestToken, connectionConfigKey]);
 
   useEffect(() => {
     if (!state.startedAt || state.finishedAt > 0) {
@@ -173,40 +305,134 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     ].slice(0, 10));
   }, [state, tab.sqlFileExecutionRequestKey]);
 
+  const updateContinueOnError = useCallback((nextValue: boolean) => {
+    setContinueOnErrorPreference(nextValue);
+    const storage = resolvePreferenceStorage();
+    const preferences = loadDataImportPreferences(storage, 'database');
+    saveDataImportPreferences(storage, 'database', {
+      ...preferences,
+      continueOnError: nextValue,
+    });
+  }, []);
+
+  const statusMeta = (status: SQLFileExecutionRunnerStatus, failed: number): SQLFileExecutionStatusMeta => {
+    if (status === 'done' && failed > 0) {
+      return {
+        label: t('data_import.workbench.state.completed_with_errors'),
+        border: 'color-mix(in srgb, var(--gn-warn, #f97316) 30%, transparent)',
+        bg: 'var(--gn-warn-soft, rgba(249, 115, 22, 0.12))',
+        text: 'var(--gn-warn, #c2410c)',
+      };
+    }
+    return resolveStatusMeta(status);
+  };
+
   const startExecution = React.useCallback(async () => {
     const filePath = String(tab.filePath || '').trim();
-    if (!connectionConfig || !filePath) {
+    if (!connectionConfig || !filePath || !capabilityAllowsExecution || executionPending || isRunning) {
       return;
     }
-    await runSQLFileExecutionWithProgress({
-      title: tab.title || t('sidebar.sql_file_exec.title'),
-      filePath,
-      fileSizeMB: tab.sqlFileExecutionFileSizeMB,
-      run: (jobId) => ExecuteSQLFile(connectionConfig as any, tab.dbName || '', filePath, jobId),
-      cancel: (jobId) => {
-        CancelSQLFileExecution(jobId);
-      },
-    });
+    setExecutionPending(true);
+    setPreflightError('');
+    try {
+      const approved = await confirmProductionRisk({
+        connection,
+        action: t('connection.production_risk.action.execute_sql'),
+        target: [tab.dbName, getFileName(filePath)].filter(Boolean).join(' / '),
+        translate: t,
+      });
+      if (!approved) return;
+
+      let mysqlGTIDMode: MySQLGTIDImportMode = 'reject';
+      const preflightResult = await PreflightDatabaseSQLImport(
+        connectionConfig as any,
+        String(tab.dbName || '').trim(),
+        filePath,
+      );
+      if (!preflightResult?.success) {
+        setPreflightError(
+          preflightResult?.message || t('data_import.workbench.gtid.preflight_failed'),
+        );
+        return;
+      }
+      const preflightData = preflightResult.data as {
+        requiresGTIDDecision?: unknown;
+      } | undefined;
+      if (preflightData?.requiresGTIDDecision === true) {
+        const selectedMode = await requestMySQLGTIDImportMode(t);
+        if (!selectedMode) return;
+        mysqlGTIDMode = selectedMode;
+      }
+
+      await runSQLFileExecutionWithProgress({
+        title: tab.title || t('sidebar.sql_file_exec.title'),
+        filePath,
+        fileSizeMB: tab.sqlFileExecutionFileSizeMB,
+        run: async (jobId) => {
+          const result = await ImportDatabaseSQLWithOptions(
+            connectionConfig as any,
+            String(tab.dbName || '').trim(),
+            filePath,
+            jobId,
+            continueOnError,
+            mysqlGTIDMode,
+          );
+          if (continueOnError && result.data?.completed === true) {
+            return { ...result, success: true };
+          }
+          return result;
+        },
+        cancel: async (jobId) => {
+          const result = await CancelSQLFileExecution(jobId);
+          if (!result?.success) {
+            throw new Error(result?.message || t('import_preview.error.stop_failed'));
+          }
+        },
+      });
+    } finally {
+      setExecutionPending(false);
+    }
   }, [
+    capabilityAllowsExecution,
+    connection,
     connectionConfig,
+    continueOnError,
+    executionPending,
+    isRunning,
     runSQLFileExecutionWithProgress,
     tab.dbName,
     tab.filePath,
     tab.sqlFileExecutionFileSizeMB,
     tab.title,
+    t,
   ]);
+
+  const requestStartExecution = React.useCallback(() => {
+    if (!terminal) {
+      void startExecution();
+      return;
+    }
+    Modal.confirm({
+      title: t('data_import.workbench.confirm.rerun_title'),
+      content: t('data_import.workbench.confirm.rerun_content'),
+      okText: t('data_import.workbench.action.retry_database_import'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true },
+      onOk: startExecution,
+    });
+  }, [startExecution, terminal]);
 
   useEffect(() => {
     const requestKey = String(tab.sqlFileExecutionRequestKey || '').trim();
     if (!requestKey || requestKey === lastRequestKeyRef.current) {
       return;
     }
-    if (!connectionConfig || !String(tab.filePath || '').trim()) {
+    if (!connectionConfig || !String(tab.filePath || '').trim() || !capabilityAllowsExecution) {
       return;
     }
     lastRequestKeyRef.current = requestKey;
     void startExecution();
-  }, [connectionConfig, startExecution, tab.filePath, tab.sqlFileExecutionRequestKey]);
+  }, [capabilityAllowsExecution, connectionConfig, startExecution, tab.filePath, tab.sqlFileExecutionRequestKey]);
 
   const currentElapsedMs = useMemo(
     () => resolveExportElapsedMs(state.startedAt, state.finishedAt, nowTick),
@@ -283,6 +509,27 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
 
               <Text type="secondary">{t('data_export.label.host')}</Text>
               <Text>{hostSummary || '-'}</Text>
+
+              <Text type="secondary">{t('data_import.workbench.error_policy.title')}</Text>
+              <div style={{ display: 'grid', gap: 4 }}>
+                <Checkbox
+                  data-sql-file-execution-continue-on-error="true"
+                  checked={continueOnError}
+                  disabled={isRunning || executionPending || !capabilityAllowsContinue}
+                  onChange={(event) => {
+                    if (capabilityAllowsContinue) {
+                      updateContinueOnError(event.target.checked);
+                    }
+                  }}
+                >
+                  {t('data_import.workbench.error_policy.continue')}
+                </Checkbox>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {continueOnError
+                    ? t('data_import.workbench.error_policy.continue_description')
+                    : t('data_import.workbench.error_policy.stop_description')}
+                </Text>
+              </div>
             </div>
           </div>
 
@@ -291,6 +538,35 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
               type="warning"
               showIcon
               message={t('sidebar.message.connection_config_not_found')}
+            />
+          ) : null}
+
+          {capabilityReason ? (
+            <Alert
+              data-sql-file-execution-capability-alert="true"
+              data-sql-file-execution-capability-reason={capabilityReason}
+              type={capabilityReason === 'loading' ? 'info' : 'error'}
+              showIcon
+              message={t(capabilityMessageKey)}
+              action={capabilityReason === 'rpc_failed' ? (
+                <Button
+                  data-sql-file-execution-capability-retry="true"
+                  type="link"
+                  size="small"
+                  onClick={() => setCapabilityRequestToken((current) => current + 1)}
+                >
+                  {t('common.retry')}
+                </Button>
+              ) : undefined}
+            />
+          ) : null}
+
+          {preflightError ? (
+            <Alert
+              data-sql-file-execution-preflight-error="true"
+              type="error"
+              showIcon
+              message={preflightError}
             />
           ) : null}
 
@@ -311,19 +587,33 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {isRunning ? (
-                <Button danger icon={<StopOutlined />} onClick={() => void cancelExecution()}>
+                <Button
+                  danger
+                  icon={<StopOutlined />}
+                  loading={state.status === 'stopping'}
+                  disabled={state.status === 'stopping'}
+                  onClick={() => {
+                    void cancelExecution().catch(() => undefined);
+                  }}
+                >
                   {t('sidebar.sql_file_exec.cancel')}
                 </Button>
               ) : (
                 <Button
+                  data-sql-file-execution-run-action="true"
                   type="primary"
                   icon={state.status === 'idle' ? <FileTextOutlined /> : <ReloadOutlined />}
-                  disabled={!connectionConfig || !String(tab.filePath || '').trim()}
-                  onClick={() => {
-                    void startExecution();
-                  }}
+                  disabled={!connectionConfig
+                    || !String(tab.filePath || '').trim()
+                    || executionPending
+                    || !capabilityAllowsExecution}
+                  onClick={requestStartExecution}
                 >
-                  {t('sidebar.sql_file_exec.workbench.action.run_again')}
+                  {terminal
+                    ? t('data_import.workbench.action.retry_database_import')
+                    : state.status === 'idle'
+                      ? t('query.run')
+                      : t('sidebar.sql_file_exec.workbench.action.run_again')}
                 </Button>
               )}
               {(state.status === 'done' || state.status === 'cancelled' || state.status === 'error') ? (
@@ -353,7 +643,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                   <div style={{ fontSize: 13, fontWeight: 600, color: headingColor }}>
                     {t('data_export.workbench.section.current_task')}
                   </div>
-                  {renderStatusPill(state.status)}
+                  {renderStatusPill(statusMeta(state.status, state.failed))}
                 </div>
                 <Title level={5} style={{ margin: '10px 0 0', color: headingColor }}>
                   {state.title || tab.title || t('sidebar.sql_file_exec.title')}
@@ -384,7 +674,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                   <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 4 }}>
                     {t('sidebar.sql_file_exec.workbench.label.started_at')}
                   </div>
-                  <div style={{ color: headingColor, fontWeight: 600 }}>{formatDateTime(state.startedAt)}</div>
+                  <div style={{ color: headingColor, fontWeight: 600 }}>{formatDateTime(state.startedAt, locale)}</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 4 }}>
@@ -407,9 +697,12 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
               <>
                 <div>
                   <Progress
+                    data-sql-file-execution-progress="true"
                     percent={Math.round(progressPercent)}
-                    status={resolveProgressStatus(state.status)}
-                    strokeColor={state.status === 'cancelled' ? '#faad14' : undefined}
+                    status={completedWithErrors ? 'normal' : resolveProgressStatus(state.status)}
+                    strokeColor={state.status === 'cancelled' || completedWithErrors
+                      ? 'var(--gn-warn, #faad14)'
+                      : undefined}
                   />
                 </div>
 
@@ -418,7 +711,9 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                     <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 6 }}>
                       {t('sidebar.sql_file_exec.workbench.label.current_stage')}
                     </div>
-                    <Text>{state.stage || resolveStatusMeta(state.status).label}</Text>
+                    <Text data-sql-file-execution-current-stage="true">
+                      {resolveStageLabel(state.stage, state.status)}
+                    </Text>
                   </div>
                   <div>
                     <div style={{ fontSize: 12, color: secondaryTextColor, marginBottom: 6 }}>
@@ -455,7 +750,11 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
 
                 {state.message ? (
                   <Alert
-                    type={state.status === 'error' ? 'error' : state.status === 'cancelled' ? 'warning' : 'info'}
+                    type={state.status === 'error'
+                      ? 'error'
+                      : state.status === 'cancelled' || completedWithErrors
+                        ? 'warning'
+                        : 'info'}
                     showIcon
                     message={state.message}
                   />
@@ -522,16 +821,25 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                           <Text strong>{entry.title || tab.title}</Text>
-                          {renderStatusPill(entry.status)}
+                          {renderStatusPill(statusMeta(entry.status, entry.failed))}
                           <span style={{ fontSize: 12, color: secondaryTextColor }}>
                             {formatExecutionSummary(entry.executed, entry.failed)}
                           </span>
                         </div>
                         <div style={{ marginTop: 6, fontSize: 13, color: headingColor }}>
-                          {entry.stage || resolveStatusMeta(entry.status).label}
+                          {resolveStageLabel(entry.stage, entry.status)}
                         </div>
                         {entry.message ? (
-                          <div style={{ marginTop: 8, fontSize: 12, color: entry.status === 'error' ? '#dc2626' : secondaryTextColor, whiteSpace: 'pre-wrap' }}>
+                          <div style={{
+                            marginTop: 8,
+                            fontSize: 12,
+                            color: entry.status === 'error'
+                              ? 'var(--gn-danger, #dc2626)'
+                              : entry.status === 'done' && entry.failed > 0
+                                ? 'var(--gn-warn, #c2410c)'
+                                : secondaryTextColor,
+                            whiteSpace: 'pre-wrap',
+                          }}>
                             {entry.message}
                           </div>
                         ) : null}
@@ -540,7 +848,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                       <div style={{ minWidth: 0 }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '84px minmax(0, 1fr)', rowGap: 6, columnGap: 10 }}>
                           <Text type="secondary">{t('sidebar.sql_file_exec.workbench.label.started_at')}</Text>
-                          <Text>{formatDateTime(entry.startedAt)}</Text>
+                          <Text>{formatDateTime(entry.startedAt, locale)}</Text>
 
                           <Text type="secondary">{t('sidebar.sql_file_exec.workbench.label.elapsed')}</Text>
                           <Text>{elapsed}</Text>

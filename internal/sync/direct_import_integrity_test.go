@@ -83,6 +83,7 @@ func TestDirectImportFullOverwriteStopsBeforeClearingWhenAutoAddColumnFails(t *t
 	target := &directImportIntegrityTargetDB{execErr: errors.New("add column rejected")}
 	config := SyncConfig{
 		JobID:          "direct-import-auto-add",
+		Content:        "both",
 		Mode:           "full_overwrite",
 		AutoAddColumns: true,
 		SourceConfig:   connection.ConnectionConfig{Type: "mysql", Host: "source", Database: "src"},
@@ -119,5 +120,45 @@ func TestDirectImportFullOverwriteStopsBeforeClearingWhenAutoAddColumnFails(t *t
 	}
 	if target.clearedTarget() {
 		t.Fatalf("target table was cleared after auto-add failure: %v", target.execs)
+	}
+}
+
+func TestDirectImportDataOnlyRejectsAutoAddColumnsBeforeClearing(t *testing.T) {
+	engine := &SyncEngine{}
+	source := &fakeMigrationDB{}
+	target := &directImportIntegrityTargetDB{}
+	config := SyncConfig{
+		JobID:          "direct-import-data-only",
+		Content:        "data",
+		Mode:           "full_overwrite",
+		AutoAddColumns: true,
+		SourceConfig:   connection.ConnectionConfig{Type: "mysql", Host: "source", Database: "src"},
+		TargetConfig:   connection.ConnectionConfig{Type: "mysql", Host: "target", Database: "dst"},
+	}
+	plan := SchemaMigrationPlan{
+		SourceQueryTable:  "src.users",
+		TargetQueryTable:  "dst.users",
+		TargetSchema:      "dst",
+		TargetTable:       "users",
+		TargetTableExists: true,
+	}
+	sourceCols := []connection.ColumnDefinition{
+		{Name: "id", Type: "bigint", Key: "PRI"},
+		{Name: "name", Type: "varchar(128)"},
+	}
+	targetCols := []connection.ColumnDefinition{{Name: "id", Type: "bigint", Key: "PRI"}}
+
+	handled, inserted, err := engine.tryApplyDirectImportInPages(
+		config, &SyncResult{}, 0, 1, "users", source, target, plan,
+		sourceCols, targetCols, TableOptions{Insert: true}, "mysql", "mysql", "users",
+	)
+	if !handled {
+		t.Fatal("direct import should handle the request")
+	}
+	if err == nil || !strings.Contains(err.Error(), "仅同步数据") {
+		t.Fatalf("expected data-only auto-add rejection, got %v", err)
+	}
+	if inserted != 0 || len(target.execs) != 0 || target.clearedTarget() {
+		t.Fatalf("data-only direct import modified the target: inserted=%d exec=%v", inserted, target.execs)
 	}
 }

@@ -2,13 +2,19 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/dailysecret"
 	"GoNavi-Wails/internal/secretstore"
 )
 
@@ -73,6 +79,281 @@ func TestSaveConnectionConcurrentWritesDoNotLoseEntries(t *testing.T) {
 		if _, ok := seen[id]; !ok {
 			t.Errorf("连接 %s 丢失", id)
 		}
+	}
+}
+
+func TestSavedConnectionRepositoryWaitsForExternalFileLock(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	externalLock, err := appdata.AcquireFileLock(repository.connectionsPath() + ".lock")
+	if err != nil {
+		t.Fatalf("acquire external connections lock: %v", err)
+	}
+	defer externalLock.Close()
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := repository.Save(connection.SavedConnectionInput{
+			ID:     "locked-connection",
+			Name:   "Locked connection",
+			Config: connection.ConnectionConfig{ID: "locked-connection", Type: "mysql"},
+		})
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		t.Fatalf("Save acquired connections lock before external release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := externalLock.Close(); err != nil {
+		t.Fatalf("release external connections lock: %v", err)
+	}
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatalf("Save after external lock release: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Save did not acquire connections lock after external release")
+	}
+}
+
+func TestSavedConnectionRepositoryWaitsForSharedStorageLock(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	sharedLock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(app.configDir))
+	if err != nil {
+		t.Fatalf("acquire shared storage lock: %v", err)
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, saveErr := repository.Save(connection.SavedConnectionInput{
+			ID:     "shared-locked-connection",
+			Name:   "Shared locked connection",
+			Config: connection.ConnectionConfig{ID: "shared-locked-connection", Type: "mysql"},
+		})
+		finished <- saveErr
+	}()
+	select {
+	case err := <-finished:
+		t.Fatalf("Save acquired shared lock before external release: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := sharedLock.Close(); err != nil {
+		t.Fatalf("release shared storage lock: %v", err)
+	}
+	select {
+	case err := <-finished:
+		if err != nil {
+			t.Fatalf("Save after shared lock release: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Save did not acquire shared lock after external release")
+	}
+}
+
+const (
+	crossProcessConnectionWriterRootEnv   = "GONAVI_TEST_CONNECTION_WRITER_ROOT"
+	crossProcessConnectionWriterPrefixEnv = "GONAVI_TEST_CONNECTION_WRITER_PREFIX"
+	crossProcessConnectionWriterCount     = 12
+)
+
+// TestSavedConnectionCrossProcessWriterHelper is executed in child test
+// processes by TestSavedConnectionRepositoryCrossProcessWritesKeepConnectionsAndSecrets.
+func TestSavedConnectionCrossProcessWriterHelper(t *testing.T) {
+	root := os.Getenv(crossProcessConnectionWriterRootEnv)
+	prefix := os.Getenv(crossProcessConnectionWriterPrefixEnv)
+	if root == "" || prefix == "" {
+		return
+	}
+
+	application := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	application.configDir = root
+	repository := application.savedConnectionRepository()
+	for index := 0; index < crossProcessConnectionWriterCount; index++ {
+		id := fmt.Sprintf("%s-%02d", prefix, index)
+		_, err := repository.Save(connection.SavedConnectionInput{
+			ID:   id,
+			Name: id,
+			Config: connection.ConnectionConfig{
+				ID:       id,
+				Type:     "mysql",
+				Host:     "127.0.0.1",
+				Port:     3306,
+				Password: id + "-secret",
+			},
+		})
+		if err != nil {
+			t.Fatalf("Save(%s): %v", id, err)
+		}
+	}
+}
+
+func TestSavedConnectionRepositoryCrossProcessWritesKeepConnectionsAndSecrets(t *testing.T) {
+	root := t.TempDir()
+	commands := make([]*exec.Cmd, 0, 2)
+	for _, prefix := range []string{"desktop", "cli"} {
+		command := exec.Command(os.Args[0], "-test.run=^TestSavedConnectionCrossProcessWriterHelper$")
+		command.Env = append(
+			os.Environ(),
+			crossProcessConnectionWriterRootEnv+"="+root,
+			crossProcessConnectionWriterPrefixEnv+"="+prefix,
+		)
+		command.Stdout = os.Stderr
+		command.Stderr = os.Stderr
+		if err := command.Start(); err != nil {
+			t.Fatalf("start %s writer: %v", prefix, err)
+		}
+		commands = append(commands, command)
+	}
+	for _, command := range commands {
+		if err := command.Wait(); err != nil {
+			t.Fatalf("cross-process writer failed: %v", err)
+		}
+	}
+
+	application := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	application.configDir = root
+	items, err := application.savedConnectionRepository().List()
+	if err != nil {
+		t.Fatalf("List after cross-process writes: %v", err)
+	}
+	want := 2 * crossProcessConnectionWriterCount
+	if len(items) != want {
+		t.Fatalf("cross-process connection count = %d, want %d", len(items), want)
+	}
+
+	secrets := dailysecret.NewStore(root)
+	for _, prefix := range []string{"desktop", "cli"} {
+		for index := 0; index < crossProcessConnectionWriterCount; index++ {
+			id := fmt.Sprintf("%s-%02d", prefix, index)
+			bundle, found, err := secrets.GetConnection(id)
+			if err != nil {
+				t.Fatalf("GetConnection(%s): %v", id, err)
+			}
+			if !found || bundle.Password != id+"-secret" {
+				t.Fatalf("connection secret %s was lost or changed: %#v found=%t", id, bundle, found)
+			}
+		}
+	}
+}
+
+func TestSavedConnectionMutationsRollBackSecretsWhenMetadataWriteFails(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	_, err := repository.Save(connection.SavedConnectionInput{
+		ID:   "atomic-connection",
+		Name: "Before",
+		Config: connection.ConnectionConfig{
+			ID:       "atomic-connection",
+			Type:     "postgres",
+			Host:     "before.local",
+			Password: "before-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	originalWriter := writeSavedConnectionsFileAtomicFunc
+	t.Cleanup(func() { writeSavedConnectionsFileAtomicFunc = originalWriter })
+	writeSavedConnectionsFileAtomicFunc = func(string, []byte) error {
+		return errors.New("injected metadata write failure")
+	}
+
+	_, err = repository.Save(connection.SavedConnectionInput{
+		ID:   "atomic-connection",
+		Name: "After",
+		Config: connection.ConnectionConfig{
+			ID:       "atomic-connection",
+			Type:     "postgres",
+			Host:     "after.local",
+			Password: "after-secret",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected metadata write failure") {
+		t.Fatalf("Save error = %v, want injected metadata failure", err)
+	}
+
+	resolved, err := app.resolveConnectionSecrets(connection.ConnectionConfig{ID: "atomic-connection"})
+	if err != nil {
+		t.Fatalf("resolve rolled-back connection: %v", err)
+	}
+	if resolved.Host != "before.local" || resolved.Password != "before-secret" {
+		t.Fatalf("failed Save left mixed state: host=%q password=%q", resolved.Host, resolved.Password)
+	}
+}
+
+func TestDeleteConnectionRollsBackSecretWhenMetadataWriteFails(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	_, err := repository.Save(connection.SavedConnectionInput{
+		ID:   "delete-atomic",
+		Name: "Delete atomic",
+		Config: connection.ConnectionConfig{
+			ID:       "delete-atomic",
+			Type:     "mysql",
+			Host:     "db.local",
+			Password: "keep-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	originalWriter := writeSavedConnectionsFileAtomicFunc
+	t.Cleanup(func() { writeSavedConnectionsFileAtomicFunc = originalWriter })
+	writeSavedConnectionsFileAtomicFunc = func(string, []byte) error {
+		return errors.New("injected delete metadata failure")
+	}
+	if err := repository.Delete("delete-atomic"); err == nil || !strings.Contains(err.Error(), "injected delete metadata failure") {
+		t.Fatalf("Delete error = %v, want injected metadata failure", err)
+	}
+
+	resolved, err := app.resolveConnectionSecrets(connection.ConnectionConfig{ID: "delete-atomic"})
+	if err != nil {
+		t.Fatalf("resolve rolled-back deleted connection: %v", err)
+	}
+	if resolved.Password != "keep-secret" {
+		t.Fatalf("failed Delete removed stored password: %q", resolved.Password)
+	}
+}
+
+func TestDuplicateConnectionRollsBackNewSecretWhenMetadataWriteFails(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	_, err := repository.Save(connection.SavedConnectionInput{
+		ID:   "duplicate-source",
+		Name: "Duplicate source",
+		Config: connection.ConnectionConfig{
+			ID:       "duplicate-source",
+			Type:     "mysql",
+			Password: "source-secret",
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+
+	originalWriter := writeSavedConnectionsFileAtomicFunc
+	t.Cleanup(func() { writeSavedConnectionsFileAtomicFunc = originalWriter })
+	writeSavedConnectionsFileAtomicFunc = func(string, []byte) error {
+		return errors.New("injected duplicate metadata failure")
+	}
+	if _, err := repository.Duplicate("duplicate-source", "Unnamed", " Copy"); err == nil || !strings.Contains(err.Error(), "injected duplicate metadata failure") {
+		t.Fatalf("Duplicate error = %v, want injected metadata failure", err)
+	}
+
+	secrets, err := repository.dailySecrets().Load()
+	if err != nil {
+		t.Fatalf("load daily secrets after failed Duplicate: %v", err)
+	}
+	if len(secrets.Connections) != 1 {
+		t.Fatalf("failed Duplicate left %d secret bundles, want only the source", len(secrets.Connections))
+	}
+	if _, ok := secrets.Connections["duplicate-source"]; !ok {
+		t.Fatal("failed Duplicate removed source secret")
 	}
 }
 

@@ -382,6 +382,9 @@ func TestBuildMySQLCompatibleConnectPlans_AddsHandshakeFallbackWhenMultiStatemen
 	if got := defaultQuery.Get("charset"); got != "utf8mb4,utf8" {
 		t.Fatalf("default plan should use utf8 fallback charset, got=%q", got)
 	}
+	if !mysqlDSNSupportsBatchWrites(plans[0].dsn) {
+		t.Fatal("default multiStatements plan should advertise batch-write support")
+	}
 
 	fallbackQuery := parseMySQLDSNQueryForTest(t, plans[1].dsn)
 	if got := fallbackQuery.Get("multiStatements"); got != "false" {
@@ -389,6 +392,9 @@ func TestBuildMySQLCompatibleConnectPlans_AddsHandshakeFallbackWhenMultiStatemen
 	}
 	if got := fallbackQuery.Get("charset"); got != "utf8mb4,utf8" {
 		t.Fatalf("fallback plan should preserve charset fallback, got=%q", got)
+	}
+	if mysqlDSNSupportsBatchWrites(plans[1].dsn) {
+		t.Fatal("multiStatements=false fallback must disable batch-write support")
 	}
 }
 
@@ -411,6 +417,9 @@ func TestBuildMySQLCompatibleConnectPlans_RespectsExplicitMultiStatementsChoice(
 	query := parseMySQLDSNQueryForTest(t, plans[0].dsn)
 	if got := query.Get("multiStatements"); got != "false" {
 		t.Fatalf("explicit allowMultiQueries=false should be preserved, got=%q", got)
+	}
+	if mysqlDSNSupportsBatchWrites(plans[0].dsn) {
+		t.Fatal("explicit multiStatements=false plan must disable batch-write support")
 	}
 }
 

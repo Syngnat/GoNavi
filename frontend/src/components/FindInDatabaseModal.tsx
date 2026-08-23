@@ -10,6 +10,7 @@ import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { isMacLikePlatform } from '../utils/appearance';
 import { useI18n } from '../i18n/provider';
 import { normalizeTableNamesFromMetadataRows } from '../utils/tableMetadataRows';
+import { getTableMetadataIssueDetail, isTableMetadataIncomplete } from '../utils/tableMetadataResult';
 
 interface FindInDatabaseModalProps {
     open: boolean;
@@ -113,8 +114,10 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
 
         try {
             const tablesRes = await DBGetTables(buildRpcConnectionConfig(config) as any, dbName);
-            if (!tablesRes.success) {
-                message.error(t('find_in_database.message.get_tables_failed', { detail: tablesRes.message }));
+            if (!tablesRes.success || isTableMetadataIncomplete(tablesRes)) {
+                const detail = getTableMetadataIssueDetail(tablesRes);
+                const notify = tablesRes.success ? message.warning : message.error;
+                notify(t('find_in_database.message.get_tables_failed', { detail }));
                 setSearching(false);
                 return;
             }
@@ -129,7 +132,16 @@ const FindInDatabaseModal: React.FC<FindInDatabaseModalProps> = ({ open, onClose
             setProgress({ current: 0, total: tableNames.length, tableName: '' });
 
             const allColsRes = await DBGetAllColumns(buildRpcConnectionConfig(config) as any, dbName);
+            if (!allColsRes?.success) {
+                message.error(t('find_in_database.message.get_all_columns_failed', {
+                    detail: String(allColsRes?.message || ''),
+                }));
+                return;
+            }
             const allColumns: any[] = (allColsRes?.success && Array.isArray(allColsRes.data)) ? allColsRes.data : [];
+            if (allColsRes?.success && isTableMetadataIncomplete(allColsRes)) {
+                message.warning(getTableMetadataIssueDetail(allColsRes));
+            }
 
             const columnsByTable: Record<string, Array<{ name: string; type: string }>> = {};
             allColumns.forEach((col: any) => {

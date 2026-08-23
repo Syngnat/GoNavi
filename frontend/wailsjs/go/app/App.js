@@ -18,12 +18,32 @@ export function ApplySavedQueryDirectory(arg1) {
   return window['go']['app']['App']['ApplySavedQueryDirectory'](arg1);
 }
 
+export function AuthorizeMCPConnectionSQL(arg1, arg2) {
+  return window['go']['app']['App']['AuthorizeMCPConnectionSQL'](arg1, arg2);
+}
+
+export function BuildDatabaseDiagnosticPackage() {
+  return window['go']['app']['App']['BuildDatabaseDiagnosticPackage']();
+}
+
+export function BuildReproductionBundle(arg1, arg2) {
+  return window['go']['app']['App']['BuildReproductionBundle'](arg1, arg2);
+}
+
 export function BuildSQLAuditExport(arg1, arg2) {
   return window['go']['app']['App']['BuildSQLAuditExport'](arg1, arg2);
 }
 
 export function CancelApplicationQuit() {
   return window['go']['app']['App']['CancelApplicationQuit']();
+}
+
+export function CancelConnectionTest(arg1) {
+  return window['go']['app']['App']['CancelConnectionTest'](arg1);
+}
+
+export function CancelImportJob(arg1) {
+  return window['go']['app']['App']['CancelImportJob'](arg1);
 }
 
 export function CancelQuery(arg1) {
@@ -194,6 +214,10 @@ export function DBQueryWithCancel(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['DBQueryWithCancel'](arg1, arg2, arg3, arg4);
 }
 
+export function DBRefreshTableStats(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DBRefreshTableStats'](arg1, arg2, arg3);
+}
+
 export function DBReleaseConnection(arg1) {
   return window['go']['app']['App']['DBReleaseConnection'](arg1);
 }
@@ -214,6 +238,14 @@ export function DBTableExists(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBTableExists'](arg1, arg2, arg3);
 }
 
+export function DataImportCapability(arg1) {
+  return window['go']['app']['App']['DataImportCapability'](arg1);
+}
+
+export function DataSourceCapability(arg1) {
+  return window['go']['app']['App']['DataSourceCapability'](arg1);
+}
+
 export function DataSync(arg1) {
   return window['go']['app']['App']['DataSync'](arg1);
 }
@@ -222,12 +254,128 @@ export function DataSyncAnalyze(arg1) {
   return window['go']['app']['App']['DataSyncAnalyze'](arg1);
 }
 
+export function DataSyncCDCAdapterList() {
+  return window['go']['app']['App']['DataSyncCDCAdapterList']();
+}
+
+export function DataSyncCDCProbe(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DataSyncCDCProbe'](arg1, arg2, arg3, arg4);
+}
+
+export function DataSyncCapability(arg1, arg2) {
+  return window['go']['app']['App']['DataSyncCapability'](arg1, arg2);
+}
+
+export function DataSyncCapabilityResolve(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['app']['App']['DataSyncCapabilityResolve'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function DataSyncCheckpointGet(arg1) {
+  return window['go']['app']['App']['DataSyncCheckpointGet'](arg1);
+}
+
+export function DataSyncCheckpointReset(arg1, arg2) {
+  return window['go']['app']['App']['DataSyncCheckpointReset'](arg1, arg2);
+}
+
+export function DataSyncDatabaseList(arg1) {
+  return window['go']['app']['App']['DataSyncDatabaseList'](arg1);
+}
+
+export function DataSyncErrorRowDiscard(arg1) {
+  return window['go']['app']['App']['DataSyncErrorRowDiscard'](arg1);
+}
+
+export function DataSyncErrorRowGet(arg1) {
+  return window['go']['app']['App']['DataSyncErrorRowGet'](arg1);
+}
+
+export function DataSyncErrorRowList(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DataSyncErrorRowList'](arg1, arg2, arg3);
+}
+
+export function DataSyncErrorRowRetry(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DataSyncErrorRowRetry'](arg1, arg2, arg3);
+}
+
+export function DataSyncFieldList(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DataSyncFieldList'](arg1, arg2, arg3, arg4);
+}
+
+export function DataSyncJobApprovalBegin(arg1) {
+  return window['go']['app']['App']['DataSyncJobApprovalBegin'](arg1);
+}
+
+export function DataSyncJobApprove(arg1, arg2) {
+  return window['go']['app']['App']['DataSyncJobApprove'](arg1, arg2);
+}
+
+export function DataSyncJobDelete(arg1) {
+  return window['go']['app']['App']['DataSyncJobDelete'](arg1);
+}
+
+export function DataSyncJobGet(arg1) {
+  return window['go']['app']['App']['DataSyncJobGet'](arg1);
+}
+
+export function DataSyncJobList() {
+  return window['go']['app']['App']['DataSyncJobList']();
+}
+
+export function DataSyncJobPreflight(arg1) {
+  return window['go']['app']['App']['DataSyncJobPreflight'](arg1);
+}
+
+export function DataSyncJobSave(arg1, arg2) {
+  return window['go']['app']['App']['DataSyncJobSave'](arg1, arg2);
+}
+
+export function DataSyncObjectList(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DataSyncObjectList'](arg1, arg2, arg3);
+}
+
 export function DataSyncPreview(arg1, arg2, arg3) {
   return window['go']['app']['App']['DataSyncPreview'](arg1, arg2, arg3);
 }
 
+export function DataSyncRunCancel(arg1) {
+  return window['go']['app']['App']['DataSyncRunCancel'](arg1);
+}
+
+export function DataSyncRunEventList(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DataSyncRunEventList'](arg1, arg2, arg3);
+}
+
+export function DataSyncRunGet(arg1) {
+  return window['go']['app']['App']['DataSyncRunGet'](arg1);
+}
+
+export function DataSyncRunList(arg1, arg2) {
+  return window['go']['app']['App']['DataSyncRunList'](arg1, arg2);
+}
+
+export function DataSyncRunResume(arg1) {
+  return window['go']['app']['App']['DataSyncRunResume'](arg1);
+}
+
+export function DataSyncRunRetry(arg1) {
+  return window['go']['app']['App']['DataSyncRunRetry'](arg1);
+}
+
+export function DataSyncRunStart(arg1, arg2, arg3) {
+  return window['go']['app']['App']['DataSyncRunStart'](arg1, arg2, arg3);
+}
+
+export function DataSyncSchedulePreview(arg1, arg2) {
+  return window['go']['app']['App']['DataSyncSchedulePreview'](arg1, arg2);
+}
+
 export function DeleteConnection(arg1) {
   return window['go']['app']['App']['DeleteConnection'](arg1);
+}
+
+export function DeleteImportJob(arg1) {
+  return window['go']['app']['App']['DeleteImportJob'](arg1);
 }
 
 export function DeleteQuery(arg1) {
@@ -310,6 +458,10 @@ export function ExportDataWithOptions(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ExportDataWithOptions'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportDatabaseDiagnosticPackage() {
+  return window['go']['app']['App']['ExportDatabaseDiagnosticPackage']();
+}
+
 export function ExportDatabaseSQL(arg1, arg2, arg3) {
   return window['go']['app']['App']['ExportDatabaseSQL'](arg1, arg2, arg3);
 }
@@ -322,12 +474,20 @@ export function ExportDatabasesSQLWithOptions(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['ExportDatabasesSQLWithOptions'](arg1, arg2, arg3, arg4);
 }
 
+export function ExportImportErrorRows(arg1) {
+  return window['go']['app']['App']['ExportImportErrorRows'](arg1);
+}
+
 export function ExportQuery(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['ExportQuery'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function ExportQueryWithOptions(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['ExportQueryWithOptions'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function ExportReproductionBundle(arg1, arg2) {
+  return window['go']['app']['App']['ExportReproductionBundle'](arg1, arg2);
 }
 
 export function ExportSQLAuditFile(arg1, arg2) {
@@ -382,6 +542,10 @@ export function GetDataRootDirectoryInfo() {
   return window['go']['app']['App']['GetDataRootDirectoryInfo']();
 }
 
+export function GetDatabaseDiagnosticPackagePreview() {
+  return window['go']['app']['App']['GetDatabaseDiagnosticPackagePreview']();
+}
+
 export function GetDriverStatusList(arg1, arg2) {
   return window['go']['app']['App']['GetDriverStatusList'](arg1, arg2);
 }
@@ -400,6 +564,10 @@ export function GetEditableSavedConnection(arg1) {
 
 export function GetGlobalProxyConfig() {
   return window['go']['app']['App']['GetGlobalProxyConfig']();
+}
+
+export function GetImportJob(arg1) {
+  return window['go']['app']['App']['GetImportJob'](arg1);
 }
 
 export function GetSQLAuditEvents(arg1) {
@@ -442,6 +610,10 @@ export function GetUpdateChannel() {
   return window['go']['app']['App']['GetUpdateChannel']();
 }
 
+export function GetUpdateDownloadTask() {
+  return window['go']['app']['App']['GetUpdateDownloadTask']();
+}
+
 export function ImportConfigFile() {
   return window['go']['app']['App']['ImportConfigFile']();
 }
@@ -462,8 +634,12 @@ export function ImportDataWithProgressOptions(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['app']['App']['ImportDataWithProgressOptions'](arg1, arg2, arg3, arg4, arg5);
 }
 
-export function ImportDatabaseSQL(arg1, arg2, arg3, arg4) {
-  return window['go']['app']['App']['ImportDatabaseSQL'](arg1, arg2, arg3, arg4);
+export function ImportDatabaseSQL(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['App']['ImportDatabaseSQL'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function ImportDatabaseSQLWithOptions(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['app']['App']['ImportDatabaseSQLWithOptions'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function ImportLegacyConnections(arg1) {
@@ -480,6 +656,14 @@ export function ImportSavedQueries(arg1) {
 
 export function InspectElasticsearchConsole(arg1, arg2, arg3) {
   return window['go']['app']['App']['InspectElasticsearchConsole'](arg1, arg2, arg3);
+}
+
+export function InspectSavedConnectionHealth(arg1) {
+  return window['go']['app']['App']['InspectSavedConnectionHealth'](arg1);
+}
+
+export function InspectSavedConnectionsHealth(arg1) {
+  return window['go']['app']['App']['InspectSavedConnectionsHealth'](arg1);
 }
 
 export function InstallLocalDriverPackage(arg1, arg2, arg3, arg4) {
@@ -554,8 +738,20 @@ export function ListDatabaseCollations(arg1) {
   return window['go']['app']['App']['ListDatabaseCollations'](arg1);
 }
 
+export function ListImportJobs() {
+  return window['go']['app']['App']['ListImportJobs']();
+}
+
+export function ListDriverDownloadTasks() {
+  return window['go']['app']['App']['ListDriverDownloadTasks']();
+}
+
 export function ListInstalledFontFamilies() {
   return window['go']['app']['App']['ListInstalledFontFamilies']();
+}
+
+export function ListReproductionBundleSources() {
+  return window['go']['app']['App']['ListReproductionBundleSources']();
 }
 
 export function ListSQLDirectory(arg1) {
@@ -706,6 +902,10 @@ export function NacosTestConnection(arg1) {
   return window['go']['app']['App']['NacosTestConnection'](arg1);
 }
 
+export function NacosTestConnectionWithProgress(arg1, arg2) {
+  return window['go']['app']['App']['NacosTestConnectionWithProgress'](arg1, arg2);
+}
+
 export function NacosUpdateConfigListenMD5(arg1, arg2) {
   return window['go']['app']['App']['NacosUpdateConfigListenMD5'](arg1, arg2);
 }
@@ -750,12 +950,24 @@ export function OpenSavedQueryDirectory() {
   return window['go']['app']['App']['OpenSavedQueryDirectory']();
 }
 
+export function PreflightDatabaseSQLImport(arg1, arg2, arg3) {
+  return window['go']['app']['App']['PreflightDatabaseSQLImport'](arg1, arg2, arg3);
+}
+
 export function PreviewChanges(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['PreviewChanges'](arg1, arg2, arg3, arg4);
 }
 
 export function PreviewImportFile(arg1) {
   return window['go']['app']['App']['PreviewImportFile'](arg1);
+}
+
+export function PreviewImportFileWithOptions(arg1, arg2) {
+  return window['go']['app']['App']['PreviewImportFileWithOptions'](arg1, arg2);
+}
+
+export function PreviewReproductionBundle(arg1) {
+  return window['go']['app']['App']['PreviewReproductionBundle'](arg1);
 }
 
 export function ReadAppLogTail(arg1, arg2) {
@@ -922,6 +1134,10 @@ export function RenameView(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['RenameView'](arg1, arg2, arg3, arg4);
 }
 
+export function ReplayReproductionBundle(arg1) {
+  return window['go']['app']['App']['ReplayReproductionBundle'](arg1);
+}
+
 export function ResetWebViewZoom() {
   return window['go']['app']['App']['ResetWebViewZoom']();
 }
@@ -960,6 +1176,14 @@ export function ResultDiffStart(arg1) {
 
 export function ResultDiffUploadChunk(arg1) {
   return window['go']['app']['App']['ResultDiffUploadChunk'](arg1);
+}
+
+export function ResumeImportJob(arg1) {
+  return window['go']['app']['App']['ResumeImportJob'](arg1);
+}
+
+export function RetryImportJobFailedRows(arg1) {
+  return window['go']['app']['App']['RetryImportJobFailedRows'](arg1);
 }
 
 export function RetrySecurityUpdateCurrentRound(arg1) {
@@ -1030,6 +1254,10 @@ export function SelectSSHKeyFile(arg1) {
   return window['go']['app']['App']['SelectSSHKeyFile'](arg1);
 }
 
+export function SelectSSHKnownHostsFile(arg1) {
+  return window['go']['app']['App']['SelectSSHKnownHostsFile'](arg1);
+}
+
 export function SelectSavedQueryDirectory(arg1) {
   return window['go']['app']['App']['SelectSavedQueryDirectory'](arg1);
 }
@@ -1062,8 +1290,20 @@ export function StartSecurityUpdate(arg1) {
   return window['go']['app']['App']['StartSecurityUpdate'](arg1);
 }
 
+export function StartDriverPackageDownload(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['StartDriverPackageDownload'](arg1, arg2, arg3, arg4);
+}
+
+export function StartUpdateDownload() {
+  return window['go']['app']['App']['StartUpdateDownload']();
+}
+
 export function TestConnection(arg1) {
   return window['go']['app']['App']['TestConnection'](arg1);
+}
+
+export function TestConnectionWithProgress(arg1, arg2) {
+  return window['go']['app']['App']['TestConnectionWithProgress'](arg1, arg2);
 }
 
 export function TestGlobalProxyConnection(arg1) {
@@ -1076,6 +1316,14 @@ export function TestJVMConnection(arg1) {
 
 export function TruncateTables(arg1, arg2, arg3) {
   return window['go']['app']['App']['TruncateTables'](arg1, arg2, arg3);
+}
+
+export function TrustSSHHostKey(arg1, arg2, arg3) {
+  return window['go']['app']['App']['TrustSSHHostKey'](arg1, arg2, arg3);
+}
+
+export function TrustSSHHostKeyForConnection(arg1, arg2) {
+  return window['go']['app']['App']['TrustSSHHostKeyForConnection'](arg1, arg2);
 }
 
 export function UpdateSQLAuditSettings(arg1) {

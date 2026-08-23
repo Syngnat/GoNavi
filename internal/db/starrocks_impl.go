@@ -3,6 +3,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -22,6 +23,14 @@ const (
 // StarRocksDB 使用独立 driver 名称接入，底层协议兼容 MySQL。
 type StarRocksDB struct {
 	MySQLDB
+}
+
+func (s *StarRocksDB) bindMetadataContext(ctx context.Context) {
+	BindMetadataContext(&s.MySQLDB, ctx)
+}
+
+func (s *StarRocksDB) clearMetadataContext() {
+	ClearMetadataContext(&s.MySQLDB)
 }
 
 func init() {
@@ -207,7 +216,7 @@ func (s *StarRocksDB) getDSN(config connection.ConnectionConfig) (string, error)
 	address := normalizeMySQLAddress(config.Host, config.Port)
 
 	if config.UseSSH {
-		netName, err := ssh.RegisterSSHNetwork(config.SSH)
+		netName, err := s.registerSSHNetwork(config.SSH)
 		if err != nil {
 			return "", fmt.Errorf("创建 SSH 隧道失败：%w", err)
 		}
@@ -262,6 +271,9 @@ func (s *StarRocksDB) Connect(config connection.ConnectionConfig) error {
 
 		dsn, err := s.getDSN(candidateConfig)
 		if err != nil {
+			if _, requiresTrust := ssh.HostKeyTrustStatusFromError(err); requiresTrust {
+				return fmt.Errorf("StarRocks %s 创建 SSH 隧道失败: %w", address, err)
+			}
 			errorDetails = append(errorDetails, fmt.Sprintf("%s 生成连接串失败: %v", address, err))
 			continue
 		}

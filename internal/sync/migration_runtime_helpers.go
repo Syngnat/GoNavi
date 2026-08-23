@@ -6,6 +6,15 @@ import (
 	"strings"
 )
 
+func syncContentAllowsSchemaChanges(content string) bool {
+	switch strings.ToLower(strings.TrimSpace(content)) {
+	case "schema", "both":
+		return true
+	default:
+		return false
+	}
+}
+
 func supportsAutoAddColumnsForPair(sourceType string, targetType string) bool {
 	source := normalizeMigrationDBType(sourceType)
 	target := normalizeMigrationDBType(targetType)

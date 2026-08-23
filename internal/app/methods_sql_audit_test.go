@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -547,6 +548,68 @@ func TestWriteSQLAuditExportPreservesExistingFileWhenAtomicReplacementFails(t *t
 	}
 }
 
+func TestWriteSQLAuditExportNoReplacePreservesExistingFile(t *testing.T) {
+	directory := t.TempDir()
+	target := filepath.Join(directory, "audit.json")
+	if err := os.WriteFile(target, []byte("original"), 0o600); err != nil {
+		t.Fatalf("write original export: %v", err)
+	}
+
+	if err := writeSQLAuditExportAtomicallyNoReplace(target, []byte("replacement")); err == nil {
+		t.Fatal("expected no-replace export to fail when target already exists")
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read preserved export: %v", err)
+	}
+	if string(content) != "original" {
+		t.Fatalf("existing export was overwritten: %q", content)
+	}
+}
+
+func TestWriteSQLAuditExportNoReplacePublishesNewFile(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "audit.json")
+	if err := writeSQLAuditExportAtomicallyNoReplace(target, []byte("new content")); err != nil {
+		t.Fatalf("no-replace export failed for a new target: %v", err)
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read new export: %v", err)
+	}
+	if string(content) != "new content" {
+		t.Fatalf("new export content = %q", content)
+	}
+}
+
+func TestWriteSQLAuditExportNoReplaceAllowsOnlyOneConcurrentPublisher(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "audit.json")
+	const writers = 8
+	results := make(chan error, writers)
+	var group sync.WaitGroup
+	group.Add(writers)
+	for i := 0; i < writers; i++ {
+		go func(index int) {
+			defer group.Done()
+			results <- writeSQLAuditExportAtomicallyNoReplace(target, []byte("publisher"))
+		}(i)
+	}
+	group.Wait()
+	close(results)
+
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent no-replace publishers succeeded %d times, want exactly one", successes)
+	}
+	if content, err := os.ReadFile(target); err != nil || string(content) != "publisher" {
+		t.Fatalf("published export = %q, err=%v", content, err)
+	}
+}
+
 func TestExportSQLAuditFileRejectsWebRuntimeBeforeOpeningDesktopDialog(t *testing.T) {
 	app := NewWebApp()
 	app.configDir = t.TempDir()
@@ -607,20 +670,135 @@ func TestDBQueryMultiAuditsSuccessfulPrefixBeforeLaterStatementFailure(t *testin
 	if result.Success {
 		t.Fatalf("expected second statement failure, got %#v", result)
 	}
+	if !result.Partial || result.ExecutedCount != 1 || result.FailedIndex != 2 ||
+		result.BoundaryMode != sqlaudit.BoundaryModeImplicit || result.CommitMode != sqlaudit.CommitModeAuto {
+		t.Fatalf("partial execution summary = %#v", result)
+	}
 	events := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: "query-partial-audit"})
 	if len(events) != 3 {
 		t.Fatalf("partial batch audit event count = %d, want 3: %#v", len(events), events)
 	}
 	if events[0].EventType != "query_statement" || events[0].Status != "success" ||
-		events[0].StatementIndex != 1 || events[0].RowsAffected != 3 {
+		events[0].StatementIndex != 1 || events[0].RowsAffected != 3 ||
+		events[0].BoundaryMode != sqlaudit.BoundaryModeImplicit || events[0].CommitMode != sqlaudit.CommitModeAuto {
 		t.Fatalf("successful committed prefix was not audited: %#v", events[0])
 	}
 	if events[1].EventType != "query_statement" || events[1].Status != "error" ||
-		events[1].StatementIndex != 2 || !strings.Contains(events[1].Error, "second statement failed") {
+		events[1].StatementIndex != 2 || events[1].FailedIndex != 2 || !strings.Contains(events[1].Error, "second statement failed") {
 		t.Fatalf("failed statement was not audited: %#v", events[1])
 	}
-	if events[2].EventType != "query" || events[2].Status != "error" || events[2].StatementCount != 2 {
+	if events[2].EventType != "query" || events[2].Status != "error" || events[2].StatementCount != 2 ||
+		events[2].ExecutedCount != 1 || events[2].FailedIndex != 2 || events[2].BoundaryMode != sqlaudit.BoundaryModeImplicit {
 		t.Fatalf("batch summary was not retained after statement events: %#v", events[2])
+	}
+}
+
+func TestDBQueryMultiNativeResultsAuditDriverBoundaryAndExecutionSummary(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	query := "SELECT 1 AS first_value;\nSELECT 2 AS second_value;"
+	baseDB := &fakeBatchWriteDB{
+		multiResult: map[string][]connection.ResultSetData{query: {
+			{Rows: []map[string]interface{}{{"first_value": 1}}, Columns: []string{"first_value"}, StatementIndex: 1},
+			{Rows: []map[string]interface{}{{"second_value": 2}}, Columns: []string{"second_value"}, StatementIndex: 2},
+		}},
+		queryErr: map[string]error{},
+	}
+	nativeDB := &fakeNativeMultiResultDB{fakeBatchWriteDB: baseDB}
+	newDatabaseFunc = func(string) (db.Database, error) { return nativeDB, nil }
+	app := newSQLAuditTestApp(t)
+	config := connection.ConnectionConfig{Type: "sqlserver", Host: "127.0.0.1", Port: 1433, Database: "master"}
+
+	result := app.DBQueryMulti(config, "master", query, "query-native-audit")
+	if !result.Success || result.ExecutedCount != 2 || result.FailedIndex != 0 ||
+		result.BoundaryMode != sqlaudit.BoundaryModeDriverAPI || result.CommitMode != sqlaudit.CommitModeAuto {
+		t.Fatalf("native execution summary = %#v", result)
+	}
+	events := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: "query-native-audit"})
+	if len(events) != 3 {
+		t.Fatalf("native audit event count = %d, want 3: %#v", len(events), events)
+	}
+	for index := 0; index < 2; index++ {
+		if events[index].EventType != "query_statement" || events[index].Status != "success" ||
+			events[index].StatementIndex != index+1 || events[index].BoundaryMode != sqlaudit.BoundaryModeDriverAPI || events[index].CommitMode != sqlaudit.CommitModeAuto {
+			t.Fatalf("native statement audit %d = %#v", index+1, events[index])
+		}
+	}
+	if events[2].EventType != "query" || events[2].ExecutedCount != 2 || events[2].BoundaryMode != sqlaudit.BoundaryModeDriverAPI {
+		t.Fatalf("native query summary audit = %#v", events[2])
+	}
+}
+
+func TestDBQueryMultiNativeErrorPreservesAuditedPrefixAndUnknownWriteOutcome(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	firstStatement := "INSERT INTO audit_log OUTPUT INSERTED.id VALUES (1)"
+	secondStatement := "SELECT 2 AS second_value"
+	query := firstStatement + ";\n" + secondStatement + ";"
+	baseDB := &fakeBatchWriteDB{
+		multiResult: map[string][]connection.ResultSetData{query: {
+			{Rows: []map[string]interface{}{{"id": 1}}, Columns: []string{"id"}, StatementIndex: 1},
+		}},
+	}
+	nativeDB := &fakeNativeMultiResultDB{
+		fakeBatchWriteDB: baseDB,
+		partialResultErr: map[string]error{query: errors.New("second statement stream failed")},
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return nativeDB, nil }
+	app := newSQLAuditTestApp(t)
+	config := connection.ConnectionConfig{Type: "sqlserver", Host: "127.0.0.1", Port: 1433, Database: "master"}
+
+	result := app.DBQueryMulti(config, "master", query, "query-native-partial-audit")
+	if result.Success || !result.Partial || !result.OutcomeUnknown || result.ExecutedCount != 1 || result.FailedIndex != 2 ||
+		result.BoundaryMode != sqlaudit.BoundaryModeDriverAPI || result.CommitMode != sqlaudit.CommitModeAuto {
+		t.Fatalf("native partial execution summary = %#v", result)
+	}
+	resultSets, ok := result.Data.([]connection.ResultSetData)
+	if !ok || len(resultSets) != 1 || resultSets[0].StatementIndex != 1 {
+		t.Fatalf("native partial result sets were not retained: %#v", result.Data)
+	}
+	events := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: "query-native-partial-audit"})
+	if len(events) != 3 {
+		t.Fatalf("native partial audit event count = %d, want 3: %#v", len(events), events)
+	}
+	if events[0].EventType != "query_statement" || events[0].Status != "success" || events[0].StatementIndex != 1 || events[0].RowsReturned != 1 {
+		t.Fatalf("native completed prefix was not audited: %#v", events[0])
+	}
+	if events[1].EventType != "query_statement" || events[1].Status != "error" || events[1].FailedIndex != 2 || !events[1].OutcomeUnknown {
+		t.Fatalf("native failing statement was not audited: %#v", events[1])
+	}
+	if events[2].EventType != "query" || events[2].ExecutedCount != 1 || events[2].FailedIndex != 2 || !events[2].OutcomeUnknown {
+		t.Fatalf("native partial query summary was not retained: %#v", events[2])
+	}
+}
+
+func TestDBQueryMultiAuditsTextTransactionBoundaryAndCommitState(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	update := "UPDATE audit_log SET active = 1 WHERE id = 1"
+	database := &fakeBatchWriteDB{execAffected: map[string]int64{update: 1}}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+	app := newSQLAuditTestApp(t)
+	config := connection.ConnectionConfig{Type: "mysql", Host: "127.0.0.1", Port: 3306, Database: "main"}
+
+	result := app.DBQueryMulti(config, "main", "BEGIN;\n"+update+";\nCOMMIT;", "query-text-transaction-audit")
+	if !result.Success || result.BoundaryMode != sqlaudit.BoundaryModeTextSQL || result.CommitMode != sqlaudit.CommitModeManual || result.ExecutedCount != 3 {
+		t.Fatalf("text transaction execution summary = %#v", result)
+	}
+	events := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: "query-text-transaction-audit"})
+	if len(events) != 4 {
+		t.Fatalf("text transaction audit event count = %d, want 4: %#v", len(events), events)
+	}
+	for index, wantCommitMode := range []string{sqlaudit.CommitModePending, sqlaudit.CommitModePending, sqlaudit.CommitModeManual} {
+		event := events[index]
+		if event.EventType != "query_statement" || event.BoundaryMode != sqlaudit.BoundaryModeTextSQL || event.CommitMode != wantCommitMode {
+			t.Fatalf("text transaction statement %d audit = %#v", index+1, event)
+		}
+	}
+	if events[3].EventType != "query" || events[3].BoundaryMode != sqlaudit.BoundaryModeTextSQL || events[3].CommitMode != sqlaudit.CommitModeManual {
+		t.Fatalf("text transaction summary audit = %#v", events[3])
 	}
 }
 

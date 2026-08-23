@@ -25,9 +25,12 @@ import Sidebar, {
   resolveV2CommandSearchPersistentFilter,
   type V2CommandSearchItem,
   resolveSidebarDropNodeFromDomEvent,
+  resolveSidebarDropDomHit,
+  resolveSidebarHostGroupDropDestination,
   resolveSidebarTagDropInsertBefore,
   resolveSidebarDropTargetMetricsFromDomEvent,
   resolveSidebarDropInsertBefore,
+  resolveSidebarTreeDropPlacement,
   resolveSidebarNodeConnectionId,
   resolveSidebarSwitcherLoadKey,
   resolveV2ActiveConnectionId,
@@ -1183,6 +1186,8 @@ describe('Sidebar locate toolbar', () => {
     expect(source).toContain('onWheelCapture={handleTreeWheel}');
     expect(source).toContain('onTouchMoveCapture={markTreeScrollActivity}');
     expect(source).toContain('setIsTreeScrolling(false)');
+    expect(source).toContain('SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS = 2000');
+    expect(source).toContain('}, SIDEBAR_TREE_SCROLL_IDLE_DELAY_MS);');
 
     const idleScrollbarCss = readCssRuleBlock(
       css,
@@ -1353,6 +1358,104 @@ describe('Sidebar locate toolbar', () => {
     })).toBe(false);
   });
 
+  it('makes the group row the primary drop target when moving a Host into a group', () => {
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'connection',
+      dropNodeType: 'tag',
+      relativeDropPosition: -1,
+      dropToGap: true,
+      fallbackInsertBefore: true,
+    })).toBe('inside');
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'connection',
+      dropNodeType: 'tag',
+      relativeDropPosition: 1,
+      dropToGap: true,
+      fallbackInsertBefore: false,
+    })).toBe('inside');
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'connection',
+      dropNodeType: 'tag',
+      relativeDropPosition: 1,
+      dropToGap: true,
+      fallbackInsertBefore: false,
+      metrics: { clientY: 115, top: 100, height: 30 },
+    })).toBe('inside');
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'connection',
+      dropNodeType: 'tag',
+      relativeDropPosition: 0,
+      dropToGap: false,
+      fallbackInsertBefore: false,
+      metrics: { clientY: 102, top: 100, height: 30 },
+    })).toBe('before');
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'connection',
+      dropNodeType: 'tag',
+      relativeDropPosition: 0,
+      dropToGap: false,
+      fallbackInsertBefore: true,
+      metrics: { clientY: 128, top: 100, height: 30 },
+    })).toBe('after');
+  });
+
+  it('preserves explicit before and after gaps when dragging groups or reordering Hosts', () => {
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'tag',
+      dropNodeType: 'tag',
+      relativeDropPosition: -1,
+      dropToGap: true,
+      fallbackInsertBefore: true,
+    })).toBe('before');
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'tag',
+      dropNodeType: 'tag',
+      relativeDropPosition: 1,
+      dropToGap: true,
+      fallbackInsertBefore: false,
+    })).toBe('after');
+    expect(resolveSidebarTreeDropPlacement({
+      dragNodeType: 'tag',
+      dropNodeType: 'tag',
+      relativeDropPosition: 0,
+      dropToGap: false,
+      fallbackInsertBefore: false,
+    })).toBe('inside');
+  });
+
+  it('maps Host group drop intent to stable moveConnectionToTag arguments', () => {
+    const common = {
+      targetTagId: 'child',
+      targetTagParentId: 'parent',
+      targetTagToken: 'tag:child',
+    };
+
+    expect(resolveSidebarHostGroupDropDestination({
+      ...common,
+      placement: 'inside',
+    })).toEqual({
+      targetParentTagId: 'child',
+      targetToken: null,
+      insertBefore: false,
+    });
+    expect(resolveSidebarHostGroupDropDestination({
+      ...common,
+      placement: 'before',
+    })).toEqual({
+      targetParentTagId: 'parent',
+      targetToken: 'tag:child',
+      insertBefore: true,
+    });
+    expect(resolveSidebarHostGroupDropDestination({
+      ...common,
+      placement: 'after',
+    })).toEqual({
+      targetParentTagId: 'parent',
+      targetToken: 'tag:child',
+      insertBefore: false,
+    });
+  });
+
   it('resolves sidebar drop node metadata from DOM markers', () => {
     vi.stubGlobal('document', {
       elementFromPoint: () => null,
@@ -1401,6 +1504,81 @@ describe('Sidebar locate toolbar', () => {
       height: 26,
     });
     vi.unstubAllGlobals();
+  });
+
+  it('resolves sidebar drop metadata and row geometry from the same DOM hit', () => {
+    const elementFromPoint = vi.fn();
+    const treeNode = {
+      getAttribute: (name: string) => {
+        if (name === 'data-sidebar-node-key') return 'tag-prod';
+        if (name === 'data-sidebar-node-type') return 'tag';
+        return null;
+      },
+      querySelector: () => null,
+      getBoundingClientRect: () => ({ top: 96, height: 30 }),
+    };
+    const target = {
+      closest: (selector: string) => selector === '.ant-tree-treenode' ? treeNode : null,
+    };
+    elementFromPoint.mockReturnValue(target);
+    vi.stubGlobal('document', { elementFromPoint });
+
+    expect(resolveSidebarDropDomHit({ clientX: 80, clientY: 111 })).toEqual({
+      key: 'tag-prod',
+      type: 'tag',
+      metrics: { top: 96, height: 30 },
+    });
+    expect(elementFromPoint).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  });
+
+  it('renders a clear whole-row group target for Host drops', () => {
+    const baseOptions = {
+      node: {
+        type: 'tag',
+        key: 'tag-prod',
+        title: '生产环境',
+        dataRef: { id: 'prod' },
+      },
+      hoverTitle: '生产环境',
+      statusBadge: null,
+      getV2TreeMetaText: () => '',
+      sidebarTableMetadataFields: [],
+      snapshotTreeSelectionBeforeDrag: vi.fn(),
+      restoreTreeSelectionAfterDrag: vi.fn(),
+      treeDragSelectSuppressUntilRef: { current: 0 },
+      setIsTreeDragging: vi.fn(),
+    };
+    const targetMarkup = renderToStaticMarkup(renderSidebarV2TreeTitle({
+      ...baseOptions,
+      sidebarDropPlacement: 'inside',
+    }));
+    const idleMarkup = renderToStaticMarkup(renderSidebarV2TreeTitle(baseOptions));
+
+    expect(targetMarkup).toContain('is-connection-group');
+    expect(targetMarkup).toContain('is-drop-inside');
+    expect(targetMarkup).toContain('data-sidebar-drop-placement="inside"');
+    expect(idleMarkup).not.toContain('is-drop-inside');
+  });
+
+  it('uses V2-only capture DnD with a compact preview and stable whole-row states', () => {
+    const source = readSourceFile('./Sidebar.tsx');
+    const css = readV2ThemeCss();
+
+    expect(source).toContain('onDragOverCapture={handleSidebarTreeDragOverCapture}');
+    expect(source).toContain('onDropCapture={handleSidebarTreeDropCapture}');
+    expect(source).toContain('if (!isV2Ui) return null;');
+    expect(source).toContain('resolveSidebarDropDomHit(event)');
+    expect(source).toContain('resolveSidebarHostGroupDropDestination({');
+    expect(source).toContain('sidebarTreeDragPreviewElementRef.current = isV2Ui');
+    expect(source).toContain("&& sidebarTreeDragNodeRef.current?.type === 'connection'");
+    expect(source).toContain('dataTransfer.setDragImage(preview, 18, 15)');
+    expect(source).toContain('SIDEBAR_GROUP_HOVER_EXPAND_DELAY_MS = 500');
+    expect(css).toContain('.ant-tree-treenode:has(.gn-v2-tree-title.is-drop-inside)');
+    expect(css).toContain('.gn-v2-sidebar-tree-drag-preview');
+    expect(css).toContain('cursor: grabbing !important;');
+    expect(css).not.toContain('.gn-v2-tree-host-drop-hint');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
   });
 
   it('treats centered tag drops as directional reordering instead of no-op', () => {
@@ -1671,6 +1849,14 @@ describe('Sidebar locate toolbar', () => {
     expect(loaderSource).toContain('buildV2SidebarDatabaseSectionedChildren(');
     expect(contextMenuSource).toContain('isSidebarDatabasePinned(');
     expect(contextMenuSource).toContain('isPinned={isPinned}');
+  });
+
+  it('preserves schema context when opening table designer tabs', () => {
+    const source = readSourceFile('./Sidebar.tsx');
+
+    expect(source).toMatch(/const openDesign = \(node: any,[\s\S]*?schemaName[\s\S]*?type: 'design',[\s\S]*?schemaName,/);
+    expect(source).toMatch(/const openNewTableDesign = \(node: any\)[\s\S]*?schemaName[\s\S]*?type: 'design',[\s\S]*?schemaName,/);
+    expect(source).toContain("design-${id}-${dbName}-${schemaName || 'default'}-${tableName}");
   });
 
   it('moves pinned databases first while preserving loaded database children', () => {
@@ -2435,7 +2621,7 @@ describe('Sidebar locate toolbar', () => {
     expect(runningMarkup).toContain('Status:');
     expect(runningMarkup).toContain('Running');
     expect(runningMarkup).toContain('Executed:');
-    expect(runningMarkup).toContain('rows | Failed:');
+    expect(runningMarkup).toContain('statements | Failed:');
     expect(runningMarkup).toContain('SELECT * FROM users');
     expect(runningMarkup).not.toContain('文件大小：');
     expect(runningMarkup).not.toContain('状态：');

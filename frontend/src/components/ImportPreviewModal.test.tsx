@@ -4,12 +4,14 @@ import { act, create, type ReactTestRenderer } from "react-test-renderer";
 
 import { I18nProvider } from "../i18n/provider";
 import ImportPreviewModal from "./ImportPreviewModal";
+import type { DataImportPreferences } from "./dataImportPreferences";
 
 const mocks = vi.hoisted(() => ({
   previewImportFile: vi.fn(),
   dbGetColumns: vi.fn(),
   importDataWithProgressOptions: vi.fn(),
-  cancelQuery: vi.fn(),
+  exportImportErrorRows: vi.fn(),
+  cancelImportJob: vi.fn(),
   progressHandler: null as ((data: any) => void) | null,
   eventsOn: vi.fn((_event: string, handler: (data: any) => void) => {
     mocks.progressHandler = handler;
@@ -45,9 +47,11 @@ vi.mock("../i18n/runtime", () => ({
 
 vi.mock("../../wailsjs/go/app/App", () => ({
   PreviewImportFile: mocks.previewImportFile,
+  PreviewImportFileWithOptions: mocks.previewImportFile,
   DBGetColumns: mocks.dbGetColumns,
   ImportDataWithProgressOptions: mocks.importDataWithProgressOptions,
-  CancelQuery: mocks.cancelQuery,
+  ExportImportErrorRows: mocks.exportImportErrorRows,
+  CancelImportJob: mocks.cancelImportJob,
 }));
 
 vi.mock("../../wailsjs/runtime/runtime", () => ({
@@ -106,8 +110,9 @@ vi.mock("antd", async () => {
       message?: React.ReactNode;
       description?: React.ReactNode;
     }) => React.createElement("div", null, message, description),
-    Progress: ({ percent }: { percent: number }) =>
-      React.createElement("div", null, `${percent}%`),
+    Progress: ({ percent, ...props }: { percent?: number } & Record<string, unknown>) =>
+      React.createElement("div", props, percent === undefined ? "active" : `${percent}%`),
+    Spin: (props: Record<string, unknown>) => React.createElement("mock-spin", props),
     Button: ({
       children,
       onClick,
@@ -160,6 +165,8 @@ const textContent = (node: any): string => {
 const createImportPreviewTree = (
   filePath = "D:/imports/users.csv",
   presentation: "modal" | "embedded" = "modal",
+  continueOnError?: boolean,
+  importOptions?: DataImportPreferences,
 ) => (
   <I18nProvider preference="en-US" onPreferenceChange={() => undefined}>
     <ImportPreviewModal
@@ -169,6 +176,8 @@ const createImportPreviewTree = (
       connectionId="conn-1"
       dbName="app"
       tableName="users"
+      continueOnError={continueOnError}
+      importOptions={importOptions}
       onClose={vi.fn()}
       onSuccess={vi.fn()}
     />
@@ -222,8 +231,10 @@ describe("ImportPreviewModal i18n", () => {
       ],
     });
     mocks.importDataWithProgressOptions.mockReset();
-    mocks.cancelQuery.mockReset();
-    mocks.cancelQuery.mockResolvedValue({ success: true });
+    mocks.exportImportErrorRows.mockReset();
+    mocks.exportImportErrorRows.mockResolvedValue({ success: true });
+    mocks.cancelImportJob.mockReset();
+    mocks.cancelImportJob.mockResolvedValue({ success: true });
     mocks.progressHandler = null;
     mocks.eventsOn.mockClear();
     mocks.eventsOff.mockClear();
@@ -259,6 +270,19 @@ describe("ImportPreviewModal i18n", () => {
     expect(renderedText).toContain("Import data preview");
     expect(renderedText).toContain("Start import");
     expect(renderedText).toContain("alice");
+  });
+
+  it("uses shared theme tokens inside the embedded workbench preview", async () => {
+    const renderer = await renderImportPreview("D:/imports/users.csv", "embedded");
+    const sourceColumns = renderer.root.findByProps({
+      "data-import-preview-source-columns": "true",
+    });
+    const footer = renderer.root.findByProps({
+      "data-import-preview-embedded-footer": "true",
+    });
+
+    expect(sourceColumns.props.style.background).toContain("var(--gn-bg-subtle");
+    expect(footer.props.style.borderTop).toContain("var(--gn-br-1");
   });
 
   it("keeps preview total when progress events omit total rows", async () => {
@@ -315,7 +339,7 @@ describe("ImportPreviewModal i18n", () => {
     });
   });
 
-  it("maps file headers to database fields and submits only selected mappings", async () => {
+  it("maps file headers to database fields and submits the selected error policy", async () => {
     mocks.importDataWithProgressOptions.mockResolvedValue({
       success: true,
       data: { success: 12, failed: 0, total: 12, errorLogs: [] },
@@ -347,16 +371,393 @@ describe("ImportPreviewModal i18n", () => {
       "app",
       "users",
       "D:/imports/users.csv",
-      {
+      expect.objectContaining({
         columnMappings: { id: "ID", user_name: "username" },
+        continueOnError: false,
         jobId: expect.stringMatching(/^import-/),
-      },
+      }),
     );
     expect(mocks.dbGetColumns).toHaveBeenCalledWith(
       expect.objectContaining({ type: "mysql" }),
       "app",
       "users",
     );
+  });
+
+  it("requires only non-null database fields while allowing nullable fields to be omitted", async () => {
+    mocks.previewImportFile.mockResolvedValue({
+      success: true,
+      data: {
+        columns: ["note"],
+        totalRows: 1,
+        previewRows: [{ note: "optional" }],
+      },
+    });
+    mocks.dbGetColumns.mockResolvedValue({
+      success: true,
+      data: [
+        { name: "id", type: "bigint", nullable: "NO" },
+        { name: "note", type: "varchar", nullable: "YES" },
+      ],
+    });
+
+    const renderer = await renderImportPreview();
+    const button = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    expect(button?.props.disabled).toBe(true);
+    expect(textContent(renderer.toJSON())).toContain(
+      "Map the required database columns: id",
+    );
+  });
+
+  it("uses the same parser options for preview and import", async () => {
+    const importOptions: DataImportPreferences = {
+      continueOnError: true,
+      encoding: "gb18030",
+      delimiter: "tab",
+      headerRow: 2,
+      nullToken: "\\N",
+      emptyStringAsNull: true,
+      sheetName: " Sheet2 ",
+      conflictPolicy: "upsert",
+      conflictKeyColumns: ["id"],
+    };
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: true,
+      data: { success: 12, failed: 0, total: 12, errorLogs: [] },
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createImportPreviewTree(
+        "D:/imports/users.csv",
+        "embedded",
+        true,
+        importOptions,
+      ));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const expectedParserOptions = expect.objectContaining({
+      continueOnError: true,
+      encoding: "gb18030",
+      delimiter: "tab",
+      headerRow: 2,
+      nullToken: "\\N",
+      emptyStringAsNull: true,
+      sheetName: " Sheet2 ",
+      conflictPolicy: "upsert",
+      conflictKeyColumns: ["id"],
+    });
+    expect(mocks.previewImportFile).toHaveBeenCalledWith(
+      "D:/imports/users.csv",
+      expectedParserOptions,
+    );
+
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    await act(async () => {
+      startButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mocks.importDataWithProgressOptions.mock.calls[0][4]).toEqual(expectedParserOptions);
+  });
+
+  it("blocks upsert until every conflict key is included in the target mappings", async () => {
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createImportPreviewTree(
+        "D:/imports/users.csv",
+        "embedded",
+        false,
+        {
+          continueOnError: false,
+          encoding: "auto",
+          delimiter: "auto",
+          headerRow: 1,
+          nullToken: "",
+          emptyStringAsNull: false,
+          sheetName: "",
+          conflictPolicy: "upsert",
+          conflictKeyColumns: ["email"],
+        },
+      ));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    expect(startButton?.props.disabled).toBe(true);
+    expect(textContent(renderer.toJSON())).toContain(
+      "Conflict key columns must be included in the selected mappings: email",
+    );
+  });
+
+  it("uses source bytes for progress when the total row count is unknown", async () => {
+    mocks.previewImportFile.mockResolvedValue({
+      success: true,
+      data: {
+        columns: ["id"],
+        totalRows: 5,
+        totalRowsKnown: false,
+        fileSize: 20 * 1024 * 1024,
+        sourceIdentity: { token: "source-v1" },
+        previewRows: [{ id: 1 }],
+      },
+    });
+    let resolveImport!: (value: any) => void;
+    mocks.importDataWithProgressOptions.mockImplementation(() => new Promise((resolve) => {
+      resolveImport = resolve;
+    }));
+    const renderer = await renderImportPreview();
+	const previewText = textContent(renderer.toJSON());
+	expect(previewText).toContain("Showing 5 sample rows; total row count was not scanned. 1 field");
+	expect(previewText).not.toContain("5 rows and 1 field");
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+
+    await act(async () => {
+      startButton?.props.onClick();
+      await Promise.resolve();
+    });
+    const options = mocks.importDataWithProgressOptions.mock.calls[0][4];
+    expect(options.sourceIdentityToken).toBe("source-v1");
+    await act(async () => {
+      mocks.progressHandler?.({
+        jobId: options.jobId,
+        current: 3,
+        total: 0,
+        totalRowsKnown: false,
+        success: 3,
+        errors: 0,
+        skipped: 2,
+        bytesRead: 10 * 1024 * 1024,
+        totalBytes: 20 * 1024 * 1024,
+      });
+      await Promise.resolve();
+    });
+
+    const byteProgress = renderer.root.findByProps({ "data-import-progress-mode": "bytes" });
+    expect(textContent(byteProgress)).toBe("50%");
+    expect(renderer.root.findAllByProps({ "data-import-progress-indeterminate": "true" })).toHaveLength(0);
+    const renderedText = textContent(renderer.toJSON());
+    expect(renderedText).toContain("Processed 3 rows");
+    expect(renderedText).toContain("Skipped 2 rows");
+    expect(renderedText).not.toContain("Processed 3 / 5 rows");
+	const successMetric = renderer.root.findByProps({ "data-import-progress-success": "true" });
+	expect(successMetric.props.style.color).toContain("var(--gn-status-connected");
+
+    await act(async () => {
+      resolveImport({ success: true, data: { success: 3, failed: 0, total: 3 } });
+      await Promise.resolve();
+    });
+  });
+
+  it("shows a real indeterminate indicator until a parser reports measurable progress", async () => {
+    mocks.previewImportFile.mockResolvedValue({
+      success: true,
+      data: {
+        columns: ["id"],
+        totalRows: 5,
+        totalRowsKnown: false,
+        fileSize: 20 * 1024 * 1024,
+        previewRows: [{ id: 1 }],
+      },
+    });
+    let resolveImport!: (value: any) => void;
+    mocks.importDataWithProgressOptions.mockImplementation(() => new Promise((resolve) => {
+      resolveImport = resolve;
+    }));
+    const renderer = await renderImportPreview("D:/imports/users.xlsx");
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+
+    await act(async () => {
+      startButton?.props.onClick();
+      await Promise.resolve();
+    });
+    const options = mocks.importDataWithProgressOptions.mock.calls[0][4];
+    await act(async () => {
+      mocks.progressHandler?.({
+        jobId: options.jobId,
+        current: 3,
+        total: 0,
+        totalRowsKnown: false,
+        success: 3,
+        errors: 0,
+        bytesRead: 0,
+        totalBytes: 20 * 1024 * 1024,
+      });
+      await Promise.resolve();
+    });
+
+    expect(renderer.root.findByProps({ "data-import-progress-mode": "indeterminate" })).toBeDefined();
+    expect(renderer.root.findAll((node) => String(node.type) === "mock-spin")).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ "data-import-progress-mode": "bytes" })).toHaveLength(0);
+
+    await act(async () => {
+      resolveImport({ success: true, data: { success: 3, failed: 0, total: 3 } });
+      await Promise.resolve();
+    });
+  });
+
+  it("starts only one import when the action is triggered twice before React rerenders", async () => {
+	let resolveImport!: (value: any) => void;
+	mocks.importDataWithProgressOptions.mockImplementation(() => new Promise((resolve) => {
+		resolveImport = resolve;
+	}));
+	const renderer = await renderImportPreview();
+	const startButton = renderer.root.findAllByType("button")
+		.find((node) => textContent(node.props.children) === "Start import");
+
+	await act(async () => {
+		void startButton?.props.onClick();
+		void startButton?.props.onClick();
+		await Promise.resolve();
+		await Promise.resolve();
+	});
+	expect(mocks.importDataWithProgressOptions).toHaveBeenCalledTimes(1);
+
+	await act(async () => {
+		resolveImport({ success: true, data: { success: 12, failed: 0, total: 12, errorLogs: [] } });
+		await Promise.resolve();
+	});
+  });
+
+  it("locks retry behind an unknown outcome when the import RPC response is lost", async () => {
+	mocks.importDataWithProgressOptions.mockRejectedValue(new Error("transport response lost"));
+	const renderer = await renderImportPreview();
+	const startButton = renderer.root.findAllByType("button")
+		.find((node) => textContent(node.props.children) === "Start import");
+
+	await act(async () => {
+		await startButton?.props.onClick();
+		await Promise.resolve();
+	});
+
+	const renderedText = textContent(renderer.toJSON());
+	expect(renderedText).toContain("Import failed: transport response lost");
+	expect(renderedText).toContain("may have been partially written");
+	expect(renderer.root.findAllByType("button")
+		.some((node) => textContent(node.props.children) === "Start import")).toBe(false);
+  });
+
+  it("submits continue-on-error when the workbench enables it", async () => {
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: true,
+      data: { success: 11, failed: 1, total: 12, errorLogs: ["Row 2: duplicate key"] },
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(createImportPreviewTree("D:/imports/users.csv", "embedded", true));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const button = renderer.root
+      .findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    await act(async () => {
+      button?.props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(mocks.importDataWithProgressOptions.mock.calls[0][4]).toEqual(expect.objectContaining({
+      continueOnError: true,
+    }));
+  });
+
+  it("renders a fail-fast partial result without offering an implicit replay", async () => {
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: false,
+      message: "Table import stopped on error",
+      data: {
+        success: 1000,
+        failed: 21,
+        total: 2000,
+        errorLogs: ["Rows 1001-2000: duplicate key"],
+        errorLogsOmitted: 20,
+        stoppedOnError: true,
+        outcomeUnknown: true,
+      },
+    });
+    const renderer = await renderImportPreview();
+    const button = renderer.root
+      .findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+
+    await act(async () => {
+      button?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const renderedText = textContent(renderer.toJSON());
+    expect(renderedText).toContain("Import stopped on error");
+    expect(renderedText).toContain("The failed batch may have been partially written");
+    expect(renderedText).toContain("Rows 1001-2000: duplicate key");
+    expect(renderedText).toContain("20 more error details are not shown");
+  });
+
+  it("exports rejected rows through the managed artifact id", async () => {
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: true,
+      data: {
+        success: 11,
+        failed: 1,
+        total: 12,
+        errorArtifactId: "artifact-v1",
+        errorLogs: ["Row 2: duplicate key"],
+      },
+    });
+    const renderer = await renderImportPreview();
+    const startButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+    await act(async () => {
+      startButton?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const exportButton = renderer.root.findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Export rejected rows");
+    expect(exportButton).toBeDefined();
+    await act(async () => {
+      exportButton?.props.onClick();
+      await Promise.resolve();
+    });
+    expect(mocks.exportImportErrorRows).toHaveBeenCalledWith("artifact-v1");
+  });
+
+  it("renders an ordinary partial failure as failed instead of completed", async () => {
+    mocks.importDataWithProgressOptions.mockResolvedValue({
+      success: false,
+      message: "Malformed CSV at row 2",
+      data: {
+        success: 0,
+        failed: 0,
+        total: 0,
+        errorLogs: [],
+        stoppedOnError: false,
+        outcomeUnknown: false,
+      },
+    });
+    const renderer = await renderImportPreview();
+    const button = renderer.root
+      .findAllByType("button")
+      .find((node) => textContent(node.props.children) === "Start import");
+
+    await act(async () => {
+      button?.props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const renderedText = textContent(renderer.toJSON());
+    expect(renderedText).toContain("Import failed");
+    expect(renderedText).toContain("Malformed CSV at row 2");
+    expect(renderedText).not.toContain("Import completed");
   });
 
   it("disables import until at least one source column is mapped", async () => {
@@ -483,6 +884,15 @@ describe("ImportPreviewModal i18n", () => {
     expect(mocks.previewImportFile).toHaveBeenCalledTimes(1);
     expect(textContent(renderer.toJSON())).toContain("Failed 1 rows");
     expect(textContent(renderer.toJSON())).toContain("Row 12: duplicate key");
+    const errorLogTitle = renderer.root.findByProps({
+      "data-import-preview-error-log-title": "true",
+    });
+    const errorLogPanel = renderer.root.findByProps({
+      "data-import-preview-error-log-panel": "true",
+    });
+    expect(errorLogTitle.props.style.color).toContain("var(--gn-danger");
+    expect(errorLogPanel.props.style.background).toContain("var(--gn-warn-soft");
+    expect(errorLogPanel.props.style.border).toContain("var(--gn-warn");
   });
 
   it("stops an active import by its job id and preserves the partial result", async () => {
@@ -513,8 +923,8 @@ describe("ImportPreviewModal i18n", () => {
       stopButton?.props.onClick();
       await Promise.resolve();
     });
-    expect(mocks.cancelQuery).toHaveBeenCalledTimes(1);
-    expect(mocks.cancelQuery).toHaveBeenCalledWith(importJobId);
+    expect(mocks.cancelImportJob).toHaveBeenCalledTimes(1);
+    expect(mocks.cancelImportJob).toHaveBeenCalledWith(importJobId);
 
     await act(async () => {
       resolveImport({
@@ -546,7 +956,7 @@ describe("ImportPreviewModal i18n", () => {
         resolveImport = resolve;
       }),
     );
-    mocks.cancelQuery.mockImplementation(
+    mocks.cancelImportJob.mockImplementation(
       () => new Promise((resolve) => {
         resolveCancel = resolve;
       }),
@@ -593,7 +1003,7 @@ describe("ImportPreviewModal i18n", () => {
         resolveImport = resolve;
       }),
     );
-    mocks.cancelQuery.mockResolvedValue({ success: false, message: "No running query" });
+    mocks.cancelImportJob.mockResolvedValue({ success: false, message: "No running query" });
     const renderer = await renderImportPreview();
     const startButton = renderer.root
       .findAllByType("button")
@@ -613,7 +1023,7 @@ describe("ImportPreviewModal i18n", () => {
     });
     expect(textContent(renderer.toJSON())).toContain("No running query");
 
-    mocks.cancelQuery.mockResolvedValue({ success: true });
+    mocks.cancelImportJob.mockResolvedValue({ success: true });
     const retryStopButton = renderer.root
       .findAllByType("button")
       .find((node) => textContent(node.props.children) === "Stop import");
@@ -621,7 +1031,7 @@ describe("ImportPreviewModal i18n", () => {
       retryStopButton?.props.onClick();
       await Promise.resolve();
     });
-    expect(mocks.cancelQuery).toHaveBeenCalledTimes(2);
+    expect(mocks.cancelImportJob).toHaveBeenCalledTimes(2);
     expect(textContent(renderer.toJSON())).not.toContain("No running query");
 
     await act(async () => {

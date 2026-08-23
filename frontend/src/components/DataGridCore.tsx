@@ -75,6 +75,13 @@ import {
 import { applyNoAutoCapAttributesWithin, noAutoCapInputProps } from '../utils/inputAutoCap';
 import { DEFAULT_SHORTCUT_OPTIONS, getShortcutPlatform, resolveShortcutDisplay } from '../utils/shortcuts';
 import { formatMongoValueForDisplay } from '../utils/mongodb';
+import { SIDEBAR_SQL_EDITOR_DRAG_MIME, encodeSidebarSqlEditorDragPayload } from '../utils/sidebarSqlDrag';
+import { SQL_FIELD_DRAG_MIME } from '../utils/sqlFieldDrop';
+import {
+    DATA_GRID_COLUMN_ORDER_DRAG_MIME,
+    encodeDataGridColumnOrderDragPayload,
+    shouldBypassDndKitForNativeColumnHeaderDrag,
+} from './dataGridColumnOrder';
 import {
     TEMPORAL_FORMATS,
     formatFromDayjs,
@@ -254,6 +261,30 @@ const collectDataGridCellSelectionRowKeys = (cellKeys: Iterable<string>): string
         rowKeys.add(parsed.rowKey);
     }
     return Array.from(rowKeys);
+};
+const collectDataGridFillTemplateTargetRowKeys = ({
+    selectedRowKeys,
+    selectedCellKeys,
+    sourceRowKey,
+    rowKeyToString,
+}: {
+    selectedRowKeys: Iterable<React.Key>;
+    selectedCellKeys: Iterable<string>;
+    sourceRowKey?: string | null;
+    rowKeyToString: (key: React.Key) => string;
+}): string[] => {
+    const targetRowKeys = new Set<string>();
+    for (const rowKey of selectedRowKeys) {
+        const normalized = rowKeyToString(rowKey);
+        if (normalized) targetRowKeys.add(normalized);
+    }
+    for (const rowKey of collectDataGridCellSelectionRowKeys(selectedCellKeys)) {
+        targetRowKeys.add(rowKey);
+    }
+    if (sourceRowKey !== undefined && sourceRowKey !== null) {
+        targetRowKeys.delete(sourceRowKey);
+    }
+    return Array.from(targetRowKeys);
 };
 export const resolveContextMenuFieldName = (dataIndex: string, title?: string): string => {
     const name = String(dataIndex || title || '').trim();
@@ -758,6 +789,7 @@ const ResizableTitle = React.forwardRef<HTMLTableCellElement, any>((props, ref) 
 // --- Sortable Header Cell ---
 interface SortableHeaderCellProps extends React.HTMLAttributes<HTMLTableCellElement> {
     id?: string;
+    columnOrderDragScope?: string;
 }
 
 // --- Sortable Header Cell ---
@@ -791,7 +823,7 @@ const sortableHeaderStaticStyles = `
 `;
 
 const SortableHeaderCell: React.FC<SortableHeaderCellProps> = React.memo((props) => {
-    const { id, children, style: propStyle, className: propClassName, ...restProps } = props;
+    const { id, children, style: propStyle, className: propClassName, columnOrderDragScope, ...restProps } = props;
     const [isPressed, setIsPressed] = useState(false);
     const {
         attributes,
@@ -849,11 +881,43 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = React.memo((props)
             {...listeners}
             onPointerDown={(e: any) => {
                 setIsPressed(true);
+                if (
+                    (e.target as HTMLElement | null)?.closest?.('.sortable-header-cell-drag-handle')
+                    && shouldBypassDndKitForNativeColumnHeaderDrag(e.pointerType)
+                ) {
+                    return;
+                }
                 if (listeners?.onPointerDown) listeners.onPointerDown(e);
             }}
         >
             <style>{sortableHeaderStaticStyles}</style>
-            <div className="sortable-header-cell-drag-handle" title={t('data_grid.column.drag_tooltip')}>
+            <div
+                className="sortable-header-cell-drag-handle"
+                title={t('data_grid.column.drag_tooltip')}
+                draggable
+                onDragStart={(event) => {
+                    const columnName = String(id || '').trim();
+                    if (!columnName || !event.dataTransfer) return;
+                    event.stopPropagation();
+                    event.dataTransfer.effectAllowed = 'copyMove';
+                    const payload = encodeSidebarSqlEditorDragPayload({
+                        text: columnName,
+                        nodeType: 'column',
+                    });
+                    event.dataTransfer.setData(SIDEBAR_SQL_EDITOR_DRAG_MIME, payload);
+                    event.dataTransfer.setData(SQL_FIELD_DRAG_MIME, columnName);
+                    if (columnOrderDragScope) {
+                        event.dataTransfer.setData(
+                            DATA_GRID_COLUMN_ORDER_DRAG_MIME,
+                            encodeDataGridColumnOrderDragPayload({
+                                scope: columnOrderDragScope,
+                                columnName,
+                            }),
+                        );
+                    }
+                    event.dataTransfer.setData('text/plain', columnName);
+                }}
+            >
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', minWidth: 0, cursor: 'inherit' }}>
                     {children}
                 </div>
@@ -903,7 +967,6 @@ interface EditableCellProps {
   modifiedColumns?: Record<string, Set<string>>;
   rowKeyStr?: (k: React.Key) => string;
   deletedRowKeys?: Set<string>;
-  darkMode?: boolean;
   [key: string]: any;
 }
 
@@ -954,7 +1017,6 @@ const areEditableCellPropsEqual = (prevProps: EditableCellProps, nextProps: Edit
   if ((prevProps.connectionConfig?.type ?? null) !== (nextProps.connectionConfig?.type ?? null)) return false;
   if ((prevProps.connectionConfig?.driver ?? null) !== (nextProps.connectionConfig?.driver ?? null)) return false;
   if ((prevProps.connectionConfig?.oceanBaseProtocol ?? null) !== (nextProps.connectionConfig?.oceanBaseProtocol ?? null)) return false;
-  if (prevProps.darkMode !== nextProps.darkMode) return false;
   if (prevProps.as !== nextProps.as) return false;
   if (prevProps.handleSave !== nextProps.handleSave) return false;
   if (prevProps.focusCell !== nextProps.focusCell) return false;
@@ -998,7 +1060,6 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   modifiedColumns,
   rowKeyStr,
   deletedRowKeys,
-  darkMode,
   ...restProps
 }) => {
   const [editing, setEditing] = useState(false);
@@ -1089,13 +1150,9 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
     ? deletedRowKeys.has(rowKeyStr(record[GONAVI_ROW_KEY]))
     : false;
 
-  const isModified = !editing && modifiedColumns && rowKeyStr && record?.[GONAVI_ROW_KEY] !== undefined
-    ? modifiedColumns[rowKeyStr(record[GONAVI_ROW_KEY])]?.has(dataIndex)
+  const isModified = !editing && !isRowDeleted && modifiedColumns && rowKeyStr && record?.[GONAVI_ROW_KEY] !== undefined
+    ? !!modifiedColumns[rowKeyStr(record[GONAVI_ROW_KEY])]?.has(dataIndex)
     : false;
-
-  const modifiedStyle: React.CSSProperties | undefined = isModified
-    ? { backgroundColor: darkMode ? 'rgba(255, 214, 102, 0.16)' : '#FFF3B0' }
-    : undefined;
 
   if (editable) {
     childNode = editing ? (
@@ -1184,7 +1241,6 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
     ) : (
       <div
         className="editable-cell-value-wrap"
-        style={modifiedStyle}
         onContextMenu={handleContextMenu}
       >
         {children}
@@ -1193,13 +1249,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   } else if (cellContextMenuContext) {
     // 非编辑模式（只读查询结果）也绑定右键菜单，支持复制为 INSERT/JSON/CSV 等操作
     childNode = (
-      <div onContextMenu={handleContextMenu} style={modifiedStyle ? { ...READONLY_CELL_WRAP_STYLE, ...modifiedStyle } : READONLY_CELL_WRAP_STYLE}>
-        {children}
-      </div>
-    );
-  } else if (isModified) {
-    childNode = (
-      <div style={modifiedStyle}>
+      <div onContextMenu={handleContextMenu} style={READONLY_CELL_WRAP_STYLE}>
         {children}
       </div>
     );
@@ -1228,6 +1278,8 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
           {...restProps}
           data-row-key={record ? String(record?.[GONAVI_ROW_KEY]) : undefined}
           data-col-name={dataIndex || undefined}
+          data-cell-modified={isModified ? 'true' : undefined}
+          data-cell-editing={editing && !isRowDeleted ? 'true' : undefined}
           onDoubleClick={editable ? handleDoubleClick : restProps?.onDoubleClick}
       >
           {childNode}
@@ -1337,11 +1389,14 @@ interface DataGridProps {
     resultSql?: string;
     resultExportAllSql?: string;
     dbName?: string;
+    schemaName?: string;
     /** DDL 查询使用的数据库/命名空间；查询结果页不复用列元数据目标。 */
     ddlDbName?: string;
     /** DDL 查询使用的表名；查询结果页仅在该目标明确时显示 DDL 入口。 */
     ddlTableName?: string;
     connectionId?: string;
+    /** Query-result connection params snapshot (for example PostgreSQL search_path). */
+    connectionParamsOverride?: string;
     pkColumns?: string[];
     editLocator?: EditRowLocator;
     readOnly?: boolean;
@@ -1703,6 +1758,7 @@ export {
     makeCellKey,
     splitCellKey,
     collectDataGridCellSelectionRowKeys,
+    collectDataGridFillTemplateTargetRowKeys,
     trimSimpleCache,
     looksLikeDateTimeText,
     normalizeDateTimeString,

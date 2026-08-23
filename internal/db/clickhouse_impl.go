@@ -32,8 +32,10 @@ const (
 	defaultClickHousePort     = 9000
 	defaultClickHouseUser     = "default"
 	defaultClickHouseDatabase = "default"
-	minClickHouseReadTimeout  = 5 * time.Minute
-	clickHouseHTTPPortHint    = "8123/8125/8132/8443"
+	// clickhouse-go replaces a zero ReadTimeout with five minutes. Max duration
+	// keeps context cancellation as the only practical automatic query deadline.
+	clickHouseNoAutomaticReadTimeout = time.Duration(1<<63 - 1)
+	clickHouseHTTPPortHint           = "8123/8125/8132/8443"
 
 	clickHouseProtocolAuto   = "auto"
 	clickHouseProtocolHTTP   = "http"
@@ -179,10 +181,6 @@ func (c *ClickHouseDB) buildClickHouseOptions(config connection.ConnectionConfig
 
 func (c *ClickHouseDB) buildClickHouseOptionsWithHTTPCompatibility(config connection.ConnectionConfig, stripHTTPClientProtocolVersion bool) (*clickhouse.Options, error) {
 	connectTimeout := getConnectTimeout(config)
-	readTimeout := connectTimeout
-	if readTimeout < minClickHouseReadTimeout {
-		readTimeout = minClickHouseReadTimeout
-	}
 	protocol := detectClickHouseProtocol(config)
 	opts := &clickhouse.Options{
 		Protocol: protocol,
@@ -195,7 +193,7 @@ func (c *ClickHouseDB) buildClickHouseOptionsWithHTTPCompatibility(config connec
 			Password: config.Password,
 		},
 		DialTimeout: connectTimeout,
-		ReadTimeout: readTimeout,
+		ReadTimeout: clickHouseNoAutomaticReadTimeout,
 	}
 	tlsConfig, err := resolveGenericTLSConfig(config)
 	if err != nil {
@@ -960,18 +958,7 @@ func (c *ClickHouseDB) QueryContext(ctx context.Context, query string) ([]map[st
 }
 
 func (c *ClickHouseDB) Query(query string) ([]map[string]interface{}, []string, error) {
-	if c.legacyHTTP != nil {
-		return c.legacyHTTP.Query(context.Background(), query)
-	}
-	if c.conn == nil {
-		return nil, nil, fmt.Errorf("连接未打开")
-	}
-	rows, err := c.conn.Query(query)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-	return scanRows(rows)
+	return c.QueryContext(metadataContextFor(c), query)
 }
 
 func (c *ClickHouseDB) StreamQueryContext(ctx context.Context, query string, consumer QueryStreamConsumer) error {
@@ -1431,10 +1418,14 @@ func (c *ClickHouseDB) ApplyChanges(tableName string, changes connection.ChangeS
 		}
 		query := fmt.Sprintf("ALTER TABLE %s DELETE WHERE %s", qualifiedTable, whereExpr)
 		if _, err := c.Exec(query); err != nil {
-			return localizedDatabaseRuntimeError("db.backend.error.clickhouse_delete_failed_with_sql", map[string]any{
+			resultErr := localizedDatabaseRuntimeError("db.backend.error.clickhouse_delete_failed_with_sql", map[string]any{
 				"detail": err.Error(),
 				"sql":    query,
 			})
+			if IsAmbiguousWriteResponse(err) {
+				return MarkWriteOutcomeUnknown(resultErr)
+			}
+			return resultErr
 		}
 	}
 
@@ -1446,10 +1437,14 @@ func (c *ClickHouseDB) ApplyChanges(tableName string, changes connection.ChangeS
 		}
 		query := fmt.Sprintf("ALTER TABLE %s UPDATE %s WHERE %s", qualifiedTable, setExpr, whereExpr)
 		if _, err := c.Exec(query); err != nil {
-			return localizedDatabaseRuntimeError("db.backend.error.clickhouse_update_failed_with_sql", map[string]any{
+			resultErr := localizedDatabaseRuntimeError("db.backend.error.clickhouse_update_failed_with_sql", map[string]any{
 				"detail": err.Error(),
 				"sql":    query,
 			})
+			if IsAmbiguousWriteResponse(err) {
+				return MarkWriteOutcomeUnknown(resultErr)
+			}
+			return resultErr
 		}
 	}
 

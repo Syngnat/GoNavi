@@ -310,6 +310,7 @@ func TestUpsertOpenCodeMCPServerConfigCleansMixedLocalEntry(t *testing.T) {
 }
 
 func TestOpenCodeStatusAndRepairUseMergedGlobalConfigLayers(t *testing.T) {
+	mockLocalMCPClientCommandsDetected(t)
 	originalConfigPathFunc := openCodeConfigPathFunc
 	t.Cleanup(func() { openCodeConfigPathFunc = originalConfigPathFunc })
 
@@ -507,6 +508,7 @@ func TestInspectOpenCodeMCPInstallStatusHonorsEnabledAndCommandShape(t *testing.
 }
 
 func TestAIInstallOpenCodeMCPWritesArgvAndIsIdempotent(t *testing.T) {
+	mockLocalMCPClientCommandsDetected(t)
 	originalConfigPathFunc := openCodeConfigPathFunc
 	originalExecutablePathFunc := localMCPExecutablePathFunc
 	t.Cleanup(func() {
@@ -563,6 +565,7 @@ func TestAIInstallOpenCodeMCPWritesArgvAndIsIdempotent(t *testing.T) {
 }
 
 func TestRepairOpenCodeMCPClientConfigUpdatesOnlyManagedCommand(t *testing.T) {
+	mockLocalMCPClientCommandsDetected(t)
 	originalConfigPathFunc := openCodeConfigPathFunc
 	t.Cleanup(func() { openCodeConfigPathFunc = originalConfigPathFunc })
 
@@ -645,6 +648,7 @@ func TestRepairOpenCodeMCPClientConfigUpdatesOnlyManagedCommand(t *testing.T) {
 }
 
 func TestRepairOpenCodeMCPClientConfigLeavesCustomCommandUntouched(t *testing.T) {
+	mockLocalMCPClientCommandsDetected(t)
 	originalConfigPathFunc := openCodeConfigPathFunc
 	t.Cleanup(func() { openCodeConfigPathFunc = originalConfigPathFunc })
 
@@ -668,6 +672,7 @@ func TestRepairOpenCodeMCPClientConfigLeavesCustomCommandUntouched(t *testing.T)
 }
 
 func TestInspectOpenCodeMCPInstallStatusKeepsMissingCLISignalSeparate(t *testing.T) {
+	disableLocalCLICommandShellFallback(t)
 	originalConfigPathFunc := openCodeConfigPathFunc
 	originalCLIPathFunc := localCLICommandPathFunc
 	t.Cleanup(func() {

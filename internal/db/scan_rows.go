@@ -41,6 +41,12 @@ type queryRowScanner struct {
 	valuePtrs   []interface{}
 }
 
+type queryRowsScanner interface {
+	scanCurrentPreviewRow(*sql.Rows) (map[string]interface{}, error)
+	scanCurrentRow(*sql.Rows) (map[string]interface{}, error)
+	scanCurrentRowValues(*sql.Rows) ([]interface{}, error)
+}
+
 func scanRowsForDialect(rows *sql.Rows, dialect string) ([]map[string]interface{}, []string, error) {
 	return scanRowsForDialectWithPreview(rows, dialect, true)
 }
@@ -62,17 +68,26 @@ func scanRowsForDialectWithPreview(rows *sql.Rows, dialect string, boundOracleLa
 	}
 
 	scanner := newQueryRowScanner(columns, colTypes, dialect)
+	return scanRowsWithScanner(rows, columns, scanner, boundOracleLargeObjects)
+}
+
+func scanRowsWithScanner(rows *sql.Rows, columns []string, scanner queryRowsScanner, boundOracleLargeObjects bool) ([]map[string]interface{}, []string, error) {
 	resultData := make([]map[string]interface{}, 0)
 
+	var rowNumber int64
 	for rows.Next() {
-		var entry map[string]interface{}
+		rowNumber++
+		var (
+			entry map[string]interface{}
+			err   error
+		)
 		if boundOracleLargeObjects {
 			entry, err = scanner.scanCurrentPreviewRow(rows)
 		} else {
 			entry, err = scanner.scanCurrentRow(rows)
 		}
 		if err != nil {
-			continue
+			return resultData, columns, newQueryRowScanError(rowNumber, columns, err)
 		}
 		resultData = append(resultData, entry)
 	}
@@ -100,6 +115,10 @@ func streamRowsForDialect(rows *sql.Rows, dialect string, consumer QueryStreamCo
 	}
 
 	scanner := newQueryRowScanner(columns, colTypes, dialect)
+	return streamRowsWithScanner(rows, columns, consumer, scanner)
+}
+
+func streamRowsWithScanner(rows *sql.Rows, columns []string, consumer QueryStreamConsumer, scanner queryRowsScanner) error {
 	if err := consumer.SetColumns(columns); err != nil {
 		return err
 	}
@@ -110,11 +129,13 @@ func streamRowsForDialect(rows *sql.Rows, dialect string, consumer QueryStreamCo
 	// 主进程的 in-process 流式查询调用，所以一处加 GC 即可覆盖两端。
 	var processedRows int64
 
+	var rowNumber int64
 	for rows.Next() {
+		rowNumber++
 		if useValueConsumer {
 			values, err := scanner.scanCurrentRowValues(rows)
 			if err != nil {
-				continue
+				return newQueryRowScanError(rowNumber, columns, err)
 			}
 			if err := valueConsumer.ConsumeRowValues(values); err != nil {
 				return err
@@ -122,7 +143,7 @@ func streamRowsForDialect(rows *sql.Rows, dialect string, consumer QueryStreamCo
 		} else {
 			entry, err := scanner.scanCurrentRow(rows)
 			if err != nil {
-				continue
+				return newQueryRowScanError(rowNumber, columns, err)
 			}
 			if err := consumer.ConsumeRow(entry); err != nil {
 				return err
@@ -139,6 +160,10 @@ func streamRowsForDialect(rows *sql.Rows, dialect string, consumer QueryStreamCo
 	}
 
 	return rows.Err()
+}
+
+func newQueryRowScanError(rowNumber int64, columns []string, err error) error {
+	return fmt.Errorf("scan query row %d (columns: %s): %w", rowNumber, strings.Join(columns, ", "), err)
 }
 
 func newQueryRowScanner(columns []string, colTypes []*sql.ColumnType, dialect string) *queryRowScanner {

@@ -624,7 +624,9 @@ describe('DataViewer safe editing locator', () => {
     });
     await flushPromises();
 
-    expect(backendApp.DBQuery.mock.calls.some((call: any[]) => /count\s*\(/i.test(String(call[2] || '')))).toBe(true);
+    const countCalls = backendApp.DBQuery.mock.calls.filter((call: any[]) => /count\s*\(/i.test(String(call[2] || '')));
+    expect(countCalls.length).toBeGreaterThan(0);
+    expect(countCalls.every((call: any[]) => Number(call[0]?.queryTimeout) > 0)).toBe(true);
     expect(dataGridState.latestProps?.pagination).toMatchObject({
       total: 500,
       totalKnown: true,

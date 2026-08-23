@@ -15,7 +15,7 @@ import {
     type EditRowLocator,
 } from '../../utils/rowLocator';
 import { getQueryTabDraft, hasQueryTabDraft } from '../../utils/sqlFileTabDrafts';
-import { resolveSqlEditorOperationKeyword } from '../../utils/sqlEditorTransaction';
+import { hasTopLevelSqlEditorForUpdate, resolveSqlEditorOperationKeyword } from '../../utils/sqlEditorTransaction';
 import { getColumnDefinitionKey, getColumnDefinitionName } from '../../utils/columnDefinition';
 import { splitQualifiedNameSegments } from '../../utils/qualifiedName';
 import { resolveUniqueKeyGroupsFromIndexes } from '../dataGridCopyInsert';
@@ -859,6 +859,11 @@ export const normalizeMetadataDialect = (conn: any): string => {
     if (dialect === 'diros' || dialect === 'sphinx' || dialect === 'mariadb' || dialect === 'oceanbase') return 'mysql';
     if (dialect === 'dameng') return 'oracle';
     return String(dialect || '').toLowerCase();
+};
+
+export const resolveQueryEditorConnectionTimeout = (config: Record<string, any>): number => {
+    const rawTimeout = Number(config?.timeout);
+    return Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : 30;
 };
 
 export type QueryEditorMonacoLanguage = 'sql' | 'mysql' | 'elasticsearch-console';
@@ -3078,7 +3083,11 @@ export const resolveQueryLocatorPlan = async ({
         const tableColumns = resCols.data as ColumnDefinition[];
         const tableColumnNames = tableColumns.map(getColumnDefinitionName).filter(Boolean);
         if (tableColumnNames.length === 0) {
-            plan.editLocator = buildQueryReadOnlyLocator(translate('query_editor.message.read_only_system_metadata'));
+            plan.editLocator = isOracleLikeDialect(dbType)
+                && selectInfo.selectsAll
+                && hasTopLevelSqlEditorForUpdate(statement)
+                ? buildAllColumnsLocator([], { translate })
+                : buildQueryReadOnlyLocator(translate('query_editor.message.read_only_system_metadata'));
             return plan;
         }
         let executableStatement = statement;

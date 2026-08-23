@@ -9,6 +9,10 @@ import (
 const (
 	defaultSQLMaxOpenConns    = 4
 	defaultSQLMaxIdleConns    = 1
+	sqliteSQLMaxOpenConns     = 1
+	sqliteSQLMaxIdleConns     = 1
+	duckDBSQLMaxOpenConns     = 4
+	duckDBSQLMaxIdleConns     = 1
 	defaultSQLConnMaxLifetime = 30 * time.Minute
 	defaultSQLConnMaxIdleTime = 30 * time.Second
 	// SQL Server login can be expensive. Keep its single idle connection warm
@@ -28,7 +32,13 @@ func configureSQLConnectionPool(db *sql.DB, dbType string) {
 		return
 	}
 	switch strings.ToLower(strings.TrimSpace(dbType)) {
-	case "sqlite", "duckdb":
+	case "sqlite":
+		db.SetMaxOpenConns(sqliteSQLMaxOpenConns)
+		db.SetMaxIdleConns(sqliteSQLMaxIdleConns)
+		return
+	case "duckdb":
+		db.SetMaxOpenConns(duckDBSQLMaxOpenConns)
+		db.SetMaxIdleConns(duckDBSQLMaxIdleConns)
 		return
 	case "oracle", "oceanbase", "kingbase":
 		db.SetMaxOpenConns(defaultSQLMaxOpenConns)

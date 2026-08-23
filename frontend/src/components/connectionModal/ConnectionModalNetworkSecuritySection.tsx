@@ -9,6 +9,7 @@ import {
   MAX_CONNECTION_KEEPALIVE_SQL_LENGTH,
   supportsConnectionKeepAliveSQL,
 } from "../../utils/connectionReadOnly";
+import { supportsRedisSshTunnel } from "../../utils/redisTopologySsh";
 
 const DEFAULT_KEEPALIVE_INTERVAL_MINUTES = 240;
 const MIN_KEEPALIVE_INTERVAL_MINUTES = 1;
@@ -63,11 +64,23 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
   const keepAliveEnabled = !!Form.useWatch("keepAliveEnabled", form);
   const connectionDriver = Form.useWatch("driver", form);
   const oceanBaseProtocol = Form.useWatch("oceanBaseProtocol", form);
+  // redisTopology 的表单项在「基本」页签内，查看「网络与安全」页签时该字段未注册；
+  // 默认 useWatch 只读已注册字段的值（getFieldsValue()），此时会拿到 undefined 导致
+  // Cluster/Sentinel 的 SSH 门控失效。preserve: true 改为读取含保留值的全量 store。
+  const redisTopology = Form.useWatch("redisTopology", {
+    form,
+    preserve: true,
+  });
   const keepAliveSQLSupported = supportsConnectionKeepAliveSQL({
     type: dbType,
     driver: connectionDriver,
     oceanBaseProtocol: oceanBaseProtocol,
   });
+  // Redis Cluster/Sentinel 与 SSH 组合后端必然拒绝，入口禁用并说明原因；
+  // 其余数据源（含单机 Redis）的 SSH 行为不变。
+  const sshUnavailableForRedisTopology =
+    String(dbType || "").trim().toLowerCase() === "redis" &&
+    !supportsRedisSshTunnel(redisTopology);
 
   const networkItems: Array<{
     key: "ssl" | "ssh" | "proxy" | "httpTunnel";
@@ -75,6 +88,8 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
     description: string;
     enabled: boolean;
     disabledHint: string;
+    unavailable?: boolean;
+    unavailableHint?: string;
   }> = [
     ...(isSSLType
       ? [
@@ -93,6 +108,8 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
       description: t("connection.modal.network.ssh.description"),
       enabled: effectiveUseSSH,
       disabledHint: t("connection.modal.network.ssh.disabledHint"),
+      unavailable: sshUnavailableForRedisTopology,
+      unavailableHint: t("connection.modal.network.ssh.redisTopologyUnsupportedHint"),
     },
     {
       key: "proxy",
@@ -345,6 +362,9 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
           )}
         </div>
       </div>
+      <div className="gn-conn-field-hint gn-ssh-host-key-automatic-hint">
+        {t("connection.modal.network.ssh.hostKeyAutomaticHint")}
+      </div>
       {renderStoredSecretControls({
         fieldName: "sshPassword",
         clearKey: "sshPassword",
@@ -555,6 +575,22 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
 
   const renderNetworkPanelBody = (): ReactNode => {
     if (!activeItem) return null;
+    if (activeItem.unavailable) {
+      return (
+        <div className="empty-hint">
+          <div>{activeItem.unavailableHint}</div>
+          {activeItem.key === "ssh" && activeItem.enabled ? (
+            <Button
+              size="small"
+              style={{ marginTop: 12 }}
+              onClick={() => form.setFieldValue("useSSH", false)}
+            >
+              {t("connection.modal.network.ssh.disableAction")}
+            </Button>
+          ) : null}
+        </div>
+      );
+    }
     if (!activeItem.enabled) {
       return (
         <div className="empty-hint">
@@ -615,6 +651,7 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
               >
                 <Checkbox
                   className="gn-check"
+                  disabled={!!item.unavailable}
                   onClick={(event) => {
                     // 勾选时保留在当前行，同时展开详情
                     event.stopPropagation();
@@ -626,10 +663,12 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
                 <div className="nt">{item.title}</div>
                 <div className="nd">{item.description}</div>
               </div>
-              <span className={`st${item.enabled ? " on" : ""}`}>
-                {item.enabled
-                  ? t("connection.modal.network.enabled")
-                  : t("connection.modal.network.notEnabled")}
+              <span className={`st${item.enabled && !item.unavailable ? " on" : ""}`}>
+                {item.unavailable
+                  ? t("connection.modal.network.unsupported")
+                  : item.enabled
+                    ? t("connection.modal.network.enabled")
+                    : t("connection.modal.network.notEnabled")}
               </span>
             </div>
           );
@@ -640,7 +679,9 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
         <div className="gn-conn-net-detail">
           <h4>
             {activeItem.title}
-            {activeItem.enabled ? (
+            {activeItem.unavailable ? (
+              <span>· {t("connection.modal.network.unsupported")}</span>
+            ) : activeItem.enabled ? (
               <span className="on">· {t("connection.modal.network.enabled")}</span>
             ) : null}
           </h4>

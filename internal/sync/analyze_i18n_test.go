@@ -42,7 +42,6 @@ func assertNoLegacyAnalyzeChinese(t *testing.T, text string) {
 	}
 }
 
-
 func TestAnalyzeCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -232,11 +231,6 @@ func TestAnalyzeUsesCurrentLanguageForReadAndPKMessages(t *testing.T) {
 		{Name: "id", Type: "bigint", Nullable: "NO"},
 		{Name: "name", Type: "varchar(64)", Nullable: "YES"},
 	}
-	compositePKCols := []connection.ColumnDefinition{
-		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
-		{Name: "tenant_id", Type: "bigint", Nullable: "NO", Key: "PRI"},
-		{Name: "name", Type: "varchar(64)", Nullable: "YES"},
-	}
 	singlePKCols := []connection.ColumnDefinition{
 		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
 		{Name: "name", Type: "varchar(64)", Nullable: "YES"},
@@ -289,28 +283,6 @@ func TestAnalyzeUsesCurrentLanguageForReadAndPKMessages(t *testing.T) {
 				},
 			},
 			wantKey: "data_sync.backend.error.diff_pk_required",
-		},
-		{
-			name: "composite primary key unsupported",
-			sourceDB: &fakeMigrationDB{
-				columns: map[string][]connection.ColumnDefinition{
-					"app.users": compositePKCols,
-				},
-				queryData: map[string][]map[string]interface{}{
-					countQuery: {
-						{"__gonavi_count__": 2},
-					},
-				},
-			},
-			targetDB: &fakeMigrationDB{
-				columns: map[string][]connection.ColumnDefinition{
-					"app.users": compositePKCols,
-				},
-			},
-			wantKey: "data_sync.backend.error.diff_composite_pk_unsupported",
-			wantParams: map[string]any{
-				"columns": "id,tenant_id",
-			},
 		},
 	}
 

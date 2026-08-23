@@ -1,6 +1,59 @@
 package redis
 
-import "GoNavi-Wails/internal/connection"
+import (
+	"context"
+	"reflect"
+	"sync"
+
+	"GoNavi-Wails/internal/connection"
+)
+
+var metadataContexts sync.Map
+
+type metadataContextKey struct {
+	typ reflect.Type
+	ptr uintptr
+}
+
+func metadataContextKeyFor(client any) (metadataContextKey, bool) {
+	value := reflect.ValueOf(client)
+	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+		return metadataContextKey{}, false
+	}
+	return metadataContextKey{typ: value.Type(), ptr: value.Pointer()}, true
+}
+
+// BindMetadataContext 将独立 Redis 客户端与请求上下文关联。
+func BindMetadataContext(client RedisClient, ctx context.Context) {
+	key, ok := metadataContextKeyFor(client)
+	if !ok || ctx == nil {
+		return
+	}
+	metadataContexts.Store(key, ctx)
+}
+
+// ClearMetadataContext 移除元数据调用创建的上下文关联。
+func ClearMetadataContext(client RedisClient) {
+	if key, ok := metadataContextKeyFor(client); ok {
+		metadataContexts.Delete(key)
+	}
+}
+
+// MetadataContext 返回绑定到隔离元数据客户端的请求上下文。
+func MetadataContext(client RedisClient) context.Context {
+	return metadataContextFor(client)
+}
+
+func metadataContextFor(client any) context.Context {
+	if key, ok := metadataContextKeyFor(client); ok {
+		if ctx, ok := metadataContexts.Load(key); ok {
+			if requestCtx, ok := ctx.(context.Context); ok && requestCtx != nil {
+				return requestCtx
+			}
+		}
+	}
+	return context.Background()
+}
 
 // RedisValue represents a Redis value with its type and metadata
 type RedisValue struct {

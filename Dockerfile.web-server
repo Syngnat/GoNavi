@@ -14,6 +14,9 @@ COPY frontend/patches ./patches
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
 COPY shared/ /src/shared/
+# The frontend also imports the backend-owned capability registry so both
+# runtimes use the same support matrix.
+COPY internal/db/data_source_capability_contract.json /src/internal/db/data_source_capability_contract.json
 # wailsjs 绑定已入库；容器内只构建静态前端
 RUN npm run build
 

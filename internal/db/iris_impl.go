@@ -174,7 +174,7 @@ func (i *IrisDB) QueryMulti(query string) ([]connection.ResultSetData, error) {
 	if i.conn == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	rows, err := i.conn.Query(query)
+	rows, err := i.conn.QueryContext(metadataContextFor(i), query)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (i *IrisDB) Query(query string) ([]map[string]interface{}, []string, error)
 	if i.conn == nil {
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
-	rows, err := i.conn.Query(query)
+	rows, err := i.conn.QueryContext(metadataContextFor(i), query)
 	if err != nil {
 		return nil, nil, err
 	}

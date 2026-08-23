@@ -178,13 +178,13 @@ func (k *KafkaDB) Ping() error {
 	if k.runtime == nil {
 		return fmt.Errorf("连接未打开")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(k), 10*time.Second)
 	defer cancel()
 	return k.runtime.Ping(ctx)
 }
 
 func (k *KafkaDB) Query(query string) ([]map[string]interface{}, []string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultKafkaQueryTimeout)
+	ctx, cancel := context.WithTimeout(metadataContextFor(k), defaultKafkaQueryTimeout)
 	defer cancel()
 	return k.QueryContext(ctx, query)
 }
@@ -297,7 +297,7 @@ func (k *KafkaDB) GetTables(dbName string) ([]string, error) {
 	if k.runtime == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(k), 10*time.Second)
 	defer cancel()
 	topics, err := k.runtime.ListTopics(ctx, false)
 	if err != nil {
@@ -317,7 +317,7 @@ func (k *KafkaDB) GetCreateStatement(dbName, tableName string) (string, error) {
 	if k.runtime == nil {
 		return "", fmt.Errorf("连接未打开")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(k), 10*time.Second)
 	defer cancel()
 	description, err := k.runtime.DescribeTopic(ctx, kafkaResolveTopic(tableName, k.defaultTopic))
 	if err != nil {
@@ -335,17 +335,6 @@ func (k *KafkaDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefin
 	if topic == "" {
 		return nil, fmt.Errorf("Kafka topic 不能为空")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	records, err := k.runtime.FetchMessages(ctx, kafkaFetchRequest{
-		Topic:  topic,
-		Limit:  20,
-		Latest: false,
-	})
-	if err != nil {
-		return nil, err
-	}
-	rows := kafkaMessageRows(records)
 	columns := []connection.ColumnDefinition{
 		{Name: "topic", Type: "string", Nullable: "NO", Comment: "Kafka topic"},
 		{Name: "partition", Type: "int", Nullable: "NO", Key: "PRI", Comment: "Kafka partition id"},
@@ -358,27 +347,6 @@ func (k *KafkaDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefin
 		{Name: "key_size", Type: "int", Nullable: "YES", Comment: "Message key size in bytes"},
 		{Name: "value_size", Type: "int", Nullable: "YES", Comment: "Message value size in bytes"},
 	}
-	seen := map[string]struct{}{
-		"topic": {}, "partition": {}, "offset": {}, "timestamp": {}, "high_water_mark": {},
-		"key": {}, "value": {}, "headers": {}, "key_size": {}, "value_size": {},
-	}
-	for _, row := range rows {
-		for key, value := range row {
-			if _, exists := seen[key]; exists {
-				continue
-			}
-			if !strings.HasPrefix(key, "headers.") && !strings.HasPrefix(key, "key.") && !strings.HasPrefix(key, "value.") {
-				continue
-			}
-			seen[key] = struct{}{}
-			columns = append(columns, connection.ColumnDefinition{
-				Name:     key,
-				Type:     inferChromaValueType(value),
-				Nullable: "YES",
-				Comment:  "Derived Kafka field",
-			})
-		}
-	}
 	return columns, nil
 }
 
@@ -388,9 +356,11 @@ func (k *KafkaDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWit
 		return nil, err
 	}
 	var result []connection.ColumnDefinitionWithTable
+	var failures []MetadataObjectFailure
 	for _, table := range tables {
 		cols, err := k.GetColumns(dbName, table)
 		if err != nil {
+			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: err})
 			continue
 		}
 		for _, col := range cols {
@@ -402,14 +372,14 @@ func (k *KafkaDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWit
 			})
 		}
 	}
-	return result, nil
+	return result, NewPartialMetadataError(failures)
 }
 
 func (k *KafkaDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
 	if k.runtime == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(k), 10*time.Second)
 	defer cancel()
 	description, err := k.runtime.DescribeTopic(ctx, kafkaResolveTopic(tableName, k.defaultTopic))
 	if err != nil {
@@ -705,8 +675,10 @@ func newKafkaGoRuntime(config connection.ConnectionConfig) (kafkaRuntime, error)
 		SASL:        mechanism,
 	}
 	client := &kafka.Client{
-		Addr:      kafka.TCP(brokers...),
-		Timeout:   timeout,
+		Addr: kafka.TCP(brokers...),
+		// Client.Timeout is a per-request deadline. Keep it unset so the
+		// caller's context (including an explicit queryTimeout) owns it.
+		Timeout:   0,
 		Transport: transport,
 	}
 	return &kafkaGoRuntime{
@@ -1060,12 +1032,12 @@ type kafkaParsedSQL struct {
 }
 
 var (
-	kafkaSQLFromRE        = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
-	kafkaSQLLimitRE       = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
-	kafkaSQLOffsetRE      = regexp.MustCompile(`(?i)\bOFFSET\s+(\d+)`)
-	kafkaShowTopicsRE     = regexp.MustCompile(`(?i)^\s*SHOW\s+TOPICS(?:\s+LIMIT\s+(\d+))?\s*$`)
-	kafkaDescribeTopicRE  = regexp.MustCompile(`(?i)^\s*(?:SHOW|DESCRIBE)\s+TOPIC\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))\s*$`)
-	kafkaConsumeTopicRE   = regexp.MustCompile(`(?i)^\s*CONSUME(?:\s+GROUP\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+)))?\s+FROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
+	kafkaSQLFromRE       = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
+	kafkaSQLLimitRE      = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
+	kafkaSQLOffsetRE     = regexp.MustCompile(`(?i)\bOFFSET\s+(\d+)`)
+	kafkaShowTopicsRE    = regexp.MustCompile(`(?i)^\s*SHOW\s+TOPICS(?:\s+LIMIT\s+(\d+))?\s*$`)
+	kafkaDescribeTopicRE = regexp.MustCompile(`(?i)^\s*(?:SHOW|DESCRIBE)\s+TOPIC\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))\s*$`)
+	kafkaConsumeTopicRE  = regexp.MustCompile(`(?i)^\s*CONSUME(?:\s+GROUP\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+)))?\s+FROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
 )
 
 func parseKafkaSQL(sqlText string, defaultLatest bool) (kafkaParsedSQL, bool) {

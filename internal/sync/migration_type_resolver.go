@@ -10,6 +10,8 @@ func normalizeMigrationDBType(dbType string) string {
 	switch normalized {
 	case "doris":
 		return "diros"
+	case "goldendb", "greatdb", "gdb":
+		return "mysql"
 	case "postgresql":
 		return "postgres"
 	case "mssql", "sql_server", "sql-server":

@@ -61,6 +61,7 @@ const REQUIRED_PROVIDER_FORM_KEYS = [
 
 const providerPresets = [
   { key: 'openai', label: 'OpenAI', icon: <span>O</span>, desc: 'GPT', defaultBaseUrl: 'https://api.openai.com/v1' },
+  { key: 'deepseek', label: 'DeepSeek', icon: <span>D</span>, desc: 'DeepSeek', defaultBaseUrl: 'https://api.deepseek.com' },
   { key: 'codex', label: 'Codex Subscription', icon: <span>X</span>, desc: 'Codex CLI', defaultBaseUrl: '', authMode: 'local-cli' as const },
   { key: 'claude-subscription', label: 'Claude Subscription', icon: <span>A</span>, desc: 'Claude Code CLI', defaultBaseUrl: '', authMode: 'local-cli' as const },
   { key: 'codebuddy', label: 'CodeBuddy', icon: <span>B</span>, desc: 'CodeBuddy CLI', defaultBaseUrl: '' },
@@ -223,6 +224,49 @@ describe('AISettingsProvidersSection', () => {
     expect(markup).toContain('API format');
     expect(markup).toContain('OpenAI Chat');
     expect(markup).toContain('OpenAI Responses');
+  });
+
+  it('renders Chat and Responses protocol choices for the DeepSeek preset', () => {
+    const Wrap = () => {
+      const [form] = Form.useForm();
+      return (
+        <AISettingsProvidersSection
+          providers={[provider]}
+          activeProviderId="provider-1"
+          editingProvider={{ ...provider, name: 'DeepSeek', model: 'deepseek-v4-flash', apiFormat: 'openai-responses' }}
+          isEditing
+          form={form}
+          providerPresets={providerPresets}
+          watchedPresetKey="deepseek"
+          watchedApiFormat="openai-responses"
+          loading={false}
+          testStatus="idle"
+          primaryPasswordVisible={false}
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          cardBg="#fff"
+          cardBorder="rgba(0,0,0,0.08)"
+          inputBg="#fff"
+          onPrimaryPasswordVisibleChange={() => {}}
+          resolveProviderPreset={() => ({ label: 'DeepSeek', icon: <span>D</span> })}
+          resolvePresetByKey={(key) => providerPresets.find((item) => item.key === key) || providerPresets[0]}
+          onAddProvider={() => {}}
+          onEditProvider={() => {}}
+          onDeleteProvider={() => {}}
+          onSetActiveProvider={() => {}}
+          onCancelEdit={() => {}}
+          onPresetChange={() => {}}
+          onTestProvider={() => {}}
+          onSaveProvider={() => {}}
+        />
+      );
+    };
+
+    const markup = renderToStaticMarkup(<Wrap />);
+    expect(markup).toContain('API format');
+    expect(markup).toContain('OpenAI Chat');
+    expect(markup).toContain('OpenAI Responses');
+    expect(markup).toContain('role="radio" aria-checked="true"');
   });
 
   it('uses catalog keys for provider list and form chrome', () => {

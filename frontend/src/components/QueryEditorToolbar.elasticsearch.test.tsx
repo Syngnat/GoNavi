@@ -34,11 +34,15 @@ vi.mock('antd', () => ({
 vi.mock('@ant-design/icons', () => {
   const Icon = () => <span />;
   return {
+    BulbOutlined: Icon,
+    CheckOutlined: Icon,
+    DatabaseOutlined: Icon,
     DiffOutlined: Icon,
     DownOutlined: Icon,
     EyeInvisibleOutlined: Icon,
     EyeOutlined: Icon,
     EllipsisOutlined: Icon,
+    FileTextOutlined: Icon,
     FormatPainterOutlined: Icon,
     PlayCircleOutlined: Icon,
     RobotOutlined: Icon,
@@ -46,6 +50,7 @@ vi.mock('@ant-design/icons', () => {
     SaveOutlined: Icon,
     SettingOutlined: Icon,
     StopOutlined: Icon,
+    ThunderboltOutlined: Icon,
   };
 });
 
@@ -108,6 +113,24 @@ const buildProps = (overrides: Record<string, unknown> = {}) => ({
 const menuKeys = (): string[] => antdState.dropdownProps.flatMap((props) => (
   (props.menu?.items || []).flatMap((item: any) => item?.key ? [String(item.key)] : [])
 ));
+
+const menuItems = (): any[] => antdState.dropdownProps.flatMap((props) => props.menu?.items || []);
+
+const formatDropdown = () => [...antdState.dropdownProps]
+  .reverse()
+  .find((props) => props.menu?.selectable === true);
+
+const findMenuItem = (key: string): any => {
+  const visit = (items: any[]): any => {
+    for (const item of items) {
+      if (item?.key === key) return item;
+      const child = Array.isArray(item?.children) ? visit(item.children) : undefined;
+      if (child) return child;
+    }
+    return undefined;
+  };
+  return visit(formatDropdown()?.menu?.items || []);
+};
 
 const buttonByLabel = (label: string) => [...antdState.buttonProps]
   .reverse()
@@ -193,6 +216,122 @@ describe('QueryEditorToolbar Elasticsearch mode', () => {
     expect(buttonByLabel('query_editor.action.more')).toBeDefined();
     expect(buttonByLabel('query_editor.elasticsearch.action.run_all')).toBeUndefined();
     expect(JSON.stringify(renderer?.toJSON())).toContain('pending transaction');
+  });
+
+  it('uses dividers instead of group headings and supplies icons for SQL action items', () => {
+    act(() => {
+      renderer = create(<QueryEditorToolbar {...buildProps()} />);
+    });
+
+    const items = menuItems();
+    expect(items.some((item) => item?.type === 'group')).toBe(false);
+    expect(items.some((item) => item?.type === 'divider')).toBe(true);
+    expect(items.filter((item) => item?.key).every((item) => item.icon)).toBe(true);
+  });
+
+  it('marks the active keyword case in the format menu', () => {
+    act(() => {
+      renderer = create(<QueryEditorToolbar {...buildProps({
+        formatSettingsMenu: [
+          {
+            type: 'group',
+            key: 'format-actions',
+            children: [
+              { key: 'upper', label: 'upper' },
+              { key: 'lower', label: 'lower' },
+            ],
+          },
+        ],
+        formatSettingsSelectedKeys: ['upper'],
+      })} />);
+    });
+
+    expect(formatDropdown()?.menu).toMatchObject({
+      selectable: true,
+      selectedKeys: ['upper'],
+    });
+    expect(findMenuItem('upper').extra.props).toMatchObject({
+      'aria-label': 'selected',
+    });
+    expect(findMenuItem('lower').extra).toBeUndefined();
+
+    act(() => {
+      renderer?.update(<QueryEditorToolbar {...buildProps({
+        formatSettingsMenu: [
+          {
+            type: 'group',
+            key: 'format-actions',
+            children: [
+              { key: 'upper', label: 'upper' },
+              { key: 'lower', label: 'lower' },
+            ],
+          },
+        ],
+        formatSettingsSelectedKeys: ['lower'],
+      })} />);
+    });
+
+    expect(formatDropdown()?.menu).toMatchObject({
+      selectable: true,
+      selectedKeys: ['lower'],
+    });
+    expect(findMenuItem('upper').extra).toBeUndefined();
+    expect(findMenuItem('lower').extra.props).toMatchObject({
+      'aria-label': 'selected',
+    });
+  });
+
+  it('shows a searchable schema selector for PostgreSQL query contexts', () => {
+    const onSchemaChange = vi.fn();
+
+    act(() => {
+      renderer = create(<QueryEditorToolbar {...buildProps({
+        currentConnectionId: 'pg-1',
+        currentDb: 'analytics',
+        queryCapableConnections: [{
+          id: 'pg-1',
+          name: 'PostgreSQL',
+          config: { type: 'postgres' },
+        } as any],
+        schemaSelect: {
+          value: 'sales',
+          options: ['public', 'sales'],
+          loading: false,
+          disabled: false,
+          onChange: onSchemaChange,
+        },
+      })} />);
+    });
+
+    expect(antdState.selectProps).toHaveLength(4);
+    expect(antdState.selectProps[2]).toMatchObject({
+      className: expect.stringContaining('gn-v2-query-toolbar-schema-select'),
+      value: 'sales',
+      loading: false,
+      disabled: false,
+      showSearch: true,
+      options: [
+        { label: 'public', value: 'public' },
+        { label: 'sales', value: 'sales' },
+      ],
+    });
+
+    act(() => {
+      antdState.selectProps[2].onChange('public');
+    });
+    expect(onSchemaChange).toHaveBeenCalledWith('public');
+  });
+
+  it('disables SQL connection context selectors while the transaction context is locked', () => {
+    act(() => {
+      renderer = create(<QueryEditorToolbar {...buildProps({
+        contextSelectionDisabled: true,
+      })} />);
+    });
+
+    expect(antdState.selectProps[0]).toMatchObject({ disabled: true });
+    expect(antdState.selectProps[1]).toMatchObject({ disabled: true });
+    expect(antdState.selectProps[2]?.disabled).not.toBe(true);
   });
 
   it('shows a working stop action while an ES request is running', () => {

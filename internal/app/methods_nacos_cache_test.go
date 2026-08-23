@@ -318,6 +318,18 @@ func TestGetNacosClientCacheKeyIncludesAuthenticationAndTLSIdentity(t *testing.T
 				config.SSH.KeyPath = "C:/keys/nacos-b.pem"
 			},
 		},
+		{
+			name: "SSH known_hosts path",
+			mutate: func(config *connection.ConnectionConfig) {
+				config.SSH.KnownHostsPath = "/tmp/other-known-hosts"
+			},
+		},
+		{
+			name: "SSH host key fingerprint",
+			mutate: func(config *connection.ConnectionConfig) {
+				config.SSH.HostKeyFingerprint = "SHA256:other-host-key"
+			},
+		},
 	}
 	for _, testCase := range sshTests {
 		t.Run(testCase.name, func(t *testing.T) {

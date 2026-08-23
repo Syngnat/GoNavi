@@ -1,0 +1,43 @@
+download.syngnat.top {
+	root * /srv/gonavi-downloads
+
+	@health path /healthz
+	handle @health {
+		header {
+			Cache-Control "no-store"
+			Content-Type "application/json; charset=utf-8"
+			X-Content-Type-Options "nosniff"
+		}
+		file_server
+	}
+
+	@mutable path \
+		/gonavi/releases/latest/* \
+		/gonavi/dev/releases/latest/* \
+		/drivers/releases/latest/* \
+		/drivers/dev/releases/latest/*
+	handle @mutable {
+		header {
+			Cache-Control "no-store, no-cache, must-revalidate"
+			Pragma "no-cache"
+			X-Content-Type-Options "nosniff"
+		}
+		file_server
+	}
+
+	@immutable path \
+		/gonavi/releases/download/* \
+		/gonavi/dev/releases/download/* \
+		/drivers/releases/download/* \
+		/drivers/dev/releases/download/*
+	handle @immutable {
+		header {
+			Cache-Control "public, max-age=31536000, immutable"
+			Accept-Ranges "bytes"
+			X-Content-Type-Options "nosniff"
+		}
+		file_server
+	}
+
+	respond 404
+}

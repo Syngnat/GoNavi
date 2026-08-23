@@ -8,6 +8,7 @@ import DataGrid, {
   buildColumnMetaMap,
   buildDataGridCommitChangeSet,
   collectDataGridCellSelectionRowKeys,
+  collectDataGridFillTemplateTargetRowKeys,
   formatCellDisplayText,
   GONAVI_ROW_KEY,
   hasDataGridVirtualEditRenderVersionChanged,
@@ -243,6 +244,8 @@ vi.mock('@ant-design/icons', () => {
     NodeIndexOutlined: Icon,
     ThunderboltOutlined: Icon,
     FormatPainterOutlined: Icon,
+    SelectOutlined: Icon,
+    SnippetsOutlined: Icon,
   };
 });
 
@@ -566,6 +569,19 @@ describe('DataGrid cell selection row keys', () => {
       'malformed-cell-key',
       '\u0001empty-row-key',
     ])).toEqual(['row-1', 'row-2', 'row-3', 'row-4', 'row-5', 'row-6']);
+  });
+
+  it('merges checked and cell-selected rows while excluding the fill-template source row', () => {
+    expect(collectDataGridFillTemplateTargetRowKeys({
+      selectedRowKeys: ['row-1', 'row-2', 'row-2'],
+      selectedCellKeys: [
+        'row-1\u0001name',
+        'row-3\u0001id',
+        'row-3\u0001name',
+      ],
+      sourceRowKey: 'row-1',
+      rowKeyToString: String,
+    })).toEqual(['row-2', 'row-3']);
   });
 });
 
@@ -1057,6 +1073,51 @@ describe('DataGrid DDL interactions', () => {
     vi.unstubAllGlobals();
   });
 
+  it('toggles one row when its row number cell is clicked', async () => {
+    storeState.appearance.uiVersion = 'v2';
+    const rows = [
+      { [GONAVI_ROW_KEY]: 'row-1', id: 1 },
+      { [GONAVI_ROW_KEY]: 'row-2', id: 2 },
+    ];
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          showRowNumberColumn
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const rowNumberColumn = testRenderState.latestColumns.find(
+      (column) => column.key === '__gonavi_row_number__',
+    );
+    const stopPropagation = vi.fn();
+    await act(async () => {
+      rowNumberColumn.onCell(rows[1], 1).onClick({ stopPropagation });
+    });
+    await waitForEffects();
+
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    expect(testRenderState.latestTableProps.rowHoverable).toBe(false);
+    expect(testRenderState.latestTableProps.rowSelection.selectedRowKeys).toEqual(['row-2']);
+
+    await act(async () => {
+      rowNumberColumn.onCell(rows[1], 1).onClick({ stopPropagation });
+    });
+    await waitForEffects();
+
+    expect(stopPropagation).toHaveBeenCalledTimes(2);
+    expect(testRenderState.latestTableProps.rowSelection.selectedRowKeys).toEqual([]);
+    renderer!.unmount();
+  });
+
   it.each(['legacy', 'v2'] as const)(
     'opens the referenced table DDL from a %s query result',
     async (uiVersion) => {
@@ -1521,6 +1582,7 @@ describe('DataGrid DDL interactions', () => {
     const toolbar = renderer!.root.findByType(DataGridToolbarFrame);
     expect(toolbar.props.cellEditMode).toBe(true);
     expect(toolbar.props.selectedCellsSize).toBe(1);
+    expect(toolbar.props.fillTemplateTargetRowCount).toBe(0);
     expect(toolbar.props.deleteTargetRowCount).toBe(0);
     expect(findButton(renderer!, t('data_grid.toolbar.delete_selected')).props.disabled).toBe(true);
     renderer!.unmount();
@@ -2133,7 +2195,7 @@ describe('DataGrid DDL interactions', () => {
     expect(content).toContain(t('data_grid.context_menu.paste_row_as_new_count', { count: 2 }));
     expect(content).toContain(t('data_grid.context_menu.fill_to_selected_rows', { count: '3' }));
     expect(content).toContain(t('data_grid.context_menu.paste_copied_columns'));
-    ['未命名字段', '当前行', '当前单元格', '复制字段名称', '编辑', '设置为 NULL', '编辑本行', '复制本行为新增行', '粘贴为新增行', '填充到选中行', '粘贴已复制列'].forEach((rawSnippet) => {
+    ['未命名字段', '当前行', '当前单元格', '复制字段名称', '编辑', '设置为 NULL', '编辑本行', '复制本行为新增行', '粘贴为新增行', '填充到选中行', '将填充模板应用到此行'].forEach((rawSnippet) => {
       expect(content).not.toContain(rawSnippet);
     });
     renderer.unmount();
@@ -2545,6 +2607,98 @@ describe('DataGrid DDL interactions', () => {
     const viewerTitle = t('data_grid.cell_viewer.title_with_column', { column: 'payload' });
     const viewer = renderer!.root.findByProps({ 'data-modal-title': viewerTitle });
     expect(textContent(viewer.findByProps({ 'data-monaco-editor': 'true' }))).toBe('pending edited value');
+    renderer!.unmount();
+  });
+
+  it('marks the whole cell only after an inline edit becomes pending', async () => {
+    storeState.appearance.uiVersion = 'v2';
+    const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'original value' }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id', 'payload']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          editLocator={{
+            strategy: 'primary-key',
+            columns: ['id'],
+            valueColumns: ['id'],
+            readOnly: false,
+            writableColumns: {
+              id: 'id',
+              payload: 'payload',
+            },
+          }}
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const getPayloadCellState = () => {
+      const record = testRenderState.latestTableProps.dataSource[0];
+      const column = testRenderState.latestColumns.find((item) => item.key === 'payload');
+      return { record, column, cellProps: column.onCell(record) };
+    };
+    const openPayloadEditor = async () => {
+      const doubleClickSurface = renderer!.root.findAll(
+        (node) => typeof node.props.onDoubleClickCapture === 'function',
+      )[0];
+      await act(async () => {
+        doubleClickSurface.props.onDoubleClickCapture({
+          target: createRenderedCellTarget('row-1', 'payload'),
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        });
+      });
+      return getPayloadCellState();
+    };
+    const blurPayloadEditor = async (nextValue: string) => {
+      const { record, column } = getPayloadCellState();
+      const editingCell = create(<div>{column.render(record.payload, record, 0)}</div>);
+      const blur = editingCell.root.findByProps({ className: 'data-grid-inline-editor-input' }).props.onBlur;
+      testRenderState.formGetFieldValue.mockReturnValue(nextValue);
+      await act(async () => {
+        blur();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      editingCell.unmount();
+      await waitForEffects();
+      return getPayloadCellState();
+    };
+
+    let cellState = getPayloadCellState();
+    expect(cellState.cellProps['data-cell-modified']).toBeUndefined();
+
+    cellState = await openPayloadEditor();
+    expect(cellState.cellProps['data-cell-modified']).toBeUndefined();
+    expect(cellState.cellProps['data-cell-editing']).toBe('true');
+
+    cellState = await blurPayloadEditor('pending edited value');
+    expect(cellState.cellProps['data-cell-modified']).toBe('true');
+    expect(cellState.cellProps['data-cell-editing']).toBeUndefined();
+
+    const pendingCell = cellState.column.render(cellState.record.payload, cellState.record, 0);
+    expect(pendingCell?.props?.style?.backgroundColor).toBeUndefined();
+
+    cellState = await openPayloadEditor();
+    expect(cellState.cellProps['data-cell-modified']).toBeUndefined();
+    expect(cellState.cellProps['data-cell-editing']).toBe('true');
+
+    cellState = await blurPayloadEditor('pending edited value');
+    expect(cellState.cellProps['data-cell-modified']).toBe('true');
+    expect(cellState.cellProps['data-cell-editing']).toBeUndefined();
+
+    await openPayloadEditor();
+    cellState = await blurPayloadEditor('original value');
+    expect(cellState.record.payload).toBe('original value');
+    expect(cellState.cellProps['data-cell-modified']).toBeUndefined();
+    expect(cellState.cellProps['data-cell-editing']).toBeUndefined();
     renderer!.unmount();
   });
 
@@ -3845,7 +3999,7 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
-  it('auto commits pending table edits after the configured delay', async () => {
+  it('auto commits pending table edits with the query result connection params override', async () => {
     vi.useFakeTimers();
     storeState.appearance.uiVersion = 'v2';
     storeState.dataEditTransactionOptions = {
@@ -3874,6 +4028,7 @@ describe('DataGrid DDL interactions', () => {
           tableName="users"
           dbName="main"
           connectionId="conn-1"
+          connectionParamsOverride={'application_name=gonavi&search_path=%22sales%22%2C%22public%22'}
           pkColumns={['id']}
         />,
       );
@@ -3937,6 +4092,10 @@ describe('DataGrid DDL interactions', () => {
     });
 
     expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    const appliedConfig = backendApp.ApplyChanges.mock.calls[0][0];
+    const appliedConnectionParams = new URLSearchParams(String(appliedConfig?.connectionParams || ''));
+    expect(appliedConnectionParams.get('application_name')).toBe('gonavi');
+    expect(appliedConnectionParams.get('search_path')).toBe('"sales","public"');
     expect(backendApp.ApplyChanges.mock.calls[0][3]).toMatchObject({
       inserts: [
         expect.objectContaining({

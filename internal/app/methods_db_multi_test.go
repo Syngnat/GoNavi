@@ -15,30 +15,33 @@ import (
 )
 
 type fakeBatchWriteDB struct {
-	batchCalls   int
-	execCalls    int
-	pingCalls    int
-	execQueries  []string
-	lastQuery    string
-	lastCtx      context.Context
-	queryCalls   int
-	queryQueries []string
-	queryMap     map[string][]map[string]interface{}
-	fieldMap     map[string][]string
-	messageMap   map[string][]string
-	multiResult  map[string][]connection.ResultSetData
-	queryErr     map[string]error
-	execErr      map[string]error
-	execAffected map[string]int64
-	execDelay    map[string]time.Duration
-	execStarted  chan<- string
-	execRelease  <-chan struct{}
-	session      *fakeBatchWriteSession
+	batchCalls        int
+	execCalls         int
+	pingCalls         int
+	execQueries       []string
+	lastQuery         string
+	lastCtx           context.Context
+	queryCalls        int
+	queryQueries      []string
+	queryMap          map[string][]map[string]interface{}
+	fieldMap          map[string][]string
+	messageMap        map[string][]string
+	multiResult       map[string][]connection.ResultSetData
+	queryErr          map[string]error
+	execErr           map[string]error
+	execAffected      map[string]int64
+	batchErr          error
+	execDelay         map[string]time.Duration
+	execStarted       chan<- string
+	execRelease       <-chan struct{}
+	execIgnoreContext bool
+	session           *fakeBatchWriteSession
 }
 
 type fakeNativeMultiResultDB struct {
 	*fakeBatchWriteDB
-	multiCalls int
+	multiCalls       int
+	partialResultErr map[string]error
 }
 
 type fakeEmptyNativeMultiResultDB struct {
@@ -68,7 +71,7 @@ func (f *fakeNativeMultiResultDB) QueryMultiContextWithMessages(ctx context.Cont
 		return nil, nil, err
 	}
 	if multi := f.multiResult[query]; len(multi) > 0 {
-		return cloneResultSets(multi), append([]string(nil), f.messageMap[query]...), nil
+		return cloneResultSets(multi), append([]string(nil), f.messageMap[query]...), f.partialResultErr[query]
 	}
 	rows, columns, messages, err := f.QueryContextWithMessages(ctx, query)
 	if err != nil {
@@ -188,10 +191,14 @@ func (f *fakeBatchWriteDB) ExecContext(ctx context.Context, query string) (int64
 		}
 	}
 	if f.execRelease != nil {
-		select {
-		case <-f.execRelease:
-		case <-ctx.Done():
-			return 0, ctx.Err()
+		if f.execIgnoreContext {
+			<-f.execRelease
+		} else {
+			select {
+			case <-f.execRelease:
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
 		}
 	}
 	if delay := f.execDelay[query]; delay > 0 {
@@ -230,6 +237,9 @@ func (f *fakeBatchWriteDB) QueryContextWithMessages(ctx context.Context, query s
 func (f *fakeBatchWriteDB) ExecBatchContext(ctx context.Context, query string) (int64, error) {
 	f.batchCalls++
 	f.lastQuery = query
+	if f.batchErr != nil {
+		return 0, f.batchErr
+	}
 	return 500, nil
 }
 
@@ -543,6 +553,40 @@ END;`
 	}
 	if fakeDB.execQueries[0] != query {
 		t.Fatalf("expected PL/SQL block to stay intact, got %q", fakeDB.execQueries[0])
+	}
+}
+
+func TestDBQueryMultiExecutesOracleCompileStatementWithoutTrailingDelimiter(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+	})
+
+	fakeDB := &fakeBatchWriteDB{}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return fakeDB, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	config := connection.ConnectionConfig{
+		Type: "oracle",
+		Host: "127.0.0.1",
+		Port: 1521,
+		User: "app",
+	}
+
+	result := app.DBQueryMulti(config, "ORCLPDB1", `ALTER PROCEDURE "APP"."P_REBUILD" COMPILE;`, "oracle-compile-test")
+	if !result.Success {
+		t.Fatalf("expected Oracle compile statement success, got failure: %s", result.Message)
+	}
+	if fakeDB.batchCalls != 0 {
+		t.Fatalf("expected Oracle DDL to use the direct execution path, got batchCalls=%d", fakeDB.batchCalls)
+	}
+	if fakeDB.execCalls != 1 || len(fakeDB.execQueries) != 1 {
+		t.Fatalf("expected one Oracle compile exec call, got execCalls=%d queries=%#v", fakeDB.execCalls, fakeDB.execQueries)
+	}
+	if got, want := fakeDB.execQueries[0], `ALTER PROCEDURE "APP"."P_REBUILD" COMPILE`; got != want {
+		t.Fatalf("expected trailing delimiter to be removed before Oracle compile execution, got %q", got)
 	}
 }
 
@@ -985,6 +1029,41 @@ func TestDBQueryWithCancel_DuckDBQueriesDoNotInheritConnectTimeout(t *testing.T)
 	}
 	if _, ok := fakeDB.lastCtx.Deadline(); ok {
 		t.Fatal("expected DuckDB query context to avoid connection-timeout deadline")
+	}
+}
+
+func TestDBQueryMulti_MySQLQueriesDoNotInheritConnectTimeout(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+	})
+
+	query := "SELECT 1"
+	fakeDB := &fakeBatchWriteDB{
+		queryMap: map[string][]map[string]interface{}{
+			query: {{"value": 1}},
+		},
+		fieldMap: map[string][]string{
+			query: {"value"},
+		},
+		queryErr: map[string]error{},
+	}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return fakeDB, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	config := connection.ConnectionConfig{Type: "mysql", Host: "127.0.0.1", Port: 3306, Timeout: 1}
+
+	result := app.DBQueryMulti(config, "testdb", query, "mysql-no-connect-deadline-test")
+	if !result.Success {
+		t.Fatalf("expected MySQL DBQueryMulti success, got failure: %s", result.Message)
+	}
+	if fakeDB.lastCtx == nil {
+		t.Fatal("expected MySQL query path to receive a context")
+	}
+	if _, ok := fakeDB.lastCtx.Deadline(); ok {
+		t.Fatal("expected MySQL query context to avoid connection-timeout deadline")
 	}
 }
 
@@ -1958,6 +2037,74 @@ func TestDBQueryMultiDoesNotBatchExecStoredProcedureAsWriteStatement(t *testing.
 	}
 	if got := resultSets[0].Rows[0]["SPID"]; got != 88 {
 		t.Fatalf("expected SPID=88, got %#v", got)
+	}
+}
+
+func TestDBQueryMultiSurfacesUnknownBatchWriteOutcome(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+
+	query := "UPDATE demo SET value = 2"
+	fakeDB := &fakeBatchWriteDB{batchErr: db.MarkWriteOutcomeUnknown(errors.New("write response lost"))}
+	newDatabaseFunc = func(string) (db.Database, error) { return fakeDB, nil }
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	result := app.DBQueryMulti(connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432}, "app", query, "cli-unknown-batch")
+	if result.Success {
+		t.Fatalf("unknown batch write unexpectedly succeeded: %#v", result)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["outcomeUnknown"] != true {
+		t.Fatalf("unknown batch write did not expose outcomeUnknown: %#v", result)
+	}
+	if fakeDB.batchCalls != 1 {
+		t.Fatalf("unknown batch write was retried: batchCalls=%d", fakeDB.batchCalls)
+	}
+}
+
+func TestDBQueryMultiDoesNotReplayOpaqueConnectionLossWrite(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+
+	query := "UPDATE demo SET value = 3"
+	fakeDB := &fakeBatchWriteDB{batchErr: errors.New("connection reset by peer")}
+	newDatabaseFunc = func(string) (db.Database, error) { return fakeDB, nil }
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	result := app.DBQueryMulti(connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432}, "app", query, "cli-opaque-batch")
+	if result.Success {
+		t.Fatalf("opaque connection-loss write unexpectedly succeeded: %#v", result)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["outcomeUnknown"] != true {
+		t.Fatalf("opaque connection-loss write did not expose outcomeUnknown: %#v", result)
+	}
+	if fakeDB.batchCalls != 1 {
+		t.Fatalf("opaque connection-loss write was replayed: batchCalls=%d", fakeDB.batchCalls)
+	}
+}
+
+func TestDBQueryWithCancelDoesNotReplayOpaqueConnectionLossReturningWrite(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+
+	query := "INSERT INTO audit_logs(id) VALUES (3) RETURNING id"
+	fakeDB := &fakeBatchWriteDB{queryErr: map[string]error{query: errors.New("connection reset by peer")}}
+	newDatabaseFunc = func(string) (db.Database, error) { return fakeDB, nil }
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	result := app.DBQueryWithCancel(connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432}, "app", query, "cli-opaque-returning")
+	if result.Success {
+		t.Fatalf("opaque connection-loss returning write unexpectedly succeeded: %#v", result)
+	}
+	data, ok := result.Data.(map[string]any)
+	if !ok || data["outcomeUnknown"] != true {
+		t.Fatalf("opaque connection-loss returning write did not expose outcomeUnknown: %#v", result)
+	}
+	if fakeDB.queryCalls != 1 || fakeDB.execCalls != 0 {
+		t.Fatalf("opaque connection-loss returning write was replayed: queryCalls=%d execCalls=%d", fakeDB.queryCalls, fakeDB.execCalls)
 	}
 }
 

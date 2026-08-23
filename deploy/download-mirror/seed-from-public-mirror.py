@@ -31,7 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-base-url", required=True)
     parser.add_argument("--mirror-root", type=Path, required=True)
     parser.add_argument("--prepare-script", type=Path, required=True)
-    parser.add_argument("--commit-script", type=Path, required=True)
+    parser.add_argument("--transaction-script", type=Path, required=True)
+    parser.add_argument("--node-id", required=True)
     parser.add_argument("--workers", type=int, default=4)
     return parser.parse_args()
 
@@ -156,7 +157,8 @@ def seed_channel(
     source_base_url: str,
     mirror_root: Path,
     prepare_script: Path,
-    commit_script: Path,
+    transaction_script: Path,
+    node_id: str,
     workers: int,
     channel: str,
 ) -> None:
@@ -208,15 +210,21 @@ def seed_channel(
         app_items.append((url, app_dir / name, size, checksum.lower()))
 
     driver_assets = driver_index.get("assets")
+    driver_sha256 = driver_index.get("assetSha256")
     if not isinstance(driver_assets, dict) or not driver_assets:
         raise ValueError(f"{channel} driver index has no assets")
+    if not isinstance(driver_sha256, dict) or set(driver_sha256) != set(driver_assets):
+        raise ValueError(f"{channel} driver index has incomplete SHA256 metadata")
     driver_items: list[tuple[str, Path, int, str | None]] = []
     for raw_name, size in sorted(driver_assets.items()):
         name = validate_name(raw_name)
         if not isinstance(size, int) or size < 0:
             raise ValueError(f"invalid driver asset size for {name}")
         url = f"{source_base_url}/{driver_download_root}/{driver_tag}/{urllib.parse.quote(name)}"
-        driver_items.append((url, driver_dir / name, size, None))
+        checksum = driver_sha256.get(name)
+        if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", checksum):
+            raise ValueError(f"invalid driver asset sha256 for {name}")
+        driver_items.append((url, driver_dir / name, size, checksum.lower()))
 
     print(f"Seeding {channel} app {app_tag}", flush=True)
     download_many(app_items, workers, f"{channel} app")
@@ -245,23 +253,26 @@ def seed_channel(
             str(driver_index_path),
             "--driver-latest-index",
             str(driver_index_path),
+            "--generation",
+            deployment_id,
             "--output",
             str(staging_dir),
         ],
         check=True,
     )
-    subprocess.run(
-        [
-            "bash",
-            str(commit_script),
-            str(mirror_root),
-            str(staging_dir),
-            channel,
-            app_tag,
-            driver_tag,
-        ],
-        check=True,
-    )
+    transaction_args = [
+        sys.executable,
+        str(transaction_script),
+        "--root", str(mirror_root),
+        "--staging-dir", str(staging_dir),
+        "--channel", channel,
+        "--app-tag", app_tag,
+        "--driver-tag", driver_tag,
+        "--generation", deployment_id,
+        "--node-id", node_id,
+    ]
+    for command in ("verify", "promote-immutable", "promote-mutable", "finalize"):
+        subprocess.run([*transaction_args[:2], command, *transaction_args[2:]], check=True)
     shutil.rmtree(source_dir)
 
 
@@ -277,7 +288,8 @@ def main() -> int:
                 source_base_url,
                 args.mirror_root,
                 args.prepare_script,
-                args.commit_script,
+                args.transaction_script,
+                args.node_id,
                 args.workers,
                 channel,
             )

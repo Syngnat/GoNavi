@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { getDataSourceCapabilities, shouldShowOceanBaseRowNumberColumn } from './dataSourceCapabilities';
+import {
+  DATA_SOURCE_CAPABILITY_OPERATIONS,
+  getDataSourceCapabilities,
+  getDataSourceCapabilityContract,
+  getDataSourceOperationCapability,
+  shouldShowOceanBaseRowNumberColumn,
+} from './dataSourceCapabilities';
 
 describe('dataSourceCapabilities', () => {
   it('treats Oracle table preview totals as manual exact count plus approximate metadata count', () => {
@@ -408,6 +414,45 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
+  it('excludes dedicated-workbench datasources without a query workflow from the query editor', () => {
+    expect(getDataSourceCapabilities({ type: 'nacos' }).supportsQueryEditor).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'jvm' }).supportsQueryEditor).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'redis' }).supportsQueryEditor).toBe(false);
+    // 自定义连接驱动指向这些类型时同样排除，避免绕过白名单
+    expect(getDataSourceCapabilities({ type: 'custom', driver: 'nacos' }).supportsQueryEditor).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'custom', driver: 'jvm' }).supportsQueryEditor).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'custom', driver: 'redis' }).supportsQueryEditor).toBe(false);
+  });
+
+  it('keeps the query editor available for all currently queryable datasource families', () => {
+    [
+      { type: 'mysql' },
+      { type: 'postgres' },
+      { type: 'mongodb' },
+      { type: 'clickhouse' },
+      { type: 'sphinx' },
+      { type: 'duckdb' },
+      { type: 'sqlite' },
+      { type: 'dameng' },
+      { type: 'trino' },
+      { type: 'tdengine' },
+      { type: 'iotdb' },
+      { type: 'rocketmq' },
+      { type: 'mqtt' },
+      { type: 'kafka' },
+      { type: 'rabbitmq' },
+      { type: 'elasticsearch' },
+      { type: 'chroma' },
+      { type: 'qdrant' },
+      { type: 'milvus' },
+      { type: 'custom', driver: 'clickhouse' },
+      // 未识别驱动的通用自定义连接仍保留查询入口
+      { type: 'custom', driver: 'some-jdbc-driver' },
+    ].forEach((config) => {
+      expect(getDataSourceCapabilities(config).supportsQueryEditor, JSON.stringify(config)).toBe(true);
+    });
+  });
+
   it('treats RabbitMQ as a queryable messaging datasource with publish support', () => {
     expect(getDataSourceCapabilities({ type: 'rabbitmq' })).toMatchObject({
       type: 'rabbitmq',
@@ -480,6 +525,32 @@ describe('dataSourceCapabilities', () => {
       supportsCreateDatabase: false,
       supportsRenameDatabase: false,
       supportsDropDatabase: false,
+    });
+  });
+
+  it('exposes complete, guided capability contracts to every frontend entry point', () => {
+    const redis = getDataSourceCapabilityContract({ type: 'redis' });
+    expect(Object.keys(redis).filter((key) => key !== 'type' && key !== 'ui').sort())
+      .toEqual([...DATA_SOURCE_CAPABILITY_OPERATIONS].sort());
+    expect(redis.query).toMatchObject({
+      supported: false,
+      reason: 'dedicated_workbench',
+      alternative: 'dedicated-workbench',
+      messageKey: 'query_editor.message.unsupported_source',
+    });
+    expect(getDataSourceOperationCapability({ type: 'redis' }, 'query')).toEqual(redis.query);
+    expect(getDataSourceCapabilities({ type: 'redis' }).supportsQueryEditor).toBe(redis.query.supported);
+  });
+
+  it('keeps undeclared regular types fail-closed while preserving custom runtime probing', () => {
+    expect(getDataSourceCapabilityContract({ type: 'future-driver' }).query).toMatchObject({
+      supported: false,
+      reason: 'capability_not_declared',
+      alternative: 'configure-custom-driver',
+    });
+    expect(getDataSourceCapabilityContract({ type: 'custom', driver: 'future-driver' }).query).toMatchObject({
+      supported: true,
+      runtimeProbe: true,
     });
   });
 });

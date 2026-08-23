@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -28,9 +29,16 @@ type oracleRecordingState struct {
 	mu                       sync.Mutex
 	execQueries              []string
 	execArgs                 [][]driver.NamedValue
+	execStarted              chan struct{}
+	execRelease              chan struct{}
+	blockExecUntilCanceled   bool
 	queries                  []string
 	beginCalls               int
 	rowsAffected             int64
+	execErrors               map[string]error
+	closeCalls               int
+	txCommitErr              error
+	txRollbackErr            error
 	queryResults             map[string]oracleRecordingQueryResult
 	queryError               error
 	disableDefaultTabColumns bool
@@ -72,6 +80,12 @@ func (s *oracleRecordingState) snapshotBeginCalls() int {
 	return s.beginCalls
 }
 
+func (s *oracleRecordingState) snapshotCloseCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closeCalls
+}
+
 type oracleRecordingDriver struct{}
 
 func (oracleRecordingDriver) Open(name string) (driver.Conn, error) {
@@ -92,21 +106,47 @@ func (c *oracleRecordingConn) Prepare(query string) (driver.Stmt, error) {
 	return nil, fmt.Errorf("prepare not supported in oracle recording driver: %s", query)
 }
 
-func (c *oracleRecordingConn) Close() error { return nil }
+func (c *oracleRecordingConn) Close() error {
+	c.state.mu.Lock()
+	c.state.closeCalls++
+	c.state.mu.Unlock()
+	return nil
+}
 
 func (c *oracleRecordingConn) Begin() (driver.Tx, error) {
 	c.state.mu.Lock()
 	c.state.beginCalls++
 	c.state.mu.Unlock()
-	return oracleRecordingTx{}, nil
+	return &oracleRecordingTx{state: c.state}, nil
 }
 
-func (c *oracleRecordingConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+func (c *oracleRecordingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
 	c.state.mu.Lock()
-	defer c.state.mu.Unlock()
 	c.state.execQueries = append(c.state.execQueries, query)
 	c.state.execArgs = append(c.state.execArgs, append([]driver.NamedValue(nil), args...))
-	return driver.RowsAffected(c.state.rowsAffected), nil
+	blockUntilCanceled := c.state.blockExecUntilCanceled && query != "ROLLBACK"
+	execStarted := c.state.execStarted
+	execRelease := c.state.execRelease
+	rowsAffected := c.state.rowsAffected
+	execErr := c.state.execErrors[query]
+	c.state.mu.Unlock()
+
+	if blockUntilCanceled {
+		select {
+		case execStarted <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-execRelease:
+			return nil, fmt.Errorf("recording execution released without cancellation")
+		}
+	}
+	if execErr != nil {
+		return nil, execErr
+	}
+	return driver.RowsAffected(rowsAffected), nil
 }
 
 func (c *oracleRecordingConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
@@ -151,10 +191,21 @@ func cloneOracleRecordingRows(src [][]driver.Value) [][]driver.Value {
 var _ driver.ExecerContext = (*oracleRecordingConn)(nil)
 var _ driver.QueryerContext = (*oracleRecordingConn)(nil)
 
-type oracleRecordingTx struct{}
+type oracleRecordingTx struct {
+	state *oracleRecordingState
+}
 
-func (oracleRecordingTx) Commit() error   { return nil }
-func (oracleRecordingTx) Rollback() error { return nil }
+func (tx *oracleRecordingTx) Commit() error {
+	tx.state.mu.Lock()
+	defer tx.state.mu.Unlock()
+	return tx.state.txCommitErr
+}
+
+func (tx *oracleRecordingTx) Rollback() error {
+	tx.state.mu.Lock()
+	defer tx.state.mu.Unlock()
+	return tx.state.txRollbackErr
+}
 
 type oracleRecordingRows struct {
 	columns     []string
@@ -313,6 +364,52 @@ func TestOracleApplyChangesUsesPinnedSessionTransactionSQL(t *testing.T) {
 	}
 }
 
+func TestOracleApplyChangesContextCancelsInFlightStatementAndRollsBack(t *testing.T) {
+	dbConn, state := openOracleRecordingDB(t)
+	state.mu.Lock()
+	state.blockExecUntilCanceled = true
+	state.execStarted = make(chan struct{}, 1)
+	state.execRelease = make(chan struct{})
+	state.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- (&OracleDB{conn: dbConn}).ApplyChangesContext(ctx, "APP.USERS", connection.ChangeSet{
+			Updates: []connection.UpdateRow{{
+				Keys:   map[string]interface{}{"ID": 42},
+				Values: map[string]interface{}{"NAME": "cancel-me"},
+			}},
+		})
+	}()
+
+	select {
+	case <-state.execStarted:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not reach the context-aware SQL execution path")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Fatalf("ApplyChangesContext error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not return after cancellation")
+	}
+
+	wantExecs := []string{`UPDATE "APP"."USERS" SET "NAME" = :1 WHERE "ID" = :2`, "ROLLBACK"}
+	if got := state.snapshotExecQueries(); !reflect.DeepEqual(got, wantExecs) {
+		t.Fatalf("expected canceled statement followed by independent rollback, got %#v", got)
+	}
+}
+
+var _ BatchApplierContext = (*OracleDB)(nil)
+
 func TestOracleApplyChangesRollsBackPinnedSessionOnError(t *testing.T) {
 	t.Parallel()
 
@@ -344,6 +441,53 @@ func TestOracleApplyChangesRollsBackPinnedSessionOnError(t *testing.T) {
 	}
 	if got := state.snapshotExecQueries(); !reflect.DeepEqual(got, wantExecs) {
 		t.Fatalf("expected Oracle ApplyChanges pinned-session rollback execs %#v, got %#v", wantExecs, got)
+	}
+}
+
+func TestOracleApplyChangesDiscardsPinnedConnectionWhenRollbackFails(t *testing.T) {
+	dbConn, state := openOracleRecordingDB(t)
+	statementSQL := `UPDATE "APP"."USERS" SET "NAME" = :1 WHERE "ID" = :2`
+	rollbackErr := errors.New("rollback response lost")
+	state.mu.Lock()
+	state.execErrors = map[string]error{
+		statementSQL: errors.New("known statement rejection"),
+		"ROLLBACK":   rollbackErr,
+	}
+	state.mu.Unlock()
+
+	err := (&OracleDB{conn: dbConn}).ApplyChangesContext(context.Background(), "APP.USERS", connection.ChangeSet{
+		Updates: []connection.UpdateRow{{
+			Keys:   map[string]interface{}{"ID": int64(1)},
+			Values: map[string]interface{}{"NAME": "alice"},
+		}},
+	})
+	if !IsWriteOutcomeUnknown(err) || !errors.Is(err, rollbackErr) {
+		t.Fatalf("rollback failure must mark the result unknown and preserve its cause, got %v", err)
+	}
+	if got := state.snapshotCloseCalls(); got != 1 {
+		t.Fatalf("rollback failure must discard the pinned physical connection, close calls = %d", got)
+	}
+}
+
+func TestOracleApplyChangesMarksManualCommitFailureOutcomeUnknown(t *testing.T) {
+	dbConn, state := openOracleRecordingDB(t)
+	commitErr := errors.New("commit response lost")
+	state.mu.Lock()
+	state.execErrors = map[string]error{"COMMIT": commitErr}
+	state.mu.Unlock()
+
+	err := (&OracleDB{conn: dbConn}).ApplyChangesContext(context.Background(), "APP.USERS", connection.ChangeSet{
+		Inserts: []map[string]interface{}{{"ID": int64(1)}},
+	})
+	if !IsWriteOutcomeUnknown(err) || !errors.Is(err, commitErr) {
+		t.Fatalf("manual COMMIT failure must mark the result unknown and preserve its cause, got %v", err)
+	}
+	if got := state.snapshotExecQueries(); !reflect.DeepEqual(got, []string{
+		`INSERT INTO "APP"."USERS" ("ID") VALUES (:1)`,
+		"COMMIT",
+		"ROLLBACK",
+	}) {
+		t.Fatalf("unexpected manual transaction sequence after COMMIT failure: %#v", got)
 	}
 }
 

@@ -2,6 +2,7 @@ package redis
 
 import (
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/ssh"
 	"GoNavi-Wails/shared/i18n"
 	"bufio"
 	"context"
@@ -58,6 +59,27 @@ func startRedisProtocolTestServer(t *testing.T, handler func([]string) string) s
 	}()
 
 	return listener.Addr().String()
+}
+
+func TestLocalizedRedisSSHForwarderFailurePreservesHostKeyTrustCause(t *testing.T) {
+	required := &ssh.HostKeyTrustRequiredError{Status: ssh.HostKeyTrustStatus{
+		State:       "unknown",
+		Host:        "bastion.internal.test",
+		Port:        22,
+		Address:     "bastion.internal.test:22",
+		Fingerprint: "SHA256:example",
+	}}
+	err := localizedRedisBackendErrorWithCause("redis.backend.error.ssh_tunnel_create_failed", map[string]any{
+		"detail": required.Error(),
+	}, required)
+
+	var actual *ssh.HostKeyTrustRequiredError
+	if !errors.As(err, &actual) {
+		t.Fatalf("errors.As(%T) did not retain HostKeyTrustRequiredError: %v", err, err)
+	}
+	if actual != required {
+		t.Fatalf("retained cause = %p, want %p", actual, required)
+	}
 }
 
 func readRedisProtocolArray(reader *bufio.Reader) ([]string, error) {

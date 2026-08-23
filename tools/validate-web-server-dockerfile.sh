@@ -50,6 +50,8 @@ grep -Fq 'WORKDIR /src/frontend' "${DOCKERFILE}" \
   || fail "expected WORKDIR /src/frontend monorepo layout"
 grep -Fq 'COPY shared/ /src/shared/' "${DOCKERFILE}" \
   || fail "expected COPY shared/ so frontend ../../../shared/i18n resolves"
+grep -Fq 'COPY internal/db/data_source_capability_contract.json /src/internal/db/data_source_capability_contract.json' "${DOCKERFILE}" \
+  || fail "expected COPY internal/db/data_source_capability_contract.json so frontend capability imports resolve"
 grep -Fq 'COPY --from=frontend /src/frontend/dist ./frontend/dist' "${DOCKERFILE}" \
   || fail "expected dist copy from /src/frontend/dist"
 

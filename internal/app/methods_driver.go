@@ -227,6 +227,7 @@ type driverStatusItem struct {
 const driverDownloadProgressEvent = "driver:download-progress"
 
 type driverDownloadProgressPayload struct {
+	TaskID     string  `json:"taskId,omitempty"`
 	DriverType string  `json:"driverType"`
 	Status     string  `json:"status"`
 	Percent    float64 `json:"percent"`
@@ -321,6 +322,7 @@ type driverVersionOptionItem struct {
 type driverReleaseAssetSizeCacheEntry struct {
 	LoadedAt           time.Time
 	SizeByKey          map[string]int64
+	SHA256ByKey        map[string]string
 	PublishedAssets    map[string]bool
 	MirrorDownloadURLs map[string]string
 	Err                string
@@ -348,9 +350,10 @@ type goModuleVersionMeta struct {
 }
 
 type driverBundleAssetIndex struct {
-	TagName       string           `json:"tagName,omitempty"`
-	MirrorTagName string           `json:"mirrorTagName,omitempty"`
-	Assets        map[string]int64 `json:"assets"`
+	TagName       string            `json:"tagName,omitempty"`
+	MirrorTagName string            `json:"mirrorTagName,omitempty"`
+	Assets        map[string]int64  `json:"assets"`
+	AssetSHA256   map[string]string `json:"assetSha256,omitempty"`
 }
 
 const (
@@ -358,9 +361,9 @@ const (
 	defaultDriverManifestURLValue        = "builtin://manifest"
 	driverReleaseRepo                    = "Syngnat/GoNavi-DriverAgents"
 	driverReleaseMirrorBaseURL           = "https://download.syngnat.top/drivers/releases/download"
-	driverReleaseMirrorLatestIndexURL    = "https://download.syngnat.top/drivers/releases/latest/GoNavi-DriverAgents-Index.json"
+	driverReleaseMirrorLatestIndexURL    = "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fdrivers%2Freleases%2Flatest%2FGoNavi-DriverAgents-Index.json"
 	driverReleaseMirrorDevBaseURL        = "https://download.syngnat.top/drivers/dev/releases/download"
-	driverReleaseMirrorDevLatestIndexURL = "https://download.syngnat.top/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json"
+	driverReleaseMirrorDevLatestIndexURL = "https://download-dispatch.syngnat.top/v1/resolve?path=%2Fdrivers%2Fdev%2Freleases%2Flatest%2FGoNavi-DriverAgents-Index.json"
 	driverReleaseLatestAPIURL            = "https://api.github.com/repos/" + driverReleaseRepo + "/releases/latest"
 	driverReleaseDevTag                  = "dev-latest"
 	optionalDriverBundleAssetName        = "GoNavi-DriverAgents.zip"
@@ -1298,22 +1301,33 @@ func (a *App) GetDriverStatusList(downloadDir string, manifestURL string) connec
 	}
 }
 
-func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
-	checks := []driverNetworkProbeItem{
-		{
-			ProbeCode: driverNetworkProbeCodeDownloadMirror,
-			Name:      driverNetworkProbeNameDownloadMirror,
-			URL:       "https://download.syngnat.top/health.txt",
-		},
+func buildDriverNetworkProbeItems() []driverNetworkProbeItem {
+	mirrorIndexURL := driverReleaseMirrorLatestIndexURL
+	if strings.EqualFold(currentDriverReleaseTag(), driverReleaseDevTag) {
+		mirrorIndexURL = driverReleaseMirrorDevLatestIndexURL
+	}
+	return []driverNetworkProbeItem{{
+		ProbeCode: driverNetworkProbeCodeDownloadMirror,
+		Name:      driverNetworkProbeNameDownloadMirror,
+		URL:       mirrorIndexURL,
+	}}
+}
+
+func buildDriverNetworkFallbackProbeItems(a *App) []driverNetworkProbeItem {
+	githubAPIURL := driverReleaseLatestAPIURL
+	if strings.EqualFold(currentDriverReleaseTag(), driverReleaseDevTag) {
+		githubAPIURL = fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", driverReleaseRepo, driverReleaseDevTag)
+	}
+	return []driverNetworkProbeItem{
 		{
 			ProbeCode: driverNetworkProbeCodeGitHubAPI,
-			Name:      "GitHub API",
-			URL:       "https://api.github.com/rate_limit",
+			Name:      a.appText("driver_manager.backend.network.probe.github_api", nil),
+			URL:       githubAPIURL,
 		},
 		{
 			ProbeCode: driverNetworkProbeCodeGitHubRelease,
 			Name:      a.appText("driver_manager.backend.network.probe.github_driver_release", nil),
-			URL:       driverReleaseLatestDownloadURL(optionalDriverBundleAssetName),
+			URL:       driverReleaseLatestDownloadURLForCurrentChannel(optionalDriverBundleAssetName),
 		},
 		{
 			ProbeCode: driverNetworkProbeCodeGitHubReleaseAsset,
@@ -1326,15 +1340,40 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 			URL:       "https://proxy.golang.org/github.com/go-sql-driver/mysql/@v/list",
 		},
 	}
+}
 
-	client := newHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
-	allReachable := true
-	for index := range checks {
-		checks[index] = probeDriverNetworkEndpoint(client, checks[index])
-		if !checks[index].Reachable {
-			allReachable = false
+type driverNetworkProbeFunc func(*http.Client, driverNetworkProbeItem) driverNetworkProbeItem
+
+func isDriverNetworkDownloadRouteAvailable(item driverNetworkProbeItem) bool {
+	if !item.Reachable {
+		return false
+	}
+	return item.HTTPStatus == 0 || item.HTTPStatus < http.StatusBadRequest
+}
+
+func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
+	return a.checkDriverNetworkStatusWithProbe(probeDriverNetworkEndpoint)
+}
+
+func (a *App) checkDriverNetworkStatusWithProbe(probe driverNetworkProbeFunc) connection.QueryResult {
+	if probe == nil {
+		probe = probeDriverNetworkEndpoint
+	}
+
+	client := newStrictHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
+	mirrorItems := buildDriverNetworkProbeItems()
+	checks := make([]driverNetworkProbeItem, 0, len(mirrorItems)+4)
+	for _, item := range mirrorItems {
+		checks = append(checks, probe(client, item))
+	}
+	mirrorReachable := len(checks) > 0 && isDriverNetworkDownloadRouteAvailable(checks[0])
+	fallbackChecked := !mirrorReachable
+	if fallbackChecked {
+		for _, item := range buildDriverNetworkFallbackProbeItems(a) {
+			checks = append(checks, probe(client, item))
 		}
 	}
+
 	findProbe := func(probeCode string) (driverNetworkProbeItem, bool) {
 		for _, item := range checks {
 			if strings.EqualFold(strings.TrimSpace(item.ProbeCode), strings.TrimSpace(probeCode)) {
@@ -1343,23 +1382,42 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 		}
 		return driverNetworkProbeItem{}, false
 	}
-	mirrorCheck, _ := findProbe(driverNetworkProbeCodeDownloadMirror)
-	githubAPICheck, _ := findProbe(driverNetworkProbeCodeGitHubAPI)
 	githubReleaseCheck, _ := findProbe(driverNetworkProbeCodeGitHubRelease)
-	releaseAssetsCheck, _ := findProbe(driverNetworkProbeCodeGitHubReleaseAsset)
-	downloadChainReachable := mirrorCheck.Reachable || (githubReleaseCheck.Reachable && releaseAssetsCheck.Reachable)
+	fallbackReachable := fallbackChecked && isDriverNetworkDownloadRouteAvailable(githubReleaseCheck)
+	downloadChainReachable := mirrorReachable || fallbackReachable
+	usingFallback := !mirrorReachable && fallbackReachable
+	allReachable := mirrorReachable
+	for _, item := range checks[1:] {
+		if !item.Reachable {
+			allReachable = false
+			break
+		}
+	}
 
 	proxyEnv := collectDriverProxyEnv()
 	proxyConfigured := len(proxyEnv) > 0
 	summary := a.appText("driver_manager.network.summary.reachable", nil)
-	if githubAPICheck.Reachable && !downloadChainReachable {
-		summary = a.appText("driver_manager.backend.network.summary.download_chain_unreachable", nil)
+	if mirrorReachable && proxyConfigured {
+		summary = a.appText("driver_manager.network.summary.reachable_with_proxy", nil)
+	} else if usingFallback {
+		summary = a.appText("driver_manager.network.summary.mirror_fallback_available", nil)
 	} else if !downloadChainReachable {
 		if proxyConfigured {
 			summary = a.appText("driver_manager.network.summary.unreachable_proxy_configured", nil)
 		} else {
 			summary = a.appText("driver_manager.network.summary.proxy_recommended", nil)
 		}
+	}
+
+	downloadRequiredHosts := []string{"download.syngnat.top"}
+	if fallbackChecked {
+		downloadRequiredHosts = append(downloadRequiredHosts,
+			"github.com",
+			"api.github.com",
+			"release-assets.githubusercontent.com",
+			"objects.githubusercontent.com",
+			"proxy.golang.org",
+		)
 	}
 
 	data := map[string]interface{}{
@@ -1369,17 +1427,14 @@ func (a *App) CheckDriverNetworkStatus() connection.QueryResult {
 		"recommendedProxy":       !downloadChainReachable,
 		"proxyConfigured":        proxyConfigured,
 		"proxyEnv":               proxyEnv,
+		"mirrorReachable":        mirrorReachable,
+		"fallbackChecked":        fallbackChecked,
+		"fallbackReachable":      fallbackReachable,
+		"usingFallback":          usingFallback,
 		"downloadChainReachable": downloadChainReachable,
-		"downloadRequiredHosts": []string{
-			"download.syngnat.top",
-			"github.com",
-			"api.github.com",
-			"release-assets.githubusercontent.com",
-			"objects.githubusercontent.com",
-			"raw.githubusercontent.com",
-		},
-		"checkedAt": time.Now().Format(time.RFC3339),
-		"checks":    checks,
+		"downloadRequiredHosts":  downloadRequiredHosts,
+		"checkedAt":              time.Now().Format(time.RFC3339),
+		"checks":                 checks,
 	}
 	if logPath := strings.TrimSpace(logger.Path()); logPath != "" {
 		data["logPath"] = logPath
@@ -1576,10 +1631,9 @@ func (a *App) RemoveDriverPackage(driverType string, downloadDir string) connect
 }
 
 func (a *App) emitDriverDownloadProgress(driverType string, status string, downloaded, total int64, message string) {
-	if a.ctx == nil {
-		return
-	}
+	taskID := a.updateDriverDownloadTaskProgress(driverType, status, 0, message)
 	payload := driverDownloadProgressPayload{
+		TaskID:     taskID,
 		DriverType: normalizeDriverType(driverType),
 		Status:     strings.TrimSpace(status),
 		Percent:    0,
@@ -1605,7 +1659,26 @@ func (a *App) emitDriverDownloadProgress(driverType string, status string, downl
 	if payload.Status == "done" && payload.Percent < 100 {
 		payload.Percent = 100
 	}
+	if taskID != "" {
+		_ = a.updateDriverDownloadTaskProgress(driverType, payload.Status, payload.Percent, payload.Message)
+	}
+	if a.ctx == nil {
+		return
+	}
 	uievents.Emit(a.ctx, driverDownloadProgressEvent, payload)
+}
+
+func (a *App) emitDriverDownloadTaskSnapshot(task DriverDownloadTaskStatus) {
+	if a == nil || a.ctx == nil {
+		return
+	}
+	uievents.Emit(a.ctx, driverDownloadProgressEvent, driverDownloadProgressPayload{
+		TaskID:     task.TaskID,
+		DriverType: task.DriverType,
+		Status:     task.Status,
+		Percent:    task.Percent,
+		Message:    task.Message,
+	})
 }
 
 func probeDriverNetworkEndpoint(client *http.Client, item driverNetworkProbeItem) driverNetworkProbeItem {
@@ -1630,7 +1703,7 @@ func probeDriverNetworkEndpoint(client *http.Client, item driverNetworkProbeItem
 	}
 
 	if client == nil {
-		client = newHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
+		client = newStrictHTTPClientWithGlobalProxy(driverNetworkProbeTimeout)
 	}
 	start := time.Now()
 	resp, method, err := doDriverProbeRequest(client, urlText, http.MethodGet)
@@ -2653,7 +2726,7 @@ func fetchGoModuleVersionMetas(modulePath string) ([]goModuleVersionMeta, error)
 	}
 
 	endpoint := fmt.Sprintf("https://proxy.golang.org/%s/@v/list", escapeGoModulePathForProxy(trimmed))
-	client := newHTTPClientWithGlobalProxy(driverModuleLatestProbeTimeout)
+	client := newStrictHTTPClientWithGlobalProxy(driverModuleLatestProbeTimeout)
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -2803,7 +2876,7 @@ func loadDriverReleaseListCached() ([]githubRelease, error) {
 
 func fetchDriverReleaseList() ([]githubRelease, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=30", driverReleaseRepo)
-	client := newHTTPClientWithGlobalProxy(driverReleaseListProbeTimeout)
+	client := newStrictHTTPClientWithGlobalProxy(driverReleaseListProbeTimeout)
 	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
 	if err != nil {
 		return nil, err
@@ -3155,7 +3228,7 @@ func loadManifestContent(resolvedURL string) ([]byte, error) {
 		scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
 		switch scheme {
 		case "http", "https":
-			client := newHTTPClientWithGlobalProxy(12 * time.Second)
+			client := newStrictHTTPClientWithGlobalProxy(12 * time.Second)
 			req, reqErr := http.NewRequest(http.MethodGet, parsed.String(), nil)
 			if reqErr != nil {
 				return nil, reqErr
@@ -4136,7 +4209,7 @@ func ensureOptionalDriverAgentBinary(a *App, definition driverDefinition, execut
 	}
 
 	if !forceSourceBuild {
-		downloadURLs = reorderOptionalDriverDownloadURLsBySpeed(downloadURLs)
+		downloadURLs = keepOptionalDriverDownloadURLOrder(downloadURLs)
 		if len(downloadURLs) > 0 {
 			for _, candidateURL := range downloadURLs {
 				if a != nil {
@@ -4258,6 +4331,9 @@ func isOptionalDriverDownloadZipURL(urlText string) bool {
 	if trimmedURL == "" {
 		return false
 	}
+	if assetPath, ok := downloadDispatcherAssetPath(trimmedURL); ok {
+		return strings.EqualFold(path.Ext(assetPath), ".zip")
+	}
 	if parsed, err := url.Parse(trimmedURL); err == nil {
 		if strings.TrimSpace(parsed.Path) != "" && strings.EqualFold(path.Ext(parsed.Path), ".zip") {
 			return true
@@ -4281,15 +4357,26 @@ func downloadOptionalDriverAgentBinary(a *App, definition driverDefinition, urlT
 		tempPath := executablePath + ".download.zip"
 		_ = os.Remove(tempPath)
 
-		if _, err := downloadFileWithHash(trimmedURL, tempPath, func(downloaded, total int64) {
+		downloadHash, err := downloadFileWithHash(trimmedURL, tempPath, func(downloaded, total int64) {
 			if a == nil {
 				return
 			}
 			scaledDownloaded, scaledTotal := scaleProgress(downloaded, total, 20, 90)
 			a.emitDriverDownloadProgress(driverType, "downloading", scaledDownloaded, scaledTotal, a.appText("driver_manager.progress.download_prebuilt_package", map[string]any{"name": displayName}))
-		}); err != nil {
+		})
+		if err != nil {
 			_ = os.Remove(tempPath)
 			return "", newLocalizedDriverBackendError("driver_manager.backend.error.download_failed", nil, err)
+		}
+		if expectedSize, expectedHash, ok := expectedDriverReleaseAssetMetadata(trimmedURL); ok {
+			if metadataErr := validateDownloadedDriverAssetMetadata(tempPath, downloadHash, expectedSize, expectedHash); metadataErr != nil {
+				_ = os.Remove(tempPath)
+				return "", newLocalizedDriverBackendError(
+					"driver_manager.backend.error.download_failed",
+					nil,
+					metadataErr,
+				)
+			}
 		}
 
 		if _, err := installOptionalDriverAgentFromLocalZip(tempPath, definition, executablePath, selectedVersion); err != nil {
@@ -4352,6 +4439,20 @@ func downloadOptionalDriverAgentBinary(a *App, definition driverDefinition, urlT
 		return "", validateErr
 	}
 	return hash, nil
+}
+
+func validateDownloadedDriverAssetMetadata(filePath string, actualHash string, expectedSize int64, expectedHash string) error {
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	if expectedSize > 0 && stat.Size() != expectedSize {
+		return fmt.Errorf("driver archive size mismatch: expected=%d actual=%d", expectedSize, stat.Size())
+	}
+	if normalized := normalizeGitHubAssetSHA256(expectedHash); normalized != "" && !strings.EqualFold(actualHash, normalized) {
+		return errors.New("driver archive SHA256 mismatch")
+	}
+	return nil
 }
 
 func downloadOptionalDriverAgentFromBundle(a *App, definition driverDefinition, bundleURL, executablePath string) (string, string, error) {

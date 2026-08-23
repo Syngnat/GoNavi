@@ -55,6 +55,19 @@ describe('convertMongoShellToJsonCommand', () => {
       limit: 0,
     });
   });
+
+  it('converts distinct shell commands to read-only Mongo commands', () => {
+    const result = convertMongoShellToJsonCommand(
+      'db.users.distinct("status", { active: true })',
+    );
+
+    expect(result.recognized).toBe(true);
+    expect(parseCommand(result.command)).toEqual({
+      distinct: 'users',
+      key: 'status',
+      query: { active: true },
+    });
+  });
 });
 
 describe('applyMongoQueryAutoLimit', () => {

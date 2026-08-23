@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildV2TableStatusSQL,
   handleSidebarV2ContextMenuShortcut,
   type SidebarContextMenuState,
 } from './useSidebarV2ContextMenu';
@@ -87,5 +88,30 @@ describe('V2 sidebar context-menu shortcuts', () => {
 
     expect(onTableAction).toHaveBeenCalledWith(latestNode, 'copy-table-name');
     expect(onTableAction).not.toHaveBeenCalledWith(firstNode, 'copy-table-name');
+  });
+});
+
+describe('V2 table status SQL', () => {
+  it('keeps MySQL table stats lightweight and never scans the table', () => {
+    const sql = buildV2TableStatusSQL({
+      conn: { config: { type: 'mysql' }, dbName: "sales'`archive" } as any,
+      tableName: 'order`items',
+      extractObjectName: (name) => name,
+    });
+
+    expect(sql).toContain('TABLE_ROWS AS table_rows');
+    expect(sql).toContain("WHERE table_schema = 'sales''`archive'");
+    expect(sql).not.toContain('COUNT(*)');
+  });
+
+  it('keeps StarRocks metadata stats lightweight', () => {
+    const sql = buildV2TableStatusSQL({
+      conn: { config: { type: 'starrocks' }, dbName: 'analytics' } as any,
+      tableName: 'events',
+      extractObjectName: (name) => name,
+    });
+
+    expect(sql).toContain('TABLE_ROWS AS table_rows');
+    expect(sql).not.toContain('COUNT(*)');
   });
 });

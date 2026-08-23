@@ -41,6 +41,44 @@ vi.mock('antd', () => ({
       {children}
     </label>
   ),
+  Table: ({
+    columns = [],
+    dataSource = [],
+    onChange,
+  }: {
+    columns?: Array<{
+      key?: React.Key;
+      title?: React.ReactNode;
+      dataIndex?: string;
+      sortOrder?: string | null;
+      render?: (value: unknown, record: Record<string, unknown>, index: number) => React.ReactNode;
+    }>;
+    dataSource?: Array<Record<string, unknown>>;
+    onChange?: (...args: unknown[]) => void;
+  }) => (
+    <table
+      data-value-count-table="true"
+      data-count-sort-order={String(columns.find((column) => column.key === 'count')?.sortOrder || '')}
+      onClick={() => onChange?.({}, {}, { order: 'ascend' })}
+    >
+      <thead>
+        <tr>{columns.map((column) => <th key={column.key}>{column.title}</th>)}</tr>
+      </thead>
+      <tbody>
+        {dataSource.map((record, index) => (
+          <tr key={String(record.key || index)}>
+            {columns.map((column) => (
+              <td key={column.key}>
+                {column.render
+                  ? column.render(column.dataIndex ? record[column.dataIndex] : undefined, record, index)
+                  : (column.dataIndex ? String(record[column.dataIndex] ?? '') : null)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  ),
   Tooltip: ({ children, title, rootClassName }: { children: React.ReactNode; title?: React.ReactNode; rootClassName?: string }) => (
     <>
       <div data-testid="tooltip-title">{title}</div>
@@ -200,6 +238,46 @@ describe('DataGridColumnTitle', () => {
     expect(markup).toContain('value="active"');
   });
 
+  it('isolates pointer interactions inside the filter popover from column dragging', () => {
+    const renderer = create(
+      <DataGridColumnTitle
+        columnName="status"
+        showColumnType={false}
+        showColumnComment={false}
+        metaFontSize={11}
+        columnMetaHintColor="#999"
+        columnMetaTooltipColor="#fff"
+        darkMode={false}
+        columnFilter={{
+          active: false,
+          operatorOptions: [{ value: '=', label: '=' }],
+          defaultOperator: '=',
+          filterLabel: 'Filter',
+          applyLabel: 'Apply',
+          clearLabel: 'Clear',
+          valuePlaceholder: 'Value',
+          secondValuePlaceholder: 'End value',
+          listValuePlaceholder: 'List values',
+          noValuePlaceholder: 'No value needed',
+          isNoValueOp: () => false,
+          isBetweenOp: () => false,
+          isListOp: () => false,
+          onApply: () => true,
+          onClear: () => true,
+        }}
+      />,
+    );
+
+    const filterPopover = renderer.root.findByProps({ 'data-grid-column-filter-popover': 'true' });
+    const stopPropagation = vi.fn();
+    act(() => {
+      filterPopover.props.onMouseDown({ stopPropagation });
+      filterPopover.props.onPointerDown({ stopPropagation });
+    });
+
+    expect(stopPropagation).toHaveBeenCalledTimes(2);
+  });
+
   it('applies the column filter from the popover action button', () => {
     const onApply = vi.fn(() => true);
     const renderer = create(
@@ -329,6 +407,8 @@ describe('DataGridColumnTitle', () => {
       'data_grid.filter.value_counts.nullish': '(Null)',
       'data_grid.filter.value_counts.empty': '(Empty)',
       'data_grid.filter.value_counts.no_matches': 'No matches',
+      'data_grid.filter.value_counts.value': 'Value',
+      'data_grid.filter.value_counts.count': 'Count',
     }[key] || key);
     const renderer = create(
       <DataGridColumnTitle
@@ -368,6 +448,11 @@ describe('DataGridColumnTitle', () => {
         }}
       />,
     );
+
+    const valueCountTable = () => renderer.root.findByProps({ 'data-value-count-table': 'true' });
+    expect(valueCountTable().props['data-count-sort-order']).toBe('descend');
+    act(() => valueCountTable().props.onClick());
+    expect(valueCountTable().props['data-count-sort-order']).toBe('ascend');
 
     const searchInput = renderer.root.findAllByType('input')
       .find((input) => input.props.placeholder === 'Search values');

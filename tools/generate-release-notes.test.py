@@ -255,7 +255,7 @@ class GenerateReleaseNotesTests(unittest.TestCase):
             "GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
             'CHANGELOG_FILE="$RUNNER_TEMP/changelog.md"',
             '--repo "${{ github.repository }}"',
-            '--tag "${{ github.ref_name }}"',
+            '--tag "$RELEASE_TAG"',
             '--repository-url "${{ github.server_url }}/${{ github.repository }}"',
             '--output "$CHANGELOG_FILE"',
             'echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"',

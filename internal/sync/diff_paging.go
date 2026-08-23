@@ -3,6 +3,7 @@ package sync
 import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"context"
 	"fmt"
 	"reflect"
 	"sort"
@@ -33,6 +34,9 @@ type pagedDiffPage struct {
 }
 
 func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tableIndex, totalTables int, tableName string, sourceDB db.Database, targetDB db.Database, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, opts TableOptions, sourceType, targetType, applyTableName, pkCol string) (bool, pagedDiffCounts, error) {
+	if hasExplicitSyncMappings(config) {
+		return false, pagedDiffCounts{}, nil
+	}
 	if normalizeSyncMode(config.Mode) != "insert_update" || !plan.TargetTableExists {
 		return false, pagedDiffCounts{}, nil
 	}
@@ -53,11 +57,16 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 		return true, pagedDiffCounts{}, err
 	}
 
-	s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页差异同步：按主键 %s 每批读取 %d 行", pkCol, defaultSyncReadPageSize))
+	pageSize, err := normalizedSyncBatchSize(config.BatchSize)
+	if err != nil {
+		return true, pagedDiffCounts{}, err
+	}
+	s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页差异同步：按主键 %s 每批读取 %d 行", pkCol, pageSize))
 	s.progress(config.JobID, tableIndex, totalTables, tableName, "分页对比数据")
 
 	applied := pagedDiffCounts{}
-	handled, _, err := scanTableDiffInPages(sourceDB, targetDB, sourceType, targetType, plan, sourceCols, targetCols, pkCol, targetColSet, opts.Delete, func(page pagedDiffPage) error {
+	rowIndexBase := 0
+	handled, _, err := scanTableDiffInPagesContextWithBatchSize(s.context(), sourceDB, targetDB, sourceType, targetType, plan, sourceCols, targetCols, pkCol, targetColSet, opts.Delete, pageSize, func(page pagedDiffPage) error {
 		changeSet := connection.ChangeSet{
 			Inserts: filterRowsByPKSelection(pkCol, page.Inserts, opts.Insert, opts.SelectedInsertPKs),
 			Updates: filterPagedUpdatesByPKSelection(pkCol, page.Updates, opts.Update, opts.SelectedUpdatePKs),
@@ -70,10 +79,11 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 		if len(changeSet.Inserts) == 0 && len(changeSet.Updates) == 0 && len(changeSet.Deletes) == 0 {
 			return nil
 		}
-		committed, err := s.applyChangesInBatches(config.JobID, res, applyTableName, applier, changeSet)
+		committed, err := s.applySnapshotChanges(config, res, tableName, applyTableName, applier, changeSet, rowIndexBase)
 		applied.Inserts += committed.Inserts
 		applied.Updates += committed.Updates
 		applied.Deletes += committed.Deletes
+		rowIndexBase += len(changeSet.Inserts) + len(changeSet.Updates) + len(changeSet.Deletes)
 		return err
 	})
 	if err != nil {
@@ -83,6 +93,18 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 }
 
 func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType, targetType string, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, pkCol string, targetColSet map[string]struct{}, includeDeletes bool, consume func(page pagedDiffPage) error) (bool, pagedDiffCounts, error) {
+	return scanTableDiffInPagesContext(context.Background(), sourceDB, targetDB, sourceType, targetType, plan, sourceCols, targetCols, pkCol, targetColSet, includeDeletes, consume)
+}
+
+func scanTableDiffInPagesContext(ctx context.Context, sourceDB db.Database, targetDB db.Database, sourceType, targetType string, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, pkCol string, targetColSet map[string]struct{}, includeDeletes bool, consume func(page pagedDiffPage) error) (bool, pagedDiffCounts, error) {
+	return scanTableDiffInPagesContextWithBatchSize(ctx, sourceDB, targetDB, sourceType, targetType, plan, sourceCols, targetCols, pkCol, targetColSet, includeDeletes, defaultSyncReadPageSize, consume)
+}
+
+func scanTableDiffInPagesContextWithBatchSize(ctx context.Context, sourceDB db.Database, targetDB db.Database, sourceType, targetType string, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, pkCol string, targetColSet map[string]struct{}, includeDeletes bool, batchSize int, consume func(page pagedDiffPage) error) (bool, pagedDiffCounts, error) {
+	pageSize, err := normalizedSyncBatchSize(batchSize)
+	if err != nil {
+		return false, pagedDiffCounts{}, err
+	}
 	if !supportsPagedDiffSelect(sourceType) || !supportsPagedDiffPKLookup(targetType) {
 		return false, pagedDiffCounts{}, nil
 	}
@@ -100,12 +122,12 @@ func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType
 	}
 
 	totals := pagedDiffCounts{}
-	for offset := 0; ; offset += defaultSyncReadPageSize {
-		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceReadCols, pkCol, defaultSyncReadPageSize, offset)
+	for offset := 0; ; offset += pageSize {
+		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceReadCols, pkCol, pageSize, offset)
 		if strings.TrimSpace(query) == "" {
 			return false, pagedDiffCounts{}, nil
 		}
-		sourceRows, _, err := sourceDB.Query(query)
+		sourceRows, _, err := querySyncDatabaseContext(ctx, sourceDB, query)
 		if err != nil {
 			return true, totals, fmt.Errorf("分页读取源表失败(offset=%d): %w", offset, err)
 		}
@@ -120,7 +142,7 @@ func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType
 			if strings.TrimSpace(targetQuery) == "" {
 				return false, pagedDiffCounts{}, nil
 			}
-			targetRows, _, err = targetDB.Query(targetQuery)
+			targetRows, _, err = querySyncDatabaseContext(ctx, targetDB, targetQuery)
 			if err != nil {
 				return true, totals, fmt.Errorf("按主键读取目标表失败(offset=%d): %w", offset, err)
 			}
@@ -135,7 +157,7 @@ func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType
 				return true, totals, err
 			}
 		}
-		if len(sourceRows) < defaultSyncReadPageSize {
+		if len(sourceRows) < pageSize {
 			break
 		}
 	}
@@ -144,11 +166,11 @@ func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType
 		lastPK, hasLastPK := interface{}(nil), false
 		targetPKCols := []connection.ColumnDefinition{{Name: pkCol}}
 		for {
-			query := buildKeysetPagedTableQuery(targetType, plan.TargetQueryTable, targetPKCols, pkCol, lastPK, hasLastPK, defaultSyncReadPageSize)
+			query := buildKeysetPagedTableQuery(targetType, plan.TargetQueryTable, targetPKCols, pkCol, lastPK, hasLastPK, pageSize)
 			if strings.TrimSpace(query) == "" {
 				return false, pagedDiffCounts{}, nil
 			}
-			targetRows, _, err := targetDB.Query(query)
+			targetRows, _, err := querySyncDatabaseContext(ctx, targetDB, query)
 			if err != nil {
 				return true, totals, fmt.Errorf("分页读取目标主键失败: %w", err)
 			}
@@ -169,7 +191,7 @@ func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType
 				if strings.TrimSpace(sourceQuery) == "" {
 					return false, pagedDiffCounts{}, nil
 				}
-				sourcePKRows, _, err = sourceDB.Query(sourceQuery)
+				sourcePKRows, _, err = querySyncDatabaseContext(ctx, sourceDB, sourceQuery)
 				if err != nil {
 					return true, totals, fmt.Errorf("按主键反查源表失败: %w", err)
 				}
@@ -195,7 +217,7 @@ func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType
 					}
 				}
 			}
-			if len(targetRows) < defaultSyncReadPageSize {
+			if len(targetRows) < pageSize {
 				break
 			}
 		}

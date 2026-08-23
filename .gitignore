@@ -37,4 +37,7 @@ CLAUDE.md
 **/CLAUDE.md
 .worktrees
 docs
+!docs/
+docs/*
+!docs/download-cdn-operations.md
 .tmp_superpowers_edit

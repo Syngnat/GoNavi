@@ -42,6 +42,18 @@ func TestEnsureReadOnlyConnectionAllowsQuery(t *testing.T) {
 	if err := ensureConnectionAllowsQuery(mongoConfig, `{"delete":"users","deletes":[{"q":{"active":false},"limit":0}]}`); err == nil {
 		t.Fatal("read-only mongodb connection should block delete")
 	}
+	if err := ensureConnectionAllowsQuery(mongoConfig, `{"distinct":"users","key":"status","query":{}}`); err != nil {
+		t.Fatalf("read-only mongodb connection should allow distinct: %v", err)
+	}
+	if err := ensureConnectionAllowsQuery(mongoConfig, `{"aggregate":"users","pipeline":[{"$match":{}}]}`); err != nil {
+		t.Fatalf("read-only mongodb connection should allow aggregate: %v", err)
+	}
+	if err := ensureConnectionAllowsQuery(mongoConfig, `{"aggregate":"users","pipeline":[{"$out":"archive"}]}`); err == nil {
+		t.Fatal("read-only mongodb connection should block aggregate write stage")
+	}
+	if err := ensureConnectionAllowsQuery(mongoConfig, `{"aggregate":"users","pipeline":[{"$merge":{"into":"archive"}}]}`); err == nil {
+		t.Fatal("read-only mongodb connection should block aggregate merge stage")
+	}
 }
 
 func TestEnsureReadOnlyConnectionAllowsAction(t *testing.T) {

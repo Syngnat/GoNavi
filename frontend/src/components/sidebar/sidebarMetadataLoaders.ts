@@ -13,6 +13,7 @@ import {
 } from "../../utils/sidebarMetadata";
 import { isPostgresSchemaDialect } from "../sidebarCoreUtils";
 import { extractTableNameFromMetadataRow } from "../../utils/tableMetadataRows";
+import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
 
 export const buildSidebarRuntimeConfig = (
   conn: any,
@@ -126,6 +127,11 @@ type MetadataQuerySpec = {
 type MetadataQueryResult = {
   rows: Record<string, any>[];
   inferredType?: "FUNCTION" | "PROCEDURE";
+};
+
+type MetadataLoadState = {
+  supported: boolean;
+  failureMessage?: string;
 };
 
 const isSphinxConnection = (conn: SavedConnection | undefined): boolean => {
@@ -262,6 +268,26 @@ const parseMetadataRowCount = (
   return Math.round(parsed);
 };
 
+const parseSidebarTableRowCount = (
+  row: Record<string, any>,
+  conn: SavedConnection,
+): number | undefined => {
+  const rowCount = parseMetadataRowCount(row);
+  if (rowCount !== 0 || getMetadataDialect(conn) !== "mysql") {
+    return rowCount;
+  }
+  const engine = String(getCaseInsensitiveValue(row, [
+    "table_engine",
+    "TABLE_ENGINE",
+    "engine",
+    "ENGINE",
+  ]) || "").trim().toLowerCase();
+  // InnoDB exposes TABLE_ROWS as an estimate. Immediately after bulk writes it
+  // can remain zero even when the table contains rows, so zero is not proof of
+  // an empty table. Keep exact engines (for example MyISAM) unchanged.
+  return !engine || engine === "innodb" ? undefined : rowCount;
+};
+
 const buildSidebarTableStatusSQL = (
   conn: SavedConnection,
   dbName: string,
@@ -270,6 +296,16 @@ const buildSidebarTableStatusSQL = (
   const safeDbName = escapeSQLLiteral(dbName);
   switch (dialect) {
     case "mysql":
+      return [
+        "SELECT TABLE_NAME AS table_name, TABLE_COMMENT AS table_comment, TABLE_ROWS AS table_rows,",
+        "ENGINE AS table_engine,",
+        "COALESCE(DATA_LENGTH, 0) + COALESCE(INDEX_LENGTH, 0) AS table_size,",
+        "CREATE_TIME AS create_time, UPDATE_TIME AS update_time",
+        "FROM information_schema.tables",
+        `WHERE table_schema = '${safeDbName}'`,
+        "AND table_type = 'BASE TABLE'",
+        "ORDER BY table_name",
+      ].join("\n");
     case "starrocks":
       return [
         "SELECT TABLE_NAME AS table_name, TABLE_COMMENT AS table_comment, TABLE_ROWS AS table_rows,",
@@ -529,6 +565,18 @@ const buildTriggersMetadataQuerySpecs = (
       ];
     }
     case "oracle":
+      if (!safeDbName) {
+        return [
+          {
+            sql: `SELECT t.TRIGGER_NAME AS trigger_name, t.TABLE_NAME AS table_name, o.STATUS AS object_status FROM USER_TRIGGERS t LEFT JOIN USER_OBJECTS o ON o.OBJECT_NAME = t.TRIGGER_NAME AND o.OBJECT_TYPE = 'TRIGGER' ORDER BY t.TABLE_NAME, t.TRIGGER_NAME`,
+          },
+        ];
+      }
+      return [
+        {
+          sql: `SELECT t.OWNER AS schema_name, t.TABLE_NAME AS table_name, t.TRIGGER_NAME AS trigger_name, o.STATUS AS object_status FROM ALL_TRIGGERS t LEFT JOIN ALL_OBJECTS o ON o.OWNER = t.OWNER AND o.OBJECT_NAME = t.TRIGGER_NAME AND o.OBJECT_TYPE = 'TRIGGER' WHERE t.OWNER = '${safeDbName.toUpperCase()}' ORDER BY t.TABLE_NAME, t.TRIGGER_NAME`,
+        },
+      ];
     case "dm":
       if (!safeDbName) {
         return [
@@ -611,25 +659,27 @@ const buildFunctionsMetadataQuerySpecs = (
       ];
     }
     case "oracle":
-    case "dm":
+    case "dm": {
+      const objectStatusProjection = dialect === "oracle" ? ", STATUS AS object_status" : "";
       if (safeDbName) {
         // See the corresponding view query above. Oracle CURRENT_SCHEMA only
         // changes name resolution, so USER_OBJECTS still belongs to the login
         // account rather than the schema selected in the sidebar.
         return [
           {
-            sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM ALL_OBJECTS WHERE OWNER = '${safeDbName.toUpperCase()}' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
+            sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type${objectStatusProjection} FROM ALL_OBJECTS WHERE OWNER = '${safeDbName.toUpperCase()}' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
           },
         ];
       }
       return normalizeMetadataQuerySpecs([
         {
-          sql: `SELECT OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM USER_OBJECTS WHERE OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
+          sql: `SELECT OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type${objectStatusProjection} FROM USER_OBJECTS WHERE OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
         },
         {
-          sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM ALL_OBJECTS WHERE OWNER = USER AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
+          sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type${objectStatusProjection} FROM ALL_OBJECTS WHERE OWNER = USER AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
         },
       ]);
+    }
     case "duckdb":
       return [
         {
@@ -769,7 +819,7 @@ const queryMetadataRowsBySpecs = async (
   conn: any,
   dbName: string,
   specs: MetadataQuerySpec[],
-): Promise<{ results: MetadataQueryResult[]; hasSuccessfulQuery: boolean }> => {
+): Promise<{ results: MetadataQueryResult[]; hasSuccessfulQuery: boolean; failureMessage?: string }> => {
   const normalizedSpecs = normalizeMetadataQuerySpecs(specs);
   if (normalizedSpecs.length === 0) {
     return { results: [], hasSuccessfulQuery: false };
@@ -777,6 +827,7 @@ const queryMetadataRowsBySpecs = async (
   const config = buildSidebarRuntimeConfig(conn, dbName);
   const results: MetadataQueryResult[] = [];
   let hasSuccessfulQuery = false;
+  let failureMessage = "";
   // Full queries (no inferredType) are mutually exclusive fallbacks: first success wins.
   // Partial queries (inferredType set) are complementary (e.g. SHOW FUNCTION + SHOW PROCEDURE).
   let hasFullSuccess = false;
@@ -792,6 +843,9 @@ const queryMetadataRowsBySpecs = async (
         spec.sql,
       );
       if (!result.success || !Array.isArray(result.data)) {
+        if (!failureMessage) {
+          failureMessage = String(result.message || "metadata query failed").trim();
+        }
         continue;
       }
       hasSuccessfulQuery = true;
@@ -804,21 +858,27 @@ const queryMetadataRowsBySpecs = async (
         // (Kingbase/PG 上多条成功会把同一函数叠加多次).
         hasFullSuccess = true;
       }
-    } catch {
-      // 忽略单条查询失败，继续尝试后续回退语句
+    } catch (error) {
+      if (!failureMessage) {
+        failureMessage = error instanceof Error ? error.message : String(error || "metadata query failed");
+      }
     }
   }
-  return { results, hasSuccessfulQuery };
+  return {
+    results,
+    hasSuccessfulQuery,
+    ...(hasSuccessfulQuery || !failureMessage ? {} : { failureMessage }),
+  };
 };
 
 const loadViews = async (
   conn: any,
   dbName: string,
-): Promise<{ views: SidebarViewMetadataEntry[]; supported: boolean }> => {
+): Promise<{ views: SidebarViewMetadataEntry[] } & MetadataLoadState> => {
   const savedConn = conn as SavedConnection;
   const dialect = getMetadataDialect(savedConn);
   const querySpecs = buildViewsMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -863,13 +923,13 @@ const loadViews = async (
       views.push(entry);
     });
   });
-  return { views, supported: hasSuccessfulQuery };
+  return { views, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadStarRocksMaterializedViews = async (
   conn: any,
   dbName: string,
-): Promise<{ views: SidebarViewMetadataEntry[]; supported: boolean }> => {
+): Promise<{ views: SidebarViewMetadataEntry[] } & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   if (dialect !== "starrocks") {
     return { views: [], supported: false };
@@ -888,7 +948,7 @@ const loadStarRocksMaterializedViews = async (
     { sql: dbIdent ? `SHOW MATERIALIZED VIEWS FROM \`${dbIdent}\`` : "" },
     { sql: `SHOW MATERIALIZED VIEWS` },
   ]);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -927,7 +987,7 @@ const loadStarRocksMaterializedViews = async (
     });
   });
 
-  return { views, supported: hasSuccessfulQuery };
+  return { views, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadDatabaseTriggers = async (
@@ -938,12 +998,12 @@ const loadDatabaseTriggers = async (
     displayName: string;
     triggerName: string;
     tableName: string;
+    objectStatus?: string;
   }>;
-  supported: boolean;
-}> => {
+} & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   const querySpecs = buildTriggersMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -1009,14 +1069,18 @@ const loadDatabaseTriggers = async (
       const displayName = fullTableName
         ? `${resolvedTriggerName} (${fullTableName})`
         : resolvedTriggerName;
+      const objectStatus = dialect === "oracle"
+        ? normalizeOracleObjectCompileStatus(getCaseInsensitiveValue(row, ["object_status"]))
+        : "";
       triggers.push({
         displayName,
         triggerName: resolvedTriggerName,
         tableName: fullTableName || resolvedTableName,
+        ...(objectStatus ? { objectStatus } : {}),
       });
     });
   });
-  return { triggers, supported: hasSuccessfulQuery };
+  return { triggers, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadFunctions = async (
@@ -1027,12 +1091,12 @@ const loadFunctions = async (
     displayName: string;
     routineName: string;
     routineType: string;
+    objectStatus?: string;
   }>;
-  supported: boolean;
-}> => {
+} & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   const querySpecs = buildFunctionsMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -1073,14 +1137,18 @@ const loadFunctions = async (
       if (!fullName || seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       const typeLabel = normalizedType === "PROCEDURE" ? "P" : "F";
+      const objectStatus = dialect === "oracle"
+        ? normalizeOracleObjectCompileStatus(getCaseInsensitiveValue(row, ["object_status"]))
+        : "";
       routines.push({
         displayName: `${fullName} [${typeLabel}]`,
         routineName: fullName,
         routineType: normalizedType,
+        ...(objectStatus ? { objectStatus } : {}),
       });
     });
   });
-  return { routines, supported: hasSuccessfulQuery };
+  return { routines, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadSequences = async (
@@ -1092,11 +1160,10 @@ const loadSequences = async (
     sequenceName: string;
     schemaName: string;
   }>;
-  supported: boolean;
-}> => {
+} & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   const querySpecs = buildSequencesMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -1141,7 +1208,7 @@ const loadSequences = async (
       });
     });
   });
-  return { sequences, supported: hasSuccessfulQuery };
+  return { sequences, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadPackages = async (
@@ -1153,11 +1220,10 @@ const loadPackages = async (
     packageName: string;
     schemaName: string;
   }>;
-  supported: boolean;
-}> => {
+} & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   const querySpecs = buildPackagesMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -1201,7 +1267,7 @@ const loadPackages = async (
       });
     });
   });
-  return { packages, supported: hasSuccessfulQuery };
+  return { packages, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadDatabaseEvents = async (
@@ -1215,11 +1281,10 @@ const loadDatabaseEvents = async (
     eventType: string;
     status: string;
   }>;
-  supported: boolean;
-}> => {
+} & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   const querySpecs = buildEventsMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -1270,16 +1335,16 @@ const loadDatabaseEvents = async (
     });
   });
 
-  return { events, supported: hasSuccessfulQuery };
+  return { events, supported: hasSuccessfulQuery, failureMessage };
 };
 
 const loadSchemas = async (
   conn: any,
   dbName: string,
-): Promise<{ schemas: string[]; supported: boolean }> => {
+): Promise<{ schemas: string[] } & MetadataLoadState> => {
   const dialect = getMetadataDialect(conn as SavedConnection);
   const querySpecs = buildSchemasMetadataQuerySpecs(dialect, dbName);
-  const { results, hasSuccessfulQuery } = await queryMetadataRowsBySpecs(
+  const { results, hasSuccessfulQuery, failureMessage } = await queryMetadataRowsBySpecs(
     conn,
     dbName,
     querySpecs,
@@ -1297,14 +1362,16 @@ const loadSchemas = async (
         ]) || getFirstRowValue(row);
       if (!schemaName) return;
       if (dialect === "iris" && isIRISSystemSchemaName(schemaName)) return;
-      const key = schemaName.toLowerCase();
+      // PostgreSQL quoted identifiers are case-sensitive, so `foo` and `Foo`
+      // can be distinct schemas and must both remain selectable.
+      const key = dialect === "postgres" ? schemaName : schemaName.toLowerCase();
       if (seen.has(key)) return;
       seen.add(key);
       schemas.push(schemaName);
     });
   });
 
-  return { schemas, supported: hasSuccessfulQuery };
+  return { schemas, supported: hasSuccessfulQuery, failureMessage };
 };
 
 export {
@@ -1340,6 +1407,7 @@ export {
   normalizeMetadataQuerySpecs,
   parseDuckDBParameterNames,
   parseMetadataRowCount,
+  parseSidebarTableRowCount,
   quoteSqlServerIdentifier,
   shouldHideSchemaPrefix,
   splitQualifiedName,

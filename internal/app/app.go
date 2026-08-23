@@ -18,15 +18,20 @@ import (
 	"GoNavi-Wails/internal/appdata"
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/importjob"
 	"GoNavi-Wails/internal/jvm"
 	"GoNavi-Wails/internal/logger"
 	nacosbackend "GoNavi-Wails/internal/nacos"
 	proxytunnel "GoNavi-Wails/internal/proxy"
 	redisbackend "GoNavi-Wails/internal/redis"
+	"GoNavi-Wails/internal/requesttrace"
 	"GoNavi-Wails/internal/resultdiff"
 	"GoNavi-Wails/internal/secretstore"
 	"GoNavi-Wails/internal/sqlaudit"
 	syncbackend "GoNavi-Wails/internal/sync"
+	"GoNavi-Wails/internal/synccdc"
+	"GoNavi-Wails/internal/syncjob"
+	"GoNavi-Wails/internal/uievents"
 	"GoNavi-Wails/shared/i18n"
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
@@ -134,10 +139,11 @@ type databaseConnectResult struct {
 }
 
 type queryContext struct {
-	cancel          context.CancelFunc
-	started         time.Time
-	retainUntilDone bool
-	registrationID  uint64
+	cancel                  context.CancelFunc
+	started                 time.Time
+	retainUntilDone         bool
+	cancellationUnsupported bool
+	registrationID          uint64
 }
 
 type managedSQLTransaction struct {
@@ -159,11 +165,13 @@ type managedSQLTransaction struct {
 type App struct {
 	ctx                           context.Context
 	webRuntime                    bool
+	headlessRuntime               bool
 	startedAt                     time.Time
 	dbCache                       map[string]cachedDatabase // Cache for DB connections
 	connectFailures               map[string]cachedConnectFailure
 	dbConnectGroup                singleflight.Group
 	dbConnectFlights              map[uint64]*databaseConnectFlight
+	metadataSession               *metadataSession
 	nextDBConnectFlightID         uint64
 	dbShuttingDown                bool
 	dbConnectBeforeForgetHook     func()       // Test seam for release/singleflight ordering.
@@ -177,8 +185,21 @@ type App struct {
 	applicationQuitPromptInFlight bool
 	queryMu                       sync.RWMutex
 	nextQueryRegistrationID       uint64
+	importArtifactMu              sync.Mutex
+	importErrorArtifacts          *importErrorArtifactStore
+	importJobMu                   sync.Mutex
+	importJobStore                *importjob.Store
+	importTaskMu                  sync.Mutex
+	importTasks                   map[string]importTaskRegistration
+	importTasksWG                 sync.WaitGroup
+	importTasksClosing            bool
+	driverDownloadTaskMu          sync.RWMutex
+	driverDownloadTasks           map[string]DriverDownloadTaskStatus
+	driverDownloadActiveTaskID    string
+	driverDownloadTaskRunner      func(string, string, string, string) connection.QueryResult
 	dataRootApplyMu               sync.Mutex
 	configDir                     string
+	sqliteTableStatsMu            sync.Mutex
 	secretStore                   secretstore.SecretStore
 	runningQueries                map[string]queryContext // queryID -> cancelFunc and start time
 	sqlTransactionMu              sync.Mutex
@@ -189,6 +210,8 @@ type App struct {
 	sqlAuditRuntimeActive         bool
 	sqlAuditSuspended             bool
 	sqlAuditAppendMu              sync.Mutex
+	requestTraceMu                sync.Mutex
+	requestTraceStore             *requesttrace.Store
 	sqlAuditHealthMu              sync.RWMutex
 	sqlAuditHealth                sqlAuditHealthState
 	sqlAuditHealthPath            string
@@ -218,6 +241,20 @@ type App struct {
 	cloudBackupRestoreTokenMu     sync.Mutex
 	cloudBackupRestoreTokens      map[string]cloudBackupRestoreConfirmationToken
 	cloudBackupRestoreTokenTTL    time.Duration
+	dataSyncJobApprovalMu         sync.Mutex
+	dataSyncJobApprovalTokens     map[string]dataSyncJobApprovalToken
+	dataSyncJobApprovalChallenges map[string]dataSyncJobApprovalChallenge
+	dataSyncJobApprovalTokenTTL   time.Duration
+	dataSyncJobApprovalDelay      time.Duration
+	dataSyncFingerprintMu         sync.Mutex
+	dataSyncFingerprintKey        []byte
+	dataSyncJobsMu                sync.Mutex
+	dataSyncJobStore              *syncjob.Store
+	dataSyncJobManager            *syncjob.Manager
+	dataSyncJobLeaseOwner         string
+	dataSyncJobsDraining          bool
+	dataSyncCDCRegistry           *synccdc.Registry
+	dataSyncChangeEventRunner     func(context.Context, syncbackend.ChangeEventRequest) syncbackend.ChangeEventResult
 }
 
 // NewApp creates a new App application struct
@@ -234,26 +271,45 @@ func NewWebApp() *App {
 	return app
 }
 
+// NewHeadlessApp creates an App with only the lifecycle resources required by
+// non-GUI callers such as the CLI and MCP server.
+func NewHeadlessApp(ctx context.Context, configDir string) (*App, error) {
+	app := NewApp()
+	if err := InitializeHeadlessLifecycle(app, ctx, configDir); err != nil {
+		return nil, err
+	}
+	return app, nil
+}
+
 func NewAppWithSecretStore(store secretstore.SecretStore) *App {
 	if store == nil {
 		store = secretstore.NewUnavailableStore("secret store unavailable")
 	}
 	return &App{
-		dbCache:                      make(map[string]cachedDatabase),
-		connectFailures:              make(map[string]cachedConnectFailure),
-		dbConnectFlights:             make(map[uint64]*databaseConnectFlight),
-		runningQueries:               make(map[string]queryContext),
-		sqlTransactions:              make(map[string]*managedSQLTransaction),
-		configDir:                    resolveAppConfigDir(),
-		secretStore:                  store,
-		localizer:                    newAppLocalizer(),
-		jvmPreviewTokens:             make(map[string]jvmPreviewConfirmationToken),
-		jvmPreviewTokenTTL:           defaultJVMPreviewConfirmationTokenTTL,
-		elasticsearchConsoleTokens:   make(map[string]elasticsearchConsoleConfirmationToken),
-		elasticsearchConsoleTokenTTL: defaultElasticsearchConsoleConfirmationTokenTTL,
-		cloudBackupRestoreTokens:     make(map[string]cloudBackupRestoreConfirmationToken),
-		cloudBackupRestoreTokenTTL:   defaultCloudBackupRestoreConfirmationTokenTTL,
-		resultDiffManager:            resultdiff.NewManager(30 * time.Minute),
+		dbCache:                       make(map[string]cachedDatabase),
+		connectFailures:               make(map[string]cachedConnectFailure),
+		dbConnectFlights:              make(map[uint64]*databaseConnectFlight),
+		runningQueries:                make(map[string]queryContext),
+		importTasks:                   make(map[string]importTaskRegistration),
+		driverDownloadTasks:           make(map[string]DriverDownloadTaskStatus),
+		sqlTransactions:               make(map[string]*managedSQLTransaction),
+		requestTraceStore:             requesttrace.NewStore(requesttrace.DefaultCapacity),
+		configDir:                     resolveAppConfigDir(),
+		secretStore:                   store,
+		localizer:                     newAppLocalizer(),
+		jvmPreviewTokens:              make(map[string]jvmPreviewConfirmationToken),
+		jvmPreviewTokenTTL:            defaultJVMPreviewConfirmationTokenTTL,
+		elasticsearchConsoleTokens:    make(map[string]elasticsearchConsoleConfirmationToken),
+		elasticsearchConsoleTokenTTL:  defaultElasticsearchConsoleConfirmationTokenTTL,
+		cloudBackupRestoreTokens:      make(map[string]cloudBackupRestoreConfirmationToken),
+		cloudBackupRestoreTokenTTL:    defaultCloudBackupRestoreConfirmationTokenTTL,
+		dataSyncJobApprovalTokens:     make(map[string]dataSyncJobApprovalToken),
+		dataSyncJobApprovalChallenges: make(map[string]dataSyncJobApprovalChallenge),
+		dataSyncJobApprovalTokenTTL:   defaultDataSyncJobApprovalTokenTTL,
+		dataSyncJobApprovalDelay:      defaultDataSyncJobApprovalDelay,
+		dataSyncJobLeaseOwner:         "sync-manager-" + uuid.NewString(),
+		dataSyncCDCRegistry:           synccdc.NewRegistry(),
+		resultDiffManager:             resultdiff.NewManager(30 * time.Minute),
 	}
 }
 
@@ -355,6 +411,52 @@ func InitializeLifecycle(a *App, ctx context.Context) {
 	a.startup(ctx)
 }
 
+type headlessEventEmitter struct{}
+
+func (headlessEventEmitter) Emit(string, ...any) {}
+
+// InitializeHeadlessLifecycle attaches a non-Wails context and starts the
+// shared config, import-job, proxy, and SQL-audit services. It intentionally
+// excludes desktop window APIs, keep-alives, cloud backup, and data-sync
+// schedulers.
+func InitializeHeadlessLifecycle(a *App, ctx context.Context, configDir string) error {
+	if a == nil {
+		return errors.New("application is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	configDir = strings.TrimSpace(configDir)
+	if configDir == "" {
+		configDir = resolveAppConfigDir()
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return err
+	}
+
+	a.headlessRuntime = true
+	a.ctx = uievents.WithEmitter(ctx, headlessEventEmitter{})
+	a.startedAt = time.Now()
+	a.configDir = configDir
+	db.SetExternalDriverDownloadDirectory(appdata.DriverRoot(configDir))
+	logger.Init()
+	if err := migrateDailySecretsIfNeeded(a); err != nil {
+		logger.Warnf("无头运行时迁移日常密文失败：%v", err)
+	}
+	// A headless process can run alongside the desktop app. Opening the shared
+	// store is required by batch commands, but crash recovery is desktop-owned:
+	// without a process lease it cannot distinguish stale jobs from work that a
+	// live GUI process is still executing.
+	if _, err := a.ensureImportJobStore(); err != nil {
+		a.Shutdown()
+		return fmt.Errorf("initialize SQL-file job store: %w", err)
+	}
+	a.loadPersistedGlobalProxy()
+	a.activateSQLAudit()
+	logger.Infof("无头运行时启动完成")
+	return nil
+}
+
 // HandleFrontendDomReady 在 WebView 每次完成导航（含前端刷新）后调用。
 //
 // SQL 编辑器待提交事务的 ID 只存在于前端组件内存，刷新后无法再被提交或回滚，
@@ -381,6 +483,9 @@ func (a *App) startup(ctx context.Context) {
 	if err := migrateDailySecretsIfNeeded(a); err != nil {
 		logger.Warnf("迁移日常密文失败：%v", err)
 	}
+	if err := a.recoverImportJobsOnStartup(); err != nil {
+		logger.Warnf("恢复导入任务状态失败：%v", err)
+	}
 	a.loadPersistedGlobalProxy()
 	if err := migrateLegacyWebKitStorageIfNeeded(a); err != nil {
 		logger.Warnf("迁移旧 WebKit 连接存储失败：%v", err)
@@ -391,6 +496,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	applyMacWindowTranslucencyFix()
 	a.startConnectionKeepAliveLoop()
+	a.initializeDataSyncJobs(ctx)
 	a.initializeCloudBackup(ctx)
 	logger.Infof("应用启动完成（首次连接保护窗口=%s，最多重试=%d 次）", startupConnectRetryWindow, startupConnectRetryAttempts)
 }
@@ -462,6 +568,10 @@ func (a *App) LogWindowDiagnostic(stage string, payload string) {
 func (a *App) Shutdown() {
 	logger.Infof("应用开始关闭，准备释放资源")
 	a.shutdownCloudBackup()
+	a.shutdownDataSyncJobs()
+	if !a.cancelAndWaitImportTasks(5 * time.Second) {
+		logger.Warnf("导入任务未能在关闭超时内全部退出；将继续释放数据库资源")
+	}
 	a.beginDatabaseShutdown()
 	a.stopConnectionKeepAliveLoop()
 	closeJVMMonitoringSessions()
@@ -518,8 +628,9 @@ func normalizeCacheKeyConfig(config connection.ConnectionConfig) connection.Conn
 		normalized.ConnectionParams = normalizeOceanBaseConnectionParamsForCacheWithProtocol(normalized.ConnectionParams, protocol)
 		normalized.OceanBaseProtocol = ""
 	}
-	// timeout 仅用于 Query/Ping 控制，不应作为物理连接复用键的一部分。
+	// Connection/query timeouts affect operations, not physical connection identity.
 	normalized.Timeout = 0
+	normalized.QueryTimeout = 0
 	// keepalive 仅影响后台保活策略，不应参与物理连接复用键。
 	normalized.KeepAliveEnabled = false
 	normalized.KeepAliveIntervalMinutes = 0
@@ -1173,12 +1284,66 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 }
 
 func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Database, error) {
-	return a.getDatabaseWithPing(config, true)
+	if a != nil && a.metadataSession != nil {
+		instance, err := a.getDatabaseWithContext(a.metadataSession.ctx, config, true)
+		a.bindMetadataDatabase(instance)
+		return instance, err
+	}
+	instance, err := a.getDatabaseWithPing(config, true)
+	a.bindMetadataDatabase(instance)
+	return instance, err
 }
 
 // Helper: Get or create a database connection
 func (a *App) getDatabase(config connection.ConnectionConfig) (db.Database, error) {
-	return a.getDatabaseWithPing(config, false)
+	if a != nil && a.metadataSession != nil {
+		instance, err := a.getDatabaseWithContext(a.metadataSession.ctx, config, false)
+		a.bindMetadataDatabase(instance)
+		return instance, err
+	}
+	instance, err := a.getDatabaseWithPing(config, false)
+	a.bindMetadataDatabase(instance)
+	return instance, err
+}
+
+func (a *App) bindMetadataDatabase(instance db.Database) {
+	if a == nil || a.metadataSession == nil || instance == nil {
+		return
+	}
+	a.metadataSession.bindDatabase(instance)
+}
+
+type databaseWaitResult struct {
+	instance db.Database
+	err      error
+}
+
+// getDatabaseWithContext makes waiting for cache lookup, singleflight, and a
+// driver's non-context-aware Connect call cancellable. The physical Connect
+// may finish in the worker after the caller leaves; the normal flight and
+// shutdown checks still decide whether that instance may enter the cache.
+func (a *App) getDatabaseWithContext(ctx context.Context, config connection.ConnectionConfig, forcePing bool) (db.Database, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	resultCh := make(chan databaseWaitResult, 1)
+	go func() {
+		instance, err := a.getDatabaseWithPing(config, forcePing)
+		resultCh <- databaseWaitResult{instance: instance, err: err}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-resultCh:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return result.instance, result.err
+	}
 }
 
 func (a *App) openDatabaseIsolated(config connection.ConnectionConfig) (db.Database, error) {
@@ -1222,7 +1387,7 @@ func (a *App) resolveEffectiveConnectionConfig(config connection.ConnectionConfi
 	if err != nil {
 		return config, wrapConnectError(resolvedConfig, err)
 	}
-	return runtimeConfig, nil
+	return a.withManagedSSHHostKeyTrustStore(runtimeConfig), nil
 }
 
 func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing bool) (db.Database, error) {
@@ -1755,9 +1920,58 @@ func generateQueryID() string {
 }
 
 func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool) func() {
+	cleanup, _ := a.registerRunningQueryWithCancellationCapability(queryID, cancel, retainUntilDone)
+	return cleanup
+}
+
+func (a *App) registerRunningQueryWithCancellationCapability(queryID string, cancel context.CancelFunc, retainUntilDone bool) (func(), func(bool)) {
 	a.queryMu.Lock()
 	if a.runningQueries == nil {
 		a.runningQueries = make(map[string]queryContext)
+	}
+	a.nextQueryRegistrationID++
+	if a.nextQueryRegistrationID == 0 {
+		a.nextQueryRegistrationID++
+	}
+	registrationID := a.nextQueryRegistrationID
+	a.runningQueries[queryID] = queryContext{
+		cancel:          cancel,
+		started:         time.Now(),
+		retainUntilDone: retainUntilDone,
+		registrationID:  registrationID,
+	}
+	a.queryMu.Unlock()
+
+	cleanup := func() {
+		a.queryMu.Lock()
+		if current, exists := a.runningQueries[queryID]; exists && current.registrationID == registrationID {
+			delete(a.runningQueries, queryID)
+		}
+		a.queryMu.Unlock()
+	}
+	setCancellable := func(cancellable bool) {
+		a.queryMu.Lock()
+		if current, exists := a.runningQueries[queryID]; exists && current.registrationID == registrationID {
+			current.cancellationUnsupported = !cancellable
+			a.runningQueries[queryID] = current
+		}
+		a.queryMu.Unlock()
+	}
+	return cleanup, setCancellable
+}
+
+// registerExclusiveRunningQuery registers a long-running task only when the
+// caller-provided ID is not already owned by another task. Import jobs use this
+// stricter contract because replacing an owner would make cancellation target
+// the wrong operation and let an older cleanup remove the newer task.
+func (a *App) registerExclusiveRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool) (func(), bool) {
+	a.queryMu.Lock()
+	if a.runningQueries == nil {
+		a.runningQueries = make(map[string]queryContext)
+	}
+	if _, exists := a.runningQueries[queryID]; exists {
+		a.queryMu.Unlock()
+		return func() {}, false
 	}
 	a.nextQueryRegistrationID++
 	if a.nextQueryRegistrationID == 0 {
@@ -1778,7 +1992,7 @@ func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, re
 			delete(a.runningQueries, queryID)
 		}
 		a.queryMu.Unlock()
-	}
+	}, true
 }
 
 // CancelQuery cancels a running query by its ID
@@ -1787,13 +2001,23 @@ func (a *App) CancelQuery(queryID string) connection.QueryResult {
 	defer a.queryMu.Unlock()
 
 	if ctx, exists := a.runningQueries[queryID]; exists {
+		if ctx.cancellationUnsupported {
+			logger.Warnf("取消查询失败：queryID=%s 的底层驱动不支持取消", queryID)
+			return connection.QueryResult{
+				Success:           false,
+				Message:           a.appText("query_editor.message.cancel_unsupported", nil),
+				CancellationState: connection.QueryCancellationStateUnsupported,
+			}
+		}
 		ctx.cancel()
+		a.requestDiagnostics().MarkCancellation(queryID, true)
 		if !ctx.retainUntilDone {
 			delete(a.runningQueries, queryID)
 		}
 		logger.Infof("查询已取消：queryID=%s", queryID)
 		return connection.QueryResult{Success: true, Message: a.appText("query_editor.message.cancel_success", nil)}
 	}
+	a.requestDiagnostics().MarkCancellation(queryID, false)
 	logger.Warnf("取消查询失败：queryID=%s 不存在或已完成", queryID)
 	return connection.QueryResult{Success: false, Message: a.appText("query_editor.message.cancel_no_running", nil)}
 }

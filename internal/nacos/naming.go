@@ -14,6 +14,7 @@ import (
 const (
 	defaultServicePageSize = 100
 	maxServicePageSize     = 500
+	maxInstancePageSize    = 500
 	defaultServiceGroup    = "DEFAULT_GROUP"
 )
 
@@ -408,25 +409,166 @@ func (c *ClientImpl) ListInstances(ctx context.Context, query InstanceQuery) (*I
 	}
 	serviceName, groupName := splitServiceName(serviceName, query.GroupName)
 	qualifiedServiceName := qualifyServiceName(serviceName, groupName)
-	params := url.Values{}
-	if family == nacosAPIV1 {
-		params.Set("serviceName", qualifiedServiceName)
-	} else {
-		params.Set("serviceName", serviceName)
+	switch family {
+	case nacosAPIV1:
+		return c.listV1CatalogInstances(ctx, query, serviceName, groupName, qualifiedServiceName)
+	case nacosAPIV2:
+		return c.listV2CatalogInstances(ctx, query, serviceName, groupName, qualifiedServiceName)
 	}
+
+	params := url.Values{}
+	params.Set("serviceName", serviceName)
 	params.Set("groupName", groupName)
 	params.Set("namespaceId", normalizeNamespaceID(query.NamespaceID))
 	if clusters := strings.TrimSpace(query.Clusters); clusters != "" {
-		if family == nacosAPIV1 {
-			params.Set("clusters", clusters)
-		} else {
-			params.Set("clusterName", clusters)
-		}
+		params.Set("clusterName", clusters)
 	}
 	if query.HealthyOnly {
 		params.Set("healthyOnly", "true")
 	}
+	return c.listV3AdminInstances(ctx, params, qualifiedServiceName, groupName, query)
+}
 
+func (c *ClientImpl) listV1CatalogInstances(
+	ctx context.Context,
+	query InstanceQuery,
+	serviceName, groupName, qualifiedServiceName string,
+) (*InstanceList, error) {
+	clusters := splitNacosClusterNames(query.Clusters)
+	if len(clusters) == 0 {
+		service, err := c.GetService(ctx, query.NamespaceID, serviceName, groupName)
+		if err != nil {
+			return nil, err
+		}
+		seen := make(map[string]struct{}, len(service.Clusters))
+		for _, cluster := range service.Clusters {
+			name := strings.TrimSpace(cluster.Name)
+			if name == "" {
+				continue
+			}
+			if _, exists := seen[name]; exists {
+				continue
+			}
+			seen[name] = struct{}{}
+			clusters = append(clusters, name)
+		}
+	}
+
+	result := &InstanceList{Name: qualifiedServiceName, GroupName: groupName}
+	if len(clusters) == 0 {
+		hosts, err := c.listV1CatalogInstancePages(ctx, query, qualifiedServiceName, groupName, "")
+		if err != nil {
+			return nil, err
+		}
+		result.Hosts = hosts
+		return result, nil
+	}
+	for _, cluster := range clusters {
+		hosts, err := c.listV1CatalogInstancePages(ctx, query, qualifiedServiceName, groupName, cluster)
+		if err != nil {
+			return nil, err
+		}
+		result.Hosts = append(result.Hosts, hosts...)
+	}
+	return result, nil
+}
+
+func (c *ClientImpl) listV1CatalogInstancePages(
+	ctx context.Context,
+	query InstanceQuery,
+	qualifiedServiceName, groupName, cluster string,
+) ([]Instance, error) {
+	hosts := make([]Instance, 0)
+	for pageNo := 1; ; pageNo++ {
+		params := url.Values{}
+		params.Set("namespaceId", normalizeNamespaceID(query.NamespaceID))
+		params.Set("serviceName", qualifiedServiceName)
+		params.Set("groupName", groupName)
+		if cluster != "" {
+			params.Set("clusterName", cluster)
+		}
+		params.Set("pageNo", strconv.Itoa(pageNo))
+		params.Set("pageSize", strconv.Itoa(maxInstancePageSize))
+		body, status, err := c.doRequest(ctx, http.MethodGet, routesForNacosAPI(nacosAPIV1).instanceList, params, nil)
+		if err != nil {
+			return nil, err
+		}
+		if status < 200 || status >= 300 {
+			return nil, localizedNacosBackendError("nacos.backend.error.http_status", map[string]any{
+				"status": status,
+				"body":   truncateForError(string(body)),
+			})
+		}
+		data, err := unwrapNacosResult(body)
+		if err != nil {
+			return nil, err
+		}
+		page, err := parseNacosCatalogInstances(data)
+		if err != nil {
+			return nil, err
+		}
+		hosts = append(hosts, filterNacosInstances(
+			normalizeNacosInstances(page.items(), qualifiedServiceName),
+			"",
+			query.HealthyOnly,
+		)...)
+		if len(page.items()) == 0 || int64(pageNo*maxInstancePageSize) >= page.Count {
+			return hosts, nil
+		}
+	}
+}
+
+func (c *ClientImpl) listV2CatalogInstances(
+	ctx context.Context,
+	query InstanceQuery,
+	serviceName, groupName, qualifiedServiceName string,
+) (*InstanceList, error) {
+	result := &InstanceList{Name: qualifiedServiceName, GroupName: groupName}
+	for pageNo := 1; ; pageNo++ {
+		params := url.Values{}
+		params.Set("namespaceId", normalizeNamespaceID(query.NamespaceID))
+		params.Set("serviceName", qualifiedServiceName)
+		params.Set("pageNo", strconv.Itoa(pageNo))
+		params.Set("pageSize", strconv.Itoa(maxInstancePageSize))
+		body, status, err := c.doRequest(ctx, http.MethodGet, c.currentAPIRoutes().instanceList, params, nil)
+		if err != nil {
+			return nil, err
+		}
+		if status < 200 || status >= 300 {
+			if pageNo == 1 && isMissingNacosAPI(status, body) {
+				return c.listV1CatalogInstances(ctx, query, serviceName, groupName, qualifiedServiceName)
+			}
+			return nil, localizedNacosBackendError("nacos.backend.error.http_status", map[string]any{
+				"status": status,
+				"body":   truncateForError(string(body)),
+			})
+		}
+		data, err := unwrapNacosResult(body)
+		if err != nil {
+			return nil, err
+		}
+		page, err := parseNacosCatalogInstances(data)
+		if err != nil {
+			return nil, err
+		}
+		items := page.items()
+		result.Hosts = append(result.Hosts, filterNacosInstances(
+			normalizeNacosInstances(items, qualifiedServiceName),
+			query.Clusters,
+			query.HealthyOnly,
+		)...)
+		if len(items) == 0 || int64(pageNo*maxInstancePageSize) >= page.Count {
+			return result, nil
+		}
+	}
+}
+
+func (c *ClientImpl) listV3AdminInstances(
+	ctx context.Context,
+	params url.Values,
+	qualifiedServiceName, groupName string,
+	query InstanceQuery,
+) (*InstanceList, error) {
 	body, status, err := c.doRequest(ctx, http.MethodGet, c.currentAPIRoutes().instanceList, params, nil)
 	if err != nil {
 		return nil, err
@@ -442,42 +584,109 @@ func (c *ClientImpl) ListInstances(ctx context.Context, query InstanceQuery) (*I
 	if err != nil {
 		return nil, err
 	}
-	type instancePayload struct {
-		InstanceID  string            `json:"instanceId"`
-		IP          string            `json:"ip"`
-		Port        int               `json:"port"`
-		Weight      float64           `json:"weight"`
-		Healthy     bool              `json:"healthy"`
-		Enabled     bool              `json:"enabled"`
-		Ephemeral   bool              `json:"ephemeral"`
-		ClusterName string            `json:"clusterName"`
-		ServiceName string            `json:"serviceName"`
-		Metadata    map[string]string `json:"metadata"`
-	}
-	var payload struct {
-		Name        string            `json:"name"`
-		GroupName   string            `json:"groupName"`
-		Clusters    string            `json:"clusters"`
-		CacheMillis int64             `json:"cacheMillis"`
-		Hosts       []instancePayload `json:"hosts"`
-	}
-	if family == nacosAPIV3 {
-		if err := json.Unmarshal(data, &payload.Hosts); err != nil {
-			return nil, localizedNacosBackendError("nacos.backend.error.parse_instances", map[string]any{
-				"detail": err.Error(),
-			})
-		}
-		payload.Name = qualifiedServiceName
-		payload.GroupName = groupName
-	} else if err := json.Unmarshal(data, &payload); err != nil {
+	var payload []instancePayload
+	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil, localizedNacosBackendError("nacos.backend.error.parse_instances", map[string]any{
 			"detail": err.Error(),
 		})
 	}
+	return &InstanceList{
+		Name:      qualifiedServiceName,
+		GroupName: groupName,
+		Hosts:     filterNacosInstances(normalizeNacosInstances(payload, qualifiedServiceName), query.Clusters, query.HealthyOnly),
+	}, nil
+}
 
-	hosts := make([]Instance, 0, len(payload.Hosts))
-	for _, host := range payload.Hosts {
-		hosts = append(hosts, Instance{
+type instancePayload struct {
+	InstanceID  string            `json:"instanceId"`
+	IP          string            `json:"ip"`
+	Port        int               `json:"port"`
+	Weight      float64           `json:"weight"`
+	Healthy     bool              `json:"healthy"`
+	Enabled     bool              `json:"enabled"`
+	Ephemeral   bool              `json:"ephemeral"`
+	ClusterName string            `json:"clusterName"`
+	ServiceName string            `json:"serviceName"`
+	Metadata    map[string]string `json:"metadata"`
+}
+
+type nacosCatalogInstancePage struct {
+	Count     int64             `json:"count"`
+	Instances []instancePayload `json:"instances"`
+	List      []instancePayload `json:"list"`
+	PageItems []instancePayload `json:"pageItems"`
+}
+
+func (p nacosCatalogInstancePage) items() []instancePayload {
+	if p.Instances != nil {
+		return p.Instances
+	}
+	if p.List != nil {
+		return p.List
+	}
+	return p.PageItems
+}
+
+func parseNacosCatalogInstances(data []byte) (*nacosCatalogInstancePage, error) {
+	if len(data) == 0 {
+		return nil, localizedNacosBackendError("nacos.backend.error.parse_instances", map[string]any{
+			"detail": "empty Nacos catalog response",
+		})
+	}
+	var payload nacosCatalogInstancePage
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return nil, localizedNacosBackendError("nacos.backend.error.parse_instances", map[string]any{
+			"detail": err.Error(),
+		})
+	}
+	return &payload, nil
+}
+
+func splitNacosClusterNames(raw string) []string {
+	clusters := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, part := range strings.Split(raw, ",") {
+		cluster := strings.TrimSpace(part)
+		if cluster == "" {
+			continue
+		}
+		if _, exists := seen[cluster]; exists {
+			continue
+		}
+		seen[cluster] = struct{}{}
+		clusters = append(clusters, cluster)
+	}
+	return clusters
+}
+
+func filterNacosInstances(instances []Instance, clusters string, healthyOnly bool) []Instance {
+	requestedClusters := splitNacosClusterNames(clusters)
+	if len(requestedClusters) == 0 && !healthyOnly {
+		return instances
+	}
+	clusterSet := make(map[string]struct{}, len(requestedClusters))
+	for _, cluster := range requestedClusters {
+		clusterSet[cluster] = struct{}{}
+	}
+	filtered := make([]Instance, 0, len(instances))
+	for _, instance := range instances {
+		if healthyOnly && !instance.Healthy {
+			continue
+		}
+		if len(clusterSet) > 0 {
+			if _, ok := clusterSet[strings.TrimSpace(instance.ClusterName)]; !ok {
+				continue
+			}
+		}
+		filtered = append(filtered, instance)
+	}
+	return filtered
+}
+
+func normalizeNacosInstances(payload []instancePayload, qualifiedServiceName string) []Instance {
+	instances := make([]Instance, 0, len(payload))
+	for _, host := range payload {
+		instances = append(instances, Instance{
 			InstanceID:  strings.TrimSpace(host.InstanceID),
 			IP:          strings.TrimSpace(host.IP),
 			Port:        host.Port,
@@ -490,13 +699,7 @@ func (c *ClientImpl) ListInstances(ctx context.Context, query InstanceQuery) (*I
 			Metadata:    host.Metadata,
 		})
 	}
-	return &InstanceList{
-		Name:        firstNonEmpty(strings.TrimSpace(payload.Name), qualifiedServiceName),
-		GroupName:   firstNonEmpty(strings.TrimSpace(payload.GroupName), groupName),
-		Clusters:    strings.TrimSpace(payload.Clusters),
-		CacheMillis: payload.CacheMillis,
-		Hosts:       hosts,
-	}, nil
+	return instances
 }
 
 // GetInstance loads one instance detail.

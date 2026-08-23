@@ -14,6 +14,9 @@ import (
 const defaultSyncReadPageSize = defaultSyncApplyBatchSize
 
 func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncResult, tableIndex, totalTables int, tableName string, sourceDB db.Database, targetDB db.Database, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, opts TableOptions, sourceType, targetType, applyTableName string) (bool, int, error) {
+	if hasExplicitSyncMappings(config) {
+		return false, 0, nil
+	}
 	tableMode := normalizeSyncMode(config.Mode)
 	if tableMode == "insert_update" && plan.TargetTableExists {
 		return false, 0, nil
@@ -24,6 +27,10 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 	if !opts.Insert {
 		return false, 0, nil
 	}
+	pageSize, err := normalizedSyncBatchSize(config.BatchSize)
+	if err != nil {
+		return true, 0, err
+	}
 
 	pkCol, ok := directImportPaginationPK(sourceType, sourceCols)
 	if !ok && !supportsDirectImportPagination(sourceType) {
@@ -33,7 +40,7 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 		return false, 0, nil
 	}
 
-	firstPageQuery := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceCols, pkCol, defaultSyncReadPageSize, 0)
+	firstPageQuery := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceCols, pkCol, pageSize, 0)
 	if strings.TrimSpace(firstPageQuery) == "" {
 		return false, 0, nil
 	}
@@ -44,12 +51,12 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 	}
 
 	if strings.TrimSpace(pkCol) != "" {
-		s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：按主键 %s 每批读取 %d 行", pkCol, defaultSyncReadPageSize))
+		s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：按主键 %s 每批读取 %d 行", pkCol, pageSize))
 	} else {
-		s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：每批读取 %d 行", defaultSyncReadPageSize))
+		s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：每批读取 %d 行", pageSize))
 	}
 	s.progress(config.JobID, tableIndex, totalTables, tableName, "分页读取源表数据")
-	firstRows, _, err := sourceDB.Query(firstPageQuery)
+	firstRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, firstPageQuery)
 	if err != nil {
 		return true, 0, fmt.Errorf("分页读取源表失败: %w", err)
 	}
@@ -63,35 +70,35 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 		s.appendLog(config.JobID, res, "warn", fmt.Sprintf("  -> 全量覆盖模式：即将清空目标表 %s", tableName))
 		s.progress(config.JobID, tableIndex, totalTables, tableName, "清空目标表")
 		clearSQL := buildClearTargetTableSQL(targetType, plan.TargetQueryTable)
-		if _, err := targetDB.Exec(clearSQL); err != nil {
+		if _, err := execSyncDatabaseContext(s.context(), targetDB, clearSQL); err != nil {
 			return true, 0, fmt.Errorf("清空目标表失败: %w", err)
 		}
 	}
 
-	inserted, err := s.applyDirectImportPage(config.JobID, res, applyTableName, applier, targetColSet, pkCol, opts, firstRows)
+	inserted, err := s.applyDirectImportPage(config, res, tableName, applyTableName, applier, targetColSet, pkCol, opts, firstRows, pageSize, 0)
 	if err != nil {
 		return true, inserted, err
 	}
-	if len(firstRows) < defaultSyncReadPageSize {
+	if len(firstRows) < pageSize {
 		return true, inserted, nil
 	}
 
-	for offset := defaultSyncReadPageSize; ; offset += defaultSyncReadPageSize {
+	for offset := pageSize; ; offset += pageSize {
 		s.progress(config.JobID, tableIndex, totalTables, tableName, fmt.Sprintf("分页读取源表数据(%d+)", offset))
-		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceCols, pkCol, defaultSyncReadPageSize, offset)
-		rows, _, err := sourceDB.Query(query)
+		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, sourceCols, pkCol, pageSize, offset)
+		rows, _, err := querySyncDatabaseContext(s.context(), sourceDB, query)
 		if err != nil {
 			return true, inserted, fmt.Errorf("分页读取源表失败(offset=%d): %w", offset, err)
 		}
 		if len(rows) == 0 {
 			return true, inserted, nil
 		}
-		applied, err := s.applyDirectImportPage(config.JobID, res, applyTableName, applier, targetColSet, pkCol, opts, rows)
+		applied, err := s.applyDirectImportPage(config, res, tableName, applyTableName, applier, targetColSet, pkCol, opts, rows, pageSize, offset)
 		inserted += applied
 		if err != nil {
 			return true, inserted, err
 		}
-		if len(rows) < defaultSyncReadPageSize {
+		if len(rows) < pageSize {
 			return true, inserted, nil
 		}
 	}
@@ -117,6 +124,9 @@ func (s *SyncEngine) prepareDirectImportTargetColumnSet(config SyncConfig, res *
 	}
 
 	if config.AutoAddColumns && supportsAutoAddColumnsForPair(sourceType, targetType) {
+		if !syncContentAllowsSchemaChanges(config.Content) {
+			return nil, fmt.Errorf("目标表缺少字段，仅同步数据模式不允许自动补齐：%s", strings.Join(missing, ", "))
+		}
 		s.appendLog(config.JobID, res, "warn", fmt.Sprintf("  -> 目标表缺少字段 %d 个，开始自动补齐: %s", len(missing), strings.Join(missing, ", ")))
 		added := 0
 		sourceColsByLower := make(map[string]connection.ColumnDefinition, len(sourceCols))
@@ -136,7 +146,7 @@ func (s *SyncEngine) prepareDirectImportTargetColumnSet(config SyncConfig, res *
 				s.appendLog(config.JobID, res, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))
 				return nil, fmt.Errorf("自动补字段失败：字段=%s: %w", colName, err)
 			}
-			if _, err := targetDB.Exec(alterSQL); err != nil {
+			if _, err := execSyncDatabaseContext(s.context(), targetDB, alterSQL); err != nil {
 				s.appendLog(config.JobID, res, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))
 				return nil, fmt.Errorf("自动补字段失败：字段=%s: %w", colName, err)
 			}
@@ -171,7 +181,7 @@ func missingSourceColumns(sourceCols []connection.ColumnDefinition, targetColSet
 	return missing
 }
 
-func (s *SyncEngine) applyDirectImportPage(jobID string, res *SyncResult, tableName string, applier db.BatchApplier, targetColSet map[string]struct{}, pkCol string, opts TableOptions, rows []map[string]interface{}) (int, error) {
+func (s *SyncEngine) applyDirectImportPage(config SyncConfig, res *SyncResult, sourceTable, targetTable string, applier db.BatchApplier, targetColSet map[string]struct{}, pkCol string, opts TableOptions, rows []map[string]interface{}, batchSize, indexBase int) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
@@ -186,7 +196,8 @@ func (s *SyncEngine) applyDirectImportPage(jobID string, res *SyncResult, tableN
 		return 0, nil
 	}
 	changeSet := connection.ChangeSet{Inserts: rows}
-	applied, err := s.applyChangesInBatches(jobID, res, tableName, applier, changeSet)
+	config.BatchSize = batchSize
+	applied, err := s.applySnapshotChanges(config, res, sourceTable, targetTable, applier, changeSet, indexBase)
 	return applied.Inserts, err
 }
 

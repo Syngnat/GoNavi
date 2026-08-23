@@ -1,7 +1,11 @@
 package db
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"io"
 	"reflect"
 	"testing"
 )
@@ -302,5 +306,96 @@ func TestBuildMySQLShowFullColumnsQueryEscapesIdentifiers(t *testing.T) {
 				t.Fatalf("buildMySQLShowFullColumnsQuery(%q,%q)=%q,want=%q", tt.dbName, tt.tableName, got, tt.want)
 			}
 		})
+	}
+}
+
+type mysqlMetadataQuotingCapture struct {
+	queries []string
+	args    [][]driver.NamedValue
+}
+
+type mysqlMetadataQuotingConnector struct {
+	capture *mysqlMetadataQuotingCapture
+}
+
+func (c mysqlMetadataQuotingConnector) Connect(context.Context) (driver.Conn, error) {
+	return &mysqlMetadataQuotingConn{capture: c.capture}, nil
+}
+
+func (mysqlMetadataQuotingConnector) Driver() driver.Driver { return mysqlMetadataQuotingDriver{} }
+
+type mysqlMetadataQuotingDriver struct{}
+
+func (mysqlMetadataQuotingDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("use sql.OpenDB with the test connector")
+}
+
+type mysqlMetadataQuotingConn struct {
+	capture *mysqlMetadataQuotingCapture
+}
+
+func (mysqlMetadataQuotingConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepared statements are not supported by this test driver")
+}
+
+func (mysqlMetadataQuotingConn) Close() error { return nil }
+
+func (mysqlMetadataQuotingConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("transactions are not supported by this test driver")
+}
+
+func (c *mysqlMetadataQuotingConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
+	c.capture.queries = append(c.capture.queries, query)
+	c.capture.args = append(c.capture.args, append([]driver.NamedValue(nil), args...))
+	return mysqlMetadataQuotingRows{}, nil
+}
+
+var _ driver.QueryerContext = (*mysqlMetadataQuotingConn)(nil)
+
+type mysqlMetadataQuotingRows struct{}
+
+func (mysqlMetadataQuotingRows) Columns() []string { return []string{"unused"} }
+func (mysqlMetadataQuotingRows) Close() error      { return nil }
+func (mysqlMetadataQuotingRows) Next([]driver.Value) error {
+	return io.EOF
+}
+
+func TestMySQLCompatibleMetadataQueriesQuoteIdentifiersAndBindNames(t *testing.T) {
+	const schema = "app`prod"
+	const table = "order'items"
+
+	capture := &mysqlMetadataQuotingCapture{}
+	conn := sql.OpenDB(mysqlMetadataQuotingConnector{capture: capture})
+	t.Cleanup(func() { _ = conn.Close() })
+	db := &MySQLDB{conn: conn}
+	if _, err := db.GetIndexes(schema, table); err != nil {
+		t.Fatalf("GetIndexes returned error: %v", err)
+	}
+	if _, err := db.GetForeignKeys(schema, table); err != nil {
+		t.Fatalf("GetForeignKeys returned error: %v", err)
+	}
+	if _, err := db.GetTriggers(schema, table); err != nil {
+		t.Fatalf("GetTriggers returned error: %v", err)
+	}
+	assertMySQLCompatibleMetadataQueryCapture(t, capture, schema, table)
+}
+
+func assertMySQLCompatibleMetadataQueryCapture(t *testing.T, capture *mysqlMetadataQuotingCapture, schema, table string) {
+	t.Helper()
+	wantQueries := []string{
+		"SHOW INDEX FROM `app``prod`.`order'items`",
+		buildMySQLForeignKeysQuery(),
+		"SHOW TRIGGERS FROM `app``prod` WHERE `Table` = ?",
+	}
+	wantArgs := [][]driver.NamedValue{
+		nil,
+		{{Ordinal: 1, Value: schema}, {Ordinal: 2, Value: table}},
+		{{Ordinal: 1, Value: table}},
+	}
+	if !reflect.DeepEqual(capture.queries, wantQueries) {
+		t.Fatalf("queries = %#v, want %#v", capture.queries, wantQueries)
+	}
+	if !reflect.DeepEqual(capture.args, wantArgs) {
+		t.Fatalf("args = %#v, want %#v", capture.args, wantArgs)
 	}
 }

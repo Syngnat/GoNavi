@@ -22,15 +22,28 @@ const backendApp = vi.hoisted(() => ({
   GetDriverVersionPackageSize: vi.fn(),
   GetDriverStatusList: vi.fn(),
   InstallLocalDriverPackage: vi.fn(),
+  ListDriverDownloadTasks: vi.fn(),
   OpenDriverDownloadDirectory: vi.fn(),
   RemoveDriverPackage: vi.fn(),
   SelectDriverPackageDirectory: vi.fn(),
   SelectDriverPackageFile: vi.fn(),
+  StartDriverPackageDownload: vi.fn(),
 }));
 
-const runtimeApi = vi.hoisted(() => ({
-  EventsOn: vi.fn(() => vi.fn()),
-}));
+const runtimeApi = vi.hoisted(() => {
+  const listeners = new Map<string, (event: Record<string, unknown>) => void>();
+  return {
+    listeners,
+    EventsOn: vi.fn((eventName: string, listener: (event: Record<string, unknown>) => void) => {
+      listeners.set(eventName, listener);
+      return () => {
+        if (listeners.get(eventName) === listener) {
+          listeners.delete(eventName);
+        }
+      };
+    }),
+  };
+});
 
 const messageApi = vi.hoisted(() => ({
   error: vi.fn(),
@@ -155,9 +168,21 @@ const textContent = (node: any): string =>
 const findButton = (renderer: ReactTestRenderer, text: string) =>
   renderer.root.findAll((node) => node.type === 'button' && textContent(node).includes(text))[0];
 
+const emitDriverDownloadProgress = async (event: Record<string, unknown>) => {
+  const listener = runtimeApi.listeners.get('driver:download-progress');
+  if (!listener) {
+    throw new Error('driver download progress listener was not registered');
+  }
+  await act(async () => {
+    listener(event);
+    await Promise.resolve();
+  });
+};
+
 describe('DriverManagerModal toolbar actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runtimeApi.listeners.clear();
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
       data: {
@@ -193,7 +218,21 @@ describe('DriverManagerModal toolbar actions', () => {
         versions: [{ version: '2.5.6', downloadUrl: 'builtin://activate/duckdb', recommended: true }],
       },
     });
-    backendApp.DownloadDriverPackage.mockImplementation(() => new Promise(() => {}));
+    backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+    backendApp.ListDriverDownloadTasks.mockResolvedValue({ success: true, data: [] });
+    backendApp.StartDriverPackageDownload.mockResolvedValue({
+      success: true,
+      data: {
+        task: {
+          taskId: 'driver-download-duckdb',
+          driverType: 'duckdb',
+          status: 'start',
+          percent: 0,
+          message: 'starting driver download',
+          running: true,
+        },
+      },
+    });
     backendApp.OpenDriverDownloadDirectory.mockResolvedValue({ success: true });
     backendApp.SelectDriverPackageDirectory.mockResolvedValue({ success: true, data: { path: 'D:/drivers/import' } });
   });
@@ -319,35 +358,158 @@ describe('DriverManagerModal toolbar actions', () => {
     });
   });
 
-  it('releases install action when the driver install watchdog expires', async () => {
-    vi.useFakeTimers();
-    try {
-      let renderer: ReactTestRenderer;
-      await act(async () => {
-        renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+  it('restores an active background download after the manager is closed and reopened', async () => {
+    const onClose = vi.fn();
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={onClose} />);
+    });
+    await flushPromises();
+
+    const installButton = findButton(renderer!, t('driver.modal.card.action.install'));
+    await act(async () => {
+      await installButton.props.onClick();
+    });
+
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
+      'duckdb',
+      '2.5.6',
+      'builtin://activate/duckdb',
+      'D:/drivers',
+    );
+    expect(findButton(renderer!, t('driver.modal.footer.background'))).toBeTruthy();
+
+    await act(async () => {
+      findButton(renderer!, t('driver.modal.footer.background')).props.onClick();
+      renderer!.unmount();
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    backendApp.ListDriverDownloadTasks.mockResolvedValue({
+      success: true,
+      data: [{
+        taskId: 'driver-download-duckdb',
+        driverType: 'duckdb',
+        status: 'downloading',
+        percent: 45,
+        message: 'downloading driver',
+        running: true,
+      }],
+    });
+
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    const progress = renderer!.root.findByProps({ 'data-progress': 'true' });
+    expect(progress.props.percent).toBe(45);
+    expect(findButton(renderer!, t('driver.modal.footer.background'))).toBeTruthy();
+  });
+
+  it('keeps a fast completed task terminal when its starter snapshot arrives late', async () => {
+    let resolveStart!: (result: unknown) => void;
+    backendApp.StartDriverPackageDownload.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveStart = resolve;
+    }));
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    let installPromise!: Promise<unknown>;
+    await act(async () => {
+      installPromise = findButton(renderer!, t('driver.modal.card.action.install')).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledTimes(1);
+
+    await emitDriverDownloadProgress({
+      taskId: 'fast-complete',
+      driverType: 'duckdb',
+      status: 'done',
+      percent: 100,
+      message: 'driver installed',
+    });
+
+    await act(async () => {
+      resolveStart({
+        success: true,
+        data: {
+          task: {
+            taskId: 'fast-complete',
+            driverType: 'duckdb',
+            status: 'start',
+            percent: 0,
+            message: 'starting driver download',
+            running: true,
+          },
+        },
       });
-      await flushPromises();
+      await installPromise;
+    });
 
-      const installButton = findButton(renderer!, t('driver.modal.card.action.install'));
-      await act(async () => {
-        installButton.props.onClick();
-        await Promise.resolve();
+    expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.percent).toBe(100);
+    expect(findButton(renderer!, t('driver.modal.footer.close'))).toBeTruthy();
+  });
+
+  it('lets a new task replace an older terminal task before its starter returns', async () => {
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    await emitDriverDownloadProgress({
+      taskId: 'old-complete',
+      driverType: 'duckdb',
+      status: 'done',
+      percent: 100,
+      message: 'old driver installed',
+    });
+
+    let resolveStart!: (result: unknown) => void;
+    backendApp.StartDriverPackageDownload.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveStart = resolve;
+    }));
+    let installPromise!: Promise<unknown>;
+    await act(async () => {
+      installPromise = findButton(renderer!, t('driver.modal.card.action.install')).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await emitDriverDownloadProgress({
+      taskId: 'new-complete',
+      driverType: 'duckdb',
+      status: 'done',
+      percent: 100,
+      message: 'new driver installed',
+    });
+    await act(async () => {
+      resolveStart({
+        success: true,
+        data: {
+          task: {
+            taskId: 'new-complete',
+            driverType: 'duckdb',
+            status: 'start',
+            percent: 0,
+            message: 'starting new driver download',
+            running: true,
+          },
+        },
       });
+      await installPromise;
+    });
 
-      expect(findButton(renderer!, t('driver.modal.card.action.install')).props.disabled).toBe(true);
-
-      await act(async () => {
-        vi.advanceTimersByTime(12 * 60 * 1000);
-        await Promise.resolve();
-      });
-
-      expect(findButton(renderer!, t('driver.modal.card.action.install')).props.disabled).toBeFalsy();
-      expect(messageApi.error).toHaveBeenCalledWith(
-        t('driver_manager.message.install_watchdog_timeout', { name: 'DuckDB', minutes: 12 }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    const progress = renderer!.root.findByProps({ 'data-progress': 'true' });
+    expect(progress.props.percent).toBe(100);
+    expect(progress.props.status).toBe('success');
+    expect(findButton(renderer!, t('driver.modal.footer.close'))).toBeTruthy();
   });
 
   it('reinstalls stale MongoDB v2 drivers with the v1 compatibility default', async () => {
@@ -384,7 +546,7 @@ describe('DriverManagerModal toolbar actions', () => {
           ],
         },
       });
-      backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+      backendApp.StartDriverPackageDownload.mockResolvedValue({ success: true });
 
       let renderer: ReactTestRenderer;
       await act(async () => {
@@ -398,7 +560,7 @@ describe('DriverManagerModal toolbar actions', () => {
         await reinstallButton.props.onClick();
       });
 
-      expect(backendApp.DownloadDriverPackage).toHaveBeenCalledWith(
+      expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
         'mongodb',
         '1.17.9',
         'builtin://activate/mongodb',
@@ -439,7 +601,7 @@ describe('DriverManagerModal toolbar actions', () => {
         ],
       },
     });
-    backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+    backendApp.StartDriverPackageDownload.mockResolvedValue({ success: true });
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -459,7 +621,7 @@ describe('DriverManagerModal toolbar actions', () => {
       await installButton.props.onClick();
     });
 
-    expect(backendApp.DownloadDriverPackage).toHaveBeenCalledWith(
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
       'tdengine',
       '3.3.1',
       'builtin://activate/tdengine?channel=history&version=3.3.1',
@@ -489,7 +651,7 @@ describe('DriverManagerModal toolbar actions', () => {
       },
     });
     backendApp.GetDriverVersionList.mockResolvedValue({ success: false, message: 'offline' });
-    backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+    backendApp.StartDriverPackageDownload.mockResolvedValue({ success: true });
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -509,7 +671,7 @@ describe('DriverManagerModal toolbar actions', () => {
       await installButton.props.onClick();
     });
 
-    expect(backendApp.DownloadDriverPackage).toHaveBeenCalledWith(
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
       'tdengine',
       '3.3.1',
       'builtin://activate/tdengine',
@@ -548,7 +710,7 @@ describe('DriverManagerModal toolbar actions', () => {
         ],
       },
     });
-    backendApp.DownloadDriverPackage.mockResolvedValue({ success: true });
+    backendApp.StartDriverPackageDownload.mockResolvedValue({ success: true });
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -610,7 +772,7 @@ describe('DriverManagerModal toolbar actions', () => {
       await switchButton.props.onClick();
     });
 
-    expect(backendApp.DownloadDriverPackage).toHaveBeenCalledWith(
+    expect(backendApp.StartDriverPackageDownload).toHaveBeenCalledWith(
       'tdengine',
       '3.3.1',
       'builtin://activate/tdengine?channel=history&version=3.3.1',

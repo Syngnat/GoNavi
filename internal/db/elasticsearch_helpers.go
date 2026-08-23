@@ -678,26 +678,23 @@ func buildESClientConfig(config connection.ConnectionConfig) elasticsearch.Confi
 		}
 	}
 
-	// 代理支持
-	if config.UseProxy {
-		transport, ok := cfg.Transport.(*http.Transport)
-		if !ok {
-			transport = http.DefaultTransport.(*http.Transport).Clone()
-		}
-		proxyCfg := config.Proxy
-		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return proxytunnel.DialContext(ctx, proxyCfg, network, addr)
-		}
-		cfg.Transport = transport
-	}
-
-	// 超时设置
+	// Keep the connection dial bounded, but let the request context own query
+	// cancellation. A connection timeout must not become a response deadline.
 	timeout := getConnectTimeout(config)
 	if cfg.Transport == nil {
 		cfg.Transport = http.DefaultTransport.(*http.Transport).Clone()
 	}
 	if transport, ok := cfg.Transport.(*http.Transport); ok {
-		transport.ResponseHeaderTimeout = timeout
+		transport.DialContext = (&net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}).DialContext
+		if config.UseProxy {
+			proxyCfg := config.Proxy
+			transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				dialCtx, cancel := context.WithTimeout(ctx, timeout)
+				defer cancel()
+				return proxytunnel.DialContext(dialCtx, proxyCfg, network, addr)
+			}
+		}
+		transport.ResponseHeaderTimeout = 0
 	}
 
 	// 包装 transport：注入 X-Elastic-Product 头以兼容 ES 6.x / 7.x 早期版本。
@@ -974,14 +971,7 @@ func (e *ElasticsearchDB) parseSearchResponse(res *esapi.Response) ([]map[string
 }
 
 func readElasticsearchQueryResponseBody(reader io.Reader) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(reader, maxElasticsearchConsoleResponseBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(body) > maxElasticsearchConsoleResponseBytes {
-		return nil, fmt.Errorf("Elasticsearch 响应超过 32 MiB 上限")
-	}
-	return body, nil
+	return readResponseBodyWithLimit(reader, maxRemoteJSONResponseBytes, "Elasticsearch 响应")
 }
 
 func truncateElasticsearchQueryErrorBody(body []byte) string {
@@ -1086,7 +1076,7 @@ func parseSearchResponseJSON(body []byte) ([]map[string]interface{}, []string, e
 
 // esFetchIndexAliases 获取指定索引关联的所有别名。
 func (e *ElasticsearchDB) esFetchIndexAliases(indexName string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(e), 10*time.Second)
 	defer cancel()
 
 	res, err := e.client.Indices.GetAlias(
@@ -1105,8 +1095,14 @@ func (e *ElasticsearchDB) esFetchIndexAliases(indexName string) []string {
 	}
 
 	// 响应格式：{ "index_name": { "aliases": { "alias_name": {} } } }
+	body, err := readLimitedJSONResponseBody(res.Body)
+	if err != nil {
+		logger.Warnf("Elasticsearch 读取索引别名响应失败：%v", err)
+		return nil
+	}
+
 	var aliasMap map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&aliasMap); err != nil {
+	if err := json.Unmarshal(body, &aliasMap); err != nil {
 		logger.Warnf("Elasticsearch 解析索引别名失败：%v", err)
 		return nil
 	}
@@ -1136,7 +1132,7 @@ func (e *ElasticsearchDB) esFetchIndexMapping(indexName string) (map[string]inte
 		return nil, fmt.Errorf("连接未打开")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(e), 10*time.Second)
 	defer cancel()
 
 	res, err := e.client.Indices.GetMapping(
@@ -1152,7 +1148,7 @@ func (e *ElasticsearchDB) esFetchIndexMapping(indexName string) (map[string]inte
 		return nil, fmt.Errorf("获取索引 mapping 失败：%s", res.Status())
 	}
 
-	body, err := io.ReadAll(res.Body)
+	body, err := readLimitedJSONResponseBody(res.Body)
 	if err != nil {
 		return nil, fmt.Errorf("读取 mapping 响应失败：%w", err)
 	}

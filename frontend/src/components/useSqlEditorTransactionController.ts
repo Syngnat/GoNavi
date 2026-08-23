@@ -154,19 +154,23 @@ export const useSqlEditorTransactionController = ({
         return;
       }
       const detail = rawErrorDetail(res?.message);
+      const outcomeUnknown = res?.outcomeUnknown === true;
+      const displayDetail = outcomeUnknown
+        ? `${detail} (${translateMessage('data_grid.message.transaction_outcome_unknown')})`
+        : detail;
       addTransactionCompletionLog({
         transaction,
         action,
         status: 'error',
         finishDurationMs: Date.now() - finishStartedAt,
-        detail,
+        detail: displayDetail,
       });
       const key = source === 'auto'
         ? 'data_grid.message.auto_commit_failed'
         : action === 'commit'
           ? 'data_grid.message.commit_failed'
           : 'data_grid.message.rollback_failed';
-      message.error(translateMessage(key, { detail }));
+      message.error(translateMessage(key, { detail: displayDetail }));
     } catch (err: any) {
       const detail = rawErrorDetail(err);
       addTransactionCompletionLog({

@@ -232,7 +232,7 @@ func (k *KingbaseDB) getSearchPathStr() string {
 		  AND nspname NOT LIKE 'pg|_%' ESCAPE '|'
 		ORDER BY nspname`
 
-	rows, err := k.conn.Query(query)
+	rows, err := k.conn.QueryContext(metadataContextFor(k), query)
 	if err != nil {
 		logger.Warnf("人大金仓查询用户 schema 失败，跳过 search_path 设置：%v", err)
 		return ""
@@ -317,7 +317,7 @@ func (k *KingbaseDB) Query(query string) ([]map[string]interface{}, []string, er
 		return nil, nil, fmt.Errorf("连接未打开")
 	}
 
-	rows, err := k.conn.Query(query)
+	rows, err := k.conn.QueryContext(metadataContextFor(k), query)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -532,79 +532,27 @@ func (k *KingbaseDB) GetIndexes(dbName, tableName string) ([]connection.IndexDef
 }
 
 func (k *KingbaseDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
-	// 解析 schema.table 格式
-	schema := strings.TrimSpace(dbName)
-	table := strings.TrimSpace(tableName)
-
-	// 如果 tableName 包含 schema (格式: schema.table)
-	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
-		parsedSchema := strings.TrimSpace(parts[0])
-		parsedTable := strings.TrimSpace(parts[1])
-		if parsedSchema != "" && parsedTable != "" {
-			schema = parsedSchema
-			table = parsedTable
-		}
-	}
-
+	schema, table := normalizePGLikeMetadataTable(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	// 转义函数:处理单引号,移除双引号
-	esc := func(s string) string {
-		s = strings.Trim(s, "\"")
-		return strings.ReplaceAll(s, "'", "''")
-	}
-
-	// 构建查询：如果没有指定schema,使用current_schema()
-	var query string
-	if schema != "" {
-		query = fmt.Sprintf(`
-			SELECT
-				tc.constraint_name,
-				kcu.column_name,
-				ccu.table_name AS foreign_table_name,
-				ccu.column_name AS foreign_column_name
-			FROM
-				information_schema.table_constraints AS tc
-				JOIN information_schema.key_column_usage AS kcu
-				  ON tc.constraint_name = kcu.constraint_name
-				  AND tc.table_schema = kcu.table_schema
-				JOIN information_schema.constraint_column_usage AS ccu
-				  ON ccu.constraint_name = tc.constraint_name
-				  AND ccu.table_schema = tc.table_schema
-			WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='%s' AND tc.table_schema='%s'`,
-			esc(table), esc(schema))
-	} else {
-		query = fmt.Sprintf(`
-			SELECT
-				tc.constraint_name,
-				kcu.column_name,
-				ccu.table_name AS foreign_table_name,
-				ccu.column_name AS foreign_column_name
-			FROM
-				information_schema.table_constraints AS tc
-				JOIN information_schema.key_column_usage AS kcu
-				  ON tc.constraint_name = kcu.constraint_name
-				  AND tc.table_schema = kcu.table_schema
-				JOIN information_schema.constraint_column_usage AS ccu
-				  ON ccu.constraint_name = tc.constraint_name
-				  AND ccu.table_schema = tc.table_schema
-			WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_name='%s' AND tc.table_schema=current_schema()`,
-			esc(table))
-	}
-
-	data, _, err := k.Query(query)
+	data, _, err := k.Query(buildPGLikeForeignKeysMetadataQuery(schema, table))
 	if err != nil {
 		return nil, err
 	}
 
 	var fks []connection.ForeignKeyDefinition
 	for _, row := range data {
+		refSchema := strings.TrimSpace(fmt.Sprintf("%v", row["foreign_table_schema"]))
+		refTable := fmt.Sprintf("%v", row["foreign_table_name"])
+		if refSchema != "" {
+			refTable = refSchema + "." + refTable
+		}
 		fk := connection.ForeignKeyDefinition{
 			Name:           fmt.Sprintf("%v", row["constraint_name"]),
 			ColumnName:     fmt.Sprintf("%v", row["column_name"]),
-			RefTableName:   fmt.Sprintf("%v", row["foreign_table_name"]),
+			RefTableName:   refTable,
 			RefColumnName:  fmt.Sprintf("%v", row["foreign_column_name"]),
 			ConstraintName: fmt.Sprintf("%v", row["constraint_name"]),
 		}
@@ -694,45 +642,12 @@ func (k *KingbaseDB) GetDatabaseForeignKeys(_ string) (map[string][]connection.F
 }
 
 func (k *KingbaseDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
-	// 解析 schema.table 格式
-	schema := strings.TrimSpace(dbName)
-	table := strings.TrimSpace(tableName)
-
-	// 如果 tableName 包含 schema (格式: schema.table)
-	if parts := strings.SplitN(table, ".", 2); len(parts) == 2 {
-		parsedSchema := strings.TrimSpace(parts[0])
-		parsedTable := strings.TrimSpace(parts[1])
-		if parsedSchema != "" && parsedTable != "" {
-			schema = parsedSchema
-			table = parsedTable
-		}
-	}
-
+	schema, table := normalizePGLikeMetadataTable(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	// 转义函数:处理单引号,移除双引号
-	esc := func(s string) string {
-		s = strings.Trim(s, "\"")
-		return strings.ReplaceAll(s, "'", "''")
-	}
-
-	// 构建查询：如果指定了schema,也加上schema条件
-	var query string
-	if schema != "" {
-		query = fmt.Sprintf(`SELECT trigger_name, action_timing, event_manipulation
-			FROM information_schema.triggers
-			WHERE event_object_table = '%s' AND event_object_schema = '%s'`,
-			esc(table), esc(schema))
-	} else {
-		query = fmt.Sprintf(`SELECT trigger_name, action_timing, event_manipulation
-			FROM information_schema.triggers
-			WHERE event_object_table = '%s' AND event_object_schema = current_schema()`,
-			esc(table))
-	}
-
-	data, _, err := k.Query(query)
+	data, _, err := k.Query(buildPGLikeTriggersMetadataQuery(schema, table))
 	if err != nil {
 		return nil, err
 	}

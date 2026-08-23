@@ -1,7 +1,9 @@
 package app
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
@@ -136,6 +138,40 @@ func TestBuildChangePreviewQuotesQualifiedOracleTargetBySegment(t *testing.T) {
 	want := `UPDATE "APP"."USERS" SET "STATUS" = '0' WHERE "ID" = 7;`
 	if len(preview.Updates) != 1 || preview.Updates[0] != want {
 		t.Fatalf("qualified Oracle preview = %#v, want %q", preview.Updates, want)
+	}
+}
+
+func TestBuildChangePreviewUsesDialectStringLiteralRules(t *testing.T) {
+	tests := []struct {
+		name      string
+		dbType    string
+		wantValue string
+		wantTime  string
+	}{
+		{name: "mysql", dbType: "mysql", wantValue: `'O''Reilly \\docs'`, wantTime: `'2026-08-21 13:14:15.123456'`},
+		{name: "postgres", dbType: "postgres", wantValue: `'O''Reilly \docs'`, wantTime: `TIMESTAMP '2026-08-21 13:14:15.123456'`},
+		{name: "oracle", dbType: "oracle", wantValue: `'O''Reilly \docs'`, wantTime: `TO_TIMESTAMP('2026-08-21 13:14:15.123456', 'YYYY-MM-DD HH24:MI:SS.FF6')`},
+		{name: "sqlserver", dbType: "sqlserver", wantValue: `'O''Reilly \docs'`, wantTime: `CONVERT(datetime2(7), '2026-08-21T13:14:15.123456', 126)`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			preview := buildChangePreview(
+				&fakeBatchWriteDB{},
+				connection.ConnectionConfig{Type: test.dbType},
+				"users",
+				connection.ChangeSet{Updates: []connection.UpdateRow{{
+					Keys: map[string]interface{}{"id": int64(1)},
+					Values: map[string]interface{}{
+						"name": "O'Reilly \\docs",
+						"when": time.Date(2026, 8, 21, 13, 14, 15, 123456000, time.UTC),
+					},
+				}}},
+			)
+			if len(preview.Updates) != 1 || !strings.Contains(preview.Updates[0], test.wantValue) || !strings.Contains(preview.Updates[0], test.wantTime) {
+				t.Fatalf("dialect preview = %#v, want value literal %q and time literal %q", preview.Updates, test.wantValue, test.wantTime)
+			}
+		})
 	}
 }
 

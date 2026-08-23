@@ -1,4 +1,5 @@
 import type { ConnectionConfig } from '../types';
+import dataSourceCapabilityContractDocument from '../../../internal/db/data_source_capability_contract.json';
 import {
   isConnectionDataImportRestricted,
   isConnectionDataEditRestricted,
@@ -46,7 +47,10 @@ const normalizeDataSourceToken = (raw: string): string => {
     case 'gdb':
       return 'goldendb';
     case 'dm':
+    case 'dm8':
       return 'dameng';
+    case 'sphinxql':
+      return 'sphinx';
     case 'elastic':
     case 'elasticsearch':
       return 'elasticsearch';
@@ -113,92 +117,116 @@ export const shouldShowOceanBaseRowNumberColumn = (config: ConnectionLike): bool
   return type === 'oceanbase' || driver === 'oceanbase';
 };
 
-const SQL_QUERY_EXPORT_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'diros',
-  'starrocks',
-  'sphinx',
-  'postgres',
-  'kingbase',
-  'highgo',
-  'vastbase',
-  'opengauss',
-  'gaussdb',
-  'sqlserver',
-  'iris',
-  'sqlite',
-  'duckdb',
-  'oracle',
-  'dameng',
-  'tdengine',
-  'clickhouse',
-  'trino',
-]);
+export const DATA_SOURCE_CAPABILITY_OPERATIONS = [
+  'query',
+  'metadata',
+  'transaction',
+  'pagination',
+  'cancel',
+  'schema',
+  'sampling',
+  'streaming',
+  'dangerousOperations',
+] as const;
 
-const COPY_INSERT_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'diros',
-  'starrocks',
-  'sphinx',
-  'postgres',
-  'kingbase',
-  'highgo',
-  'vastbase',
-  'opengauss',
-  'gaussdb',
-  'sqlserver',
-  'iris',
-  'sqlite',
-  'duckdb',
-  'oracle',
-  'dameng',
-  'tdengine',
-  'clickhouse',
-  'trino',
-]);
+export type DataSourceCapabilityOperation = typeof DATA_SOURCE_CAPABILITY_OPERATIONS[number];
 
-const COPY_TABLE_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'postgres',
-]);
+export type DataSourceOperationCapability = {
+  supported: boolean;
+  runtimeProbe?: boolean;
+  reason?: string;
+  alternative?: string;
+  messageKey?: string;
+};
 
-const QUERY_EDITOR_DISABLED_TYPES = new Set(['redis']);
-const EXPLAIN_DIAGNOSIS_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'diros',
-  'starrocks',
-  'postgres',
-  'kingbase',
-  'highgo',
-  'vastbase',
-  'opengauss',
-  'gaussdb',
-  'sqlserver',
-  'sqlite',
-  'oracle',
-  'clickhouse',
-]);
-const FORCE_READ_ONLY_QUERY_TYPES = new Set(['tdengine', 'iotdb', 'clickhouse', 'rocketmq', 'mqtt', 'kafka', 'rabbitmq']);
-const FORCE_READ_ONLY_STRUCTURE_DESIGNER_TYPES = new Set(['elasticsearch', 'mongodb', 'redis', 'iotdb']);
-const MESSAGE_PUBLISH_TYPES = new Set(['rocketmq', 'mqtt', 'kafka', 'rabbitmq']);
-const MANUAL_TOTAL_COUNT_TYPES = new Set(['duckdb', 'oracle', 'rocketmq', 'mqtt']);
-const APPROXIMATE_TABLE_COUNT_TYPES = new Set(['duckdb', 'oracle']);
-const APPROXIMATE_TOTAL_PAGE_TYPES = new Set(['duckdb']);
+export type DataSourceUICapabilityFlags = {
+  explainDiagnosis?: boolean;
+  sqlQueryExport?: boolean;
+  copyInsert?: boolean;
+  copyTable?: boolean;
+  createDatabase?: boolean;
+  createDatabaseCharset?: boolean;
+  renameDatabase?: boolean;
+  dropDatabase?: boolean;
+  messagePublish?: boolean;
+  forceReadOnlyQueryResult?: boolean;
+  forceReadOnlyStructureDesigner?: boolean;
+  preferManualTotalCount?: boolean;
+  supportsApproximateTableCount?: boolean;
+  supportsApproximateTotalPages?: boolean;
+};
+
+export type DataSourceCapabilityContract = {
+  type: string;
+  query: DataSourceOperationCapability;
+  metadata: DataSourceOperationCapability;
+  transaction: DataSourceOperationCapability;
+  pagination: DataSourceOperationCapability;
+  cancel: DataSourceOperationCapability;
+  schema: DataSourceOperationCapability;
+  sampling: DataSourceOperationCapability;
+  streaming: DataSourceOperationCapability;
+  dangerousOperations: DataSourceOperationCapability;
+  ui: DataSourceUICapabilityFlags;
+};
+
+type DataSourceCapabilityProfile = Omit<DataSourceCapabilityContract, 'type'>;
+type DataSourceCapabilityRegistryDocument = {
+  version: number;
+  profiles: Record<string, DataSourceCapabilityProfile>;
+  drivers: Record<string, string>;
+};
+
+// This JSON file is embedded by Go and imported by Vite, making the profile
+// selected here the exact same source table used by backend entry gates.
+const DATA_SOURCE_CAPABILITY_REGISTRY = dataSourceCapabilityContractDocument as unknown as DataSourceCapabilityRegistryDocument;
+
+const cloneOperationCapability = (operation: DataSourceOperationCapability): DataSourceOperationCapability => ({ ...operation });
+
+const cloneCapabilityProfile = (
+  type: string,
+  profile: DataSourceCapabilityProfile,
+): DataSourceCapabilityContract => ({
+  type,
+  query: cloneOperationCapability(profile.query),
+  metadata: cloneOperationCapability(profile.metadata),
+  transaction: cloneOperationCapability(profile.transaction),
+  pagination: cloneOperationCapability(profile.pagination),
+  cancel: cloneOperationCapability(profile.cancel),
+  schema: cloneOperationCapability(profile.schema),
+  sampling: cloneOperationCapability(profile.sampling),
+  streaming: cloneOperationCapability(profile.streaming),
+  dangerousOperations: cloneOperationCapability(profile.dangerousOperations),
+  ui: { ...profile.ui },
+});
+
+export const getDataSourceCapabilityContract = (config: ConnectionLike): DataSourceCapabilityContract => {
+  const type = resolveDataSourceType(config) || 'unknown';
+  const customConnection = normalizeDataSourceToken(String(config?.type || '')) === 'custom';
+  const profileName = DATA_SOURCE_CAPABILITY_REGISTRY.drivers[type]
+    || (customConnection ? 'custom' : 'unknown');
+  const profile = DATA_SOURCE_CAPABILITY_REGISTRY.profiles[profileName]
+    || DATA_SOURCE_CAPABILITY_REGISTRY.profiles.unknown;
+  return cloneCapabilityProfile(type, profile);
+};
+
+export const getDataSourceOperationCapability = (
+  config: ConnectionLike,
+  operation: DataSourceCapabilityOperation,
+): DataSourceOperationCapability => getDataSourceCapabilityContract(config)[operation];
 
 export type DataSourceCapabilities = {
   type: string;
+  contract: DataSourceCapabilityContract;
+  query: DataSourceOperationCapability;
+  metadata: DataSourceOperationCapability;
+  transaction: DataSourceOperationCapability;
+  pagination: DataSourceOperationCapability;
+  cancel: DataSourceOperationCapability;
+  schema: DataSourceOperationCapability;
+  sampling: DataSourceOperationCapability;
+  streaming: DataSourceOperationCapability;
+  dangerousOperations: DataSourceOperationCapability;
   supportsQueryEditor: boolean;
   supportsExplainDiagnosis: boolean;
   supportsSqlQueryExport: boolean;
@@ -216,88 +244,45 @@ export type DataSourceCapabilities = {
   supportsApproximateTotalPages: boolean;
 };
 
-const CREATE_DATABASE_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'diros',
-  'starrocks',
-  'postgres',
-  'kingbase',
-  'highgo',
-  'vastbase',
-  'opengauss',
-  'gaussdb',
-  'sqlserver',
-  'tdengine',
-  'clickhouse',
-]);
-
-// MySQL 系方言支持在建库时指定字符集与排序规则。
-const CREATE_DATABASE_CHARSET_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'diros',
-]);
-
-const RENAME_DATABASE_TYPES = new Set([
-  'diros',
-  'postgres',
-  'kingbase',
-  'highgo',
-  'vastbase',
-  'opengauss',
-  'gaussdb',
-]);
-
-const DROP_DATABASE_TYPES = new Set([
-  'mysql',
-  'goldendb',
-  'mariadb',
-  'oceanbase',
-  'diros',
-  'starrocks',
-  'postgres',
-  'kingbase',
-  'highgo',
-  'vastbase',
-  'opengauss',
-  'gaussdb',
-  'tdengine',
-  'clickhouse',
-]);
-
 export const getDataSourceCapabilities = (config: ConnectionLike): DataSourceCapabilities => {
-  const type = resolveDataSourceType(config);
+  const contract = getDataSourceCapabilityContract(config);
   const customConnection = normalizeDataSourceToken(String(config?.type || '')) === 'custom';
   const dataEditRestricted = isConnectionDataEditRestricted(config);
   const dataImportRestricted = isConnectionDataImportRestricted(config);
   const structureEditRestricted = isConnectionStructureEditRestricted(config);
+  const ui = contract.ui;
   return {
-    type,
-    supportsQueryEditor: !QUERY_EDITOR_DISABLED_TYPES.has(type),
-    supportsExplainDiagnosis: EXPLAIN_DIAGNOSIS_TYPES.has(type),
-    supportsSqlQueryExport: SQL_QUERY_EXPORT_TYPES.has(type),
-    supportsCopyInsert: COPY_INSERT_TYPES.has(type),
+    type: contract.type,
+    contract,
+    query: contract.query,
+    metadata: contract.metadata,
+    transaction: contract.transaction,
+    pagination: contract.pagination,
+    cancel: contract.cancel,
+    schema: contract.schema,
+    sampling: contract.sampling,
+    streaming: contract.streaming,
+    dangerousOperations: contract.dangerousOperations,
+    supportsQueryEditor: contract.query.supported,
+    supportsExplainDiagnosis: ui.explainDiagnosis === true,
+    supportsSqlQueryExport: ui.sqlQueryExport === true,
+    supportsCopyInsert: ui.copyInsert === true,
     supportsCopyTable:
-      !customConnection &&
-      !dataImportRestricted &&
-      !structureEditRestricted &&
-      COPY_TABLE_TYPES.has(type),
-    supportsCreateDatabase: !structureEditRestricted && CREATE_DATABASE_TYPES.has(type),
+      !customConnection
+      && !dataImportRestricted
+      && !structureEditRestricted
+      && ui.copyTable === true,
+    supportsCreateDatabase: !structureEditRestricted && ui.createDatabase === true,
     supportsCreateDatabaseCharset:
-      !structureEditRestricted && CREATE_DATABASE_CHARSET_TYPES.has(type),
-    supportsRenameDatabase: !structureEditRestricted && RENAME_DATABASE_TYPES.has(type),
-    supportsDropDatabase: !structureEditRestricted && DROP_DATABASE_TYPES.has(type),
-    supportsMessagePublish: !dataEditRestricted && MESSAGE_PUBLISH_TYPES.has(type),
-    forceReadOnlyQueryResult: dataEditRestricted || FORCE_READ_ONLY_QUERY_TYPES.has(type),
+      !structureEditRestricted && ui.createDatabaseCharset === true,
+    supportsRenameDatabase: !structureEditRestricted && ui.renameDatabase === true,
+    supportsDropDatabase: !structureEditRestricted && ui.dropDatabase === true,
+    supportsMessagePublish: !dataEditRestricted && ui.messagePublish === true,
+    forceReadOnlyQueryResult: dataEditRestricted || ui.forceReadOnlyQueryResult === true,
     forceReadOnlyStructureDesigner:
-      structureEditRestricted || FORCE_READ_ONLY_STRUCTURE_DESIGNER_TYPES.has(type),
-    preferManualTotalCount: MANUAL_TOTAL_COUNT_TYPES.has(type),
-    supportsApproximateTableCount: APPROXIMATE_TABLE_COUNT_TYPES.has(type),
-    supportsApproximateTotalPages: APPROXIMATE_TOTAL_PAGE_TYPES.has(type),
+      structureEditRestricted || ui.forceReadOnlyStructureDesigner === true,
+    preferManualTotalCount: ui.preferManualTotalCount === true,
+    supportsApproximateTableCount: ui.supportsApproximateTableCount === true,
+    supportsApproximateTotalPages: ui.supportsApproximateTotalPages === true,
   };
 };

@@ -29,12 +29,11 @@ func (s *Service) AIInstallOpenCodeMCP() (ai.MCPClientInstallResult, error) {
 	if err != nil {
 		return ai.MCPClientInstallResult{}, fmt.Errorf("%s", s.serviceText("ai.service.mcp_client.opencode.config_path_failed", map[string]any{"detail": localizeMCPClientPathDetail(s.serviceText, err)}))
 	}
-
-	executablePath, err := localMCPExecutablePathFunc()
-	if err != nil {
-		return ai.MCPClientInstallResult{}, fmt.Errorf("%s", s.serviceText("ai.service.mcp_client.executable_path_failed", map[string]any{"detail": err.Error()}))
+	if err := requireLocalMCPClientCommand(openCodeClientCommandName, "OpenCode", s.serviceText); err != nil {
+		return ai.MCPClientInstallResult{}, err
 	}
-	command, args, err := resolveLocalMCPCommand(executablePath, s.serviceText)
+
+	command, args, err := resolveCurrentLocalMCPCommand(s.serviceText)
 	if err != nil {
 		return ai.MCPClientInstallResult{}, err
 	}
@@ -130,6 +129,13 @@ func inspectOpenCodeMCPInstallStatus(expectedCommand string, expectedArgs []stri
 		status.Command = strings.TrimSpace(serverConfig.Command[0])
 		status.Args = append([]string(nil), serverConfig.Command[1:]...)
 	}
+	if !status.ClientDetected {
+		status.Message = mcpClientInstallText(text, "ai.service.mcp_client.local_client_not_detected", map[string]any{
+			"label":   status.DisplayName,
+			"command": status.ClientCommand,
+		})
+		return status
+	}
 	if expectedErr != nil {
 		status.Message = mcpClientInstallText(text, "ai.service.mcp_client.opencode.status.path_check_failed", map[string]any{"detail": expectedErr.Error()})
 		return status
@@ -147,6 +153,9 @@ func inspectOpenCodeMCPInstallStatus(expectedCommand string, expectedArgs []stri
 }
 
 func repairOpenCodeMCPClientConfig(expectedCommand string, expectedArgs []string, text mcpClientInstallTextFunc) error {
+	if !isLocalMCPClientCommandDetected(openCodeClientCommandName) {
+		return nil
+	}
 	configPath, err := openCodeConfigPathFunc()
 	if err != nil {
 		return err
@@ -158,7 +167,7 @@ func repairOpenCodeMCPClientConfig(expectedCommand string, expectedArgs []string
 	command, args := serverConfig.Command[0], serverConfig.Command[1:]
 	if sameMCPCommand(command, args, expectedCommand, expectedArgs) ||
 		!strings.EqualFold(strings.TrimSpace(serverConfig.Type), "local") ||
-		!shouldRepairInstalledLocalMCPCommand(command, args, expectedCommand) {
+		!shouldRepairInstalledLocalMCPCommand(command, args, expectedCommand, expectedArgs) {
 		return nil
 	}
 	serverConfig.Command = append([]string{expectedCommand}, expectedArgs...)

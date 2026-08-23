@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { message } from 'antd';
+import { Button, message } from 'antd';
 import {
   AppstoreOutlined,
   CloudOutlined,
@@ -47,6 +47,7 @@ import {
   loadStarRocksMaterializedViews,
   loadViews,
   parseMetadataRowCount,
+  parseSidebarTableRowCount,
   shouldHideSchemaPrefix,
   splitQualifiedName,
   supportsDatabaseEvents,
@@ -64,7 +65,7 @@ import {
 import {
   groupSidebarPartitionTableEntries,
 } from './sidebarPartitions';
-import { DBGetDatabases, DBGetTables, DBQuery, GetDriverStatusList, JVMProbeCapabilities } from '../../../wailsjs/go/app/App';
+import { DBGetDatabases, DBGetTables, DBQuery, DBRefreshTableStats, GetDriverStatusList, JVMProbeCapabilities } from '../../../wailsjs/go/app/App';
 import type { SidebarTableMetadataSnapshot } from '../../utils/sidebarTableMetadata';
 import { collectNacosServiceGroupsByPage } from '../nacosServiceName';
 
@@ -94,6 +95,46 @@ type SidebarLoadedTableEntry = {
   tableComment?: string;
   partitionParentTableName?: string;
   partitionTables?: SidebarLoadedTableEntry[];
+};
+
+const applyRefreshedSQLiteStatsToTree = (
+  nodes: TreeNode[],
+  rows: Record<string, any>[],
+): TreeNode[] => {
+  const statsByTable = new Map<string, { rowCount?: number; tableSize?: number }>();
+  rows.forEach((row) => {
+    const tableName = getSidebarTableName(row).trim().toLowerCase();
+    if (!tableName) return;
+    const rowCount = parseMetadataRowCount(row);
+    const rawTableSize = getCaseInsensitiveValue(row, ['Data_length', 'data_length', 'DATA_LENGTH']);
+    const parsedTableSize = rawTableSize === undefined || rawTableSize === null || rawTableSize === ''
+      ? undefined
+      : Number(rawTableSize);
+    statsByTable.set(tableName, {
+      ...(rowCount !== undefined ? { rowCount } : {}),
+      ...(parsedTableSize !== undefined && Number.isFinite(parsedTableSize) ? { tableSize: parsedTableSize } : {}),
+    });
+  });
+
+  const updateNode = (node: TreeNode): TreeNode => {
+    const dataRef = node.dataRef as Record<string, any> | undefined;
+    const tableName = String(dataRef?.tableName || '').trim().toLowerCase();
+    const stat = tableName ? statsByTable.get(tableName) : undefined;
+    const children = Array.isArray(node.children) ? node.children.map(updateNode) : node.children;
+    return {
+      ...node,
+      ...(stat && dataRef ? {
+        dataRef: {
+          ...dataRef,
+          ...(stat.rowCount !== undefined ? { rowCount: stat.rowCount } : {}),
+          ...(stat.tableSize !== undefined ? { tableSize: stat.tableSize } : {}),
+        },
+      } : {}),
+      ...(children ? { children } : {}),
+    };
+  };
+
+  return nodes.map(updateNode);
 };
 
 export type SidebarTreeLoadOptions = {
@@ -801,6 +842,27 @@ export const useSidebarTreeLoaders = ({
       loadingNodesRef.current.add(loadKey);
       setConnectionStates(prev => ({ ...prev, [key as string]: 'loading' }));
       let shouldMarkDatabaseSuccess = false;
+      const showTableLoadFailure = (error: unknown) => {
+          const errorMessage = String(error || t('sidebar.message.load_table_list_failed', { error: 'unknown error' }));
+          setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
+          setLoadedKeys(prev => prev.filter(loadedKey => loadedKey !== node.key));
+          message.error({
+              key: `db-${key}-tables`,
+              duration: 10,
+              content: (
+                  <span>
+                      {errorMessage}
+                      <Button
+                          type="link"
+                          size="small"
+                          onClick={() => void loadTables(node, { ensureFresh: true })}
+                      >
+                          {t('common.retry')}
+                      </Button>
+                  </span>
+              ),
+          });
+      };
       
       const dbQueries = savedQueries.filter(q => q.connectionId === conn.id && q.dbName === dbName);
       const queriesNode: TreeNode = {
@@ -831,6 +893,29 @@ export const useSidebarTreeLoaders = ({
 	          const res = await DBGetTables(buildRpcConnectionConfig(config) as any, conn.dbName);
 	          if (res.success) {
                 const tableRows: any[] = Array.isArray(res.data) ? res.data : [];
+                if (res.partial || res.truncated) {
+                    const warningDetail = String(
+                        res.message
+                        || (Array.isArray(res.warnings) ? res.warnings.join('; ') : '')
+                        || t('sidebar.message.load_table_list_failed', { error: 'metadata scan was truncated' }),
+                    );
+                    message.warning({
+                        key: `db-${key}-tables-partial`,
+                        duration: 10,
+                        content: (
+                            <span>
+                                {warningDetail}
+                                <Button
+                                    type="link"
+                                    size="small"
+                                    onClick={() => void loadTables(node, { ensureFresh: true })}
+                                >
+                                    {t('common.retry')}
+                                </Button>
+                            </span>
+                        ),
+                    });
+                }
                 const tableStatusSql = buildSidebarTableStatusSQL(conn as SavedConnection, conn.dbName);
                 const tableStatsResult = tableStatusSql
                     ? await DBQuery(buildRpcConnectionConfig(config) as any, conn.dbName, tableStatusSql).catch(() => ({ success: false, data: [] as any[] }))
@@ -880,9 +965,17 @@ export const useSidebarTreeLoaders = ({
                 };
                 tableRows.forEach((row: Record<string, any>) => {
                     const tableName = getSidebarTableName(row);
-                    const rowCount = parseMetadataRowCount(row);
-                    if (tableName && rowCount !== undefined) {
-                        mergeTableMetadata(tableName, { rowCount });
+                    const rowCount = parseSidebarTableRowCount(row, conn as SavedConnection);
+                    const tableSize = readNumericMetadataValue(row, [
+                        'Data_length',
+                        'data_length',
+                        'DATA_LENGTH',
+                    ]);
+                    if (tableName && (rowCount !== undefined || tableSize !== undefined)) {
+                        mergeTableMetadata(tableName, {
+                            ...(rowCount !== undefined ? { rowCount } : {}),
+                            ...(tableSize !== undefined ? { tableSize } : {}),
+                        });
                     }
                 });
                 if (tableStatsResult?.success && Array.isArray(tableStatsResult.data)) {
@@ -907,7 +1000,7 @@ export const useSidebarTreeLoaders = ({
                             'COMMENTS',
                             'MS_Description',
                         ]) || '').trim();
-                        const rowCount = parseMetadataRowCount(row);
+                        const rowCount = parseSidebarTableRowCount(row, conn as SavedConnection);
                         const tableSize = readNumericMetadataValue(row, [
                             'table_size',
                             'TABLE_SIZE',
@@ -968,7 +1061,7 @@ export const useSidebarTreeLoaders = ({
 	                    tableName,
 	                    schemaName: String(mappedSchemaName || '').trim(),
 	                    displayName: getSidebarTableDisplayName(conn, tableName),
-                        rowCount: parseMetadataRowCount(row) ?? resolvedMetadata?.rowCount,
+                        rowCount: parseSidebarTableRowCount(row, conn as SavedConnection) ?? resolvedMetadata?.rowCount,
                         tableSize: resolvedMetadata?.tableSize,
                         createdAt: resolvedMetadata?.createdAt,
                         updatedAt: resolvedMetadata?.updatedAt,
@@ -1029,7 +1122,7 @@ export const useSidebarTreeLoaders = ({
             });
 
             const triggerEntries = (() => {
-                const deduped: Array<{ displayName: string; triggerName: string; tableName: string; schemaName: string }> = [];
+                const deduped: Array<{ displayName: string; triggerName: string; tableName: string; schemaName: string; objectStatus?: string }> = [];
                 const triggerSeen = new Set<string>();
                 const metadataDialect = getMetadataDialect(conn as SavedConnection);
 
@@ -1040,6 +1133,7 @@ export const useSidebarTreeLoaders = ({
                     const triggerObjectName = (triggerParsed.objectName || trigger.triggerName).trim();
                     const tableObjectName = (tableParsed.objectName || trigger.tableName).trim();
                     const displayName = tableObjectName ? `${triggerObjectName} (${tableObjectName})` : triggerObjectName;
+                    const objectStatus = String(trigger.objectStatus || '').trim();
                     const dedupeKey = metadataDialect === 'mysql'
                         ? `${schemaName.toLowerCase()}@@${triggerObjectName.toLowerCase()}`
                         : `${schemaName.toLowerCase()}@@${triggerObjectName.toLowerCase()}@@${tableObjectName.toLowerCase()}`;
@@ -1052,6 +1146,7 @@ export const useSidebarTreeLoaders = ({
                         triggerName: triggerObjectName,
                         tableName: buildQualifiedName(schemaName, tableObjectName) || tableObjectName,
                         displayName,
+                        ...(objectStatus ? { objectStatus } : {}),
                     });
                 });
 
@@ -1059,7 +1154,7 @@ export const useSidebarTreeLoaders = ({
             })();
 
             const routineEntries = (() => {
-                const deduped: Array<{ routineName: string; routineType: string; schemaName: string; displayName: string }> = [];
+                const deduped: Array<{ routineName: string; routineType: string; schemaName: string; displayName: string; objectStatus?: string }> = [];
                 const routineSeen = new Set<string>();
                 routineRows.forEach((routine: any) => {
                     const parsed = splitQualifiedName(routine.routineName);
@@ -1071,6 +1166,7 @@ export const useSidebarTreeLoaders = ({
                     if (!objectName) return;
                     const routineName = String(routine.routineName || objectName).trim();
                     const typeLabel = routineType === 'PROCEDURE' ? 'P' : 'F';
+                    const objectStatus = String(routine.objectStatus || '').trim();
                     const dedupeKey = `${schemaName.toLowerCase()}@@${objectName.toLowerCase()}@@${routineType}`;
                     if (routineSeen.has(dedupeKey)) return;
                     routineSeen.add(dedupeKey);
@@ -1079,6 +1175,7 @@ export const useSidebarTreeLoaders = ({
                         routineType,
                         schemaName,
                         displayName: `${objectName} [${typeLabel}]`,
+                        ...(objectStatus ? { objectStatus } : {}),
                     });
                 });
                 return deduped;
@@ -1121,6 +1218,38 @@ export const useSidebarTreeLoaders = ({
                         }),
                     });
                 }
+            }
+
+            const metadataFailures = [
+                { label: t('sidebar.object_group.views'), message: viewsResult.failureMessage },
+                { label: t('sidebar.object_group.materialized_views'), message: materializedViewsResult.failureMessage },
+                { label: t('sidebar.object_group.triggers'), message: triggersResult.failureMessage },
+                { label: t('sidebar.object_group.routines'), message: routinesResult.failureMessage },
+                { label: t('sidebar.object_group.sequences'), message: sequencesResult.failureMessage },
+                { label: t('sidebar.object_group.packages'), message: packagesResult.failureMessage },
+                { label: t('sidebar.object_group.events'), message: eventsResult.failureMessage },
+            ].filter((failure) => failure.message);
+            if (metadataFailures.length > 0) {
+                const warningKey = `db-${key}-metadata-partial`;
+                message.warning({
+                    key: warningKey,
+                    duration: 10,
+                    content: (
+                        <span>
+                            {t('sidebar.message.object_metadata_partial', {
+                                objects: metadataFailures.map((failure) => failure.label).join(t('sidebar.punctuation.list_separator')),
+                                error: metadataFailures.map((failure) => failure.message).join('; '),
+                            })}
+                            <Button
+                                type="link"
+                                size="small"
+                                onClick={() => void loadTables(node, { ensureFresh: true })}
+                            >
+                                {t('common.retry')}
+                            </Button>
+                        </span>
+                    ),
+                });
             }
 
 	            const currentStoreState = useStore.getState();
@@ -1275,16 +1404,16 @@ export const useSidebarTreeLoaders = ({
 	                };
 	            };
 
-	            const buildTriggerNode = (entry: { triggerName: string; tableName: string; schemaName: string; displayName: string }): TreeNode => ({
+            const buildTriggerNode = (entry: { triggerName: string; tableName: string; schemaName: string; displayName: string; objectStatus?: string }): TreeNode => ({
 	                title: entry.displayName,
 	                key: `${conn.id}-${conn.dbName}-trigger-${entry.triggerName}-${entry.tableName}`,
 	                icon: <FunctionOutlined />,
 	                type: 'db-trigger',
-	                dataRef: { ...conn, triggerName: entry.triggerName, triggerTableName: entry.tableName, tableName: entry.tableName, schemaName: entry.schemaName },
+                dataRef: { ...conn, triggerName: entry.triggerName, triggerTableName: entry.tableName, tableName: entry.tableName, schemaName: entry.schemaName, ...(entry.objectStatus ? { objectStatus: entry.objectStatus } : {}) },
 	                isLeaf: true,
 	            });
 
-	            const buildRoutineNode = (entry: { routineName: string; routineType: string; schemaName: string; displayName: string }): TreeNode => {
+            const buildRoutineNode = (entry: { routineName: string; routineType: string; schemaName: string; displayName: string; objectStatus?: string }): TreeNode => {
 	                const typeToken = entry.routineType === 'PROCEDURE' ? 'proc' : 'func';
 	                const keyName = buildSidebarObjectKeyName(conn.dbName, entry.schemaName, entry.routineName);
 	                return {
@@ -1293,7 +1422,7 @@ export const useSidebarTreeLoaders = ({
 	                    key: `${conn.id}-${conn.dbName}-routine-${typeToken}-${keyName}`,
 	                    icon: <CodeOutlined />,
 	                    type: 'routine',
-	                    dataRef: { ...conn, routineName: entry.routineName, routineType: entry.routineType, schemaName: entry.schemaName },
+                    dataRef: { ...conn, routineName: entry.routineName, routineType: entry.routineType, schemaName: entry.schemaName, ...(entry.objectStatus ? { objectStatus: entry.objectStatus } : {}) },
 	                    isLeaf: true,
 	                };
 	            };
@@ -1354,6 +1483,7 @@ export const useSidebarTreeLoaders = ({
 	                };
 	            };
 
+	            let renderedDatabaseChildren: TreeNode[];
 	            if (shouldGroupBySchema) {
 	                type SchemaBucket = {
 	                    schemaName: string;
@@ -1440,7 +1570,7 @@ export const useSidebarTreeLoaders = ({
 	                        };
 	                    });
 
-	                replaceTreeNodeChildren(key, [queriesNode, ...schemaNodes], latestDatabaseConnection);
+	                renderedDatabaseChildren = [queriesNode, ...schemaNodes];
 	            } else {
 	                const dialect = getMetadataDialect(conn as SavedConnection);
 	                const includeMaterializedViews = dialect === 'starrocks';
@@ -1458,20 +1588,34 @@ export const useSidebarTreeLoaders = ({
 	                    ...(includeEvents ? [buildObjectGroup(key as string, 'events', t('sidebar.object_group.events'), <ClockCircleOutlined />, eventEntries.map(buildEventNode))] : []),
 	                ];
 
-	                replaceTreeNodeChildren(key, [queriesNode, ...groupedNodes], latestDatabaseConnection);
+	                renderedDatabaseChildren = [queriesNode, ...groupedNodes];
 	            }
+	            replaceTreeNodeChildren(key, renderedDatabaseChildren, latestDatabaseConnection);
                 onDatabaseTreeLoaded?.(String(key));
                 shouldMarkDatabaseSuccess = true;
+
+	            if (getMetadataDialect(conn as SavedConnection) === 'sqlite') {
+	                const tableNames = tableRows
+	                    .map((row) => getSidebarTableName(row as Record<string, any>))
+	                    .filter((tableName) => String(tableName || '').trim() !== '');
+	                const refreshed = await DBRefreshTableStats(
+	                    buildRpcConnectionConfig(config) as any,
+	                    conn.dbName,
+	                    tableNames,
+	                ).catch(() => null);
+	                if (refreshed?.success && Array.isArray(refreshed.data)) {
+	                    renderedDatabaseChildren = applyRefreshedSQLiteStatsToTree(
+	                        renderedDatabaseChildren,
+	                        refreshed.data as Record<string, any>[],
+	                    );
+	                    replaceTreeNodeChildren(key, renderedDatabaseChildren, latestDatabaseConnection);
+	                }
+	            }
 	          } else {
-	            setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
-	            message.error({ content: res.message, key: `db-${key}-tables` });
+	            showTableLoadFailure(res.message);
           }
 	      } catch (e: any) {
-	          setConnectionStates(prev => ({ ...prev, [key as string]: 'error' }));
-	          message.error({
-	              content: t('sidebar.message.load_table_list_failed', { error: e?.message || String(e) }),
-	              key: `db-${key}-tables`,
-	          });
+	          showTableLoadFailure(t('sidebar.message.load_table_list_failed', { error: e?.message || String(e) }));
 	      } finally {
 	          loadingNodesRef.current.delete(loadKey);
               if (shouldMarkDatabaseSuccess) {

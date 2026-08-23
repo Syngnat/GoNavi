@@ -25,6 +25,8 @@ cp deploy/podman/gonavi-mcp-server/gonavi-mcp-server.env.example ./gonavi-mcp-se
 
 把 `GONAVI_MCP_HTTP_TOKEN` 改成随机值后运行：
 
+环境文件中的 `GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK=true` 仅用于容器监听网卡；Bearer Token 仍然必填。
+
 ```bash
 podman run -d --name gonavi-mcp-server --replace \
   -p 8765:8765 \

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+
 	"GoNavi-Wails/internal/connection"
 )
 
@@ -12,10 +13,11 @@ func TestSSHConnectionFailureWrappersUseEnglish(t *testing.T) {
 	t.Cleanup(CloseAllSSHClients)
 
 	config := connection.SSHConfig{
-		Host:     "127.0.0.1",
-		Port:     1,
-		User:     "root",
-		Password: "password",
+		Host:               "127.0.0.1",
+		Port:               1,
+		User:               "root",
+		Password:           "password",
+		HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 	}
 
 	cases := []struct {
@@ -64,7 +66,6 @@ func TestSSHConnectionFailureWrappersUseEnglish(t *testing.T) {
 		})
 	}
 }
-
 
 func containsHan(text string) bool {
 	for _, r := range text {

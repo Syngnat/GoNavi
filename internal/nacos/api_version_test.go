@@ -1040,8 +1040,25 @@ func exerciseNacosAPIFamily(
 	if len(instances.Hosts) != 1 || instances.Hosts[0].IP != "10.0.0.1" || instances.Hosts[0].Port != 8080 {
 		t.Fatalf("instances = %#v", instances)
 	}
-	request = mustLastNacosAPIRequest(t, recorder, http.MethodGet, routes.instanceList)
-	assertNacosNamingIdentity(t, request.values, test.qualifiedNaming)
+	if instances.Hosts[0].Enabled {
+		t.Fatalf("disabled instance was not preserved: %#v", instances.Hosts[0])
+	}
+	instanceListPath := map[nacosAPIFamily]string{
+		nacosAPIV1: "/v1/ns/catalog/instances",
+		nacosAPIV2: "/v2/ns/catalog/instances",
+		nacosAPIV3: "/v3/admin/ns/instance/list",
+	}[test.family]
+	request = mustLastNacosAPIRequest(t, recorder, http.MethodGet, instanceListPath)
+	if test.family == nacosAPIV2 {
+		assertNacosAPIValues(t, request.values, map[string]string{
+			"namespaceId": "dev-id",
+			"serviceName": "MKEFU@@orders",
+		})
+		assertNacosAPIKeysAbsent(t, request.values, "groupName")
+	} else {
+		assertNacosNamingIdentity(t, request.values, test.qualifiedNaming)
+	}
+	assertNacosAPIKeysAbsent(t, request.values, "enabledOnly")
 
 	zeroWeight := 0.0
 	instanceRequest := InstanceRequest{
@@ -1156,7 +1173,13 @@ func nacosAPIMatrixHandler(family nacosAPIFamily, recorder *nacosAPIRequestRecor
 			request.URL.Path == routes.service:
 			writeNacosMutationResult(w, family, "ok")
 		case request.Method == http.MethodGet && request.URL.Path == routes.instanceList:
-			writeNacosInstanceList(w, family)
+			if family == nacosAPIV1 {
+				writeNacosCatalogInstanceList(w, family)
+			} else if family == nacosAPIV2 {
+				writeNacosCatalogInstanceList(w, family)
+			} else {
+				writeNacosDisabledInstanceList(w, family)
+			}
 		case request.Method == http.MethodGet && request.URL.Path == routes.instance:
 			writeNacosFamilyData(w, family, nacosAPIInstanceFixture())
 		case (request.Method == http.MethodPost || request.Method == http.MethodPut || request.Method == http.MethodDelete) &&
@@ -1328,16 +1351,25 @@ func writeNacosGroupedServiceList(w http.ResponseWriter, family nacosAPIFamily) 
 	writeNacosServiceList(w, family)
 }
 
-func writeNacosInstanceList(w http.ResponseWriter, family nacosAPIFamily) {
+func writeNacosDisabledInstanceList(w http.ResponseWriter, family nacosAPIFamily) {
 	instance := nacosAPIInstanceFixture()
-	if family == nacosAPIV3 {
-		writeNacosResult(w, family, []any{instance})
+	instance["enabled"] = false
+	writeNacosResult(w, family, []any{instance})
+}
+
+func writeNacosCatalogInstanceList(w http.ResponseWriter, family nacosAPIFamily) {
+	instance := nacosAPIInstanceFixture()
+	instance["enabled"] = false
+	if family == nacosAPIV1 {
+		writeNacosJSON(w, map[string]any{
+			"count": 1,
+			"list":  []any{instance},
+		})
 		return
 	}
-	writeNacosFamilyData(w, family, map[string]any{
-		"name":      "MKEFU@@orders",
-		"groupName": "MKEFU",
-		"hosts":     []any{instance},
+	writeNacosResult(w, family, map[string]any{
+		"count":     1,
+		"instances": []any{instance},
 	})
 }
 

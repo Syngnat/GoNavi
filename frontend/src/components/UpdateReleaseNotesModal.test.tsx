@@ -11,9 +11,13 @@ vi.mock('../i18n', () => ({
 }));
 
 vi.mock('./common/ResizableDraggableModal', () => ({
-  default: ({ open, title, children, footer }: any) => (
+  default: ({ open, title, children, footer, centered, style }: any) => (
     open ? (
-      <div data-testid="release-notes-modal">
+      <div
+        data-testid="release-notes-modal"
+        data-centered={centered ? 'true' : 'false'}
+        data-has-top-offset={style?.top == null ? 'false' : 'true'}
+      >
         <div data-testid="release-notes-title">{title}</div>
         <div data-testid="release-notes-body">{children}</div>
         <div data-testid="release-notes-footer">{footer}</div>
@@ -62,6 +66,8 @@ describe('UpdateReleaseNotesModal', () => {
     expect(text).toContain('0.9.0');
     expect(text).toContain('ship in-app release notes');
     expect(text).toContain('app.about.release_notes.modal.open_github');
+    expect(modal.props['data-centered']).toBe('true');
+    expect(modal.props['data-has-top-offset']).toBe('false');
   });
 
   it('shows empty state when notes body is missing', () => {

@@ -95,9 +95,12 @@ docker compose --env-file docker.mcp-server.env \
 
 - `GONAVI_DATA_ROOT=/data`
 - `GONAVI_MCP_HTTP_ADDR=0.0.0.0:8765`
+- `GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK=true`
 - `GONAVI_MCP_HTTP_PATH=/mcp`
 
 `GONAVI_DATA_ROOT` 会覆盖默认活动数据目录解析逻辑，避免宿主机路径与容器内路径不一致时依赖 `storage_root.json` 的绝对路径。
+
+`GONAVI_MCP_HTTP_ALLOW_NON_LOOPBACK` 是容器部署的显式许可。直接在宿主机运行二进制时默认关闭，仍只允许绑定 `127.0.0.1`、`::1` 或 `localhost`；即使显式开启，Bearer Token 仍然必填。
 
 如果你只想手动构建镜像：
 
@@ -257,9 +260,9 @@ go run ./cmd/gonavi-mcp-server http --addr 127.0.0.1:8765 --path /mcp --schema-o
 go run ./cmd/gonavi-mcp-server remote-config --client hermans --url "https://<你的域名或隧道地址>/mcp" --token "<随机token>" --schema-only
 ```
 
-## Claude Code / Codex / OpenClaw / Hermans
+## Claude Code / Codex / OpenCode / ZCode / DeepSeek Harness / Kimi Code / Grok Build / OpenClaw / Hermans
 
-正式安装包场景，推荐直接在 GoNavi 里使用“AI 设置 -> MCP 服务 -> 安装到 Claude Code / 安装到 Codex”。
+正式安装包场景，推荐直接在 GoNavi 里使用“AI 设置 -> MCP 服务”，选择目标客户端后执行一键接入。除远程 Agent 外，GoNavi 只会在检测到目标客户端的本机 CLI 命令后，才为 Claude Code、Codex、OpenCode、ZCode、DeepSeek Harness、Kimi Code 或 Grok Build 写入当前用户的本地 MCP 配置；未检测到时会禁用写入并提示先安装或启用客户端、将命令加入 `PATH` 后刷新检测。
 
 它会自动把当前安装的 `GoNavi.exe` 写入 Claude Code 的用户级 `~/.claude.json`，命令形态类似：
 
@@ -286,6 +289,15 @@ command = 'C:\Program Files\GoNavi\GoNavi.exe'
 args = ['mcp-server']
 startup_timeout_sec = 60
 ```
+
+其余一键接入客户端的用户级配置位置与写入形式如下。只有检测到对应本机 CLI 后才会写入；写入后重新加载或重启对应客户端即可生效；已有无关配置会保留。
+
+| 客户端 | 用户级配置位置 | GoNavi 写入位置 |
+|---|---|---|
+| ZCode | `~/.zcode/cli/config.json` | `mcp.servers.gonavi` |
+| DeepSeek Harness | `$DSH_HOME/cordis.patch.yml`，默认 `~/.dsh/cordis.patch.yml` | `@deepseek-ai/dsh-mcp-client` 的 `gonavi-mcp` patch entry |
+| Kimi Code | `$KIMI_CODE_HOME/mcp.json`，默认 `~/.kimi-code/mcp.json` | `mcpServers.gonavi` |
+| Grok Build | `~/.grok/config.toml` | `[mcp_servers.gonavi]` |
 
 仓库开发态如果要在本机 `Claude Code CLI` 里稳定使用这个 MCP，仍然推荐走仓库内包装脚本：
 

@@ -12,7 +12,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
+
 	"github.com/golang-sql/sqlexp"
 	_ "modernc.org/sqlite"
 )
@@ -114,6 +118,103 @@ type fakeSQLServerExecResult struct {
 	affected int64
 	rowErr   error
 }
+
+type sqlServerApplyChangesContextState struct {
+	execStarted chan struct{}
+	execRelease chan struct{}
+}
+
+type sqlServerApplyChangesContextConnector struct {
+	state *sqlServerApplyChangesContextState
+}
+
+type sqlServerApplyChangesContextDriver struct{}
+
+type sqlServerApplyChangesContextConn struct {
+	state *sqlServerApplyChangesContextState
+}
+
+type sqlServerApplyChangesContextTx struct{}
+
+func (c sqlServerApplyChangesContextConnector) Connect(context.Context) (driver.Conn, error) {
+	return &sqlServerApplyChangesContextConn{state: c.state}, nil
+}
+
+func (sqlServerApplyChangesContextConnector) Driver() driver.Driver {
+	return sqlServerApplyChangesContextDriver{}
+}
+
+func (sqlServerApplyChangesContextDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("use connector")
+}
+
+func (*sqlServerApplyChangesContextConn) Prepare(string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (*sqlServerApplyChangesContextConn) Close() error { return nil }
+
+func (*sqlServerApplyChangesContextConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("legacy Begin must not be used")
+}
+
+func (*sqlServerApplyChangesContextConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, error) {
+	return sqlServerApplyChangesContextTx{}, nil
+}
+
+func (c *sqlServerApplyChangesContextConn) ExecContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Result, error) {
+	select {
+	case c.state.execStarted <- struct{}{}:
+	default:
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-c.state.execRelease:
+		return nil, errors.New("execution released without cancellation")
+	}
+}
+
+func (sqlServerApplyChangesContextTx) Commit() error   { return nil }
+func (sqlServerApplyChangesContextTx) Rollback() error { return nil }
+
+func TestSQLServerApplyChangesContextCancelsInFlightBatchInsert(t *testing.T) {
+	state := &sqlServerApplyChangesContextState{
+		execStarted: make(chan struct{}, 1),
+		execRelease: make(chan struct{}),
+	}
+	dbConn := sql.OpenDB(sqlServerApplyChangesContextConnector{state: state})
+	t.Cleanup(func() { _ = dbConn.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- (&SqlServerDB{conn: dbConn}).ApplyChangesContext(ctx, "dbo.orders", connection.ChangeSet{
+			Inserts: []map[string]interface{}{{"id": 42, "status": "pending"}},
+		})
+	}()
+
+	select {
+	case <-state.execStarted:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not reach the context-aware batch insert path")
+	}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), context.Canceled.Error()) {
+			t.Fatalf("ApplyChangesContext error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		close(state.execRelease)
+		t.Fatal("ApplyChangesContext did not return after cancellation")
+	}
+}
+
+var _ BatchApplierContext = (*SqlServerDB)(nil)
 
 func (r fakeSQLServerExecResult) LastInsertId() (int64, error) {
 	return 0, errors.New("not implemented")
@@ -297,6 +398,13 @@ func TestSQLServerMetadataErrorsUseCurrentLanguage(t *testing.T) {
 		call func() error
 	}{
 		{
+			name: "create statement unsupported",
+			call: func() error {
+				_, err := sqlServer.GetCreateStatement("dbo", "orders")
+				return err
+			},
+		},
+		{
 			name: "columns table name required",
 			call: func() error {
 				_, err := sqlServer.GetColumns("", " ")
@@ -332,6 +440,12 @@ func TestSQLServerMetadataErrorsUseCurrentLanguage(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected SQL Server metadata call to fail")
 			}
+			if tc.name == "create statement unsupported" {
+				if err.Error() != "Viewing SQL Server table DDL is not supported by the current backend" {
+					t.Fatalf("expected English unsupported DDL error, got %q", err.Error())
+				}
+				return
+			}
 			if err.Error() != "Table name is required" {
 				t.Fatalf("expected English table-name-required error, got %q", err.Error())
 			}
@@ -341,4 +455,3 @@ func TestSQLServerMetadataErrorsUseCurrentLanguage(t *testing.T) {
 		})
 	}
 }
-
