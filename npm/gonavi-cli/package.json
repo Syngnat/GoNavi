@@ -1,6 +1,6 @@
 {
   "name": "@syngnat/gonavi-cli",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "description": "Verified platform wrapper for the GoNavi headless CLI",
   "bin": {
     "gonavi": "bin/gonavi.js"
