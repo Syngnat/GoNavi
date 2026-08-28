@@ -247,27 +247,7 @@ func (d *DuckDB) GetCreateStatement(dbName, tableName string) (string, error) {
 		return "", duckDBTableNameRequiredError()
 	}
 
-	escapedTable := escapeDuckDBLiteral(path.Object)
-	escapedSchema := escapeDuckDBLiteral(path.Schema)
-	escapedCatalog := escapeDuckDBLiteral(path.Catalog)
-
-	queryCandidates := make([]string, 0, 4)
-	if path.Catalog != "" {
-		queryCandidates = append(queryCandidates, fmt.Sprintf("SELECT sql FROM duckdb_tables() WHERE table_name = '%s' AND schema_name = '%s' AND database_name = '%s' LIMIT 1", escapedTable, escapedSchema, escapedCatalog))
-	}
-	queryCandidates = append(queryCandidates,
-		fmt.Sprintf("SELECT sql FROM duckdb_tables() WHERE table_name = '%s' AND schema_name = '%s' LIMIT 1", escapedTable, escapedSchema),
-		fmt.Sprintf("SELECT sql FROM duckdb_tables() WHERE table_name = '%s' LIMIT 1", escapedTable),
-		fmt.Sprintf("SHOW CREATE TABLE %s", quoteDuckDBQualifiedTable(path.Schema, path.Object)),
-	)
-
-	if path.Catalog != "" {
-		queryCandidates = append([]string{
-			fmt.Sprintf("SHOW CREATE TABLE %s.%s", quoteDuckDBIdentifier(path.Catalog), quoteDuckDBQualifiedTable(path.Schema, path.Object)),
-		}, queryCandidates...)
-	}
-
-	for _, query := range queryCandidates {
+	for _, query := range buildDuckDBCreateStatementQueryCandidates(path) {
 		data, _, err := d.Query(query)
 		if err != nil || len(data) == 0 {
 			continue
@@ -311,29 +291,10 @@ ORDER BY ordinal_position`, escapeDuckDBLiteral(path.Object), escapeDuckDBLitera
 	if err != nil {
 		return nil, err
 	}
-	if len(data) == 0 && path.Schema != "main" {
-		fallbackQuery := fmt.Sprintf(`
-SELECT column_name, data_type, is_nullable, column_default
-FROM information_schema.columns
-WHERE table_name = '%s'
-ORDER BY ordinal_position`, escapeDuckDBLiteral(path.Object))
-		data, _, err = d.Query(fallbackQuery)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	constraintQuery := buildDuckDBConstraintMetadataQuery(path, true)
 	constraintRows, _, constraintErr := d.Query(constraintQuery)
 	if constraintErr != nil {
 		return nil, constraintErr
-	}
-	if len(constraintRows) == 0 && path.Schema != "main" {
-		fallbackConstraintQuery := buildDuckDBConstraintMetadataQuery(path, false)
-		constraintRows, _, constraintErr = d.Query(fallbackConstraintQuery)
-		if constraintErr != nil {
-			return nil, constraintErr
-		}
 	}
 
 	return buildDuckDBColumnDefinitions(data, constraintRows), nil
@@ -395,25 +356,10 @@ func (d *DuckDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinit
 	if err != nil {
 		return nil, err
 	}
-	if len(constraintRows) == 0 && path.Schema != "main" {
-		fallbackQuery := buildDuckDBConstraintMetadataQuery(path, false)
-		constraintRows, _, err = d.Query(fallbackQuery)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	indexQuery := buildDuckDBIndexMetadataQuery(path, true)
 	indexRows, _, indexErr := d.Query(indexQuery)
 	if indexErr != nil {
 		return nil, indexErr
-	}
-	if len(indexRows) == 0 && path.Schema != "main" {
-		fallbackIndexQuery := buildDuckDBIndexMetadataQuery(path, false)
-		indexRows, _, indexErr = d.Query(fallbackIndexQuery)
-		if indexErr != nil {
-			return nil, indexErr
-		}
 	}
 
 	return buildDuckDBIndexDefinitions(constraintRows, indexRows), nil
