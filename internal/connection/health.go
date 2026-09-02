@@ -31,6 +31,7 @@ type ConnectionHealthCheck struct {
 	Detail         string                 `json:"detail,omitempty"`
 	Recommendation string                 `json:"recommendation,omitempty"`
 }
+
 // ConnectionHealthReport contains a saved connection's health summary. It
 // intentionally excludes ConnectionConfig; exporters must omit its saved
 // connection identity fields before sharing a report.
@@ -41,4 +42,30 @@ type ConnectionHealthReport struct {
 	OverallStatus  ConnectionHealthStatus  `json:"overallStatus"`
 	DurationMs     int64                   `json:"durationMs"`
 	Checks         []ConnectionHealthCheck `json:"checks"`
+}
+
+// ConnectionHealthRunStatus 描述批量健康检查任务的生命周期。取消请求不会丢弃
+// 已完成的报告。
+type ConnectionHealthRunStatus string
+
+const (
+	ConnectionHealthRunStatusRunning    ConnectionHealthRunStatus = "running"
+	ConnectionHealthRunStatusCancelling ConnectionHealthRunStatus = "cancelling"
+	ConnectionHealthRunStatusCompleted  ConnectionHealthRunStatus = "completed"
+	ConnectionHealthRunStatusCancelled  ConnectionHealthRunStatus = "cancelled"
+	ConnectionHealthRunStatusRejected   ConnectionHealthRunStatus = "rejected"
+)
+
+// ConnectionHealthRun 是异步批量健康检查的安全传输快照。
+// RemainingConnectionIDs 会列出所有尚未产出完成报告的连接，其中包含取消请求后
+// 可能仍在结束的当前探测。
+type ConnectionHealthRun struct {
+	RunID                  string                    `json:"runId"`
+	Status                 ConnectionHealthRunStatus `json:"status"`
+	Total                  int                       `json:"total"`
+	Completed              int                       `json:"completed"`
+	Reports                []ConnectionHealthReport  `json:"reports"`
+	CurrentConnectionID    string                    `json:"currentConnectionId,omitempty"`
+	RemainingConnectionIDs []string                  `json:"remainingConnectionIds"`
+	CancelRequested        bool                      `json:"cancelRequested"`
 }

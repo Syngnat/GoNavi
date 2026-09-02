@@ -19,6 +19,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
+	sshbridge "GoNavi-Wails/internal/ssh"
 )
 
 const (
@@ -74,27 +75,38 @@ const (
 var errOptionalAgentTransportStopped = errors.New("驱动代理传输已关闭")
 
 type optionalAgentRequest struct {
-	ID                   int64                        `json:"id"`
-	Method               string                       `json:"method"`
-	SessionID            string                       `json:"sessionId,omitempty"`
-	Config               *connection.ConnectionConfig `json:"config,omitempty"`
+	ID         int64                          `json:"id"`
+	Method     string                         `json:"method"`
+	SessionID  string                         `json:"sessionId,omitempty"`
+	Config     *connection.ConnectionConfig   `json:"config,omitempty"`
+	SSHRuntime *connection.SSHRuntimeSnapshot `json:"sshRuntime,omitempty"`
+	// StreamSSHProgress is an explicit protocol capability. Older agents ignore
+	// it, while newer agents preserve the historical one-response contract until
+	// a supporting client opts in.
+	StreamSSHProgress    bool                         `json:"streamSSHProgress,omitempty"`
 	Query                string                       `json:"query,omitempty"`
 	TimeoutMs            int64                        `json:"timeoutMs,omitempty"`
 	DBName               string                       `json:"dbName,omitempty"`
 	TableName            string                       `json:"tableName,omitempty"`
 	Changes              *connection.ChangeSet        `json:"changes,omitempty"`
 	ElasticsearchRequest *ElasticsearchConsoleRequest `json:"elasticsearchRequest,omitempty"`
+	// sshProgressReporter remains in the main process and is never serialized
+	// into the driver-agent request.
+	sshProgressReporter connection.SSHProgressReporter `json:"-"`
 }
 
 type optionalAgentResponse struct {
-	ID           int64           `json:"id"`
-	Success      bool            `json:"success"`
-	Error        string          `json:"error,omitempty"`
-	Data         json.RawMessage `json:"data,omitempty"`
-	Fields       []string        `json:"fields,omitempty"`
-	Messages     []string        `json:"messages,omitempty"`
-	ChunkType    string          `json:"chunkType,omitempty"`
-	RowsAffected int64           `json:"rowsAffected,omitempty"`
+	ID              int64                         `json:"id"`
+	Success         bool                          `json:"success"`
+	Error           string                        `json:"error,omitempty"`
+	OutcomeUnknown  bool                          `json:"outcomeUnknown,omitempty"`
+	SSHHostKeyTrust *sshbridge.HostKeyTrustStatus `json:"sshHostKeyTrust,omitempty"`
+	SSHProgress     *connection.SSHProgressEvent  `json:"sshProgress,omitempty"`
+	Data            json.RawMessage               `json:"data,omitempty"`
+	Fields          []string                      `json:"fields,omitempty"`
+	Messages        []string                      `json:"messages,omitempty"`
+	ChunkType       string                        `json:"chunkType,omitempty"`
+	RowsAffected    int64                         `json:"rowsAffected,omitempty"`
 }
 
 type OptionalDriverAgentMetadata struct {
@@ -300,49 +312,77 @@ func (c *optionalDriverAgentClient) callLocked(req optionalAgentRequest, out int
 		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("调用 %s 驱动代理失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText))
 	}
 
-	line, err := ReadOptionalDriverAgentJSONLine(c.reader)
-	if err != nil {
-		if errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
-			_ = c.forceTerminate(err)
+	for {
+		line, err := ReadOptionalDriverAgentJSONLine(c.reader)
+		if err != nil {
+			if errors.Is(err, ErrOptionalDriverAgentJSONLineTooLarge) {
+				_ = c.forceTerminate(err)
+			}
+			stderrText := c.stderrText()
+			if stderrText == "" {
+				return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
+			}
+			return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText))
 		}
-		stderrText := c.stderrText()
-		if stderrText == "" {
-			return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
-		}
-		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("读取 %s 驱动代理响应失败：%w（stderr: %s）", driverDisplayName(c.driver), err, stderrText))
-	}
 
-	var resp optionalAgentResponse
-	if err := json.Unmarshal(line, &resp); err != nil {
-		return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("解析 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
-	}
-	if !resp.Success {
-		errText := strings.TrimSpace(resp.Error)
-		if errText == "" {
-			errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
+		var resp optionalAgentResponse
+		if err := json.Unmarshal(line, &resp); err != nil {
+			return markOptionalAgentApplyChangesTransportUnknown(req, fmt.Errorf("解析 %s 驱动代理响应失败：%w", driverDisplayName(c.driver), err))
 		}
-		if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
-			_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
-			return markOptionalAgentApplyChangesTransportUnknown(req, ErrOptionalDriverAgentJSONLineTooLarge)
+		if resp.ID != req.ID {
+			return c.rejectProtocolViolation(req, "响应 ID 不匹配：收到 %d，期望 %d", resp.ID, req.ID)
 		}
-		return errors.New(errText)
-	}
+		if resp.OutcomeUnknown && (resp.Success || req.Method != optionalAgentMethodApplyChanges) {
+			return c.rejectProtocolViolation(req, "outcomeUnknown 仅允许用于失败的 applyChanges 响应")
+		}
+		if resp.SSHProgress != nil {
+			if !resp.Success || req.Method != optionalAgentMethodConnect || !req.StreamSSHProgress || req.sshProgressReporter == nil {
+				return c.rejectProtocolViolation(req, "收到了未订阅或无效的 SSH 进度帧")
+			}
+			req.sshProgressReporter(*resp.SSHProgress)
+			continue
+		}
+		if !resp.Success {
+			errText := strings.TrimSpace(resp.Error)
+			if errText == "" {
+				errText = fmt.Sprintf("%s 驱动代理返回失败", driverDisplayName(c.driver))
+			}
+			if errText == ErrOptionalDriverAgentJSONLineTooLarge.Error() {
+				_ = c.forceTerminate(ErrOptionalDriverAgentJSONLineTooLarge)
+				return markOptionalAgentApplyChangesTransportUnknown(req, ErrOptionalDriverAgentJSONLineTooLarge)
+			}
+			if resp.SSHHostKeyTrust != nil {
+				return fmt.Errorf("%s: %w", errText, &sshbridge.HostKeyTrustRequiredError{Status: *resp.SSHHostKeyTrust})
+			}
+			err := errors.New(errText)
+			if resp.OutcomeUnknown {
+				return MarkWriteOutcomeUnknown(err)
+			}
+			return err
+		}
 
-	if fields != nil {
-		*fields = resp.Fields
-	}
-	if messages != nil {
-		*messages = append((*messages)[:0], resp.Messages...)
-	}
-	if rowsAffected != nil {
-		*rowsAffected = resp.RowsAffected
-	}
-	if out != nil && len(resp.Data) > 0 {
-		if err := decodeJSONWithUseNumber(resp.Data, out); err != nil {
-			return fmt.Errorf("解析 %s 驱动代理数据失败：%w", driverDisplayName(c.driver), err)
+		if fields != nil {
+			*fields = resp.Fields
 		}
+		if messages != nil {
+			*messages = append((*messages)[:0], resp.Messages...)
+		}
+		if rowsAffected != nil {
+			*rowsAffected = resp.RowsAffected
+		}
+		if out != nil && len(resp.Data) > 0 {
+			if err := decodeJSONWithUseNumber(resp.Data, out); err != nil {
+				return fmt.Errorf("解析 %s 驱动代理数据失败：%w", driverDisplayName(c.driver), err)
+			}
+		}
+		return nil
 	}
-	return nil
+}
+
+func (c *optionalDriverAgentClient) rejectProtocolViolation(req optionalAgentRequest, format string, args ...interface{}) error {
+	violation := fmt.Errorf("%s 驱动代理协议错误：%s", driverDisplayName(c.driver), fmt.Sprintf(format, args...))
+	_ = c.forceTerminate(violation)
+	return markOptionalAgentApplyChangesTransportUnknown(req, violation)
 }
 
 func (c *optionalDriverAgentClient) callContext(ctx context.Context, req optionalAgentRequest, out interface{}, fields *[]string, messages *[]string, rowsAffected *int64) error {
@@ -737,10 +777,13 @@ func (d *OptionalDriverAgentDB) Connect(config connection.ConnectionConfig) erro
 	}
 	connectTimeout := getConnectTimeout(config)
 	var connectionInfo optionalAgentConnectionInfo
-	if err := client.callWithTimeout(optionalAgentRequest{
-		Method: optionalAgentMethodConnect,
-		Config: &config,
-	}, &connectionInfo, nil, nil, nil, connectTimeout); err != nil {
+	request := newOptionalAgentConnectRequest(config)
+	if config.UseSSH {
+		request.sshProgressReporter = func(event connection.SSHProgressEvent) {
+			config.SSH.ReportProgress(event.Stage, event.Status)
+		}
+	}
+	if err := client.callWithTimeout(request, &connectionInfo, nil, nil, nil, connectTimeout); err != nil {
 		_ = client.close()
 		return err
 	}
@@ -749,6 +792,18 @@ func (d *OptionalDriverAgentDB) Connect(config connection.ConnectionConfig) erro
 	d.serverMajor = connectionInfo.ElasticsearchServerMajor
 	d.ensureKingbaseSearchPath(config)
 	return nil
+}
+
+func newOptionalAgentConnectRequest(config connection.ConnectionConfig) optionalAgentRequest {
+	request := optionalAgentRequest{
+		Method:            optionalAgentMethodConnect,
+		Config:            &config,
+		StreamSSHProgress: config.UseSSH,
+	}
+	if config.UseSSH {
+		request.SSHRuntime = config.SSH.RuntimeSnapshot()
+	}
+	return request
 }
 
 func (d *OptionalDriverAgentDB) Close() error {
@@ -1303,12 +1358,19 @@ func (d *OptionalDriverAgentDB) GetCreateStatement(dbName, tableName string) (st
 }
 
 func (d *OptionalDriverAgentDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
+	return d.GetColumnsContext(metadataContextFor(d), dbName, tableName)
+}
+
+func (d *OptionalDriverAgentDB) GetColumnsContext(ctx context.Context, dbName, tableName string) ([]connection.ColumnDefinition, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	client, err := d.requireClient()
 	if err != nil {
 		return nil, err
 	}
 	var columns []connection.ColumnDefinition
-	if err := client.callWithContext(metadataContextFor(d), optionalAgentRequest{
+	if err := client.callWithContext(ctx, optionalAgentRequest{
 		Method:    optionalAgentMethodGetColumns,
 		DBName:    dbName,
 		TableName: tableName,

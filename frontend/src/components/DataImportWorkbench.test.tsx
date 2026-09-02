@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   dbGetTables: vi.fn(),
   importData: vi.fn(),
   selectSQLFileForExecution: vi.fn(),
+  isWebRuntime: vi.fn(),
+  uploadBrowserFile: vi.fn(),
   messageError: vi.fn(),
   messageSuccess: vi.fn(),
   addTab: vi.fn(),
@@ -23,6 +25,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../store', () => ({
   useStore: (selector: (state: typeof mocks.storeState) => unknown) => selector(mocks.storeState),
+}));
+
+vi.mock('../utils/browserFileTransfer', () => ({
+  isWebRuntime: mocks.isWebRuntime,
+  uploadBrowserFile: mocks.uploadBrowserFile,
 }));
 
 vi.mock('../../wailsjs/go/app/App', () => ({
@@ -217,6 +224,15 @@ describe('DataImportWorkbench', () => {
     mocks.selectSQLFileForExecution.mockResolvedValue({
       success: true,
       data: { filePath: '/tmp/full-backup.sql', fileSizeMB: '1.25' },
+    });
+    mocks.isWebRuntime.mockReset();
+    mocks.isWebRuntime.mockReturnValue(false);
+    mocks.uploadBrowserFile.mockReset();
+    mocks.uploadBrowserFile.mockResolvedValue({
+      filePath: 'web-upload-token',
+      name: 'users.csv',
+      fileSize: 24,
+      fileSizeMB: '0.1',
     });
     mocks.messageError.mockReset();
     mocks.messageSuccess.mockReset();
@@ -892,6 +908,66 @@ describe('DataImportWorkbench', () => {
       tableName: undefined,
       dataImportRunning: false,
     }));
+  });
+
+  it('uploads a browser table file and passes its opaque token to the preview workflow', async () => {
+    mocks.isWebRuntime.mockReturnValue(true);
+    const renderer = await renderWorkbench();
+    const input = renderer.root.findByProps({ 'data-import-browser-file-input': 'true' });
+    const file = { name: 'users.csv', size: 24 } as File;
+    const eventTarget = { files: [file], value: 'C:\\fakepath\\users.csv' };
+
+    expect(input.props.accept).toBe('.csv,.json,.xlsx');
+    await act(async () => {
+      await input.props.onChange({ target: eventTarget });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(eventTarget.value).toBe('');
+    expect(mocks.uploadBrowserFile).toHaveBeenCalledWith(file, 'data-import');
+    expect(mocks.importData).not.toHaveBeenCalled();
+    expect(renderer.root.findByProps({ 'data-import-preview-mock': 'true' }).props).toMatchObject({
+      filePath: 'web-upload-token',
+      connectionId: 'conn-1',
+      dbName: 'app',
+      tableName: 'users',
+    });
+    expect(renderer.root.findByProps({ title: 'users.csv' }).children).toEqual(['users.csv']);
+  });
+
+  it('uploads a browser SQL file and preserves its display name separately from the token', async () => {
+    mocks.isWebRuntime.mockReturnValue(true);
+    mocks.uploadBrowserFile.mockResolvedValueOnce({
+      filePath: 'web-sql-token',
+      name: 'full-backup.sql',
+      fileSize: 1_310_720,
+      fileSizeMB: '1.25',
+    });
+    const renderer = await renderWorkbench({
+      dataImportMode: 'database',
+      dataImportLaunchKey: 'web-database-launch',
+      tableName: undefined,
+    });
+    const input = renderer.root.findByProps({ 'data-import-browser-file-input': 'true' });
+    const file = { name: 'full-backup.sql', size: 1_310_720 } as File;
+
+    expect(input.props.accept).toBe('.sql,.sql.gz');
+    await act(async () => {
+      await input.props.onChange({ target: { files: [file], value: 'full-backup.sql' } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.uploadBrowserFile).toHaveBeenCalledWith(file, 'sql-execution');
+    expect(mocks.selectSQLFileForExecution).not.toHaveBeenCalled();
+    expect(renderer.root.findByProps({
+      'data-database-import-execution-panel-mock': 'true',
+    }).props).toMatchObject({
+      filePath: 'web-sql-token',
+      fileName: 'full-backup.sql',
+      fileSizeMB: '1.25',
+    });
   });
 
   it('selects a file for the target and embeds the shared preview workflow', async () => {

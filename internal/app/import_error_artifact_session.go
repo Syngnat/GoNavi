@@ -41,7 +41,7 @@ func (artifact *managedImportErrorArtifact) finish(result *importExecutionResult
 		artifact.writer.Abort()
 		return fmt.Errorf("persist rejected import row: %w", artifact.err)
 	}
-	if artifact.writer.count == 0 {
+	if artifact.writer.count == 0 && !artifact.writer.truncated {
 		artifact.writer.Abort()
 		return nil
 	}
@@ -52,6 +52,14 @@ func (artifact *managedImportErrorArtifact) finish(result *importExecutionResult
 	if result != nil {
 		result.ErrorArtifactID = finished.ID
 		result.ErrorArtifactCount = finished.Count
+		result.ErrorArtifactBytes = finished.Bytes
+		result.ErrorArtifactOmittedCount = finished.OmittedCount
+		result.ErrorArtifactTruncated = finished.Truncated
+		result.ErrorArtifactRetryableCount = finished.RetryableCount
+		result.ErrorArtifactUnretryableCount = finished.UnretryableCount
+		result.ErrorArtifactScopeKnown = true
+		result.ErrorArtifactMaxRows = finished.MaxRows
+		result.ErrorArtifactMaxBytes = finished.MaxBytes
 	}
 	return nil
 }

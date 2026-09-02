@@ -18,7 +18,6 @@ vi.mock('antd', async () => {
     Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button>,
     ConfigProvider: passthrough,
     Input,
-    Switch: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input type="checkbox" {...props} />,
     Tooltip: passthrough,
   };
 });
@@ -27,7 +26,6 @@ vi.mock('@ant-design/icons', () => {
   const Icon = () => <span data-icon="true" />;
   return {
     CloseOutlined: Icon,
-    ReloadOutlined: Icon,
     RobotOutlined: Icon,
     SearchOutlined: Icon,
     TableOutlined: Icon,
@@ -64,8 +62,6 @@ describe('SidebarSearchPanel recent query actions', () => {
         activeIndex={0}
         label="Search"
         placeholder="Search"
-        persistedFilter=""
-        persistentFilterEnabled={false}
         aiMode={false}
         objectMode={false}
         flatItems={[recentItem]}
@@ -77,8 +73,6 @@ describe('SidebarSearchPanel recent query actions', () => {
           onClose: vi.fn(),
           onItemSelect,
           onItemHover: vi.fn(),
-          onTogglePersistentFilter: vi.fn(),
-          onResetFilter: vi.fn(),
           onRemoveRecentItem,
           onClearRecentItems,
         }}
@@ -107,5 +101,37 @@ describe('SidebarSearchPanel recent query actions', () => {
     expect(clearMouseDown.preventDefault).toHaveBeenCalledTimes(1);
     expect(clearMouseDown.stopPropagation).toHaveBeenCalledTimes(1);
     expect(onClearRecentItems).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders only the command input without sidebar-filter sync controls', () => {
+    vi.stubGlobal('document', { body: {} });
+
+    const renderer = create(
+      <SidebarSearchPanel
+        isOpen
+        searchValue="orders"
+        activeIndex={0}
+        label="Search"
+        placeholder="Search"
+        aiMode={false}
+        objectMode={false}
+        flatItems={[]}
+        sections={{ goTo: [], ai: [], actions: [], recent: [] }}
+        inputRef={{ current: null }}
+        handlers={{
+          onSearchValueChange: vi.fn(),
+          onKeyDown: vi.fn(),
+          onClose: vi.fn(),
+          onItemSelect: vi.fn(),
+          onItemHover: vi.fn(),
+          onRemoveRecentItem: vi.fn(),
+          onClearRecentItems: vi.fn(),
+        }}
+      />,
+    );
+
+    expect(renderer.root.findAllByType('input')).toHaveLength(1);
+    expect(renderer.root.findAllByProps({ className: 'gn-v2-command-filter-switch' })).toHaveLength(0);
+    expect(renderer.root.findAllByProps({ 'aria-label': 'sidebar.command_search.reset_filter' })).toHaveLength(0);
   });
 });

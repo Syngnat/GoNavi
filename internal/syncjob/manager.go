@@ -109,7 +109,7 @@ func NewManager(ctx context.Context, store *Store, executor Executor, options Ma
 		return nil, errors.New("data sync job executor is required")
 	}
 	options = normalizeManagerOptions(options)
-	managerCtx, cancel := context.WithCancelCause(context.Background())
+	managerCtx, cancel := context.WithCancelCause(ctx)
 	manager := &Manager{
 		store:    store,
 		executor: executor,
@@ -265,12 +265,44 @@ func (m *Manager) DeleteJob(ctx context.Context, id string) error {
 	return nil
 }
 
+// PurgeJob permanently deletes an inactive task together with its history.
+// A task with an active run must be canceled and allowed to reach a terminal
+// state first; this keeps a lease owner in another Manager from writing after
+// the run record has been removed.
+func (m *Manager) PurgeJob(ctx context.Context, id string) error {
+	if err := m.ensureOpen(); err != nil {
+		return err
+	}
+	id = strings.TrimSpace(id)
+	err := m.store.PurgeJob(ctx, id)
+	m.signalWake()
+	return err
+}
+
 func (m *Manager) GetRun(ctx context.Context, id string) (RunRecord, error) {
 	return m.store.GetRun(ctx, id)
 }
 
 func (m *Manager) ListRuns(ctx context.Context, jobID string, limit int) ([]RunRecord, error) {
 	return m.store.ListRuns(ctx, jobID, limit)
+}
+
+func (m *Manager) ListRunsPage(ctx context.Context, jobID string, cursor *RunCursor, limit int) (RunPage, error) {
+	return m.store.ListRunsPage(ctx, jobID, cursor, limit)
+}
+
+func (m *Manager) DeleteRun(ctx context.Context, runID string) error {
+	if err := m.ensureOpen(); err != nil {
+		return err
+	}
+	return m.store.DeleteRun(ctx, runID)
+}
+
+func (m *Manager) ClearTerminalRuns(ctx context.Context, jobID string) (int, error) {
+	if err := m.ensureOpen(); err != nil {
+		return 0, err
+	}
+	return m.store.ClearTerminalRuns(ctx, jobID)
 }
 
 func (m *Manager) ListRunEvents(ctx context.Context, runID string, afterSequence int64, limit int) ([]RunEvent, error) {

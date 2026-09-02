@@ -247,7 +247,7 @@ export const buildAIMessageFlowSnapshot = (params: {
     unresolvedToolCalls.length > 0 ? translateInspectionCopy(
       translate,
       'ai_chat.inspection.message_flow.next_action.check_tool_results',
-      'Check whether useAIChatLocalTools writes a tool message for every tool_call_id.',
+      'Check the Agent Run Harness ledger for a durable tool result for every tool call.',
     ) : '',
     consecutiveAssistantPairs.length > 0 ? translateInspectionCopy(
       translate,

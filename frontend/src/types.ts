@@ -351,6 +351,7 @@ export interface MongoMemberInfo {
 export interface SavedConnection {
   id: string;
   name: string;
+  createdAt?: number;
   environmentType?: ConnectionEnvironmentType;
   config: ConnectionConfig;
   secretRef?: string;
@@ -389,6 +390,7 @@ export interface GlobalProxyConfig extends ProxyConfig {
 export interface ConnectionTag {
   id: string;
   name: string;
+  createdAt?: number;
   /**
    * Parent group id. An omitted value keeps the group at the sidebar root.
    * Hosts are always owned by exactly one direct group, while groups can nest.
@@ -400,6 +402,34 @@ export interface ConnectionTag {
    * `connection:<id>` tokens as the sidebar root order.
    */
   childOrder?: string[];
+  /** Direct connection display order within this group. */
+  connectionSortMode?: ConnectionDisplaySortMode;
+  sortMode?: ConnectionSortMode;
+}
+
+export type ConnectionSortMode = 'manual' | 'name' | 'createdAt';
+export type ConnectionDisplaySortMode = 'name' | 'createdAt';
+
+export interface ConnectionSidebarLayoutInput {
+  connectionTags: ConnectionTag[];
+  sidebarRootOrder: string[];
+  rootSortMode?: ConnectionSortMode;
+  rootConnectionSortMode?: ConnectionDisplaySortMode;
+}
+
+export interface ConnectionSidebarLayout extends ConnectionSidebarLayoutInput {
+  initialized: boolean;
+  revision: number;
+}
+
+export interface SaveConnectionSidebarLayoutInput {
+  expectedRevision: number;
+  layout: ConnectionSidebarLayoutInput;
+}
+
+export interface SaveConnectionSidebarLayoutResult {
+  conflict: boolean;
+  layout: ConnectionSidebarLayout;
 }
 
 export interface ColumnDefinition {
@@ -486,6 +516,7 @@ export interface TabData {
     | "sql-analysis"
     | "sql-audit"
     | "request-diagnostics"
+    | "message-queue"
     | "redis-keys"
     | "redis-command"
     | "redis-monitor"
@@ -526,6 +557,7 @@ export interface TabData {
   nacosGroup?: string; // Nacos group filter for config or service workbenches
   triggerName?: string; // Trigger name for trigger tabs
   triggerTableName?: string; // Trigger target table for trigger tabs
+  triggerRollbackSql?: string; // Original trigger definition used after a failed replacement
   viewName?: string; // View name for view definition tabs
   viewKind?: "view" | "materialized";
   eventName?: string; // Event name for MySQL event definition tabs
@@ -553,6 +585,7 @@ export interface TabData {
   dataImportLaunchKey?: string;
   dataImportRunning?: boolean;
   sqlFileExecutionRequestKey?: string;
+  sqlFileExecutionFileName?: string;
   sqlFileExecutionFileSizeMB?: string;
   sqlAnalysisView?: "diagnose" | "slow-query";
   sqlAnalysisRequestKey?: string;
@@ -560,6 +593,12 @@ export interface TabData {
   sqlAuditTransactionId?: string;
   sqlAuditRequestKey?: string;
   preserveUnboundConnection?: boolean;
+  /** Message queue workbench target requested by the sidebar. */
+  messageQueueTarget?: string;
+  messageQueueObjectKind?: "topic-filter" | "topic" | "queue" | "exchange";
+  messageQueueAction?: "open" | "consume" | "publish";
+  /** Changes whenever an existing workbench should react to a new sidebar request. */
+  messageQueueRequestKey?: string;
   formatRestoreSnapshot?: {
     query: string;
     createdAt: number;
@@ -704,12 +743,20 @@ export interface AIProviderConfig {
   model: string;
   inlineCompletionModel?: string;
   models?: string[];
+  /** Per-configuration suggestions only; absent fields preserve legacy behavior. */
+  disabledModels?: string[];
+  customModels?: string[];
   apiFormat?: string; // openai 可选 openai-responses；custom 支持 openai/anthropic/gemini/CLI 等格式
   headers?: Record<string, string>;
   maxTokens: number;
   temperature: number;
   /** 思考强度：off | low | medium | high；空表示供应商默认 */
   thinkingIntensity?: string;
+  /**
+   * 本机 CLI 供应商的推理档位。合法值域由目标 CLI 决定，三个 CLI 两两不同，
+   * 候选值来自后端 AIGetCLICapabilities，前端不维护副本。空表示沿用 CLI 默认。
+   */
+  effort?: string;
 }
 
 export interface AIUserPromptSettings {
@@ -839,6 +886,7 @@ export interface AIChatMessage {
   tool_call_id?: string;
   tool_name?: string; // used for UI display
   rawError?: string; // 存储未清洗的原始错误信息，用于用户复制排查
+  excludeFromAIContext?: boolean; // 纯 UI 状态或错误消息，不回灌给模型
   success?: boolean; // 标记探针执行是否成功
   jvmPlanContext?: JVMAIPlanContext;
   jvmDiagnosticPlanContext?: JVMDiagnosticPlanContext;

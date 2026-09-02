@@ -69,32 +69,40 @@ var highGoConnectionParamNames = newConnectionParamNameMap(
 	"TimeZone",
 )
 
-var kingbaseConnectionParamNames = newConnectionParamNameMap(
-	"host",
-	"port",
-	"user",
-	"password",
-	"dbname",
-	"application_name",
-	"fallback_application_name",
-	"sslmode",
-	"sslcert",
-	"sslkey",
-	"sslrootcert",
-	"krbsrvname",
-	"krbspn",
-	"connect_timeout",
-	"binary_parameters",
-	"disable_prepared_binary_result",
-	"search_path",
-	"work_mem",
-	"statement_timeout",
-	"lock_timeout",
-	"idle_in_transaction_session_timeout",
-	"default_transaction_read_only",
-	"default_transaction_isolation",
-	"TimeZone",
-)
+var kingbaseConnectionParamNames = makeKingbaseConnectionParamNames()
+
+func makeKingbaseConnectionParamNames() map[string]string {
+	names := newConnectionParamNameMap(
+		"host",
+		"port",
+		"user",
+		"password",
+		"dbname",
+		"application_name",
+		"fallback_application_name",
+		"sslmode",
+		"sslcert",
+		"sslkey",
+		"sslrootcert",
+		"krbsrvname",
+		"krbspn",
+		"connect_timeout",
+		"binary_parameters",
+		"disable_prepared_binary_result",
+		"search_path",
+		"work_mem",
+		"statement_timeout",
+		"lock_timeout",
+		"idle_in_transaction_session_timeout",
+		"default_transaction_read_only",
+		"default_transaction_isolation",
+		"TimeZone",
+	)
+	// Kingbase accepts the PostgreSQL-compatible `database` spelling as an
+	// alias for `dbname`, including copied URI/query parameters.
+	addConnectionParamAlias(names, "database", "dbname")
+	return names
+}
 
 var sqlServerConnectionParamNames = makeSQLServerConnectionParamNames()
 

@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	defaultChromaPort         = 8000
-	defaultChromaTenant       = "default_tenant"
-	defaultChromaDatabase     = "default_database"
-	defaultChromaQueryTimeout = 30 * time.Second
+	defaultChromaPort           = 8000
+	defaultChromaTenant         = "default_tenant"
+	defaultChromaDatabase       = "default_database"
+	defaultChromaQueryTimeout   = 30 * time.Second
+	chromaFilteredCountPageSize = 10_000
 )
 
 type ChromaDB struct {
@@ -38,6 +39,8 @@ type ChromaDB struct {
 	authHeaders map[string]string
 	forwarder   *ssh.LocalForwarder
 }
+
+var _ BatchApplierContext = (*ChromaDB)(nil)
 
 type chromaCollection struct {
 	ID        string                 `json:"id"`
@@ -215,7 +218,7 @@ func (c *ChromaDB) GetDatabases() ([]string, error) {
 	var raw []map[string]interface{}
 	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/api/v2/tenants/%s/databases", url.PathEscape(c.tenant)), nil, &raw)
 	if err != nil {
-		return []string{c.database}, nil
+		return nil, err
 	}
 	names := make([]string, 0, len(raw))
 	for _, item := range raw {
@@ -310,8 +313,19 @@ func (c *ChromaDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 }
 
 func (c *ChromaDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultChromaQueryTimeout)
+	return c.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (c *ChromaDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
+	ctx, cancel := context.WithTimeout(ctx, defaultChromaQueryTimeout)
 	defer cancel()
+	writeApplied := false
+	writeError := func(err error) error {
+		if writeApplied {
+			return MarkWriteOutcomeUnknown(err)
+		}
+		return err
+	}
 
 	if len(changes.Deletes) > 0 {
 		ids := make([]string, 0, len(changes.Deletes))
@@ -320,10 +334,14 @@ func (c *ChromaDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 				ids = append(ids, id)
 			}
 		}
+		if len(ids) != len(changes.Deletes) {
+			return fmt.Errorf("Chroma 删除行缺少 id")
+		}
 		if len(ids) > 0 {
 			if _, err := c.deleteCommand(ctx, tableName, map[string]interface{}{"ids": ids}); err != nil {
-				return err
+				return writeError(err)
 			}
+			writeApplied = true
 		}
 	}
 
@@ -340,12 +358,13 @@ func (c *ChromaDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 			rows = append(rows, row)
 		}
 		if err := c.upsertRows(ctx, tableName, rows); err != nil {
-			return err
+			return writeError(err)
 		}
+		writeApplied = true
 	}
 	if len(changes.Inserts) > 0 {
 		if err := c.upsertRows(ctx, tableName, changes.Inserts); err != nil {
-			return err
+			return writeError(err)
 		}
 	}
 	return nil
@@ -641,22 +660,57 @@ func (c *ChromaDB) getCollectionRows(ctx context.Context, collection string, lim
 	return rows, columns, nil
 }
 
-func (c *ChromaDB) countCollection(ctx context.Context, collection string, where interface{}) (int64, error) {
-	path, err := c.collectionActionPath(ctx, collection, "count")
-	if err != nil {
+func (c *ChromaDB) getCollectionIDCount(ctx context.Context, path string, offset int, where interface{}) (int, error) {
+	body := map[string]interface{}{
+		"limit":   chromaFilteredCountPageSize,
+		"offset":  offset,
+		"include": []string{},
+	}
+	if where != nil {
+		body["where"] = where
+	}
+	var resp chromaGetResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, body, &resp); err != nil {
 		return 0, err
 	}
+	return len(resp.IDs), nil
+}
+
+func (c *ChromaDB) countCollection(ctx context.Context, collection string, where interface{}) (int64, error) {
 	if where == nil {
+		path, err := c.collectionActionPath(ctx, collection, "count")
+		if err != nil {
+			return 0, err
+		}
 		var raw interface{}
 		if err := c.doJSON(ctx, http.MethodGet, path, nil, &raw); err == nil {
 			return chromaCountValue(raw), nil
 		}
 	}
-	rows, _, err := c.getCollectionRows(ctx, collection, 1_000_000, 0, where, []string{"documents"})
+	path, err := c.collectionActionPath(ctx, collection, "get")
 	if err != nil {
 		return 0, err
 	}
-	return int64(len(rows)), nil
+
+	countCtx := ctx
+	var cancel context.CancelFunc = func() {}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		countCtx, cancel = context.WithTimeout(ctx, defaultChromaQueryTimeout)
+	}
+	defer cancel()
+
+	var total int64
+	for offset := 0; ; {
+		pageCount, err := c.getCollectionIDCount(countCtx, path, offset, where)
+		if err != nil {
+			return 0, err
+		}
+		total += int64(pageCount)
+		if pageCount < chromaFilteredCountPageSize {
+			return total, nil
+		}
+		offset += pageCount
+	}
 }
 
 func (c *ChromaDB) queryJSON(ctx context.Context, text string) ([]map[string]interface{}, []string, error) {
@@ -998,7 +1052,15 @@ func chromaCountValue(raw interface{}) int64 {
 }
 
 func chromaRowID(row map[string]interface{}) string {
-	return strings.TrimSpace(fmt.Sprintf("%v", firstExisting(row, "id", "_id")))
+	raw := firstExisting(row, "id", "_id")
+	if raw == nil {
+		return ""
+	}
+	text := strings.TrimSpace(fmt.Sprintf("%v", raw))
+	if text == "" || text == "<nil>" {
+		return ""
+	}
+	return text
 }
 
 func isChromaReservedRowField(key string) bool {

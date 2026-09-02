@@ -13,6 +13,31 @@ export const TEMPORAL_FORMATS: Record<string, string> = {
   year: 'YYYY',
 };
 
+// rc-picker briefly blurs the selector while moving focus into its body portal.
+// Keep the editor alive long enough for the portal focus event to arrive.
+export const TEMPORAL_PICKER_INTERACTION_DELAY_MS = 200;
+
+export const isTemporalPickerPopupTarget = (target: EventTarget | null | undefined): boolean => {
+  if (!target || (typeof target !== 'object' && typeof target !== 'function')) return false;
+  const candidate = target as { closest?: (selector: string) => unknown };
+  if (typeof candidate.closest !== 'function') return false;
+  try {
+    return !!candidate.closest('.ant-picker-dropdown, .ant-picker-panel');
+  } catch {
+    return false;
+  }
+};
+
+export const isTemporalPickerPopupFocused = (relatedTarget?: EventTarget | null): boolean => {
+  if (isTemporalPickerPopupTarget(relatedTarget)) return true;
+  if (typeof document === 'undefined') return false;
+  try {
+    return isTemporalPickerPopupTarget(document.activeElement);
+  } catch {
+    return false;
+  }
+};
+
 const TEMPORAL_DATE_TIME_RE =
   /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(?:\s*(?:Z|[+-]\d{2}:?\d{2})(?:\s+[A-Za-z_\/+-]+)?)?$/;
 const temporalFractionMetaKey = Symbol('temporalFractionMeta');
@@ -21,13 +46,22 @@ type DayjsWithTemporalFractionMeta = dayjs.Dayjs & {
   [temporalFractionMetaKey]?: string;
 };
 
-const parseTemporalDateTimeParts = (value: string): { datePart: string; timePart: string; fractionDigits: string } | null => {
-  const match = String(value || '').trim().match(TEMPORAL_DATE_TIME_RE);
+type TemporalDateTimeParts = {
+  datePart: string;
+  timePart: string;
+  fractionDigits: string;
+  suffixAfterDate: string;
+};
+
+const parseTemporalDateTimeParts = (value: string): TemporalDateTimeParts | null => {
+  const text = String(value || '').trim();
+  const match = text.match(TEMPORAL_DATE_TIME_RE);
   if (!match) return null;
   return {
     datePart: match[1],
     timePart: match[2],
     fractionDigits: match[3] || '',
+    suffixAfterDate: text.slice(match[1].length),
   };
 };
 
@@ -116,6 +150,13 @@ export const parseToDayjs = (val: any, pickerType: TemporalPickerType): dayjs.Da
   if (val === null || val === undefined || val === '') return null;
   const str = String(val).trim();
   if (!str || /^0{4}-0{2}-0{2}/.test(str)) return null;
+  if (pickerType === 'date') {
+    const parts = parseTemporalDateTimeParts(str);
+    if (parts) {
+      const parsedDate = dayjs(parts.datePart, TEMPORAL_FORMATS.date);
+      if (parsedDate.isValid()) return parsedDate;
+    }
+  }
   if (pickerType === 'datetime') {
     const parts = parseTemporalDateTimeParts(str);
     if (parts) {
@@ -150,10 +191,18 @@ export const resolveTemporalEditorSaveValue = (
   formValue: any,
   pickerValue: dayjs.Dayjs | null | undefined,
   pickerType: TemporalPickerType,
+  originalValue?: any,
 ): string | null | any => {
   const value = pickerValue !== undefined ? pickerValue : formValue;
   if (value && dayjs.isDayjs(value)) {
-    return formatFromDayjs(value as dayjs.Dayjs, pickerType);
+    const formatted = formatFromDayjs(value as dayjs.Dayjs, pickerType);
+    if (pickerType === 'date' && typeof originalValue === 'string') {
+      const originalParts = parseTemporalDateTimeParts(originalValue);
+      if (originalParts) {
+        return `${formatted}${originalParts.suffixAfterDate}`;
+      }
+    }
+    return formatted;
   }
   if (!value) {
     return null;

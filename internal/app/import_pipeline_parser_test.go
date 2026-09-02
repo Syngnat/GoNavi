@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -30,6 +31,21 @@ type importSourceProgressSnapshot struct {
 type importSourceProgressRecorder struct {
 	importCollectConsumer
 	progress []importSourceProgressSnapshot
+}
+
+type cancelAfterFirstImportRowConsumer struct {
+	cancel context.CancelFunc
+	rows   int
+}
+
+func (c *cancelAfterFirstImportRowConsumer) SetColumns([]string) error { return nil }
+
+func (c *cancelAfterFirstImportRowConsumer) ConsumeRow(map[string]interface{}) error {
+	c.rows++
+	if c.rows == 1 {
+		c.cancel()
+	}
+	return nil
 }
 
 func (c *importSourceProgressRecorder) SetImportSourceProgress(bytesRead int64, totalBytes int64, stage string) {
@@ -78,6 +94,33 @@ func TestBuildImportPreviewStopsAtLimitAndMarksTotalUnknown(t *testing.T) {
 	}
 	if known.Bool() {
 		t.Fatal("short-circuited preview must mark total rows unknown")
+	}
+}
+
+func TestBuildImportPreviewWithOptionsContextRejectsPreCancelledRequest(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := buildImportPreviewWithOptionsContext(ctx, "does-not-need-to-exist.csv", 5, ImportFileOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("preview error = %v, want context.Canceled", err)
+	}
+}
+
+func TestStreamImportFileWithOptionsContextStopsBetweenRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rows.csv")
+	if err := os.WriteFile(path, []byte("id\n1\n2\n3\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	consumer := &cancelAfterFirstImportRowConsumer{cancel: cancel}
+
+	err := streamImportFileWithOptionsContext(ctx, path, consumer, ImportFileOptions{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("stream error = %v, want context.Canceled", err)
+	}
+	if consumer.rows != 1 {
+		t.Fatalf("consumed rows = %d, want cancellation before row 2", consumer.rows)
 	}
 }
 

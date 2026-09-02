@@ -27,13 +27,15 @@ import (
 )
 
 const (
-	defaultMQTTPort         = 1883
-	defaultMQTTQueryTimeout = 30 * time.Second
-	defaultMQTTPreviewLimit = 100
-	defaultMQTTFetchWait    = 4 * time.Second
-	maxMQTTFetchWait        = 30 * time.Second
-	mqttSyntheticDatabase   = "topics"
-	mqttDefaultClientID     = "GoNavi"
+	defaultMQTTPort             = 1883
+	defaultMQTTQueryTimeout     = 30 * time.Second
+	defaultMQTTPreviewLimit     = 100
+	defaultMQTTFetchWait        = 4 * time.Second
+	maxMQTTFetchWait            = 30 * time.Second
+	mqttSubscriptionBuffer      = 1024
+	mqttSubscriptionBufferBytes = 8 * 1024 * 1024
+	mqttSyntheticDatabase       = "topics"
+	mqttDefaultClientID         = "GoNavi"
 )
 
 type mqttRuntime interface {
@@ -41,6 +43,7 @@ type mqttRuntime interface {
 	Ping(ctx context.Context) error
 	FetchMessages(ctx context.Context, request mqttFetchRequest) ([]mqttMessageRecord, error)
 	Publish(ctx context.Context, command mqttPublishCommand) (int64, error)
+	Unsubscribe(ctx context.Context, topic string) (bool, error)
 }
 
 type mqttFetchRequest struct {
@@ -59,15 +62,16 @@ type mqttPublishCommand struct {
 }
 
 type mqttMessageRecord struct {
-	Topic      string
-	QoS        byte
-	Retained   bool
-	Duplicate  bool
-	MessageID  uint16
-	Payload    []byte
-	Decoded    interface{}
-	Encoding   string
-	ReceivedAt time.Time
+	StreamOffset int
+	Topic        string
+	QoS          byte
+	Retained     bool
+	Duplicate    bool
+	MessageID    uint16
+	Payload      []byte
+	Decoded      interface{}
+	Encoding     string
+	ReceivedAt   time.Time
 }
 
 type mqttTopicDescriptor struct {
@@ -77,19 +81,146 @@ type mqttTopicDescriptor struct {
 	Source   string
 }
 
+// mqttSharedSubscription owns the single Paho route for one Topic filter.
+// Queries attach lightweight waiters to it instead of repeatedly replacing
+// Paho's one-callback-per-filter route and unsubscribing each other.
+type mqttSharedSubscription struct {
+	topic string
+	qos   byte
+	done  chan struct{}
+
+	mu                  sync.Mutex
+	closed              bool
+	records             []mqttMessageRecord
+	recordsPayloadBytes int
+	nextStreamOffset    int
+	waiters             map[uint64]chan mqttMessageRecord
+	nextID              uint64
+	terminationErr      error
+	closeOnce           sync.Once
+}
+
+func newMQTTSharedSubscription(topic string, qos byte) *mqttSharedSubscription {
+	return &mqttSharedSubscription{
+		topic:   topic,
+		qos:     qos,
+		done:    make(chan struct{}),
+		waiters: make(map[uint64]chan mqttMessageRecord),
+	}
+}
+
+func (s *mqttSharedSubscription) handleMessage(message pahomqtt.Message) {
+	record := mqttRecordFromMessage(message)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	record.StreamOffset = s.nextStreamOffset
+	s.nextStreamOffset++
+
+	// An oversized message is still delivered to waiters that are currently
+	// consuming the topic, but retaining it would violate the rolling-buffer
+	// memory bound all by itself.
+	payloadBytes := len(record.Payload)
+	if payloadBytes <= mqttSubscriptionBufferBytes {
+		dropCount := 0
+		retainedBytes := s.recordsPayloadBytes
+		for dropCount < len(s.records) && (len(s.records)-dropCount >= mqttSubscriptionBuffer ||
+			retainedBytes+payloadBytes > mqttSubscriptionBufferBytes) {
+			retainedBytes -= len(s.records[dropCount].Payload)
+			dropCount++
+		}
+		if dropCount > 0 {
+			remaining := copy(s.records, s.records[dropCount:])
+			clear(s.records[remaining:])
+			s.records = s.records[:remaining]
+		}
+		s.recordsPayloadBytes = retainedBytes
+		s.records = append(s.records, record)
+		s.recordsPayloadBytes += payloadBytes
+	}
+	for _, waiter := range s.waiters {
+		select {
+		case waiter <- record:
+		default:
+		}
+	}
+}
+
+// addWaiter registers the live delivery channel and snapshots buffered records
+// under the same lock. A message is therefore observed either in the snapshot
+// or on the channel, never lost in the hand-off and never duplicated by it.
+func (s *mqttSharedSubscription) addWaiter(bufferSize int) (
+	uint64,
+	<-chan mqttMessageRecord,
+	[]mqttMessageRecord,
+	error,
+) {
+	if bufferSize < 1 {
+		bufferSize = 1
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return 0, nil, nil, s.terminationErrorLocked()
+	}
+	s.nextID++
+	id := s.nextID
+	messageCh := make(chan mqttMessageRecord, bufferSize)
+	s.waiters[id] = messageCh
+	return id, messageCh, append([]mqttMessageRecord(nil), s.records...), nil
+}
+
+func (s *mqttSharedSubscription) removeWaiter(id uint64) {
+	s.mu.Lock()
+	delete(s.waiters, id)
+	s.mu.Unlock()
+}
+
+func (s *mqttSharedSubscription) terminationErrorLocked() error {
+	if s.terminationErr != nil {
+		return s.terminationErr
+	}
+	return fmt.Errorf("MQTT 连接已断开")
+}
+
+func (s *mqttSharedSubscription) terminationError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.terminationErrorLocked()
+}
+
+func (s *mqttSharedSubscription) terminate(err error) {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		s.terminationErr = err
+		s.waiters = nil
+		s.mu.Unlock()
+		close(s.done)
+	})
+}
+
+func (s *mqttSharedSubscription) close() {
+	s.terminate(fmt.Errorf("MQTT 连接已断开"))
+}
+
 type pahoMQTTRuntime struct {
-	// mu 保护 client/closed。FetchMessages 会在 4~30 秒的等待窗口结束后才在 defer 里
-	// 解引用客户端，而保活失败或用户断开会并发调用 Close()。若 Close 直接把 client 置 nil，
-	// 在途读者的 nil 接口方法调用会 panic 并崩掉整个 Wails 桌面进程，
-	// 因此 Close 只置 closed 标志，字段本身保留给在途读者。
+	// mu 保护 client/closed。FetchMessages 和 Publish 会持有客户端快照，保活失败或用户
+	// 断开可并发调用 Close()。若 Close 直接把 client 置 nil，在途读者的接口方法调用会
+	// panic 并崩掉整个 Wails 桌面进程，因此 Close 只置 closed 标志并保留字段。
 	mu      sync.RWMutex
 	client  pahomqtt.Client
 	closed  bool
 	timeout time.Duration
+
+	subscriptionsMu sync.Mutex
+	subscriptions   map[string]*mqttSharedSubscription
 }
 
-// activeClient 取出可用的客户端快照。调用方必须全程只使用返回的局部变量
-// （含 defer 里的 Unsubscribe），不能再读 r.client，否则并发 Close 会重新引入竞争。
+// activeClient 取出可用的客户端快照。调用方必须全程只使用返回的局部变量，
+// 不能再读 r.client，否则并发 Close 会重新引入竞争。
 func (r *pahoMQTTRuntime) activeClient() (pahomqtt.Client, error) {
 	if r == nil {
 		return nil, fmt.Errorf("连接未打开")
@@ -102,11 +233,123 @@ func (r *pahoMQTTRuntime) activeClient() (pahomqtt.Client, error) {
 	return r.client, nil
 }
 
+func (r *pahoMQTTRuntime) isClosed() bool {
+	if r == nil {
+		return true
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.closed || r.client == nil
+}
+
+type mqttSubscribeResultToken interface {
+	Result() map[string]byte
+}
+
+func mqttSubscribeGrantError(token pahomqtt.Token, topic string) error {
+	resultToken, ok := token.(mqttSubscribeResultToken)
+	if !ok {
+		return nil
+	}
+	for _, returnCode := range resultToken.Result() {
+		if returnCode > 2 {
+			return fmt.Errorf("MQTT 订阅被 Broker 拒绝：topic=%s returnCode=0x%02X", topic, returnCode)
+		}
+	}
+	return nil
+}
+
+func (r *pahoMQTTRuntime) cleanupFailedSubscription(client pahomqtt.Client, topic string) {
+	token := client.Unsubscribe(topic)
+	if !token.WaitTimeout(r.timeout) {
+		logger.Warnf("MQTT 清理失败订阅超时：%s", topic)
+		return
+	}
+	if err := token.Error(); err != nil {
+		logger.Warnf("MQTT 清理失败订阅异常：topic=%s err=%v", topic, err)
+	}
+}
+
+func (r *pahoMQTTRuntime) ensureSubscription(client pahomqtt.Client, topic string, qos byte) (*mqttSharedSubscription, error) {
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return nil, fmt.Errorf("MQTT topic 不能为空")
+	}
+
+	r.subscriptionsMu.Lock()
+	defer r.subscriptionsMu.Unlock()
+	if r.isClosed() {
+		return nil, fmt.Errorf("MQTT 连接已断开")
+	}
+	if r.subscriptions == nil {
+		r.subscriptions = make(map[string]*mqttSharedSubscription)
+	}
+	if subscription := r.subscriptions[topic]; subscription != nil {
+		// One broker subscription is shared by every consumer of the same
+		// filter. A higher broker-side QoS satisfies lower-QoS readers too, so
+		// only upgrade the shared route and never let a later low-QoS query
+		// downgrade it or cause subscribe churn.
+		if qos <= subscription.qos {
+			return subscription, nil
+		}
+		// Re-subscribing the same filter updates the broker-side QoS while
+		// preserving the shared buffer and all query waiters. Do not unsubscribe
+		// on a failed QoS update: the previous subscription is still useful and
+		// its callback already targets this same shared subscription.
+		token := client.Subscribe(topic, qos, func(_ pahomqtt.Client, message pahomqtt.Message) {
+			subscription.handleMessage(message)
+		})
+		if !token.WaitTimeout(r.timeout) {
+			return nil, localizedDatabaseRuntimeError("db.backend.error.mqtt_subscribe_timeout", nil)
+		}
+		if err := token.Error(); err != nil {
+			return nil, fmt.Errorf("MQTT 更新订阅 QoS 失败：%w", err)
+		}
+		if err := mqttSubscribeGrantError(token, topic); err != nil {
+			return nil, err
+		}
+		subscription.qos = qos
+		return subscription, nil
+	}
+
+	subscription := newMQTTSharedSubscription(topic, qos)
+	token := client.Subscribe(topic, qos, func(_ pahomqtt.Client, message pahomqtt.Message) {
+		subscription.handleMessage(message)
+	})
+	if !token.WaitTimeout(r.timeout) {
+		r.cleanupFailedSubscription(client, topic)
+		return nil, localizedDatabaseRuntimeError("db.backend.error.mqtt_subscribe_timeout", nil)
+	}
+	if err := token.Error(); err != nil {
+		r.cleanupFailedSubscription(client, topic)
+		return nil, fmt.Errorf("MQTT 订阅失败：%w", err)
+	}
+	if err := mqttSubscribeGrantError(token, topic); err != nil {
+		r.cleanupFailedSubscription(client, topic)
+		return nil, err
+	}
+	r.subscriptions[topic] = subscription
+	return subscription, nil
+}
+
+func (r *pahoMQTTRuntime) subscribeConfiguredTopics(client pahomqtt.Client, config connection.ConnectionConfig) error {
+	defaultTopic := mqttDefaultTopic(config)
+	for _, topic := range mqttConfiguredTopics(config, defaultTopic) {
+		if _, err := r.ensureSubscription(client, topic.Filter, mqttDefaultQoS(config)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var newMQTTRuntime = func(config connection.ConnectionConfig) (mqttRuntime, error) {
 	return newPahoMQTTRuntime(config)
 }
 
 type MQTTDB struct {
+	lifecycleMu sync.Mutex
+	mu          sync.RWMutex
+
 	runtime       mqttRuntime
 	forwarders    []*ssh.LocalForwarder
 	brokers       []string
@@ -118,21 +361,96 @@ type MQTTDB struct {
 	fetchWait     time.Duration
 }
 
+type mqttDBSnapshot struct {
+	runtime       mqttRuntime
+	brokers       []string
+	defaultTopic  string
+	topics        []mqttTopicDescriptor
+	defaultQoS    byte
+	defaultRetain bool
+	cleanSession  bool
+	fetchWait     time.Duration
+}
+
+func (m *MQTTDB) snapshot() (mqttDBSnapshot, error) {
+	if m == nil {
+		return mqttDBSnapshot{}, fmt.Errorf("连接未打开")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.runtime == nil {
+		return mqttDBSnapshot{}, fmt.Errorf("连接未打开")
+	}
+	return mqttDBSnapshot{
+		runtime:       m.runtime,
+		brokers:       append([]string(nil), m.brokers...),
+		defaultTopic:  m.defaultTopic,
+		topics:        append([]mqttTopicDescriptor(nil), m.topics...),
+		defaultQoS:    m.defaultQoS,
+		defaultRetain: m.defaultRetain,
+		cleanSession:  m.cleanSession,
+		fetchWait:     m.fetchWait,
+	}, nil
+}
+
+func (m *MQTTDB) detachState() (mqttRuntime, []*ssh.LocalForwarder) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runtime := m.runtime
+	forwarders := m.forwarders
+	m.runtime = nil
+	m.forwarders = nil
+	m.brokers = nil
+	m.defaultTopic = ""
+	m.topics = nil
+	m.defaultQoS = 0
+	m.defaultRetain = false
+	m.cleanSession = false
+	m.fetchWait = 0
+	return runtime, forwarders
+}
+
+func closeMQTTResources(runtime mqttRuntime, forwarders []*ssh.LocalForwarder) error {
+	var firstErr error
+	if runtime != nil {
+		if err := runtime.Close(); err != nil {
+			firstErr = err
+		}
+	}
+	for _, forwarder := range forwarders {
+		if forwarder == nil {
+			continue
+		}
+		if err := forwarder.Release(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func (m *MQTTDB) Connect(config connection.ConnectionConfig) error {
-	_ = m.Close()
+	if m == nil {
+		return fmt.Errorf("连接未打开")
+	}
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	oldRuntime, oldForwarders := m.detachState()
+	_ = closeMQTTResources(oldRuntime, oldForwarders)
 
 	runConfig := normalizeMQTTConfig(config)
+	var forwarders []*ssh.LocalForwarder
 	if runConfig.UseSSH {
-		sshConfig, brokers, forwarders, err := mqttForwardBrokersOverSSH(runConfig)
+		sshConfig, brokers, sshForwarders, err := mqttForwardBrokersOverSSH(runConfig)
 		if err != nil {
 			return err
 		}
-		m.forwarders = forwarders
+		forwarders = sshForwarders
 		runConfig = sshConfig
 		runConfig.Hosts = brokers[1:]
 		host, port, ok := parseHostPortWithDefault(brokers[0], defaultMQTTPort)
 		if !ok {
-			_ = m.Close()
+			_ = closeMQTTResources(nil, forwarders)
 			return fmt.Errorf("解析 MQTT SSH 转发地址失败：%s", brokers[0])
 		}
 		runConfig.Host = host
@@ -143,61 +461,55 @@ func (m *MQTTDB) Connect(config connection.ConnectionConfig) error {
 
 	runtime, err := newMQTTRuntime(runConfig)
 	if err != nil {
-		_ = m.Close()
+		_ = closeMQTTResources(nil, forwarders)
 		return err
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	err = runtime.Ping(ctx)
+	cancel()
+	if err != nil {
+		_ = closeMQTTResources(runtime, forwarders)
+		return err
+	}
+
+	defaultTopic := mqttDefaultTopic(runConfig)
+	brokers, err := mqttBrokerAddresses(runConfig)
+	if err != nil {
+		_ = closeMQTTResources(runtime, forwarders)
+		return err
+	}
+	m.mu.Lock()
 	m.runtime = runtime
-	m.defaultTopic = mqttDefaultTopic(runConfig)
-	m.topics = mqttConfiguredTopics(runConfig, m.defaultTopic)
+	m.forwarders = forwarders
+	m.brokers = brokers
+	m.defaultTopic = defaultTopic
+	m.topics = mqttConfiguredTopics(runConfig, defaultTopic)
 	m.defaultQoS = mqttDefaultQoS(runConfig)
 	m.defaultRetain = mqttDefaultRetain(runConfig)
 	m.cleanSession = mqttCleanSession(runConfig)
 	m.fetchWait = mqttFetchWait(runConfig)
-	m.brokers, _ = mqttBrokerAddresses(runConfig)
-
-	if err := m.Ping(); err != nil {
-		_ = m.Close()
-		return err
-	}
+	m.mu.Unlock()
 	return nil
 }
 
 func (m *MQTTDB) Close() error {
-	var firstErr error
-	if m.runtime != nil {
-		if err := m.runtime.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		// 不置 nil：并发的 QueryContext/Publish 已通过 m.runtime != nil 检查后才解引用，
-		// 置 nil 会让它们在 nil 接口上调用方法并崩掉整个进程。
-		// 关闭后的 runtime 会对所有调用返回「连接未打开」，与置 nil 后的报错口径一致。
+	if m == nil {
+		return nil
 	}
-	for _, forwarder := range m.forwarders {
-		if forwarder == nil {
-			continue
-		}
-		if err := forwarder.Release(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	m.forwarders = nil
-	m.brokers = nil
-	m.defaultTopic = ""
-	m.topics = nil
-	m.defaultQoS = 0
-	m.defaultRetain = false
-	m.cleanSession = false
-	m.fetchWait = 0
-	return firstErr
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+	runtime, forwarders := m.detachState()
+	return closeMQTTResources(runtime, forwarders)
 }
 
 func (m *MQTTDB) Ping() error {
-	if m.runtime == nil {
-		return fmt.Errorf("连接未打开")
+	state, err := m.snapshot()
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return m.runtime.Ping(ctx)
+	return state.runtime.Ping(ctx)
 }
 
 func (m *MQTTDB) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -207,8 +519,9 @@ func (m *MQTTDB) Query(query string) ([]map[string]interface{}, []string, error)
 }
 
 func (m *MQTTDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
-	if m.runtime == nil {
-		return nil, nil, fmt.Errorf("连接未打开")
+	state, err := m.snapshot()
+	if err != nil {
+		return nil, nil, err
 	}
 	text := strings.TrimSpace(query)
 	if text == "" {
@@ -216,42 +529,60 @@ func (m *MQTTDB) QueryContext(ctx context.Context, query string) ([]map[string]i
 	}
 	parsed, ok := parseMQTTSQL(text)
 	if !ok {
-		return nil, nil, fmt.Errorf("MQTT 查询仅支持 SHOW TOPICS、DESCRIBE TOPIC、SELECT * FROM topic 与 CONSUME FROM topic")
+		return nil, nil, fmt.Errorf("MQTT 查询仅支持 SHOW TOPICS、DESCRIBE TOPIC、SELECT * FROM topic、CONSUME FROM topic 与 UNSUBSCRIBE FROM topic")
 	}
 
 	switch parsed.Action {
 	case "show_topics":
-		rows := mqttTopicRows(m.topics, m.defaultQoS, m.defaultRetain)
+		rows := mqttTopicRows(state.topics, state.defaultQoS, state.defaultRetain)
 		if parsed.Limit > 0 && len(rows) > parsed.Limit {
 			rows = rows[:parsed.Limit]
 		}
 		return rows, collectColumns(rows), nil
 	case "describe_topic":
-		topic := mqttResolveTopic(parsed.Topic, m.defaultTopic)
+		topic := mqttResolveTopic(parsed.Topic, state.defaultTopic)
 		if topic == "" {
 			return nil, nil, fmt.Errorf("MQTT topic 不能为空")
 		}
-		rows := []map[string]interface{}{mqttDescribeTopicRow(topic, m.topics, m.defaultQoS, m.defaultRetain, m.cleanSession, m.fetchWait, m.brokers)}
+		rows := []map[string]interface{}{mqttDescribeTopicRow(topic, state.topics, state.defaultQoS, state.defaultRetain, state.cleanSession, state.fetchWait, state.brokers)}
 		return rows, collectColumns(rows), nil
 	case "select", "consume":
 		if parsed.Count {
 			return nil, nil, fmt.Errorf("MQTT 不支持 COUNT(*) 总量统计；请使用 SELECT * FROM topic LIMIT n 预览实时消息")
 		}
-		topic := mqttResolveTopic(parsed.Topic, m.defaultTopic)
+		topic := mqttResolveTopic(parsed.Topic, state.defaultTopic)
 		if topic == "" {
 			return nil, nil, fmt.Errorf("MQTT topic 不能为空")
 		}
-		records, err := m.runtime.FetchMessages(ctx, mqttFetchRequest{
+		qos := state.defaultQoS
+		if parsed.HasQoS {
+			qos = parsed.QoS
+		}
+		records, err := state.runtime.FetchMessages(ctx, mqttFetchRequest{
 			Topic:  topic,
 			Limit:  parsed.Limit,
 			Offset: parsed.Offset,
-			QoS:    m.defaultQoS,
-			Wait:   m.fetchWait,
+			QoS:    qos,
+			Wait:   state.fetchWait,
 		})
 		if err != nil {
 			return nil, nil, err
 		}
 		rows := mqttMessageRows(records)
+		return rows, collectColumns(rows), nil
+	case "unsubscribe":
+		topic := strings.TrimSpace(parsed.Topic)
+		if topic == "" {
+			return nil, nil, fmt.Errorf("MQTT topic 不能为空")
+		}
+		removed, err := state.runtime.Unsubscribe(ctx, topic)
+		if err != nil {
+			return nil, nil, err
+		}
+		rows := []map[string]interface{}{{
+			"topic":        topic,
+			"unsubscribed": removed,
+		}}
 		return rows, collectColumns(rows), nil
 	default:
 		return nil, nil, fmt.Errorf("未实现的 MQTT 查询类型：%s", parsed.Action)
@@ -265,28 +596,29 @@ func (m *MQTTDB) Exec(query string) (int64, error) {
 }
 
 func (m *MQTTDB) ExecContext(ctx context.Context, query string) (int64, error) {
-	if m.runtime == nil {
-		return 0, fmt.Errorf("连接未打开")
+	state, err := m.snapshot()
+	if err != nil {
+		return 0, err
 	}
 	var cmd map[string]interface{}
-	if err := decodeJSONWithUseNumber([]byte(strings.TrimSpace(query)), &cmd); err != nil {
+	if err = decodeJSONWithUseNumber([]byte(strings.TrimSpace(query)), &cmd); err != nil {
 		return 0, fmt.Errorf("MQTT 写入命令必须是 JSON：%w", err)
 	}
 
-	topic := mqttResolveTopic(firstStringValue(cmd, "publish", "topic", "destination"), m.defaultTopic)
+	topic := mqttResolveTopic(firstStringValue(cmd, "publish", "topic", "destination"), state.defaultTopic)
 	if err := mqttValidatePublishTopic(topic); err != nil {
 		return 0, err
 	}
 	if !hasAnyKey(cmd, "payload", "value", "body", "message") {
 		return 0, fmt.Errorf("MQTT publish 命令缺少 payload")
 	}
-	qos, err := mqttQoSFromAny(firstExisting(cmd, "qos"), m.defaultQoS)
+	qos, err := mqttQoSFromAny(firstExisting(cmd, "qos"), state.defaultQoS)
 	if err != nil {
 		return 0, err
 	}
-	retain := mqttBoolFromAny(firstExisting(cmd, "retain", "retained"), m.defaultRetain)
+	retain := mqttBoolFromAny(firstExisting(cmd, "retain", "retained"), state.defaultRetain)
 
-	return m.runtime.Publish(ctx, mqttPublishCommand{
+	return state.runtime.Publish(ctx, mqttPublishCommand{
 		Topic:   topic,
 		Payload: firstExisting(cmd, "payload", "value", "body", "message"),
 		QoS:     qos,
@@ -295,36 +627,31 @@ func (m *MQTTDB) ExecContext(ctx context.Context, query string) (int64, error) {
 }
 
 func (m *MQTTDB) GetDatabases() ([]string, error) {
-	if m.runtime == nil {
-		return nil, fmt.Errorf("连接未打开")
+	if _, err := m.snapshot(); err != nil {
+		return nil, err
 	}
 	return []string{mqttSyntheticDatabase}, nil
 }
 
 func (m *MQTTDB) GetTables(dbName string) ([]string, error) {
-	if m.runtime == nil {
-		return nil, fmt.Errorf("连接未打开")
+	state, err := m.snapshot()
+	if err != nil {
+		return nil, err
 	}
-	names := make([]string, 0, len(m.topics))
-	for _, topic := range m.topics {
-		if strings.TrimSpace(topic.Filter) != "" {
-			names = append(names, topic.Filter)
-		}
-	}
-	sort.Strings(names)
-	return names, nil
+	return mqttTopicNames(state.topics), nil
 }
 
 func (m *MQTTDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	if m.runtime == nil {
-		return "", fmt.Errorf("连接未打开")
+	state, err := m.snapshot()
+	if err != nil {
+		return "", err
 	}
-	topic := mqttResolveTopic(tableName, m.defaultTopic)
+	topic := mqttResolveTopic(tableName, state.defaultTopic)
 	if topic == "" {
 		return "", fmt.Errorf("MQTT topic 不能为空")
 	}
 	payload, _ := json.MarshalIndent(
-		mqttDescribeTopicRow(topic, m.topics, m.defaultQoS, m.defaultRetain, m.cleanSession, m.fetchWait, m.brokers),
+		mqttDescribeTopicRow(topic, state.topics, state.defaultQoS, state.defaultRetain, state.cleanSession, state.fetchWait, state.brokers),
 		"",
 		"  ",
 	)
@@ -332,14 +659,31 @@ func (m *MQTTDB) GetCreateStatement(dbName, tableName string) (string, error) {
 }
 
 func (m *MQTTDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	if m.runtime == nil {
-		return nil, fmt.Errorf("连接未打开")
+	state, err := m.snapshot()
+	if err != nil {
+		return nil, err
 	}
-	topic := mqttResolveTopic(tableName, m.defaultTopic)
+	topic := mqttResolveTopic(tableName, state.defaultTopic)
 	if topic == "" {
 		return nil, fmt.Errorf("MQTT topic 不能为空")
 	}
-	columns := []connection.ColumnDefinition{
+	return mqttMessageColumns(), nil
+}
+
+func mqttTopicNames(topics []mqttTopicDescriptor) []string {
+	names := make([]string, 0, len(topics))
+	for _, topic := range topics {
+		if strings.TrimSpace(topic.Filter) != "" {
+			names = append(names, topic.Filter)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+func mqttMessageColumns() []connection.ColumnDefinition {
+	return []connection.ColumnDefinition{
+		{Name: "stream_offset", Type: "bigint", Nullable: "NO", Comment: "Topic-filter-local monotonic message offset"},
 		{Name: "topic", Type: "string", Nullable: "NO", Comment: "MQTT topic"},
 		{Name: "qos", Type: "tinyint", Nullable: "NO", Comment: "MQTT QoS level"},
 		{Name: "retained", Type: "bool", Nullable: "YES", Comment: "Whether the message is retained"},
@@ -350,23 +694,18 @@ func (m *MQTTDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefini
 		{Name: "payload_bytes", Type: "int", Nullable: "YES", Comment: "Payload size in bytes"},
 		{Name: "received_at", Type: "timestamp", Nullable: "YES", Comment: "Client receive timestamp"},
 	}
-	return columns, nil
 }
 
 func (m *MQTTDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {
-	tables, err := m.GetTables(dbName)
+	state, err := m.snapshot()
 	if err != nil {
 		return nil, err
 	}
+	tables := mqttTopicNames(state.topics)
+	columns := mqttMessageColumns()
 	var result []connection.ColumnDefinitionWithTable
-	var failures []MetadataObjectFailure
 	for _, table := range tables {
-		cols, err := m.GetColumns(dbName, table)
-		if err != nil {
-			failures = append(failures, MetadataObjectFailure{ObjectName: table, Err: err})
-			continue
-		}
-		for _, col := range cols {
+		for _, col := range columns {
 			result = append(result, connection.ColumnDefinitionWithTable{
 				TableName: table,
 				Name:      col.Name,
@@ -375,10 +714,13 @@ func (m *MQTTDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWith
 			})
 		}
 	}
-	return result, NewPartialMetadataError(failures)
+	return result, nil
 }
 
 func (m *MQTTDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
+	if _, err := m.snapshot(); err != nil {
+		return nil, err
+	}
 	return []connection.IndexDefinition{
 		{Name: "TOPIC_RECEIVED_AT", ColumnName: "topic", NonUnique: 1, SeqInIndex: 1, IndexType: "SUBSCRIPTION"},
 		{Name: "TOPIC_RECEIVED_AT", ColumnName: "received_at", NonUnique: 1, SeqInIndex: 2, IndexType: "SUBSCRIPTION"},
@@ -386,14 +728,23 @@ func (m *MQTTDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinit
 }
 
 func (m *MQTTDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
+	if _, err := m.snapshot(); err != nil {
+		return nil, err
+	}
 	return []connection.ForeignKeyDefinition{}, nil
 }
 
 func (m *MQTTDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
+	if _, err := m.snapshot(); err != nil {
+		return nil, err
+	}
 	return []connection.TriggerDefinition{}, nil
 }
 
 func (m *MQTTDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	if _, err := m.snapshot(); err != nil {
+		return err
+	}
 	if len(changes.Inserts) == 0 && len(changes.Updates) == 0 && len(changes.Deletes) == 0 {
 		return nil
 	}
@@ -788,7 +1139,7 @@ func newPahoMQTTRuntime(config connection.ConnectionConfig) (mqttRuntime, error)
 	options := pahomqtt.NewClientOptions().
 		SetClientID(mqttClientID(config)).
 		SetCleanSession(mqttCleanSession(config)).
-		SetOrderMatters(false).
+		SetOrderMatters(true).
 		SetAutoReconnect(false).
 		SetConnectRetry(false).
 		SetConnectTimeout(timeout).
@@ -816,10 +1167,16 @@ func newPahoMQTTRuntime(config connection.ConnectionConfig) (mqttRuntime, error)
 	if err := token.Error(); err != nil {
 		return nil, err
 	}
-	return &pahoMQTTRuntime{
-		client:  client,
-		timeout: timeout,
-	}, nil
+	runtime := &pahoMQTTRuntime{
+		client:        client,
+		timeout:       timeout,
+		subscriptions: make(map[string]*mqttSharedSubscription),
+	}
+	if err := runtime.subscribeConfiguredTopics(client, config); err != nil {
+		_ = runtime.Close()
+		return nil, err
+	}
+	return runtime, nil
 }
 
 func mqttProxyOpenConnectionFn(proxyConfig connection.ProxyConfig, timeout time.Duration, tlsConfig *tls.Config) func(uri *url.URL, options pahomqtt.ClientOptions) (net.Conn, error) {
@@ -954,9 +1311,25 @@ func (r *pahoMQTTRuntime) Close() error {
 	client := r.client
 	r.mu.Unlock()
 
-	// 只断开连接，不把 r.client 置 nil：仍在等待消息的 FetchMessages 会在其 defer 里
-	// 通过快照解引用同一个客户端，置 nil 会让它 panic 并崩掉整个进程。
-	// paho 的 Unsubscribe/Publish 在已断开的客户端上只会返回错误，不会 panic。
+	r.subscriptionsMu.Lock()
+	topics := make([]string, 0, len(r.subscriptions))
+	for topic, subscription := range r.subscriptions {
+		topics = append(topics, topic)
+		subscription.close()
+	}
+	r.subscriptions = make(map[string]*mqttSharedSubscription)
+	r.subscriptionsMu.Unlock()
+	if len(topics) > 0 && client.IsConnectionOpen() {
+		unsub := client.Unsubscribe(topics...)
+		if !unsub.WaitTimeout(r.timeout) {
+			logger.Warnf("MQTT 关闭连接时取消订阅超时：topics=%s", strings.Join(topics, ","))
+		} else if err := unsub.Error(); err != nil {
+			logger.Warnf("MQTT 关闭连接时取消订阅失败：topics=%s err=%v", strings.Join(topics, ","), err)
+		}
+	}
+
+	// 只断开连接，不把 r.client 置 nil：仍在等待消息的 FetchMessages 持有客户端快照，
+	// 置 nil 会让并发路径重新出现接口空指针竞争。
 	client.Disconnect(250)
 	return nil
 }
@@ -1010,38 +1383,29 @@ func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRe
 	if bufferSize > 1024 {
 		bufferSize = 1024
 	}
-	messageCh := make(chan mqttMessageRecord, bufferSize)
-	callback := func(_ pahomqtt.Client, msg pahomqtt.Message) {
-		record := mqttRecordFromMessage(msg)
-		select {
-		case messageCh <- record:
-		default:
-		}
+	subscription, err := r.ensureSubscription(client, request.Topic, request.QoS)
+	if err != nil {
+		return nil, err
 	}
-
-	token := client.Subscribe(request.Topic, request.QoS, callback)
-	if !token.WaitTimeout(r.timeout) {
-		return nil, localizedDatabaseRuntimeError("db.backend.error.mqtt_subscribe_timeout", nil)
+	waiterID, messageCh, buffered, err := subscription.addWaiter(bufferSize)
+	if err != nil {
+		return nil, err
 	}
-	if err := token.Error(); err != nil {
-		return nil, fmt.Errorf("MQTT 订阅失败：%w", err)
-	}
-	defer func() {
-		// 用快照而非 r.client：等待期间可能已并发 Close。
-		unsub := client.Unsubscribe(request.Topic)
-		if !unsub.WaitTimeout(r.timeout) {
-			logger.Warnf("MQTT 取消订阅超时：%s", request.Topic)
-			return
-		}
-		if err := unsub.Error(); err != nil {
-			logger.Warnf("MQTT 取消订阅失败：topic=%s err=%v", request.Topic, err)
-		}
-	}()
+	defer subscription.removeWaiter(waiterID)
 
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 
 	result := make([]mqttMessageRecord, 0, limit)
+	for _, record := range buffered {
+		if record.StreamOffset < offset {
+			continue
+		}
+		result = append(result, record)
+		if len(result) >= limit {
+			return result, nil
+		}
+	}
 	for len(result) < limit {
 		select {
 		case <-ctx.Done():
@@ -1051,15 +1415,84 @@ func (r *pahoMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRe
 			return nil, ctx.Err()
 		case <-timer.C:
 			return result, nil
+		case <-subscription.done:
+			if len(result) > 0 {
+				return result, nil
+			}
+			return nil, subscription.terminationError()
 		case record := <-messageCh:
-			if offset > 0 {
-				offset--
+			if record.StreamOffset < offset {
 				continue
 			}
 			result = append(result, record)
 		}
 	}
 	return result, nil
+}
+
+func (r *pahoMQTTRuntime) Unsubscribe(ctx context.Context, topic string) (bool, error) {
+	client, err := r.activeClient()
+	if err != nil {
+		return false, err
+	}
+	topic = strings.TrimSpace(topic)
+	if topic == "" {
+		return false, fmt.Errorf("MQTT topic 不能为空")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+
+	r.subscriptionsMu.Lock()
+	defer r.subscriptionsMu.Unlock()
+	if r.isClosed() {
+		return false, fmt.Errorf("MQTT 连接已断开")
+	}
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	default:
+	}
+	subscription := r.subscriptions[topic]
+	if subscription == nil {
+		return false, nil
+	}
+	wait := r.timeout
+	if wait <= 0 {
+		wait = 10 * time.Second
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false, ctx.Err()
+		}
+		if remaining < wait {
+			wait = remaining
+		}
+	}
+
+	// Remove the local generation before contacting the broker so every
+	// waiter is woken immediately. Holding subscriptionsMu through the broker
+	// token prevents ensureSubscription from installing a newer generation
+	// that this UNSUBSCRIBE packet could accidentally remove.
+	delete(r.subscriptions, topic)
+	subscription.terminate(fmt.Errorf("MQTT 订阅已取消：%s", topic))
+	token := client.Unsubscribe(topic)
+	if !token.WaitTimeout(wait) {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		return true, fmt.Errorf("MQTT 取消订阅超时：topic=%s", topic)
+	}
+	if err := token.Error(); err != nil {
+		return true, fmt.Errorf("MQTT 取消订阅失败：topic=%s: %w", topic, err)
+	}
+	return true, nil
 }
 
 func (r *pahoMQTTRuntime) Publish(ctx context.Context, command mqttPublishCommand) (int64, error) {
@@ -1138,14 +1571,18 @@ type mqttParsedSQL struct {
 	Limit  int
 	Offset int
 	Count  bool
+	QoS    byte
+	HasQoS bool
 }
 
 var (
 	mqttSQLFromRE       = regexp.MustCompile(`(?i)\bFROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;]+))`)
 	mqttSQLLimitRE      = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
 	mqttSQLOffsetRE     = regexp.MustCompile(`(?i)\bOFFSET\s+(\d+)`)
+	mqttSQLQoSRE        = regexp.MustCompile(`(?i)\bQOS\s+(\d+)`)
 	mqttShowTopicsRE    = regexp.MustCompile(`(?i)^\s*SHOW\s+TOPICS(?:\s+LIMIT\s+(\d+))?\s*;?\s*$`)
 	mqttDescribeTopicRE = regexp.MustCompile(`(?i)^\s*(?:SHOW|DESCRIBE)\s+TOPIC\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;]+))\s*;?\s*$`)
+	mqttUnsubscribeRE   = regexp.MustCompile(`(?i)^\s*UNSUBSCRIBE\s+FROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;"` + "`" + `]+))\s*;?\s*$`)
 	mqttConsumeTopicRE  = regexp.MustCompile(`(?i)^\s*CONSUME\s+FROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;]+))`)
 )
 
@@ -1167,6 +1604,12 @@ func parseMQTTSQL(sqlText string) (mqttParsedSQL, bool) {
 			Topic:  mqttTrimIdentifier(firstNonEmpty(matches[1], matches[2], matches[3])),
 		}, true
 	}
+	if matches := mqttUnsubscribeRE.FindStringSubmatch(text); len(matches) > 0 {
+		return mqttParsedSQL{
+			Action: "unsubscribe",
+			Topic:  mqttTrimIdentifier(firstNonEmpty(matches[1], matches[2], matches[3])),
+		}, true
+	}
 	if matches := mqttConsumeTopicRE.FindStringSubmatch(text); len(matches) > 0 {
 		parsed := mqttParsedSQL{
 			Action: "consume",
@@ -1178,6 +1621,16 @@ func parseMQTTSQL(sqlText string) (mqttParsedSQL, bool) {
 		}
 		if offsetMatch := mqttSQLOffsetRE.FindStringSubmatch(text); len(offsetMatch) > 1 {
 			parsed.Offset, _ = strconv.Atoi(offsetMatch[1])
+		}
+		if qosMatch := mqttSQLQoSRE.FindStringSubmatch(text); len(qosMatch) > 1 {
+			qos, err := strconv.Atoi(qosMatch[1])
+			if err != nil || qos < 0 || qos > 2 {
+				return mqttParsedSQL{}, false
+			}
+			parsed.QoS = byte(qos)
+			parsed.HasQoS = true
+		} else if regexp.MustCompile(`(?i)\bQOS\b`).MatchString(text) {
+			return mqttParsedSQL{}, false
 		}
 		return parsed, true
 	}
@@ -1260,12 +1713,12 @@ func mqttTopicRows(topics []mqttTopicDescriptor, defaultQoS byte, defaultRetain 
 	rows := make([]map[string]interface{}, 0, len(topics))
 	for _, topic := range topics {
 		rows = append(rows, map[string]interface{}{
-			"topic":     topic.Filter,
-			"default":   topic.Default,
-			"wildcard":  topic.Wildcard,
+			"topic":       topic.Filter,
+			"default":     topic.Default,
+			"wildcard":    topic.Wildcard,
 			"default_qos": int(defaultQoS),
-			"retain":    defaultRetain,
-			"source":    topic.Source,
+			"retain":      defaultRetain,
+			"source":      topic.Source,
 		})
 	}
 	return rows
@@ -1304,6 +1757,7 @@ func mqttMessageRows(records []mqttMessageRecord) []map[string]interface{} {
 	rows := make([]map[string]interface{}, 0, len(records))
 	for _, record := range records {
 		row := map[string]interface{}{
+			"stream_offset":    record.StreamOffset,
 			"topic":            record.Topic,
 			"qos":              int(record.QoS),
 			"retained":         record.Retained,

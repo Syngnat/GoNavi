@@ -323,7 +323,8 @@ const editorState = vi.hoisted(() => {
   return state;
 });
 
-vi.mock('../store', () => {
+vi.mock('../store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../store')>();
   const useStore = Object.assign(
     (selector: (state: typeof storeState) => any) => React.useSyncExternalStore(
       (subscriber) => {
@@ -337,7 +338,7 @@ vi.mock('../store', () => {
     ),
     { getState: () => storeState },
   );
-  return { useStore };
+  return { ...actual, useStore };
 });
 
 vi.mock('../../wailsjs/go/app/App', () => backendApp);
@@ -4712,6 +4713,91 @@ describe('QueryEditor external SQL save', () => {
     await act(async () => {
       renderer.unmount();
     });
+  });
+
+  it('does not rerender background Kingbase query editors when the active tab changes', async () => {
+    const renderCounts = { first: 0, second: 0 };
+    storeState.connections[0].config.type = 'kingbase';
+    storeState.connections[0].config.database = 'appdb';
+    const longQuery = Array.from({ length: 120 }, (_, index) => (
+      `SELECT * FROM public.order_${index + 1};`
+    )).join('\n');
+    const firstTab = createTab({ id: 'tab-1', dbName: 'appdb', query: longQuery });
+    const secondTab = createTab({ id: 'tab-2', dbName: 'appdb', query: longQuery });
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(
+        <>
+          <React.Profiler id="first-kingbase-query" onRender={() => { renderCounts.first += 1; }}>
+            <QueryEditor key={firstTab.id} tab={firstTab} isActive />
+          </React.Profiler>
+          <React.Profiler id="second-kingbase-query" onRender={() => { renderCounts.second += 1; }}>
+            <QueryEditor key={secondTab.id} tab={secondTab} isActive={false} />
+          </React.Profiler>
+        </>,
+      );
+    });
+
+    const baseline = { ...renderCounts };
+    await act(async () => {
+      storeState.activeTabId = 'tab-2';
+      notifyStoreSubscribers();
+    });
+
+    expect(renderCounts).toEqual(baseline);
+    renderer.unmount();
+  });
+
+  it('does not rescan unchanged Kingbase SQL when a cached query tab is reactivated', async () => {
+    storeState.connections[0].config.type = 'kingbase';
+    storeState.connections[0].config.database = 'appdb';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({
+      success: true,
+      data: [{ Database: 'appdb' }],
+    });
+    backendApp.DBGetTables.mockResolvedValue({
+      success: true,
+      data: [{ Table: 'public.users' }],
+    });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    const tab = createTab({
+      id: 'tab-1',
+      dbName: 'appdb',
+      query: Array.from({ length: 120 }, () => 'SELECT * FROM public.users;').join('\n'),
+    });
+    let renderer!: ReactTestRenderer;
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={tab} isActive />);
+    });
+    await act(async () => {
+      for (let index = 0; index < 20; index += 1) {
+        await Promise.resolve();
+      }
+    });
+    expect(backendApp.DBGetTables).toHaveBeenCalled();
+    expect(editorState.editor.deltaDecorations).toHaveBeenCalled();
+
+    await act(async () => {
+      renderer.update(<QueryEditor tab={tab} isActive={false} />);
+    });
+    editorState.editor.deltaDecorations.mockClear();
+    editorState.editor.getModel().getValue.mockClear();
+    editorState.editor.getModel().getValueLength.mockClear();
+
+    await act(async () => {
+      renderer.update(<QueryEditor tab={tab} isActive />);
+      for (let index = 0; index < 5; index += 1) {
+        await Promise.resolve();
+      }
+    });
+
+    expect(editorState.editor.deltaDecorations).not.toHaveBeenCalled();
+    expect(editorState.editor.getModel().getValue).not.toHaveBeenCalled();
+    expect(editorState.editor.getModel().getValueLength).not.toHaveBeenCalled();
+    renderer.unmount();
   });
 
   it('keeps object hyperlink tab opening tied to the dragged database after drop', async () => {

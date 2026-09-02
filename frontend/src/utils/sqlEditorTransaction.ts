@@ -2,6 +2,7 @@ import { getDataSourceCapabilityContract } from './dataSourceCapabilities';
 
 const SQL_EDITOR_DML_KEYWORDS = new Set(['insert', 'update', 'delete', 'replace', 'merge', 'upsert']);
 const SQL_EDITOR_READ_KEYWORDS = new Set(['select', 'with', 'show', 'describe', 'desc', 'explain', 'pragma', 'values']);
+const SQL_EDITOR_SCHEMA_CHANGE_KEYWORDS = new Set(['create', 'alter', 'drop', 'rename', 'comment', 'reindex']);
 const SQL_EDITOR_TRANSACTION_CONTROL_KEYWORDS = new Set(['begin', 'commit', 'rollback', 'savepoint', 'release']);
 const SQL_EDITOR_BEGIN_TRANSACTION_CONTROL_KEYWORDS = new Set([
     'transaction',
@@ -245,6 +246,10 @@ export const resolveSqlEditorOperationKeyword = (statement: string): string => {
     }
     return resolveSqlEditorWithAnalysis(text, leading.end).keyword || leading.keyword;
 };
+
+export const isSqlEditorSchemaChangingStatement = (statement: string): boolean => (
+    SQL_EDITOR_SCHEMA_CHANGE_KEYWORDS.has(resolveSqlEditorOperationKeyword(statement))
+);
 
 export const hasTopLevelSqlEditorForUpdate = (statement: string): boolean => {
     const text = String(statement || '');

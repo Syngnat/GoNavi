@@ -27,6 +27,7 @@ const JVMMonitoringDashboard = React.lazy(() => import('./JVMMonitoringDashboard
 const SqlAnalysisWorkbench = React.lazy(() => import('./explain/SqlAnalysisWorkbench'));
 const SqlAuditWorkbench = React.lazy(() => import('./audit/SqlAuditWorkbench'));
 const RequestDiagnosticsWorkbench = React.lazy(() => import('./requestDiagnostics/RequestDiagnosticsWorkbench'));
+const MessageQueueWorkbench = React.lazy(() => import('./MessageQueueWorkbench'));
 
 const QueryWorkbenchContent: React.FC<{ tab: TabData; isActive: boolean }> = React.memo(({
   tab,
@@ -154,6 +155,8 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <SqlAuditWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'request-diagnostics') {
     content = <RequestDiagnosticsWorkbench tab={tab} isActive={isActive} />;
+  } else if (tab.type === 'message-queue') {
+    content = <MessageQueueWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'jvm-overview') {
     content = <JVMOverview tab={tab} />;
   } else if (tab.type === 'jvm-resource') {

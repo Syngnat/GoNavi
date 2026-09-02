@@ -321,6 +321,57 @@ func TestQdrantApplyChangesUpsertPayloadAndDelete(t *testing.T) {
 	}
 }
 
+func TestQdrantApplyChangesRejectsDeletesWithoutID(t *testing.T) {
+	deleteRequests := 0
+	upsertRequests := 0
+	server := newMockQdrantServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/collections":
+			writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"collections": []interface{}{}}})
+		case r.Method == http.MethodPut && r.URL.Path == "/collections/products/points":
+			upsertRequests++
+			writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"operation_id": 1}})
+		case r.Method == http.MethodPost && r.URL.Path == "/collections/products/points/delete":
+			deleteRequests++
+			writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"operation_id": 1}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	db := newTestQdrantDB(t, server.URL)
+	for _, test := range []struct {
+		name    string
+		deletes []map[string]interface{}
+	}{
+		{name: "empty id", deletes: []map[string]interface{}{{"id": ""}}},
+		{name: "nil id", deletes: []map[string]interface{}{{"id": nil}}},
+		{name: "missing id", deletes: []map[string]interface{}{{}}},
+		{name: "mixed ids", deletes: []map[string]interface{}{{"id": 9}, {"id": ""}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deleteRequests = 0
+			upsertRequests = 0
+			err := db.ApplyChanges("products", connection.ChangeSet{
+				Deletes: test.deletes,
+				Inserts: []map[string]interface{}{{"id": 1, "vector": []float64{0.1, 0.2}}},
+			})
+			if err == nil {
+				t.Fatal("ApplyChanges unexpectedly succeeded")
+			}
+			if err.Error() != "Qdrant 删除行缺少 id" {
+				t.Fatalf("ApplyChanges error = %q", err)
+			}
+			if deleteRequests != 0 {
+				t.Fatalf("delete requests = %d, want 0", deleteRequests)
+			}
+			if upsertRequests != 0 {
+				t.Fatalf("upsert requests = %d, want 0", upsertRequests)
+			}
+		})
+	}
+}
+
 func TestQdrantLiveSmoke(t *testing.T) {
 	serverURL := strings.TrimSpace(os.Getenv("GONAVI_QDRANT_TEST_URL"))
 	if serverURL == "" {

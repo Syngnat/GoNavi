@@ -551,6 +551,75 @@ func TestGetTablesIncludesViewsInDedicatedField(t *testing.T) {
 	if len(out.Views) != 1 || out.Views[0] != "active_users" {
 		t.Fatalf("expected GetTables to expose views separately, got %#v", out)
 	}
+	if out.Partial || len(out.Warnings) != 0 {
+		t.Fatalf("expected complete table metadata result, got %#v", out)
+	}
+}
+
+func TestGetTablesMarksViewReadFailurePartial(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		tablesResult: connection.QueryResult{
+			Success: true,
+			Data:    []map[string]string{{"Table": "users"}},
+		},
+		viewsResult: connection.QueryResult{
+			Success:   false,
+			Message:   "authentication failed password=secret-token",
+			Retryable: true,
+		},
+	}
+
+	result, out, err := NewService(backend).GetTables(context.Background(), nil, databaseArgs{
+		ConnectionID: "mysql-main",
+		DBName:       "app",
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected partial table metadata success, result=%#v err=%v", result, err)
+	}
+	if !out.Partial || !out.Retryable || len(out.Views) != 0 || len(out.Warnings) != 1 {
+		t.Fatalf("view lookup failure was not represented as partial metadata: %#v", out)
+	}
+	if out.Warnings[0] != "获取视图元数据失败，返回的对象集合不完整" {
+		t.Fatalf("expected safe view metadata warning, got %#v", out.Warnings)
+	}
+	if strings.Contains(out.Message, "secret-token") || strings.Contains(out.Warnings[0], "secret-token") {
+		t.Fatalf("view metadata failure leaked sensitive detail: %#v", out)
+	}
+}
+
+func TestGetTablesMarksViewDecodeFailurePartial(t *testing.T) {
+	backend := &fakeBackend{
+		editableConnection: connection.SavedConnectionView{
+			ID:     "mysql-main",
+			Config: connection.ConnectionConfig{Type: "mysql", Database: "app"},
+		},
+		tablesResult: connection.QueryResult{
+			Success: true,
+			Data:    []map[string]string{{"Table": "users"}},
+		},
+		viewsResult: connection.QueryResult{
+			Success: true,
+			Data:    []int{1},
+		},
+	}
+
+	result, out, err := NewService(backend).GetTables(context.Background(), nil, databaseArgs{
+		ConnectionID: "mysql-main",
+		DBName:       "app",
+	})
+	if err != nil || result == nil || result.IsError {
+		t.Fatalf("expected partial table metadata success, result=%#v err=%v", result, err)
+	}
+	if !out.Partial || len(out.Views) != 0 || len(out.Warnings) != 1 {
+		t.Fatalf("view decode failure was not represented as partial metadata: %#v", out)
+	}
+	if out.Warnings[0] != "获取视图元数据失败，返回的对象集合不完整" {
+		t.Fatalf("expected safe view metadata warning, got %#v", out.Warnings)
+	}
 }
 
 func TestGetTablesPreservesPartialMetadataWarnings(t *testing.T) {
@@ -569,6 +638,7 @@ func TestGetTablesPreservesPartialMetadataWarnings(t *testing.T) {
 			Warnings:     []string{"Redis key scan truncated after 2 keys: cursor loop detected"},
 			Data:         []map[string]string{{"Table": "orders"}, {"Table": "users"}},
 		},
+		viewsResult: connection.QueryResult{Success: true},
 	}
 
 	result, out, err := NewService(backend).GetTables(context.Background(), nil, databaseArgs{

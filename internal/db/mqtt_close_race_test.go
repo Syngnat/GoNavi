@@ -74,9 +74,9 @@ func (c *stubMQTTClient) OptionsReader() pahomqtt.ClientOptionsReader {
 
 // TestPahoMQTTRuntimeCloseDoesNotNilClientForInflightReaders 覆盖 MQTT 关闭与在途读者的竞争。
 //
-// 回归背景：Close() 原先在无锁保护下把 r.client 置为 nil，而 FetchMessages 会在 4~30 秒的
-// 等待窗口结束后才在 defer 里解引用客户端调 Unsubscribe。保活探测失败或用户断开连接触发
-// Close 后，那次 nil 接口方法调用会 panic 并崩掉整个 Wails 桌面进程（用户未保存的编辑内容一并丢失）。
+// 回归背景：Close() 原先在无锁保护下把 r.client 置为 nil，而 FetchMessages/Publish 会在
+// 连接关闭期间继续使用已取得的客户端快照。保活探测失败或用户断开连接触发 Close 后，
+// nil 接口方法调用会 panic 并崩掉整个 Wails 桌面进程（用户未保存的编辑内容一并丢失）。
 // 修复后 Close 只置 closed 标志并断开连接，字段保留给在途读者。
 func TestPahoMQTTRuntimeCloseDoesNotNilClientForInflightReaders(t *testing.T) {
 	runtime := &pahoMQTTRuntime{client: &stubMQTTClient{connected: true}, timeout: time.Second}
@@ -98,7 +98,7 @@ func TestPahoMQTTRuntimeCloseDoesNotNilClientForInflightReaders(t *testing.T) {
 	if runtime.client == nil {
 		t.Fatal("Close 把 client 置为 nil，在途读者解引用会 panic")
 	}
-	// 快照必须仍然可用（模拟 FetchMessages 的 defer 调 Unsubscribe）。
+	// 快照必须仍然可用（模拟在途 MQTT 操作继续使用已取得的客户端）。
 	if tok := client.Unsubscribe("t"); tok == nil {
 		t.Fatal("快照客户端在 Close 后不可用")
 	}
@@ -149,5 +149,86 @@ func TestPahoMQTTRuntimeCloseIsIdempotent(t *testing.T) {
 	}
 	if got := stub.disconnectCalls(); got != 1 {
 		t.Errorf("Disconnect 调用次数 = %d，期望 1（Close 应幂等）", got)
+	}
+}
+
+func newMQTTDBCloseTestInstance() *MQTTDB {
+	return &MQTTDB{
+		runtime: &pahoMQTTRuntime{
+			client:        &stubMQTTClient{connected: true},
+			timeout:       time.Second,
+			subscriptions: make(map[string]*mqttSharedSubscription),
+		},
+		brokers:      []string{"127.0.0.1:1883"},
+		defaultTopic: "devices/#",
+		topics: []mqttTopicDescriptor{{
+			Filter:   "devices/#",
+			Default:  true,
+			Wildcard: true,
+		}},
+		defaultQoS:    1,
+		defaultRetain: true,
+		cleanSession:  true,
+		fetchWait:     time.Second,
+	}
+}
+
+func TestMQTTDBCloseRejectsQueriesAndMetadata(t *testing.T) {
+	database := newMQTTDBCloseTestInstance()
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "ping", run: database.Ping},
+		{name: "query", run: func() error { _, _, err := database.Query("SHOW TOPICS"); return err }},
+		{name: "databases", run: func() error { _, err := database.GetDatabases(); return err }},
+		{name: "tables", run: func() error { _, err := database.GetTables(mqttSyntheticDatabase); return err }},
+		{name: "create statement", run: func() error { _, err := database.GetCreateStatement(mqttSyntheticDatabase, "devices/#"); return err }},
+		{name: "columns", run: func() error { _, err := database.GetColumns(mqttSyntheticDatabase, "devices/#"); return err }},
+		{name: "all columns", run: func() error { _, err := database.GetAllColumns(mqttSyntheticDatabase); return err }},
+		{name: "indexes", run: func() error { _, err := database.GetIndexes(mqttSyntheticDatabase, "devices/#"); return err }},
+		{name: "foreign keys", run: func() error { _, err := database.GetForeignKeys(mqttSyntheticDatabase, "devices/#"); return err }},
+		{name: "triggers", run: func() error { _, err := database.GetTriggers(mqttSyntheticDatabase, "devices/#"); return err }},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.run(); err == nil {
+				t.Fatal("operation succeeded after MQTTDB.Close")
+			}
+		})
+	}
+}
+
+func TestMQTTDBConcurrentCloseAndMetadataIsSafe(t *testing.T) {
+	for round := 0; round < 40; round++ {
+		database := newMQTTDBCloseTestInstance()
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for reader := 0; reader < 6; reader++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				for iteration := 0; iteration < 100; iteration++ {
+					_, _, _ = database.Query("SHOW TOPICS")
+					_, _, _ = database.Query(`DESCRIBE TOPIC "devices/#"`)
+					_, _ = database.GetTables(mqttSyntheticDatabase)
+					_, _ = database.GetCreateStatement(mqttSyntheticDatabase, "devices/#")
+					_, _ = database.GetColumns(mqttSyntheticDatabase, "devices/#")
+				}
+			}()
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_ = database.Close()
+		}()
+		close(start)
+		wg.Wait()
 	}
 }

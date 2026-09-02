@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -15,6 +16,7 @@ from typing import Any
 
 MARKER = "gonavi-download-mirror-v1"
 DEFAULT_MIN_AGE_SECONDS = 0
+TAG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 RELEASE_ROOTS = {
     "stable": {
         "app": Path("gonavi/releases/download"),
@@ -25,6 +27,24 @@ RELEASE_ROOTS = {
         "driver": Path("drivers/dev/releases/download"),
     },
 }
+DRIVER_LATEST_INDEXES = {
+    "stable": Path("drivers/releases/latest/GoNavi-DriverAgents-Index.json"),
+    "dev": Path("drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json"),
+}
+
+
+def load_driver_latest_tag(root: Path, channel: str) -> str:
+    index_path = root / DRIVER_LATEST_INDEXES[channel]
+    try:
+        value: Any = json.loads(index_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return ""
+    if not isinstance(value, dict):
+        raise ValueError(f"invalid driver latest index: {index_path}")
+    tag = value.get("mirrorTagName") or value.get("tagName") or ""
+    if not isinstance(tag, str) or (tag and (not TAG_RE.fullmatch(tag) or tag in {".", ".."})):
+        raise ValueError(f"invalid driver latest tag: {index_path}")
+    return tag
 
 
 def load_references(root: Path) -> dict[Path, set[str]]:
@@ -46,6 +66,9 @@ def load_references(root: Path) -> dict[Path, set[str]]:
             references[RELEASE_ROOTS[channel]["app"]].add(app_tag)
         if isinstance(driver_tag, str) and driver_tag:
             references[RELEASE_ROOTS[channel]["driver"]].add(driver_tag)
+        latest_driver_tag = load_driver_latest_tag(root, channel)
+        if latest_driver_tag:
+            references[RELEASE_ROOTS[channel]["driver"]].add(latest_driver_tag)
     return references
 
 
@@ -59,8 +82,25 @@ def select_prunable_directories(root: Path, min_age_seconds: int, now: float | N
         release_root = root / relative_root
         if not release_root.is_dir():
             continue
-        for candidate in release_root.iterdir():
-            if candidate.name in keep_tags or candidate.is_symlink() or not candidate.is_dir():
+        candidates = [
+            candidate
+            for candidate in release_root.iterdir()
+            if not candidate.is_symlink() and candidate.is_dir()
+        ]
+        protected_tags = set(keep_tags)
+        if relative_root in {
+            RELEASE_ROOTS["stable"]["driver"],
+            RELEASE_ROOTS["dev"]["driver"],
+        }:
+            previous = max(
+                (candidate for candidate in candidates if candidate.name not in protected_tags),
+                key=lambda candidate: (candidate.stat().st_mtime, candidate.name),
+                default=None,
+            )
+            if previous is not None:
+                protected_tags.add(previous.name)
+        for candidate in candidates:
+            if candidate.name in protected_tags:
                 continue
             if candidate.stat().st_mtime <= cutoff:
                 selected.append(candidate)

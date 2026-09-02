@@ -239,6 +239,27 @@ describe('SQLFileExecutionWorkbench', () => {
     expect(mocks.run).toHaveBeenCalledTimes(1);
   });
 
+  it('shows the uploaded file name instead of its opaque token in web execution status', async () => {
+    mocks.state = createRunnerState({
+      jobId: 'sql-file-job-web',
+      status: 'running',
+      stage: 'running',
+      filePath: 'web-upload-token',
+      percent: 50,
+    });
+    const renderer = await renderWorkbench({
+      ...tab,
+      filePath: 'web-upload-token',
+      sqlFileExecutionFileName: 'seed.sql',
+    });
+
+    const renderedText = renderer.root.findAll(() => true)
+      .flatMap((node) => node.children.filter((child): child is string => typeof child === 'string'))
+      .join('\n');
+    expect(renderedText).toContain('seed.sql');
+    expect(renderedText).not.toContain('web-upload-token');
+  });
+
   it('starts the first manual execution without a rerun confirmation', async () => {
     const renderer = await renderWorkbench();
 

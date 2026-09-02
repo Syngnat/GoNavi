@@ -71,6 +71,12 @@ const failedJob = {
   failed: 1,
   skipped: 2,
   errorArtifactId: 'artifact-1',
+  errorArtifactCount: 1,
+  errorArtifactOmittedCount: 0,
+  errorArtifactTruncated: false,
+  errorArtifactRetryableCount: 1,
+  errorArtifactUnretryableCount: 0,
+  errorArtifactScopeKnown: true,
   message: 'duplicate key',
   updatedAt: 1_700_000_000_000,
 };
@@ -169,6 +175,36 @@ describe('ImportJobHistoryPanel', () => {
     expect(String(renderer.root.findByProps({
       'data-import-history-progress': 'import-failed-1',
     }).props.children)).toContain('2');
+  });
+
+  it('shows error artifact bounds and hides retry when no rows are retryable', async () => {
+    const nonRetryableJob = {
+      ...failedJob,
+      id: 'import-non-retryable-1',
+      errorArtifactCount: 3,
+      errorArtifactOmittedCount: 7,
+      errorArtifactTruncated: true,
+      errorArtifactRetryableCount: 0,
+      errorArtifactUnretryableCount: 3,
+    };
+    mocks.listImportJobs.mockResolvedValueOnce({ success: true, data: [nonRetryableJob] });
+    const renderer = await renderHistory();
+
+    const artifact = renderer.root.findByProps({
+      'data-import-history-error-artifact': 'import-non-retryable-1',
+    });
+    const renderedText = artifact.findAllByType('span')
+      .map((node) => String(node.props.children))
+      .join('');
+    expect(renderedText).toContain('Rejected rows saved: 3');
+    expect(renderedText).toContain('Rejected rows omitted by storage limits: 7');
+    expect(renderedText).toContain('Retryable rejected rows: 0');
+    expect(renderedText).toContain('Non-retryable rejected rows: 3');
+    expect(renderedText).toContain('Rejected-row artifact was truncated because a storage limit was reached.');
+    expect(renderer.root.findAll((node) => (
+      node.type === 'button'
+      && node.props['data-import-history-retry-failed-rows-action'] === 'import-non-retryable-1'
+    ))).toHaveLength(0);
   });
 
   it('cancels a running durable import from history', async () => {

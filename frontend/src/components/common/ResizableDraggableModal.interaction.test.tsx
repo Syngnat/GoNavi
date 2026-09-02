@@ -220,6 +220,41 @@ describe('DraggableResizableModalFrame interaction cleanup', () => {
     expect(fakeWindow.listenerCount('click')).toBe(0);
   });
 
+  // Regression: the settings/tool centre passes a fixed `height` through antd
+  // `styles.content`, so a south drag has to publish a resized height of its own and
+  // must not silently freeze the width it never touched.
+  it('resizes height from the south handle without pinning width', () => {
+    const southHandle = new FakeHTMLElement('resize-handle', ['gn-modal-resize-handle-south']);
+
+    act(() => wrapper.dispatch('pointerdown', pointerEvent(southHandle)));
+    act(() => fakeWindow.dispatch('pointermove', { ...pointerEvent(southHandle), clientY: 420 }));
+
+    expect(frameProps()?.['data-has-resized-height']).toBe('true');
+    expect(frameProps()?.style['--gn-modal-resized-height']).toBe('620px');
+    expect(frameProps()?.['data-has-resized-width']).toBe('false');
+    expect(frameProps()?.style['--gn-modal-resized-width']).toBeUndefined();
+  });
+
+  it('resizes width from the east handle without pinning height', () => {
+    const eastHandle = new FakeHTMLElement('resize-handle', ['gn-modal-resize-handle-east']);
+
+    act(() => wrapper.dispatch('pointerdown', pointerEvent(eastHandle)));
+    act(() => fakeWindow.dispatch('pointermove', { ...pointerEvent(eastHandle), clientX: 550 }));
+
+    expect(frameProps()?.['data-has-resized-width']).toBe('true');
+    expect(frameProps()?.style['--gn-modal-resized-width']).toBe('750px');
+    expect(frameProps()?.['data-has-resized-height']).toBe('false');
+    expect(frameProps()?.style['--gn-modal-resized-height']).toBeUndefined();
+  });
+
+  it('resizes both axes from the south-east handle', () => {
+    act(() => wrapper.dispatch('pointerdown', pointerEvent(resizeHandle)));
+    act(() => fakeWindow.dispatch('pointermove', { ...pointerEvent(resizeHandle), clientX: 500, clientY: 400 }));
+
+    expect(frameProps()?.style['--gn-modal-resized-width']).toBe('700px');
+    expect(frameProps()?.style['--gn-modal-resized-height']).toBe('600px');
+  });
+
   it('suppresses only the synthetic click after a completed interaction', () => {
     act(() => wrapper.dispatch('pointerdown', pointerEvent(header)));
     act(() => fakeWindow.dispatch('pointerup'));

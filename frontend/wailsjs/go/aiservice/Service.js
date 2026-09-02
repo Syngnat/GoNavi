@@ -6,40 +6,12 @@ export function AICallMCPTool(arg1, arg2) {
   return window['go']['aiservice']['Service']['AICallMCPTool'](arg1, arg2);
 }
 
-export function AIChatCancel(arg1) {
-  return window['go']['aiservice']['Service']['AIChatCancel'](arg1);
-}
-
-export function AIChatCancelAllAndWait() {
-  return window['go']['aiservice']['Service']['AIChatCancelAllAndWait']();
-}
-
-export function AIChatCancelAndWait(arg1) {
-  return window['go']['aiservice']['Service']['AIChatCancelAndWait'](arg1);
-}
-
-export function AIChatSend(arg1, arg2) {
-  return window['go']['aiservice']['Service']['AIChatSend'](arg1, arg2);
-}
-
-export function AIChatSendInSession(arg1, arg2, arg3) {
-  return window['go']['aiservice']['Service']['AIChatSendInSession'](arg1, arg2, arg3);
-}
-
-export function AIChatSendWithOptions(arg1, arg2, arg3) {
-  return window['go']['aiservice']['Service']['AIChatSendWithOptions'](arg1, arg2, arg3);
-}
-
-export function AIChatStream(arg1, arg2, arg3) {
-  return window['go']['aiservice']['Service']['AIChatStream'](arg1, arg2, arg3);
-}
-
-export function AIChatStreamWithOptions(arg1, arg2, arg3, arg4) {
-  return window['go']['aiservice']['Service']['AIChatStreamWithOptions'](arg1, arg2, arg3, arg4);
-}
-
 export function AICheckSQL(arg1) {
   return window['go']['aiservice']['Service']['AICheckSQL'](arg1);
+}
+
+export function AIControlAgentRun(arg1) {
+  return window['go']['aiservice']['Service']['AIControlAgentRun'](arg1);
 }
 
 export function AIDeleteMCPServer(arg1) {
@@ -50,10 +22,6 @@ export function AIDeleteProvider(arg1) {
   return window['go']['aiservice']['Service']['AIDeleteProvider'](arg1);
 }
 
-export function AIDeleteSession(arg1) {
-  return window['go']['aiservice']['Service']['AIDeleteSession'](arg1);
-}
-
 export function AIDeleteSkill(arg1) {
   return window['go']['aiservice']['Service']['AIDeleteSkill'](arg1);
 }
@@ -62,8 +30,20 @@ export function AIGetActiveProvider() {
   return window['go']['aiservice']['Service']['AIGetActiveProvider']();
 }
 
+export function AIGetAgentLedgerStatus() {
+  return window['go']['aiservice']['Service']['AIGetAgentLedgerStatus']();
+}
+
 export function AIGetBuiltinPrompts() {
   return window['go']['aiservice']['Service']['AIGetBuiltinPrompts']();
+}
+
+export function AIGetCLICapabilities() {
+  return window['go']['aiservice']['Service']['AIGetCLICapabilities']();
+}
+
+export function AIGetCLIModelCatalog(arg1) {
+  return window['go']['aiservice']['Service']['AIGetCLIModelCatalog'](arg1);
 }
 
 export function AIGetContextLevel() {
@@ -90,12 +70,12 @@ export function AIGetProviders() {
   return window['go']['aiservice']['Service']['AIGetProviders']();
 }
 
-export function AIGetSafetyLevel() {
-  return window['go']['aiservice']['Service']['AIGetSafetyLevel']();
+export function AIGetRunPolicy() {
+  return window['go']['aiservice']['Service']['AIGetRunPolicy']();
 }
 
-export function AIGetSessions() {
-  return window['go']['aiservice']['Service']['AIGetSessions']();
+export function AIGetSafetyLevel() {
+  return window['go']['aiservice']['Service']['AIGetSafetyLevel']();
 }
 
 export function AIGetSkills() {
@@ -134,6 +114,14 @@ export function AIInstallZCodeMCP() {
   return window['go']['aiservice']['Service']['AIInstallZCodeMCP']();
 }
 
+export function AIListAgentSessions(arg1) {
+  return window['go']['aiservice']['Service']['AIListAgentSessions'](arg1);
+}
+
+export function AIListCLIModels(arg1) {
+  return window['go']['aiservice']['Service']['AIListCLIModels'](arg1);
+}
+
 export function AIListMCPTools() {
   return window['go']['aiservice']['Service']['AIListMCPTools']();
 }
@@ -142,8 +130,16 @@ export function AIListModels() {
   return window['go']['aiservice']['Service']['AIListModels']();
 }
 
-export function AILoadSession(arg1) {
-  return window['go']['aiservice']['Service']['AILoadSession'](arg1);
+export function AIMutateAgentSession(arg1) {
+  return window['go']['aiservice']['Service']['AIMutateAgentSession'](arg1);
+}
+
+export function AIReadAgentRun(arg1) {
+  return window['go']['aiservice']['Service']['AIReadAgentRun'](arg1);
+}
+
+export function AIReadAgentSession(arg1) {
+  return window['go']['aiservice']['Service']['AIReadAgentSession'](arg1);
 }
 
 export function AISaveMCPServer(arg1) {
@@ -154,8 +150,8 @@ export function AISaveProvider(arg1) {
   return window['go']['aiservice']['Service']['AISaveProvider'](arg1);
 }
 
-export function AISaveSession(arg1, arg2, arg3, arg4) {
-  return window['go']['aiservice']['Service']['AISaveSession'](arg1, arg2, arg3, arg4);
+export function AISaveRunPolicy(arg1) {
+  return window['go']['aiservice']['Service']['AISaveRunPolicy'](arg1);
 }
 
 export function AISaveSkill(arg1) {
@@ -190,12 +186,20 @@ export function AIStopMCPHTTPServer() {
   return window['go']['aiservice']['Service']['AIStopMCPHTTPServer']();
 }
 
+export function AISubmitAgentInput(arg1) {
+  return window['go']['aiservice']['Service']['AISubmitAgentInput'](arg1);
+}
+
 export function AITestMCPServer(arg1) {
   return window['go']['aiservice']['Service']['AITestMCPServer'](arg1);
 }
 
 export function AITestProvider(arg1) {
   return window['go']['aiservice']['Service']['AITestProvider'](arg1);
+}
+
+export function AIUpdateWorkspaceSnapshot(arg1) {
+  return window['go']['aiservice']['Service']['AIUpdateWorkspaceSnapshot'](arg1);
 }
 
 export function Shutdown() {

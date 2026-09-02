@@ -3,6 +3,7 @@ package aiservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,6 +18,49 @@ import (
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+// NewMCPService creates a lightweight, headless Service that only loads the
+// configured MCP server definitions.  It deliberately does not start the
+// Agent Run Harness or any HTTP listener, making it suitable for the CLI
+// adapter, which owns its own Harness instance.  Provider secrets are not
+// resolved here; MCP discovery/execution needs only the MCP portion of the
+// configuration and the normal Service methods still enforce their context.
+//
+// The returned Service should be closed with Shutdown when the owning
+// adapter exits.  A missing config file is treated as an empty MCP catalog.
+func NewMCPService(ctx context.Context, configDir string) (*Service, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	configDir = strings.TrimSpace(configDir)
+	if configDir == "" {
+		configDir = resolveConfigDir()
+	}
+
+	service := NewService()
+	service.ctx = ctx
+	service.agentContext = ctx
+	service.configDir = configDir
+
+	// Inspect reads the persisted snapshot without resolving provider secret
+	// bundles.  This keeps an MCP-only CLI usable even when a provider's
+	// keyring entry is unavailable; the provider resolver will report that
+	// separate failure when a model turn actually needs it.
+	inspection, err := NewProviderConfigStoreWithLanguage(configDir, service.secretStore, service.serviceLanguage()).Inspect()
+	if err != nil {
+		return nil, err
+	}
+
+	language := service.serviceLanguage()
+	service.mu.Lock()
+	service.mcpServers = normalizeMCPServerConfigs(inspection.Snapshot.MCPServers)
+	service.safetyLevel = inspection.Snapshot.SafetyLevel
+	service.guard.SetPermissionLevel(service.safetyLevel)
+	service.contextLevel = inspection.Snapshot.ContextLevel
+	service.localizer = newServiceLocalizerForLanguage(language)
+	service.mu.Unlock()
+	return service, nil
+}
 
 const (
 	defaultMCPServerTimeoutSeconds = 20
@@ -92,29 +136,100 @@ func (s *Service) AITestMCPServer(config ai.MCPServerConfig) map[string]any {
 	}
 }
 
-// AIListMCPTools 聚合所有启用的 MCP 工具
+// AIListMCPTools 聚合所有启用的 MCP 工具。
+//
+// Wails does not pass a request context to bound methods, so this compatibility
+// wrapper uses the Service lifecycle context.  Agent runs should use the
+// context-aware ListMCPTools function below instead.
 func (s *Service) AIListMCPTools() []ai.MCPToolDescriptor {
+	if s == nil {
+		return []ai.MCPToolDescriptor{}
+	}
+	descriptors, err := s.listMCPTools(s.agentLifecycleContext())
+	if err != nil {
+		logger.Warnf("列出 MCP 工具失败: %v", err)
+		return []ai.MCPToolDescriptor{}
+	}
+	return descriptors
+}
+
+// ListMCPTools discovers enabled MCP tools with the caller's context.  It is
+// intentionally a package function rather than a Service method: exported
+// Service methods become Wails bindings, while context.Context is an internal
+// lifecycle value and must never be decoded from a frontend JSON request.
+// Discovery failures for an individual server are logged and skipped to retain
+// the behavior of AIListMCPTools; cancellation/deadline errors are returned so
+// the Harness can stop a run promptly.
+func ListMCPTools(ctx context.Context, service *Service) ([]ai.MCPToolDescriptor, error) {
+	if service == nil {
+		return nil, errors.New("AI Service is nil")
+	}
+	return service.listMCPTools(ctx)
+}
+
+func (s *Service) listMCPTools(ctx context.Context) ([]ai.MCPToolDescriptor, error) {
+	if s == nil {
+		return nil, errors.New("AI Service is nil")
+	}
+	if ctx == nil {
+		ctx = s.agentLifecycleContext()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	servers := cloneMCPServerConfigs(s.mcpServers)
 	s.mu.RUnlock()
 
 	descriptors := make([]ai.MCPToolDescriptor, 0)
 	for _, serverConfig := range servers {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !serverConfig.Enabled {
 			continue
 		}
-		tools, err := s.listMCPToolsForServer(serverConfig)
+		tools, err := s.listMCPToolsForServerContext(ctx, serverConfig)
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
 			logger.Warnf("列出 MCP 工具失败(server=%s): %v", serverConfig.Name, err)
 			continue
 		}
 		descriptors = append(descriptors, tools...)
 	}
-	return descriptors
+	return descriptors, nil
 }
 
 // AICallMCPTool 调用指定的 MCP 工具
 func (s *Service) AICallMCPTool(alias string, argumentsJSON string) (ai.MCPToolCallResult, error) {
+	if s == nil {
+		return ai.MCPToolCallResult{}, errors.New("AI Service is nil")
+	}
+	return s.callMCPTool(s.agentLifecycleContext(), alias, argumentsJSON)
+}
+
+// CallMCPTool invokes a configured MCP tool with the caller's context.  Agent
+// tool executors use this entry point so cancellation, run deadlines and
+// shutdown propagate through process startup and the MCP request.
+func CallMCPTool(ctx context.Context, service *Service, alias string, argumentsJSON string) (ai.MCPToolCallResult, error) {
+	if service == nil {
+		return ai.MCPToolCallResult{}, errors.New("AI Service is nil")
+	}
+	return service.callMCPTool(ctx, alias, argumentsJSON)
+}
+
+func (s *Service) callMCPTool(ctx context.Context, alias string, argumentsJSON string) (ai.MCPToolCallResult, error) {
+	if s == nil {
+		return ai.MCPToolCallResult{}, errors.New("AI Service is nil")
+	}
+	if ctx == nil {
+		ctx = s.agentLifecycleContext()
+	}
+	if err := ctx.Err(); err != nil {
+		return ai.MCPToolCallResult{}, err
+	}
 	localizer := s.serviceLocalizerForLanguage()
 	serverID, originalName, err := parseMCPToolAlias(localizer, alias)
 	if err != nil {
@@ -144,8 +259,8 @@ func (s *Service) AICallMCPTool(alias string, argumentsJSON string) (ai.MCPToolC
 	}
 
 	var callResult *mcp.CallToolResult
-	err = s.withMCPClientSession(localizer, serverConfig, func(ctx context.Context, session *mcp.ClientSession) error {
-		result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
+	err = s.withMCPClientSessionContext(ctx, localizer, serverConfig, func(sessionCtx context.Context, session *mcp.ClientSession) error {
+		result, callErr := session.CallTool(sessionCtx, &mcp.CallToolParams{
 			Name:      originalName,
 			Arguments: arguments,
 		})
@@ -156,9 +271,15 @@ func (s *Service) AICallMCPTool(alias string, argumentsJSON string) (ai.MCPToolC
 		return nil
 	})
 	if err != nil {
-		return ai.MCPToolCallResult{}, fmt.Errorf("%s", serviceTextFromLocalizer(localizer, "ai_chat.panel.tool_error.mcp_failed_with_detail", map[string]any{
-			"detail": err.Error(),
-		}))
+		return ai.MCPToolCallResult{}, &mcpToolCallError{
+			message: serviceTextFromLocalizer(localizer, "ai_chat.panel.tool_error.mcp_failed_with_detail", map[string]any{
+				"detail": err.Error(),
+			}),
+			cause: err,
+		}
+	}
+	if callResult == nil {
+		return ai.MCPToolCallResult{}, errors.New("MCP tool returned an empty result")
 	}
 
 	return ai.MCPToolCallResult{
@@ -171,6 +292,29 @@ func (s *Service) AICallMCPTool(alias string, argumentsJSON string) (ai.MCPToolC
 		StructuredContent: callResult.StructuredContent,
 		IsError:           callResult.IsError,
 	}, nil
+}
+
+// mcpToolCallError keeps the localized, backwards-compatible message while
+// preserving the underlying cancellation/deadline for Harness classification.
+// A plain fmt.Errorf("%s: %w", ...) would duplicate the detail because the
+// localized string already contains it.
+type mcpToolCallError struct {
+	message string
+	cause   error
+}
+
+func (e *mcpToolCallError) Error() string {
+	if e == nil {
+		return "MCP tool call failed"
+	}
+	return e.message
+}
+
+func (e *mcpToolCallError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
 }
 
 // AIGetSkills 获取 Skill 配置
@@ -213,11 +357,15 @@ func (s *Service) AIDeleteSkill(id string) error {
 }
 
 func (s *Service) listMCPToolsForServer(serverConfig ai.MCPServerConfig) ([]ai.MCPToolDescriptor, error) {
+	return s.listMCPToolsForServerContext(s.agentLifecycleContext(), serverConfig)
+}
+
+func (s *Service) listMCPToolsForServerContext(ctx context.Context, serverConfig ai.MCPServerConfig) ([]ai.MCPToolDescriptor, error) {
 	descriptors := make([]ai.MCPToolDescriptor, 0)
-	err := s.withMCPClientSession(s.serviceLocalizerForLanguage(), serverConfig, func(ctx context.Context, session *mcp.ClientSession) error {
+	err := s.withMCPClientSessionContext(ctx, s.serviceLocalizerForLanguage(), serverConfig, func(sessionCtx context.Context, session *mcp.ClientSession) error {
 		cursor := ""
 		for {
-			result, err := session.ListTools(ctx, &mcp.ListToolsParams{Cursor: cursor})
+			result, err := session.ListTools(sessionCtx, &mcp.ListToolsParams{Cursor: cursor})
 			if err != nil {
 				return err
 			}
@@ -246,6 +394,20 @@ func (s *Service) listMCPToolsForServer(serverConfig ai.MCPServerConfig) ([]ai.M
 }
 
 func (s *Service) withMCPClientSession(localizer *i18n.Localizer, serverConfig ai.MCPServerConfig, fn func(context.Context, *mcp.ClientSession) error) error {
+	return s.withMCPClientSessionContext(s.agentLifecycleContext(), localizer, serverConfig, fn)
+}
+
+// withMCPClientSessionContext owns one MCP process/session and derives its
+// server timeout from parent.  Using context.Background here would detach a
+// tool call from Harness cancellation and could leave a child process alive
+// after a run has been canceled or the application is shutting down.
+func (s *Service) withMCPClientSessionContext(parent context.Context, localizer *i18n.Localizer, serverConfig ai.MCPServerConfig, fn func(context.Context, *mcp.ClientSession) error) error {
+	if parent == nil {
+		parent = s.agentLifecycleContext()
+	}
+	if err := parent.Err(); err != nil {
+		return err
+	}
 	serverConfig = normalizeMCPServerConfig(serverConfig)
 	if serverConfig.Transport != ai.MCPTransportStdio {
 		return fmt.Errorf("%s", serviceTextFromLocalizer(localizer, "ai_service.backend.error.mcp_transport_unsupported", map[string]any{
@@ -257,7 +419,7 @@ func (s *Service) withMCPClientSession(localizer *i18n.Localizer, serverConfig a
 	}
 
 	timeout := time.Duration(serverConfig.TimeoutSeconds) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	command := exec.CommandContext(ctx, serverConfig.Command, serverConfig.Args...)

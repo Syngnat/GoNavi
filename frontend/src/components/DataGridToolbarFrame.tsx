@@ -86,6 +86,8 @@ export interface DataGridToolbarFrameProps {
   aiShortcutLabel: string;
   legacyAiButtonStyle?: React.CSSProperties;
   paginationTotalCountLoading?: boolean;
+  totalCountUnavailableLabel?: string;
+  totalCountUnavailableReason?: string;
   toolbarExtraActions?: React.ReactNode;
   filterConditions: GridFilterCondition[];
   sortInfo: GridSortInfo[];
@@ -189,6 +191,8 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   aiShortcutLabel,
   legacyAiButtonStyle,
   paginationTotalCountLoading,
+  totalCountUnavailableLabel,
+  totalCountUnavailableReason,
   toolbarExtraActions,
   filterConditions,
   sortInfo,
@@ -697,15 +701,24 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
         {prefersManualTotalCount && (
           <>
             {renderToolbarDivider()}
-            <Tooltip title={paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count_tooltip') : translate('data_grid.toolbar.count_total_tooltip')}>
-              <Button
-                className={isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined}
-                aria-label={paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total')}
-                icon={paginationTotalCountLoading ? <CloseOutlined /> : <VerticalAlignBottomOutlined />}
-                onClick={onToggleTotalCount}
-              >
-                {isV2Ui ? null : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total'))}
-              </Button>
+            <Tooltip title={totalCountUnavailableReason && !paginationTotalCountLoading
+              ? totalCountUnavailableReason
+              : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count_tooltip') : translate('data_grid.toolbar.count_total_tooltip'))}>
+              <span style={{ display: 'inline-flex' }}>
+                <Button
+                  className={isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined}
+                  aria-label={totalCountUnavailableReason && !paginationTotalCountLoading
+                    ? (totalCountUnavailableLabel || translate('data_grid.toolbar.count_total'))
+                    : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total'))}
+                  disabled={Boolean(totalCountUnavailableReason) && !paginationTotalCountLoading}
+                  icon={paginationTotalCountLoading ? <CloseOutlined /> : <VerticalAlignBottomOutlined />}
+                  onClick={onToggleTotalCount}
+                >
+                  {isV2Ui ? null : (totalCountUnavailableReason && !paginationTotalCountLoading
+                    ? (totalCountUnavailableLabel || translate('data_grid.toolbar.count_total'))
+                    : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total')))}
+                </Button>
+              </span>
             </Tooltip>
           </>
         )}

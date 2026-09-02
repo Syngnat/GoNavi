@@ -264,6 +264,43 @@ describe('NacosServiceViewer interactions', () => {
     });
   });
 
+  it('sends the service name filter and preserves it when changing page size', async () => {
+    await act(async () => {
+      renderer = create(
+        <NacosServiceViewer connectionId="nacos-1" namespaceId="dev" namespaceName="dev" />,
+      );
+    });
+    await flushEffects();
+
+    const serviceInput = renderer!.root.findAllByType('input')
+      .find((input) => input.props.style?.width === 180);
+    expect(serviceInput).toBeDefined();
+    await act(async () => {
+      serviceInput!.props.onChange({ target: { value: 'order' } });
+    });
+    await flushEffects();
+    const updatedServiceInput = renderer!.root.findAllByType('input')
+      .find((input) => input.props.style?.width === 180);
+    await act(async () => {
+      updatedServiceInput!.props.onPressEnter();
+    });
+    await flushEffects();
+
+    expect(nacosBackend.NacosListServices).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ serviceName: 'order', groupName: '' }),
+    );
+    const pagination = latestServicePaginationProps();
+    await act(async () => {
+      pagination.onChange(1, 100);
+    });
+    await flushEffects();
+    expect(nacosBackend.NacosListServices).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ serviceName: 'order', pageSize: 100 }),
+    );
+  });
+
   it('renders endpoint-first instance records instead of a horizontal instance table', async () => {
     nacosBackend.NacosListInstances.mockResolvedValue({
       success: true,

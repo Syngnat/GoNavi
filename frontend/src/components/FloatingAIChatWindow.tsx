@@ -26,6 +26,7 @@ interface FloatingAIChatWindowProps {
   onOpenSettings: () => void;
   onRenderError?: (error: Error, errorInfo: React.ErrorInfo) => void;
   onRetryRender?: () => void;
+  onRegisterTerminalGuard?: (guard: (() => Promise<boolean>) | null) => void;
   renderNonce?: number;
 }
 
@@ -36,6 +37,7 @@ const FloatingAIChatWindow: React.FC<FloatingAIChatWindowProps> = ({
   onOpenSettings,
   onRenderError,
   onRetryRender,
+  onRegisterTerminalGuard,
   renderNonce = 0,
 }) => {
   const windowState = useStore((state) => state.detachedAIChatWindow);
@@ -45,6 +47,33 @@ const FloatingAIChatWindow: React.FC<FloatingAIChatWindowProps> = ({
   const focusDetachedAIChatPanel = useStore((state) => state.focusDetachedAIChatPanel);
   const LazyAIChatPanel = useMemo(createLazyAIChatPanel, [renderNonce]);
   const nativeWindowManagerAvailable = hasNativeDetachedWindowManager();
+  const terminalGuardRef = useRef<(() => Promise<boolean>) | null>(null);
+  const terminalActionPendingRef = useRef(false);
+  const registerTerminalGuard = useCallback((guard: (() => Promise<boolean>) | null) => {
+    terminalGuardRef.current = guard;
+    onRegisterTerminalGuard?.(guard);
+  }, [onRegisterTerminalGuard]);
+  const runTerminalAction = useCallback((action: () => void) => {
+    if (terminalActionPendingRef.current) return;
+    terminalActionPendingRef.current = true;
+    void (async () => {
+      try {
+        const canTerminate = await terminalGuardRef.current?.();
+        if (canTerminate === false) return;
+        action();
+      } catch (error) {
+        console.warn('Failed to stop AI activity before changing the detached panel state', error);
+      } finally {
+        terminalActionPendingRef.current = false;
+      }
+    })();
+  }, []);
+  const handleClose = useCallback(() => {
+    runTerminalAction(() => setAIPanelVisible(false));
+  }, [runTerminalAction, setAIPanelVisible]);
+  const handleAttach = useCallback(() => {
+    runTerminalAction(() => attachAIChatPanel());
+  }, [attachAIChatPanel, runTerminalAction]);
   const { startInteraction: startManagedInteraction } = useManagedPointerInteraction(
     Boolean(windowState) && !nativeWindowManagerAvailable,
   );
@@ -277,10 +306,11 @@ const FloatingAIChatWindow: React.FC<FloatingAIChatWindowProps> = ({
                 bgColor={bgColor}
                 overlayTheme={overlayTheme}
                 presentation="detached"
-                onClose={() => setAIPanelVisible(false)}
+                onClose={handleClose}
                 onOpenSettings={onOpenSettings}
                 onDetach={undefined}
-                onAttach={() => attachAIChatPanel()}
+                onAttach={handleAttach}
+                onRegisterTerminalGuard={registerTerminalGuard}
                 onWindowDragStart={(event) => startInteraction(event, 'move', bounds)}
               />
             </React.Suspense>

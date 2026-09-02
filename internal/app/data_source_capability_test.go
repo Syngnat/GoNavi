@@ -11,20 +11,50 @@ import (
 func TestDataSourceCapabilityResolvesBuiltinAndDriverAgentProfiles(t *testing.T) {
 	application := NewApp()
 	cases := []struct {
-		name        string
-		config      connection.ConnectionConfig
-		wantType    string
-		query       bool
-		metadata    bool
-		transaction bool
+		name                      string
+		config                    connection.ConnectionConfig
+		wantType                  string
+		query                     bool
+		metadata                  bool
+		transaction               bool
+		primaryVisibility         bool
+		primaryKind               string
+		secondarySchemaVisibility bool
+		schemaCaseSensitive       bool
 	}{
 		{
-			name:        "builtin mysql",
-			config:      connection.ConnectionConfig{Type: "mysql"},
-			wantType:    "mysql",
-			query:       true,
-			metadata:    true,
-			transaction: true,
+			name:              "builtin mysql",
+			config:            connection.ConnectionConfig{Type: "mysql"},
+			wantType:          "mysql",
+			query:             true,
+			metadata:          true,
+			transaction:       true,
+			primaryVisibility: true,
+			primaryKind:       "database",
+		},
+		{
+			name:                      "builtin postgres navigation",
+			config:                    connection.ConnectionConfig{Type: "postgres"},
+			wantType:                  "postgres",
+			query:                     true,
+			metadata:                  true,
+			transaction:               true,
+			primaryVisibility:         true,
+			primaryKind:               "database",
+			secondarySchemaVisibility: true,
+			schemaCaseSensitive:       true,
+		},
+		{
+			name:                      "builtin duckdb navigation",
+			config:                    connection.ConnectionConfig{Type: "duckdb"},
+			wantType:                  "duckdb",
+			query:                     true,
+			metadata:                  true,
+			transaction:               true,
+			primaryVisibility:         true,
+			primaryKind:               "database",
+			secondarySchemaVisibility: true,
+			schemaCaseSensitive:       false,
 		},
 		{
 			name:        "driver agent sqlite alias",
@@ -33,14 +63,17 @@ func TestDataSourceCapabilityResolvesBuiltinAndDriverAgentProfiles(t *testing.T)
 			query:       true,
 			metadata:    true,
 			transaction: true,
+			primaryKind: "none",
 		},
 		{
-			name:        "custom oceanbase oracle",
-			config:      connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", OceanBaseProtocol: "oracle"},
-			wantType:    "oracle",
-			query:       true,
-			metadata:    true,
-			transaction: true,
+			name:              "custom oceanbase oracle",
+			config:            connection.ConnectionConfig{Type: "custom", Driver: "oceanbase", OceanBaseProtocol: "oracle"},
+			wantType:          "oracle",
+			query:             true,
+			metadata:          true,
+			transaction:       true,
+			primaryVisibility: true,
+			primaryKind:       "owner",
 		},
 	}
 
@@ -54,7 +87,14 @@ func TestDataSourceCapabilityResolvesBuiltinAndDriverAgentProfiles(t *testing.T)
 			if capability.Query.Supported != tc.query || capability.Metadata.Supported != tc.metadata || capability.Transaction.Supported != tc.transaction {
 				t.Fatalf("capability = %#v, want query=%t metadata=%t transaction=%t", capability, tc.query, tc.metadata, tc.transaction)
 			}
+			if capability.Navigation.PrimaryVisibilitySupported != tc.primaryVisibility ||
+				capability.Navigation.PrimaryKind != tc.primaryKind ||
+				capability.Navigation.SecondarySchemaVisibilitySupported != tc.secondarySchemaVisibility ||
+				capability.Navigation.SchemaIdentifierCaseSensitive != tc.schemaCaseSensitive {
+				t.Fatalf("navigation = %#v, want primaryVisibility=%t primaryKind=%q secondarySchemaVisibility=%t schemaCaseSensitive=%t", capability.Navigation, tc.primaryVisibility, tc.primaryKind, tc.secondarySchemaVisibility, tc.schemaCaseSensitive)
+			}
 		})
+
 	}
 }
 

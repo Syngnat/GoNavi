@@ -366,28 +366,49 @@ body[data-custom-theme] .gonavi-custom-theme-manager.is-legacy {
   --gn-settings-card-bg: var(--gn-bg-panel);
 }
 
-body[data-custom-theme][data-ui-version="v2"] .ant-btn-primary:not(.ant-btn-dangerous):not(:disabled):not(.ant-btn-disabled) {
-  color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;
+body[data-custom-theme][data-ui-version="v2"] .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-query-transaction-commit-button):not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-toolbar-action-primary-fg, var(--gn-ant-on-primary, var(--gn-on-accent, #fff))) !important;
 }
 
 body[data-custom-theme][data-ui-version="v2"] .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled) {
   color: var(--gn-on-danger, #fff) !important;
 }
 
+/* 查询工具栏的停止按钮保留 danger 语义；只有显式声明 query scoped token 时才接管。 */
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-client-query-toolbar-primary-fg, var(--gn-query-toolbar-primary-fg, var(--gn-on-danger, #fff))) !important;
+  background: var(--gn-client-query-toolbar-primary-bg, var(--gn-query-toolbar-primary-bg, var(--gn-danger-strong))) !important;
+  border-color: var(--gn-client-query-toolbar-primary-border, var(--gn-query-toolbar-primary-border, var(--gn-danger-strong))) !important;
+}
+
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):hover,
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-client-query-toolbar-primary-hover-fg, var(--gn-query-toolbar-primary-hover-fg, var(--gn-on-danger, #fff))) !important;
+  background: var(--gn-client-query-toolbar-primary-hover-bg, var(--gn-query-toolbar-primary-hover-bg, var(--gn-danger-strong-hover, var(--gn-danger-strong)))) !important;
+  border-color: var(--gn-client-query-toolbar-primary-hover-border, var(--gn-query-toolbar-primary-hover-border, var(--gn-danger-strong-hover, var(--gn-danger-strong)))) !important;
+}
+
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn-primary.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):active {
+  color: var(--gn-client-query-toolbar-primary-active-fg, var(--gn-query-toolbar-primary-active-fg, var(--gn-on-danger, #fff))) !important;
+  background: var(--gn-client-query-toolbar-primary-active-bg, var(--gn-query-toolbar-primary-active-bg, var(--gn-danger-strong-hover, var(--gn-danger-strong)))) !important;
+  border-color: var(--gn-client-query-toolbar-primary-active-border, var(--gn-query-toolbar-primary-active-border, var(--gn-danger-strong-hover, var(--gn-danger-strong)))) !important;
+}
+
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-transaction-commit-button:hover,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-transaction-commit-button:focus,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-transaction-commit-button:focus-visible {
-  border-color: var(--gn-ant-primary-border) !important;
-  background: var(--gn-ant-primary-bg-hover) !important;
+  border-color: var(--gn-client-query-toolbar-primary-hover-border, var(--gn-query-toolbar-primary-hover-border, var(--gn-warn-hover, var(--gn-warn)))) !important;
+  background: var(--gn-client-query-toolbar-primary-hover-bg, var(--gn-query-toolbar-primary-hover-bg, var(--gn-warn-hover, var(--gn-warn)))) !important;
+  color: var(--gn-client-query-toolbar-primary-hover-fg, var(--gn-query-toolbar-primary-hover-fg, var(--gn-on-warn, #17130a))) !important;
   box-shadow: 0 0 0 1px var(--gn-ant-control-outline), var(--gn-shadow-sm) !important;
 }
 
 /* 按下态与 hover 必须可区分：原先 :active 与 :hover 共用同一条规则，
    点击时没有任何视觉反馈。 */
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-transaction-commit-button:active {
-  border-color: var(--gn-accent-active) !important;
-  background: var(--gn-accent-active) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  border-color: var(--gn-client-query-toolbar-primary-active-border, var(--gn-query-toolbar-primary-active-border, var(--gn-warn-active, var(--gn-warn)))) !important;
+  background: var(--gn-client-query-toolbar-primary-active-bg, var(--gn-query-toolbar-primary-active-bg, var(--gn-warn-active, var(--gn-warn)))) !important;
+  color: var(--gn-client-query-toolbar-primary-active-fg, var(--gn-query-toolbar-primary-active-fg, var(--gn-on-warn, #17130a))) !important;
   box-shadow: none !important;
 }
 
@@ -396,39 +417,39 @@ body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-transaction-commit-bu
   color: var(--gn-accent-text, var(--gn-accent)) !important;
 }
 
-/* 「保存」与工具栏 default 图标按钮同族（v2 已不用 type=primary）。
-   仅保证图标用 fg-1，避免与终端等按钮混成一摊灰时单独发闷。 */
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled) {
-  background: var(--gn-bg-panel) !important;
-  border-color: var(--gn-br-2) !important;
-  color: var(--gn-fg-1) !important;
+/* 「保存」与工具栏 default 图标按钮同族（v2 已不用 type=primary），
+   且使用公开工具栏变量，避免这组高优先级规则反压用户主题。 */
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled) {
+  background: var(--gn-toolbar-action-bg, var(--gn-bg-panel)) !important;
+  border-color: var(--gn-toolbar-action-border, var(--gn-br-2)) !important;
+  color: var(--gn-toolbar-action-fg, var(--gn-fg-2)) !important;
   box-shadow: none !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled) .anticon {
-  color: var(--gn-fg-1) !important;
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled) .anticon {
+  color: inherit !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):hover,
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):focus-visible {
-  background: var(--gn-bg-hover) !important;
-  border-color: var(--gn-br-3) !important;
-  color: var(--gn-fg-1) !important;
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled):hover,
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled):focus-visible {
+  background: var(--gn-toolbar-action-hover-bg, var(--gn-bg-hover)) !important;
+  border-color: var(--gn-toolbar-action-hover-border, var(--gn-br-3)) !important;
+  color: var(--gn-toolbar-action-hover-fg, var(--gn-fg-1)) !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):hover .anticon,
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):focus-visible .anticon {
-  color: var(--gn-fg-1) !important;
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled):hover .anticon,
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled):focus-visible .anticon {
+  color: inherit !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):active {
-  background: var(--gn-bg-active) !important;
-  border-color: var(--gn-br-3) !important;
-  color: var(--gn-fg-1) !important;
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled):active {
+  background: var(--gn-toolbar-action-active-bg, var(--gn-bg-active)) !important;
+  border-color: var(--gn-toolbar-action-active-border, var(--gn-br-3)) !important;
+  color: var(--gn-toolbar-action-active-fg, var(--gn-fg-1)) !important;
 }
 
-body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):active .anticon {
-  color: var(--gn-fg-1) !important;
+body[data-custom-theme][data-ui-version="v2"] .gn-v2-query-toolbar .gn-v2-query-toolbar-save-action.ant-btn:not(:disabled):not(.ant-btn-disabled):active .anticon {
+  color: inherit !important;
 }
 
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-ai-panel .ai-logo {
@@ -450,8 +471,7 @@ body[data-custom-theme][data-ui-version="v2"] .gn-v2-tree-status.is-success::bef
 
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-live-dot.is-loading,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-tree-status.is-loading::before {
-  border-color: var(--gn-info-soft) !important;
-  border-top-color: var(--gn-info) !important;
+  border-color: var(--gn-info) !important;
 }
 
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-tab-label-part-host {

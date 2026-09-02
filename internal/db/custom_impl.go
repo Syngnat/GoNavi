@@ -209,10 +209,11 @@ func (c *CustomDB) GetDatabases() ([]string, error) {
 }
 
 func (c *CustomDB) GetTables(dbName string) ([]string, error) {
+	driverName := strings.ToLower(strings.TrimSpace(c.driver))
 	// ANSI Standard
 	query := "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
 	// If mysql-like
-	if c.driver == "mysql" {
+	if driverName == "mysql" {
 		query = "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME"
 		if dbName != "" {
 			query = fmt.Sprintf(
@@ -220,19 +221,19 @@ func (c *CustomDB) GetTables(dbName string) ([]string, error) {
 				strings.ReplaceAll(dbName, "'", "''"),
 			)
 		}
-	} else if c.driver == "postgres" || c.driver == "kingbase" {
+	} else if driverName == "postgres" || driverName == "kingbase" {
 		query = `
-			SELECT table_schema AS schemaname, table_name AS tablename
+			SELECT DISTINCT table_schema AS schemaname, table_name AS tablename
 			FROM information_schema.tables
 			WHERE table_type = 'BASE TABLE'
 			  AND table_schema NOT IN ('pg_catalog', 'information_schema')`
 		if dbName != "" {
-			query += fmt.Sprintf(" AND table_schema = '%s'", dbName)
+			query += fmt.Sprintf(" AND table_schema = '%s'", strings.ReplaceAll(dbName, "'", "''"))
 		}
 		query += " ORDER BY table_schema, table_name"
-	} else if c.driver == "sqlite" {
+	} else if driverName == "sqlite" {
 		query = "SELECT name FROM sqlite_master WHERE type='table'"
-	} else if c.driver == "oracle" || c.driver == "dm" {
+	} else if driverName == "oracle" || driverName == "dm" {
 		query = "SELECT table_name FROM user_tables"
 		if dbName != "" {
 			query = fmt.Sprintf("SELECT owner, table_name FROM all_tables WHERE owner = '%s' ORDER BY table_name", strings.ToUpper(dbName))
@@ -244,25 +245,40 @@ func (c *CustomDB) GetTables(dbName string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tables for custom driver %s: %v", c.driver, err)
 	}
+	if driverName == "postgres" || driverName == "kingbase" {
+		return parsePostgresTableNames(data), nil
+	}
 
-	var tables []string
+	tables := make([]string, 0, len(data))
+	seen := make(map[string]struct{}, len(data))
+	appendTable := func(table string) {
+		trimmed := strings.TrimSpace(table)
+		if trimmed == "" || strings.EqualFold(trimmed, "<nil>") || strings.EqualFold(trimmed, "null") {
+			return
+		}
+		if _, exists := seen[trimmed]; exists {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		tables = append(tables, trimmed)
+	}
 	for _, row := range data {
-		if schema, okSchema := row["schemaname"]; okSchema {
-			if name, okName := row["tablename"]; okName {
-				tables = append(tables, fmt.Sprintf("%v.%v", schema, name))
+		if schema := getCaseInsensitiveRowString(row, "schemaname", "schema_name", "schema"); schema != "" {
+			if name := getCaseInsensitiveRowString(row, "tablename", "table_name"); name != "" {
+				appendTable(fmt.Sprintf("%s.%s", schema, name))
 				continue
 			}
 		}
-		if owner, okOwner := row["OWNER"]; okOwner {
-			if name, okName := row["TABLE_NAME"]; okName {
-				tables = append(tables, fmt.Sprintf("%v.%v", owner, name))
+		if owner := getCaseInsensitiveRowString(row, "owner"); owner != "" {
+			if name := getCaseInsensitiveRowString(row, "table_name", "tablename"); name != "" {
+				appendTable(fmt.Sprintf("%s.%s", owner, name))
 				continue
 			}
 		}
 		// iterate keys to find likely column
 		for k, v := range row {
 			if strings.Contains(strings.ToLower(k), "name") || strings.Contains(strings.ToLower(k), "table") {
-				tables = append(tables, fmt.Sprintf("%v", v))
+				appendTable(fmt.Sprintf("%v", v))
 				break
 			}
 		}

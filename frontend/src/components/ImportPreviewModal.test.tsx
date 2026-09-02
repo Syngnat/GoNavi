@@ -709,6 +709,12 @@ describe("ImportPreviewModal i18n", () => {
         failed: 1,
         total: 12,
         errorArtifactId: "artifact-v1",
+        errorArtifactCount: 1,
+        errorArtifactOmittedCount: 4,
+        errorArtifactTruncated: true,
+        errorArtifactRetryableCount: 1,
+        errorArtifactUnretryableCount: 3,
+        errorArtifactScopeKnown: true,
         errorLogs: ["Row 2: duplicate key"],
       },
     });
@@ -723,6 +729,15 @@ describe("ImportPreviewModal i18n", () => {
     const exportButton = renderer.root.findAllByType("button")
       .find((node) => textContent(node.props.children) === "Export rejected rows");
     expect(exportButton).toBeDefined();
+    const artifact = renderer.root.findByProps({
+      "data-import-preview-error-artifact": "true",
+    });
+    const renderedText = textContent(artifact);
+    expect(renderedText).toContain("Rejected rows saved: 1");
+    expect(renderedText).toContain("Rejected rows omitted by storage limits: 4");
+    expect(renderedText).toContain("Retryable rejected rows: 1");
+    expect(renderedText).toContain("Non-retryable rejected rows: 3");
+    expect(renderedText).toContain("Rejected-row artifact was truncated because a storage limit was reached.");
     await act(async () => {
       exportButton?.props.onClick();
       await Promise.resolve();

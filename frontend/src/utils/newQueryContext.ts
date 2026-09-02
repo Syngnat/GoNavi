@@ -1,11 +1,13 @@
 export interface NewQueryContextLike {
   connectionId?: unknown;
   dbName?: unknown;
+  schemaName?: unknown;
 }
 
 export interface NewQueryContext {
   connectionId: string;
   dbName: string;
+  schemaName?: string;
 }
 
 const normalizeValidContext = (
@@ -19,6 +21,9 @@ const normalizeValidContext = (
   return {
     connectionId,
     dbName: String(context?.dbName ?? ''),
+    ...(String(context?.schemaName ?? '').trim()
+      ? { schemaName: String(context?.schemaName ?? '').trim() }
+      : {}),
   };
 };
 
@@ -50,5 +55,6 @@ export const canInheritNewQueryTableContext = ({
   const tabType = String(activeTab?.type || '');
   return (tabType === 'table' || tabType === 'design')
     && String(activeTab?.connectionId || '').trim() === targetContext.connectionId
-    && String(activeTab?.dbName || '').trim() === targetContext.dbName;
+    && String(activeTab?.dbName || '').trim() === targetContext.dbName
+    && String(activeTab?.schemaName || '').trim() === String(targetContext.schemaName || '').trim();
 };

@@ -8,6 +8,7 @@ import type { DatabaseCharsetOption, DatabaseCollationOption } from '../../utils
 import { t } from '../../i18n';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { APP_NESTED_MODAL_Z_INDEX } from '../../utils/overlayZIndex';
 
 const getConnectionTagDescendantIds = (
   connectionTags: ConnectionTag[],
@@ -238,6 +239,7 @@ export const SidebarEntityModals: React.FC<SidebarEntityModalsProps> = ({
       )}
       open={isCreateTagModalOpen}
       centered
+      zIndex={APP_NESTED_MODAL_Z_INDEX}
       styles={{ content: modalPanelStyle, header: { background: 'transparent', borderBottom: 'none', paddingBottom: 10 }, body: { paddingTop: 8 }, footer: { background: 'transparent', borderTop: 'none', paddingTop: 12 } }}
       onOk={() => {
         createTagForm.validateFields().then(values => {
@@ -246,6 +248,16 @@ export const SidebarEntityModals: React.FC<SidebarEntityModalsProps> = ({
             connectionTags,
             editingTagId,
           );
+          const requestedName = String(values.name || '').trim();
+          const duplicate = connectionTags.some((tag) => (
+            tag.id !== editingTagId
+            && tag.parentTagId === parentTagId
+            && tag.name.trim().localeCompare(requestedName, undefined, { sensitivity: 'accent' }) === 0
+          ));
+          if (duplicate) {
+            createTagForm.setFields([{ name: 'name', errors: [t('connection.sidebar.management.nameDuplicate')] }]);
+            return;
+          }
           if (renameViewTarget?.type === 'tag') {
             updateConnectionTag({
               ...renameViewTarget.dataRef,
@@ -279,6 +291,7 @@ export const SidebarEntityModals: React.FC<SidebarEntityModalsProps> = ({
             <Select
               allowClear
               placeholder={t('sidebar.placeholder.parent_group')}
+              getPopupContainer={(trigger) => trigger.parentElement || document.body}
               options={buildConnectionTagParentOptions(
                 connectionTags,
                 editingTagId,

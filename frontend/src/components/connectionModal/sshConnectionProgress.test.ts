@@ -7,6 +7,49 @@ import {
 } from "./sshConnectionProgress";
 
 describe("SSH connection progress", () => {
+  it("does not manufacture successful SSH stages from the final RPC result", () => {
+    const completed = finishSSHConnectionProgress(
+      createSSHConnectionProgress({
+        runId: "ssh-run-1",
+        host: "bastion.example.com",
+        port: 22,
+      }),
+      { success: true },
+    );
+
+    expect(completed.status).toBe("success");
+    expect(completed.steps.map((step) => [step.id, step.status])).toEqual([
+      ["transport", "pending"],
+      ["host-key", "pending"],
+      ["authentication", "pending"],
+      ["tunnel", "pending"],
+      ["database", "pending"],
+    ]);
+  });
+
+  it("does not infer unreported SSH stages from a database success event", () => {
+    let progress = createSSHConnectionProgress({
+      runId: "ssh-run-1",
+      host: "bastion.example.com",
+      port: 22,
+    });
+
+    progress = applySSHConnectionProgressEvent(progress, {
+      runId: "ssh-run-1",
+      stage: "database_connected",
+      status: "success",
+    });
+    progress = finishSSHConnectionProgress(progress, { success: true });
+
+    expect(progress.steps.map((step) => [step.id, step.status])).toEqual([
+      ["transport", "pending"],
+      ["host-key", "pending"],
+      ["authentication", "pending"],
+      ["tunnel", "pending"],
+      ["database", "success"],
+    ]);
+  });
+
   it("turns backend stages into an ordered, successful tunnel timeline", () => {
     let progress = createSSHConnectionProgress({
       runId: "ssh-run-1",
@@ -21,6 +64,7 @@ describe("SSH connection progress", () => {
       { runId: "ssh-run-1", stage: "authenticating", status: "running" },
       { runId: "ssh-run-1", stage: "authenticated", status: "success" },
       { runId: "ssh-run-1", stage: "tunnel_ready", status: "success" },
+      { runId: "ssh-run-1", stage: "database_connected", status: "success" },
     ]) {
       progress = applySSHConnectionProgressEvent(progress, event);
     }

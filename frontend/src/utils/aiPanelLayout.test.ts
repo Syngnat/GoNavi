@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_AI_PANEL_WIDTH,
+  resolveFullscreenAIPanelOverlayWidth,
   resolveOverlayAIPanelWidth,
   shouldOverlayAIPanel,
+  shouldUseFullscreenAIPanelOverlay,
 } from './aiPanelLayout';
 
 describe('aiPanelLayout', () => {
@@ -59,5 +61,12 @@ describe('aiPanelLayout', () => {
       minOverlayWidth: 260,
       overlayGap: 12,
     })).toBe(210);
+  });
+
+  it('uses a viewport-wide overlay below the compact layout breakpoint', () => {
+    expect(shouldUseFullscreenAIPanelOverlay(390)).toBe(true);
+    expect(shouldUseFullscreenAIPanelOverlay(640)).toBe(false);
+    expect(resolveFullscreenAIPanelOverlayWidth(390)).toBe(DEFAULT_AI_PANEL_WIDTH);
+    expect(resolveFullscreenAIPanelOverlayWidth(320)).toBe(320);
   });
 });

@@ -111,7 +111,7 @@ jobs:
           key: ${{ runner.os }}-node20-frontend-${{ hashFiles('frontend/package-lock.json', 'frontend/patches/*.patch') }}
 
       - name: Install Wails
-        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 
       - name: Build frontend dist
         shell: bash
@@ -669,7 +669,7 @@ jobs:
           fi
 
       - name: Install Wails
-        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 
       - name: Setup MSYS2 Toolchain For DuckDB (Windows AMD64)
         id: msys2_duckdb

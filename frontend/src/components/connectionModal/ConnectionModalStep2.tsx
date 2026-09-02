@@ -252,7 +252,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
             <span className="hint">{t("connection.modal.uri.optionalHint")}</span>
           </div>
         </div>
-        <Form.Item name="uri" style={{ marginBottom: 8 }}>
+        <Form.Item name="uri" noStyle>
           <Input.TextArea
             {...noAutoCapInputProps}
             rows={2}
@@ -317,7 +317,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
     <div className="gn-conn-mode-extra">
       <div className="gn-conn-el">{t(labelKey)}</div>
       <div className="gn-conn-eh">{t(helpKey)}</div>
-      <Form.Item name={fieldName} style={{ marginBottom: 0 }}>
+      <Form.Item name={fieldName} noStyle>
         <Select
           mode="tags"
           placeholder={t(placeholderKey)}
@@ -400,17 +400,18 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
               icon: <FileTextOutlined />,
               children: (
                 <>
-                  <Form.Item
-                    name="dsn"
-                    label={t("connection.modal.field.dsn.label")}
-                    rules={[createCustomDsnRule()]}
-                  >
-                    <Input.TextArea
-                      {...noAutoCapInputProps}
-                      rows={4}
-                      placeholder={t("connection.modal.field.dsn.placeholder")}
-                    />
-                  </Form.Item>
+                  <div className="gn-conn-multiline-field">
+                    <div className="gn-conn-el">
+                      {t("connection.modal.field.dsn.label")}
+                    </div>
+                    <Form.Item name="dsn" noStyle rules={[createCustomDsnRule()]}>
+                      <Input.TextArea
+                        {...noAutoCapInputProps}
+                        rows={4}
+                        placeholder={t("connection.modal.field.dsn.placeholder")}
+                      />
+                    </Form.Item>
+                  </div>
                   {renderStoredSecretControls({
                     fieldName: "dsn",
                     clearKey: "opaqueDSN",
@@ -1635,10 +1636,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                     t("connection.modal.field.displayDatabases.help"),
                   )}
                   <div className="gn-conn-f-ctrl">
-                    <Form.Item
-                      name="includeDatabases"
-                      style={{ marginBottom: 0, width: "100%" }}
-                    >
+                    <Form.Item name="includeDatabases" noStyle>
                       <Select
                         className="gn-conn-scope-select"
                         mode="tags"
@@ -1667,10 +1665,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                         t("connection.modal.field.includeDatabasePatterns.help"),
                       )}
                       <div className="gn-conn-f-ctrl">
-                        <Form.Item
-                          name="includeDatabasePatterns"
-                          style={{ marginBottom: 0, width: "100%" }}
-                        >
+                        <Form.Item name="includeDatabasePatterns" noStyle>
                           <Select
                             className="gn-conn-scope-select"
                             mode="tags"
@@ -1692,10 +1687,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                         t("connection.modal.field.excludeDatabasePatterns.help"),
                       )}
                       <div className="gn-conn-f-ctrl">
-                        <Form.Item
-                          name="excludeDatabasePatterns"
-                          style={{ marginBottom: 0, width: "100%" }}
-                        >
+                        <Form.Item name="excludeDatabasePatterns" noStyle>
                           <Select
                             className="gn-conn-scope-select"
                             mode="tags"
@@ -1926,7 +1918,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                 <div className="gn-conn-eh">
                   {t("connection.modal.field.mysqlReplicaHosts.help")}
                 </div>
-                <Form.Item name="mysqlReplicaHosts" style={{ marginBottom: 8 }}>
+                <Form.Item name="mysqlReplicaHosts" noStyle>
                   <Select
                     mode="tags"
                     placeholder={t(
@@ -2078,7 +2070,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                     ? t("connection.modal.field.mongoSrvHosts.help")
                     : t("connection.modal.field.mongoHosts.help")}
                 </div>
-                <Form.Item name="mongoHosts" style={{ marginBottom: 8 }}>
+                <Form.Item name="mongoHosts" noStyle>
                   <Select
                     mode="tags"
                     placeholder={
@@ -2338,7 +2330,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                       <div className="gn-conn-eh">
                         {t("connection.modal.field.redisHosts.help")}
                       </div>
-                      <Form.Item name="redisHosts" style={{ marginBottom: 0 }}>
+                      <Form.Item name="redisHosts" noStyle>
                         <Select
                           mode="tags"
                           placeholder={t(
@@ -2360,10 +2352,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                       <div className="gn-conn-eh">
                         {t("connection.modal.redis.hosts.sentinel.help")}
                       </div>
-                      <Form.Item
-                        name="redisHosts"
-                        style={{ marginBottom: 8 }}
-                      >
+                      <Form.Item name="redisHosts" noStyle>
                         <Select
                           mode="tags"
                           placeholder={t(
@@ -2409,12 +2398,10 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
                   t("connection.modal.field.displayDatabases.label"),
                 )}
                 <div className="gn-conn-f-ctrl">
-                  <Form.Item
-                    name="includeRedisDatabases"
-                    style={{ marginBottom: 0 }}
-                  >
+                  <Form.Item name="includeRedisDatabases" noStyle>
                     <Select
                       mode="multiple"
+                      style={{ width: "100%" }}
                       placeholder={t(
                         "connection.modal.field.displayRedisDatabases.placeholder",
                       )}

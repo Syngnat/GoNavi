@@ -81,6 +81,21 @@ describe('queryEditorSchemaContext', () => {
     })?.selectedSchema).toBe('public');
   });
 
+  it('preserves an explicit tab schema even when the load result has another default', () => {
+    expect(resolveLoadedQueryEditorSchema({
+      requestSeq: 1,
+      currentRequestSeq: 1,
+      latestSelectedSchema: '',
+      explicitSchema: 'anno',
+      rememberedSchema: 'anno',
+      currentSchema: 'dbms_job',
+      schemaNames: ['dbms_job'],
+    })).toEqual({
+      selectedSchema: 'anno',
+      schemaNames: ['anno', 'dbms_job'],
+    });
+  });
+
   it('keeps distinct quoted-case schema names in the selector', () => {
     expect(resolveLoadedQueryEditorSchema({
       requestSeq: 1,

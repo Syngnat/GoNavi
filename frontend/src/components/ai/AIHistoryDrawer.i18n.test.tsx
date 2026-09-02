@@ -12,7 +12,7 @@ vi.mock('../../i18n/runtime', () => ({
 }));
 
 const storeState = vi.hoisted(() => ({
-  aiChatSessions: [] as Array<{ id: string; title: string; updatedAt: number }>,
+  aiChatSessions: [] as Array<{ id: string; title: string; updatedAt: number; archived?: boolean }>,
   setAIActiveSessionId: vi.fn(),
   deleteAISession: vi.fn(),
 }));
@@ -104,6 +104,7 @@ const renderDrawer = async (
           borderColor="#d0d5dd"
           onCreateNew={() => {}}
           onSelectSession={() => {}}
+          onArchiveSession={() => {}}
           sessionId="s1"
           {...overrides}
         />
@@ -169,6 +170,7 @@ describe('AIHistoryDrawer i18n', () => {
             borderColor="#d0d5dd"
             onCreateNew={() => {}}
             onSelectSession={() => {}}
+            onArchiveSession={() => {}}
             sessionId="s1"
           />
         </I18nProvider>,

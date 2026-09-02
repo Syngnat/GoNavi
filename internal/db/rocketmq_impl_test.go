@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"net"
 	"reflect"
 	"strings"
@@ -14,14 +15,17 @@ import (
 )
 
 type fakeRocketMQRuntime struct {
-	listTopicsResult   []rocketmqTopicInfo
-	describeResult     rocketmqTopicDescription
-	fetchResult        []rocketmqMessageRecord
-	publishAffected    int64
-	lastDescribe       rocketmqDescribeRequest
-	lastFetch          rocketmqFetchRequest
-	lastPublish        rocketmqPublishCommand
-	fetchCount         int
+	listTopicsResult     []rocketmqTopicInfo
+	describeResult       rocketmqTopicDescription
+	fetchResult          []rocketmqMessageRecord
+	publishAffected      int64
+	lastDescribe         rocketmqDescribeRequest
+	lastFetch            rocketmqFetchRequest
+	lastPublish          rocketmqPublishCommand
+	fetchCount           int
+	consumerGroupsResult []rocketmqConsumerGroupInfo
+	consumerGroupsErr    error
+	lastConsumerGroupID  string
 }
 
 func (f *fakeRocketMQRuntime) Close() error { return nil }
@@ -63,6 +67,10 @@ func (f *fakeRocketMQRuntime) FetchMessages(ctx context.Context, request rocketm
 func (f *fakeRocketMQRuntime) Publish(ctx context.Context, command rocketmqPublishCommand) (int64, error) {
 	f.lastPublish = command
 	return f.publishAffected, nil
+}
+func (f *fakeRocketMQRuntime) InspectConsumerGroups(ctx context.Context, groupID string) ([]rocketmqConsumerGroupInfo, error) {
+	f.lastConsumerGroupID = groupID
+	return f.consumerGroupsResult, f.consumerGroupsErr
 }
 
 func TestNormalizeRocketMQConfigParsesURIAndParams(t *testing.T) {
@@ -369,6 +377,61 @@ func TestRocketMQQueryExecAndColumns(t *testing.T) {
 	}
 	if !reflect.DeepEqual(tables, []string{"orders.events"}) {
 		t.Fatalf("unexpected rocketmq topic list: %#v", tables)
+	}
+}
+
+func TestRocketMQQueryConsumerGroupsPassesOptionalGroupID(t *testing.T) {
+	runtime := &fakeRocketMQRuntime{consumerGroupsResult: []rocketmqConsumerGroupInfo{{
+		GroupID: "orders", State: "CONSUMING", MemberID: "client-a", Topic: "orders.events",
+		QueueID: 1, CurrentOffset: 8, LogEndOffset: 12, Lag: 4,
+	}}}
+	client := &RocketMQDB{runtime: runtime}
+
+	rows, columns, err := client.Query(`SHOW CONSUMER GROUPS`)
+	if err != nil {
+		t.Fatalf("SHOW CONSUMER GROUPS failed: %v", err)
+	}
+	if runtime.lastConsumerGroupID != "" || len(rows) != 1 || rows[0]["lag"] != int64(4) {
+		t.Fatalf("unexpected SHOW CONSUMER GROUPS result: group=%q rows=%#v", runtime.lastConsumerGroupID, rows)
+	}
+	if !containsString(columns, "queue_id") {
+		t.Fatalf("expected queue_id column, got %v", columns)
+	}
+
+	if _, _, err := client.Query(`DESCRIBE CONSUMER GROUP "orders"`); err != nil {
+		t.Fatalf("DESCRIBE CONSUMER GROUP failed: %v", err)
+	}
+	if runtime.lastConsumerGroupID != "orders" {
+		t.Fatalf("DESCRIBE CONSUMER GROUP group ID = %q, want orders", runtime.lastConsumerGroupID)
+	}
+}
+
+func TestRocketMQQueryConsumerGroupsPropagatesRuntimeError(t *testing.T) {
+	runtime := &fakeRocketMQRuntime{consumerGroupsErr: errors.New("consumer groups unavailable")}
+	client := &RocketMQDB{runtime: runtime}
+
+	if _, _, err := client.Query(`SHOW CONSUMER GROUPS`); err == nil || !strings.Contains(err.Error(), "consumer groups unavailable") {
+		t.Fatalf("expected runtime error to propagate, got %v", err)
+	}
+}
+
+func TestParseRocketMQConsumeUsesConfiguredStartOffset(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		defaultLatest bool
+	}{
+		{name: "earliest", defaultLatest: false},
+		{name: "latest", defaultLatest: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parsed, ok := parseRocketMQSQL(`CONSUME FROM "orders.events" LIMIT 10`, testCase.defaultLatest)
+			if !ok {
+				t.Fatal("CONSUME should parse")
+			}
+			if parsed.Latest != testCase.defaultLatest {
+				t.Fatalf("Latest = %v, want configured value %v", parsed.Latest, testCase.defaultLatest)
+			}
+		})
 	}
 }
 

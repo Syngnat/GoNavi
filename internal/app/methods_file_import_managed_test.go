@@ -156,6 +156,11 @@ func TestImportDataWithProgressOptionsPublishesRejectedRowsAndPartialJob(t *test
 	if job.Status != importjob.StatusPartial || job.Succeeded != 2 || job.Failed != 1 || job.ErrorArtifactID != artifactID {
 		t.Fatalf("unexpected partial job: %#v", job)
 	}
+	if job.ErrorArtifactCount != 1 || job.ErrorArtifactBytes <= 0 || job.ErrorArtifactOmittedCount != 0 ||
+		job.ErrorArtifactTruncated || job.ErrorArtifactRetryableCount != 1 ||
+		job.ErrorArtifactUnretryableCount != 0 || !job.ErrorArtifactScopeKnown {
+		t.Fatalf("unexpected partial artifact scope: %#v", job)
+	}
 
 	artifactStore, err := app.ensureImportErrorArtifactStore()
 	if err != nil {

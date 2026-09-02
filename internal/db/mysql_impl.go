@@ -1041,14 +1041,33 @@ func (m *MySQLDB) GetTables(dbName string) ([]string, error) {
 		return nil, err
 	}
 
-	var tables []string
+	tables := make([]string, 0, len(data))
 	for _, row := range data {
 		for _, v := range row {
 			tables = append(tables, fmt.Sprintf("%v", v))
 			break
 		}
 	}
-	return resolveShardingSphereLogicalTables(tables, m.Query), nil
+	return resolveShardingSphereLogicalTables(dedupeExactTableMetadataNames(tables), m.Query), nil
+}
+
+func dedupeExactTableMetadataNames(tables []string) []string {
+	if len(tables) == 0 {
+		return tables
+	}
+	seen := make(map[string]struct{}, len(tables))
+	result := make([]string, 0, len(tables))
+	for _, table := range tables {
+		if strings.TrimSpace(table) == "" {
+			continue
+		}
+		if _, exists := seen[table]; exists {
+			continue
+		}
+		seen[table] = struct{}{}
+		result = append(result, table)
+	}
+	return result
 }
 
 func normalizeMySQLIdentifierPart(ident string) string {

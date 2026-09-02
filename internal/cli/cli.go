@@ -30,6 +30,10 @@ const (
 	ExitExecution      = 5
 	ExitCancelled      = 6
 	ExitUnknownOutcome = 7
+	// ExitActionRequired indicates that a run was accepted but needs a
+	// follow-up command (approval, resume, recovery, or an owner to consume
+	// a queued input) before it can reach a terminal state.
+	ExitActionRequired = 8
 )
 
 // Version is set by release builds with -ldflags.
@@ -105,6 +109,12 @@ type jsonlSummaryEvent struct {
 // Run executes one CLI invocation. Successful command data is written to
 // stdout; machine-readable diagnostics are written to stderr.
 func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
+	// Keep the caller's lifecycle context for the Agent route.  Legacy CLI
+	// commands historically tolerated a nil context, so they continue to use a
+	// synthesized background context below; Agent commands must instead reject
+	// a missing root rather than creating work detached from the process
+	// lifetime.
+	agentLifecycleCtx := ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -150,6 +160,8 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer)
 		return emitOutput(stdout, stderr, map[string]string{"version": Version})
 	case "mcp":
 		return runMCP(ctx, commandArgs, stdout, stderr)
+	case "agent":
+		return runAgent(agentLifecycleCtx, commandArgs, stdout, stderr)
 	case "list-connections", "connections":
 		if commandHelpRequested(command, commandArgs) {
 			return runListConnections(commandArgs, nil, stdout, stderr)
@@ -1246,7 +1258,8 @@ func writeRootUsage(writer io.Writer) {
 	_, _ = io.WriteString(writer, `GoNavi CLI
 
 Usage:
-  gonavi [--data-root PATH] list-connections
+	gonavi [--data-root PATH] agent <chat|run|list|show|resume|cancel|approve|deny|recover|config|snapshot>
+	gonavi [--data-root PATH] list-connections
   gonavi [--data-root PATH] connection <list|add|import>
   gonavi [--data-root PATH] query (--conn ID_OR_NAME|--connection-file FILE) [--sql SQL|--sql-file FILE|SQL]
   gonavi [--data-root PATH] export (--conn ID_OR_NAME|--connection-file FILE) --output FILE [--sql SQL|--sql-file FILE|SQL]

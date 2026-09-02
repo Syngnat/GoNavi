@@ -16,6 +16,8 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+const defaultDetachedRPCRequestTimeout = 30 * time.Second
+
 type invokeRequest struct {
 	Namespace string `json:"namespace"`
 	Receiver  string `json:"receiver"`
@@ -37,14 +39,16 @@ type bridgeEvent struct {
 // over Go's HTTP stack so long-lived event streams never pass through Wails v2's
 // Windows AssetServer response buffering.
 type Bridge struct {
-	parentURL string
-	token     string
-	windowID  string
-	kind      string
-	client    *http.Client
+	parentURL  string
+	token      string
+	windowID   string
+	kind       string
+	client     *http.Client
+	rpcTimeout time.Duration
 
 	mu                    sync.Mutex
 	ctx                   context.Context
+	lifecycleCtx          context.Context // one-shot child lifetime shared by SSE and ordinary RPC
 	cancel                context.CancelFunc
 	ready                 bool
 	onReady               func() OperationResult
@@ -69,6 +73,7 @@ func newBridge(options ChildOptions) *Bridge {
 		windowID:              options.ID,
 		kind:                  options.Kind,
 		client:                &http.Client{Transport: transport},
+		rpcTimeout:            defaultDetachedRPCRequestTimeout,
 		allowParentForeground: grantParentForegroundAccess,
 		emitToWails: func(ctx context.Context, name string, args ...any) {
 			wailsRuntime.EventsEmit(ctx, name, args...)
@@ -80,16 +85,20 @@ func InitializeBridge(bridge *Bridge, ctx context.Context) {
 	if bridge == nil {
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	bridge.mu.Lock()
-	if bridge.cancel != nil {
+	if bridge.lifecycleCtx != nil || bridge.cancel != nil {
 		bridge.mu.Unlock()
 		return
 	}
-	streamCtx, cancel := context.WithCancel(ctx)
+	lifecycleCtx, cancel := context.WithCancel(ctx)
 	bridge.ctx = ctx
+	bridge.lifecycleCtx = lifecycleCtx
 	bridge.cancel = cancel
 	bridge.mu.Unlock()
-	go bridge.consumeEvents(streamCtx)
+	go bridge.consumeEvents(lifecycleCtx)
 }
 
 // Invoke calls the shared parent App or AI service.
@@ -101,7 +110,7 @@ func (b *Bridge) Invoke(namespace string, receiver string, method string, args [
 		Args:      args,
 	}
 	var response invokeResponse
-	status, err := b.doJSON(context.Background(), http.MethodPost, InvokePath, request, &response)
+	status, err := b.doRPCJSON(http.MethodPost, InvokePath, request, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +126,7 @@ func (b *Bridge) Invoke(namespace string, receiver string, method string, args [
 // Bootstrap returns the tab snapshot stored in the main process registry.
 func (b *Bridge) Bootstrap() (Bootstrap, error) {
 	var result Bootstrap
-	status, err := b.doJSON(context.Background(), http.MethodGet, BootstrapPath, nil, &result)
+	status, err := b.doRPCJSON(http.MethodGet, BootstrapPath, nil, &result)
 	if err != nil {
 		return Bootstrap{}, err
 	}
@@ -161,8 +170,7 @@ func (b *Bridge) CloseOwnedWindows() OperationResult {
 
 func (b *Bridge) control(request controlRequest) OperationResult {
 	var result OperationResult
-	status, err := b.doJSON(
-		context.Background(),
+	status, err := b.doRPCJSON(
 		http.MethodPost,
 		ControlPath,
 		request,
@@ -198,7 +206,7 @@ func (b *Bridge) action(action string, payload any, grantForeground bool) Operat
 	}
 
 	var result OperationResult
-	status, err := b.doJSON(context.Background(), http.MethodPost, ActionPath, actionRequest{Action: action, Payload: payload}, &result)
+	status, err := b.doRPCJSON(http.MethodPost, ActionPath, actionRequest{Action: action, Payload: payload}, &result)
 	if err != nil {
 		return operationFailure(err.Error())
 	}
@@ -290,6 +298,7 @@ func (b *Bridge) stop() {
 	}
 	b.mu.Lock()
 	cancel := b.cancel
+	// lifecycleCtx is intentionally retained in its cancelled state after stop.
 	b.cancel = nil
 	b.mu.Unlock()
 	if cancel != nil {
@@ -297,9 +306,44 @@ func (b *Bridge) stop() {
 	}
 }
 
+func (b *Bridge) lifecycleContext() context.Context {
+	if b == nil {
+		return context.Background()
+	}
+	b.mu.Lock()
+	lifecycleCtx := b.lifecycleCtx
+	b.mu.Unlock()
+	if lifecycleCtx != nil {
+		return lifecycleCtx
+	}
+	return context.Background()
+}
+
+func (b *Bridge) rpcTimeoutDuration() time.Duration {
+	if b == nil {
+		return defaultDetachedRPCRequestTimeout
+	}
+	b.mu.Lock()
+	timeout := b.rpcTimeout
+	b.mu.Unlock()
+	if timeout <= 0 {
+		return defaultDetachedRPCRequestTimeout
+	}
+	return timeout
+}
+
+func (b *Bridge) doRPCJSON(method string, requestPath string, requestBody any, responseBody any) (int, error) {
+	requestCtx, cancel := context.WithTimeout(b.lifecycleContext(), b.rpcTimeoutDuration())
+	defer cancel()
+	return b.doJSON(requestCtx, method, requestPath, requestBody, responseBody)
+}
+
 func (b *Bridge) doJSON(ctx context.Context, method string, requestPath string, requestBody any, responseBody any) (int, error) {
 	if b == nil || b.client == nil {
 		return 0, fmt.Errorf("detached bridge is unavailable")
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	var body io.Reader
 	if requestBody != nil {

@@ -477,17 +477,17 @@ func TestManagerRoutesCommandsAndAIStreamsToOnlyTheirTargetWindow(t *testing.T) 
 		t.Fatalf("close command = %#v", command)
 	}
 
-	manager.emit("ai:stream:session-1", map[string]any{"content": "chunk"})
+	manager.emit("ai:run:event", map[string]any{"runId": "run-1", "sequence": 1, "kind": "model_delta"})
 	stream := <-bestEffort
-	if stream.targetID != "ai-chat" || stream.name != "ai:stream:session-1" {
-		t.Fatalf("AI stream event = %#v", stream)
+	if stream.targetID != "ai-chat" || stream.name != "ai:run:event" {
+		t.Fatalf("AI run event = %#v", stream)
 	}
-	if main := <-mainEvents; main.name != "ai:stream:session-1" {
-		t.Fatalf("main AI stream event = %#v", main)
+	if main := <-mainEvents; main.name != "ai:run:event" {
+		t.Fatalf("main AI run event = %#v", main)
 	}
 	select {
 	case leaked := <-broadcast:
-		t.Fatalf("AI stream was broadcast to every child: %#v", leaked)
+		t.Fatalf("AI run event was broadcast to every child: %#v", leaked)
 	default:
 	}
 

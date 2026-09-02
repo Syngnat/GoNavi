@@ -1,12 +1,17 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/nacos"
 )
 
 type healthProbeDatabase struct {
@@ -18,6 +23,19 @@ type healthProbeDatabase struct {
 	getDatabasesCalls int
 	databaseNames     []string
 	version           string
+}
+
+type blockingHealthProbeDatabase struct {
+	healthProbeDatabase
+	connectStarted chan struct{}
+	releaseConnect chan struct{}
+	startOnce      sync.Once
+}
+
+func (f *blockingHealthProbeDatabase) Connect(config connection.ConnectionConfig) error {
+	f.startOnce.Do(func() { close(f.connectStarted) })
+	<-f.releaseConnect
+	return f.healthProbeDatabase.Connect(config)
 }
 
 func (f *healthProbeDatabase) Connect(config connection.ConnectionConfig) error {
@@ -264,6 +282,251 @@ func TestInspectSavedConnectionsHealthDeduplicatesIDsAndKeepsMissingConnectionSa
 	if strings.Contains(strings.ToLower(string(encoded)), "saved connection not found") {
 		t.Fatalf("missing connection report must not expose raw backend detail: %s", encoded)
 	}
+}
+
+func TestSavedConnectionsHealthRunReportsProgressAndCancelsRemainingProbes(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	firstProbeStarted := make(chan struct{})
+	app.connectionHealthRunInspect = func(ctx context.Context, id string) connection.ConnectionHealthReport {
+		if id == "first" {
+			close(firstProbeStarted)
+			<-ctx.Done()
+		}
+		return connection.ConnectionHealthReport{
+			ConnectionID:  id,
+			OverallStatus: connection.ConnectionHealthStatusPassed,
+		}
+	}
+
+	started := app.StartSavedConnectionsHealthRun([]string{" first ", "first", "second", "third"})
+	if started.RunID == "" || started.Status != connection.ConnectionHealthRunStatusRunning || started.Total != 3 || started.Completed != 0 {
+		t.Fatalf("unexpected initial health run: %#v", started)
+	}
+	if len(started.RemainingConnectionIDs) != 3 {
+		t.Fatalf("initial remaining connections = %#v, want three IDs", started.RemainingConnectionIDs)
+	}
+
+	select {
+	case <-firstProbeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first health probe did not begin")
+	}
+	progress := app.GetSavedConnectionsHealthRun(started.RunID)
+	if progress.CurrentConnectionID != "first" || progress.Completed != 0 || len(progress.RemainingConnectionIDs) != 3 {
+		t.Fatalf("unexpected in-progress health run: %#v", progress)
+	}
+
+	cancelling := app.CancelSavedConnectionsHealthRun(started.RunID)
+	if cancelling.Status != connection.ConnectionHealthRunStatusCancelling || !cancelling.CancelRequested {
+		t.Fatalf("cancel request = %#v, want cancelling state", cancelling)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		finished := app.GetSavedConnectionsHealthRun(started.RunID)
+		if finished.Status == connection.ConnectionHealthRunStatusCancelled {
+			if finished.Completed != 0 || len(finished.Reports) != 0 {
+				t.Fatalf("cancelled reports = %#v, want no report from the interrupted probe", finished)
+			}
+			if got := strings.Join(finished.RemainingConnectionIDs, ","); got != "first,second,third" {
+				t.Fatalf("remaining connections = %q, want first,second,third", got)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("health run did not reach cancelled state: %#v", finished)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestSavedConnectionsHealthRunRejectsConcurrentRunAndReleasesSlotAfterCancellation(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	firstProbeStarted := make(chan struct{})
+	app.connectionHealthRunInspect = func(ctx context.Context, id string) connection.ConnectionHealthReport {
+		if id == "first" {
+			close(firstProbeStarted)
+			<-ctx.Done()
+		}
+		return connection.ConnectionHealthReport{ConnectionID: id, OverallStatus: connection.ConnectionHealthStatusPassed}
+	}
+
+	first := app.StartSavedConnectionsHealthRun([]string{"first"})
+	select {
+	case <-firstProbeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first health probe did not begin")
+	}
+	if rejected := app.StartSavedConnectionsHealthRun([]string{"second"}); rejected.Status != connection.ConnectionHealthRunStatusRejected || rejected.RunID != "" {
+		t.Fatalf("concurrent run = %#v, want rejected result without run ID", rejected)
+	}
+	app.CancelSavedConnectionsHealthRun(first.RunID)
+	if !waitForConnectionHealthRunStatus(app, first.RunID, connection.ConnectionHealthRunStatusCancelled, time.Second) {
+		t.Fatalf("first run did not cancel: %#v", app.GetSavedConnectionsHealthRun(first.RunID))
+	}
+
+	third := app.StartSavedConnectionsHealthRun([]string{"third"})
+	if third.RunID == "" || third.Status == connection.ConnectionHealthRunStatusRejected {
+		t.Fatalf("run after cancellation = %#v, want accepted run", third)
+	}
+	if !waitForConnectionHealthRunStatus(app, third.RunID, connection.ConnectionHealthRunStatusCompleted, time.Second) {
+		t.Fatalf("third run did not complete: %#v", app.GetSavedConnectionsHealthRun(third.RunID))
+	}
+}
+
+func TestConnectionHealthRunRetentionKeepsCancelledCleanupReachable(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	blocked := &connectionHealthRun{
+		run:        connection.ConnectionHealthRun{Status: connection.ConnectionHealthRunStatusCancelled},
+		done:       make(chan struct{}),
+		finishedAt: time.Now().Add(-time.Hour),
+	}
+	app.connectionHealthRuns = map[string]*connectionHealthRun{"blocked": blocked}
+	for index := 0; index < maxRetainedConnectionHealthRuns-1; index++ {
+		done := make(chan struct{})
+		close(done)
+		app.connectionHealthRuns[fmt.Sprintf("finished-%d", index)] = &connectionHealthRun{
+			run:        connection.ConnectionHealthRun{Status: connection.ConnectionHealthRunStatusCompleted},
+			done:       done,
+			finishedAt: time.Now().Add(time.Duration(index) * time.Second),
+		}
+	}
+
+	app.pruneConnectionHealthRunsLocked()
+	if app.connectionHealthRuns["blocked"] != blocked {
+		t.Fatal("pruning removed a cancelled run whose cleanup is still pending")
+	}
+	if len(app.connectionHealthRuns) != maxRetainedConnectionHealthRuns-1 {
+		t.Fatalf("retained run count = %d, want %d after pruning a completed run", len(app.connectionHealthRuns), maxRetainedConnectionHealthRuns-1)
+	}
+}
+
+func TestCancelAndWaitConnectionHealthRunsCancelsActiveProbe(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	probeStarted := make(chan struct{})
+	app.connectionHealthRunInspect = func(ctx context.Context, id string) connection.ConnectionHealthReport {
+		close(probeStarted)
+		<-ctx.Done()
+		return connection.ConnectionHealthReport{ConnectionID: id, OverallStatus: connection.ConnectionHealthStatusPassed}
+	}
+
+	run := app.StartSavedConnectionsHealthRun([]string{"shutdown"})
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("health probe did not begin")
+	}
+	if !app.cancelAndWaitConnectionHealthRuns(time.Second) {
+		t.Fatal("cancelAndWaitConnectionHealthRuns() timed out")
+	}
+	if finished := app.GetSavedConnectionsHealthRun(run.RunID); finished.Status != connection.ConnectionHealthRunStatusCancelled {
+		t.Fatalf("shutdown cancellation = %#v, want cancelled", finished)
+	}
+}
+
+func TestCancelAndWaitConnectionHealthRunsWaitsForCancelledConnectCleanup(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+	probe := &blockingHealthProbeDatabase{
+		connectStarted: make(chan struct{}),
+		releaseConnect: make(chan struct{}),
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return probe, nil }
+	resolveDialConfigWithProxyFunc = func(config connection.ConnectionConfig) (connection.ConnectionConfig, error) { return config, nil }
+
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+	if _, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID: "blocked-connect", Name: "Blocked connect", Config: connection.ConnectionConfig{ID: "blocked-connect", Type: "mysql", Host: "127.0.0.1", UseSSL: true},
+	}); err != nil {
+		t.Fatalf("SaveConnection() error = %v", err)
+	}
+	run := app.StartSavedConnectionsHealthRun([]string{"blocked-connect"})
+	select {
+	case <-probe.connectStarted:
+	case <-time.After(time.Second):
+		t.Fatal("isolated database connect did not begin")
+	}
+	app.CancelSavedConnectionsHealthRun(run.RunID)
+	if !waitForConnectionHealthRunStatus(app, run.RunID, connection.ConnectionHealthRunStatusCancelled, time.Second) {
+		t.Fatalf("run did not publish cancellation: %#v", app.GetSavedConnectionsHealthRun(run.RunID))
+	}
+	if rejected := app.StartSavedConnectionsHealthRun([]string{"blocked-connect"}); rejected.Status != connection.ConnectionHealthRunStatusRejected {
+		t.Fatalf("run started before cancelled connect cleanup completed: %#v", rejected)
+	}
+	if app.cancelAndWaitConnectionHealthRuns(10 * time.Millisecond) {
+		t.Fatal("cancelAndWaitConnectionHealthRuns() returned before blocked connect cleanup finished")
+	}
+	close(probe.releaseConnect)
+	if !app.cancelAndWaitConnectionHealthRuns(time.Second) {
+		t.Fatal("cancelAndWaitConnectionHealthRuns() did not finish after connect returned")
+	}
+	if rejected := app.StartSavedConnectionsHealthRun([]string{"blocked-connect"}); rejected.Status != connection.ConnectionHealthRunStatusRejected {
+		t.Fatalf("run started after shutdown barrier: %#v", rejected)
+	}
+}
+
+func TestSavedConnectionsHealthRunWaitsForCancelledNacosConnectCleanup(t *testing.T) {
+	installNacosCacheTestHooks(t)
+	connectStarted := make(chan struct{})
+	releaseConnect := make(chan struct{})
+	var connectStartOnce sync.Once
+	client := &nacosCacheTestClient{
+		connect: func(connection.ConnectionConfig) error {
+			connectStartOnce.Do(func() { close(connectStarted) })
+			<-releaseConnect
+			return nil
+		},
+	}
+	newNacosClientFunc = func() nacos.Client { return client }
+
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+	if _, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID: "blocked-nacos-connect", Name: "Blocked Nacos connect", Config: connection.ConnectionConfig{ID: "blocked-nacos-connect", Type: "nacos", Host: "127.0.0.1", Port: 8848},
+	}); err != nil {
+		t.Fatalf("SaveConnection() error = %v", err)
+	}
+	run := app.StartSavedConnectionsHealthRun([]string{"blocked-nacos-connect"})
+	select {
+	case <-connectStarted:
+	case <-time.After(time.Second):
+		t.Fatal("isolated Nacos connect did not begin")
+	}
+	app.CancelSavedConnectionsHealthRun(run.RunID)
+	if !waitForConnectionHealthRunStatus(app, run.RunID, connection.ConnectionHealthRunStatusCancelled, time.Second) {
+		t.Fatalf("run did not publish cancellation: %#v", app.GetSavedConnectionsHealthRun(run.RunID))
+	}
+	if rejected := app.StartSavedConnectionsHealthRun([]string{"blocked-nacos-connect"}); rejected.Status != connection.ConnectionHealthRunStatusRejected {
+		t.Fatalf("run started before cancelled Nacos connect cleanup completed: %#v", rejected)
+	}
+	close(releaseConnect)
+	select {
+	case <-app.getConnectionHealthRun(run.RunID).done:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled Nacos connect cleanup did not finish")
+	}
+	next := app.StartSavedConnectionsHealthRun([]string{"blocked-nacos-connect"})
+	if next.Status == connection.ConnectionHealthRunStatusRejected {
+		t.Fatalf("run stayed rejected after Nacos connect cleanup finished: %#v", next)
+	}
+	if !waitForConnectionHealthRunStatus(app, next.RunID, connection.ConnectionHealthRunStatusCompleted, time.Second) {
+		t.Fatalf("new Nacos health run did not complete: %#v", app.GetSavedConnectionsHealthRun(next.RunID))
+	}
+}
+
+func waitForConnectionHealthRunStatus(app *App, runID string, want connection.ConnectionHealthRunStatus, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if app.GetSavedConnectionsHealthRun(runID).Status == want {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return app.GetSavedConnectionsHealthRun(runID).Status == want
 }
 
 func findConnectionHealthCheck(report connection.ConnectionHealthReport, key string) (connection.ConnectionHealthCheck, bool) {

@@ -78,10 +78,13 @@ describe('store appearance persistence', () => {
     expect(appearance.blur).toBe(6);
     expect(appearance).not.toHaveProperty('useNativeMacWindowControls');
     expect(appearance.tableDoubleClickAction).toBe('open-data');
+    expect(appearance.queryTableCtrlClickAction).toBe('open-design');
     expect(appearance.v2SidebarSearchMode).toBe('command');
-    expect(appearance.v2CommandSearchPersistentFilterEnabled).toBe(false);
+    expect(appearance).not.toHaveProperty('v2CommandSearchPersistentFilterEnabled');
     expect(appearance.v2SidebarPersistedFilter).toBe('');
     expect(appearance.v2SidebarRailScale).toBe(1);
+    expect(appearance.tabEnvironmentAccentThickness).toBe(2);
+    expect(appearance.toolbarButtonColorOverrides).toEqual({});
     expect(appearance.sidebarSingleDatabaseExpansion).toBe(false);
     expect(appearance.sidebarHiddenObjectGroups).toEqual([]);
     expect(appearance.showDataTableVerticalBorders).toBe(false);
@@ -96,6 +99,7 @@ describe('store appearance persistence', () => {
     expect(appearance.customUIFontFamily).toBeNull();
     expect(appearance.customMonoFontFamily).toBeNull();
     expect(appearance.newQuerySqlTemplate).toBeNull();
+    expect(appearance.autoAddTableAlias).toBe(true);
     expect(appearance.tabDisplay).toEqual({
       layout: 'double',
       primaryElements: ['object'],
@@ -123,7 +127,7 @@ describe('store appearance persistence', () => {
       primaryElements: ['object'],
       secondaryElements: ['kind', 'connection', 'database'],
     });
-    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(20);
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(21);
 
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
@@ -176,7 +180,7 @@ describe('store appearance persistence', () => {
     expect(appearance.sqlEditorFontSizeFollowGlobal).toBe(false);
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(20);
+    expect(persisted.version).toBe(21);
     expect(persisted.state.appearance.sqlEditorFontSize).toBe(17);
     expect(persisted.state.appearance.sqlEditorFontSizeFollowGlobal).toBe(false);
   });
@@ -195,7 +199,7 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().appearance.uiVersion).toBe('v2');
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(20);
+    expect(persisted.version).toBe(21);
     expect(persisted.state.appearance.uiVersion).toBe('v2');
   });
 
@@ -221,7 +225,9 @@ describe('store appearance persistence', () => {
       showDataTableRowNumber: false,
       dataTableDensity: 'compact',
       tableDoubleClickAction: 'open-design',
+      queryTableCtrlClickAction: 'locate',
       v2SidebarRailScale: 1.55,
+      tabEnvironmentAccentThickness: 5,
       sidebarSingleDatabaseExpansion: true,
     });
 
@@ -230,7 +236,9 @@ describe('store appearance persistence', () => {
     expect(persisted.state.appearance.showDataTableRowNumber).toBe(false);
     expect(persisted.state.appearance.dataTableDensity).toBe('compact');
     expect(persisted.state.appearance.tableDoubleClickAction).toBe('open-design');
+    expect(persisted.state.appearance.queryTableCtrlClickAction).toBe('locate');
     expect(persisted.state.appearance.v2SidebarRailScale).toBe(1.55);
+    expect(persisted.state.appearance.tabEnvironmentAccentThickness).toBe(5);
     expect(persisted.state.appearance.sidebarSingleDatabaseExpansion).toBe(true);
 
     vi.resetModules();
@@ -241,8 +249,133 @@ describe('store appearance persistence', () => {
     expect(appearance.showDataTableRowNumber).toBe(false);
     expect(appearance.dataTableDensity).toBe('compact');
     expect(appearance.tableDoubleClickAction).toBe('open-design');
+    expect(appearance.queryTableCtrlClickAction).toBe('locate');
     expect(appearance.v2SidebarRailScale).toBe(1.55);
+    expect(appearance.tabEnvironmentAccentThickness).toBe(5);
     expect(appearance.sidebarSingleDatabaseExpansion).toBe(true);
+  });
+
+  it('sanitizes invalid tab environment accent thickness values', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setAppearance({ tabEnvironmentAccentThickness: 6 });
+    expect(useStore.getState().appearance.tabEnvironmentAccentThickness).toBe(6);
+
+    useStore.getState().setAppearance({ tabEnvironmentAccentThickness: 7 });
+    expect(useStore.getState().appearance.tabEnvironmentAccentThickness).toBe(2);
+
+    useStore.getState().setAppearance({ tabEnvironmentAccentThickness: Number.NaN });
+    expect(useStore.getState().appearance.tabEnvironmentAccentThickness).toBe(2);
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').state.appearance.tabEnvironmentAccentThickness).toBe(2);
+  });
+
+  it('persists and sanitizes scoped toolbar button color overrides', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setAppearance({
+      toolbarButtonColorOverrides: {
+        query: {
+          'button-fg': '#ABCDEF',
+          'button-hover-bg': 'rgba(12, 34, 56, 0.4)',
+          'button-disabled-border': '#778899',
+        },
+        result: {
+          'primary-active-border': '#1234',
+          'primary-disabled-fg': 'rgba(90, 80, 70, 0.6)',
+          'button-bg': 'url(https://example.com/invalid)',
+        },
+      },
+    });
+
+    expect(useStore.getState().appearance.toolbarButtonColorOverrides).toEqual({
+      query: {
+        'button-fg': '#abcdef',
+        'button-hover-bg': 'rgba(12, 34, 56, 0.4)',
+        'button-disabled-border': '#778899',
+      },
+      result: {
+        'primary-active-border': '#1234',
+        'primary-disabled-fg': 'rgba(90, 80, 70, 0.6)',
+      },
+    });
+    expect(
+      JSON.parse(storage.getItem('lite-db-storage') || '{}').state.appearance
+        .toolbarButtonColorOverrides,
+    ).toEqual({
+      query: {
+        'button-fg': '#abcdef',
+        'button-hover-bg': 'rgba(12, 34, 56, 0.4)',
+        'button-disabled-border': '#778899',
+      },
+      result: {
+        'primary-active-border': '#1234',
+        'primary-disabled-fg': 'rgba(90, 80, 70, 0.6)',
+      },
+    });
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance.toolbarButtonColorOverrides).toEqual({
+      query: {
+        'button-fg': '#abcdef',
+        'button-hover-bg': 'rgba(12, 34, 56, 0.4)',
+        'button-disabled-border': '#778899',
+      },
+      result: {
+        'primary-active-border': '#1234',
+        'primary-disabled-fg': 'rgba(90, 80, 70, 0.6)',
+      },
+    });
+  });
+
+  it('drops malformed toolbar overrides restored from an older snapshot', async () => {
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: {
+        appearance: {
+          toolbarButtonColorOverrides: {
+            query: {
+              'button-fg': 'var(--gn-accent)',
+              'button-bg': '#112233',
+              unknown: '#ffffff',
+            },
+            result: 'invalid',
+            other: { 'button-fg': '#000000' },
+          },
+        },
+      },
+      version: 20,
+    }));
+
+    const { useStore } = await importStore();
+    expect(useStore.getState().appearance.toolbarButtonColorOverrides).toEqual({
+      query: { 'button-bg': '#112233' },
+    });
+  });
+
+  it('migrates and sanitizes toolbar overrides from a version 19 snapshot', async () => {
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: {
+        appearance: {
+          toolbarButtonColorOverrides: {
+            query: {
+              'button-fg': '#ABCDEF',
+              'button-bg': 'var(--gn-accent)',
+            },
+            result: {
+              'primary-hover-border': 'rgba(12, 34, 56, 0.5)',
+              unknown: '#ffffff',
+            },
+          },
+        },
+      },
+      version: 19,
+    }));
+
+    const { useStore } = await importStore();
+    expect(useStore.getState().appearance.toolbarButtonColorOverrides).toEqual({
+      query: { 'button-fg': '#abcdef' },
+      result: { 'primary-hover-border': 'rgba(12, 34, 56, 0.5)' },
+    });
   });
 
   it('persists and sanitizes hidden sidebar object groups', async () => {
@@ -396,6 +529,7 @@ describe('store appearance persistence', () => {
       state: {
         appearance: {
           tableDoubleClickAction: 'open-random',
+          queryTableCtrlClickAction: 'open-random',
         },
       },
       version: 10,
@@ -403,6 +537,7 @@ describe('store appearance persistence', () => {
 
     const { useStore } = await importStore();
     expect(useStore.getState().appearance.tableDoubleClickAction).toBe('open-data');
+    expect(useStore.getState().appearance.queryTableCtrlClickAction).toBe('open-design');
   });
 
   it('sanitizes persisted v2 sidebar rail scale settings into the supported range', async () => {
@@ -547,18 +682,36 @@ describe('store appearance persistence', () => {
     expect(reloaded.useStore.getState().appearance.newQuerySqlTemplate).toBeNull();
   });
 
+  it('persists the table alias preference and defaults invalid values to enabled', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setAppearance({ autoAddTableAlias: false });
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').state.appearance.autoAddTableAlias).toBe(false);
+
+    vi.resetModules();
+    let reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance.autoAddTableAlias).toBe(false);
+
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: { appearance: { autoAddTableAlias: 'disabled' } },
+      version: 20,
+    }));
+    vi.resetModules();
+    reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance.autoAddTableAlias).toBe(true);
+  });
+
   it('persists v2 sidebar search preferences and sanitizes filter text', async () => {
     const { useStore } = await importStore();
 
     useStore.getState().setAppearance({
       v2SidebarSearchMode: 'filter',
-      v2CommandSearchPersistentFilterEnabled: true,
       v2SidebarPersistedFilter: `  ${'orders'.repeat(40)}  `,
     });
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
     expect(persisted.state.appearance.v2SidebarSearchMode).toBe('filter');
-    expect(persisted.state.appearance.v2CommandSearchPersistentFilterEnabled).toBe(true);
+    expect(persisted.state.appearance).not.toHaveProperty('v2CommandSearchPersistentFilterEnabled');
     expect(persisted.state.appearance.v2SidebarPersistedFilter).toHaveLength(120);
     expect(persisted.state.appearance.v2SidebarPersistedFilter.startsWith('orders')).toBe(true);
 
@@ -567,7 +720,7 @@ describe('store appearance persistence', () => {
     const appearance = reloaded.useStore.getState().appearance;
 
     expect(appearance.v2SidebarSearchMode).toBe('filter');
-    expect(appearance.v2CommandSearchPersistentFilterEnabled).toBe(true);
+    expect(appearance).not.toHaveProperty('v2CommandSearchPersistentFilterEnabled');
     expect(appearance.v2SidebarPersistedFilter).toHaveLength(120);
   });
 
@@ -959,6 +1112,62 @@ describe('store appearance persistence', () => {
     expect(saved?.excludeDatabasePatterns).toEqual(['archive_%']);
   });
 
+  it('preserves case-distinct schema visibility entries according to datasource capability', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'postgres-schemas',
+        name: 'Postgres schemas',
+        schemaVisibilityByDatabase: {
+          analytics: { mode: 'include', schemas: ['foo', 'Foo', 'foo'] },
+          Analytics: { mode: 'exclude', schemas: ['temp'] },
+        },
+        config: {
+          id: 'postgres-schemas',
+          type: 'postgres',
+          host: 'db.local',
+          port: 5432,
+          user: 'postgres',
+        },
+      },
+      {
+        id: 'duckdb-schemas',
+        name: 'DuckDB schemas',
+        schemaVisibilityByDatabase: {
+          analytics: { mode: 'include', schemas: ['foo', 'Foo', 'foo'] },
+        },
+        config: {
+          id: 'duckdb-schemas',
+          type: 'duckdb',
+          host: 'D:/db/analytics.duckdb',
+          port: 0,
+          user: '',
+        },
+      },
+      {
+        id: 'sqlserver-schemas',
+        name: 'SQL Server schemas',
+        schemaVisibilityByDatabase: {
+          analytics: { mode: 'include', schemas: ['foo', 'Foo', 'foo'] },
+        },
+        config: {
+          id: 'sqlserver-schemas',
+          type: 'sqlserver',
+          host: 'db.local',
+          port: 1433,
+          user: 'sa',
+        },
+      },
+    ]);
+
+    const [postgres, duckdb, sqlserver] = useStore.getState().connections;
+    expect(postgres?.schemaVisibilityByDatabase?.analytics.schemas).toEqual(['foo', 'Foo']);
+    expect(postgres?.schemaVisibilityByDatabase?.Analytics.schemas).toEqual(['temp']);
+    expect(duckdb?.schemaVisibilityByDatabase?.analytics.schemas).toEqual(['foo']);
+    expect(sqlserver?.schemaVisibilityByDatabase?.analytics.schemas).toEqual(['foo']);
+  });
+
   it('keeps InterSystems IRIS saved connections as independent datasource type', async () => {
     const { useStore } = await importStore();
 
@@ -1278,7 +1487,7 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().connectionTags.every((item) => !('environmentType' in item))).toBe(true);
   }, 30_000);
 
-  it('reorders connections inside tags and ungrouped roots independently', async () => {
+  it('keeps group order custom while storing independent connection display sorting', async () => {
     const { useStore } = await importStore();
 
     useStore.getState().replaceConnections([
@@ -1309,16 +1518,15 @@ describe('store appearance persistence', () => {
       connectionIds: ['conn-b', 'conn-d'],
     });
 
-    useStore.getState().reorderConnections('conn-d', 'conn-b', 'tag-dev', true);
-    expect(useStore.getState().connectionTags[0]?.connectionIds).toEqual(['conn-d', 'conn-b']);
+    useStore.getState().setConnectionDisplaySortMode('tag-dev', 'name');
+    useStore.getState().setConnectionDisplaySortMode(null, 'createdAt');
 
-    useStore.getState().reorderConnections('conn-c', 'conn-a', null, true);
-    expect(useStore.getState().connections.map((conn) => conn.id)).toEqual([
-      'conn-c',
-      'conn-a',
-      'conn-b',
-      'conn-d',
-    ]);
+    expect(useStore.getState().connectionTags[0]).toEqual(expect.objectContaining({
+      sortMode: 'manual',
+      connectionSortMode: 'name',
+    }));
+    expect(useStore.getState().rootSortMode).toBe('manual');
+    expect(useStore.getState().rootConnectionSortMode).toBe('createdAt');
   });
 
   it('reorders sidebar root items across tags and ungrouped hosts', async () => {
@@ -1480,6 +1688,47 @@ describe('store appearance persistence', () => {
     ]);
   });
 
+  it('atomically replaces the connection sidebar layout loaded from the backend', async () => {
+    const { useStore } = await importStore();
+    useStore.getState().replaceConnections([
+      {
+        id: 'conn-a',
+        name: 'A',
+        config: { id: 'conn-a', type: 'mysql', host: 'a.local', port: 3306, user: 'root' },
+      },
+      {
+        id: 'conn-b',
+        name: 'B',
+        config: { id: 'conn-b', type: 'redis', host: 'b.local', port: 6379, user: 'default' },
+      },
+    ]);
+
+    useStore.getState().replaceConnectionSidebarLayout({
+      connectionTags: [
+        {
+          id: 'tag-remote',
+          name: '远端分组',
+          connectionIds: ['conn-b'],
+          childOrder: ['connection:conn-b'],
+        },
+      ],
+      sidebarRootOrder: ['connection:conn-a', 'tag:tag-remote'],
+    });
+
+    expect(useStore.getState().connectionTags).toEqual([
+      expect.objectContaining({
+        id: 'tag-remote',
+        name: '远端分组',
+        connectionIds: ['conn-b'],
+        childOrder: ['connection:conn-b'],
+      }),
+    ]);
+    expect(useStore.getState().sidebarRootOrder).toEqual([
+      'connection:conn-a',
+      'tag:tag-remote',
+    ]);
+  });
+
   it('persists the table designer schema per connection and clears it with the connection', async () => {
     const { useStore } = await importStore();
     useStore.getState().replaceConnections([{
@@ -1552,7 +1801,7 @@ describe('store appearance persistence', () => {
     )).toEqual(legacyTag?.childOrder);
 
     const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(20);
+    expect(persisted.version).toBe(21);
     expect(persisted.state.connectionTags[0].childOrder).toEqual([
       'connection:conn-a',
       'connection:conn-b',
@@ -1730,6 +1979,28 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().connectionTags.find(
       (tag) => tag.id === 'group-1',
     )?.connectionIds).toEqual(['host-1', 'host-3', 'host-4', 'host-2']);
+  });
+
+  it('rejects duplicate group names under the same parent but permits them elsewhere', async () => {
+    const { useStore } = await importStore();
+    useStore.getState().addConnectionTag({ id: 'root-a', name: 'Shared', connectionIds: [] });
+    useStore.getState().addConnectionTag({ id: 'root-b', name: ' shared ', connectionIds: [] });
+    useStore.getState().addConnectionTag({ id: 'parent', name: 'Parent', connectionIds: [] });
+    useStore.getState().addConnectionTag({ id: 'child', name: 'shared', parentTagId: 'parent', connectionIds: [] });
+
+    expect(useStore.getState().connectionTags.map((tag) => tag.id)).toEqual(['root-a', 'parent', 'child']);
+  });
+
+  it('removes a group subtree without promoting its descendants', async () => {
+    const { useStore } = await importStore();
+    useStore.getState().addConnectionTag({ id: 'root', name: 'Root', connectionIds: [] });
+    useStore.getState().addConnectionTag({ id: 'child', name: 'Child', parentTagId: 'root', connectionIds: [] });
+    useStore.getState().addConnectionTag({ id: 'grandchild', name: 'Grandchild', parentTagId: 'child', connectionIds: [] });
+    useStore.getState().addConnectionTag({ id: 'other', name: 'Other', connectionIds: [] });
+
+    useStore.getState().removeConnectionTagTree('root');
+
+    expect(useStore.getState().connectionTags.map((tag) => tag.id)).toEqual(['other']);
   });
 
   it('rejects moving a group into itself or a descendant', async () => {
@@ -2525,7 +2796,7 @@ describe('store appearance persistence', () => {
     expect(reloaded.useStore.getState().tabs[0].formatRestoreSnapshot).toBeUndefined();
   });
 
-  it('updates activeContext when switching between tabs with different host or database', async () => {
+  it('updates activeContext, including the selected table, when switching between tabs', async () => {
     const { useStore } = await importStore();
 
     useStore.getState().addTab({
@@ -2539,6 +2810,7 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().activeContext).toEqual({
       connectionId: 'conn-1',
       dbName: 'sys',
+      tableName: 'users',
     });
 
     useStore.getState().addTab({
@@ -2559,6 +2831,48 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().activeContext).toEqual({
       connectionId: 'conn-1',
       dbName: 'sys',
+      tableName: 'users',
+    });
+  });
+
+  it('keeps query schema in activeContext and does not let an inactive draft overwrite it', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().addTab({
+      id: 'query-anno',
+      title: '新建查询',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'sys',
+      schemaName: 'anno',
+      query: 'select 1;',
+    });
+
+    expect(useStore.getState().activeContext).toEqual({
+      connectionId: 'conn-1',
+      dbName: 'sys',
+      schemaName: 'anno',
+    });
+
+    useStore.getState().addTab({
+      id: 'query-old-schema',
+      title: '旧查询',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'sys',
+      schemaName: 'dbms_job',
+      query: 'select 2;',
+    });
+    useStore.getState().setActiveTab('query-anno');
+
+    useStore.getState().updateQueryTabDraft('query-old-schema', {
+      schemaName: 'dbms_job_v2',
+    });
+
+    expect(useStore.getState().activeContext).toEqual({
+      connectionId: 'conn-1',
+      dbName: 'sys',
+      schemaName: 'anno',
     });
   });
 
@@ -2840,6 +3154,77 @@ describe('store appearance persistence', () => {
     expect(useStore.getState().activeTabId).toBe('query-other');
   });
 
+  it('restores object-edit identity fields so sidebar locating survives a reload', async () => {
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: {
+        tabs: [
+          {
+            id: 'query-edit-routine-1',
+            title: '修改函数/存储过程: main.func_name',
+            type: 'query',
+            connectionId: 'conn-1',
+            dbName: 'example',
+            schemaName: 'main',
+            query: 'CREATE OR REPLACE MACRO main.func_name(param1) AS (param1 * 3);',
+            queryMode: 'object-edit',
+            routineName: 'main.func_name',
+            routineType: 'MACRO',
+            sidebarLocateKey: 'conn-1-example-routine-func-main.func_name',
+            returnToTabId: 'query-source',
+          },
+          {
+            id: 'query-edit-mview-1',
+            title: '修改物化视图: analytics.mv_daily',
+            type: 'query',
+            connectionId: 'conn-1',
+            dbName: 'example',
+            query: 'SELECT 1;',
+            queryMode: 'object-edit',
+            viewName: 'analytics.mv_daily',
+            viewKind: 'materialized',
+            objectType: 'materialized-view',
+          },
+          {
+            id: 'query-plain-1',
+            title: '普通查询',
+            type: 'query',
+            connectionId: 'conn-1',
+            dbName: 'main',
+            query: 'SELECT 1;',
+            routineName: 'should.not.leak',
+            queryMode: 'standard',
+          },
+        ],
+      },
+      version: 21,
+    }));
+
+    const { useStore } = await importStore();
+    const tabs = useStore.getState().tabs;
+
+    const routineTab = tabs.find((tab) => tab.id === 'query-edit-routine-1');
+    expect(routineTab).toEqual(expect.objectContaining({
+      queryMode: 'object-edit',
+      routineName: 'main.func_name',
+      routineType: 'MACRO',
+      schemaName: 'main',
+      sidebarLocateKey: 'conn-1-example-routine-func-main.func_name',
+      returnToTabId: 'query-source',
+    }));
+
+    const materializedViewTab = tabs.find((tab) => tab.id === 'query-edit-mview-1');
+    expect(materializedViewTab).toEqual(expect.objectContaining({
+      queryMode: 'object-edit',
+      viewName: 'analytics.mv_daily',
+      viewKind: 'materialized',
+      objectType: 'materialized-view',
+    }));
+
+    const plainTab = tabs.find((tab) => tab.id === 'query-plain-1');
+    expect(plainTab?.queryMode).toBeUndefined();
+    expect(plainTab?.routineName).toBeUndefined();
+  });
+
   it('reuses the current tab when the same id is reopened as an object-edit query', async () => {
     const { useStore } = await importStore();
 
@@ -3024,7 +3409,11 @@ describe('store appearance persistence', () => {
 
     useStore.getState().closeAllTabs();
     expect(useStore.getState().tabs.map((tab) => tab.id)).toEqual(['data-import-workbench']);
-    expect(useStore.getState().activeContext).toEqual({ connectionId: 'conn-1', dbName: 'main' });
+    expect(useStore.getState().activeContext).toEqual({
+      connectionId: 'conn-1',
+      dbName: 'main',
+      tableName: 'users',
+    });
 
     useStore.getState().addTab({
       ...useStore.getState().tabs[0],
@@ -3546,7 +3935,7 @@ describe('store appearance persistence', () => {
       mac: { combo: 'Meta+K', enabled: false },
       windows: { combo: 'Ctrl+K', enabled: true },
     });
-    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(20);
+    expect(JSON.parse(storage.getItem('lite-db-storage') || '{}').version).toBe(21);
 
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
@@ -3783,6 +4172,45 @@ describe('store persistence hot path', () => {
     expect(transientOnly).toBe(initial);
     expect(changedTheme).not.toBe(initial);
     expect(changedTheme.theme).not.toBe(initial.theme);
+  });
+
+  it('reuses sanitized query tabs when only the active tab changes', async () => {
+    const { useStore } = await importStore();
+    const partialize = useStore.persist.getOptions().partialize;
+    if (!partialize) {
+      throw new Error('expected store partialize option');
+    }
+    let queryReads = 0;
+    const createQueryTab = (id: string) => new Proxy({
+      id,
+      title: id,
+      type: 'query' as const,
+      connectionId: 'kingbase-1',
+      dbName: 'appdb',
+      query: Array.from({ length: 120 }, (_, index) => `SELECT * FROM public.order_${index + 1};`).join('\n'),
+    }, {
+      get(target, property, receiver) {
+        if (property === 'query') queryReads += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const state = {
+      ...useStore.getState(),
+      tabs: [createQueryTab('query-1'), createQueryTab('query-2')],
+      activeTabId: 'query-1',
+    };
+
+    const initial = partialize(state) as Partial<typeof state>;
+    queryReads = 0;
+    const switched = partialize({
+      ...state,
+      activeTabId: 'query-2',
+    }) as Partial<typeof state>;
+
+    expect(switched).not.toBe(initial);
+    expect(switched.tabs).toBe(initial.tabs);
+    expect(switched.activeTabId).toBe('query-2');
+    expect(queryReads).toBe(0);
   });
 
   it('invalidates connection projection when legacy secrets appear or disappear', async () => {

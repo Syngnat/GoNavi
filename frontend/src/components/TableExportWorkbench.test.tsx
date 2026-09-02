@@ -1,6 +1,6 @@
 import React from 'react';
 import { readFileSync } from 'node:fs';
-import { Button, Checkbox, Segmented, Select } from 'antd';
+import { Alert, Button, Checkbox, Segmented, Select } from 'antd';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -46,6 +46,18 @@ const switchBatchIntentToDelete = async (renderer: ReactTestRenderer) => {
     await Promise.resolve();
   });
 };
+const flushAsyncWork = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+};
+const findAlertAction = (
+  renderer: ReactTestRenderer,
+  marker: string,
+): React.ReactElement<any> | undefined => renderer.root
+  .findAllByType(Alert)
+  .map((node) => node.props.action)
+  .find((action) => React.isValidElement(action) && Boolean((action.props as any)[marker]));
 const createMockStoreState = () => ({
   theme: 'light',
   connections: [
@@ -435,6 +447,269 @@ describe('TableExportWorkbench', () => {
       { name: 'Foo', objectType: 'table' },
       { name: 'foo', objectType: 'table' },
     ]);
+  });
+
+  it('retries column metadata in place and preserves the current selection for the same table', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetColumns)
+      .mockResolvedValueOnce({ success: false, message: 'temporary column failure' } as any)
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ name: 'id' }, { name: 'email' }],
+      } as any)
+      .mockResolvedValueOnce({ success: false, message: 'temporary column failure' } as any)
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ name: 'id' }, { name: 'created_at' }],
+      } as any);
+
+    const tab = {
+      id: 'table-export-conn-1-SYS-users',
+      title: '导出 users',
+      type: 'table-export' as const,
+      connectionId: 'conn-1',
+      dbName: 'SYS',
+      tableName: 'users',
+      objectType: 'table' as const,
+      tableExportScopeOptions: [{ value: 'all' as const, label: '全表数据' }],
+      tableExportInitialScope: 'all' as const,
+    };
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableExportWorkbench tab={tab} />);
+      await flushAsyncWork();
+    });
+
+    let columnSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(columnSelect?.props.value).toEqual([]);
+    const initialRetryAction = findAlertAction(renderer, 'data-export-retry-columns');
+    expect(initialRetryAction).toBeDefined();
+    expect(renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ))?.props.disabled).toBe(true);
+
+    await act(async () => {
+      initialRetryAction?.props.onClick();
+      await flushAsyncWork();
+    });
+
+    columnSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(columnSelect?.props.value).toEqual(['id', 'email']);
+    expect(renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ))?.props.disabled).toBe(false);
+    await act(async () => {
+      columnSelect?.props.onChange(['id']);
+      await Promise.resolve();
+    });
+
+    mockStoreState = {
+      ...mockStoreState,
+      connections: [{
+        ...mockStoreState.connections[0],
+        config: {
+          ...mockStoreState.connections[0].config,
+          host: '127.0.0.1',
+        },
+      }],
+    };
+    await act(async () => {
+      renderer.update(<TableExportWorkbench tab={tab} />);
+      await flushAsyncWork();
+    });
+
+    columnSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(columnSelect?.props.value).toEqual(['id']);
+    const retryAction = findAlertAction(renderer, 'data-export-retry-columns');
+    expect(retryAction).toBeDefined();
+    const blockedStartButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(blockedStartButton?.props.disabled).toBe(true);
+    await act(async () => {
+      blockedStartButton?.props.onClick();
+      await Promise.resolve();
+    });
+    expect(mockRunExportWithProgress).not.toHaveBeenCalled();
+
+    await act(async () => {
+      retryAction?.props.onClick();
+      await flushAsyncWork();
+    });
+
+    expect(DBGetColumns).toHaveBeenCalledTimes(4);
+    columnSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(columnSelect?.props.value).toEqual(['id']);
+    const recoveredStartButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(recoveredStartButton?.props.disabled).toBe(false);
+
+    renderer.unmount();
+  });
+
+  it('keeps batch table targets while the database list fails and blocks destructive actions until retry succeeds', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases)
+      .mockResolvedValueOnce({ success: false, message: 'temporary database failure' } as any)
+      .mockResolvedValueOnce({ success: true, data: [{ Database: 'SYS' }] } as any);
+    vi.mocked(DBGetTables).mockResolvedValue({ success: true, data: [{ Name: 'users' }] } as any);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-tables-conn-1-SYS',
+            title: '批量处理表',
+            type: 'table-export',
+            connectionId: 'conn-1',
+            dbName: 'SYS',
+            exportWorkbenchMode: 'batch-tables',
+            tableExportInitialObjectNames: ['users'],
+          }}
+        />,
+      );
+      await flushAsyncWork();
+    });
+
+    const databaseSelect = renderer.root.findAllByType(Select).find((node) => node.props.value === 'SYS');
+    const objectSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(databaseSelect).toBeDefined();
+    expect(objectSelect?.props.value).toEqual(['users']);
+    const blockedStartButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(blockedStartButton?.props.disabled).toBe(true);
+
+    await switchBatchIntentToDelete(renderer);
+    const blockedClearButton = renderer.root.findByProps({ 'data-batch-clear-tables': 'true' });
+    expect(blockedClearButton.props.disabled).toBe(true);
+    await act(async () => {
+      blockedClearButton.props.onClick();
+      await Promise.resolve();
+    });
+    expect(ClearTables).not.toHaveBeenCalled();
+    expect(Modal.confirm).not.toHaveBeenCalled();
+
+    const retryAction = findAlertAction(renderer, 'data-export-retry-databases');
+    expect(retryAction).toBeDefined();
+    await act(async () => {
+      retryAction?.props.onClick();
+      await flushAsyncWork();
+    });
+
+    expect(DBGetDatabases).toHaveBeenCalledTimes(2);
+    expect(renderer.root.findAllByType(Select).some((node) => node.props.value === 'SYS')).toBe(true);
+    expect(renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple')?.props.value).toEqual(['users']);
+    expect(renderer.root.findByProps({ 'data-batch-clear-tables': 'true' }).props.disabled).toBe(false);
+
+    renderer.unmount();
+  });
+
+  it('retries batch table object metadata and removes only targets missing from the recovered list', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases).mockResolvedValue({ success: true, data: [{ Database: 'SYS' }] } as any);
+    vi.mocked(DBGetTables)
+      .mockResolvedValueOnce({ success: false, message: 'temporary object failure' } as any)
+      .mockResolvedValueOnce({ success: true, data: [{ Name: 'users' }] } as any);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-tables-conn-1-SYS',
+            title: '批量处理表',
+            type: 'table-export',
+            connectionId: 'conn-1',
+            dbName: 'SYS',
+            exportWorkbenchMode: 'batch-tables',
+            tableExportInitialObjectNames: ['users', 'removed_table'],
+          }}
+        />,
+      );
+      await flushAsyncWork();
+    });
+
+    let objectSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(objectSelect?.props.value).toEqual(['users', 'removed_table']);
+    const blockedStartButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(blockedStartButton?.props.disabled).toBe(true);
+
+    const retryAction = findAlertAction(renderer, 'data-export-retry-objects');
+    expect(retryAction).toBeDefined();
+    await act(async () => {
+      retryAction?.props.onClick();
+      await flushAsyncWork();
+    });
+
+    expect(DBGetTables).toHaveBeenCalledTimes(2);
+    objectSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(objectSelect?.props.value).toEqual(['users']);
+    const recoveredStartButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(recoveredStartButton?.props.disabled).toBe(false);
+
+    renderer.unmount();
+  });
+
+  it('keeps batch database selections on failure and revalidates them before export or deletion', async () => {
+    mockProgressRunnerState = createIdleProgressRunnerState();
+    vi.mocked(DBGetDatabases)
+      .mockResolvedValueOnce({ success: false, message: 'temporary database failure' } as any)
+      .mockResolvedValueOnce({ success: true, data: [{ Database: 'alpha' }] } as any);
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <TableExportWorkbench
+          tab={{
+            id: 'table-export-batch-databases-conn-1',
+            title: '批量处理数据库',
+            type: 'table-export',
+            connectionId: 'conn-1',
+            exportWorkbenchMode: 'batch-databases',
+            tableExportInitialDatabaseNames: ['alpha', 'removed_database'],
+          }}
+        />,
+      );
+      await flushAsyncWork();
+    });
+
+    let databaseSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(databaseSelect?.props.value).toEqual(['alpha', 'removed_database']);
+    const blockedStartButton = renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ));
+    expect(blockedStartButton?.props.disabled).toBe(true);
+
+    await switchBatchIntentToDelete(renderer);
+    const blockedDeleteButton = renderer.root.findByProps({ 'data-batch-delete-databases': 'true' });
+    expect(blockedDeleteButton.props.disabled).toBe(true);
+    await act(async () => {
+      blockedDeleteButton.props.onClick();
+      await Promise.resolve();
+    });
+    expect(DropDatabase).not.toHaveBeenCalled();
+    expect(Modal.confirm).not.toHaveBeenCalled();
+
+    const retryAction = findAlertAction(renderer, 'data-export-retry-databases');
+    expect(retryAction).toBeDefined();
+    await act(async () => {
+      retryAction?.props.onClick();
+      await flushAsyncWork();
+    });
+
+    expect(DBGetDatabases).toHaveBeenCalledTimes(2);
+    databaseSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(databaseSelect?.props.value).toEqual(['alpha']);
+    expect(renderer.root.findByProps({ 'data-batch-delete-databases': 'true' }).props.disabled).toBe(false);
+
+    renderer.unmount();
   });
 
   it('syncs manually selected batch connection and database into the existing tab', async () => {

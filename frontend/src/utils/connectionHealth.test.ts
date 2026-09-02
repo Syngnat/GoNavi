@@ -3,6 +3,7 @@ import type { ConnectionTag, SavedConnection } from '../types';
 import {
   buildConnectionHealthGroups,
   getConnectionHealthGroupConnectionIds,
+  normalizeConnectionHealthRun,
   normalizeConnectionHealthReports,
   serializeConnectionHealthReportExport,
 } from './connectionHealth';
@@ -77,5 +78,43 @@ describe('connection health helpers', () => {
     expect(exported).not.toContain('orders_private');
     expect(exported).not.toContain('Production');
     expect(exported).not.toContain('"connectionId"');
+  });
+
+  it('normalizes incremental run progress and rejects malformed terminal state', () => {
+    expect(normalizeConnectionHealthRun({
+      runId: 'health-run-1',
+      status: 'cancelled',
+      total: 3,
+      completed: 1,
+      cancelRequested: true,
+      currentConnectionId: 'must-not-survive',
+      remainingConnectionIds: ['two', 'two', ' three '],
+      reports: [{
+        connectionId: 'one',
+        overallStatus: 'passed',
+        durationMs: 4,
+        checks: [],
+      }],
+    })).toEqual({
+      runId: 'health-run-1',
+      status: 'cancelled',
+      total: 3,
+      completed: 1,
+      cancelRequested: true,
+      currentConnectionId: 'must-not-survive',
+      remainingConnectionIds: ['two', 'three'],
+      reports: [{
+        connectionId: 'one',
+        overallStatus: 'passed',
+        durationMs: 4,
+        checks: [],
+      }],
+    });
+    expect(normalizeConnectionHealthRun({
+      runId: 'invalid',
+      status: 'completed',
+      total: 1,
+      completed: 2,
+    })).toBeNull();
   });
 });

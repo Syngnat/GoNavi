@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { CopyOutlined, EditOutlined, UndoOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
+import { ClearOutlined, CopyOutlined, EditOutlined, UndoOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
 import { t } from '../i18n';
 import { APP_POPUP_Z_INDEX } from '../utils/overlayZIndex';
 
@@ -20,6 +20,7 @@ interface DataGridLegacyCellContextMenuProps {
   canModifyData: boolean;
   copiedRowsForPasteLength: number;
   selectedRowKeysLength: number;
+  selectedCellCount?: number;
   copiedCellPatchAvailable: boolean;
   canUndoCellChange: boolean;
   supportsCopyInsert: boolean;
@@ -31,6 +32,7 @@ interface DataGridLegacyCellContextMenuProps {
   onPasteCopiedRowsAsNew: () => void;
   onUndoCellChange: () => void;
   onSetNull: () => void;
+  onSetNullForSelectedCells?: () => void;
   onEditRow: () => void;
   onFillToSelected: () => void;
   onPasteCopiedColumns: () => void;
@@ -70,6 +72,7 @@ const DataGridLegacyCellContextMenu: React.FC<DataGridLegacyCellContextMenuProps
   canModifyData,
   copiedRowsForPasteLength,
   selectedRowKeysLength,
+  selectedCellCount = 0,
   copiedCellPatchAvailable,
   canUndoCellChange,
   supportsCopyInsert,
@@ -81,6 +84,7 @@ const DataGridLegacyCellContextMenu: React.FC<DataGridLegacyCellContextMenuProps
   onPasteCopiedRowsAsNew,
   onUndoCellChange,
   onSetNull,
+  onSetNullForSelectedCells = () => undefined,
   onEditRow,
   onFillToSelected,
   onPasteCopiedColumns,
@@ -102,6 +106,10 @@ const DataGridLegacyCellContextMenu: React.FC<DataGridLegacyCellContextMenuProps
   const hoverBg = darkMode ? '#303030' : '#f5f5f5';
   const canFillRows = selectedRowKeysLength > 0;
   const canPasteRows = copiedRowsForPasteLength > 0;
+  const normalizedSelectedCellCount = Number.isFinite(Number(selectedCellCount))
+    ? Math.max(0, Math.trunc(Number(selectedCellCount)))
+    : 0;
+  const canSetNullForSelectedCells = normalizedSelectedCellCount > 0;
 
   const makeHoverHandlers = (enabled = true) => ({
     onMouseEnter: (e: React.MouseEvent<HTMLDivElement>) => {
@@ -163,6 +171,20 @@ const DataGridLegacyCellContextMenu: React.FC<DataGridLegacyCellContextMenuProps
           </div>
           <div style={baseItemStyle} {...makeHoverHandlers()} onClick={onSetNull}>
             {translate('data_grid.batch_fill.set_null')}
+          </div>
+          <div
+            style={{
+              ...baseItemStyle,
+              cursor: canSetNullForSelectedCells ? 'pointer' : 'not-allowed',
+              opacity: canSetNullForSelectedCells ? 1 : 0.5,
+            }}
+            {...makeHoverHandlers(canSetNullForSelectedCells)}
+            onClick={() => {
+              if (canSetNullForSelectedCells) onSetNullForSelectedCells();
+            }}
+          >
+            <ClearOutlined style={{ marginRight: 8 }} />
+            {translate('data_grid.batch_fill.set_null_selected')}
           </div>
           <div style={baseItemStyle} {...makeHoverHandlers()} onClick={onEditRow}>
             <EditOutlined style={{ marginRight: 8 }} />

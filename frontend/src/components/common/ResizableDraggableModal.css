@@ -28,8 +28,16 @@
   overflow: hidden;
 }
 
+/*
+ * Callers style .ant-modal-content through antd `styles.content`, which lands as an
+ * inline declaration (the tool/settings centre passes a fixed `height`). A normal
+ * author rule loses to that, so a south drag would update the variable while the box
+ * never moved. `!important` is what makes the resized height win; the guard attribute
+ * keeps it scoped to modals the user actually resized. Width needs no counterpart
+ * because it is applied to .ant-modal, which callers do not style inline.
+ */
 .gn-resizable-draggable-modal[data-has-resized-height='true'] .ant-modal-content {
-  height: var(--gn-modal-resized-height);
+  height: var(--gn-modal-resized-height) !important;
 }
 
 /* Header/footer stay put; body fills remaining space when modal is resized. */

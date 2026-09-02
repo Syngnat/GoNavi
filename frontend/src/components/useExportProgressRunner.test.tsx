@@ -84,7 +84,55 @@ describe('useExportProgressRunner', () => {
     });
     resetExportProgressTaskStoreForTests();
     setCurrentLanguage('en-US');
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('triggers a native browser download from a successful export descriptor', async () => {
+    const anchor = {
+      href: '',
+      download: '',
+      clicked: false,
+      click() { this.clicked = true; },
+    };
+    const body = {
+      appendChild: vi.fn(),
+      removeChild: vi.fn(),
+    };
+    vi.stubGlobal('document', {
+      body,
+      createElement: () => anchor,
+    });
+    renderRunner();
+
+    await act(async () => {
+      await runner?.runExportWithProgress({
+        title: 'Web CSV export',
+        targetName: 'users',
+        format: 'csv',
+        run: async () => ({
+          success: true,
+          message: '',
+          data: {
+            webDownload: {
+              token: 'download-1',
+              fileName: 'users.csv',
+              mimeType: 'text/csv',
+              fileSize: 42,
+            },
+          },
+        }),
+      });
+    });
+
+    expect(anchor).toMatchObject({
+      href: '/__gonavi/api/download/download-1',
+      download: 'users.csv',
+      clicked: true,
+    });
+    expect(body.appendChild).toHaveBeenCalledWith(anchor);
+    expect(body.removeChild).toHaveBeenCalledWith(anchor);
+    expect(runner?.state.status).toBe('done');
   });
 
   it('starts elapsed timing only after backend progress begins and path is selected', async () => {

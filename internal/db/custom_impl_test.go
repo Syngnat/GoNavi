@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
+
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/shared/i18n"
 )
@@ -18,12 +21,24 @@ var customMySQLDSNRecordingLastDSN string
 
 const customApplyChangesI18nDriverName = "custom-applychanges-i18n"
 
+const customGetTablesDriverName = "custom-get-tables"
+
 var (
 	registerCustomApplyChangesI18nDriverOnce sync.Once
 	customApplyChangesI18nStateMu            sync.Mutex
 	customApplyChangesI18nState              = struct {
 		failPrefix string
 		err        error
+	}{}
+)
+
+var (
+	registerCustomGetTablesDriverOnce sync.Once
+	customGetTablesStateMu            sync.Mutex
+	customGetTablesState              = struct {
+		lastQuery string
+		columns   []string
+		rows      [][]driver.Value
 	}{}
 )
 
@@ -53,6 +68,60 @@ type customApplyChangesI18nDriver struct{}
 type customApplyChangesI18nConn struct{}
 
 type customApplyChangesI18nTx struct{}
+
+type customGetTablesDriver struct{}
+
+type customGetTablesConn struct{}
+
+type customGetTablesRows struct {
+	columns []string
+	rows    [][]driver.Value
+	index   int
+}
+
+func (customGetTablesDriver) Open(string) (driver.Conn, error) {
+	return customGetTablesConn{}, nil
+}
+
+func (customGetTablesConn) Prepare(string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (customGetTablesConn) Close() error { return nil }
+
+func (customGetTablesConn) Begin() (driver.Tx, error) {
+	return nil, driver.ErrSkip
+}
+
+func (customGetTablesConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	customGetTablesStateMu.Lock()
+	defer customGetTablesStateMu.Unlock()
+	customGetTablesState.lastQuery = query
+	return &customGetTablesRows{
+		columns: append([]string(nil), customGetTablesState.columns...),
+		rows:    append([][]driver.Value(nil), customGetTablesState.rows...),
+	}, nil
+}
+
+func (r *customGetTablesRows) Columns() []string {
+	return append([]string(nil), r.columns...)
+}
+
+func (r *customGetTablesRows) Close() error { return nil }
+
+func (r *customGetTablesRows) Next(dest []driver.Value) error {
+	if r.index >= len(r.rows) {
+		return io.EOF
+	}
+	row := r.rows[r.index]
+	for index := range dest {
+		if index < len(row) {
+			dest[index] = row[index]
+		}
+	}
+	r.index++
+	return nil
+}
 
 func (d customApplyChangesI18nDriver) Open(name string) (driver.Conn, error) {
 	return customApplyChangesI18nConn{}, nil
@@ -214,7 +283,6 @@ func TestCustomDBApplyChangesErrorsUseCurrentLanguage(t *testing.T) {
 	})
 }
 
-
 func TestCustomDBApplyChangesCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -302,7 +370,6 @@ func TestCustomDBBasicExecutionConnectionNotOpenUsesCurrentLanguage(t *testing.T
 		})
 	}
 }
-
 
 func TestCustomDBConnectReportsUnsupportedODBCDriverName(t *testing.T) {
 	db := &CustomDB{}
@@ -406,6 +473,164 @@ func TestCustomDBOnlyNormalizesBuiltInMySQLDriverDSN(t *testing.T) {
 	})
 	if customMySQLDSNRecordingLastDSN != rawDSN {
 		t.Fatalf("non-mysql custom driver DSN should stay untouched, got %q", customMySQLDSNRecordingLastDSN)
+	}
+}
+
+func TestCustomDBGetTablesDeduplicatesExactKingbaseMetadataRows(t *testing.T) {
+	registerCustomGetTablesDriverOnce.Do(func() {
+		sql.Register(customGetTablesDriverName, customGetTablesDriver{})
+	})
+
+	customGetTablesStateMu.Lock()
+	customGetTablesState.lastQuery = ""
+	customGetTablesState.columns = []string{"SCHEMANAME", "TABLENAME"}
+	customGetTablesState.rows = [][]driver.Value{
+		{"ldf_server", "ldf_application_type"},
+		{"ldf_server", "ldf_application_type"},
+		{"LDF_SERVER", "LDF_APPLICATION_TYPE"},
+		{"archive", "ldf_application_type"},
+	}
+	customGetTablesStateMu.Unlock()
+	t.Cleanup(func() {
+		customGetTablesStateMu.Lock()
+		customGetTablesState.lastQuery = ""
+		customGetTablesState.columns = nil
+		customGetTablesState.rows = nil
+		customGetTablesStateMu.Unlock()
+	})
+
+	conn, err := sql.Open(customGetTablesDriverName, "")
+	if err != nil {
+		t.Fatalf("open custom metadata test database: %v", err)
+	}
+	defer conn.Close()
+
+	tables, err := (&CustomDB{conn: conn, driver: "Kingbase"}).GetTables("ldf_server_dbs_dev")
+	if err != nil {
+		t.Fatalf("GetTables returned error: %v", err)
+	}
+	want := []string{
+		"ldf_server.ldf_application_type",
+		"LDF_SERVER.LDF_APPLICATION_TYPE",
+		"archive.ldf_application_type",
+	}
+	if !reflect.DeepEqual(tables, want) {
+		t.Fatalf("GetTables returned %v, want %v", tables, want)
+	}
+
+	customGetTablesStateMu.Lock()
+	lastQuery := customGetTablesState.lastQuery
+	customGetTablesStateMu.Unlock()
+	if !strings.Contains(lastQuery, "SELECT DISTINCT table_schema AS schemaname") {
+		t.Fatalf("expected DISTINCT Kingbase metadata query, got %s", lastQuery)
+	}
+}
+
+func TestCustomDBGetTablesTrimsAndDeduplicatesGenericMetadataRows(t *testing.T) {
+	registerCustomGetTablesDriverOnce.Do(func() {
+		sql.Register(customGetTablesDriverName, customGetTablesDriver{})
+	})
+
+	customGetTablesStateMu.Lock()
+	customGetTablesState.lastQuery = ""
+	customGetTablesState.columns = []string{"TABLE_NAME"}
+	customGetTablesState.rows = [][]driver.Value{
+		{" orders "},
+		{"orders"},
+		{"\torders\n"},
+		{"customers"},
+		{nil},
+		{"   "},
+	}
+	customGetTablesStateMu.Unlock()
+	t.Cleanup(func() {
+		customGetTablesStateMu.Lock()
+		customGetTablesState.lastQuery = ""
+		customGetTablesState.columns = nil
+		customGetTablesState.rows = nil
+		customGetTablesStateMu.Unlock()
+	})
+
+	conn, err := sql.Open(customGetTablesDriverName, "")
+	if err != nil {
+		t.Fatalf("open custom metadata test database: %v", err)
+	}
+	defer conn.Close()
+
+	tables, err := (&CustomDB{conn: conn, driver: "sqlite"}).GetTables("")
+	if err != nil {
+		t.Fatalf("GetTables returned error: %v", err)
+	}
+	want := []string{"orders", "customers"}
+	if !reflect.DeepEqual(tables, want) {
+		t.Fatalf("GetTables returned %v, want %v", tables, want)
+	}
+}
+
+func TestCustomDBGetTablesEscapesPGLikeSchemaLiteral(t *testing.T) {
+	registerCustomGetTablesDriverOnce.Do(func() {
+		sql.Register(customGetTablesDriverName, customGetTablesDriver{})
+	})
+
+	customGetTablesStateMu.Lock()
+	customGetTablesState.lastQuery = ""
+	customGetTablesState.columns = []string{"SCHEMANAME", "TABLENAME"}
+	customGetTablesState.rows = nil
+	customGetTablesStateMu.Unlock()
+	t.Cleanup(func() {
+		customGetTablesStateMu.Lock()
+		customGetTablesState.lastQuery = ""
+		customGetTablesState.columns = nil
+		customGetTablesState.rows = nil
+		customGetTablesStateMu.Unlock()
+	})
+
+	conn, err := sql.Open(customGetTablesDriverName, "")
+	if err != nil {
+		t.Fatalf("open custom metadata test database: %v", err)
+	}
+	defer conn.Close()
+
+	if _, err := (&CustomDB{conn: conn, driver: "kingbase"}).GetTables("tenant's"); err != nil {
+		t.Fatalf("GetTables returned error: %v", err)
+	}
+
+	customGetTablesStateMu.Lock()
+	lastQuery := customGetTablesState.lastQuery
+	customGetTablesStateMu.Unlock()
+	if !strings.Contains(lastQuery, "AND table_schema = 'tenant''s'") {
+		t.Fatalf("expected escaped Kingbase schema literal, got %s", lastQuery)
+	}
+}
+
+func TestCustomDBGetTablesPreservesPGLikeQualifiedIdentifierEscaping(t *testing.T) {
+	registerCustomGetTablesDriverOnce.Do(func() {
+		sql.Register(customGetTablesDriverName, customGetTablesDriver{})
+	})
+
+	customGetTablesStateMu.Lock()
+	customGetTablesState.columns = []string{"SCHEMANAME", "TABLENAME"}
+	customGetTablesState.rows = [][]driver.Value{{"ldf.server", "application.type"}}
+	customGetTablesStateMu.Unlock()
+	t.Cleanup(func() {
+		customGetTablesStateMu.Lock()
+		customGetTablesState.columns = nil
+		customGetTablesState.rows = nil
+		customGetTablesStateMu.Unlock()
+	})
+
+	conn, err := sql.Open(customGetTablesDriverName, "")
+	if err != nil {
+		t.Fatalf("open custom metadata test database: %v", err)
+	}
+	defer conn.Close()
+
+	tables, err := (&CustomDB{conn: conn, driver: "kingbase"}).GetTables("ldf_server_dbs_dev")
+	if err != nil {
+		t.Fatalf("GetTables returned error: %v", err)
+	}
+	if want := []string{`"ldf.server"."application.type"`}; !reflect.DeepEqual(tables, want) {
+		t.Fatalf("GetTables returned %v, want %v", tables, want)
 	}
 }
 

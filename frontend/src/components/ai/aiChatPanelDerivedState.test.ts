@@ -11,17 +11,10 @@ import {
 import { t as translateCatalog } from '../../i18n';
 
 describe('aiChatPanelDerivedState', () => {
-  it('falls back to tool context matches when the active context is incomplete', () => {
+  it('uses only the active workspace context', () => {
     const result = inferAIChatConnectionContext({
-      activeConnectionId: '',
-      activeDbName: '',
-      messages: [
-        { id: '1', role: 'user', content: '帮我看看 orders 和 order_items 的问题', timestamp: 1 },
-      ],
-      toolContextEntries: [
-        { connectionId: 'conn-customers', dbName: 'crm', tables: ['customers'] },
-        { connectionId: 'conn-orders', dbName: 'sales', tables: ['orders', 'order_items'] },
-      ],
+      activeConnectionId: 'conn-orders',
+      activeDbName: 'sales',
     });
 
     expect(result).toEqual({

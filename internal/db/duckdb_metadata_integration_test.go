@@ -67,6 +67,61 @@ CREATE UNIQUE INDEX idx_events_name ON events(name);
 	}
 }
 
+func TestDuckDBQualifiedMetadataDoesNotFallbackToSameNamedObject(t *testing.T) {
+	t.Parallel()
+
+	dbPath := filepath.Join(t.TempDir(), "qualified-fallback.duckdb")
+	client := &DuckDB{}
+	if err := client.Connect(connection.ConnectionConfig{Type: "duckdb", Host: dbPath}); err != nil {
+		t.Fatalf("Connect failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = client.Close()
+	})
+
+	if _, err := client.Exec(`
+CREATE TABLE main.events (
+	id BIGINT PRIMARY KEY,
+	marker VARCHAR UNIQUE
+);
+CREATE SCHEMA compat;
+CREATE TABLE compat.legacy (id BIGINT);
+`); err != nil {
+		t.Fatalf("create qualified fallback fixtures failed: %v", err)
+	}
+
+	columns, err := client.GetColumns("main", "missing.events")
+	if err != nil {
+		t.Fatalf("GetColumns for missing qualified object failed: %v", err)
+	}
+	if len(columns) != 0 {
+		t.Fatalf("missing schema returned columns from a same-named table: %+v", columns)
+	}
+
+	indexes, err := client.GetIndexes("main", "missing.events")
+	if err != nil {
+		t.Fatalf("GetIndexes for missing qualified object failed: %v", err)
+	}
+	if len(indexes) != 0 {
+		t.Fatalf("missing schema returned indexes from a same-named table: %+v", indexes)
+	}
+
+	if ddl, err := client.GetCreateStatement("main", "missing.events"); err == nil {
+		t.Fatalf("missing schema returned a same-named table definition: %q", ddl)
+	}
+	if ddl, err := client.GetCreateStatement("missing_catalog", "main.events"); err == nil {
+		t.Fatalf("missing catalog returned a same-named table definition: %q", ddl)
+	}
+
+	ddl, err := client.GetCreateStatement("", "legacy")
+	if err != nil {
+		t.Fatalf("unqualified compatibility lookup failed: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(ddl), "legacy") {
+		t.Fatalf("unqualified compatibility lookup returned unexpected DDL: %q", ddl)
+	}
+}
+
 func TestDuckDBDefinitionReloadReflectsLatestDDL(t *testing.T) {
 	t.Parallel()
 

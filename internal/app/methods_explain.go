@@ -9,7 +9,6 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	"GoNavi-Wails/internal/logger"
-	"GoNavi-Wails/internal/utils"
 	"GoNavi-Wails/shared/i18n"
 )
 
@@ -65,6 +64,16 @@ func defaultExplainBackendText(key string, params map[string]any) string {
 //
 // Wails 绑定：前端通过 DiagnoseQuery(config, dbName, sql) 调用，返回 QueryResult.Data 为 DiagnoseReport。
 func (a *App) DiagnoseQuery(config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
+	return a.diagnoseQueryContext(context.Background(), config, dbName, query)
+}
+
+func (a *App) diagnoseQueryContext(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return connection.QueryResult{Success: false, Message: a.appText("sql_analysis.backend.error.query_required", nil)}
@@ -82,12 +91,12 @@ func (a *App) DiagnoseQuery(config connection.ConnectionConfig, dbName, query st
 		}
 	}
 
-	dbInst, err := a.getDatabase(runConfig)
+	dbInst, err := a.getDatabaseSynchronouslyWithContext(ctx, runConfig, false)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	plan, err := a.executeExplain(dbInst, runConfig, dbType, query)
+	plan, err := a.executeExplainContext(ctx, dbInst, runConfig, dbType, query)
 	if err != nil {
 		logger.Warnf("DiagnoseQuery 执行 EXPLAIN 失败：type=%s err=%v sql=%q", dbType, err, sqlSnippet(query))
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -248,13 +257,20 @@ func skipMySQLQuotedText(query string, start int, quote byte) int {
 //  1. 若 dbInst 实现 ExplainExecer（driver-agent 在 PR2 接入），优先用驱动原生实现
 //  2. 否则走 app 层 fallback：buildExplainQuery 构造 EXPLAIN 语句，通过 QueryMulti 执行
 func (a *App) executeExplain(dbInst db.Database, config connection.ConnectionConfig, dbType, query string) (connection.ExplainResult, error) {
+	return a.executeExplainContext(context.Background(), dbInst, config, dbType, query)
+}
+
+func (a *App) executeExplainContext(parent context.Context, dbInst db.Database, config connection.ConnectionConfig, dbType, query string) (connection.ExplainResult, error) {
 	text := a.appText
-	ctx, cancel := context.WithCancel(context.Background())
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 
 	if timeout := getDiagnoseTimeout(config); timeout > 0 {
 		var cancelFn context.CancelFunc
-		ctx, cancelFn = utils.ContextWithTimeout(timeout)
+		ctx, cancelFn = context.WithTimeout(parent, timeout)
 		defer cancelFn()
 	}
 
@@ -411,12 +427,23 @@ func runPinnedExplainCleanup(session db.StatementExecer, dbType string, queries 
 
 // runExplainCleanup 执行清理语句（如 Oracle DELETE FROM plan_table），失败仅记日志不阻塞主流程。
 // 在 defer 中调用，确保主 EXPLAIN 失败时也能尝试清理。
+
 func runExplainCleanup(dbInst db.Database, cleanupQueries []string) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for _, q := range cleanupQueries {
 		if strings.TrimSpace(q) == "" {
 			continue
 		}
-		if _, err := dbInst.Exec(q); err != nil {
+		var err error
+		if execer, ok := dbInst.(interface {
+			ExecContext(context.Context, string) (int64, error)
+		}); ok {
+			_, err = execer.ExecContext(cleanupCtx, q)
+		} else {
+			_, err = dbInst.Exec(q)
+		}
+		if err != nil {
 			logger.Warnf("EXPLAIN 清理失败（可忽略）：sql=%q err=%v", sqlSnippet(q), err)
 		}
 	}
@@ -449,8 +476,14 @@ func executeExplainStatementsWithText(ctx context.Context, dbInst db.Database, d
 		return collectExplainRawWithText(results, preferFormat, text)
 	}
 	if multi, ok := dbInst.(db.MultiResultQuerier); ok {
+		if err := ctx.Err(); err != nil {
+			return "", preferFormat, err
+		}
 		results, err := multi.QueryMulti(fullSQL)
 		if err != nil {
+			return "", preferFormat, err
+		}
+		if err := ctx.Err(); err != nil {
 			return "", preferFormat, err
 		}
 		return collectExplainRawWithText(results, preferFormat, text)
@@ -470,7 +503,13 @@ func executeExplainStatementsWithText(ctx context.Context, dbInst db.Database, d
 	}); ok {
 		data, columns, err = queryWithContext.QueryContext(ctx, wrappedSQL)
 	} else {
+		if err := ctx.Err(); err != nil {
+			return "", preferFormat, err
+		}
 		data, columns, err = dbInst.Query(wrappedSQL)
+		if err == nil {
+			err = ctx.Err()
+		}
 	}
 	if err != nil {
 		return "", preferFormat, err

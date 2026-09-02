@@ -17,14 +17,16 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const storeSchemaVersion = 4
+const storeSchemaVersion = 5
 
 var (
 	ErrClosed                     = errors.New("data sync job store is closed")
 	ErrNotFound                   = errors.New("data sync job record not found")
 	ErrRevisionConflict           = errors.New("data sync job revision conflict")
 	ErrRunAlreadyActive           = errors.New("data sync job already has an unfinished run")
+	ErrJobRunsActive              = errors.New("data sync job cannot be deleted while runs are active")
 	ErrRunNotCancelable           = errors.New("data sync run cannot be canceled")
+	ErrRunNotDeletable            = errors.New("data sync run cannot be deleted while it is active")
 	ErrRunOwnershipLost           = errors.New("data sync run ownership was lost")
 	ErrErrorRowStateConflict      = errors.New("data sync error row state transition conflict")
 	ErrErrorRowRetryOwnershipLost = errors.New("data sync error row retry ownership was lost")
@@ -167,8 +169,7 @@ func (s *Store) initialize(ctx context.Context) error {
 			batch_sequence INTEGER NOT NULL DEFAULT 0,
 			schema_hash TEXT NOT NULL DEFAULT '',
 			updated_at INTEGER NOT NULL,
-			FOREIGN KEY(job_id) REFERENCES data_sync_jobs(id) ON DELETE CASCADE,
-			FOREIGN KEY(run_id) REFERENCES data_sync_runs(id) ON DELETE CASCADE
+			FOREIGN KEY(job_id) REFERENCES data_sync_jobs(id) ON DELETE CASCADE
 		)`,
 		`CREATE TABLE IF NOT EXISTS data_sync_error_rows (
 			id TEXT PRIMARY KEY,
@@ -256,11 +257,63 @@ func (s *Store) initialize(ctx context.Context) error {
 			}
 		}
 	}
+	if version < 5 {
+		if err := migrateCheckpointRunHistoryReference(ctx, s.db); err != nil {
+			return err
+		}
+	}
 	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_data_sync_error_rows_retry ON data_sync_error_rows(status, retry_lease_expires_at)`); err != nil {
 		return fmt.Errorf("initialize data sync error row retry index: %w", err)
 	}
 	if _, err := s.db.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", storeSchemaVersion)); err != nil {
 		return fmt.Errorf("record data sync job schema version: %w", err)
+	}
+	return nil
+}
+
+// Checkpoints are task recovery state, not disposable run history. Removing
+// the run foreign key allows users to clean terminal history without losing a
+// durable resume position; deleting the parent job still cascades normally.
+func migrateCheckpointRunHistoryReference(ctx context.Context, database *sql.DB) error {
+	tx, err := database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin checkpoint history migration: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx, `CREATE TABLE data_sync_checkpoints_replacement (
+		job_id TEXT PRIMARY KEY,
+		version INTEGER NOT NULL,
+		kind TEXT NOT NULL,
+		run_id TEXT NOT NULL,
+		definition_revision INTEGER NOT NULL,
+		table_name TEXT NOT NULL,
+		phase TEXT NOT NULL,
+		cursor_type TEXT NOT NULL,
+		cursor_json BLOB,
+		watermark_json BLOB,
+		batch_sequence INTEGER NOT NULL DEFAULT 0,
+		schema_hash TEXT NOT NULL DEFAULT '',
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY(job_id) REFERENCES data_sync_jobs(id) ON DELETE CASCADE
+	)`); err != nil {
+		return fmt.Errorf("create replacement data sync checkpoints: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO data_sync_checkpoints_replacement(
+		job_id, version, kind, run_id, definition_revision, table_name, phase,
+		cursor_type, cursor_json, watermark_json, batch_sequence, schema_hash, updated_at
+	) SELECT job_id, version, kind, run_id, definition_revision, table_name, phase,
+		cursor_type, cursor_json, watermark_json, batch_sequence, schema_hash, updated_at
+		FROM data_sync_checkpoints`); err != nil {
+		return fmt.Errorf("copy data sync checkpoints: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE data_sync_checkpoints`); err != nil {
+		return fmt.Errorf("drop legacy data sync checkpoints: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE data_sync_checkpoints_replacement RENAME TO data_sync_checkpoints`); err != nil {
+		return fmt.Errorf("rename migrated data sync checkpoints: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit checkpoint history migration: %w", err)
 	}
 	return nil
 }
@@ -498,6 +551,39 @@ func (s *Store) DelayScheduleIfDue(ctx context.Context, id string, scheduledAt, 
 func (s *Store) DeleteJob(ctx context.Context, id string) error {
 	_, err := s.archiveJobAndCancelRuns(ctx, id, time.Now().UnixMilli())
 	return err
+}
+
+// PurgeJob permanently removes the job row. Dependent runs, checkpoints,
+// error rows, and run events are removed through ON DELETE CASCADE
+// (foreign_keys=ON is set when the store opens).
+func (s *Store) PurgeJob(ctx context.Context, id string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	id = strings.TrimSpace(id)
+	result, err := s.db.ExecContext(ctx, `DELETE FROM data_sync_jobs
+		WHERE id = ? AND NOT EXISTS (
+			SELECT 1 FROM data_sync_runs
+			WHERE job_id = ? AND status IN (?, ?, ?)
+		)`, id, id, RunStatusQueued, RunStatusRunning, RunStatusCancelling)
+	if err != nil {
+		return fmt.Errorf("purge data sync job: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read purged data sync job count: %w", err)
+	}
+	if affected == 0 {
+		var exists bool
+		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM data_sync_jobs WHERE id = ?)`, id).Scan(&exists); err != nil {
+			return fmt.Errorf("check purged data sync job: %w", err)
+		}
+		if exists {
+			return ErrJobRunsActive
+		}
+		return ErrNotFound
+	}
+	return nil
 }
 
 type archivedRunTransition struct {
@@ -781,6 +867,116 @@ func (s *Store) ListRuns(ctx context.Context, jobID string, limit int) ([]RunRec
 		result = append(result, run)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) ListRunsPage(ctx context.Context, jobID string, cursor *RunCursor, limit int) (RunPage, error) {
+	if err := s.ensureOpen(); err != nil {
+		return RunPage{}, err
+	}
+	if limit < 1 {
+		limit = 25
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if cursor != nil && (cursor.CreatedAt <= 0 || strings.TrimSpace(cursor.ID) == "") {
+		return RunPage{}, errors.New("data sync run cursor requires createdAt and id")
+	}
+	clauses := make([]string, 0, 2)
+	args := make([]any, 0, 5)
+	if jobID = strings.TrimSpace(jobID); jobID != "" {
+		clauses = append(clauses, "job_id = ?")
+		args = append(args, jobID)
+	}
+	countQuery := "SELECT COUNT(*) FROM data_sync_runs"
+	if len(clauses) > 0 {
+		countQuery += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return RunPage{}, fmt.Errorf("count data sync runs: %w", err)
+	}
+	if cursor != nil {
+		clauses = append(clauses, "(created_at < ? OR (created_at = ? AND id > ?))")
+		args = append(args, cursor.CreatedAt, cursor.CreatedAt, strings.TrimSpace(cursor.ID))
+	}
+	query := runSelect
+	if len(clauses) > 0 {
+		query += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	query += " ORDER BY created_at DESC, id LIMIT ?"
+	args = append(args, limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return RunPage{}, fmt.Errorf("page data sync runs: %w", err)
+	}
+	defer rows.Close()
+	page := RunPage{Runs: make([]RunRecord, 0, limit), Total: total}
+	for rows.Next() {
+		run, scanErr := scanRun(rows)
+		if scanErr != nil {
+			return RunPage{}, scanErr
+		}
+		page.Runs = append(page.Runs, run)
+	}
+	if err := rows.Err(); err != nil {
+		return RunPage{}, err
+	}
+	if len(page.Runs) > limit {
+		last := page.Runs[limit-1]
+		page.Runs = page.Runs[:limit]
+		page.NextCursor = &RunCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+	return page, nil
+}
+
+func terminalRunStatus(status RunStatus) bool {
+	switch status {
+	case RunStatusSucceeded, RunStatusPartial, RunStatusFailed, RunStatusCanceled, RunStatusInterrupted:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Store) DeleteRun(ctx context.Context, runID string) error {
+	if err := s.ensureOpen(); err != nil {
+		return err
+	}
+	run, err := s.GetRun(ctx, strings.TrimSpace(runID))
+	if err != nil {
+		return err
+	}
+	if !terminalRunStatus(run.Status) {
+		return ErrRunNotDeletable
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM data_sync_runs WHERE id = ? AND status IN (?, ?, ?, ?, ?)`,
+		run.ID, RunStatusSucceeded, RunStatusPartial, RunStatusFailed, RunStatusCanceled, RunStatusInterrupted)
+	if err != nil {
+		return fmt.Errorf("delete data sync run: %w", err)
+	}
+	return requireAffected(result)
+}
+
+func (s *Store) ClearTerminalRuns(ctx context.Context, jobID string) (int, error) {
+	if err := s.ensureOpen(); err != nil {
+		return 0, err
+	}
+	query := `DELETE FROM data_sync_runs WHERE status IN (?, ?, ?, ?, ?)`
+	args := []any{RunStatusSucceeded, RunStatusPartial, RunStatusFailed, RunStatusCanceled, RunStatusInterrupted}
+	if jobID = strings.TrimSpace(jobID); jobID != "" {
+		query += ` AND job_id = ?`
+		args = append(args, jobID)
+	}
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("clear terminal data sync runs: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read cleared data sync run count: %w", err)
+	}
+	return int(affected), nil
 }
 
 func (s *Store) ListQueuedRuns(ctx context.Context, limit int) ([]RunRecord, error) {

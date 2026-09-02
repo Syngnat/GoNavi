@@ -44,13 +44,26 @@ var (
 type xlsxExportTempSheet struct {
 	name   string
 	path   string
-	file   *os.File
+	file   io.WriteCloser
 	writer *bufio.Writer
 	closed bool
 }
 
+type xlsxExportOutputFile interface {
+	io.Writer
+	Truncate(size int64) error
+	Seek(offset int64, whence int) (int64, error)
+}
+
+type xlsxExportWriteOptions struct {
+	tempDir string
+	budget  *webTransferBudget
+}
+
 type xlsxExportFileWriter struct {
-	file       *os.File
+	file       xlsxExportOutputFile
+	tempDir    string
+	budget     *webTransferBudget
 	columns    []string
 	columnRefs []string
 	rowBuf     []string
@@ -62,12 +75,18 @@ type xlsxExportFileWriter struct {
 	maxRows    int
 }
 
-func newXLSXExportFileWriter(f *os.File, maxRowsPerSheet int) (*xlsxExportFileWriter, error) {
+func newXLSXExportFileWriter(f xlsxExportOutputFile, maxRowsPerSheet int, writeOptions ...xlsxExportWriteOptions) (*xlsxExportFileWriter, error) {
 	if f == nil {
 		return nil, fmt.Errorf("file required")
 	}
+	options := xlsxExportWriteOptions{}
+	if len(writeOptions) > 0 {
+		options = writeOptions[0]
+	}
 	return &xlsxExportFileWriter{
 		file:    f,
+		tempDir: options.tempDir,
+		budget:  options.budget,
 		maxRows: normalizeXLSXRowsPerSheet(maxRowsPerSheet),
 	}, nil
 }
@@ -91,16 +110,26 @@ func (w *xlsxExportFileWriter) rotateSheet() error {
 		return err
 	}
 
-	tmpFile, err := os.CreateTemp("", "gonavi-export-sheet-*.xml")
+	tmpFile, err := os.CreateTemp(w.tempDir, "gonavi-export-sheet-*.xml")
 	if err != nil {
 		return err
+	}
+	var sheetFile io.WriteCloser = tmpFile
+	if w.budget != nil {
+		managed, managedErr := newWebTransferFile(tmpFile, w.budget)
+		if managedErr != nil {
+			_ = tmpFile.Close()
+			_ = os.Remove(tmpFile.Name())
+			return managedErr
+		}
+		sheetFile = managed
 	}
 
 	sheet := &xlsxExportTempSheet{
 		name:   fmt.Sprintf("Sheet%d", w.sheetNo+1),
 		path:   tmpFile.Name(),
-		file:   tmpFile,
-		writer: bufio.NewWriterSize(tmpFile, 1024*256),
+		file:   sheetFile,
+		writer: bufio.NewWriterSize(sheetFile, 1024*256),
 	}
 	if err := writeXLSXSheetHeader(sheet.writer); err != nil {
 		_ = tmpFile.Close()
@@ -169,20 +198,19 @@ func (w *xlsxExportFileWriter) ConsumeRowValues(values []interface{}) error {
 
 func (w *xlsxExportFileWriter) Close() error {
 	if err := w.closeCurrentSheet(); err != nil {
-		w.cleanupTempSheets()
+		_ = w.cleanupTempSheets()
 		return err
 	}
 	if len(w.sheets) == 0 {
-		w.cleanupTempSheets()
-		return nil
+		return w.cleanupTempSheets()
 	}
 
 	if err := w.file.Truncate(0); err != nil {
-		w.cleanupTempSheets()
+		_ = w.cleanupTempSheets()
 		return err
 	}
 	if _, err := w.file.Seek(0, 0); err != nil {
-		w.cleanupTempSheets()
+		_ = w.cleanupTempSheets()
 		return err
 	}
 
@@ -190,13 +218,18 @@ func (w *xlsxExportFileWriter) Close() error {
 	zw.RegisterCompressor(zip.Deflate, func(out io.Writer) (io.WriteCloser, error) {
 		return flate.NewWriter(out, flate.BestSpeed)
 	})
-	defer w.cleanupTempSheets()
 
 	if err := writeXLSXZipFile(zw, w.sheets); err != nil {
 		_ = zw.Close()
+		_ = w.cleanupTempSheets()
 		return err
 	}
-	return zw.Close()
+	zipErr := zw.Close()
+	cleanupErr := w.cleanupTempSheets()
+	if zipErr != nil {
+		return zipErr
+	}
+	return cleanupErr
 }
 
 func (w *xlsxExportFileWriter) closeCurrentSheet() error {
@@ -217,19 +250,28 @@ func (w *xlsxExportFileWriter) closeCurrentSheet() error {
 	return nil
 }
 
-func (w *xlsxExportFileWriter) cleanupTempSheets() {
+func (w *xlsxExportFileWriter) cleanupTempSheets() error {
+	var firstErr error
 	for _, sheet := range w.sheets {
 		if sheet == nil {
 			continue
 		}
 		if !sheet.closed && sheet.file != nil {
-			_ = sheet.writer.Flush()
-			_ = sheet.file.Close()
+			if err := sheet.writer.Flush(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+			if err := sheet.file.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+			sheet.closed = true
 		}
 		if sheet.path != "" {
-			_ = os.Remove(sheet.path)
+			if err := os.Remove(sheet.path); err != nil && !os.IsNotExist(err) && firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
+	return firstErr
 }
 
 func (w *xlsxExportFileWriter) writeStringRow(rowNumber int, values []string) error {

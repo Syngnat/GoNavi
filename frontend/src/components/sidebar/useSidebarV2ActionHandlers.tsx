@@ -7,6 +7,8 @@ import { t } from '../../i18n';
 import type { ConnectionTag, SavedConnection } from '../../types';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
 import { resolveConnectionAccentColor, resolveConnectionIconType } from '../../utils/connectionVisual';
+import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
+import { buildElasticsearchConsoleTemplates } from '../../utils/elasticsearchConsole';
 import {
   buildTableSelectQuery,
   isElasticsearchDbType,
@@ -42,6 +44,7 @@ type UseSidebarV2ActionHandlersArgs = {
   loadingNodesRef: MutableRefObject<Set<string>>;
   treeDataRef: MutableRefObject<TreeNode[]>;
   refreshConnectionResources: (node: any) => Promise<void>;
+  invalidateConnectionLoads: (connectionId: string) => void;
   findTreeNodeByKeyRef: MutableRefObject<(nodes: TreeNode[], targetKey: React.Key) => TreeNode | null>;
   refreshV2TableContextMenuStatsRef: MutableRefObject<(node: any) => void>;
   setConnectionStates: Dispatch<SetStateAction<Record<string, SidebarConnectionState>>>;
@@ -75,6 +78,7 @@ type UseSidebarV2ActionHandlersArgs = {
   openDesign: (node: any, initialTab: string, readOnly?: boolean) => void;
   openNewTableDesign: (node: any) => void;
   onDoubleClick: (event: any, node: any) => void;
+  openMessageQueueWorkbench: (node: any, action?: 'open' | 'consume' | 'publish') => void;
   openMessagePublishModal: (node: any) => void;
   openTableDdlInDesigner: (node: any) => void;
   openTableInERView: (node: any) => void;
@@ -99,6 +103,7 @@ type UseSidebarV2ActionHandlersArgs = {
   handleDeleteDatabase: (node: any) => void;
   onCreateConnectionInGroup?: (targetTagId: string) => void;
   onEditConnection?: (conn: SavedConnection) => void;
+  openConnectionVisibilitySettings: (conn: SavedConnection) => void;
   handleDuplicateConnection: (conn: SavedConnection) => Promise<void>;
   buildConnectionRootQueryTabTitle: () => string;
   buildConnectionRootRedisCommandTabTitle: (redisDbLabel?: string) => string;
@@ -113,6 +118,7 @@ export const useSidebarV2ActionHandlers = ({
   loadingNodesRef,
   treeDataRef,
   refreshConnectionResources,
+  invalidateConnectionLoads,
   findTreeNodeByKeyRef,
   refreshV2TableContextMenuStatsRef,
   setConnectionStates,
@@ -146,6 +152,7 @@ export const useSidebarV2ActionHandlers = ({
   openDesign,
   openNewTableDesign,
   onDoubleClick,
+  openMessageQueueWorkbench,
   openMessagePublishModal,
   openTableDdlInDesigner,
   openTableInERView,
@@ -170,6 +177,7 @@ export const useSidebarV2ActionHandlers = ({
   handleDeleteDatabase,
   onCreateConnectionInGroup,
   onEditConnection,
+  openConnectionVisibilitySettings,
   handleDuplicateConnection,
   buildConnectionRootQueryTabTitle,
   buildConnectionRootRedisCommandTabTitle,
@@ -205,6 +213,7 @@ export const useSidebarV2ActionHandlers = ({
             type: 'query',
             connectionId: node.dataRef.id,
             dbName: node.dataRef.dbName,
+            schemaName: String(node.dataRef?.schemaName || '').trim() || undefined,
             query: queryTemplate,
           });
         })();
@@ -468,6 +477,7 @@ export const useSidebarV2ActionHandlers = ({
     const connKey = String(node?.key || node?.dataRef?.id || '');
     if (!connKey) return;
     const conn = (connections.find((item) => item.id === connKey) || node?.dataRef) as SavedConnection | undefined;
+    invalidateConnectionLoads(connKey);
     Array.from(loadingNodesRef.current).forEach((loadingKey) => {
       if (loadingKey === `dbs-${connKey}` || loadingKey.startsWith(`tables-${connKey}-`)) {
         loadingNodesRef.current.delete(loadingKey);
@@ -507,6 +517,7 @@ export const useSidebarV2ActionHandlers = ({
         }
         try {
           await backendApp.DeleteConnection(connId);
+          invalidateConnectionLoads(connId);
           closeTabsByConnection(connId);
           removeConnection(connId);
           message.success(t('connection.sidebar.delete.success'));
@@ -535,12 +546,31 @@ export const useSidebarV2ActionHandlers = ({
     const connId = String(node?.key || node?.dataRef?.id || '');
     if (!connId) return;
     switch (action) {
-      case 'new-db':
+      case 'new-db': {
+        const capabilities = getDataSourceCapabilities(node?.dataRef?.config);
+        if (capabilities.type === 'elasticsearch') {
+          if (!capabilities.supportsCreateIndex) return;
+          const query = buildElasticsearchConsoleTemplates('')
+            .find((template) => template.id === 'create_index')?.source || '';
+          addTab({
+            id: `query-${Date.now()}`,
+            title: buildConnectionRootQueryTabTitle(),
+            type: 'query',
+            connectionId: connId,
+            dbName: undefined,
+            query,
+          });
+          return;
+        }
         setTargetConnection(node);
         setIsCreateDbModalOpen(true);
         return;
+      }
       case 'refresh':
         void refreshConnectionResources(node);
+        return;
+      case 'visibility':
+        openConnectionVisibilitySettings(node.dataRef as SavedConnection);
         return;
       case 'new-query':
         addTab({
@@ -551,6 +581,15 @@ export const useSidebarV2ActionHandlers = ({
           dbName: undefined,
           query: '',
         });
+        return;
+      case 'open-message-workbench':
+        openMessageQueueWorkbench(node, 'open');
+        return;
+      case 'consume-messages':
+        openMessageQueueWorkbench(node, 'consume');
+        return;
+      case 'publish-message':
+        openMessagePublishModal(node);
         return;
       case 'open-sql-file':
         handleRunSQLFile(node);

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { DataSyncObjectPicker } from './DataSyncObjectPicker';
 import type {
@@ -11,7 +11,9 @@ import type { DataSyncMetadataResult } from './useDataSyncMetadata';
 
 const normalizeName = (value: string): string => value.trim().toLowerCase();
 
-type MappingTargetStatus = 'exists' | 'create' | 'missing';
+const MAPPING_BATCH_SIZE = 100;
+
+type MappingTargetStatus = 'exists' | 'create' | 'missing' | 'pending';
 
 const mappingReady = (
   mapping: DataSyncTableMapping,
@@ -21,6 +23,7 @@ const mappingReady = (
   Boolean(
     (taskKind === 'querySink' || mapping.sourceObject.trim()) &&
       mapping.targetObject.trim() &&
+      targetState !== 'pending' &&
       (mapping.targetMode !== 'existing_only' || targetState === 'exists') &&
       (!['reconcile', 'cdc'].includes(taskKind) || mapping.keyColumns.length > 0) &&
       (taskKind !== 'cdc' || mapping.fields.length > 0),
@@ -30,7 +33,8 @@ const ObjectMetadataStatus: React.FC<{
   side: 'source' | 'target';
   state: DataSyncMetadataResult<DataSyncObjectMetadata>;
   t: DataSyncWorkbenchTranslate;
-}> = ({ side, state, t }) => (
+  showRetry?: boolean;
+}> = ({ side, state, t, showRetry = true }) => (
   <div
     className="gn-data-sync-object-status"
     data-metadata-scope={`${side}-objects`}
@@ -46,7 +50,7 @@ const ObjectMetadataStatus: React.FC<{
             ? t('metadata.endpoint_required')
             : t('metadata.objects_count', { count: state.items.length })}
     </strong>
-    {state.status === 'error' ? (
+    {showRetry && state.status === 'error' ? (
       <button
         type="button"
         className="gn-data-sync-link-button"
@@ -193,9 +197,10 @@ const DataSyncObjectCombobox: React.FC<{
 
 const targetStatus = (
   mapping: DataSyncTableMapping,
-  targetObjects: DataSyncObjectMetadata[],
+  targetObjects: DataSyncMetadataResult<DataSyncObjectMetadata>,
 ): MappingTargetStatus => {
-  const exists = targetObjects.some(
+  if (targetObjects.status !== 'ready') return 'pending';
+  const exists = targetObjects.items.some(
     (object) =>
       object.kind !== 'view' &&
       normalizeName(object.name) === normalizeName(mapping.targetObject),
@@ -212,7 +217,9 @@ export const DataSyncMappingTable: React.FC<{
   taskKind: DataSyncTaskKind;
   sourceObjects: DataSyncMetadataResult<DataSyncObjectMetadata>;
   targetObjects: DataSyncMetadataResult<DataSyncObjectMetadata>;
+  endpointsReady?: boolean;
   disabled?: boolean;
+  selectionBusy?: boolean;
   t: DataSyncWorkbenchTranslate;
   onAdd: () => void;
   onAddMany: (sourceNames: string[]) => void;
@@ -224,7 +231,9 @@ export const DataSyncMappingTable: React.FC<{
   taskKind,
   sourceObjects,
   targetObjects,
+  endpointsReady: endpointsReadyProp,
   disabled = false,
+  selectionBusy = false,
   t,
   onAdd,
   onAddMany,
@@ -236,12 +245,105 @@ export const DataSyncMappingTable: React.FC<{
   const [expandedMappingIds, setExpandedMappingIds] = useState<Set<string>>(
     new Set(),
   );
+  const [visibleLimit, setVisibleLimit] = useState(MAPPING_BATCH_SIZE);
+  const mappingListRef = useRef<HTMLDivElement | null>(null);
+  const previousMappingIdsRef = useRef(
+    new Set(mappings.map((mapping) => mapping.id)),
+  );
+  const [recentMappingIds, setRecentMappingIds] = useState<Set<string>>(
+    new Set(),
+  );
   const querySink = taskKind === 'querySink';
+  const endpointsReady =
+    endpointsReadyProp ??
+    (sourceObjects.status !== 'idle' && targetObjects.status !== 'idle');
   const canPickSources =
     !querySink &&
     sourceObjects.status === 'ready' &&
     targetObjects.status === 'ready' &&
     sourceObjects.items.length > 0;
+  const relevantMetadataStatuses = querySink
+    ? [targetObjects.status]
+    : [sourceObjects.status, targetObjects.status];
+  const metadataLoading =
+    endpointsReady &&
+    relevantMetadataStatuses.some(
+      (status) => status === 'idle' || status === 'loading',
+    );
+  const metadataError =
+    endpointsReady &&
+    relevantMetadataStatuses.some((status) => status === 'error');
+  const sourceObjectsEmpty =
+    !querySink &&
+    endpointsReady &&
+    sourceObjects.status === 'ready' &&
+    sourceObjects.items.length === 0;
+  const emptyState = !endpointsReady
+    ? 'prerequisite'
+    : metadataError
+        ? 'error'
+      : metadataLoading
+        ? 'loading'
+        : sourceObjectsEmpty
+          ? 'no-source'
+          : 'ready';
+  const emptyTitle =
+    emptyState === 'prerequisite'
+      ? t('mapping.endpoints_required_title')
+      : emptyState === 'loading'
+        ? t('mapping.loading_title')
+        : emptyState === 'error'
+          ? t('mapping.metadata_error_title')
+          : emptyState === 'no-source'
+            ? t('mapping.no_source_objects_title')
+            : t('mapping.empty_title');
+  const emptyDescription =
+    emptyState === 'prerequisite'
+      ? t('mapping.endpoints_required_desc')
+      : emptyState === 'loading'
+        ? t('mapping.loading_desc')
+        : emptyState === 'error'
+          ? t('mapping.metadata_error_desc')
+          : emptyState === 'no-source'
+            ? t('mapping.no_source_objects_desc')
+            : t('mapping.empty_desc');
+  const retryFailedMetadata = () => {
+    if (!querySink && sourceObjects.status === 'error') sourceObjects.reload();
+    if (targetObjects.status === 'error') targetObjects.reload();
+  };
+  const addedMappingIds = mappings
+    .filter((mapping) => !previousMappingIdsRef.current.has(mapping.id))
+    .map((mapping) => mapping.id);
+  const pinnedMappingIds =
+    addedMappingIds.length > 0 ? new Set(addedMappingIds) : recentMappingIds;
+  const pinnedMappings = mappings.filter((mapping) => pinnedMappingIds.has(mapping.id));
+  const visiblePinnedMappings = pinnedMappings.slice(0, visibleLimit);
+  const visibleMappings = [
+    ...visiblePinnedMappings,
+    ...mappings
+      .filter((mapping) => !pinnedMappingIds.has(mapping.id))
+      .slice(0, visibleLimit - visiblePinnedMappings.length),
+  ];
+  const remainingCount = mappings.length - visibleMappings.length;
+  const mappingIndexById = useMemo(
+    () => new Map(mappings.map((mapping, index) => [mapping.id, index + 1])),
+    [mappings],
+  );
+
+  useEffect(() => {
+    const currentIds = new Set(mappings.map((mapping) => mapping.id));
+    previousMappingIdsRef.current = currentIds;
+    if (addedMappingIds.length > 0) {
+      setRecentMappingIds(new Set(addedMappingIds));
+      return;
+    }
+    setRecentMappingIds((current) => {
+      const retained = new Set(
+        Array.from(current).filter((mappingId) => currentIds.has(mappingId)),
+      );
+      return retained.size === current.size ? current : retained;
+    });
+  }, [mappings]);
 
   return (
     <section className="gn-data-sync-section" data-data-sync-mapping-section="true">
@@ -250,40 +352,80 @@ export const DataSyncMappingTable: React.FC<{
           <h2>{t('mapping.title')}</h2>
           <p>{t(querySink ? 'mapping.query_help' : 'mapping.help')}</p>
         </div>
-        <button
-          type="button"
-          className="gn-data-sync-button gn-data-sync-button--primary"
-          disabled={disabled || (querySink && mappings.length >= 1) || (!querySink && !canPickSources)}
-          onClick={() => (querySink ? onAdd() : setPickerOpen(true))}
-        >
-          {t(querySink ? 'mapping.add_target' : 'mapping.select_objects')}
-        </button>
+        {endpointsReady &&
+        (mappings.length > 0 || (querySink && targetObjects.status === 'ready')) ? (
+          <button
+            type="button"
+            className="gn-data-sync-button gn-data-sync-button--primary"
+            disabled={
+              disabled ||
+              selectionBusy ||
+              (querySink && mappings.length >= 1) ||
+              (!querySink && !canPickSources)
+            }
+            title={selectionBusy ? t('mapping.probe_running') : undefined}
+            onClick={() => (querySink ? onAdd() : setPickerOpen(true))}
+          >
+            {t(querySink ? 'mapping.add_target' : 'mapping.add_source_objects')}
+          </button>
+        ) : null}
       </header>
 
-      <div className="gn-data-sync-object-status-line" aria-live="polite">
-        <ObjectMetadataStatus side="source" state={sourceObjects} t={t} />
-        <ObjectMetadataStatus side="target" state={targetObjects} t={t} />
-      </div>
-
-      <DataSyncObjectPicker
-        open={pickerOpen}
-        objects={sourceObjects.items}
-        mappedSourceNames={mappings.map((mapping) => mapping.sourceObject)}
-        disabled={disabled}
-        t={t}
-        onClose={() => setPickerOpen(false)}
-        onConfirm={onAddMany}
-      />
-
-      {mappings.length === 0 ? (
-        <div className="gn-data-sync-mapping-empty">
-          <strong>{t('mapping.empty_title')}</strong>
-          <p>{t('mapping.empty_desc')}</p>
+      {endpointsReady ? (
+        <div className="gn-data-sync-object-status-line" aria-live="polite">
           {!querySink ? (
+            <ObjectMetadataStatus
+              side="source"
+              state={sourceObjects}
+              t={t}
+              showRetry={mappings.length > 0 || emptyState !== 'error'}
+            />
+          ) : null}
+          <ObjectMetadataStatus
+            side="target"
+            state={targetObjects}
+            t={t}
+            showRetry={mappings.length > 0 || emptyState !== 'error'}
+          />
+        </div>
+      ) : null}
+
+      {endpointsReady ? (
+        <DataSyncObjectPicker
+          open={pickerOpen}
+          objects={sourceObjects.items}
+          mappedSourceNames={mappings.map((mapping) => mapping.sourceObject)}
+          disabled={disabled || selectionBusy}
+          t={t}
+          onClose={() => setPickerOpen(false)}
+          onConfirm={onAddMany}
+        />
+      ) : null}
+
+      {!endpointsReady || mappings.length === 0 ? (
+        <div className="gn-data-sync-mapping-empty" data-state={emptyState}>
+          {emptyState !== 'prerequisite' ? <strong>{emptyTitle}</strong> : null}
+          <p>{emptyDescription}</p>
+          {emptyState === 'error' ? (
             <button
               type="button"
-              className="gn-data-sync-button"
-              disabled={disabled || !canPickSources}
+              className="gn-data-sync-button gn-data-sync-button--primary"
+              onClick={retryFailedMetadata}
+            >
+              {t('mapping.retry_objects')}
+            </button>
+          ) : !querySink && emptyState === 'no-source' ? (
+            <button
+              type="button"
+              className="gn-data-sync-button gn-data-sync-button--primary"
+              onClick={sourceObjects.reload}
+            >
+              {t('mapping.refresh_objects')}
+            </button>
+          ) : !querySink && canPickSources && !disabled && !selectionBusy ? (
+            <button
+              type="button"
+              className="gn-data-sync-button gn-data-sync-button--primary"
               onClick={() => setPickerOpen(true)}
             >
               {t('mapping.select_objects')}
@@ -291,12 +433,12 @@ export const DataSyncMappingTable: React.FC<{
           ) : null}
         </div>
       ) : (
-        <div className="gn-data-sync-mapping-list">
-          {mappings.map((mapping, index) => {
-            const targetState = targetStatus(mapping, targetObjects.items);
+        <div ref={mappingListRef} className="gn-data-sync-mapping-list">
+          {visibleMappings.map((mapping, index) => {
+            const targetState = targetStatus(mapping, targetObjects);
+            const targetPending = targetState === 'pending';
             const ready = mappingReady(mapping, taskKind, targetState);
-            const detailsOpen =
-              !ready || expandedMappingIds.has(mapping.id);
+            const detailsOpen = expandedMappingIds.has(mapping.id);
             return (
               <article
                 key={mapping.id}
@@ -315,7 +457,7 @@ export const DataSyncMappingTable: React.FC<{
                         onChange({ ...mapping, enabled: event.target.checked })
                       }
                     />
-                    <span>{index + 1}</span>
+                  <span>{mappingIndexById.get(mapping.id) ?? index + 1}</span>
                   </label>
                   <div className="gn-data-sync-mapping-row__endpoint">
                     <span>{t('mapping.source')}</span>
@@ -363,9 +505,15 @@ export const DataSyncMappingTable: React.FC<{
                     </span>
                     <span
                       className="gn-data-sync-state-label"
-                      data-state={ready ? 'ready' : 'warning'}
+                      data-state={targetPending ? 'pending' : ready ? 'ready' : 'warning'}
                     >
-                      {t(ready ? 'mapping.ready' : 'mapping.needs_attention')}
+                      {t(
+                        targetPending
+                          ? 'mapping.confirming'
+                          : ready
+                            ? 'mapping.ready'
+                            : 'mapping.needs_attention',
+                      )}
                     </span>
                   </div>
                   <div className="gn-data-sync-mapping-row__actions">
@@ -479,6 +627,47 @@ export const DataSyncMappingTable: React.FC<{
               </article>
             );
           })}
+          {remainingCount > 0 ? (
+            <button
+              type="button"
+              className="gn-data-sync-button gn-data-sync-mapping-list__more"
+              data-mapping-control="show-more"
+              onClick={() => {
+                const firstNewRowIndex = visibleMappings.length;
+                const buttonWillUnmount = remainingCount <= MAPPING_BATCH_SIZE;
+                setVisibleLimit((current) =>
+                  Math.min(mappings.length, current + MAPPING_BATCH_SIZE),
+                );
+                if (
+                  buttonWillUnmount &&
+                  typeof globalThis.requestAnimationFrame === 'function'
+                ) {
+                  globalThis.requestAnimationFrame(() => {
+                    const list = mappingListRef.current;
+                    const firstNewControl = Array.from(
+                      list?.querySelectorAll<HTMLElement>('[data-mapping-id]') || [],
+                    )
+                      .slice(firstNewRowIndex)
+                      .map((row) =>
+                        row.querySelector<HTMLElement>(
+                          'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
+                        ),
+                      )
+                      .find((control): control is HTMLElement => Boolean(control));
+                    const fallback = list?.querySelector<HTMLElement>(
+                      '[data-mapping-id] button:not(:disabled), [data-mapping-id] input:not(:disabled)',
+                    );
+                    (firstNewControl || fallback)?.focus();
+                  });
+                }
+              }}
+            >
+              {t('mapping.show_more', {
+                count: Math.min(MAPPING_BATCH_SIZE, remainingCount),
+                remaining: remainingCount,
+              })}
+            </button>
+          ) : null}
         </div>
       )}
     </section>

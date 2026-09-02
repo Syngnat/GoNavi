@@ -224,6 +224,7 @@ const SHORTCUT_ACTION_META_DEFINITIONS: Record<ShortcutAction, ShortcutActionMet
   newQueryTab: {
     labelKey: 'app.shortcuts.action.newQueryTab.label',
     descriptionKey: 'app.shortcuts.action.newQueryTab.description',
+    allowInEditable: true,
   },
   closeActiveTab: {
     labelKey: 'app.shortcuts.action.closeActiveTab.label',
@@ -866,18 +867,27 @@ export const resolveShortcutBinding = (
 };
 
 export const isEditableElement = (target: EventTarget | null): boolean => {
-  if (!(target instanceof HTMLElement)) {
+  if (!target || (typeof target !== 'object' && typeof target !== 'function')) {
     return false;
   }
-  const tag = target.tagName.toLowerCase();
-  if (target.isContentEditable) {
+  const element = target as {
+    tagName?: unknown;
+    isContentEditable?: unknown;
+    closest?: (selector: string) => unknown;
+  };
+  if (element.isContentEditable === true) {
     return true;
   }
+  const tag = typeof element.tagName === 'string' ? element.tagName.toLowerCase() : '';
   if (tag === 'input' || tag === 'textarea' || tag === 'select') {
     return true;
   }
-  if (target.closest('.monaco-editor, .monaco-inputbox, .ant-select, .ant-select-dropdown, .ant-picker, .ant-input')) {
-    return true;
+  if (typeof element.closest === 'function') {
+    try {
+      return Boolean(element.closest('.monaco-editor, .monaco-inputbox, .ant-select, .ant-select-dropdown, .ant-picker, .ant-picker-dropdown, .ant-picker-panel, .ant-input'));
+    } catch {
+      return false;
+    }
   }
   return false;
 };

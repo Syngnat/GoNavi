@@ -5,6 +5,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -28,6 +29,26 @@ type MongoDB struct {
 	client      *mongo.Client
 	database    string
 	pingTimeout time.Duration
+}
+
+var _ BatchApplierContext = (*MongoDB)(nil)
+
+type mongoChangeCollection interface {
+	DeleteOne(context.Context, interface{}, ...options.Lister[options.DeleteOneOptions]) (*mongo.DeleteResult, error)
+	UpdateOne(context.Context, interface{}, interface{}, ...options.Lister[options.UpdateOneOptions]) (*mongo.UpdateResult, error)
+	InsertMany(context.Context, interface{}, ...options.Lister[options.InsertManyOptions]) (*mongo.InsertManyResult, error)
+}
+
+type mongoCursorDecoder interface {
+	Next(context.Context) bool
+	Decode(any) error
+	Err() error
+}
+
+type mongoIndexMetadata struct {
+	Name   any    `bson:"name"`
+	Key    bson.D `bson:"key"`
+	Unique bool   `bson:"unique"`
 }
 
 type mongoProxyDialer struct {
@@ -479,6 +500,10 @@ func (m *MongoDB) Close() error {
 }
 
 func (m *MongoDB) Ping() error {
+	return m.PingContext(context.Background())
+}
+
+func (m *MongoDB) PingContext(parent context.Context) error {
 	if m.client == nil {
 		return fmt.Errorf("连接未打开")
 	}
@@ -486,7 +511,10 @@ func (m *MongoDB) Ping() error {
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	return m.client.Ping(ctx, readpref.Primary())
 }
@@ -683,6 +711,10 @@ func buildMembersFromHello(raw bson.M) []connection.MongoMemberInfo {
 }
 
 func (m *MongoDB) DiscoverMembers() (string, []connection.MongoMemberInfo, error) {
+	return m.DiscoverMembersContext(context.Background())
+}
+
+func (m *MongoDB) DiscoverMembersContext(parent context.Context) (string, []connection.MongoMemberInfo, error) {
 	if m.client == nil {
 		return "", nil, fmt.Errorf("连接未打开")
 	}
@@ -691,7 +723,10 @@ func (m *MongoDB) DiscoverMembers() (string, []connection.MongoMemberInfo, error
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
 	adminDB := m.client.Database("admin")
@@ -968,14 +1003,19 @@ func (m *MongoDB) execFind(ctx context.Context, cmd bson.D) ([]map[string]interf
 		return nil, nil, err
 	}
 	defer cursor.Close(ctx)
+	return decodeMongoFindCursor(ctx, cursor, includeObjectIDLocator)
+}
 
+func decodeMongoFindCursor(ctx context.Context, cursor mongoCursorDecoder, includeObjectIDLocator bool) ([]map[string]interface{}, []string, error) {
 	var data []map[string]interface{}
 	columnSet := make(map[string]bool)
 
+	documentNumber := 0
 	for cursor.Next(ctx) {
+		documentNumber++
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
-			continue
+			return nil, nil, fmt.Errorf("decode MongoDB document %d: %w", documentNumber, err)
 		}
 		row := make(map[string]interface{})
 		for k, v := range doc {
@@ -990,7 +1030,7 @@ func (m *MongoDB) execFind(ctx context.Context, cmd bson.D) ([]map[string]interf
 	}
 
 	if err := cursor.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("iterate MongoDB query results: %w", err)
 	}
 
 	columns := make([]string, 0, len(columnSet))
@@ -1236,41 +1276,44 @@ func (m *MongoDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefini
 		return nil, err
 	}
 	defer cursor.Close(ctx)
+	return decodeMongoIndexCursor(ctx, cursor)
+}
 
+func decodeMongoIndexCursor(ctx context.Context, cursor mongoCursorDecoder) ([]connection.IndexDefinition, error) {
 	var indexes []connection.IndexDefinition
+	indexNumber := 0
 	for cursor.Next(ctx) {
-		var idx bson.M
+		indexNumber++
+		var idx mongoIndexMetadata
 		if err := cursor.Decode(&idx); err != nil {
-			continue
+			return nil, fmt.Errorf("decode MongoDB index %d: %w", indexNumber, err)
 		}
-
-		name := fmt.Sprintf("%v", idx["name"])
-		unique := false
-		if u, ok := idx["unique"].(bool); ok {
-			unique = u
-		}
-
-		// Extract key fields
-		if key, ok := idx["key"].(bson.M); ok {
-			seq := 1
-			for field := range key {
-				nonUnique := 1
-				if unique {
-					nonUnique = 0
-				}
-				indexes = append(indexes, connection.IndexDefinition{
-					Name:       name,
-					ColumnName: field,
-					NonUnique:  nonUnique,
-					SeqInIndex: seq,
-					IndexType:  "BTREE",
-				})
-				seq++
-			}
-		}
+		indexes = append(indexes, buildMongoIndexDefinitions(idx)...)
 	}
 
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate MongoDB indexes: %w", err)
+	}
 	return indexes, nil
+}
+
+func buildMongoIndexDefinitions(idx mongoIndexMetadata) []connection.IndexDefinition {
+	indexes := make([]connection.IndexDefinition, 0, len(idx.Key))
+	nonUnique := 1
+	if idx.Unique {
+		nonUnique = 0
+	}
+	name := fmt.Sprintf("%v", idx.Name)
+	for position, key := range idx.Key {
+		indexes = append(indexes, connection.IndexDefinition{
+			Name:       name,
+			ColumnName: key.Key,
+			NonUnique:  nonUnique,
+			SeqInIndex: position + 1,
+			IndexType:  "BTREE",
+		})
+	}
+	return indexes
 }
 
 func (m *MongoDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
@@ -1301,26 +1344,54 @@ func buildMongoChangeFilter(row map[string]interface{}) bson.M {
 
 // ApplyChanges implements batch changes for MongoDB
 func (m *MongoDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return m.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+// ApplyChangesContext applies batch changes while allowing cancellation to
+// reach the MongoDB driver calls already in flight.
+func (m *MongoDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
 	if m.client == nil {
 		return fmt.Errorf("连接未打开")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	collection := m.client.Database(m.database).Collection(tableName)
+	return applyMongoChangesContext(ctx, collection, changes)
+}
+
+func applyMongoChangesContext(ctx context.Context, collection mongoChangeCollection, changes connection.ChangeSet) error {
+	writeApplied := false
 
 	// Process deletes
 	for _, pk := range changes.Deletes {
 		filter := buildMongoChangeFilter(pk)
 		if len(filter) > 0 {
+			if err := mongoWritePreflightError(ctx, writeApplied); err != nil {
+				return err
+			}
 			result, err := collection.DeleteOne(ctx, filter)
 			if err != nil {
-				return fmt.Errorf("删除失败：%v", err)
+				return classifyMongoWriteError(ctx, fmt.Errorf("删除失败：%w", err), writeApplied)
+			}
+			if result == nil {
+				return MarkWriteOutcomeUnknown(errors.New("删除失败：MongoDB 未返回写入结果"))
 			}
 			if result.DeletedCount == 0 {
-				return fmt.Errorf("删除失败：未匹配到文档")
+				err := errors.New("删除失败：未匹配到文档")
+				if writeApplied {
+					return MarkWriteOutcomeUnknown(err)
+				}
+				return err
 			}
+			writeApplied = true
 		}
 	}
 
@@ -1328,28 +1399,43 @@ func (m *MongoDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 	for _, update := range changes.Updates {
 		filter := buildMongoChangeFilter(update.Keys)
 		if len(filter) == 0 {
-			return fmt.Errorf("更新操作需要主键条件")
+			err := errors.New("更新操作需要主键条件")
+			if writeApplied {
+				return MarkWriteOutcomeUnknown(err)
+			}
+			return err
 		}
 
 		updateDoc := bson.M{"$set": copyMongoChangeDocument(update.Values)}
 
+		if err := mongoWritePreflightError(ctx, writeApplied); err != nil {
+			return err
+		}
 		result, err := collection.UpdateOne(ctx, filter, updateDoc)
 		if err != nil {
-			return fmt.Errorf("更新失败：%v", err)
+			return classifyMongoWriteError(ctx, fmt.Errorf("更新失败：%w", err), writeApplied)
+		}
+		if result == nil {
+			return MarkWriteOutcomeUnknown(errors.New("更新失败：MongoDB 未返回写入结果"))
 		}
 		if result.MatchedCount == 0 {
-			return fmt.Errorf("更新失败：未匹配到文档")
+			err := errors.New("更新失败：未匹配到文档")
+			if writeApplied {
+				return MarkWriteOutcomeUnknown(err)
+			}
+			return err
 		}
+		writeApplied = true
 	}
 
-	if err := insertMongoDocuments(ctx, collection, changes.Inserts); err != nil {
+	if err := insertMongoDocuments(ctx, collection, changes.Inserts, &writeApplied); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func insertMongoDocuments(ctx context.Context, collection *mongo.Collection, rows []map[string]interface{}) error {
+func insertMongoDocuments(ctx context.Context, collection mongoChangeCollection, rows []map[string]interface{}, writeApplied *bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -1370,9 +1456,58 @@ func insertMongoDocuments(ctx context.Context, collection *mongo.Collection, row
 		if end > len(docs) {
 			end = len(docs)
 		}
-		if _, err := collection.InsertMany(ctx, docs[start:end]); err != nil {
-			return fmt.Errorf("插入失败：%v", err)
+		if err := mongoWritePreflightError(ctx, *writeApplied); err != nil {
+			return err
 		}
+		result, err := collection.InsertMany(ctx, docs[start:end])
+		if err != nil {
+			wrapped := fmt.Errorf("插入失败：%w", err)
+			if result != nil && len(result.InsertedIDs) > 0 {
+				return MarkWriteOutcomeUnknown(wrapped)
+			}
+			return classifyMongoWriteError(ctx, wrapped, *writeApplied)
+		}
+		if result == nil {
+			return MarkWriteOutcomeUnknown(errors.New("插入失败：MongoDB 未返回写入结果"))
+		}
+		*writeApplied = true
 	}
 	return nil
+}
+
+func mongoWritePreflightError(ctx context.Context, writeApplied bool) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		if writeApplied {
+			return MarkWriteOutcomeUnknown(err)
+		}
+		return err
+	}
+	return nil
+}
+
+func classifyMongoWriteError(ctx context.Context, err error, writeApplied bool) error {
+	if writeApplied || IsAmbiguousWriteResponse(err) || mongoWriteConcernFailed(err) || (ctx != nil && ctx.Err() != nil) {
+		return MarkWriteOutcomeUnknown(err)
+	}
+	return err
+}
+
+func mongoWriteConcernFailed(err error) bool {
+	var writeException mongo.WriteException
+	if errors.As(err, &writeException) && writeException.WriteConcernError != nil {
+		return true
+	}
+	var writeExceptionPointer *mongo.WriteException
+	if errors.As(err, &writeExceptionPointer) && writeExceptionPointer.WriteConcernError != nil {
+		return true
+	}
+	var bulkWriteException mongo.BulkWriteException
+	if errors.As(err, &bulkWriteException) && bulkWriteException.WriteConcernError != nil {
+		return true
+	}
+	var bulkWriteExceptionPointer *mongo.BulkWriteException
+	return errors.As(err, &bulkWriteExceptionPointer) && bulkWriteExceptionPointer.WriteConcernError != nil
 }

@@ -87,6 +87,92 @@
     border-radius: 3px;
 }
 
+/* Durable run controls stay above the composer while the Go harness waits for
+   a human decision. The card is intentionally compact so a long tool payload
+   cannot consume the whole chat panel. */
+.ai-run-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 0 0 auto;
+    max-height: min(34vh, 360px);
+    overflow-y: auto;
+    padding: 0 16px 10px;
+}
+
+.ai-run-control-card {
+    border-radius: 7px;
+    padding: 10px 12px;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.ai-run-control-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 7px;
+    min-width: 0;
+}
+
+.ai-run-control-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.ai-run-control-state {
+    flex: 0 0 auto;
+    font-size: 11px;
+}
+
+.ai-run-control-detail {
+    margin-top: 7px;
+    font-size: 11px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.ai-run-control-arguments {
+    margin-top: 7px;
+    font-size: 11px;
+}
+
+.ai-run-control-arguments summary {
+    cursor: pointer;
+    color: inherit;
+    opacity: 0.82;
+}
+
+.ai-run-control-arguments pre {
+    max-height: 150px;
+    overflow: auto;
+    margin: 6px 0 0;
+    padding: 7px 8px;
+    border-radius: 4px;
+    background: rgba(128, 128, 128, 0.08);
+    font: 11px/1.45 var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.ai-run-control-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 9px;
+}
+
+.ai-run-control-actions .ant-btn {
+    min-height: 26px;
+}
+
 /* Welcome */
 .ai-chat-welcome {
     display: flex;

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { v4 as uuidv4 } from "uuid";
 import { isNativeDetachedWindowRoute } from "./utils/nativeDetachedWindowRoute";
 import {
   ConnectionConfig,
@@ -10,6 +11,9 @@ import {
   SavedQuery,
   SavedQueryGroup,
   ConnectionTag,
+  ConnectionSidebarLayoutInput,
+  ConnectionDisplaySortMode,
+  ConnectionSortMode,
   AIChatMessage,
   AIContextItem,
   GlobalProxyConfig,
@@ -43,6 +47,24 @@ import {
   sanitizeBrandIconId,
 } from "./brand/brandIcons";
 
+export interface AIChatSessionSummary {
+  id: string;
+  title: string;
+  updatedAt: number;
+  /** Ledger revision used by metadata mutations as a CAS guard. */
+  revision?: number;
+  generation?: number;
+  /** Archived Ledger sessions must never reappear in the chat history UI. */
+  archived?: boolean;
+}
+
+type ActiveContext = {
+  connectionId: string;
+  dbName: string;
+  schemaName?: string;
+  tableName?: string;
+};
+
 const sanitizeBrandIconIdLocal = (value: unknown): string =>
   sanitizeBrandIconId(value) || DEFAULT_BRAND_ICON_ID;
 import { toPersistedGlobalProxy } from "./utils/globalProxyDraft";
@@ -74,6 +96,7 @@ import {
   type DetachedWindowBounds,
 } from "./utils/detachedWindow";
 import { clearQueryEditorResultSession } from "./utils/queryEditorResultSessionCache";
+import { getDataSourceCapabilities } from "./utils/dataSourceCapabilities";
 import { normalizeConnectionEnvironmentType } from "./utils/connectionEnvironment";
 import {
   DEFAULT_LANGUAGE,
@@ -147,8 +170,15 @@ import {
   removeConnectionTableAccessCounts,
   sanitizeTableAccessCount,
 } from "./utils/tableAccessCount";
+import {
+  DEFAULT_TOOLBAR_BUTTON_COLOR_OVERRIDES,
+  sanitizeToolbarButtonColorOverrides,
+  type ToolbarButtonColorOverrides,
+} from "./utils/toolbarAppearance";
 
 export type TableDoubleClickAction = "open-data" | "open-design";
+/** SQL 编辑器中按住 Ctrl/Cmd 点击表名时执行的动作。 */
+export type QueryTableCtrlClickAction = "open-design" | "locate";
 export type ThemeMode = "light" | "dark";
 export type ThemePreference = ThemeMode | "system";
 /** AI 聊天默认打开形态：侧栏 / 独立浮动窗 */
@@ -161,15 +191,18 @@ export interface AppearanceSettings
   opacity: number;
   blur: number;
   tableDoubleClickAction: TableDoubleClickAction;
+  queryTableCtrlClickAction: QueryTableCtrlClickAction;
   v2SidebarSearchMode: "command" | "filter";
-  v2CommandSearchPersistentFilterEnabled: boolean;
   v2SidebarPersistedFilter: string;
   v2SidebarRailScale: number;
+  tabEnvironmentAccentThickness: number;
+  toolbarButtonColorOverrides: ToolbarButtonColorOverrides;
   sidebarSingleDatabaseExpansion: boolean;
   sidebarHiddenObjectGroups: SidebarObjectGroupKey[];
   customUIFontFamily: string | null;
   customMonoFontFamily: string | null;
   newQuerySqlTemplate: string | null;
+  autoAddTableAlias: boolean;
   tabDisplay: TabDisplaySettings;
   redisDbAliases: RedisDbAliasMap;
 }
@@ -177,6 +210,9 @@ export interface AppearanceSettings
 export const DEFAULT_V2_SIDEBAR_RAIL_SCALE = 1.0;
 export const MIN_V2_SIDEBAR_RAIL_SCALE = 1.0;
 export const MAX_V2_SIDEBAR_RAIL_SCALE = 1.8;
+export const DEFAULT_TAB_ENVIRONMENT_ACCENT_THICKNESS = 2;
+export const MIN_TAB_ENVIRONMENT_ACCENT_THICKNESS = 1;
+export const MAX_TAB_ENVIRONMENT_ACCENT_THICKNESS = 6;
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   uiVersion: "v2",
@@ -184,15 +220,18 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   opacity: 1.0,
   blur: 0,
   tableDoubleClickAction: "open-data",
+  queryTableCtrlClickAction: "open-design",
   v2SidebarSearchMode: "command",
-  v2CommandSearchPersistentFilterEnabled: false,
   v2SidebarPersistedFilter: "",
   v2SidebarRailScale: DEFAULT_V2_SIDEBAR_RAIL_SCALE,
+  tabEnvironmentAccentThickness: DEFAULT_TAB_ENVIRONMENT_ACCENT_THICKNESS,
+  toolbarButtonColorOverrides: { ...DEFAULT_TOOLBAR_BUTTON_COLOR_OVERRIDES },
   sidebarSingleDatabaseExpansion: false,
   sidebarHiddenObjectGroups: [],
   customUIFontFamily: null,
   customMonoFontFamily: null,
   newQuerySqlTemplate: null,
+  autoAddTableAlias: true,
   tabDisplay: DEFAULT_TAB_DISPLAY_SETTINGS,
   redisDbAliases: DEFAULT_REDIS_DB_ALIASES,
   ...DEFAULT_DATA_GRID_DISPLAY_SETTINGS,
@@ -231,6 +270,12 @@ const sanitizeTableDoubleClickAction = (
   return value === "open-design" ? "open-design" : DEFAULT_APPEARANCE.tableDoubleClickAction;
 };
 
+const sanitizeQueryTableCtrlClickAction = (
+  value: unknown,
+): QueryTableCtrlClickAction => {
+  return value === "locate" ? "locate" : DEFAULT_APPEARANCE.queryTableCtrlClickAction;
+};
+
 const sanitizeV2SidebarPersistedFilter = (value: unknown): string => {
   if (typeof value !== "string") {
     return DEFAULT_APPEARANCE.v2SidebarPersistedFilter;
@@ -260,6 +305,15 @@ export const sanitizeV2SidebarRailScale = (value: unknown): number => {
   );
 };
 
+export const sanitizeTabEnvironmentAccentThickness = (value: unknown): number => {
+  return normalizeIntegerInRange(
+    value,
+    DEFAULT_TAB_ENVIRONMENT_ACCENT_THICKNESS,
+    MIN_TAB_ENVIRONMENT_ACCENT_THICKNESS,
+    MAX_TAB_ENVIRONMENT_ACCENT_THICKNESS,
+  );
+};
+
 const MAX_URI_LENGTH = 4096;
 const MAX_HOST_ENTRY_LENGTH = 512;
 const MAX_HOST_ENTRIES = 64;
@@ -270,7 +324,7 @@ const MIN_KEEPALIVE_INTERVAL_MINUTES = 1;
 const MAX_KEEPALIVE_INTERVAL_MINUTES = 1440;
 const DEFAULT_DIAGNOSTIC_TIMEOUT_SECONDS = 15;
 const MAX_DIAGNOSTIC_TIMEOUT_SECONDS = 300;
-const PERSIST_VERSION = 20;
+const PERSIST_VERSION = 21;
 const SQL_EDITOR_FONT_SIZE_SPLIT_VERSION = 19;
 const TAB_DISPLAY_DEFAULT_MIGRATION_VERSION = 20;
 const UI_VERSION_V2_MIGRATION_VERSION = 14;
@@ -479,6 +533,7 @@ const sanitizeDatabasePatternArray = (value: unknown): string[] => {
 
 const sanitizeSchemaVisibilityByDatabase = (
   value: unknown,
+  caseSensitive: boolean,
 ): Record<string, SchemaVisibilityRule> | undefined => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -489,7 +544,7 @@ const sanitizeSchemaVisibilityByDatabase = (
   Object.entries(value as Record<string, unknown>).some(([rawDatabase, rawRule]) => {
     if (Object.keys(result).length >= 128) return true;
     const database = toTrimmedString(rawDatabase);
-    const databaseKey = database.toLocaleLowerCase();
+    const databaseKey = caseSensitive ? database : database.toLocaleLowerCase();
     if (!database || database.length > 256 || seenDatabases.has(databaseKey)) {
       return false;
     }
@@ -505,7 +560,7 @@ const sanitizeSchemaVisibilityByDatabase = (
     const seenSchemas = new Set<string>();
     const schemas = sanitizeStringArray(rule.schemas, 256)
       .filter((schema) => {
-        const schemaKey = schema.toLocaleLowerCase();
+        const schemaKey = caseSensitive ? schema : schema.toLocaleLowerCase();
         if (seenSchemas.has(schemaKey)) return false;
         seenSchemas.add(schemaKey);
         return true;
@@ -971,6 +1026,7 @@ const sanitizeSavedConnection = (
     ? `${displayType}-${config.host}`
     : indexedStoreFallback("store.fallback.connection_name", index);
   const name = toTrimmedString(raw.name, fallbackName) || fallbackName;
+  const createdAtValue = Number(raw.createdAt);
   const includeDatabases = sanitizeStringArray(raw.includeDatabases, 256);
   const includeDatabasePatterns = sanitizeDatabasePatternArray(
     raw.includeDatabasePatterns,
@@ -985,11 +1041,13 @@ const sanitizeSavedConnection = (
   );
   const schemaVisibilityByDatabase = sanitizeSchemaVisibilityByDatabase(
     raw.schemaVisibilityByDatabase,
+    getDataSourceCapabilities(config).schemaIdentifierCaseSensitive,
   );
 
   return {
     id,
     name,
+    createdAt: Number.isFinite(createdAtValue) && createdAtValue > 0 ? createdAtValue : undefined,
     environmentType: normalizeConnectionEnvironmentType(raw.environmentType),
     config: { ...config, id: config.id || id },
     secretRef: toTrimmedString(raw.secretRef) || undefined,
@@ -1105,12 +1163,22 @@ const normalizeConnectionTagTree = (
     );
     const name = toTrimmedString(entry.name, fallbackName) || fallbackName;
     const parentTagId = toTrimmedString(entry.parentTagId) || undefined;
+    const createdAt = Number(entry.createdAt);
     tags.push({
       id,
       name,
+      createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : undefined,
       parentTagId,
       connectionIds: sanitizeStringArray(entry.connectionIds, 256),
       childOrder: sanitizeSidebarItemOrder(entry.childOrder),
+      // Group order is always user-defined. Preserve a legacy automatic mode
+      // only as the initial direct-connection display preference.
+      sortMode: 'manual',
+      connectionSortMode: entry.connectionSortMode === 'name' || entry.connectionSortMode === 'createdAt'
+        ? entry.connectionSortMode
+        : entry.sortMode === 'name' || entry.sortMode === 'createdAt'
+          ? entry.sortMode
+          : 'createdAt',
     });
   });
 
@@ -1190,12 +1258,22 @@ const sanitizeConnectionTags = (value: unknown): ConnectionTag[] => {
       index,
     );
     const name = toTrimmedString(raw.name, fallbackName) || fallbackName;
+    const sortMode = toTrimmedString(raw.sortMode) as ConnectionSortMode;
+    const connectionSortMode = toTrimmedString(raw.connectionSortMode) as ConnectionDisplaySortMode;
+    const createdAt = Number(raw.createdAt);
     result.push({
       id,
       name,
+      createdAt: Number.isFinite(createdAt) && createdAt > 0 ? createdAt : undefined,
       parentTagId: toTrimmedString(raw.parentTagId) || undefined,
       connectionIds: sanitizeStringArray(raw.connectionIds, 256),
       childOrder: sanitizeSidebarItemOrder(raw.childOrder),
+      sortMode: 'manual',
+      connectionSortMode: connectionSortMode === 'name' || connectionSortMode === 'createdAt'
+        ? connectionSortMode
+        : sortMode === 'name' || sortMode === 'createdAt'
+          ? sortMode
+          : 'createdAt',
     });
   });
 
@@ -1784,6 +1862,8 @@ interface AppState {
   connections: SavedConnection[];
   connectionTags: ConnectionTag[];
   sidebarRootOrder: string[];
+  rootSortMode: ConnectionSortMode;
+  rootConnectionSortMode: ConnectionDisplaySortMode;
   tabs: TabData[];
   /** 主工作区已拆出的浮动窗口（会话态，不持久化） */
   detachedWorkbenchWindows: DetachedWorkbenchWindow[];
@@ -1794,7 +1874,7 @@ interface AppState {
   /** AI 独立窗上次尺寸/位置（持久化，再次打开时复用） */
   aiChatDetachedBoundsMemory: AIChatDetachedBoundsMemory | null;
   activeTabId: string | null;
-  activeContext: { connectionId: string; dbName: string } | null;
+  activeContext: ActiveContext | null;
   savedQueries: SavedQuery[];
   savedQueryGroups: SavedQueryGroup[];
   externalSQLDirectories: ExternalSQLDirectory[];
@@ -1840,13 +1920,13 @@ interface AppState {
   windowState: "normal" | "fullscreen" | "maximized";
   sidebarWidth: number;
 
-  // AI 运行时与持久化状态
+  // AI 运行时投影。会话和消息的持久化由 Agent Run Harness Ledger 管理。
   aiPanelVisible: boolean;
   /** 打开 AI 时的默认形态：侧栏 dock 或独立窗口 detached（持久化） */
   aiChatOpenMode: AIChatOpenMode;
   aiChatHistory: Record<string, AIChatMessage[]>; // sessionId -> messages
   replaceAIChatHistory: (sessionId: string, messages: AIChatMessage[]) => void;
-  aiChatSessions: { id: string; title: string; updatedAt: number }[]; // 历史会话列表
+  aiChatSessions: AIChatSessionSummary[]; // 历史会话列表
   aiActiveSessionId: string | null;
   updateAISessionTitle: (sessionId: string, title: string) => void;
 
@@ -1875,10 +1955,14 @@ interface AppState {
   updateConnection: (conn: SavedConnection) => void;
   removeConnection: (id: string) => void;
   replaceConnections: (connections: SavedConnection[]) => void;
+  replaceConnectionSidebarLayout: (
+    layout: ConnectionSidebarLayoutInput,
+  ) => void;
 
   addConnectionTag: (tag: ConnectionTag) => void;
   updateConnectionTag: (tag: ConnectionTag) => void;
   removeConnectionTag: (id: string) => void;
+  removeConnectionTagTree: (id: string) => void;
   moveConnectionToTag: (
     connectionId: string,
     targetTagId: string | null,
@@ -1903,6 +1987,9 @@ interface AppState {
     targetToken: string,
     insertBefore: boolean,
   ) => void;
+  setConnectionDisplaySortMode: (tagId: string | null, mode: ConnectionDisplaySortMode) => void;
+  duplicateConnectionTag: (id: string) => string | null;
+  moveConnectionsToTag: (ids: string[], targetTagId: string | null) => void;
 
   addTab: (tab: TabData) => void;
   updateQueryTabDraft: (
@@ -1930,7 +2017,7 @@ interface AppState {
   closeAllTabs: () => void;
   setActiveTab: (id: string) => void;
   setActiveContext: (
-    context: { connectionId: string; dbName: string } | null,
+    context: ActiveContext | null,
   ) => void;
   detachWorkbenchTab: (
     tabId: string,
@@ -2531,6 +2618,35 @@ const sanitizeQueryTabs = (value: unknown): TabData[] => {
     }
     seenIds.add(id);
 
+    // object-edit 身份字段必须随 tab 持久化，否则重启/刷新后
+    // 侧栏定位按钮会因解析不到对象身份而禁用。
+    const isObjectEditTab = raw.queryMode === "object-edit";
+    const asViewKind = (value: unknown): TabData["viewKind"] =>
+      value === "view" || value === "materialized" ? value : undefined;
+    const asObjectType = (value: unknown): TabData["objectType"] =>
+      value === "view" || value === "materialized-view" || value === "table"
+        ? value
+        : undefined;
+    const objectEditIdentity = isObjectEditTab
+      ? {
+          routineName: toTrimmedString(raw.routineName).slice(0, 256) || undefined,
+          routineType: toTrimmedString(raw.routineType).slice(0, 64) || undefined,
+          viewName: toTrimmedString(raw.viewName).slice(0, 256) || undefined,
+          viewKind: asViewKind(raw.viewKind),
+          objectType: asObjectType(raw.objectType),
+          sequenceName: toTrimmedString(raw.sequenceName).slice(0, 256) || undefined,
+          packageName: toTrimmedString(raw.packageName).slice(0, 256) || undefined,
+          triggerName: toTrimmedString(raw.triggerName).slice(0, 256) || undefined,
+          triggerTableName:
+            toTrimmedString(raw.triggerTableName).slice(0, 256) || undefined,
+          eventName: toTrimmedString(raw.eventName).slice(0, 256) || undefined,
+          sidebarLocateKey:
+            toTrimmedString(raw.sidebarLocateKey).slice(0, 512) || undefined,
+          returnToTabId:
+            toTrimmedString(raw.returnToTabId).slice(0, 256) || undefined,
+        }
+      : undefined;
+
     result.push({
       id,
       title:
@@ -2554,6 +2670,8 @@ const sanitizeQueryTabs = (value: unknown): TabData[] => {
         typeof raw.resultPanelVisible === "boolean"
           ? raw.resultPanelVisible
           : undefined,
+      queryMode: isObjectEditTab ? "object-edit" : undefined,
+      ...(objectEditIdentity || {}),
       filePath: filePath || undefined,
       savedQueryId: savedQueryId || undefined,
       readOnly: raw.readOnly === true || persistedDraft?.readOnly === true,
@@ -2617,21 +2735,47 @@ const resolveCloseTabActiveTabId = (
 
 const resolveActiveContextFromTab = (
   tab: TabData | null | undefined,
-): { connectionId: string; dbName: string } | null => {
+): ActiveContext | null => {
   if (!tab) return null;
   const connectionId = toTrimmedString(tab.connectionId);
   if (!connectionId) return null;
+  const schemaName = toTrimmedString(tab.schemaName);
+  const tableName = toTrimmedString(
+    tab.tableName
+    || tab.viewName
+    || tab.triggerName
+    || tab.eventName
+    || tab.routineName
+    || tab.sequenceName
+    || tab.packageName,
+  );
   return {
     connectionId,
     dbName: toTrimmedString(tab.dbName),
+    ...(schemaName ? { schemaName } : {}),
+    ...(tableName ? { tableName } : {}),
   };
+};
+
+const activeContextMatchesTab = (
+  context: ActiveContext | null | undefined,
+  tab: TabData | null | undefined,
+): boolean => {
+  const tabContext = resolveActiveContextFromTab(tab);
+  if (!context || !tabContext) return false;
+  return (
+    context.connectionId === tabContext.connectionId
+    && context.dbName === tabContext.dbName
+    && toTrimmedString(context.schemaName) === toTrimmedString(tabContext.schemaName)
+    && toTrimmedString(context.tableName) === toTrimmedString(tabContext.tableName)
+  );
 };
 
 const resolveActiveContextForTabId = (
   tabs: TabData[],
   activeTabId: string | null | undefined,
-  fallbackContext: { connectionId: string; dbName: string } | null,
-): { connectionId: string; dbName: string } | null => {
+  fallbackContext: ActiveContext | null,
+): ActiveContext | null => {
   const normalizedActiveTabId = toTrimmedString(activeTabId);
   if (normalizedActiveTabId) {
     const activeTab = tabs.find((tab) => tab.id === normalizedActiveTabId);
@@ -3073,18 +3217,23 @@ const sanitizeAppearance = (
     tableDoubleClickAction: sanitizeTableDoubleClickAction(
       appearance.tableDoubleClickAction,
     ),
+    queryTableCtrlClickAction: sanitizeQueryTableCtrlClickAction(
+      appearance.queryTableCtrlClickAction,
+    ),
     v2SidebarSearchMode: sanitizeV2SidebarSearchMode(
       appearance.v2SidebarSearchMode,
     ),
-    v2CommandSearchPersistentFilterEnabled:
-      typeof appearance.v2CommandSearchPersistentFilterEnabled === "boolean"
-        ? appearance.v2CommandSearchPersistentFilterEnabled
-        : DEFAULT_APPEARANCE.v2CommandSearchPersistentFilterEnabled,
     v2SidebarPersistedFilter: sanitizeV2SidebarPersistedFilter(
       appearance.v2SidebarPersistedFilter,
     ),
     v2SidebarRailScale: sanitizeV2SidebarRailScale(
       appearance.v2SidebarRailScale,
+    ),
+    tabEnvironmentAccentThickness: sanitizeTabEnvironmentAccentThickness(
+      appearance.tabEnvironmentAccentThickness,
+    ),
+    toolbarButtonColorOverrides: sanitizeToolbarButtonColorOverrides(
+      appearance.toolbarButtonColorOverrides,
     ),
     sidebarSingleDatabaseExpansion:
       appearance.sidebarSingleDatabaseExpansion === true,
@@ -3094,6 +3243,10 @@ const sanitizeAppearance = (
     customUIFontFamily: sanitizeFontFamilyInput(appearance.customUIFontFamily),
     customMonoFontFamily: sanitizeFontFamilyInput(appearance.customMonoFontFamily),
     newQuerySqlTemplate: sanitizeNewQuerySqlTemplate(appearance.newQuerySqlTemplate),
+    autoAddTableAlias:
+      typeof appearance.autoAddTableAlias === "boolean"
+        ? appearance.autoAddTableAlias
+        : DEFAULT_APPEARANCE.autoAddTableAlias,
     tabDisplay: version < TAB_DISPLAY_DEFAULT_MIGRATION_VERSION
       && isLegacyDefaultTabDisplaySettings(appearance.tabDisplay)
       ? sanitizeTabDisplaySettings(DEFAULT_TAB_DISPLAY_SETTINGS)
@@ -3363,146 +3516,13 @@ export const updateSidebarDatabasePinKeys = (
   return Array.from(current);
 };
 
-// --- AI 会话文件持久化辅助函数 ---
-
-/** 每个 session 独立防抖定时器（2秒） */
-const _persistTimers: Record<string, ReturnType<typeof setTimeout>> = {};
-const _persistGenerations: Record<string, number> = {};
-const _persistDirtySessions = new Set<string>();
-const _persistInFlight: Partial<Record<string, Promise<void>>> = {};
-
-const _persistSessionNow = async (sessionId: string): Promise<void> => {
-  const state = useStore.getState();
-  const messages = state.aiChatHistory[sessionId];
-  const sessionMeta = state.aiChatSessions.find((s) => s.id === sessionId);
-  if (!messages && !sessionMeta) return;
-  const title = sessionMeta?.title || translate("ai_chat.panel.session.default_title");
-  const updatedAt = sessionMeta?.updatedAt || Date.now();
-  const Service = typeof window === "undefined"
-    ? undefined
-    : (window as any).go?.aiservice?.Service;
-  if (typeof Service?.AISaveSession !== "function") return;
-  await Service.AISaveSession(sessionId, title, updatedAt, JSON.stringify(messages || []));
-};
-
-function _debouncedPersistSession(sessionId: string) {
-  if (_persistTimers[sessionId]) clearTimeout(_persistTimers[sessionId]);
-  const generation = (_persistGenerations[sessionId] || 0) + 1;
-  _persistGenerations[sessionId] = generation;
-  _persistDirtySessions.add(sessionId);
-  _persistTimers[sessionId] = setTimeout(() => {
-    delete _persistTimers[sessionId];
-    const inFlight = _persistSessionNow(sessionId);
-    _persistInFlight[sessionId] = inFlight;
-    void inFlight.then(() => {
-      if (_persistGenerations[sessionId] === generation) {
-        _persistDirtySessions.delete(sessionId);
-      }
-    }).catch((e: unknown) => {
-      console.error("[AI Session Persist] 持久化失败:", sessionId, e);
-    }).finally(() => {
-      if (_persistInFlight[sessionId] === inFlight) {
-        delete _persistInFlight[sessionId];
-      }
-    });
-  }, 2000);
-}
-
-/** Flush pending AI session writes before a native child process exits. */
-export async function flushAIChatSessionPersistence(
-  sessionIds?: string[],
-): Promise<void> {
-  const ids = Array.from(new Set(
-    (sessionIds ?? Array.from(_persistDirtySessions))
-      .map((id) => String(id || "").trim())
-      .filter(Boolean),
-  ));
-  for (let index = 0; index < ids.length; index += 1) {
-    try {
-      const id = ids[index];
-      for (;;) {
-        if (_persistTimers[id]) {
-          clearTimeout(_persistTimers[id]);
-          delete _persistTimers[id];
-        }
-        const inFlight = _persistInFlight[id];
-        if (inFlight) {
-          await inFlight.catch(() => undefined);
-        }
-        const generation = _persistGenerations[id] || 0;
-        await _persistSessionNow(id);
-        if (_persistGenerations[id] === generation) {
-          _persistDirtySessions.delete(id);
-          break;
-        }
-      }
-    } catch (error) {
-      for (const id of ids.slice(index)) {
-        _debouncedPersistSession(id);
-      }
-      throw error;
-    }
-  }
-}
-
-/** 从后端加载会话列表（仅元数据，不含消息体） */
-export async function loadAISessionsFromBackend(): Promise<
-  { id: string; title: string; updatedAt: number }[]
-> {
-  const Service = (window as any).go?.aiservice?.Service;
-  if (!Service?.AIGetSessions) return [];
-  try {
-    const sessions = await Service.AIGetSessions();
-    if (Array.isArray(sessions)) {
-      useStore.setState({ aiChatSessions: sessions });
-      return sessions;
-    }
-  } catch (e) {
-    console.error("[AI Session] 加载会话列表失败:", e);
-  }
-  return [];
-}
-
-/** 从后端加载指定会话的消息数据到内存 */
-export async function loadAISessionFromBackend(
-  sessionId: string,
-): Promise<boolean> {
-  const state = useStore.getState();
-  // 如果内存中已有消息，跳过重复加载
-  if (state.aiChatHistory[sessionId]?.length > 0) return true;
-
-  const Service = (window as any).go?.aiservice?.Service;
-  if (!Service?.AILoadSession) return false;
-  try {
-    const result = await Service.AILoadSession(sessionId);
-    if (result?.success) {
-      let messages = result.messages;
-      // messages 可能是 JSON string 或已解析的数组
-      if (typeof messages === "string") {
-        try {
-          messages = JSON.parse(messages);
-        } catch {
-          messages = [];
-        }
-      }
-      if (Array.isArray(messages)) {
-        useStore.setState((prev) => ({
-          aiChatHistory: { ...prev.aiChatHistory, [sessionId]: messages },
-        }));
-        return true;
-      }
-    }
-  } catch (e) {
-    console.error("[AI Session] 加载会话消息失败:", sessionId, e);
-  }
-  return false;
-}
-
 const PERSISTED_STATE_DEPENDENCY_KEYS = [
   "tabs",
   "activeTabId",
   "connectionTags",
   "sidebarRootOrder",
+  "rootSortMode",
+  "rootConnectionSortMode",
   "externalSQLDirectories",
   "recentConnectionTargets",
   "recentSQLFiles",
@@ -3558,6 +3578,8 @@ const buildPersistedStateProjection = (
     activeTabId: sanitizeActiveTabId(state.activeTabId, tabs),
     connectionTags: state.connectionTags,
     sidebarRootOrder: state.sidebarRootOrder,
+    rootSortMode: state.rootSortMode,
+    rootConnectionSortMode: state.rootConnectionSortMode,
     externalSQLDirectories: state.externalSQLDirectories,
     recentConnectionTargets: sanitizeRecentConnectionTargets(
       state.recentConnectionTargets,
@@ -3626,7 +3648,7 @@ const createMemoizedPersistedStateProjection = () => {
 
   return (state: AppState): AppState => {
     if (previousDependencies && previousProjection) {
-      let unchanged = true;
+      let changedDependencyIndex = -1;
       for (
         let index = 0;
         index < PERSISTED_STATE_DEPENDENCY_KEYS.length;
@@ -3634,11 +3656,29 @@ const createMemoizedPersistedStateProjection = () => {
       ) {
         const key = PERSISTED_STATE_DEPENDENCY_KEYS[index];
         if (!Object.is(previousDependencies[index], state[key])) {
-          unchanged = false;
-          break;
+          if (changedDependencyIndex !== -1) {
+            changedDependencyIndex = -2;
+            break;
+          }
+          changedDependencyIndex = index;
         }
       }
-      if (unchanged) {
+      if (changedDependencyIndex === -1) {
+        return previousProjection;
+      }
+      if (
+        changedDependencyIndex >= 0
+        && PERSISTED_STATE_DEPENDENCY_KEYS[changedDependencyIndex] === "activeTabId"
+      ) {
+        // Tab switches keep the query-tab payload unchanged; reuse its sanitized SQL snapshot.
+        previousDependencies[changedDependencyIndex] = state.activeTabId;
+        previousProjection = {
+          ...previousProjection,
+          activeTabId: sanitizeActiveTabId(
+            state.activeTabId,
+            previousProjection.tabs,
+          ),
+        };
         return previousProjection;
       }
     }
@@ -3674,6 +3714,8 @@ export const useStore = create<AppState>()(
       connections: [],
       connectionTags: [],
       sidebarRootOrder: [],
+      rootSortMode: 'manual',
+      rootConnectionSortMode: 'createdAt',
       tabs: [],
       detachedWorkbenchWindows: [],
       detachedQueryResultWindows: [],
@@ -3834,6 +3876,95 @@ export const useStore = create<AppState>()(
               readPersistedShortcutOptions() ?? state.shortcutOptions,
           };
         }),
+      replaceConnectionSidebarLayout: (layout) =>
+        set((state) =>
+          ({ ...normalizeConnectionTagTreeState(
+            sanitizeConnectionTags(layout?.connectionTags),
+            sanitizeSidebarRootOrder(layout?.sidebarRootOrder),
+            state.connections,
+          ),
+          rootSortMode: 'manual',
+          rootConnectionSortMode: layout?.rootConnectionSortMode === 'name' || layout?.rootConnectionSortMode === 'createdAt'
+            ? layout.rootConnectionSortMode
+            : layout?.rootSortMode === 'name' || layout?.rootSortMode === 'createdAt'
+              ? layout.rootSortMode
+              : 'createdAt',
+          }),
+        ),
+
+      setConnectionDisplaySortMode: (tagId, mode) =>
+        set((state) => {
+          const safeMode: ConnectionDisplaySortMode = mode === 'name' ? 'name' : 'createdAt';
+          if (!tagId) return { rootConnectionSortMode: safeMode };
+          return {
+            connectionTags: state.connectionTags.map((tag) =>
+              tag.id === tagId ? { ...tag, connectionSortMode: safeMode } : tag,
+            ),
+          };
+        }),
+      duplicateConnectionTag: (id) => {
+        let duplicatedId: string | null = null;
+        set((state) => {
+          const source = state.connectionTags.find((tag) => tag.id === id);
+          if (!source) return state;
+          const descendants = new Set<string>();
+          const collect = (parent: string) => state.connectionTags.forEach((tag) => {
+            if (tag.parentTagId === parent && !descendants.has(tag.id)) {
+              descendants.add(tag.id); collect(tag.id);
+            }
+          });
+          collect(id);
+          const oldIds = [id, ...descendants];
+          const idMap = new Map(oldIds.map((oldId) => [oldId, `tag-${uuidv4()}`]));
+          duplicatedId = idMap.get(id) || null;
+          const copies = state.connectionTags.filter((tag) => oldIds.includes(tag.id)).map((tag) => ({
+            ...tag,
+            id: idMap.get(tag.id)!,
+            name: `${tag.name} - Copy`,
+            parentTagId: tag.parentTagId ? idMap.get(tag.parentTagId) : undefined,
+            childOrder: tag.childOrder?.map((token) => token.startsWith('tag:')
+              ? `tag:${idMap.get(token.slice(4)) || token.slice(4)}` : token),
+            sortMode: tag.sortMode || 'manual',
+            createdAt: Date.now(),
+          }));
+          const sourceParent = source.parentTagId;
+          const sourceToken = buildSidebarRootTagToken(id);
+          const newToken = buildSidebarRootTagToken(duplicatedId!);
+          const nextTags = [...state.connectionTags, ...copies];
+          if (!sourceParent) {
+            const order = [...state.sidebarRootOrder];
+            const index = order.indexOf(sourceToken);
+            order.splice(index < 0 ? order.length : index + 1, 0, newToken);
+            return { connectionTags: nextTags, sidebarRootOrder: order };
+          }
+          const parent = nextTags.find((tag) => tag.id === sourceParent);
+          if (!parent) return { connectionTags: nextTags };
+          const order = resolveConnectionTagChildOrder(sourceParent, nextTags);
+          const index = order.indexOf(sourceToken);
+          return { connectionTags: nextTags.map((tag) => tag.id === sourceParent
+            ? { ...tag, childOrder: (() => { const next = [...order]; next.splice(index < 0 ? next.length : index + 1, 0, newToken); return next; })() }
+            : tag) };
+        });
+        return duplicatedId;
+      },
+      moveConnectionsToTag: (ids, targetTagId) =>
+        set((state) => {
+          const selected = new Set(ids.filter((id) => state.connections.some((connection) => connection.id === id)));
+          if (!selected.size || (targetTagId && !state.connectionTags.some((tag) => tag.id === targetTagId))) return state;
+          const nextTags = state.connectionTags.map((tag) => ({
+            ...tag,
+            connectionIds: tag.connectionIds.filter((id) => !selected.has(id)),
+            childOrder: tag.childOrder?.filter((token) => !(token.startsWith('connection:') && selected.has(token.slice(11)))),
+          }));
+          if (targetTagId) {
+            const target = nextTags.find((tag) => tag.id === targetTagId)!;
+            const additions = [...selected].filter((id) => !target.connectionIds.includes(id));
+            return { connectionTags: nextTags.map((tag) => tag.id === targetTagId
+              ? { ...tag, connectionIds: [...tag.connectionIds, ...additions], childOrder: [...(tag.childOrder || []), ...additions.map(buildSidebarRootConnectionToken)] }
+              : tag) };
+          }
+          return { connectionTags: nextTags };
+        }),
 
       addConnectionTag: (tag) =>
         set((state) => {
@@ -3847,6 +3978,24 @@ export const useStore = create<AppState>()(
             !tagId ||
             normalized.connectionTags.some((candidate) => candidate.id === tagId)
           ) {
+            return normalized;
+          }
+
+          const parentTagId = toTrimmedString(tag.parentTagId) || undefined;
+          const name = toTrimmedString(
+            tag.name,
+            indexedStoreFallback(
+              "store.fallback.connection_tag_name",
+              normalized.connectionTags.length,
+            ),
+          ) || indexedStoreFallback(
+            "store.fallback.connection_tag_name",
+            normalized.connectionTags.length,
+          );
+          if (normalized.connectionTags.some((candidate) =>
+            candidate.parentTagId === parentTagId
+            && candidate.name.trim().localeCompare(name.trim(), undefined, { sensitivity: "accent" }) === 0,
+          )) {
             return normalized;
           }
 
@@ -3866,19 +4015,11 @@ export const useStore = create<AppState>()(
             })),
             {
               id: tagId,
-              name:
-                toTrimmedString(
-                  tag.name,
-                  indexedStoreFallback(
-                    "store.fallback.connection_tag_name",
-                    normalized.connectionTags.length,
-                  ),
-                ) ||
-                indexedStoreFallback(
-                  "store.fallback.connection_tag_name",
-                  normalized.connectionTags.length,
-                ),
-              parentTagId: toTrimmedString(tag.parentTagId) || undefined,
+              name,
+              createdAt: Number.isFinite(Number(tag.createdAt)) && Number(tag.createdAt) > 0
+                ? Number(tag.createdAt)
+                : Date.now(),
+              parentTagId,
               connectionIds: directConnectionIds,
               childOrder: sanitizeSidebarItemOrder(tag.childOrder),
             },
@@ -3928,6 +4069,12 @@ export const useStore = create<AppState>()(
           const requestedParentTagId = hasRequestedParent
             ? toTrimmedString(tag.parentTagId) || undefined
             : existing.parentTagId;
+          const requestedName = toTrimmedString(tag.name, existing.name) || existing.name;
+          if (normalized.connectionTags.some((candidate) =>
+            candidate.id !== tag.id
+            && candidate.parentTagId === requestedParentTagId
+            && candidate.name.trim().localeCompare(requestedName.trim(), undefined, { sensitivity: "accent" }) === 0,
+          )) return normalized;
           const hasRequestedChildOrder = Object.prototype.hasOwnProperty.call(
             tag,
             "childOrder",
@@ -3936,7 +4083,7 @@ export const useStore = create<AppState>()(
             if (candidate.id === tag.id) {
               return {
                 ...candidate,
-                name: toTrimmedString(tag.name, candidate.name) || candidate.name,
+                name: requestedName,
                 connectionIds: requestedConnectionIds,
                 childOrder: hasRequestedChildOrder
                   ? sanitizeSidebarItemOrder(tag.childOrder)
@@ -4032,6 +4179,31 @@ export const useStore = create<AppState>()(
             state.connections,
           );
         }),
+      removeConnectionTagTree: (id) =>
+        set((state) => {
+          const normalized = normalizeConnectionTagTreeState(
+            state.connectionTags,
+            state.sidebarRootOrder,
+            state.connections,
+          );
+          const removedIds = new Set<string>();
+          const pending = [id];
+          while (pending.length) {
+            const current = pending.pop();
+            if (!current || removedIds.has(current)) continue;
+            removedIds.add(current);
+            normalized.connectionTags.forEach((tag) => {
+              if (tag.parentTagId === current) pending.push(tag.id);
+            });
+          }
+          if (!removedIds.size || !removedIds.has(id)) return normalized;
+          const removedTokens = new Set([...removedIds].map(buildSidebarRootTagToken));
+          return normalizeConnectionTagTreeState(
+            normalized.connectionTags.filter((tag) => !removedIds.has(tag.id)),
+            normalized.sidebarRootOrder.filter((token) => !removedTokens.has(token)),
+            state.connections,
+          );
+        }),
       moveConnectionToTag: (
         connectionId,
         targetTagId,
@@ -4081,6 +4253,16 @@ export const useStore = create<AppState>()(
         insertBefore = false,
       ) =>
         set((state) => {
+          const sortMode = targetTagId
+            ? state.connectionTags.find((tag) => tag.id === targetTagId)?.sortMode || 'manual'
+            : state.rootSortMode;
+          if (sortMode !== 'manual') {
+            return {
+              connections: state.connections,
+              connectionTags: state.connectionTags,
+              sidebarRootOrder: state.sidebarRootOrder,
+            };
+          }
           if (
             !connectionId ||
             !targetConnectionId ||
@@ -4228,6 +4410,7 @@ export const useStore = create<AppState>()(
                 t.type === incomingTab.type &&
                 t.connectionId === incomingTab.connectionId &&
                 t.dbName === incomingTab.dbName &&
+                toTrimmedString(t.schemaName) === toTrimmedString(incomingTab.schemaName) &&
                 t.tableName === incomingTab.tableName,
             );
             if (semanticIndex !== -1) {
@@ -4296,6 +4479,7 @@ export const useStore = create<AppState>()(
           const tabId = toTrimmedString(id);
           if (!tabId) return state;
 
+          const previousTab = state.tabs.find((tab) => tab.id === tabId);
           let changed = false;
           let contextChangedTab: TabData | null = null;
           const nextTabs = state.tabs.map((tab) => {
@@ -4379,10 +4563,20 @@ export const useStore = create<AppState>()(
           });
 
           if (!changed) return state;
+          const nextActiveTab = nextTabs.find((tab) => tab.id === tabId);
+          const shouldSyncActiveContext = state.activeTabId === tabId
+            && Boolean(nextActiveTab)
+            && (
+              !state.activeContext
+              || activeContextMatchesTab(state.activeContext, previousTab)
+            );
           return {
             tabs: nextTabs,
             ...(contextChangedTab
               ? resolveRecentWorkbenchEntries(state, contextChangedTab)
+              : {}),
+            ...(shouldSyncActiveContext
+              ? { activeContext: resolveActiveContextFromTab(nextActiveTab) }
               : {}),
           };
         }),
@@ -5754,8 +5948,6 @@ export const useStore = create<AppState>()(
 
           return { aiChatHistory: history, aiChatSessions: newSessions };
         });
-        // 异步持久化到文件（fire-and-forget，防抖由外层控制）
-        _debouncedPersistSession(sessionId);
       },
       updateAIChatMessage: (sessionId, messageId, updates) => {
         set((state) => {
@@ -5785,8 +5977,6 @@ export const useStore = create<AppState>()(
           }
           return { aiChatHistory: history };
         });
-        // 流式打字高频调用，防抖 2 秒后才写磁盘
-        _debouncedPersistSession(sessionId);
       },
       deleteAIChatMessage: (sessionId, messageId) => {
         set((state) => {
@@ -5798,7 +5988,6 @@ export const useStore = create<AppState>()(
           }
           return { aiChatHistory: history };
         });
-        _debouncedPersistSession(sessionId);
       },
       truncateAIChatMessages: (sessionId, upToMessageId) => {
         set((state) => {
@@ -5812,7 +6001,6 @@ export const useStore = create<AppState>()(
           }
           return { aiChatHistory: history };
         });
-        _debouncedPersistSession(sessionId);
       },
       clearAIChatHistory: (sessionId) => {
         set((state) => {
@@ -5820,7 +6008,6 @@ export const useStore = create<AppState>()(
           delete history[sessionId];
           return { aiChatHistory: history };
         });
-        _debouncedPersistSession(sessionId);
       },
       replaceAIChatHistory: (sessionId, messages) => {
         set((state) => {
@@ -5828,7 +6015,6 @@ export const useStore = create<AppState>()(
           history[sessionId] = messages;
           return { aiChatHistory: history };
         });
-        _debouncedPersistSession(sessionId);
       },
       deleteAISession: (sessionId) => {
         set((state) => {
@@ -5847,9 +6033,6 @@ export const useStore = create<AppState>()(
             aiActiveSessionId: newActive,
           };
         });
-        // 删除文件
-        const Service = (window as any).go?.aiservice?.Service;
-        Service?.AIDeleteSession?.(sessionId).catch(() => {});
       },
       createNewAISession: () =>
         set(() => {
@@ -5867,7 +6050,6 @@ export const useStore = create<AppState>()(
           }
           return { aiChatSessions: newSessions };
         });
-        _debouncedPersistSession(sessionId);
       },
       addAIContext: (connectionKey, context) =>
         set((state) => {
@@ -5973,6 +6155,12 @@ export const useStore = create<AppState>()(
           state.connectionTags === undefined ? undefined : nextState.connectionTags,
           state.connections === undefined ? undefined : nextState.connections,
         );
+        nextState.rootSortMode = 'manual';
+        nextState.rootConnectionSortMode = state.rootConnectionSortMode === 'name' || state.rootConnectionSortMode === 'createdAt'
+          ? state.rootConnectionSortMode
+          : state.rootSortMode === 'name' || state.rootSortMode === 'createdAt'
+            ? state.rootSortMode
+            : 'createdAt';
         delete nextState.savedQueries;
         delete nextState.savedQueryGroups;
         nextState.externalSQLDirectories = sanitizeExternalSQLDirectories(
@@ -6114,6 +6302,12 @@ export const useStore = create<AppState>()(
           connections: persistedConnections,
           connectionTags: persistedConnectionTags,
           sidebarRootOrder: persistedSidebarRootOrder,
+          rootSortMode: 'manual',
+          rootConnectionSortMode: state.rootConnectionSortMode === 'name' || state.rootConnectionSortMode === 'createdAt'
+            ? state.rootConnectionSortMode
+            : state.rootSortMode === 'name' || state.rootSortMode === 'createdAt'
+              ? state.rootSortMode
+              : currentState.rootConnectionSortMode,
           tabs: safeTabs,
           // Floating windows are session-only and must not be restored from disk.
           detachedWorkbenchWindows: [],

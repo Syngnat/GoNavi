@@ -54,10 +54,19 @@ type managedImportJobProgress struct {
 }
 
 type managedImportJobFinish struct {
-	Status          importjob.Status
-	Message         string
-	OutcomeUnknown  bool
-	ErrorArtifactID string
+	Status                        importjob.Status
+	Message                       string
+	OutcomeUnknown                bool
+	ErrorArtifactID               string
+	ErrorArtifactCount            int64
+	ErrorArtifactBytes            int64
+	ErrorArtifactOmittedCount     int64
+	ErrorArtifactTruncated        bool
+	ErrorArtifactRetryableCount   int64
+	ErrorArtifactUnretryableCount int64
+	ErrorArtifactScopeKnown       bool
+	ErrorArtifactMaxRows          int64
+	ErrorArtifactMaxBytes         int64
 }
 
 type managedImportJob struct {
@@ -214,6 +223,15 @@ func (managed *managedImportJob) finish(finish managedImportJobFinish) error {
 	managed.job.Message = strings.TrimSpace(finish.Message)
 	managed.job.OutcomeUnknown = outcomeUnknown
 	managed.job.ErrorArtifactID = strings.TrimSpace(finish.ErrorArtifactID)
+	managed.job.ErrorArtifactCount = max(0, finish.ErrorArtifactCount)
+	managed.job.ErrorArtifactBytes = max(0, finish.ErrorArtifactBytes)
+	managed.job.ErrorArtifactOmittedCount = max(0, finish.ErrorArtifactOmittedCount)
+	managed.job.ErrorArtifactTruncated = finish.ErrorArtifactTruncated
+	managed.job.ErrorArtifactRetryableCount = max(0, finish.ErrorArtifactRetryableCount)
+	managed.job.ErrorArtifactUnretryableCount = max(0, finish.ErrorArtifactUnretryableCount)
+	managed.job.ErrorArtifactScopeKnown = finish.ErrorArtifactScopeKnown
+	managed.job.ErrorArtifactMaxRows = max(0, finish.ErrorArtifactMaxRows)
+	managed.job.ErrorArtifactMaxBytes = max(0, finish.ErrorArtifactMaxBytes)
 	managed.job.Resumable = false
 	updated, err := managed.store.Put(managed.job)
 	if err != nil {
@@ -242,6 +260,15 @@ func managedImportJobFinishFromResult(result connection.QueryResult) managedImpo
 	if payload != nil {
 		finish.OutcomeUnknown, _ = payload["outcomeUnknown"].(bool)
 		finish.ErrorArtifactID, _ = payload["errorArtifactId"].(string)
+		finish.ErrorArtifactCount = importJobPayloadInt64(payload, "errorArtifactCount")
+		finish.ErrorArtifactBytes = importJobPayloadInt64(payload, "errorArtifactBytes")
+		finish.ErrorArtifactOmittedCount = importJobPayloadInt64(payload, "errorArtifactOmittedCount")
+		finish.ErrorArtifactTruncated, _ = payload["errorArtifactTruncated"].(bool)
+		finish.ErrorArtifactRetryableCount = importJobPayloadInt64(payload, "errorArtifactRetryableCount")
+		finish.ErrorArtifactUnretryableCount = importJobPayloadInt64(payload, "errorArtifactUnretryableCount")
+		finish.ErrorArtifactScopeKnown, _ = payload["errorArtifactScopeKnown"].(bool)
+		finish.ErrorArtifactMaxRows = importJobPayloadInt64(payload, "errorArtifactMaxRows")
+		finish.ErrorArtifactMaxBytes = importJobPayloadInt64(payload, "errorArtifactMaxBytes")
 		if finish.OutcomeUnknown {
 			finish.Status = importjob.StatusUnknown
 			return finish

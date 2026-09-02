@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"errors"
 	"net"
 	"strconv"
 	"sync"
@@ -9,6 +10,32 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 )
+
+func TestLocalForwarderRemoteDialFailureCanBeReadByLeaseAndWindow(t *testing.T) {
+	shared := &LocalForwarder{RemoteAddr: "127.0.0.1:21433"}
+	lease := &LocalForwarder{LocalAddr: "127.0.0.1:58228", RemoteAddr: shared.RemoteAddr, shared: shared}
+	failure := errors.New("connection refused")
+	startedAt := time.Now()
+
+	lease.recordRemoteDialFailure(failure)
+	got, ok := lease.LastRemoteDialFailure()
+	if !ok {
+		t.Fatal("LastRemoteDialFailure() did not report the recorded failure")
+	}
+	if got.RemoteAddr != shared.RemoteAddr || !errors.Is(got.Err, failure) {
+		t.Fatalf("unexpected remote dial failure: got=%+v", got)
+	}
+	if got.OccurredAt.Before(startedAt) {
+		t.Fatalf("failure timestamp %v precedes diagnostic window %v", got.OccurredAt, startedAt)
+	}
+	if gotSince, ok := lease.RemoteDialFailureSince(startedAt); !ok || !errors.Is(gotSince.Err, failure) {
+		t.Fatalf("RemoteDialFailureSince() did not report the failure in-window: got=%+v ok=%t", gotSince, ok)
+	}
+	if _, ok := lease.RemoteDialFailureSince(got.OccurredAt); ok {
+		t.Fatal("RemoteDialFailureSince() returned an event at the window boundary")
+	}
+
+}
 
 func TestSharedLocalForwarderStaysOpenUntilLastLeaseCloses(t *testing.T) {
 	sshConfig := connection.SSHConfig{

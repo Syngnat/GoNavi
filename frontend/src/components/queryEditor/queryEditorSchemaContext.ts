@@ -28,6 +28,7 @@ export const resolveLoadedQueryEditorSchema = ({
   requestSeq,
   currentRequestSeq,
   latestSelectedSchema,
+  explicitSchema,
   rememberedSchema,
   currentSchema,
   schemaNames,
@@ -35,6 +36,8 @@ export const resolveLoadedQueryEditorSchema = ({
   requestSeq: number;
   currentRequestSeq: number;
   latestSelectedSchema: string;
+  /** Schema carried by the tab/context and therefore authoritative during a load. */
+  explicitSchema?: string;
   rememberedSchema: string;
   currentSchema: string;
   schemaNames: string[];
@@ -45,9 +48,11 @@ export const resolveLoadedQueryEditorSchema = ({
     schemaNames.map(normalizeSchemaName).filter(Boolean),
   ));
   const latest = normalizeSchemaName(latestSelectedSchema);
+  const explicit = normalizeSchemaName(explicitSchema);
   const remembered = normalizeSchemaName(rememberedSchema);
   const databaseDefault = normalizeSchemaName(currentSchema);
   const selectedSchema = latest
+    || explicit
     || (normalizedSchemaNames.includes(remembered) ? remembered : '')
     || databaseDefault
     || (normalizedSchemaNames.includes('public') ? 'public' : '')

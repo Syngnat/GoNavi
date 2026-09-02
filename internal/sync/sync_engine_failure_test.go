@@ -135,9 +135,9 @@ func TestRunSyncInsertOnlyWithoutInsertDoesNotWriteAndFails(t *testing.T) {
 	}
 }
 
-func TestRunSyncInsertUpdateWithoutAnyOperationIsSuccessfulNoOp(t *testing.T) {
+func TestRunSyncInsertUpdateWithoutAnyOperationIsSuccessfulNoOpWithoutPrimaryKey(t *testing.T) {
 	columns := []connection.ColumnDefinition{
-		{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+		{Name: "id", Type: "bigint", Nullable: "NO"},
 	}
 	sourceDB := &fakeMigrationDB{
 		columns: map[string][]connection.ColumnDefinition{"source_db.users": columns},
@@ -211,7 +211,53 @@ func TestRunSyncSchemaOnlyAllowsDisabledDataOperations(t *testing.T) {
 	}
 }
 
-func TestRunSyncReportsFailureWhenInsertUpdateCannotProcessTableWithoutPrimaryKey(t *testing.T) {
+func TestRunSyncSchemaOnlyAddsMissingMySQLColumnsWithoutWritingRows(t *testing.T) {
+	sourceDB := &fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{
+			"source_db.orders": {
+				{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+				{Name: "new_col", Type: "varchar(255)", Nullable: "YES"},
+			},
+		},
+	}
+	targetDB := &recordingExecSyncTargetDB{
+		fakeQuerySyncTargetDB: fakeQuerySyncTargetDB{fakeMigrationDB: fakeMigrationDB{
+			columns: map[string][]connection.ColumnDefinition{
+				"target_db.orders": {
+					{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+				},
+			},
+		}},
+	}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:        connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase:      "source_db",
+		TargetDatabase:      "target_db",
+		Tables:              []string{"orders"},
+		Content:             "schema",
+		AutoAddColumns:      true,
+		TargetTableStrategy: "existing_only",
+		Mode:                "full_overwrite",
+	})
+
+	if !result.Success || result.TablesSynced != 1 {
+		t.Fatalf("expected schema-only migration to succeed: %+v", result)
+	}
+	if len(targetDB.appliedChanges.Inserts) != 0 || len(targetDB.appliedChanges.Updates) != 0 || len(targetDB.appliedChanges.Deletes) != 0 {
+		t.Fatalf("schema-only migration must not write rows: %+v", targetDB.appliedChanges)
+	}
+	if len(targetDB.execLog) != 1 || !strings.Contains(targetDB.execLog[0], "ALTER TABLE") || !strings.Contains(targetDB.execLog[0], "new_col") {
+		t.Fatalf("expected one ALTER TABLE for the missing column, exec=%v", targetDB.execLog)
+	}
+}
+
+func TestRunSyncFailsWhenInsertUpdateExistingTableHasNoPrimaryKey(t *testing.T) {
 	columns := []connection.ColumnDefinition{
 		{Name: "id", Type: "bigint", Nullable: "NO"},
 		{Name: "name", Type: "varchar(255)", Nullable: "YES"},
@@ -239,17 +285,134 @@ func TestRunSyncReportsFailureWhenInsertUpdateCannotProcessTableWithoutPrimaryKe
 		Mode:           "insert_update",
 	})
 
-	if result.Success {
-		t.Fatalf("expected an unsynchronizable table to fail the task instead of reporting false success: %+v", result)
+	if result.Success || result.TablesSynced != 0 {
+		t.Fatalf("expected PK-less insert_update to fail: %+v message=%s", result, result.Message)
 	}
-	if result.TablesSynced != 0 || result.RowsInserted != 0 {
-		t.Fatalf("unexpected successful work counters: %+v", result)
+	if !strings.Contains(result.Message, "未找到主键") {
+		t.Fatalf("expected actionable primary-key failure, got %q", result.Message)
 	}
-	if !strings.Contains(result.Message, "users") || !strings.Contains(result.Message, "主键") {
-		t.Fatalf("expected actionable table failure message, got %q", result.Message)
+	if len(targetDB.appliedChanges.Inserts) != 0 || len(targetDB.appliedChanges.Updates) != 0 || len(targetDB.appliedChanges.Deletes) != 0 {
+		t.Fatalf("PK-less failure must not write rows: %+v", targetDB.appliedChanges)
 	}
-	if len(targetDB.appliedChanges.Inserts) != 0 {
-		t.Fatalf("unexpected target writes: %+v", targetDB.appliedChanges.Inserts)
+}
+
+func TestRunSyncFailsBeforeDDLForUnsupportedExistingTargetSchemaDiff(t *testing.T) {
+	sourceDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{
+		"source_db.users": {
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "name", Type: "varchar(255)", Nullable: "YES"},
+		},
+	}}
+	targetDB := &recordingExecSyncTargetDB{fakeQuerySyncTargetDB: fakeQuerySyncTargetDB{fakeMigrationDB: fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{"target_db.users": {
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "name", Type: "int", Nullable: "YES"},
+		}},
+	}}}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:        connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase:      "source_db",
+		TargetDatabase:      "target_db",
+		Tables:              []string{"users"},
+		Content:             "schema",
+		AutoAddColumns:      true,
+		TargetTableStrategy: "existing_only",
+		Mode:                "insert_update",
+	})
+
+	if result.Success || result.TablesSynced != 0 {
+		t.Fatalf("expected unsupported schema drift to fail: %+v", result)
+	}
+	if !strings.Contains(result.Message, "当前仅支持补齐目标缺失字段") {
+		t.Fatalf("expected actionable schema-drift failure, got %q", result.Message)
+	}
+	if len(targetDB.execLog) != 0 {
+		t.Fatalf("unsupported schema drift must fail before DDL, exec=%v", targetDB.execLog)
+	}
+}
+
+func TestRunSyncSchemaOnlyAllowsExtraTargetColumns(t *testing.T) {
+	sourceDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{
+		"source_db.users": {
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "name", Type: "varchar(255)", Nullable: "YES"},
+		},
+	}}
+	targetDB := &recordingExecSyncTargetDB{fakeQuerySyncTargetDB: fakeQuerySyncTargetDB{fakeMigrationDB: fakeMigrationDB{
+		columns: map[string][]connection.ColumnDefinition{"target_db.users": {
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "name", Type: "varchar(255)", Nullable: "YES"},
+			{Name: "legacy_flag", Type: "tinyint", Nullable: "NO"},
+		}},
+	}}}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:        connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase:      "source_db",
+		TargetDatabase:      "target_db",
+		Tables:              []string{"users"},
+		Content:             "schema",
+		AutoAddColumns:      true,
+		TargetTableStrategy: "existing_only",
+		Mode:                "insert_update",
+	})
+
+	if !result.Success || result.TablesSynced != 1 {
+		t.Fatalf("extra target columns must not block schema-only sync: %+v", result)
+	}
+	if len(targetDB.execLog) != 0 {
+		t.Fatalf("extra target columns require no DDL, exec=%v", targetDB.execLog)
+	}
+}
+
+func TestAnalyzeMarksUnsupportedExistingTargetSchemaDiffUnexecutable(t *testing.T) {
+	sourceDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{
+		"source_db.users": {
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "name", Type: "varchar(255)", Nullable: "YES"},
+		},
+	}}
+	targetDB := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{
+		"target_db.users": {
+			{Name: "id", Type: "bigint", Nullable: "NO", Key: "PRI"},
+			{Name: "name", Type: "int", Nullable: "YES"},
+		},
+	}}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: sourceDB},
+		syncDatabaseFactoryStep{db: targetDB},
+	)
+
+	result := NewSyncEngine(Reporter{}).Analyze(SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "mysql", Database: "source_db"},
+		TargetConfig:   connection.ConnectionConfig{Type: "mysql", Database: "target_db"},
+		SourceDatabase: "source_db",
+		TargetDatabase: "target_db",
+		Tables:         []string{"users"},
+		Content:        "schema",
+		Mode:           "insert_update",
+	})
+
+	if !result.Success || len(result.Tables) != 1 {
+		t.Fatalf("expected one analyzed table: %+v", result)
+	}
+	summary := result.Tables[0]
+	if summary.CanSync {
+		t.Fatalf("unsupported schema drift must be non-executable: %+v", summary)
+	}
+	if !strings.Contains(summary.Message, "当前仅支持补齐目标缺失字段") {
+		t.Fatalf("expected actionable schema-drift analysis, got %q", summary.Message)
 	}
 }
 

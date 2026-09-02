@@ -205,6 +205,8 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 	if err := s.contextError(); err != nil {
 		return s.fail(config.JobID, totalTables, result, err.Error())
 	}
+	db.BindMetadataContext(sourceDB, s.context())
+	defer db.ClearMetadataContext(sourceDB)
 
 	// Connect Target
 	s.appendLog(config.JobID, &result, "info", fmt.Sprintf("正在连接目标数据库: %s...", config.TargetConfig.Host))
@@ -217,6 +219,11 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 		return s.fail(config.JobID, totalTables, result, localizedSyncBackendDetailText("data_sync.backend.error.connect_target_failed", err))
 	}
 	defer targetDB.Close()
+	if err := s.contextError(); err != nil {
+		return s.fail(config.JobID, totalTables, result, err.Error())
+	}
+	db.BindMetadataContext(targetDB, s.context())
+	defer db.ClearMetadataContext(targetDB)
 
 	tableFailures := make([]string, 0)
 	for i, tableName := range config.Tables {
@@ -258,6 +265,44 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				markTableFailure(message)
 				return
 			}
+			opts := TableOptions{Insert: true, Update: true, Delete: false}
+			if config.TableOptions != nil {
+				if configured, ok := config.TableOptions[tableName]; ok {
+					opts = configured
+				}
+			}
+			if syncData && (len(opts.SelectedInsertPKs) > 0 || len(opts.SelectedUpdatePKs) > 0 || len(opts.SelectedDeletePKs) > 0) {
+				keyColumns, keyErr := syncKeyColumnsForTable(config, tableName, cols)
+				if keyErr != nil {
+					message := fmt.Sprintf("解析表 %s 的稳定 key 失败: %v", tableName, keyErr)
+					s.appendLog(config.JobID, &result, "warn", message)
+					markTableFailure(message)
+					return
+				}
+				if len(keyColumns) == 0 {
+					message := fmt.Sprintf("表 %s 未找到主键或映射稳定 key，不能按指定行同步", tableName)
+					s.appendLog(config.JobID, &result, "warn", message)
+					markTableFailure(message)
+					return
+				}
+			}
+			if syncData && tableMode == "insert_update" && plan.TargetTableExists {
+				if hasEffectiveSyncDataOperation(tableMode, opts) {
+					keyColumns, keyErr := syncKeyColumnsForTable(config, tableName, cols)
+					if keyErr != nil {
+						message := fmt.Sprintf("解析表 %s 的稳定 key 失败: %v", tableName, keyErr)
+						s.appendLog(config.JobID, &result, "warn", message)
+						markTableFailure(message)
+						return
+					}
+					if len(keyColumns) == 0 {
+						message := fmt.Sprintf("表 %s 未找到主键或映射稳定 key，无法执行差异同步", tableName)
+						s.appendLog(config.JobID, &result, "warn", message)
+						markTableFailure(message)
+						return
+					}
+				}
+			}
 			for _, warning := range plan.Warnings {
 				s.appendLog(config.JobID, &result, "warn", fmt.Sprintf("  -> %s", warning))
 			}
@@ -276,6 +321,20 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				}
 				if len(plan.PreDataSQL) > 0 {
 					message := fmt.Sprintf("表 %s 存在结构差异，仅同步数据模式不允许修改目标表结构", tableName)
+					s.appendLog(config.JobID, &result, "warn", message)
+					markTableFailure(message)
+					return
+				}
+			}
+			if schemaChangesAllowed && plan.TargetTableExists {
+				unsupportedDiffs := unsupportedExistingTargetSchemaDiffs(diffColumnStructures(
+					cols,
+					targetCols,
+					resolveMigrationDBType(config.SourceConfig),
+					resolveMigrationDBType(config.TargetConfig),
+				))
+				if len(unsupportedDiffs) > 0 {
+					message := fmt.Sprintf("表 %s 存在当前不支持自动修复的结构差异（%s）；当前仅支持补齐目标缺失字段", tableName, summarizeColumnStructureDiffs(unsupportedDiffs))
 					s.appendLog(config.JobID, &result, "warn", message)
 					markTableFailure(message)
 					return
@@ -361,12 +420,6 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				applyTableName = targetQueryTable
 			}
 
-			opts := TableOptions{Insert: true, Update: true, Delete: false}
-			if config.TableOptions != nil {
-				if configured, ok := config.TableOptions[tableName]; ok {
-					opts = configured
-				}
-			}
 			if !hasEffectiveSyncDataOperation(tableMode, opts) {
 				if tableMode == "insert_update" {
 					s.appendLog(config.JobID, &result, "info", fmt.Sprintf("表 %s 未选择数据变更，按无变更处理", tableName))
@@ -403,30 +456,26 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				markTableFailure(message)
 				return
 			}
-			requirePK := tableMode == "insert_update" && plan.TargetTableExists
+			requirePK := tableMode == "insert_update" && plan.TargetTableExists && hasEffectiveSyncDataOperation(tableMode, opts)
+			hasRowSelection := len(opts.SelectedInsertPKs) > 0 || len(opts.SelectedUpdatePKs) > 0 || len(opts.SelectedDeletePKs) > 0
+			selectionKeyCols := append([]string(nil), pkCols...)
+			if len(selectionKeyCols) > 0 && hasExplicitSyncMappings(config) && (requirePK || hasRowSelection) {
+				for index, sourceKey := range pkCols {
+					mappedKey, ok := projection.TargetColumn(sourceKey)
+					if !ok || strings.TrimSpace(mappedKey) == "" {
+						message := fmt.Sprintf("表 %s 的稳定 key 字段 %s 未映射到目标字段，无法执行同步", tableName, sourceKey)
+						s.appendLog(config.JobID, &result, "warn", message)
+						markTableFailure(message)
+						return
+					}
+					selectionKeyCols[index] = mappedKey
+				}
+			}
 			pkCol := ""
 			targetPKCols := []string(nil)
 			if requirePK {
-				if len(pkCols) == 0 {
-					message := fmt.Sprintf("表 %s 未找到主键，当前模式需要差异对比，已跳过", tableName)
-					s.appendLog(config.JobID, &result, "warn", message)
-					markTableFailure(message)
-					return
-				}
 				pkCol = pkCols[0]
-				targetPKCols = append([]string(nil), pkCols...)
-				if hasExplicitSyncMappings(config) {
-					for index, sourcePKCol := range pkCols {
-						mappedPK, ok := projection.TargetColumn(sourcePKCol)
-						if !ok || strings.TrimSpace(mappedPK) == "" {
-							message := fmt.Sprintf("表 %s 的主键字段 %s 未映射到目标字段，无法执行差异同步", tableName, sourcePKCol)
-							s.appendLog(config.JobID, &result, "warn", message)
-							markTableFailure(message)
-							return
-						}
-						targetPKCols[index] = mappedPK
-					}
-				}
+				targetPKCols = selectionKeyCols
 			}
 
 			if handled, inserted, err := s.tryApplyDirectImportInPages(config, &result, i, totalTables, tableName, sourceDB, targetDB, plan, cols, targetCols, opts, sourceType, targetType, applyTableName); handled {
@@ -529,10 +578,7 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 				updates = filterUpdatesByKeySelection(targetPKCols, updates, opts.Update, opts.SelectedUpdatePKs)
 				deletes = filterRowsByKeySelection(targetPKCols, deletes, opts.Delete, opts.SelectedDeletePKs)
 			} else {
-				inserts = sourceRows
-				if !opts.Insert {
-					inserts = nil
-				}
+				inserts = filterRowsByKeySelection(selectionKeyCols, sourceRows, opts.Insert, opts.SelectedInsertPKs)
 			}
 
 			changeSet := connection.ChangeSet{Inserts: inserts, Updates: updates, Deletes: deletes}
@@ -595,6 +641,9 @@ func (s *SyncEngine) runSync(config SyncConfig) SyncResult {
 								s.appendLog(config.JobID, &result, "error", "  -> "+message)
 								markTableFailure(message)
 								continue
+							}
+							if warning := relaxedNotNullAddColumnWarning(srcCol); warning != "" {
+								s.appendLog(config.JobID, &result, "warn", "  -> "+warning)
 							}
 							if _, err := execSyncDatabaseContext(s.context(), targetDB, alterSQL); err != nil {
 								message := fmt.Sprintf("自动补字段失败：字段=%s 错误=%v", colName, err)

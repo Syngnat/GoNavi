@@ -2,8 +2,15 @@ import Modal from './common/ResizableDraggableModal';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Form, message as antdMessage } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
-import type { AIProviderConfig, AIProviderType, AISafetyLevel, AIContextLevel, AIUserPromptSettings, AIMCPServerConfig, AIMCPToolDescriptor, AIMCPClientInstallStatus, AIMCPHTTPServerStatus, AISkillConfig } from '../types';
+import { v4 as uuidv4 } from 'uuid';
+import type { AIProviderConfig, AIProviderType, AISafetyLevel, AIContextLevel, AIUserPromptSettings, AIMCPServerConfig, AIMCPToolDescriptor, AIMCPHTTPServerStatus, AISkillConfig } from '../types';
+import type { ai } from '../../wailsjs/go/models';
+import { getCLIConfigPrefill, normalizeProviderModels, parseProviderCheckResult, providerCopyName, providerDraftFingerprint, type ProviderCheckResult } from '../utils/aiProviderManagement';
+import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from '../utils/aiSettingsLeaveGuard';
+import { APP_STATIC_FEEDBACK_Z_INDEX_BASE } from '../utils/overlayZIndex';
+import { getProviderEndpointType, resolveProviderEndpointConnection, type ProviderEndpointType } from '../utils/aiProviderEndpoints';
 import {
+    getSingletonCLIIdentity,
     resolvePresetBaseURL,
     resolvePresetModelSelection,
     resolvePresetTransport,
@@ -18,16 +25,25 @@ import { buildAddProviderEditorSession, buildClosedProviderEditorSession, buildE
 import type { OverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import { useI18n } from '../i18n/provider';
 import { BUILTIN_AI_TOOL_INFO } from '../utils/aiToolRegistry';
-import { EMPTY_MCP_CLIENT_STATUSES } from '../utils/mcpClientInstallStatus';
 import AIBuiltinToolsCatalog from './ai/AIBuiltinToolsCatalog';
 import AISettingsMCPSection from './ai/AISettingsMCPSection';
 import type { AIMCPHTTPServerDraft } from './ai/AIMCPHTTPServerPanel';
 import AISettingsSidebar, { AI_SETTINGS_NAV_ITEMS, type AISettingsSectionKey } from './ai/AISettingsSidebar';
 import AISettingsSafetySection from './ai/AISettingsSafetySection';
 import AISettingsContextSection from './ai/AISettingsContextSection';
+import AISettingsRunPolicySection from './ai/AISettingsRunPolicySection';
 import AISettingsProvidersSection from './ai/AISettingsProvidersSection';
 import AISettingsPromptsSection from './ai/AISettingsPromptsSection';
 import AISettingsSkillsSection from './ai/AISettingsSkillsSection';
+import {
+    DEFAULT_AI_RUN_POLICY,
+    DEFAULT_AI_RUN_RUNTIME_CONFIG,
+    isValidAIRunRuntimeConfig,
+    normalizeAIRunPolicySnapshot,
+    type AIRunPolicy,
+    type AIRunRuntimeConfig,
+} from './ai/aiRunPolicy';
+import { normalizeAgentLedgerState, type AgentLedgerState } from './ai/aiRunHarnessClient';
 import { useAIMCPClientInstaller } from './ai/useAIMCPClientInstaller';
 import {
     EMPTY_AI_USER_PROMPT_SETTINGS,
@@ -56,6 +72,8 @@ export interface AISettingsContentProps {
     overlayTheme: OverlayWorkbenchTheme;
     focusProviderId?: string;
     onBeforeExternalMCPUse?: () => Promise<void>;
+    onLeaveGuardChange?: (guard: AISettingsLeaveGuard | null) => void;
+    confirmationZIndex?: number;
 }
 
 const DEFAULT_MCP_HTTP_SERVER_STATUS: AIMCPHTTPServerStatus = {
@@ -101,7 +119,7 @@ const normalizeMCPHTTPAuthorizationToken = (value: string): string => {
     return withoutHeaderName.replace(/^Bearer\s+/i, '').trim();
 };
 
-export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, onBeforeExternalMCPUse }) => {
+export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
     const { t } = useI18n();
     const defaultMCPHTTPServerStatus = useMemo<AIMCPHTTPServerStatus>(() => ({
         ...DEFAULT_MCP_HTTP_SERVER_STATUS,
@@ -109,8 +127,18 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     }), [t]);
     const [providers, setProviders] = useState<AIProviderConfig[]>([]);
     const [activeProviderId, setActiveProviderId] = useState<string>('');
+    const [pendingProviderId, setPendingProviderId] = useState<string>('');
+    const [providersLoading, setProvidersLoading] = useState(false);
+    const [providersLoadError, setProvidersLoadError] = useState('');
     const [safetyLevel, setSafetyLevel] = useState<AISafetyLevel>('readonly');
     const [contextLevel, setContextLevel] = useState<AIContextLevel>('schema_only');
+    const [runPolicy, setRunPolicy] = useState<AIRunPolicy>(DEFAULT_AI_RUN_POLICY);
+    const [runRuntime, setRunRuntime] = useState<AIRunRuntimeConfig>(DEFAULT_AI_RUN_RUNTIME_CONFIG);
+    const [runPolicyRevision, setRunPolicyRevision] = useState<number>(0);
+    const [runPolicyLoading, setRunPolicyLoading] = useState(false);
+    const [runPolicySaving, setRunPolicySaving] = useState(false);
+    const [runPolicyError, setRunPolicyError] = useState('');
+    const [ledgerState, setLedgerState] = useState<AgentLedgerState>('unavailable');
     const [mcpServers, setMCPServers] = useState<AIMCPServerConfig[]>([]);
     const [mcpTools, setMCPTools] = useState<AIMCPToolDescriptor[]>([]);
     const [mcpHTTPServerStatus, setMCPHTTPServerStatus] = useState<AIMCPHTTPServerStatus>(() => defaultMCPHTTPServerStatus);
@@ -121,6 +149,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(false);
     const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
+    const [testResult, setTestResult] = useState<ProviderCheckResult | null>(null);
+    const [providerTesting, setProviderTesting] = useState(false);
+    const [providerSaving, setProviderSaving] = useState(false);
+    const [providerSaveMode, setProviderSaveMode] = useState<'save' | 'copy'>('save');
+    const [providerDirty, setProviderDirty] = useState(false);
     const [builtinPrompts, setBuiltinPrompts] = useState<Record<string, string>>({});
     const [userPromptSettings, setUserPromptSettings] = useState<AIUserPromptSettings>(EMPTY_AI_USER_PROMPT_SETTINGS);
     const [activeSection, setActiveSection] = useState<AISettingsSectionKey>('providers');
@@ -129,11 +162,75 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const modalBodyRef = useRef<HTMLDivElement>(null);
     const settingsContentScrollRef = useRef<HTMLDivElement>(null);
     const missingAIServiceWarnedRef = useRef(false);
+    const mountedRef = useRef(true);
+    const activeRef = useRef(active);
+    activeRef.current = active;
+    const committedProviderRef = useRef('');
+    const switchTargetRef = useRef<string | null>(null);
+    const switchRunningRef = useRef(false);
+    const providerLoadSequenceRef = useRef(0);
+    const sectionLoadSequenceRef = useRef(0);
+    const editorSessionRef = useRef(0);
+    const configRevisionRef = useRef(0);
+    const testRequestRef = useRef(0);
+    const saveRunningRef = useRef(false);
+    const editedFieldsRef = useRef(new Set<string>());
+    const providerDirtyRef = useRef(false);
+    const providerBaselineRef = useRef<Record<string, unknown>>({});
+    const discardConfirmationRef = useRef<Promise<boolean> | null>(null);
+    const cancelDiscardRef = useRef<(() => void) | null>(null);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            editorSessionRef.current++;
+            testRequestRef.current++;
+            providerLoadSequenceRef.current++;
+            sectionLoadSequenceRef.current++;
+            switchTargetRef.current = null;
+            cancelDiscardRef.current?.();
+        };
+    }, []);
+
+    const invalidateProviderTest = useCallback(() => {
+        configRevisionRef.current++;
+        testRequestRef.current++;
+        setTestStatus('idle');
+        setTestResult(null);
+        setProviderTesting(false);
+    }, []);
+
+    const refreshProviderDirty = useCallback(() => {
+        const dirty = providerDraftFingerprint(form.getFieldsValue(true)) !== providerDraftFingerprint(providerBaselineRef.current);
+        providerDirtyRef.current = dirty;
+        setProviderDirty(dirty);
+    }, [form]);
+
+    const handleProviderValuesChange = useCallback((changed: Record<string, unknown>) => {
+        Object.keys(changed).forEach((key) => editedFieldsRef.current.add(key));
+        invalidateProviderTest();
+        refreshProviderDirty();
+    }, [invalidateProviderTest, refreshProviderDirty]);
+
+    const handleCLIDefaults = useCallback((capability: ai.CLICapabilityView) => {
+        if (capability.apiFormat !== form.getFieldValue('apiFormat')) return;
+        const patch = getCLIConfigPrefill(capability, form.getFieldsValue(true), editedFieldsRef.current, isEditing && !editingProvider?.id);
+        if (Object.keys(patch).length) {
+            invalidateProviderTest();
+            form.setFieldsValue(patch);
+            // Automatic discovery is an initial value, not a user edit. Keep
+            // any other edited fields dirty without overwriting their input.
+            providerBaselineRef.current = { ...providerBaselineRef.current, ...patch };
+            refreshProviderDirty();
+        }
+    }, [editingProvider?.id, form, invalidateProviderTest, isEditing, refreshProviderDirty]);
     const aiChatOpenMode = useStore((state) => state.aiChatOpenMode);
     const setAIChatOpenMode = useStore((state) => state.setAIChatOpenMode);
 
     // Modal 内部 toast 通知
     const [messageApi, messageContextHolder] = antdMessage.useMessage({ getContainer: () => modalBodyRef.current || document.body });
+    const [modalApi, modalContextHolder] = Modal.useModal();
 
     // 主题色
     const cardBg = darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
@@ -201,7 +298,6 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         selectedMCPClient,
         selectedMCPClientCommandText,
         selectedMCPClientStatus,
-        syncMCPClientStatuses,
     } = useAIMCPClientInstaller({
         resolveAIService,
         messageApi,
@@ -214,68 +310,142 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         onConfigChanged: () => window.dispatchEvent(new CustomEvent('gonavi:ai:config-changed')),
         translate: t,
     });
+    const loadMCPClientStatusesRef = useRef(loadMCPClientStatuses);
+    loadMCPClientStatusesRef.current = loadMCPClientStatuses;
 
-    const loadConfig = useCallback(async () => {
+    const loadProviders = useCallback(async () => {
+        const sequence = ++providerLoadSequenceRef.current;
+        setProvidersLoading(true);
+        setProvidersLoadError('');
         try {
             const Service = await resolveAIService();
-            if (!Service) {
-                return;
+            if (typeof Service?.AIGetProviders !== 'function' || typeof Service?.AIGetActiveProvider !== 'function') {
+                throw new Error(t('ai_settings.message.bridge_unavailable'));
             }
-            const callOrFallback = async <T,>(loader: (() => Promise<T>) | undefined, fallback: T): Promise<T> => {
-                if (typeof loader !== 'function') {
-                    return fallback;
+            const [list, current] = await Promise.all([Service.AIGetProviders(), Service.AIGetActiveProvider()]);
+            if (!mountedRef.current || sequence !== providerLoadSequenceRef.current) return;
+            if (!Array.isArray(list) || typeof current !== 'string') throw new Error(t('ai_settings.message.load_provider_failed'));
+            setProviders(list);
+            committedProviderRef.current = current;
+            setActiveProviderId(current);
+        } catch (error: any) {
+            if (mountedRef.current && sequence === providerLoadSequenceRef.current) {
+                setProvidersLoadError(error?.message || String(error));
+            }
+        } finally {
+            if (mountedRef.current && sequence === providerLoadSequenceRef.current) setProvidersLoading(false);
+        }
+    }, [resolveAIService, t]);
+
+    // Each section owns its reads. Opening providers never starts MCP inspection.
+    const loadConfig = useCallback(async () => {
+        if (activeSection === 'providers' || activeSection === 'tools') return;
+        const sequence = ++sectionLoadSequenceRef.current;
+        const Service = await resolveAIService();
+        if (!Service) return;
+        const isCurrent = () => mountedRef.current && sequence === sectionLoadSequenceRef.current;
+        const callOrFallback = async <T,>(loader: (() => Promise<T> | undefined), fallback: T): Promise<T> => {
+            try { return (await loader()) ?? fallback; }
+            catch (error) { console.warn('[AI] settings load fallback', error); return fallback; }
+        };
+        switch (activeSection) {
+            case 'safety': {
+                const value = await callOrFallback<AISafetyLevel>(() => Service.AIGetSafetyLevel?.(), 'readonly');
+                if (isCurrent()) setSafetyLevel(value);
+                break;
+            }
+            case 'context': {
+                const value = await callOrFallback<AIContextLevel>(() => Service.AIGetContextLevel?.(), 'schema_only');
+                if (isCurrent()) setContextLevel(value);
+                break;
+            }
+            case 'run_policy': {
+                // Keep the health projection independent from policy loading:
+                // a locked ledger must still be visible when policy reads fail.
+                void (async () => {
+                    try {
+                        const status = typeof Service.AIGetAgentLedgerStatus === 'function'
+                            ? await Service.AIGetAgentLedgerStatus()
+                            : undefined;
+                        if (isCurrent()) setLedgerState(normalizeAgentLedgerState(status));
+                    } catch {
+                        if (isCurrent()) setLedgerState('unavailable');
+                    }
+                })();
+                if (typeof Service.AIGetRunPolicy !== 'function') {
+                    if (isCurrent()) setRunPolicyError(t('ai_settings.run_policy.error.unavailable'));
+                    break;
+                }
+                if (isCurrent()) {
+                    setRunPolicyLoading(true);
+                    setRunPolicyError('');
                 }
                 try {
-                    return await loader();
-                } catch (error) {
-                    console.warn('[AI] settings load fallback', error);
-                    return fallback;
+                    const value = await Service.AIGetRunPolicy();
+                    const snapshot = normalizeAIRunPolicySnapshot(value);
+                    if (snapshot.revision < 1) {
+                        throw new Error('run policy snapshot is missing a revision');
+                    }
+                    if (isCurrent()) {
+                        setRunPolicy(snapshot.policy);
+                        setRunRuntime(snapshot.runtime);
+                        setRunPolicyRevision(snapshot.revision);
+                    }
+                } catch (error: any) {
+                    if (isCurrent()) setRunPolicyError(error?.message || t('ai_settings.run_policy.error.load_failed'));
+                } finally {
+                    if (isCurrent()) setRunPolicyLoading(false);
                 }
-            };
-            const [provRes, safeRes, ctxRes, promptsRes, userPromptsRes, mcpServersRes, mcpToolsRes, mcpHTTPServerStatusRes, skillsRes, mcpClientStatusesRes] = await Promise.all([
-                callOrFallback(() => Service.AIGetProviders?.(), []),
-                callOrFallback<AISafetyLevel>(() => Service.AIGetSafetyLevel?.(), 'readonly'),
-                callOrFallback<AIContextLevel>(() => Service.AIGetContextLevel?.(), 'schema_only'),
-                callOrFallback(() => Service.AIGetBuiltinPrompts?.(), {}),
-                callOrFallback(() => Service.AIGetUserPromptSettings?.(), EMPTY_AI_USER_PROMPT_SETTINGS),
-                callOrFallback(() => Service.AIGetMCPServers?.(), []),
-                callOrFallback(() => Service.AIListMCPTools?.(), []),
-                callOrFallback<AIMCPHTTPServerStatus>(() => Service.AIGetMCPHTTPServerStatus?.(), defaultMCPHTTPServerStatus),
-                callOrFallback(() => Service.AIGetSkills?.(), []),
-                callOrFallback<AIMCPClientInstallStatus[]>(() => Service.AIGetMCPClientInstallStatuses?.(), EMPTY_MCP_CLIENT_STATUSES),
-            ]);
-            if (Array.isArray(provRes)) {
-                setProviders(provRes);
-                const activeRes = await Service.AIGetActiveProvider?.();
-                if (activeRes) setActiveProviderId(activeRes);
+                break;
             }
-            if (safeRes) setSafetyLevel(safeRes);
-            if (ctxRes) setContextLevel(ctxRes);
-            if (promptsRes) setBuiltinPrompts(promptsRes);
-            if (userPromptsRes) {
-                setUserPromptSettings({
-                    ...EMPTY_AI_USER_PROMPT_SETTINGS,
-                    ...userPromptsRes,
-                });
+            case 'prompts': {
+                const [builtin, user] = await Promise.all([
+                    callOrFallback(() => Service.AIGetBuiltinPrompts?.(), {}),
+                    callOrFallback(() => Service.AIGetUserPromptSettings?.(), EMPTY_AI_USER_PROMPT_SETTINGS),
+                ]);
+                if (isCurrent()) {
+                    setBuiltinPrompts(builtin);
+                    setUserPromptSettings({ ...EMPTY_AI_USER_PROMPT_SETTINGS, ...user });
+                }
+                break;
             }
-            if (Array.isArray(mcpServersRes)) setMCPServers(mcpServersRes);
-            if (Array.isArray(mcpToolsRes)) setMCPTools(mcpToolsRes);
-            if (mcpHTTPServerStatusRes) {
-                const nextStatus = {
-                    ...defaultMCPHTTPServerStatus,
-                    ...mcpHTTPServerStatusRes,
-                };
-                setMCPHTTPServerStatus(nextStatus);
-                setMCPHTTPServerDraft((prev) => buildMCPHTTPServerDraftFromStatus(nextStatus, prev));
+            case 'skills': {
+                const [list, tools] = await Promise.all([
+                    callOrFallback<AISkillConfig[]>(() => Service.AIGetSkills?.(), []),
+                    callOrFallback<AIMCPToolDescriptor[]>(() => Service.AIListMCPTools?.(), []),
+                ]);
+                if (isCurrent()) { setSkills(list); setMCPTools(tools); }
+                break;
             }
-            if (Array.isArray(skillsRes)) setSkills(skillsRes);
-            if (Array.isArray(mcpClientStatusesRes)) {
-                syncMCPClientStatuses(mcpClientStatusesRes);
+            case 'mcp': {
+                // Client discovery may take seconds; it must not delay the other
+                // MCP settings, nor any provider read or switch.
+                void loadMCPClientStatusesRef.current();
+                const [servers, tools, httpStatus] = await Promise.all([
+                    callOrFallback<AIMCPServerConfig[]>(() => Service.AIGetMCPServers?.(), []),
+                    callOrFallback<AIMCPToolDescriptor[]>(() => Service.AIListMCPTools?.(), []),
+                    callOrFallback<AIMCPHTTPServerStatus>(() => Service.AIGetMCPHTTPServerStatus?.(), defaultMCPHTTPServerStatus),
+                ]);
+                if (isCurrent()) {
+                    setMCPServers(servers);
+                    setMCPTools(tools);
+                    const nextStatus = { ...defaultMCPHTTPServerStatus, ...httpStatus };
+                    setMCPHTTPServerStatus(nextStatus);
+                    setMCPHTTPServerDraft((prev) => buildMCPHTTPServerDraftFromStatus(nextStatus, prev));
+                }
+                break;
             }
-        } catch (e) { console.warn('Failed to load AI config', e); }
-    }, [defaultMCPHTTPServerStatus, resolveAIService, syncMCPClientStatuses]);
+        }
+    }, [activeSection, defaultMCPHTTPServerStatus, resolveAIService]);
 
-    useEffect(() => { if (active) void loadConfig(); }, [active, loadConfig]);
+    useEffect(() => {
+        if (active) void loadProviders();
+        return () => { providerLoadSequenceRef.current++; };
+    }, [active, loadProviders]);
+    useEffect(() => {
+        if (active) void loadConfig();
+        return () => { sectionLoadSequenceRef.current++; };
+    }, [active, loadConfig]);
 
     useEffect(() => {
         const scrollRegion = settingsContentScrollRef.current;
@@ -298,48 +468,105 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             return;
         }
         setActiveSection('providers');
-        setActiveProviderId(focusProviderId);
     }, [active, focusProviderId, providers]);
 
     const applyProviderEditorSession = useCallback((session: ProviderEditorSession) => {
+        editorSessionRef.current++;
+        editedFieldsRef.current.clear();
+        invalidateProviderTest();
         setEditingProvider(session.editingProvider as AIProviderConfig | null);
         setIsEditing(session.isEditing);
-        setTestStatus(session.testStatus);
         setPrimaryPasswordVisible(false);
         form.resetFields();
         if (session.formValues) {
             form.setFieldsValue(session.formValues);
         }
-    }, [form]);
+        providerBaselineRef.current = JSON.parse(providerDraftFingerprint(form.getFieldsValue(true)));
+        providerDirtyRef.current = false;
+        setProviderDirty(false);
+    }, [form, invalidateProviderTest]);
 
     const resetProviderEditorSession = useCallback(() => {
         applyProviderEditorSession(buildClosedProviderEditorSession());
     }, [applyProviderEditorSession]);
+
+    const confirmProviderLeave = useCallback<AISettingsLeaveGuard>(() => {
+        if (saveRunningRef.current) {
+            void messageApi.warning(t('ai_settings.provider.wait_for_save'));
+            return false;
+        }
+        if (!providerDirtyRef.current) return true;
+        if (discardConfirmationRef.current) return discardConfirmationRef.current;
+        const confirmation = new Promise<boolean>((resolve) => {
+            let settled = false;
+            const finish = (discard: boolean) => {
+                if (settled) return;
+                settled = true;
+                if (discard && mountedRef.current && activeRef.current) resetProviderEditorSession();
+                cancelDiscardRef.current = null;
+                resolve(discard && mountedRef.current && activeRef.current);
+            };
+            cancelDiscardRef.current = () => finish(false);
+            modalApi.confirm({
+                title: t('ai_settings.provider.discard_title'),
+                content: t('ai_settings.provider.discard_hint'),
+                centered: true,
+                zIndex: confirmationZIndex,
+                okText: t('ai_settings.provider.discard'),
+                cancelText: t('ai_settings.provider.keep_editing'),
+                onOk: () => finish(true),
+                onCancel: () => finish(false),
+                afterClose: () => finish(false),
+            });
+        }).finally(() => { discardConfirmationRef.current = null; });
+        discardConfirmationRef.current = confirmation;
+        return confirmation;
+    }, [confirmationZIndex, messageApi, modalApi, resetProviderEditorSession, t]);
+
+    useEffect(() => {
+        onLeaveGuardChange?.(active ? confirmProviderLeave : null);
+        return () => onLeaveGuardChange?.(null);
+    }, [active, confirmProviderLeave, onLeaveGuardChange]);
+
+    const handleCancelProviderEdit = () => withAISettingsLeaveGuard(confirmProviderLeave, resetProviderEditorSession);
 
     useEffect(() => {
         if (!active) {
             resetProviderEditorSession();
         }
     }, [active, resetProviderEditorSession]);
-    const handleAddProvider = () => {
-        const preset = findPreset('openai');
+    const handleAddProvider = (presetKey = 'openai', endpointType?: ProviderEndpointType) => withAISettingsLeaveGuard(confirmProviderLeave, () => {
+        const preset = findPreset(presetKey);
+        const connection = resolveProviderEndpointConnection(preset, endpointType || getProviderEndpointType({
+            type: preset.backendType, apiFormat: preset.fixedApiFormat || preset.defaultApiFormat,
+        }) || 'openai');
+        if (!connection) return;
+        const identity = getSingletonCLIIdentity({ type: preset.backendType, apiFormat: preset.fixedApiFormat, authMode: preset.authMode });
+        if (identity && providers.some((provider) => getSingletonCLIIdentity(provider) === identity)) {
+            void messageApi.error(t('ai_settings.provider.duplicate_cli'));
+            return;
+        }
         applyProviderEditorSession(buildAddProviderEditorSession({
-            presetKey: 'openai',
-            presetBackendType: preset.backendType,
-            presetBaseUrl: preset.defaultBaseUrl,
+            presetKey,
+            presetBackendType: connection.type,
+            presetBaseUrl: connection.baseUrl,
             presetModel: preset.defaultModel,
             presetModels: preset.models,
-            apiFormat: 'openai',
+            apiFormat: connection.apiFormat,
             authMode: preset.authMode || 'api-key',
         }));
-    };
+    });
 
-    const handleEditProvider = async (p: AIProviderConfig) => {
+    const handleEditProvider = (p: AIProviderConfig) => withAISettingsLeaveGuard(confirmProviderLeave, async () => {
+        const session = ++editorSessionRef.current;
+        invalidateProviderTest();
         try {
-            const Service = (window as any).go?.aiservice?.Service;
+            const Service = await resolveAIService();
+            if (!mountedRef.current || !activeRef.current || session !== editorSessionRef.current) return;
             const editableProvider = typeof Service?.AIGetEditableProvider === 'function'
                 ? await Service.AIGetEditableProvider(p.id)
                 : p;
+            if (!mountedRef.current || !activeRef.current || session !== editorSessionRef.current) return;
             // 尝试根据 baseUrl 和 type 推断 preset
             const matchedPreset = matchProviderPreset(editableProvider);
             const resolvedTransport = resolvePresetTransport({
@@ -359,21 +586,24 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                     type: resolvedTransport.type,
                     models: editableProvider.models || [],
                     presetKey: matchedPreset.key,
-                    apiFormat: resolvedTransport.apiFormat || editableProvider.apiFormat || 'openai',
+                    apiFormat: resolvedTransport.apiFormat || (resolvedTransport.type === 'custom' ? editableProvider.apiFormat || 'openai' : resolvedTransport.type),
                     authMode: matchedPreset.authMode || editableProvider.authMode || 'api-key',
                 },
             }));
         } catch (e: any) {
-            void messageApi.error(e?.message || t('ai_settings.message.load_provider_failed'));
+            if (session === editorSessionRef.current && activeRef.current) void messageApi.error(e?.message || t('ai_settings.message.load_provider_failed'));
         }
-    };
+    });
 
     const handleDeleteProvider = async (id: string) => {
+        const session = editorSessionRef.current;
         try {
-            const Service = (window as any).go?.aiservice?.Service;
-            const wasActive = id === activeProviderId;
-            await Service?.AIDeleteProvider?.(id);
-            await loadConfig();
+            const Service = await resolveAIService();
+            if (typeof Service?.AIDeleteProvider !== 'function') throw new Error(t('ai_settings.message.bridge_unavailable'));
+            const wasActive = id === committedProviderRef.current;
+            await Service.AIDeleteProvider(id);
+            if (session === editorSessionRef.current && editingProvider?.id === id) resetProviderEditorSession();
+            await loadProviders();
             // 合并提示：删除的是当前激活的供应商时，附带自动切换信息
             if (wasActive) {
                 const newProviders: any[] = await Service?.AIGetProviders?.() || [];
@@ -390,92 +620,180 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         } catch (e: any) { void messageApi.error(e?.message || t('ai_settings.message.delete_failed')); }
     };
 
-    const handleSaveProvider = async () => {
+    const buildProviderPayload = (values: Record<string, any>, purpose: 'save' | 'test'): AIProviderConfig => {
+        // validateFields only returns mounted fields. Preserve stored options
+        // that have no editor control (for example maxTokens and temperature).
+        values = { ...form.getFieldsValue(true), ...values };
+        const presetKey = values.presetKey || 'openai';
+        const preset = findPreset(presetKey);
+        const authMode = preset.authMode || 'api-key';
+        const { model, models } = resolvePresetModelSelection({
+            presetKey,
+            presetDefaultModel: preset.defaultModel,
+            presetModels: preset.models,
+            valuesModel: values.model,
+            customModels: values.models,
+        });
+        const baseUrl = resolvePresetBaseURL({
+            presetKey,
+            presetDefaultBaseUrl: preset.defaultBaseUrl,
+            presetEndpoints: preset.endpoints,
+            valuesBaseUrl: values.baseUrl,
+        });
+        const transport = resolvePresetTransport({
+            presetKey,
+            presetBackendType: preset.backendType,
+            presetFixedApiFormat: preset.fixedApiFormat,
+            presetDefaultApiFormat: preset.defaultApiFormat,
+            presetEndpoints: preset.endpoints,
+            valuesBaseUrl: baseUrl,
+            valuesApiFormat: values.apiFormat,
+            valuesModel: model,
+        });
+        const apiKeyInput = authMode === 'local-cli' ? '' : values.apiKey;
+        if (!isProviderSecretRequirementSatisfied({ apiKeyInput, currentAuthMode: authMode, editingProvider, allowEmptySecret: presetKey === 'codebuddy' })) {
+            throw new Error(t(purpose === 'test' ? 'ai_settings.message.test_requires_new_api_key' : 'ai_settings.form.api_key_required'));
+        }
+        const secret = resolveProviderSecretDraft({
+            apiKeyInput,
+            retainExistingSecret: !String(apiKeyInput || '').trim() && canRetainExistingProviderSecret({ currentAuthMode: authMode, editingProvider }),
+        });
+        const payload = {
+            ...editingProvider,
+            ...values,
+            ...transport,
+            name: String(values.name || '').trim() ? values.name : localizeProviderPreset(preset, t).label,
+            apiKey: secret.apiKey,
+            hasSecret: secret.hasSecret,
+            authMode,
+            baseUrl,
+            model,
+            models,
+            disabledModels: normalizeProviderModels(values.disabledModels),
+            customModels: normalizeProviderModels(values.customModels),
+            effort: String(values.effort || ''),
+            inlineCompletionModel: String(values.inlineCompletionModel || '').trim(),
+            maxTokens: Number.isFinite(Number(values.maxTokens)) ? Number(values.maxTokens) : 4096,
+            temperature: Number.isFinite(Number(values.temperature)) ? Number(values.temperature) : 0.7,
+        } as AIProviderConfig;
+        if (payload.disabledModels?.includes(model) || (payload.inlineCompletionModel && payload.disabledModels?.includes(payload.inlineCompletionModel))) {
+            throw new Error(t('ai_settings.models.required_disabled'));
+        }
+        const identity = getSingletonCLIIdentity(payload);
+        if (identity && (!editingProvider?.id || getSingletonCLIIdentity(editingProvider) !== identity)
+            && providers.some((provider) => provider.id !== payload.id && getSingletonCLIIdentity(provider) === identity)) {
+            throw new Error(t('ai_settings.provider.duplicate_cli'));
+        }
+        return payload;
+    };
+
+    const handleSaveProvider = async (mode: 'save' | 'copy' = 'save') => {
+        if (saveRunningRef.current) return;
+        saveRunningRef.current = true;
+        const session = editorSessionRef.current;
+        const revision = configRevisionRef.current;
+        const isCurrent = () => mountedRef.current && activeRef.current && session === editorSessionRef.current;
+        const draftUnchanged = () => {
+            if (!isCurrent()) return false;
+            if (revision === configRevisionRef.current) return true;
+            void messageApi.warning(t('ai_settings.provider.draft_changed'));
+            return false;
+        };
+        setProviderSaveMode(mode);
+        setProviderSaving(true);
         try {
             const values = await form.validateFields();
-            setLoading(true);
-            const Service = (window as any).go?.aiservice?.Service;
-            
-            // 构建 payload，处理 model/models 逻辑
-            const preset = findPreset(values.presetKey);
-            const localizedPreset = localizeProviderPreset(preset, t);
-            const authMode = preset.authMode || 'api-key';
-            const usesLocalCLI = authMode === 'local-cli';
-            const isCustomLike = ['custom', 'ollama', 'codebuddy', 'cursor'].includes(values.presetKey);
-            const { model: finalModel, models: resolvedModels } = resolvePresetModelSelection({
-                presetKey: values.presetKey,
-                presetDefaultModel: preset.defaultModel,
-                presetModels: preset.models,
-                valuesModel: values.model,
-                customModels: values.models,
-            });
-            const inlineCompletionModel = String(values.inlineCompletionModel || '').trim();
-            // 内置供应商自动使用 preset label 作为名称
-            const finalName = isCustomLike ? (values.name || localizedPreset.label) : localizedPreset.label;
-            
-            const finalBaseUrl = resolvePresetBaseURL({
-                presetKey: values.presetKey,
-                presetDefaultBaseUrl: preset.defaultBaseUrl,
-                presetEndpoints: preset.endpoints,
-                valuesBaseUrl: values.baseUrl,
-            });
-            const resolvedTransport = resolvePresetTransport({
-                presetKey: values.presetKey,
-                presetBackendType: preset.backendType,
-                presetFixedApiFormat: preset.fixedApiFormat,
-                presetDefaultApiFormat: preset.defaultApiFormat,
-                presetEndpoints: preset.endpoints,
-                valuesBaseUrl: finalBaseUrl,
-                valuesApiFormat: values.apiFormat,
-                valuesModel: values.model,
-            });
-            const apiKeyInput = usesLocalCLI ? '' : values.apiKey;
-            const allowEmptySecret = values.presetKey === 'codebuddy';
-            if (!isProviderSecretRequirementSatisfied({
-                apiKeyInput,
-                currentAuthMode: authMode,
-                editingProvider,
-                allowEmptySecret,
-            })) {
-                throw new Error(t('ai_settings.form.api_key_required'));
+            if (!draftUnchanged()) return;
+            const draft = { ...form.getFieldsValue(true), ...values };
+            let payload = buildProviderPayload(values, 'save');
+            if (mode === 'copy' && (!editingProvider?.id || getSingletonCLIIdentity(payload))) {
+                throw new Error(t('ai_settings.provider.copy_cli_unavailable'));
             }
-            const retainExistingSecret = !String(apiKeyInput || '').trim()
-                && canRetainExistingProviderSecret({ currentAuthMode: authMode, editingProvider });
-            const secretDraft = resolveProviderSecretDraft({
-                apiKeyInput,
-                retainExistingSecret,
-            });
-            const payload = { 
-                ...editingProvider, 
-                ...values, 
-                ...resolvedTransport,
-                name: finalName,
-                apiKey: secretDraft.apiKey,
-                hasSecret: secretDraft.hasSecret,
-                authMode,
-                model: finalModel,
-                inlineCompletionModel,
-                models: resolvedModels,
-                baseUrl: finalBaseUrl,
-                apiFormat: resolvedTransport.apiFormat,
-            };
-            // 后端 AISaveProvider 统一处理新增和更新，返回 void，失败抛异常
-            await Service?.AISaveProvider?.(payload);
-            void messageApi.success(t('ai_settings.message.saved')); resetProviderEditorSession(); void loadConfig();
+            const Service = await resolveAIService();
+            if (!draftUnchanged()) return;
+            if (typeof Service?.AISaveProvider !== 'function') throw new Error(t('ai_settings.message.bridge_unavailable'));
+            if (mode === 'copy') {
+                // Secret metadata belongs to the old ID. Resolve it through the
+                // existing editable-config interface before saving under a new
+                // ID; never put credentials in browser storage or the clipboard.
+                if (typeof Service.AIGetEditableProvider !== 'function') throw new Error(t('ai_settings.provider.copy_secret_unavailable'));
+                const original = await Service.AIGetEditableProvider(editingProvider!.id);
+                if (!draftUnchanged()) return;
+                if (!original || original.id !== editingProvider!.id) throw new Error(t('ai_settings.provider.copy_secret_unavailable'));
+                const apiKey = payload.apiKey || original.apiKey || '';
+                if (payload.hasSecret && !apiKey) throw new Error(t('ai_settings.provider.copy_secret_unavailable'));
+                payload = {
+                    ...payload,
+                    id: `provider-${uuidv4()}`,
+                    name: providerCopyName(payload.name, providers.map((provider) => provider.name), t('ai_settings.provider.copy_suffix')),
+                    apiKey,
+                    headers: { ...original.headers, ...payload.headers },
+                    secretRef: undefined,
+                };
+            } else if (!payload.id) payload = { ...payload, id: `provider-${uuidv4()}` };
+            await Service.AISaveProvider(payload);
+            if (isCurrent()) {
+                if (revision === configRevisionRef.current) {
+                    applyProviderEditorSession(buildEditProviderEditorSession({
+                        provider: { ...payload, presetKey: draft.presetKey },
+                        formValues: { ...draft, ...payload },
+                    }));
+                } else if (mode === 'save') {
+                    // A newer draft remains editable after this snapshot saves.
+                    // Adopt the new ID so retrying a first save cannot duplicate it.
+                    setEditingProvider(payload);
+                    form.setFieldValue('id', payload.id);
+                    providerBaselineRef.current = { ...draft, id: payload.id };
+                    refreshProviderDirty();
+                    invalidateProviderTest();
+                }
+                void messageApi.success(t(mode === 'copy' ? 'ai_settings.provider.copied' : 'ai_settings.message.saved'));
+            }
+            if (mountedRef.current) void loadProviders();
             window.dispatchEvent(new CustomEvent('gonavi:ai:provider-changed'));
-        } catch (e: any) {
-            if (e?.errorFields) { /* antd form validation error, ignore */ }
-            else void messageApi.error(e?.message || t('ai_settings.message.save_failed'));
-        } finally { setLoading(false); }
+        } catch (error: any) {
+            if (isCurrent() && !error?.errorFields) void messageApi.error(error?.message || String(error) || t('ai_settings.message.save_failed'));
+        } finally {
+            saveRunningRef.current = false;
+            if (mountedRef.current) setProviderSaving(false);
+        }
     };
 
     const handleSetActive = async (id: string) => {
+        if (!switchRunningRef.current && id === committedProviderRef.current) return;
+        switchTargetRef.current = id;
+        setPendingProviderId(id);
+        if (switchRunningRef.current) return;
+        switchRunningRef.current = true;
+        // Invalidate an older list read before any active-provider write starts.
+        providerLoadSequenceRef.current++;
+        setProvidersLoading(false);
         try {
-            const Service = (window as any).go?.aiservice?.Service;
-            await Service?.AISetActiveProvider?.(id);
-            setActiveProviderId(id); void messageApi.success(t('ai_settings.message.switched'));
-            window.dispatchEvent(new CustomEvent('gonavi:ai:provider-changed'));
-        } catch (e: any) { void messageApi.error(e?.message || t('ai_settings.message.switch_failed')); }
+            while (switchTargetRef.current !== null && mountedRef.current) {
+                const target = switchTargetRef.current;
+                switchTargetRef.current = null;
+                if (target === committedProviderRef.current) continue;
+                try {
+                    const Service = await resolveAIService();
+                    if (!mountedRef.current) break;
+                    if (typeof Service?.AISetActiveProvider !== 'function') throw new Error(t('ai_settings.message.bridge_unavailable'));
+                    await Service.AISetActiveProvider(target);
+                    committedProviderRef.current = target;
+                    providerLoadSequenceRef.current++;
+                    if (mountedRef.current) {
+                        setProvidersLoading(false);
+                        setActiveProviderId(target);
+                        if (switchTargetRef.current === null) void messageApi.success(t('ai_settings.message.switched'));
+                    }
+                    window.dispatchEvent(new CustomEvent('gonavi:ai:provider-changed'));
+                } catch (error: any) {
+                    if (mountedRef.current) void messageApi.error(error?.message || String(error) || t('ai_settings.message.switch_failed'));
+                }
+            }
+        } finally {
+            switchRunningRef.current = false;
+            if (mountedRef.current) setPendingProviderId('');
+        }
     };
 
     const handleSafetyChange = async (level: AISafetyLevel) => {
@@ -492,6 +810,52 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             await Service?.AISetContextLevel?.(level);
             setContextLevel(level);
         } catch (e) { /* ignore */ }
+    };
+
+    const handleReloadRunPolicy = () => {
+        setRunPolicyError('');
+        void loadConfig();
+    };
+
+    const handleSaveRunPolicy = async () => {
+        if (runPolicySaving) return;
+        setRunPolicySaving(true);
+        setRunPolicyError('');
+        try {
+            const Service = await resolveAIService();
+            if (typeof Service?.AISaveRunPolicy !== 'function') {
+                throw new Error(t('ai_settings.run_policy.error.unavailable'));
+            }
+            if (runPolicyRevision < 1) {
+                throw new Error('run policy snapshot is missing a revision');
+            }
+            if (!isValidAIRunRuntimeConfig(runRuntime)) {
+                throw new Error(t('ai_settings.run_policy.runtime.invalid'));
+            }
+            const saved = await Service.AISaveRunPolicy({
+                expectedRevision: runPolicyRevision,
+                policy: runPolicy,
+                runtime: runRuntime,
+            });
+            const snapshot = normalizeAIRunPolicySnapshot(saved);
+            if (snapshot.revision < 1) {
+                throw new Error('run policy save returned an invalid revision');
+            }
+            if (!mountedRef.current || !activeRef.current) return;
+            setRunPolicy(snapshot.policy);
+            setRunRuntime(snapshot.runtime);
+            setRunPolicyRevision(snapshot.revision);
+            void messageApi.success(t('ai_settings.run_policy.message.saved'));
+            window.dispatchEvent(new CustomEvent('gonavi:ai:config-changed'));
+        } catch (error: any) {
+            const detail = error?.message || t('ai_settings.run_policy.error.save_failed');
+            if (mountedRef.current) {
+                setRunPolicyError(detail);
+                void messageApi.error(detail);
+            }
+        } finally {
+            if (mountedRef.current) setRunPolicySaving(false);
+        }
     };
 
     const handleSaveUserPromptSettings = async () => {
@@ -702,87 +1066,61 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     };
 
     const handleTestProvider = async () => {
+        const session = editorSessionRef.current;
+        const revision = configRevisionRef.current;
+        const request = ++testRequestRef.current;
+        const isCurrent = () => mountedRef.current && activeRef.current
+            && session === editorSessionRef.current && revision === configRevisionRef.current && request === testRequestRef.current;
+        setProviderTesting(true);
+        setTestStatus('idle');
+        setTestResult(null);
         try {
             const values = await form.validateFields();
-            setLoading(true);
-            setTestStatus('idle');
-            const Service = (window as any).go?.aiservice?.Service;
-            const preset = findPreset(values.presetKey || 'openai');
-            const authMode = preset.authMode || 'api-key';
-            const usesLocalCLI = authMode === 'local-cli';
-            const finalBaseUrl = resolvePresetBaseURL({
-                presetKey: values.presetKey || 'openai',
-                presetDefaultBaseUrl: preset.defaultBaseUrl,
-                presetEndpoints: preset.endpoints,
-                valuesBaseUrl: values.baseUrl,
-            });
-            const { model: finalModel, models: resolvedModels } = resolvePresetModelSelection({
-                presetKey: values.presetKey || 'openai',
-                presetDefaultModel: preset.defaultModel,
-                presetModels: preset.models,
-                valuesModel: values.model,
-                customModels: values.models,
-            });
-            const resolvedTransport = resolvePresetTransport({
-                presetKey: values.presetKey || 'openai',
-                presetBackendType: preset.backendType,
-                presetFixedApiFormat: preset.fixedApiFormat,
-                presetDefaultApiFormat: preset.defaultApiFormat,
-                presetEndpoints: preset.endpoints,
-                valuesBaseUrl: finalBaseUrl,
-                valuesApiFormat: values.apiFormat,
-                valuesModel: finalModel,
-            });
-            const allowEmptySecret = values.presetKey === 'codebuddy';
-            const apiKeyInput = usesLocalCLI ? '' : values.apiKey;
-            if (!isProviderSecretRequirementSatisfied({
-                apiKeyInput,
-                currentAuthMode: authMode,
-                editingProvider,
-                allowEmptySecret,
-            })) {
-                throw new Error(t('ai_settings.message.test_requires_new_api_key'));
+            if (!isCurrent()) return;
+            const payload = buildProviderPayload(values, 'test');
+            const Service = await resolveAIService();
+            if (!isCurrent()) return;
+            if (typeof Service?.AITestProvider !== 'function') throw new Error(t('ai_settings.message.bridge_unavailable'));
+            const response = await Service.AITestProvider(payload);
+            if (!isCurrent()) return;
+            const result = parseProviderCheckResult(response);
+            if (!result) throw new Error(t('ai_settings.message.test_scope_missing'));
+            setTestResult(result);
+            setTestStatus(result.success ? 'success' : 'error');
+        } catch (error: any) {
+            if (isCurrent() && !error?.errorFields) {
+                setTestStatus('error');
+                setTestResult({ success: false, checkKind: 'none', modelVerified: false, message: error?.message || String(error) || t('ai_settings.message.test_failed') });
             }
-            const retainExistingSecret = !String(apiKeyInput || '').trim()
-                && canRetainExistingProviderSecret({ currentAuthMode: authMode, editingProvider });
-            const secretDraft = resolveProviderSecretDraft({
-                apiKeyInput,
-                retainExistingSecret,
-            });
-            const res = await Service?.AITestProvider?.({
-                ...editingProvider,
-                ...values,
-                ...resolvedTransport,
-                apiKey: secretDraft.apiKey,
-                hasSecret: secretDraft.hasSecret,
-                authMode,
-                baseUrl: finalBaseUrl,
-                model: finalModel,
-                inlineCompletionModel: String(values.inlineCompletionModel || '').trim(),
-                models: resolvedModels,
-                maxTokens: Number(values.maxTokens) || 4096,
-                temperature: Number(values.temperature) ?? 0.7,
-                apiFormat: resolvedTransport.apiFormat,
-            });
-            if (res?.success) { setTestStatus('success'); void messageApi.success(t('ai_settings.message.test_success')); }
-            else { setTestStatus('error'); void messageApi.error(res?.message || t('ai_settings.message.test_failed')); }
-        } catch (e: any) { setTestStatus('error'); void messageApi.error(e?.message || t('ai_settings.message.test_failed')); }
-        finally { setLoading(false); }
+        } finally {
+            if (isCurrent()) setProviderTesting(false);
+        }
     };
 
-    const handlePresetChange = (presetKey: string) => {
+    const handlePresetChange = (presetKey: string, endpointType?: ProviderEndpointType) => {
         const preset = findPreset(presetKey);
+        const samePreset = presetKey === form.getFieldValue('presetKey');
+        const connection = resolveProviderEndpointConnection(preset, endpointType || getProviderEndpointType({
+            type: preset.backendType, apiFormat: preset.fixedApiFormat || preset.defaultApiFormat,
+        }) || 'openai', samePreset ? form.getFieldValue('baseUrl') : undefined);
+        if (!connection) return;
+        const identity = getSingletonCLIIdentity({ type: preset.backendType, apiFormat: preset.fixedApiFormat, authMode: preset.authMode });
+        if (identity && (!editingProvider?.id || getSingletonCLIIdentity(editingProvider) !== identity)
+            && providers.some((provider) => provider.id !== editingProvider?.id && getSingletonCLIIdentity(provider) === identity)) {
+            void messageApi.error(t('ai_settings.provider.duplicate_cli'));
+            return;
+        }
+        invalidateProviderTest();
+        if (samePreset && endpointType) {
+            // Changing protocol within one vendor keeps the user's alias,
+            // credentials, model choices and generation settings intact.
+            form.setFieldsValue(connection);
+            refreshProviderDirty();
+            return;
+        }
+        editedFieldsRef.current.delete('model');
+        editedFieldsRef.current.delete('effort');
         const authMode = preset.authMode || 'api-key';
-        const resolvedTransport = resolvePresetTransport({
-            presetKey,
-            presetBackendType: preset.backendType,
-            presetFixedApiFormat: preset.fixedApiFormat,
-            presetDefaultApiFormat: preset.defaultApiFormat,
-            presetEndpoints: preset.endpoints,
-            valuesBaseUrl: preset.defaultBaseUrl,
-            valuesApiFormat: preset.defaultApiFormat || form.getFieldValue('apiFormat'),
-            valuesModel: preset.defaultModel,
-        });
         const { model: presetModel, models: presetModels } = resolvePresetModelSelection({
             presetKey,
             presetDefaultModel: preset.defaultModel,
@@ -791,15 +1129,17 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         });
         form.setFieldsValue({
             presetKey,
-            type: resolvedTransport.type,
-            apiFormat: resolvedTransport.apiFormat || 'openai',
-            baseUrl: preset.defaultBaseUrl,
+            ...connection,
             model: presetModel,
             models: presetModels,
+            disabledModels: [],
+            customModels: [],
             inlineCompletionModel: '',
+            effort: undefined,
             authMode,
             ...(authMode === 'local-cli' ? { apiKey: '' } : {}),
         });
+        refreshProviderDirty();
     };
 
     const renderSectionPanel = (sectionKey: AISettingsSectionKey, content: React.ReactNode) => {
@@ -811,46 +1151,56 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                 role="tabpanel"
                 aria-labelledby={`gonavi-ai-settings-tab-${sectionKey}`}
                 hidden={activeSection !== sectionKey}
+                className={sectionKey === 'providers' ? 'gonavi-ai-settings-panel-providers' : undefined}
             >
-                <div style={{ paddingBottom: 12, marginBottom: 2 }}>
-                    <div style={{ fontSize: 'var(--gn-font-size, 14px)', fontWeight: 700, color: overlayTheme.titleText }}>
-                        {t(sectionMeta.titleKey)}
-                    </div>
+                {sectionKey !== 'providers' && <div style={{ paddingBottom: 12, marginBottom: 2 }}>
                     <div style={{ marginTop: 3, fontSize: 'var(--gn-font-size-sm, 12px)', lineHeight: 1.55, color: overlayTheme.mutedText }}>
                         {t(sectionMeta.descriptionKey)}
                     </div>
-                </div>
+                </div>}
                 {content}
             </section>
         );
     };
 
     return (
-        <div ref={modalBodyRef} className="ai-settings-body gonavi-ai-settings-flat" style={{ display: 'grid', gridTemplateColumns: '168px minmax(0, 1fr)', gap: 0, padding: '10px 0', height: '100%', minHeight: 0, overflow: 'hidden', alignItems: 'stretch', position: 'relative', boxSizing: 'border-box' }}>
+        <div ref={modalBodyRef} className="ai-settings-body gonavi-ai-settings-flat" style={{ display: 'flex', gap: 16, padding: '0', height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
             {messageContextHolder}
+            {modalContextHolder}
             <AISettingsSidebar
                 activeSection={activeSection}
                 darkMode={darkMode}
                 overlayTheme={overlayTheme}
-                onSelectSection={setActiveSection}
+                onSelectSection={(section) => {
+                    if (section !== activeSection) withAISettingsLeaveGuard(confirmProviderLeave, () => setActiveSection(section));
+                }}
             />
             <div
                 ref={settingsContentScrollRef}
                 className="gonavi-ai-settings-content"
-                style={{ minWidth: 0, minHeight: 0, height: '100%', overflowY: 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '0 6px 24px 22px' }}
+                style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: activeSection === 'providers' ? 'hidden' : 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '0 6px 8px 0' }}
             >
                 {renderSectionPanel('providers', (
                     <AISettingsProvidersSection
                         providers={providers}
                         activeProviderId={activeProviderId}
+                        pendingProviderId={pendingProviderId}
+                        providersLoading={providersLoading}
+                        loadError={providersLoadError}
+                        onReloadProviders={() => void loadProviders()}
                         editingProvider={editingProvider}
+                        editorSessionKey={editorSessionRef.current}
                         isEditing={isEditing}
                         form={form}
                         providerPresets={localizedProviderPresets}
                         watchedPresetKey={watchedPresetKey}
                         watchedApiFormat={watchedApiFormat}
-                        loading={loading}
+                        loading={providerSaving}
+                        testing={providerTesting}
                         testStatus={testStatus}
+                        testResult={testResult}
+                        onValuesChange={handleProviderValuesChange}
+                        onCLIDefaults={handleCLIDefaults}
                         primaryPasswordVisible={primaryPasswordVisible}
                         darkMode={darkMode}
                         overlayTheme={overlayTheme}
@@ -864,10 +1214,13 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                         onEditProvider={handleEditProvider}
                         onDeleteProvider={handleDeleteProvider}
                         onSetActiveProvider={handleSetActive}
-                        onCancelEdit={resetProviderEditorSession}
+                        onCancelEdit={handleCancelProviderEdit}
                         onPresetChange={handlePresetChange}
                         onTestProvider={handleTestProvider}
-                        onSaveProvider={handleSaveProvider}
+                        onSaveProvider={() => handleSaveProvider()}
+                        onSaveProviderAsCopy={() => handleSaveProvider('copy')}
+                        saveMode={providerSaveMode}
+                        dirty={providerDirty}
                     />
                 ))}
                 {renderSectionPanel('safety', (
@@ -897,6 +1250,22 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                                     : t('ai_settings.open_mode.message.dock'),
                             );
                         }}
+                    />
+                ))}
+                {renderSectionPanel('run_policy', (
+                    <AISettingsRunPolicySection
+                        policy={runPolicy}
+                        runtime={runRuntime}
+                        loading={runPolicyLoading}
+                        saving={runPolicySaving}
+                        error={runPolicyError}
+                        ledgerState={ledgerState}
+                        overlayTheme={overlayTheme}
+                        inputBg={inputBg}
+                        onChange={setRunPolicy}
+                        onRuntimeChange={setRunRuntime}
+                        onReload={handleReloadRunPolicy}
+                        onSave={() => void handleSaveRunPolicy()}
                     />
                 ))}
                 {renderSectionPanel('mcp', (
@@ -980,6 +1349,8 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
 
 const AISettingsModal: React.FC<AISettingsModalProps> = ({ open, onClose, darkMode, overlayTheme, focusProviderId, onBeforeExternalMCPUse }) => {
     const { t } = useI18n();
+    const leaveGuardRef = useRef<AISettingsLeaveGuard | null>(null);
+    const registerLeaveGuard = useCallback((guard: AISettingsLeaveGuard | null) => { leaveGuardRef.current = guard; }, []);
     const modalShellStyle = {
         background: overlayTheme.shellBg, border: overlayTheme.shellBorder,
         boxShadow: overlayTheme.shellShadow, backdropFilter: overlayTheme.shellBackdropFilter,
@@ -1004,9 +1375,9 @@ const AISettingsModal: React.FC<AISettingsModalProps> = ({ open, onClose, darkMo
                 </div>
             }
             open={open}
-            onCancel={onClose}
+            onCancel={() => { void withAISettingsLeaveGuard(leaveGuardRef.current, onClose); }}
             footer={null}
-            width={820}
+            width={1080}
             styles={{
                 content: modalShellStyle,
                 header: { background: 'transparent', borderBottom: 'none', paddingBottom: 8 },
@@ -1019,6 +1390,7 @@ const AISettingsModal: React.FC<AISettingsModalProps> = ({ open, onClose, darkMo
                 overlayTheme={overlayTheme}
                 focusProviderId={focusProviderId}
                 onBeforeExternalMCPUse={onBeforeExternalMCPUse}
+                onLeaveGuardChange={registerLeaveGuard}
               />
         </Modal>
     );

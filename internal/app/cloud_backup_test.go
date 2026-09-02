@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -8,9 +10,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +23,137 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/secretstore"
 )
+
+type startupSecretStoreProbe struct {
+	gets         atomic.Int32
+	healthChecks atomic.Int32
+}
+
+func (s *startupSecretStoreProbe) Put(string, []byte) error { return nil }
+
+func (s *startupSecretStoreProbe) Get(string) ([]byte, error) {
+	s.gets.Add(1)
+	return nil, os.ErrNotExist
+}
+
+func (s *startupSecretStoreProbe) Delete(string) error { return nil }
+
+func (s *startupSecretStoreProbe) HealthCheck() error {
+	s.healthChecks.Add(1)
+	return nil
+}
+
+var _ secretstore.SecretStore = (*startupSecretStoreProbe)(nil)
+
+func TestInitializeCloudBackupDoesNotReadSecretStore(t *testing.T) {
+	probe := &startupSecretStoreProbe{}
+	application := NewAppWithSecretStore(probe)
+	application.configDir = t.TempDir()
+	if err := application.saveCloudBackupState(CloudBackupConfig{
+		Enabled:          true,
+		Provider:         CloudBackupProviderWebDAV,
+		Schedule:         CloudBackupScheduleManual,
+		BackupCategories: defaultCloudBackupCategories(),
+	}); err != nil {
+		t.Fatalf("save cloud backup metadata: %v", err)
+	}
+
+	application.initializeCloudBackup(context.Background())
+	t.Cleanup(application.shutdownCloudBackup)
+	if got := probe.gets.Load(); got != 0 {
+		t.Fatalf("startup read %d secrets from the OS store", got)
+	}
+	if got := probe.healthChecks.Load(); got != 0 {
+		t.Fatalf("startup performed %d OS store health checks", got)
+	}
+}
+
+const cloudBackupRestoreTestPassword = "cloud-backup-layout-test-password"
+
+func configureCloudBackupRestoreTestPayload(t *testing.T, application *App, payload cloudBackupPayload) {
+	t.Helper()
+	if payload.SchemaVersion == 0 {
+		payload.SchemaVersion = cloudBackupPayloadSchemaVersion
+	}
+	if payload.CreatedAt == "" {
+		payload.CreatedAt = "2026-08-25T00:00:00Z"
+	}
+	plain, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal cloud backup restore payload: %v", err)
+	}
+	envelope, err := cloudbackup.Encrypt(plain, cloudBackupRestoreTestPassword)
+	if err != nil {
+		t.Fatalf("encrypt cloud backup restore payload: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(envelope)
+	}))
+	t.Cleanup(server.Close)
+	if _, err := application.SaveCloudBackupConfig(CloudBackupConfigInput{
+		Provider:           CloudBackupProviderWebDAV,
+		WebDAVEndpoint:     server.URL,
+		WebDAVFilePath:     "backup.gonavi",
+		Schedule:           CloudBackupScheduleManual,
+		WebDAVUsername:     "layout-test-user",
+		WebDAVPassword:     "layout-test-password",
+		EncryptionPassword: cloudBackupRestoreTestPassword,
+	}); err != nil {
+		t.Fatalf("configure cloud backup restore payload: %v", err)
+	}
+}
+
+func restoreCloudBackupTestPayload(t *testing.T, application *App, categories ...string) error {
+	t.Helper()
+	preview, err := application.CloudBackupPreviewRestore()
+	if err != nil {
+		t.Fatalf("preview cloud backup restore payload: %v", err)
+	}
+	_, err = application.CloudBackupRestore(CloudBackupRestoreRequest{
+		ConfirmationToken: preview.ConfirmationToken,
+		Categories:        categories,
+	})
+	return err
+}
+
+func cloudBackupLayoutTestConnection(id, name, host string) connectionPackageItem {
+	return connectionPackageItem{
+		ID:   id,
+		Name: name,
+		Config: connection.ConnectionConfig{
+			ID: id, Type: "mysql", Host: host, Port: 3306, User: "root", Database: "layout_test",
+		},
+	}
+}
+
+func seedCloudBackupLayoutTestState(t *testing.T, application *App) connection.ConnectionSidebarLayout {
+	t.Helper()
+	if _, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID: "shared-layout-host", Name: "Local layout host",
+		Config: connection.ConnectionConfig{
+			ID: "shared-layout-host", Type: "mysql", Host: "local-layout.example.test", Port: 3306,
+		},
+	}); err != nil {
+		t.Fatalf("seed local layout connection: %v", err)
+	}
+	layout, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{
+		ConnectionTags: []connection.ConnectionTag{{
+			ID: "local-layout-group", Name: "Local layout group",
+			ConnectionIDs: []string{"shared-layout-host"},
+			ChildOrder:    []string{"connection:shared-layout-host"},
+		}},
+		SidebarRootOrder: []string{"tag:local-layout-group"},
+	})
+	if err != nil {
+		t.Fatalf("seed local sidebar layout: %v", err)
+	}
+	return layout
+}
 
 func TestCloudBackupSyncPreviewAndRestore(t *testing.T) {
 	store := newFakeAppSecretStore()
@@ -297,6 +432,22 @@ func TestCloudBackupPayloadHonorsSelectedCategories(t *testing.T) {
 			t.Fatalf("write %s: %v", name, err)
 		}
 	}
+	if _, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID: "unselected-layout-connection", Name: "Unselected layout connection",
+		Config: connection.ConnectionConfig{ID: "unselected-layout-connection", Type: "mysql", Host: "layout.example.test", Port: 3306},
+	}); err != nil {
+		t.Fatalf("seed unselected layout connection: %v", err)
+	}
+	if _, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{
+		ConnectionTags: []connection.ConnectionTag{{
+			ID: "unselected-layout-group", Name: "Unselected layout group",
+			ConnectionIDs: []string{"unselected-layout-connection"},
+			ChildOrder:    []string{"connection:unselected-layout-connection"},
+		}},
+		SidebarRootOrder: []string{"tag:unselected-layout-group"},
+	}); err != nil {
+		t.Fatalf("seed unselected sidebar layout: %v", err)
+	}
 
 	raw, err := application.buildCloudBackupPayload(CloudBackupConfig{
 		BackupCategories: []string{CloudBackupCategoryAISettings},
@@ -311,8 +462,293 @@ func TestCloudBackupPayloadHonorsSelectedCategories(t *testing.T) {
 	if len(payload.Connections.Connections) != 0 {
 		t.Fatalf("unselected connections leaked into payload: %#v", payload.Connections.Connections)
 	}
+	if payload.ConnectionSidebarLayout != nil || bytes.Contains(raw, []byte(`"connectionSidebarLayout"`)) {
+		t.Fatalf("unselected connection sidebar layout leaked into payload: %s", raw)
+	}
 	if len(payload.Files) != 1 || payload.Files[0].Path != "ai_config.json" {
 		t.Fatalf("payload did not honor selected categories: %#v", payload.Files)
+	}
+}
+
+func TestCloudBackupConnectionsPayloadIncludesInitializedSidebarLayout(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	if _, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID: "layout-connection", Name: "Layout connection",
+		Config: connection.ConnectionConfig{ID: "layout-connection", Type: "mysql", Host: "layout.example.test", Port: 3306},
+	}); err != nil {
+		t.Fatalf("seed connection: %v", err)
+	}
+	want, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{
+		ConnectionTags: []connection.ConnectionTag{{
+			ID: "layout-group", Name: "Layout group",
+			ConnectionIDs: []string{"layout-connection"},
+			ChildOrder:    []string{"connection:layout-connection"},
+		}},
+		SidebarRootOrder: []string{"tag:layout-group"},
+	})
+	if err != nil {
+		t.Fatalf("bootstrap sidebar layout: %v", err)
+	}
+
+	raw, err := application.buildCloudBackupPayload(CloudBackupConfig{
+		BackupCategories: []string{CloudBackupCategoryConnections},
+	})
+	if err != nil {
+		t.Fatalf("buildCloudBackupPayload returned error: %v", err)
+	}
+	var payload cloudBackupPayload
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("decode cloud backup payload: %v", err)
+	}
+	if payload.ConnectionSidebarLayout == nil {
+		t.Fatal("connections backup omitted initialized sidebar layout")
+	}
+	if !reflect.DeepEqual(*payload.ConnectionSidebarLayout, want) {
+		t.Fatalf("sidebar layout = %#v, want %#v", *payload.ConnectionSidebarLayout, want)
+	}
+}
+
+func TestCloudBackupRestoreLegacyPayloadPreservesSidebarLayout(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	wantLayout := seedCloudBackupLayoutTestState(t, application)
+	layoutPath := filepath.Join(application.configDir, connectionSidebarLayoutFileName)
+	wantLayoutBytes, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatalf("read original sidebar layout: %v", err)
+	}
+
+	configureCloudBackupRestoreTestPayload(t, application, cloudBackupPayload{
+		Connections: connectionPackagePayload{Connections: []connectionPackageItem{
+			cloudBackupLayoutTestConnection("shared-layout-host", "Restored layout host", "restored-layout.example.test"),
+		}},
+	})
+	if err := restoreCloudBackupTestPayload(t, application, CloudBackupCategoryConnections); err != nil {
+		t.Fatalf("restore legacy cloud backup payload: %v", err)
+	}
+
+	gotLayoutBytes, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatalf("read sidebar layout after legacy restore: %v", err)
+	}
+	if !bytes.Equal(gotLayoutBytes, wantLayoutBytes) {
+		t.Fatalf("legacy cloud backup changed sidebar layout bytes:\n got: %s\nwant: %s", gotLayoutBytes, wantLayoutBytes)
+	}
+	gotLayout, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{})
+	if err != nil {
+		t.Fatalf("load sidebar layout after legacy restore: %v", err)
+	}
+	if !reflect.DeepEqual(gotLayout, wantLayout) {
+		t.Fatalf("legacy cloud backup changed sidebar layout: got %#v, want %#v", gotLayout, wantLayout)
+	}
+	connections, err := application.GetSavedConnections()
+	if err != nil {
+		t.Fatalf("load connections after legacy restore: %v", err)
+	}
+	if len(connections) != 1 || connections[0].Config.Host != "restored-layout.example.test" {
+		t.Fatalf("legacy cloud backup did not restore its connection: %#v", connections)
+	}
+}
+
+func TestCloudBackupRestoreExplicitEmptySidebarLayoutClearsGroupsWithLocalRevision(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	localLayout := seedCloudBackupLayoutTestState(t, application)
+	remoteRevision := uint64(999)
+	configureCloudBackupRestoreTestPayload(t, application, cloudBackupPayload{
+		Connections: connectionPackagePayload{Connections: []connectionPackageItem{
+			cloudBackupLayoutTestConnection("shared-layout-host", "Restored layout host", "restored-layout.example.test"),
+		}},
+		ConnectionSidebarLayout: &connection.ConnectionSidebarLayout{
+			Initialized:      true,
+			Revision:         remoteRevision,
+			ConnectionTags:   []connection.ConnectionTag{},
+			SidebarRootOrder: []string{},
+		},
+	})
+	if err := restoreCloudBackupTestPayload(t, application, CloudBackupCategoryConnections); err != nil {
+		t.Fatalf("restore explicit empty sidebar layout: %v", err)
+	}
+
+	got, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{})
+	if err != nil {
+		t.Fatalf("load restored sidebar layout: %v", err)
+	}
+	if !got.Initialized || got.Revision != localLayout.Revision+1 || got.Revision == remoteRevision {
+		t.Fatalf("restored sidebar layout revision = %#v, want local revision %d", got, localLayout.Revision+1)
+	}
+	if len(got.ConnectionTags) != 0 {
+		t.Fatalf("explicit empty sidebar layout did not clear local groups: %#v", got.ConnectionTags)
+	}
+	if !slices.Contains(got.SidebarRootOrder, "connection:shared-layout-host") {
+		t.Fatalf("restored sidebar layout did not normalize the ungrouped host: %#v", got.SidebarRootOrder)
+	}
+	for _, token := range got.SidebarRootOrder {
+		if strings.HasPrefix(token, "tag:") {
+			t.Fatalf("restored empty sidebar layout retained a local group token: %#v", got.SidebarRootOrder)
+		}
+	}
+}
+
+func TestCloudBackupRestoreExplicitEmptySidebarLayoutWithoutRemoteConnections(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	localLayout := seedCloudBackupLayoutTestState(t, application)
+	configureCloudBackupRestoreTestPayload(t, application, cloudBackupPayload{
+		Connections: connectionPackagePayload{Connections: []connectionPackageItem{}},
+		ConnectionSidebarLayout: &connection.ConnectionSidebarLayout{
+			Initialized:      true,
+			Revision:         999,
+			ConnectionTags:   []connection.ConnectionTag{},
+			SidebarRootOrder: []string{},
+		},
+	})
+	if err := restoreCloudBackupTestPayload(t, application, CloudBackupCategoryConnections); err != nil {
+		t.Fatalf("restore empty sidebar layout without remote connections: %v", err)
+	}
+
+	got, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{})
+	if err != nil {
+		t.Fatalf("load restored sidebar layout: %v", err)
+	}
+	if !got.Initialized || got.Revision != localLayout.Revision+1 {
+		t.Fatalf("restored sidebar layout revision = %#v, want local revision %d", got, localLayout.Revision+1)
+	}
+	if len(got.ConnectionTags) != 0 {
+		t.Fatalf("empty sidebar layout without remote connections retained local groups: %#v", got.ConnectionTags)
+	}
+	if !slices.Contains(got.SidebarRootOrder, "connection:shared-layout-host") {
+		t.Fatalf("restored sidebar layout did not retain the local-only host as ungrouped: %#v", got.SidebarRootOrder)
+	}
+}
+
+func TestCloudBackupRestoreRollsBackSidebarLayoutBytesWhenSavedQueryRestoreFails(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	wantLayout := seedCloudBackupLayoutTestState(t, application)
+	layoutPath := filepath.Join(application.configDir, connectionSidebarLayoutFileName)
+	connectionsPath := application.savedConnectionRepository().connectionsPath()
+	wantLayoutBytes, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatalf("read original sidebar layout: %v", err)
+	}
+	wantConnectionBytes, err := os.ReadFile(connectionsPath)
+	if err != nil {
+		t.Fatalf("read original connections: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(application.configDir, savedQueriesFileName), 0o755); err != nil {
+		t.Fatalf("create saved query failure fixture: %v", err)
+	}
+
+	configureCloudBackupRestoreTestPayload(t, application, cloudBackupPayload{
+		Connections: connectionPackagePayload{Connections: []connectionPackageItem{
+			cloudBackupLayoutTestConnection("shared-layout-host", "Restored layout host", "restored-layout.example.test"),
+		}},
+		ConnectionSidebarLayout: &connection.ConnectionSidebarLayout{
+			Initialized: true,
+			Revision:    200,
+			ConnectionTags: []connection.ConnectionTag{{
+				ID: "remote-layout-group", Name: "Remote layout group",
+				ConnectionIDs: []string{"shared-layout-host"},
+				ChildOrder:    []string{"connection:shared-layout-host"},
+			}},
+			SidebarRootOrder: []string{"tag:remote-layout-group"},
+		},
+		Files: []cloudBackupFile{{
+			Path: savedQueriesFileName,
+			Data: []byte(`{"version":3,"queries":[{"id":"remote-query","name":"Remote query","sql":"select 1","connectionId":"shared-layout-host","dbName":"layout_test","createdAt":1}]}`),
+		}},
+	})
+	restoreErr := restoreCloudBackupTestPayload(
+		t,
+		application,
+		CloudBackupCategoryConnections,
+		CloudBackupCategorySavedQueries,
+	)
+	if restoreErr == nil {
+		t.Fatal("saved query restore fixture should fail after mutating connections and sidebar layout")
+	}
+
+	gotLayoutBytes, err := os.ReadFile(layoutPath)
+	if err != nil {
+		t.Fatalf("read sidebar layout after rollback: %v", err)
+	}
+	if !bytes.Equal(gotLayoutBytes, wantLayoutBytes) {
+		t.Fatalf("sidebar layout rollback did not restore original bytes:\n got: %s\nwant: %s", gotLayoutBytes, wantLayoutBytes)
+	}
+	gotConnectionBytes, err := os.ReadFile(connectionsPath)
+	if err != nil {
+		t.Fatalf("read connections after rollback: %v", err)
+	}
+	if !bytes.Equal(gotConnectionBytes, wantConnectionBytes) {
+		t.Fatalf("connection rollback did not restore original bytes:\n got: %s\nwant: %s", gotConnectionBytes, wantConnectionBytes)
+	}
+	gotLayout, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{})
+	if err != nil {
+		t.Fatalf("load sidebar layout after rollback: %v", err)
+	}
+	if !reflect.DeepEqual(gotLayout, wantLayout) {
+		t.Fatalf("sidebar layout rollback changed local revision or groups: got %#v, want %#v", gotLayout, wantLayout)
+	}
+}
+
+func TestCloudBackupRestoreRollbackRemovesSidebarLayoutThatWasOriginallyMissing(t *testing.T) {
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	if _, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID: "shared-layout-host", Name: "Local layout host",
+		Config: connection.ConnectionConfig{
+			ID: "shared-layout-host", Type: "mysql", Host: "local-layout.example.test", Port: 3306,
+		},
+	}); err != nil {
+		t.Fatalf("seed local connection without a layout: %v", err)
+	}
+	layoutPath := filepath.Join(application.configDir, connectionSidebarLayoutFileName)
+	if _, err := os.Stat(layoutPath); !os.IsNotExist(err) {
+		t.Fatalf("sidebar layout unexpectedly existed before restore: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(application.configDir, savedQueriesFileName), 0o755); err != nil {
+		t.Fatalf("create saved query failure fixture: %v", err)
+	}
+
+	configureCloudBackupRestoreTestPayload(t, application, cloudBackupPayload{
+		Connections: connectionPackagePayload{Connections: []connectionPackageItem{
+			cloudBackupLayoutTestConnection("shared-layout-host", "Restored layout host", "restored-layout.example.test"),
+		}},
+		ConnectionSidebarLayout: &connection.ConnectionSidebarLayout{
+			Initialized: true,
+			Revision:    200,
+			ConnectionTags: []connection.ConnectionTag{{
+				ID: "remote-layout-group", Name: "Remote layout group",
+				ConnectionIDs: []string{"shared-layout-host"},
+				ChildOrder:    []string{"connection:shared-layout-host"},
+			}},
+			SidebarRootOrder: []string{"tag:remote-layout-group"},
+		},
+		Files: []cloudBackupFile{{
+			Path: savedQueriesFileName,
+			Data: []byte(`{"version":3,"queries":[{"id":"remote-query","name":"Remote query","sql":"select 1","connectionId":"shared-layout-host","dbName":"layout_test","createdAt":1}]}`),
+		}},
+	})
+	restoreErr := restoreCloudBackupTestPayload(
+		t,
+		application,
+		CloudBackupCategoryConnections,
+		CloudBackupCategorySavedQueries,
+	)
+	if restoreErr == nil {
+		t.Fatal("saved query restore fixture should fail after creating the sidebar layout")
+	}
+	if _, err := os.Stat(layoutPath); !os.IsNotExist(err) {
+		t.Fatalf("rollback retained a sidebar layout that did not originally exist: %v", err)
+	}
+	got, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{})
+	if err != nil {
+		t.Fatalf("bootstrap sidebar layout after rollback: %v", err)
+	}
+	if got.Initialized || got.Revision != 0 {
+		t.Fatalf("rollback changed an uninitialized sidebar layout: %#v", got)
 	}
 }
 
@@ -364,6 +800,41 @@ func TestCloudBackupRestoreSelectionAndConfirmationToken(t *testing.T) {
 	}
 	if err := application.consumeCloudBackupRestoreConfirmationToken(changedToken, changedPayload); err == nil {
 		t.Fatal("confirmation token should reject a changed remote payload")
+	}
+}
+
+func TestCloudBackupRestorePreviewOffersSidebarLayoutWithoutConnections(t *testing.T) {
+	payload := cloudBackupPayload{
+		SchemaVersion: cloudBackupPayloadSchemaVersion,
+		CreatedAt:     "2026-08-25T00:00:00Z",
+		Connections:   connectionPackagePayload{Connections: []connectionPackageItem{}},
+		ConnectionSidebarLayout: &connection.ConnectionSidebarLayout{
+			Initialized:      true,
+			Revision:         1,
+			ConnectionTags:   []connection.ConnectionTag{},
+			SidebarRootOrder: []string{},
+		},
+	}
+
+	preview, err := buildCloudBackupRestorePreview(payload, nil)
+	if err != nil {
+		t.Fatalf("build restore preview: %v", err)
+	}
+	if len(preview.Categories) != 1 || preview.Categories[0].ID != CloudBackupCategoryConnections || preview.Categories[0].ItemCount != 0 {
+		t.Fatalf("restore preview omitted the sidebar-only connections category: %#v", preview)
+	}
+	restoreConnections, files, selected, err := selectCloudBackupRestorePayload(
+		payload,
+		[]string{CloudBackupCategoryConnections},
+	)
+	if err != nil {
+		t.Fatalf("select sidebar-only connections category: %v", err)
+	}
+	if !restoreConnections || len(files) != 0 {
+		t.Fatalf("unexpected sidebar-only restore selection: restoreConnections=%v files=%#v", restoreConnections, files)
+	}
+	if _, ok := selected[CloudBackupCategoryConnections]; !ok {
+		t.Fatalf("sidebar-only connections category was not selected: %#v", selected)
 	}
 }
 
@@ -861,6 +1332,116 @@ func TestCloudBackupImmediateScheduleSaveDoesNotWaitForRemote(t *testing.T) {
 	application.cloudBackupSyncMu.Unlock()
 }
 
+func TestCloudBackupImmediateScheduleCoalescesDirtySignals(t *testing.T) {
+	requests := make(chan int32, 128)
+	releaseFirst := make(chan struct{})
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		current := requestCount.Add(1)
+		requests <- current
+		if current == 1 {
+			<-releaseFirst
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer server.Close()
+
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	if _, err := application.SaveCloudBackupConfig(CloudBackupConfigInput{
+		Enabled: true, Provider: CloudBackupProviderWebDAV, WebDAVEndpoint: server.URL,
+		WebDAVFilePath: "backup.gonavi", Schedule: CloudBackupScheduleImmediate,
+		WebDAVUsername: "user", WebDAVPassword: "pass", EncryptionPassword: "backup-pass",
+	}); err != nil {
+		close(releaseFirst)
+		t.Fatalf("SaveCloudBackupConfig returned error: %v", err)
+	}
+
+	select {
+	case <-requests:
+	case <-time.After(3 * time.Second):
+		close(releaseFirst)
+		t.Fatal("initial immediate cloud backup did not start")
+	}
+	for range 100 {
+		application.markCloudBackupDirty()
+	}
+	close(releaseFirst)
+
+	select {
+	case request := <-requests:
+		if request != 2 {
+			t.Fatalf("coalesced cloud backup request = %d, want 2", request)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("coalesced dirty cloud backup did not run")
+	}
+	select {
+	case request := <-requests:
+		t.Fatalf("dirty signals queued an extra cloud backup request %d", request)
+	case <-time.After(300 * time.Millisecond):
+	}
+	application.shutdownCloudBackup()
+}
+
+func TestCloudBackupShutdownCancelsImmediateSyncAndDropsPendingDirty(t *testing.T) {
+	requests := make(chan struct{}, 128)
+	releaseServer := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		requests <- struct{}{}
+		select {
+		case <-r.Context().Done():
+		case <-releaseServer:
+		}
+	}))
+	defer server.Close()
+	defer close(releaseServer)
+
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	if _, err := application.SaveCloudBackupConfig(CloudBackupConfigInput{
+		Enabled: true, Provider: CloudBackupProviderWebDAV, WebDAVEndpoint: server.URL,
+		WebDAVFilePath: "backup.gonavi", Schedule: CloudBackupScheduleImmediate,
+		WebDAVUsername: "user", WebDAVPassword: "pass", EncryptionPassword: "backup-pass",
+	}); err != nil {
+		t.Fatalf("SaveCloudBackupConfig returned error: %v", err)
+	}
+	select {
+	case <-requests:
+	case <-time.After(3 * time.Second):
+		t.Fatal("initial immediate cloud backup did not start")
+	}
+	for range 100 {
+		application.markCloudBackupDirty()
+	}
+
+	shutdownDone := make(chan struct{})
+	go func() {
+		application.shutdownCloudBackup()
+		close(shutdownDone)
+	}()
+	select {
+	case <-shutdownDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("cloud backup shutdown did not wait for cancellation")
+	}
+
+	application.markCloudBackupDirty()
+	select {
+	case <-requests:
+		t.Fatal("cloud backup wrote to the remote after shutdown")
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
 func TestCloudBackupSyncCompletionPreservesConcurrentProviderConfig(t *testing.T) {
 	requestStarted := make(chan struct{})
 	releaseRequest := make(chan struct{})
@@ -1034,6 +1615,16 @@ func TestCloudBackupPayloadKeepsConnectionAndSecretSnapshotTogether(t *testing.T
 	}); err != nil {
 		t.Fatalf("seed connection: %v", err)
 	}
+	if _, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{
+		ConnectionTags: []connection.ConnectionTag{{
+			ID: "layout-before-lock", Name: "Layout before lock",
+			ConnectionIDs: []string{"payload-connection"},
+			ChildOrder:    []string{"connection:payload-connection"},
+		}},
+		SidebarRootOrder: []string{"tag:layout-before-lock"},
+	}); err != nil {
+		t.Fatalf("seed sidebar layout: %v", err)
+	}
 	lock, err := appdata.AcquireFileLock(appdata.SharedStorageLockPath(application.configDir))
 	if err != nil {
 		t.Fatalf("acquire shared storage lock: %v", err)
@@ -1068,6 +1659,18 @@ func TestCloudBackupPayloadKeepsConnectionAndSecretSnapshotTogether(t *testing.T
 	}); err != nil {
 		t.Fatalf("write paired payload snapshot while holding lock: %v", err)
 	}
+	if err := application.connectionSidebarLayoutRepository().saveUnlocked(connection.ConnectionSidebarLayout{
+		Initialized: true,
+		Revision:    2,
+		ConnectionTags: []connection.ConnectionTag{{
+			ID: "layout-after-lock", Name: "Layout after lock",
+			ConnectionIDs: []string{"payload-connection"},
+			ChildOrder:    []string{"connection:payload-connection"},
+		}},
+		SidebarRootOrder: []string{"tag:layout-after-lock"},
+	}); err != nil {
+		t.Fatalf("write paired sidebar layout snapshot while holding lock: %v", err)
+	}
 	if err := lock.Close(); err != nil {
 		t.Fatalf("release shared storage lock: %v", err)
 	}
@@ -1083,6 +1686,9 @@ func TestCloudBackupPayloadKeepsConnectionAndSecretSnapshotTogether(t *testing.T
 		}
 		if len(payload.Connections.Connections) != 1 || payload.Connections.Connections[0].Config.Host != "db-after-lock" || payload.Connections.Connections[0].Secrets.Password != "after-lock-secret" {
 			t.Fatalf("cloud backup payload mixed connection revisions: %#v", payload.Connections.Connections)
+		}
+		if payload.ConnectionSidebarLayout == nil || payload.ConnectionSidebarLayout.Revision != 2 || len(payload.ConnectionSidebarLayout.ConnectionTags) != 1 || payload.ConnectionSidebarLayout.ConnectionTags[0].ID != "layout-after-lock" {
+			t.Fatalf("cloud backup payload mixed connection and sidebar layout revisions: %#v", payload.ConnectionSidebarLayout)
 		}
 		var dailySecrets []cloudBackupFile
 		for _, file := range payload.Files {

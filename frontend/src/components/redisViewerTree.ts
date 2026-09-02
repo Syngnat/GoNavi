@@ -3,6 +3,11 @@ import type { RedisKeyInfo } from '../types';
 
 const KEY_GROUP_DELIMITER = ':';
 const EMPTY_SEGMENT_LABEL = '(empty)';
+const UNKNOWN_REDIS_KEY_TYPE = 'unknown';
+const REDIS_KEY_TYPE_ORDER = ['string', 'hash', 'list', 'set', 'zset', 'stream'] as const;
+const REDIS_KEY_TYPE_ORDER_INDEX = new Map<string, number>(
+  REDIS_KEY_TYPE_ORDER.map((type, index) => [type, index])
+);
 
 type RedisKeyTreeLeaf = {
   keyInfo: RedisKeyInfo;
@@ -20,6 +25,7 @@ type RedisKeyTreeGroup = {
 export type RedisTreeDataNode = Omit<DataNode, 'children'> & {
   nodeType: 'group' | 'leaf';
   children?: RedisTreeDataNode[];
+  groupKind?: 'namespace' | 'type';
   groupName?: string;
   groupPath?: string;
   groupLeafCount?: number;
@@ -70,6 +76,58 @@ const calculateGroupLeafCount = (group: RedisKeyTreeGroup): number => {
 };
 
 export const buildLeafNodeKey = (rawKey: string): string => `key:${rawKey}`;
+
+const buildRedisKeyLeafNode = (
+  keyInfo: RedisKeyInfo,
+  label: string
+): RedisTreeDataNode => ({
+  key: buildLeafNodeKey(keyInfo.key),
+  isLeaf: true,
+  title: label,
+  nodeType: 'leaf',
+  leafLabel: label,
+  rawKey: keyInfo.key,
+  keyType: keyInfo.type,
+  ttl: keyInfo.ttl,
+});
+
+const sortRedisKeyInfos = (
+  keys: RedisKeyInfo[],
+  sortLeafNodes: boolean
+): RedisKeyInfo[] => {
+  return sortLeafNodes
+    ? [...keys].sort((a, b) => a.key.localeCompare(b.key))
+    : keys;
+};
+
+const normalizeRedisKeyType = (type: string): string => {
+  return String(type || '').trim().toLowerCase() || UNKNOWN_REDIS_KEY_TYPE;
+};
+
+const compareRedisKeyTypes = (left: string, right: string): number => {
+  if (left === right) {
+    return 0;
+  }
+  if (left === UNKNOWN_REDIS_KEY_TYPE) {
+    return 1;
+  }
+  if (right === UNKNOWN_REDIS_KEY_TYPE) {
+    return -1;
+  }
+
+  const leftOrder = REDIS_KEY_TYPE_ORDER_INDEX.get(left);
+  const rightOrder = REDIS_KEY_TYPE_ORDER_INDEX.get(right);
+  if (leftOrder !== undefined && rightOrder !== undefined) {
+    return leftOrder - rightOrder;
+  }
+  if (leftOrder !== undefined) {
+    return -1;
+  }
+  if (rightOrder !== undefined) {
+    return 1;
+  }
+  return left.localeCompare(right);
+};
 
 export const parseRawKeyFromNodeKey = (nodeKey: React.Key): string | null => {
   const keyText = String(nodeKey);
@@ -135,6 +193,7 @@ export const buildRedisKeyTree = (
         key: groupNodeKey,
         title: child.name,
         nodeType: 'group',
+        groupKind: 'namespace',
         groupName: child.name,
         groupPath: child.path,
         groupLeafCount: child.leafCount,
@@ -143,18 +202,7 @@ export const buildRedisKeyTree = (
       };
     });
 
-    const leafNodes: RedisTreeDataNode[] = childLeaves.map((leaf) => {
-      return {
-        key: buildLeafNodeKey(leaf.keyInfo.key),
-        isLeaf: true,
-        title: leaf.label,
-        nodeType: 'leaf',
-        leafLabel: leaf.label,
-        rawKey: leaf.keyInfo.key,
-        keyType: leaf.keyInfo.type,
-        ttl: leaf.keyInfo.ttl,
-      };
-    });
+    const leafNodes = childLeaves.map((leaf) => buildRedisKeyLeafNode(leaf.keyInfo, leaf.label));
 
     return [...groupNodes, ...leafNodes];
   };
@@ -163,6 +211,52 @@ export const buildRedisKeyTree = (
     treeData: toTreeNodes(root),
     groupKeys,
   };
+};
+
+export const buildRedisKeyListView = (
+  keys: RedisKeyInfo[],
+  sortLeafNodes: boolean
+): RedisKeyTreeResult => {
+  return {
+    treeData: sortRedisKeyInfos(keys, sortLeafNodes)
+      .map((keyInfo) => buildRedisKeyLeafNode(keyInfo, keyInfo.key)),
+    groupKeys: [],
+  };
+};
+
+export const buildRedisKeyTypeView = (
+  keys: RedisKeyInfo[],
+  sortLeafNodes: boolean
+): RedisKeyTreeResult => {
+  const keysByType = new Map<string, RedisKeyInfo[]>();
+  keys.forEach((keyInfo) => {
+    const keyType = normalizeRedisKeyType(keyInfo.type);
+    const groupedKeys = keysByType.get(keyType);
+    if (groupedKeys) {
+      groupedKeys.push(keyInfo);
+      return;
+    }
+    keysByType.set(keyType, [keyInfo]);
+  });
+
+  const orderedTypes = Array.from(keysByType.keys()).sort(compareRedisKeyTypes);
+  const groupKeys = orderedTypes.map((keyType) => `type-group:${keyType}`);
+  const treeData = orderedTypes.map((keyType, index): RedisTreeDataNode => {
+    const groupedKeys = sortRedisKeyInfos(keysByType.get(keyType) || [], sortLeafNodes);
+    const children = groupedKeys.map((keyInfo) => buildRedisKeyLeafNode(keyInfo, keyInfo.key));
+    return {
+      key: groupKeys[index],
+      title: keyType,
+      nodeType: 'group',
+      groupKind: 'type',
+      groupName: keyType,
+      groupLeafCount: children.length,
+      descendantRawKeys: groupedKeys.map((keyInfo) => keyInfo.key),
+      children,
+    };
+  });
+
+  return { treeData, groupKeys };
 };
 
 export const applyTreeNodeCheck = (

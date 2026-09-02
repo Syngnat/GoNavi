@@ -60,6 +60,7 @@ export const DataSyncPreflightPanel: React.FC<{
   approvalError?: string;
   onBeginApproval?: () => void;
   onApprove?: () => void;
+  embedded?: boolean;
 }> = ({
   snapshot,
   currentRevision,
@@ -74,6 +75,7 @@ export const DataSyncPreflightPanel: React.FC<{
   approvalError = '',
   onBeginApproval,
   onApprove,
+  embedded = false,
 }) => {
   const [clock, setClock] = useState(Date.now());
   const [copyError, setCopyError] = useState(false);
@@ -137,8 +139,9 @@ export const DataSyncPreflightPanel: React.FC<{
 
   return (
     <aside
-      className="gn-data-sync-preflight"
+      className={`gn-data-sync-preflight${embedded ? ' gn-data-sync-preflight--embedded' : ''}`}
       data-data-sync-preflight="true"
+      data-layout={embedded ? 'embedded' : 'sidebar'}
       data-status={status}
       data-preflight-task-id={snapshot?.taskId || ''}
       aria-live="polite"

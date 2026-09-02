@@ -1,7 +1,10 @@
 import { useCallback, useEffect } from 'react';
 import type React from 'react';
 import { message } from 'antd';
-import { collectDataGridFillTemplateTargetRowKeys } from './DataGridCore';
+import {
+  collectDataGridFillTemplateTargetRowKeys,
+  filterDataGridCellSelectionToVisibleRows,
+} from './DataGridCore';
 import type { Item } from './DataGridCore';
 import { buildDataGridClipboardPasteRows, parseDataGridClipboardData } from './dataGridClipboardPaste';
 import { canSelectGridCellForClipboard } from './dataGridSelectionCopy';
@@ -50,8 +53,9 @@ type DataGridBatchActionsContext = Record<string, any> & {
   setModifiedRows: React.Dispatch<React.SetStateAction<Record<string, any>>>;
   setSelectedCells: React.Dispatch<React.SetStateAction<Set<string>>>;
   markCellSelectionDeleteEligible: (eligible: boolean) => void;
+  markCellSelectionUserSelection: (active: boolean) => void;
   rowKeyStr: (key: React.Key) => string;
-  resetCellSelection: () => void;
+  resetCellSelection: (clearState?: boolean) => void;
   makeCellKey: (rowKey: string, colName: string) => string;
   splitCellKey: (cellKey: string) => { rowKey: string; colName: string } | null;
   updateCellSelection: (cells: Set<string>) => void;
@@ -107,6 +111,7 @@ export const useDataGridBatchActions = (ctx: DataGridBatchActionsContext) => {
     setModifiedRows,
     setSelectedCells,
     markCellSelectionDeleteEligible,
+    markCellSelectionUserSelection,
     splitCellKey,
     suppressCellSelectionClickRef,
     translateDataGrid,
@@ -205,6 +210,7 @@ const handleBatchFillCells = useCallback(() => {
     // 清除选中状态
     setSelectedCells(new Set());
     markCellSelectionDeleteEligible(false);
+    markCellSelectionUserSelection(false);
     currentSelectionRef.current = new Set();
     selectionStartRef.current = null;
     isDraggingRef.current = false;
@@ -214,7 +220,159 @@ const handleBatchFillCells = useCallback(() => {
       cellSelectionAutoScrollRafRef.current = null;
     }
     updateCellSelection(new Set());
-  }, [batchEditValue, batchEditSetNull, addedRows, modifiedRows, rowKeyStr, updateCellSelection, closeBatchEditModal, markCellSelectionDeleteEligible, translateDataGrid, canModifyData, effectiveEditLocator, isWritableResultColumn, splitCellKey]);
+  }, [batchEditValue, batchEditSetNull, addedRows, modifiedRows, rowKeyStr, updateCellSelection, closeBatchEditModal, markCellSelectionDeleteEligible, markCellSelectionUserSelection, translateDataGrid, canModifyData, effectiveEditLocator, isWritableResultColumn, splitCellKey]);
+
+  // Apply NULL to the active cell selection in one state transaction per store.
+  // The context-menu cell is only a fallback when there is no active selection
+  // (or when the user right-clicks outside the existing selection).
+  const handleSetNullForSelectedCells = useCallback((
+    fallbackCell?: { rowKey: React.Key; colName: string },
+  ) => {
+    if (!canModifyData) return;
+
+    const fallbackKey = fallbackCell?.colName
+      ? makeCellKey(rowKeyStr(fallbackCell.rowKey), fallbackCell.colName)
+      : null;
+    // Page Find and ordinary focus clicks also populate selectedCells, but they
+    // are not editable range selections. Only use the range for a batch NULL
+    // operation when it belongs to the current editable data source.
+    const selection = canUseCellSelectionAsFillTemplateTargets
+      ? (currentSelectionRef.current.size > 0 ? currentSelectionRef.current : selectedCells)
+      : new Set<string>();
+    const visibleSelection = filterDataGridCellSelectionToVisibleRows({
+      cellKeys: selection,
+      rows: displayDataRef.current,
+      rowKeyField: GONAVI_ROW_KEY,
+    });
+    const targetCells = visibleSelection.size > 0 && (!fallbackKey || visibleSelection.has(fallbackKey))
+      ? visibleSelection
+      : fallbackKey
+        ? new Set([fallbackKey])
+        : visibleSelection;
+
+    if (
+      fallbackCell
+      && (!fallbackKey || !visibleSelection.has(fallbackKey))
+      && !isWritableResultColumn(fallbackCell.colName, effectiveEditLocator)
+    ) {
+      void message.info(translateDataGrid('data_grid.message.current_field_not_editable'));
+      setCellContextMenu((prev: any) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    if (targetCells.size === 0) {
+      void message.info(translateDataGrid('data_grid.message.select_cells_to_fill'));
+      setCellContextMenu((prev: any) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    const addedRowMap = new Map<string, any>();
+    addedRows.forEach((row) => {
+      const key = row?.[GONAVI_ROW_KEY];
+      if (key === undefined || key === null) return;
+      addedRowMap.set(rowKeyStr(key), row);
+    });
+
+    const baseRowMap = new Map<string, any>();
+    displayDataRef.current.forEach((row) => {
+      const key = row?.[GONAVI_ROW_KEY];
+      if (key === undefined || key === null) return;
+      baseRowMap.set(rowKeyStr(key), row);
+    });
+
+    const patchesByRow = new Map<string, Record<string, any>>();
+    let updatedCount = 0;
+    Array.from(targetCells).forEach((cellKey) => {
+      const parts = splitCellKey(cellKey);
+      if (!parts || !isWritableResultColumn(parts.colName, effectiveEditLocator)) return;
+      const { rowKey, colName } = parts;
+      if (deletedRowKeys.has(rowKey)) return;
+      const addedRow = addedRowMap.get(rowKey);
+      const baseRow = baseRowMap.get(rowKey);
+      if (!addedRow && !baseRow) return;
+
+      const existing = modifiedRows[rowKey];
+      let currentValue: any;
+      if (addedRow) {
+        currentValue = addedRow[colName];
+      } else if (existing && Object.prototype.hasOwnProperty.call(existing as any, GONAVI_ROW_KEY)) {
+        currentValue = existing[colName];
+      } else if (existing && Object.prototype.hasOwnProperty.call(existing as any, colName)) {
+        currentValue = existing[colName];
+      } else {
+        currentValue = baseRow?.[colName];
+      }
+
+      if (isCellValueEqualForDiff(currentValue, null)) return;
+      const patch = patchesByRow.get(rowKey) || {};
+      patch[colName] = null;
+      patchesByRow.set(rowKey, patch);
+      updatedCount += 1;
+    });
+
+    if (updatedCount === 0) {
+      void message.info(translateDataGrid('data_grid.message.selected_cells_no_update'));
+      setCellContextMenu((prev: any) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    setAddedRows((prev) => prev.map((row) => {
+      const key = row?.[GONAVI_ROW_KEY];
+      if (key === undefined || key === null) return row;
+      const patch = patchesByRow.get(rowKeyStr(key));
+      return patch ? { ...row, ...patch } : row;
+    }));
+
+    setModifiedRows((prev) => {
+      const next = { ...prev };
+      patchesByRow.forEach((patch, keyStr) => {
+        if (addedRowMap.has(keyStr)) return;
+
+        // Read the latest state inside the functional updater. A virtual-cell
+        // blur/save can be queued in the same React batch as this menu action;
+        // using the closure snapshot here would discard that other column.
+        const existing = prev[keyStr];
+        const merged = existing ? { ...(existing as any), ...patch } : { ...patch };
+        const baseRow = baseRowMap.get(keyStr);
+        const hasRowKey = Object.prototype.hasOwnProperty.call(merged, GONAVI_ROW_KEY);
+        const changedColumns = Object.keys(merged).filter((columnName) => (
+          columnName !== GONAVI_ROW_KEY
+          && isWritableResultColumn(columnName, effectiveEditLocator)
+          && !isCellValueEqualForDiff(baseRow?.[columnName], merged?.[columnName])
+        ));
+        if (changedColumns.length === 0) {
+          delete next[keyStr];
+          return;
+        }
+
+        next[keyStr] = hasRowKey
+          ? merged
+          : Object.fromEntries(changedColumns.map((columnName) => [columnName, merged[columnName]]));
+      });
+      return next;
+    });
+
+    setModifiedColumns((prev) => {
+      const next = { ...prev };
+      patchesByRow.forEach((patch, keyStr) => {
+        if (addedRowMap.has(keyStr)) return;
+
+        // Preserve columns that may have been marked by a concurrent edit and
+        // only adjust the cells this NULL action actually targets.
+        const columns = new Set(next[keyStr] || []);
+        const baseRow = baseRowMap.get(keyStr);
+        Object.keys(patch).forEach((columnName) => {
+          if (isCellValueEqualForDiff(baseRow?.[columnName], null)) columns.delete(columnName);
+          else columns.add(columnName);
+        });
+        if (columns.size > 0) next[keyStr] = columns;
+        else delete next[keyStr];
+      });
+      return next;
+    });
+
+    setCellContextMenu((prev: any) => ({ ...prev, visible: false }));
+  }, [GONAVI_ROW_KEY, addedRows, canModifyData, canUseCellSelectionAsFillTemplateTargets, currentSelectionRef, deletedRowKeys, displayDataRef, effectiveEditLocator, isCellValueEqualForDiff, isWritableResultColumn, makeCellKey, modifiedRows, rowKeyStr, selectedCells, setAddedRows, setCellContextMenu, setModifiedColumns, setModifiedRows, splitCellKey, translateDataGrid]);
 
   // 事件委托：在容器级别处理单元格拖选。可编辑结果会自动进入编辑模式，
   // 只读/聚合查询结果仅保留选区与复制能力，不触发任何数据修改入口。
@@ -385,6 +543,7 @@ const handleBatchFillCells = useCallback(() => {
     };
 
     const beginCellSelection = (cellInfo: { rowKey: string; colName: string }, x: number, y: number) => {
+      markCellSelectionUserSelection(true);
       if (canModifyData && !cellEditModeRef.current) {
         cellEditModeRef.current = true;
         setCellEditMode(true);
@@ -428,6 +587,7 @@ const handleBatchFillCells = useCallback(() => {
       currentSelectionRef.current = nextSelection;
       setSelectedCells(nextSelection);
       markCellSelectionDeleteEligible(false);
+      markCellSelectionUserSelection(false);
       updateCellSelection(nextSelection);
     };
 
@@ -567,6 +727,7 @@ const handleBatchFillCells = useCallback(() => {
       if (currentSelectionRef.current.size > 0) {
         setSelectedCells(new Set(currentSelectionRef.current));
         markCellSelectionDeleteEligible(canModifyData);
+        markCellSelectionUserSelection(true);
       }
     };
 
@@ -709,7 +870,7 @@ const handleBatchFillCells = useCallback(() => {
       cellSelectionPointerRef.current = null;
       isDraggingRef.current = false;
     };
-  }, [addedRows, canModifyData, deletedRowKeys, isActive, isTableSurfaceActive, displayColumnNames, columnIndexMap, effectiveEditLocator, isCellValueEqualForDiff, isWritableResultColumn, markCellSelectionDeleteEligible, modifiedRows, rowKeyStr, selectedCells, setAddedRows, setModifiedColumns, setModifiedRows, setSelectedCells, splitCellKey, translateDataGrid, updateCellSelection]);
+  }, [addedRows, canModifyData, deletedRowKeys, isActive, isTableSurfaceActive, displayColumnNames, columnIndexMap, effectiveEditLocator, isCellValueEqualForDiff, isWritableResultColumn, markCellSelectionDeleteEligible, markCellSelectionUserSelection, modifiedRows, rowKeyStr, selectedCells, setAddedRows, setModifiedColumns, setModifiedRows, setSelectedCells, splitCellKey, translateDataGrid, updateCellSelection]);
 
   const handleCopySelectedColumnsFromRow = useCallback(() => {
     const activeSelection = currentSelectionRef.current.size > 0 ? currentSelectionRef.current : selectedCells;
@@ -880,6 +1041,43 @@ const handleBatchFillCells = useCallback(() => {
     setCellContextMenu((prev: any) => ({ ...prev, visible: false }));
   }, [copiedCellPatch, addedRows, modifiedRows, rowKeyStr, selectedCells, canUseCellSelectionAsFillTemplateTargets, effectiveEditLocator, translateDataGrid]);
 
+  const selectEditableColumnCells = useCallback((columnName: string) => {
+    if (
+      !cellEditModeRef.current
+      || !canModifyData
+      || !isWritableResultColumn(columnName, effectiveEditLocator)
+    ) {
+      return;
+    }
+
+    resetCellSelection(false);
+    const currentRows = displayDataRef.current;
+    const colIndex = columnIndexMap.get(columnName) ?? -1;
+    const nextSelection = new Set<string>();
+    let anchorRowIndex = -1;
+    for (let rowIndex = 0; rowIndex < currentRows.length; rowIndex += 1) {
+      const rowKey = currentRows[rowIndex]?.[GONAVI_ROW_KEY];
+      if (rowKey === undefined || rowKey === null) continue;
+      if (anchorRowIndex === -1) anchorRowIndex = rowIndex;
+      nextSelection.add(makeCellKey(rowKeyStr(rowKey), columnName));
+    }
+    if (anchorRowIndex === -1) return;
+
+    const anchorRowKey = currentRows[anchorRowIndex]?.[GONAVI_ROW_KEY];
+    if (anchorRowKey === undefined || anchorRowKey === null) return;
+    selectionStartRef.current = {
+      rowKey: rowKeyStr(anchorRowKey),
+      colName: columnName,
+      rowIndex: anchorRowIndex,
+      colIndex,
+    };
+    currentSelectionRef.current = nextSelection;
+    setSelectedCells(nextSelection);
+    markCellSelectionDeleteEligible(true);
+    markCellSelectionUserSelection(true);
+    updateCellSelection(nextSelection);
+  }, [canModifyData, effectiveEditLocator, columnIndexMap, makeCellKey, markCellSelectionDeleteEligible, markCellSelectionUserSelection, resetCellSelection, rowKeyStr, updateCellSelection]);
+
   // 批量填充到选中行
   const handleBatchFillToSelected = useCallback((sourceRecord: Item, dataIndex: string) => {
     if (!isWritableResultColumn(dataIndex, effectiveEditLocator)) {
@@ -944,8 +1142,10 @@ const handleBatchFillCells = useCallback(() => {
 
   return {
     handleBatchFillCells,
+    handleSetNullForSelectedCells,
     handleCopySelectedColumnsFromRow,
     handlePasteCopiedColumnsToSelectedRows,
     handleBatchFillToSelected,
+    selectEditableColumnCells,
   };
 };

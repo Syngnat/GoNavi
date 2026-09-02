@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,14 +14,17 @@ import (
 )
 
 type fakeKafkaRuntime struct {
-	listTopicsResult   []kafkaTopicInfo
-	describeResult     kafkaTopicDescription
-	fetchResult        []kafkaMessageRecord
-	publishAffected    int64
-	lastDescribeTopic  string
-	lastFetchRequest   kafkaFetchRequest
-	lastPublishCommand kafkaPublishCommand
-	fetchCount         int
+	listTopicsResult     []kafkaTopicInfo
+	describeResult       kafkaTopicDescription
+	fetchResult          []kafkaMessageRecord
+	publishAffected      int64
+	lastDescribeTopic    string
+	lastFetchRequest     kafkaFetchRequest
+	lastPublishCommand   kafkaPublishCommand
+	fetchCount           int
+	consumerGroupsResult []kafkaConsumerGroupInfo
+	consumerGroupsErr    error
+	lastConsumerGroupID  string
 }
 
 func TestKafkaRuntimeDoesNotDeriveRequestTimeoutFromConnectionTimeout(t *testing.T) {
@@ -93,6 +97,10 @@ func (f *fakeKafkaRuntime) FetchMessages(ctx context.Context, request kafkaFetch
 func (f *fakeKafkaRuntime) Publish(ctx context.Context, command kafkaPublishCommand) (int64, error) {
 	f.lastPublishCommand = command
 	return f.publishAffected, nil
+}
+func (f *fakeKafkaRuntime) InspectConsumerGroups(ctx context.Context, groupID string) ([]kafkaConsumerGroupInfo, error) {
+	f.lastConsumerGroupID = groupID
+	return f.consumerGroupsResult, f.consumerGroupsErr
 }
 
 func TestSeekKafkaAbsoluteOffsetUsesAbsoluteKafkaOffset(t *testing.T) {
@@ -185,6 +193,58 @@ func TestKafkaQueryShowTopicsAndDescribeTopic(t *testing.T) {
 	}
 }
 
+func TestKafkaQueryConsumerGroupsPreservesUnknownOffsets(t *testing.T) {
+	partition := 3
+	currentOffset := int64(12)
+	logEndOffset := int64(20)
+	lag := int64(8)
+	runtime := &fakeKafkaRuntime{consumerGroupsResult: []kafkaConsumerGroupInfo{
+		{GroupID: "empty-group", State: "Empty"},
+		{
+			GroupID: "orders", State: "Stable", MemberID: "member-1", ClientID: "consumer-a",
+			Topic: "orders.events", Partition: &partition, CurrentOffset: &currentOffset,
+			LogEndOffset: &logEndOffset, Lag: &lag,
+		},
+	}}
+	client := &KafkaDB{runtime: runtime}
+
+	rows, columns, err := client.Query(`SHOW CONSUMER GROUPS;`)
+	if err != nil {
+		t.Fatalf("SHOW CONSUMER GROUPS failed: %v", err)
+	}
+	if runtime.lastConsumerGroupID != "" {
+		t.Fatalf("SHOW CONSUMER GROUPS group ID = %q, want empty", runtime.lastConsumerGroupID)
+	}
+	if len(rows) != 2 || rows[0]["partition"] != nil || rows[0]["current_offset"] != nil || rows[0]["log_end_offset"] != nil || rows[0]["lag"] != nil {
+		t.Fatalf("empty group must keep offsets unknown, got %#v", rows)
+	}
+	if rows[1]["partition"] != partition || rows[1]["lag"] != lag {
+		t.Fatalf("unexpected populated group row: %#v", rows[1])
+	}
+	for _, name := range []string{"group", "current_offset", "log_end_offset", "lag"} {
+		if !containsString(columns, name) {
+			t.Fatalf("expected %q column, got %v", name, columns)
+		}
+	}
+
+	_, _, err = client.Query(`DESCRIBE CONSUMER GROUP "orders"`)
+	if err != nil {
+		t.Fatalf("DESCRIBE CONSUMER GROUP failed: %v", err)
+	}
+	if runtime.lastConsumerGroupID != "orders" {
+		t.Fatalf("DESCRIBE CONSUMER GROUP group ID = %q, want orders", runtime.lastConsumerGroupID)
+	}
+}
+
+func TestKafkaQueryConsumerGroupsPropagatesRuntimeError(t *testing.T) {
+	runtime := &fakeKafkaRuntime{consumerGroupsErr: errors.New("forbidden")}
+	client := &KafkaDB{runtime: runtime}
+
+	if _, _, err := client.Query(`SHOW CONSUMER GROUPS`); err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("expected runtime error to propagate, got %v", err)
+	}
+}
+
 func TestKafkaQuerySelectAndConsumeKeepTopicNameIntact(t *testing.T) {
 	runtime := &fakeKafkaRuntime{
 		fetchResult: []kafkaMessageRecord{{
@@ -228,8 +288,28 @@ func TestKafkaQuerySelectAndConsumeKeepTopicNameIntact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CONSUME failed: %v", err)
 	}
-	if runtime.lastFetchRequest.Topic != "logs.app-1" || runtime.lastFetchRequest.GroupID != "gonavi" || !runtime.lastFetchRequest.Latest {
+	if runtime.lastFetchRequest.Topic != "logs.app-1" || runtime.lastFetchRequest.GroupID != "gonavi" || runtime.lastFetchRequest.Latest {
 		t.Fatalf("unexpected consume request: %#v", runtime.lastFetchRequest)
+	}
+}
+
+func TestParseKafkaConsumeUsesConfiguredStartOffset(t *testing.T) {
+	for _, testCase := range []struct {
+		name          string
+		defaultLatest bool
+	}{
+		{name: "earliest", defaultLatest: false},
+		{name: "latest", defaultLatest: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			parsed, ok := parseKafkaSQL(`CONSUME FROM "orders.events" LIMIT 10`, testCase.defaultLatest)
+			if !ok {
+				t.Fatal("CONSUME should parse")
+			}
+			if parsed.Latest != testCase.defaultLatest {
+				t.Fatalf("Latest = %v, want configured value %v", parsed.Latest, testCase.defaultLatest)
+			}
+		})
 	}
 }
 

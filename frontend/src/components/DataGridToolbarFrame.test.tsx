@@ -168,6 +168,25 @@ describe('DataGridToolbarFrame cell selection actions', () => {
     setCurrentLanguage('zh-CN');
   });
 
+  it('keeps the RocketMQ TAG total action visible but disabled with an explanation', () => {
+    const reason = 'Broker offset 不能表示 TAG 精确总量';
+    const renderer = create(
+      <DataGridToolbarFrame
+        {...makeProps({
+          prefersManualTotalCount: true,
+          totalCountUnavailableLabel: 'TAG 总量不可用',
+          totalCountUnavailableReason: reason,
+        })}
+      />,
+    );
+    const action = renderer.root.find(
+      (node) => node.type === 'button' && node.props['aria-label'] === 'TAG 总量不可用',
+    );
+
+    expect(action.props.disabled).toBe(true);
+    expectTooltip(renderer, reason);
+  });
+
   it('uses a pressed selection toggle with a dynamic action label', () => {
     const onToggleCellEditMode = vi.fn();
     const renderer = create(<DataGridToolbarFrame {...makeProps({ onToggleCellEditMode })} />);

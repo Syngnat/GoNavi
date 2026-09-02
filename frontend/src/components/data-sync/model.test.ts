@@ -50,7 +50,37 @@ describe('data sync task model', () => {
     });
   });
 
-  it('increments revisions and makes an older preflight stale', () => {
+  it('creates a writable schema-only migration draft with automatic column repair', () => {
+    const schemaMigration = createDataSyncTaskDraft({
+      id: 'schema-migration-1',
+      kind: 'migration',
+      content: 'schema',
+      now: '2026-08-08T00:00:00.000Z',
+    });
+
+    expect(schemaMigration).toMatchObject({
+      kind: 'migration',
+      content: 'schema',
+      delivery: {
+        writeMode: 'upsert',
+        autoAddColumns: true,
+      },
+    });
+  });
+
+  it('defaults structure+data migration drafts to automatic column repair', () => {
+    const migration = createDataSyncTaskDraft({
+      id: 'migration-default',
+      kind: 'migration',
+      now: '2026-08-08T00:00:00.000Z',
+    });
+
+    // issue #1014：目标表缺列时必须默认补列并回填，否则字段同步不动。
+    expect(migration.delivery.autoAddColumns).toBe(true);
+    expect(migration.content).toBe('both');
+  });
+
+  it('preserves the persisted revision and makes an older preflight stale after editing', () => {
     const task = createDataSyncTaskDraft({
       id: 'task-1',
       kind: 'migration',
@@ -59,6 +89,7 @@ describe('data sync task model', () => {
     const snapshot: DataSyncPreflightSnapshot = {
       taskId: task.id,
       taskRevision: task.revision,
+      taskEditEpoch: task.editEpoch,
       status: 'passed',
       issues: [],
       definitionHash: 'hash-1',
@@ -72,7 +103,8 @@ describe('data sync task model', () => {
       '2026-08-08T00:02:00.000Z',
     );
 
-    expect(revised.revision).toBe(2);
+    expect(revised.revision).toBe(task.revision);
+    expect(revised.editEpoch).toBe(task.editEpoch + 1);
     expect(revised.createdAt).toBe(task.createdAt);
     expect(revised.updatedAt).toBe('2026-08-08T00:02:00.000Z');
     expect(isDataSyncPreflightCurrent(task, snapshot)).toBe(true);
@@ -187,6 +219,42 @@ describe('data sync task model', () => {
     );
   });
 
+  it('defers snapshot stable-key validation to backend metadata while retaining CDC validation', () => {
+    const base = createDataSyncTaskDraft({ id: 'task-keyless', kind: 'reconcile' });
+    const keylessSnapshot = reviseDataSyncTask(base, {
+      name: 'Keyless initial import',
+      source: { ...base.source, connectionId: 'mysql-prod' },
+      target: { ...base.target, connectionId: 'pg-warehouse' },
+      mappings: [
+        {
+          ...createDataSyncTableMapping('map-keyless', 'orders', 'ods.orders'),
+          targetMode: 'create_or_reuse',
+        },
+      ],
+    });
+
+    expect(validateDataSyncTask(keylessSnapshot).map((item) => item.code)).not.toContain(
+      'key_columns_required',
+    );
+
+    const cdc = {
+      ...keylessSnapshot,
+      kind: 'cdc' as const,
+      trigger: { mode: 'continuous' as const },
+      incremental: {
+        mode: 'cdc' as const,
+        initialSnapshot: false,
+        startPosition: 'latest' as const,
+        adapter: 'mongodb-change-stream',
+        slotName: '',
+        publicationName: '',
+      },
+    };
+    expect(validateDataSyncTask(cdc).map((item) => item.code)).toContain(
+      'key_columns_required',
+    );
+  });
+
   it('requires Cron and watermark configuration without weakening CDC invariants', () => {
     const base = createDataSyncTaskDraft({ id: 'task-4', kind: 'cdc' });
     const invalid = reviseDataSyncTask(base, {
@@ -289,6 +357,13 @@ describe('data sync task model', () => {
 
   it('keeps query sinks to one target mapping and blocks watermark append', () => {
     const query = createDataSyncTaskDraft({ id: 'query', kind: 'querySink' });
+    expect(query.resumePolicy).toBe('never');
+    expect(
+      validateDataSyncTask({
+        ...query,
+        resumePolicy: 'manual',
+      }).map((item) => item.code),
+    ).toContain('append_resume_unsafe');
     expect(
       validateDataSyncTask({
         ...query,

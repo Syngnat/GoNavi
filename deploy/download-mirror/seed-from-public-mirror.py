@@ -174,13 +174,21 @@ def seed_channel(
         driver_download_root = "drivers/dev/releases/download"
 
     app_manifest, app_manifest_raw = fetch_json(f"{source_base_url}/{app_latest_path}")
-    driver_index, driver_index_raw = fetch_json(f"{source_base_url}/{driver_latest_path}")
+    driver_latest_index, driver_latest_index_raw = fetch_json(f"{source_base_url}/{driver_latest_path}")
     if channel == "stable":
         app_tag = validate_tag(app_manifest.get("tagName"), "stable app tag")
-        driver_tag = validate_tag(driver_index.get("tagName"), "stable driver tag")
+        driver_tag = validate_tag(driver_latest_index.get("tagName"), "stable driver tag")
     else:
         app_tag = validate_tag(app_manifest.get("version"), "dev app tag")
-        driver_tag = validate_tag(driver_index.get("mirrorTagName"), "dev driver tag")
+        driver_tag = validate_tag(driver_latest_index.get("mirrorTagName"), "dev driver tag")
+
+    # The immutable version index can intentionally differ from the mutable
+    # latest index in tag metadata (for example, dev's mirrorTagName). Fetch
+    # both paths so the staged payload is byte-for-byte equivalent to the
+    # source generation instead of copying latest metadata into the immutable
+    # directory.
+    driver_version_path = f"{source_base_url}/{driver_download_root}/{urllib.parse.quote(driver_tag)}/GoNavi-DriverAgents-Index.json"
+    driver_version_index, driver_version_index_raw = fetch_json(driver_version_path)
 
     source_dir = Path(tempfile.mkdtemp(prefix=f".seed-{channel}-", dir=mirror_root))
     app_dir = source_dir / "app"
@@ -189,8 +197,10 @@ def seed_channel(
     driver_dir.mkdir()
     app_manifest_path = app_dir / Path(app_latest_path).name
     driver_index_path = driver_dir / "GoNavi-DriverAgents-Index.json"
+    driver_latest_index_path = driver_dir / "GoNavi-DriverAgents-Index.latest.json"
     app_manifest_path.write_bytes(app_manifest_raw)
-    driver_index_path.write_bytes(driver_index_raw)
+    driver_index_path.write_bytes(driver_version_index_raw)
+    driver_latest_index_path.write_bytes(driver_latest_index_raw)
 
     app_assets = app_manifest.get("assets")
     if not isinstance(app_assets, list) or not app_assets:
@@ -209,8 +219,8 @@ def seed_channel(
         url = f"{source_base_url}/{app_download_root}/{app_tag}/{urllib.parse.quote(name)}"
         app_items.append((url, app_dir / name, size, checksum.lower()))
 
-    driver_assets = driver_index.get("assets")
-    driver_sha256 = driver_index.get("assetSha256")
+    driver_assets = driver_version_index.get("assets")
+    driver_sha256 = driver_version_index.get("assetSha256")
     if not isinstance(driver_assets, dict) or not driver_assets:
         raise ValueError(f"{channel} driver index has no assets")
     if not isinstance(driver_sha256, dict) or set(driver_sha256) != set(driver_assets):
@@ -252,7 +262,7 @@ def seed_channel(
             "--driver-version-index",
             str(driver_index_path),
             "--driver-latest-index",
-            str(driver_index_path),
+            str(driver_latest_index_path),
             "--generation",
             deployment_id,
             "--output",

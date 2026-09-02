@@ -50,11 +50,14 @@ import {
   RevealSavedQueryInFolder,
 } from '../../../wailsjs/go/app/App';
 import { resolveSidebarNodeConnectionId, type SidebarTreeNode as TreeNode } from '../sidebarV2Utils';
+import { buildSidebarSchemaNodeKey } from '../../utils/sidebarLocate';
+import { resolveSidebarMessageActionTarget } from './sidebarMessageActions';
 
 export type SidebarMessagePublishTarget = {
   connection: SavedConnection;
   executionDbName: string;
   destination: string;
+  exchange?: string;
 };
 
 type RunExportWithProgress = <T extends ExportRunResult>(
@@ -122,11 +125,31 @@ type UseSidebarObjectActionsArgs = {
   runExportWithProgress: RunExportWithProgress;
   setAIPanelVisible: (visible: boolean) => void;
   addAIContext: (connectionId: string, context: { dbName: string; tableName: string; ddl: string }) => void;
-  migrateSchemaVisibilityForRenamedDatabase: (
+  migrateVisibilityForRenamedDatabase: (
     connection: SavedConnection,
     oldDbName: string,
     newDbName: string,
   ) => Promise<SavedConnection>;
+  removeVisibilityForDeletedDatabase: (
+    connection: SavedConnection,
+    dbName: string,
+  ) => Promise<SavedConnection>;
+  migrateVisibilityForRenamedSchema: (
+    connection: SavedConnection,
+    dbName: string,
+    oldSchemaName: string,
+    newSchemaName: string,
+  ) => Promise<SavedConnection>;
+  removeVisibilityForDeletedSchema: (
+    connection: SavedConnection,
+    dbName: string,
+    schemaName: string,
+  ) => Promise<SavedConnection>;
+  migratePinnedDatabaseKey: (
+    connectionId: string,
+    oldDbName: string,
+    newDbName?: string,
+  ) => void;
 };
 
 const resolveCopyObjectNameLabel = (node: any): string => {
@@ -136,6 +159,11 @@ const resolveCopyObjectNameLabel = (node: any): string => {
   if (node?.type === 'package') return t('sidebar.copy_object_name.label.package');
   if (node?.type === 'db-event') return t('sidebar.copy_object_name.label.event');
   return t('sidebar.copy_object_name.label.table');
+};
+
+const resolveNodeSchemaName = (node: any): string | undefined => {
+  const schemaName = String(node?.dataRef?.schemaName ?? '').trim();
+  return schemaName || undefined;
 };
 
 const quoteMySqlIdentifier = (raw: string): string => `\`${String(raw || '').replace(/`/g, '``')}\``;
@@ -154,6 +182,26 @@ const ensureSidebarObjectEditSqlTerminator = (sql: string): string => {
   const normalized = String(sql || '').trim();
   if (!normalized) return '';
   return /;\s*$/.test(normalized) ? normalized : `${normalized};`;
+};
+
+const getSidebarSchemaTreeKeyPrefixes = (
+  connectionId: unknown,
+  dbName: unknown,
+  schemaName: unknown,
+): string[] => {
+  const databaseKey = `${String(connectionId || '').trim()}-${String(dbName || '').trim()}`;
+  const schema = String(schemaName || '').trim();
+  return Array.from(new Set([
+    buildSidebarSchemaNodeKey(databaseKey, schema),
+    // Keep cleanup compatible with trees created before schema identities were
+    // encoded; those keys can remain in expanded/loaded state during refresh.
+    `${databaseKey}-schema-${schema || 'default'}`,
+  ]));
+};
+
+const isSidebarSchemaTreeKey = (key: unknown, prefixes: readonly string[]): boolean => {
+  const value = String(key || '');
+  return prefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}-`));
 };
 
 const extractMySqlEventCreateSql = (rows: any[]): string => {
@@ -231,7 +279,11 @@ export const useSidebarObjectActions = ({
   runExportWithProgress,
   setAIPanelVisible,
   addAIContext,
-  migrateSchemaVisibilityForRenamedDatabase,
+  migrateVisibilityForRenamedDatabase,
+  removeVisibilityForDeletedDatabase,
+  migrateVisibilityForRenamedSchema,
+  removeVisibilityForDeletedSchema,
+  migratePinnedDatabaseKey,
 }: UseSidebarObjectActionsArgs) => {
   const resolveActionConnection = (connRef: any): SavedConnection | null => {
     const connectionId = String(connRef?.id || connRef?.connectionId || '').trim();
@@ -400,6 +452,7 @@ export const useSidebarObjectActions = ({
         detail: {
           connectionId: node.dataRef?.id,
           dbName: node.dataRef?.dbName,
+          schemaName: String(node.dataRef?.schemaName || '').trim() || undefined,
           tableName: node.dataRef?.tableName,
           viewMode: 'er',
         },
@@ -594,9 +647,15 @@ export const useSidebarObjectActions = ({
         newSchemaName,
       );
       if (res.success) {
-        const schemaKeyPrefix = `${conn.id}-${dbName}-schema-${oldSchemaName || 'default'}`;
-        setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
-        setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
+        await migrateVisibilityForRenamedSchema(
+          conn as SavedConnection,
+          dbName,
+          oldSchemaName,
+          newSchemaName,
+        );
+        const schemaKeyPrefixes = getSidebarSchemaTreeKeyPrefixes(conn.id, dbName, oldSchemaName);
+        setExpandedKeys(prev => prev.filter(k => !isSidebarSchemaTreeKey(k, schemaKeyPrefixes)));
+        setLoadedKeys(prev => prev.filter(k => !isSidebarSchemaTreeKey(k, schemaKeyPrefixes)));
         await loadTables(getDatabaseNodeRef(conn, dbName), { ensureFresh: true });
         setIsRenameSchemaModalOpen(false);
         setRenameSchemaTarget(null);
@@ -630,9 +689,10 @@ export const useSidebarObjectActions = ({
           schemaName,
         );
         if (res.success) {
-          const schemaKeyPrefix = `${conn.id}-${dbName}-schema-${schemaName || 'default'}`;
-          setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
-          setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(schemaKeyPrefix)));
+          await removeVisibilityForDeletedSchema(conn as SavedConnection, dbName, schemaName);
+          const schemaKeyPrefixes = getSidebarSchemaTreeKeyPrefixes(conn.id, dbName, schemaName);
+          setExpandedKeys(prev => prev.filter(k => !isSidebarSchemaTreeKey(k, schemaKeyPrefixes)));
+          setLoadedKeys(prev => prev.filter(k => !isSidebarSchemaTreeKey(k, schemaKeyPrefixes)));
           await loadTables(getDatabaseNodeRef(conn, dbName), { ensureFresh: true });
           message.success(t('sidebar.message.schema_deleted'));
         } else {
@@ -662,11 +722,12 @@ export const useSidebarObjectActions = ({
       const config = buildRuntimeConfig(conn, conn.dbName);
       const res = await RenameDatabase(buildRpcConnectionConfig(config) as any, oldDbName, newDbName);
       if (res.success) {
-        const migratedConnection = await migrateSchemaVisibilityForRenamedDatabase(
+        const migratedConnection = await migrateVisibilityForRenamedDatabase(
           conn as SavedConnection,
           oldDbName,
           newDbName,
         );
+        migratePinnedDatabaseKey(String(conn.id || ''), oldDbName, newDbName);
         setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${oldDbName}`)));
         setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${oldDbName}`)));
         await loadDatabases(
@@ -697,10 +758,15 @@ export const useSidebarObjectActions = ({
         const config = buildRuntimeConfig(conn, conn.dbName);
         const res = await DropDatabase(buildRpcConnectionConfig(config) as any, dbName);
         if (res.success) {
+          const cleanedConnection = await removeVisibilityForDeletedDatabase(
+            conn as SavedConnection,
+            dbName,
+          );
+          migratePinnedDatabaseKey(String(conn.id || ''), dbName);
           closeTabsByDatabase(conn.id, dbName);
           setExpandedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${dbName}`)));
           setLoadedKeys(prev => prev.filter(k => !k.toString().startsWith(`${conn.id}-${dbName}`)));
-          await loadDatabases(getConnectionNodeRef(conn), { ensureFresh: true });
+          await loadDatabases(getConnectionNodeRef(cleanedConnection), { ensureFresh: true });
           message.success(t('sidebar.message.database_deleted'));
         } else {
           message.error(t('sidebar.message.operation_drop_failed', { error: res.message }));
@@ -851,10 +917,11 @@ export const useSidebarObjectActions = ({
   };
 
   const openViewDefinition = (node: any) => {
-    const { viewName, dbName, id, schemaName } = node.dataRef;
+    const { viewName, dbName, id } = node.dataRef;
+    const schemaName = resolveNodeSchemaName(node);
     const isMaterialized = node.type === 'materialized-view' || node.dataRef?.objectKind === 'materialized-view';
     addTab({
-      id: `view-def-${id}-${dbName}-${viewName}`,
+      id: `view-def-${id}-${dbName}${schemaName ? `-${schemaName}` : ''}-${viewName}`,
       title: t(isMaterialized ? 'sidebar.tab.materialized_view_definition' : 'sidebar.tab.view_definition', { name: viewName }),
       type: 'view-def',
       connectionId: id,
@@ -869,6 +936,7 @@ export const useSidebarObjectActions = ({
   const openEditView = async (node: any) => {
     const conn = node.dataRef;
     const { viewName, dbName, id } = conn;
+    const schemaName = resolveNodeSchemaName(node);
     const dialect = getMetadataDialect(conn as SavedConnection);
     const sqlTemplateHeader = `-- ${t('sidebar.sql_template.edit_view', { name: viewName })}`;
     let template = `${sqlTemplateHeader}\n-- ${t('sidebar.sql_template.modify_then_execute')}\nCREATE OR REPLACE VIEW ${viewName} AS\nSELECT * FROM your_table;`;
@@ -934,13 +1002,16 @@ export const useSidebarObjectActions = ({
       query: template,
       queryMode: 'object-edit',
       viewName,
+      schemaName,
       objectType: 'view',
+      sidebarLocateKey: String(node.key || ''),
     });
   };
 
   const openCreateView = (node: any) => {
     const conn = node.dataRef;
     const { dbName, id } = conn;
+    const schemaName = resolveNodeSchemaName(node);
     const dialect = getMetadataDialect(conn as SavedConnection);
     let template: string;
     switch (dialect) {
@@ -970,6 +1041,7 @@ export const useSidebarObjectActions = ({
       type: 'query',
       connectionId: id,
       dbName,
+      schemaName,
       query: template,
     });
   };
@@ -977,6 +1049,7 @@ export const useSidebarObjectActions = ({
   const openCreateStarRocksMaterializedView = (node: any) => {
     const conn = node.dataRef;
     const { dbName, id } = conn;
+    const schemaName = resolveNodeSchemaName(node);
     const schemaPrefix = String(conn.schemaName || dbName || '').trim();
     const mvName = schemaPrefix ? `${schemaPrefix}.mv_name` : 'mv_name';
     const template = buildStarRocksMaterializedViewPreviewSql({
@@ -992,6 +1065,7 @@ export const useSidebarObjectActions = ({
       type: 'query',
       connectionId: id,
       dbName,
+      schemaName,
       query: template,
     });
   };
@@ -1012,6 +1086,7 @@ export const useSidebarObjectActions = ({
   const openCreateStarRocksRollup = (node: any) => {
     const conn = node.dataRef;
     const { tableName, dbName, id } = conn;
+    const schemaName = resolveNodeSchemaName(node);
     const safeTable = String(tableName || 'table_name').trim();
     const safeTableParts = [splitQualifiedName(safeTable).schemaName, splitQualifiedName(safeTable).objectName].filter(Boolean);
     const quotedTable = safeTable.includes('`')
@@ -1023,6 +1098,7 @@ export const useSidebarObjectActions = ({
       type: 'query',
       connectionId: id,
       dbName,
+      schemaName,
       query: `ALTER TABLE ${quotedTable}\nADD ROLLUP rollup_name (column1, column2);`,
     });
   };
@@ -1205,27 +1281,31 @@ export const useSidebarObjectActions = ({
 
   const openRoutineDefinition = (node: any) => {
     const { routineName, routineType, dbName, id } = node.dataRef;
+    const schemaName = resolveNodeSchemaName(node);
     const typeLabel = t(routineType === 'PROCEDURE' ? 'sidebar.object.procedure' : 'sidebar.object.function');
     addTab({
-      id: `routine-def-${id}-${dbName}-${routineName}`,
+      id: `routine-def-${id}-${dbName}${schemaName ? `-${schemaName}` : ''}-${routineName}`,
       title: t('sidebar.tab.routine_definition', { type: typeLabel, name: routineName }),
       type: 'routine-def',
       connectionId: id,
       dbName,
       routineName,
       routineType,
+      schemaName,
     });
   };
 
   const openEventDefinition = (node: any) => {
     const { eventName, dbName, id } = node.dataRef;
+    const schemaName = resolveNodeSchemaName(node);
     addTab({
-      id: `event-def-${id}-${dbName}-${eventName}`,
+      id: `event-def-${id}-${dbName}${schemaName ? `-${schemaName}` : ''}-${eventName}`,
       title: t('sidebar.tab.event', { name: eventName }),
       type: 'event-def',
       connectionId: id,
       dbName,
       eventName,
+      schemaName,
     });
   };
 
@@ -1234,6 +1314,7 @@ export const useSidebarObjectActions = ({
     const eventName = String(conn?.eventName || '').trim();
     const dbName = String(conn?.dbName || '').trim();
     const id = String(conn?.id || '').trim();
+    const schemaName = resolveNodeSchemaName(node);
     if (!eventName) return;
 
     const objectLabel = t('definition_viewer.object.event');
@@ -1272,36 +1353,44 @@ export const useSidebarObjectActions = ({
       dbName,
       query: template,
       queryMode: 'object-edit',
+      eventName,
+      schemaName,
+      sidebarLocateKey: String(node.key || ''),
     });
   };
 
   const openSequenceDefinition = (node: any) => {
     const { sequenceName, dbName, id } = node.dataRef;
+    const schemaName = resolveNodeSchemaName(node);
     addTab({
-      id: `sequence-def-${id}-${dbName}-${sequenceName}`,
+      id: `sequence-def-${id}-${dbName}${schemaName ? `-${schemaName}` : ''}-${sequenceName}`,
       title: t('sidebar.tab.sequence_definition', { name: sequenceName }),
       type: 'sequence-def',
       connectionId: id,
       dbName,
       sequenceName,
+      schemaName,
     });
   };
 
   const openPackageDefinition = (node: any) => {
     const { packageName, dbName, id } = node.dataRef;
+    const schemaName = resolveNodeSchemaName(node);
     addTab({
-      id: `package-def-${id}-${dbName}-${packageName}`,
+      id: `package-def-${id}-${dbName}${schemaName ? `-${schemaName}` : ''}-${packageName}`,
       title: t('sidebar.tab.package_definition', { name: packageName }),
       type: 'package-def',
       connectionId: id,
       dbName,
       packageName,
+      schemaName,
     });
   };
 
   const openEditRoutine = async (node: any) => {
     const conn = node.dataRef;
     const { routineName, routineType, dbName, id } = conn;
+    const schemaName = resolveNodeSchemaName(node);
     const dialect = getMetadataDialect(conn as SavedConnection);
     const tabTypeKey = routineType === 'PROCEDURE' ? 'sidebar.object.procedure' : 'sidebar.object.function';
     const tabTypeLabel = t(tabTypeKey);
@@ -1389,12 +1478,17 @@ export const useSidebarObjectActions = ({
       dbName,
       query: template,
       queryMode: 'object-edit',
+      routineName,
+      routineType,
+      schemaName,
+      sidebarLocateKey: String(node.key || ''),
     });
   };
 
   const openCreateRoutine = (node: any, type: 'FUNCTION' | 'PROCEDURE') => {
     const conn = node.dataRef;
     const { dbName, id } = conn;
+    const schemaName = resolveNodeSchemaName(node);
     const dialect = getMetadataDialect(conn as SavedConnection);
     const isProc = type === 'PROCEDURE';
     let template: string;
@@ -1438,6 +1532,7 @@ export const useSidebarObjectActions = ({
       type: 'query',
       connectionId: id,
       dbName,
+      schemaName,
       query: template,
     });
   };
@@ -1530,12 +1625,44 @@ export const useSidebarObjectActions = ({
     if (!sourceConnection?.config) return null;
     const capabilities = getDataSourceCapabilities(sourceConnection.config);
     if (!capabilities.supportsMessagePublish) return null;
+    const actionTarget = resolveSidebarMessageActionTarget(node);
 
     return {
       connection: sourceConnection,
-      executionDbName: String(node?.dataRef?.dbName || ''),
-      destination: String(node?.dataRef?.tableName || node?.title || '').trim(),
+      executionDbName: actionTarget?.executionDbName || String(node?.dataRef?.dbName || ''),
+      destination: actionTarget?.publish.destination || '',
+      ...(actionTarget?.publish.exchange ? { exchange: actionTarget.publish.exchange } : {}),
     };
+  };
+
+  const openMessageQueueWorkbench = (
+    node: any,
+    action: 'open' | 'consume' | 'publish' = 'open',
+  ) => {
+    const connectionId = String(node?.dataRef?.id || node?.key || '').trim();
+    const liveConnection = connections.find((item) => item.id === connectionId);
+    const sourceConnection = (liveConnection || node?.dataRef) as SavedConnection | undefined;
+    const actionTarget = resolveSidebarMessageActionTarget(node);
+    if (!sourceConnection?.config || !actionTarget) {
+      message.warning(t('sidebar.message.message_queue_workbench_unsupported'));
+      return;
+    }
+    const dbName = actionTarget.executionDbName
+      || String(node?.dataRef?.dbName || sourceConnection.config.database || '').trim();
+    const target = action === 'publish'
+      ? actionTarget.publish.destination
+      : actionTarget.consume.destination;
+    addTab({
+      id: `message-queue-${sourceConnection.id}-${encodeURIComponent(dbName || 'default')}`,
+      title: `${sourceConnection.name} · ${t('message_queue_workbench.tab_kind')}`,
+      type: 'message-queue',
+      connectionId: sourceConnection.id,
+      dbName,
+      messageQueueTarget: target,
+      messageQueueObjectKind: actionTarget.objectKind || undefined,
+      messageQueueAction: action,
+      messageQueueRequestKey: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    });
   };
 
   const openMessagePublishModal = (node: any) => {
@@ -1605,6 +1732,7 @@ export const useSidebarObjectActions = ({
     handleDropRoutine,
     handleCompileOracleObject,
     resolveMessagePublishTarget,
+    openMessageQueueWorkbench,
     openMessagePublishModal,
     handleMessagePublishSuccess,
   };

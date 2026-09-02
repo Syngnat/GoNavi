@@ -8,6 +8,7 @@ import {
   setSQLFileTabDraft,
 } from './sqlFileTabDrafts';
 import {
+  assertApplicationQuitSavedSQLTargetsUnchanged,
   collectApplicationQuitUnsavedSQLTargets,
   saveLatestApplicationQuitUnsavedSQLState,
   saveApplicationQuitUnsavedSQLTargets,
@@ -158,6 +159,22 @@ describe('sqlEditorApplicationQuit', () => {
       connectionId: 'conn-3',
       dbName: 'scratch',
     }));
+  });
+
+  it('rejects reconciliation when SQL changes while the save request is pending', () => {
+    setQueryTabDraft('tab-1', 'select changed_after_save_started;');
+
+    expect(() => assertApplicationQuitSavedSQLTargetsUnchanged([{
+      target: {
+        kind: 'unsaved-query',
+        tabId: 'tab-1',
+        title: 'Query',
+        draft: 'select snapshot;',
+        connectionId: 'conn-1',
+        dbName: 'main',
+      },
+      savedQuery: createSavedQuery({ sql: 'select snapshot;' }),
+    }])).toThrow('SQL changed while saving: Query');
   });
 
   it('reuses the temporary tab identity so saving on later exits does not create history copies', async () => {

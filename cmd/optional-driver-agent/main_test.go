@@ -13,6 +13,7 @@ import (
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	sshbridge "GoNavi-Wails/internal/ssh"
 )
 
 type duckMapLike map[any]any
@@ -124,6 +125,42 @@ type fakeAgentTableListDB struct {
 	fakeAgentTimeoutDB
 	dbName string
 	tables []string
+}
+
+type fakeAgentSSHRuntimeDB struct {
+	fakeAgentTimeoutDB
+	connectConfig   connection.ConnectionConfig
+	connectErr      error
+	connectProgress []connection.SSHProgressEvent
+}
+
+type fakeAgentApplyChangesDB struct {
+	fakeAgentTimeoutDB
+	applyErr error
+}
+
+func (f *fakeAgentApplyChangesDB) ApplyChanges(string, connection.ChangeSet) error {
+	return f.applyErr
+}
+
+func TestHandleRequestApplyChangesEncodesUnknownWriteOutcome(t *testing.T) {
+	runtimeState := &agentRuntime{
+		inst:     &fakeAgentApplyChangesDB{applyErr: db.MarkWriteOutcomeUnknown(errors.New("response lost"))},
+		sessions: make(map[string]db.StatementExecer),
+	}
+	changes := connection.ChangeSet{Inserts: []map[string]interface{}{{"id": 1}}}
+	resp := handleRequest(runtimeState, agentRequest{ID: 11, Method: agentMethodApplyChanges, TableName: "items", Changes: &changes})
+	if resp.Success || !resp.OutcomeUnknown || resp.Error != "response lost" {
+		t.Fatalf("applyChanges response = %#v", resp)
+	}
+}
+
+func (f *fakeAgentSSHRuntimeDB) Connect(config connection.ConnectionConfig) error {
+	f.connectConfig = config
+	for _, event := range f.connectProgress {
+		config.SSH.ReportProgress(event.Stage, event.Status)
+	}
+	return f.connectErr
 }
 
 func (f *fakeAgentTableExistsDB) TableExists(dbName, tableName string) (bool, error) {
@@ -538,6 +575,205 @@ func TestHandleRequest_ConnectReturnsElasticsearchServerMajor(t *testing.T) {
 	}
 	if info.ElasticsearchServerMajor != 8 {
 		t.Fatalf("unexpected Elasticsearch server major: %d", info.ElasticsearchServerMajor)
+	}
+}
+
+func TestHandleRequest_ConnectRestoresSSHRuntimeAndReportsTrustStatus(t *testing.T) {
+	previousFactory := agentDatabaseFactory
+	previousDriverType := agentDriverType
+	t.Cleanup(func() {
+		agentDatabaseFactory = previousFactory
+		agentDriverType = previousDriverType
+	})
+
+	status := sshbridge.HostKeyTrustStatus{
+		State:       "unknown",
+		Source:      "discovered",
+		Host:        "bastion.example.test",
+		Port:        37167,
+		Address:     "bastion.example.test:37167",
+		KeyType:     "ssh-ed25519",
+		Fingerprint: "SHA256:server-key",
+	}
+	fake := &fakeAgentSSHRuntimeDB{connectErr: &sshbridge.HostKeyTrustRequiredError{Status: status}}
+	agentDriverType = "kingbase"
+	agentDatabaseFactory = func() db.Database { return fake }
+
+	config := connection.ConnectionConfig{
+		Type:   "kingbase",
+		UseSSH: true,
+		SSH: connection.SSHConfig{
+			Host: "127.0.0.1",
+			Port: 37167,
+		}.WithManagedHostKeyTrustStore("/private/gonavi/ssh/host_keys.json").
+			WithHostKeyIdentity("bastion.example.test", 37167),
+	}
+	request := agentRequest{
+		ID:         99,
+		Method:     agentMethodConnect,
+		Config:     &config,
+		SSHRuntime: config.SSH.RuntimeSnapshot(),
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal agent request: %v", err)
+	}
+	var decoded agentRequest
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal agent request: %v", err)
+	}
+	if got := decoded.Config.SSH.ManagedHostKeyTrustStorePath(); got != "" {
+		t.Fatalf("serialized config unexpectedly kept managed trust-store path: %q", got)
+	}
+
+	response := handleRequest(&agentRuntime{sessions: make(map[string]db.StatementExecer)}, decoded)
+	if response.Success {
+		t.Fatal("expected SSH host-key trust confirmation response")
+	}
+	if got := fake.connectConfig.SSH.ManagedHostKeyTrustStorePath(); got != "/private/gonavi/ssh/host_keys.json" {
+		t.Fatalf("agent did not restore managed trust-store path: %q", got)
+	}
+	if host, port := fake.connectConfig.SSH.HostKeyIdentity(); host != "bastion.example.test" || port != 37167 {
+		t.Fatalf("agent did not restore logical host-key identity: %q:%d", host, port)
+	}
+	if response.SSHHostKeyTrust == nil || *response.SSHHostKeyTrust != status {
+		t.Fatalf("agent trust response = %#v, want %#v", response.SSHHostKeyTrust, status)
+	}
+}
+
+func TestServeAgentRequests_ConnectStreamsSSHProgress(t *testing.T) {
+	previousFactory := agentDatabaseFactory
+	previousDriverType := agentDriverType
+	t.Cleanup(func() {
+		agentDatabaseFactory = previousFactory
+		agentDriverType = previousDriverType
+	})
+
+	fake := &fakeAgentSSHRuntimeDB{connectProgress: []connection.SSHProgressEvent{
+		{Stage: "tcp_connecting", Status: "running"},
+		{Stage: "tcp_connected", Status: "success"},
+		{Stage: "host_key_verifying", Status: "running"},
+		{Stage: "host_key_verified", Status: "success"},
+		{Stage: "authenticating", Status: "running"},
+		{Stage: "authenticated", Status: "success"},
+		{Stage: "tunnel_creating", Status: "running"},
+		{Stage: "tunnel_ready", Status: "success"},
+	}}
+	agentDriverType = "kingbase"
+	agentDatabaseFactory = func() db.Database { return fake }
+
+	config := connection.ConnectionConfig{
+		Type:   "kingbase",
+		UseSSH: true,
+		SSH: connection.SSHConfig{
+			Host: "bastion.example.test",
+			Port: 22,
+		},
+	}
+	request, err := json.Marshal(agentRequest{
+		ID:                73,
+		Method:            agentMethodConnect,
+		Config:            &config,
+		StreamSSHProgress: true,
+	})
+	if err != nil {
+		t.Fatalf("marshal connect request: %v", err)
+	}
+
+	var output bytes.Buffer
+	writer := bufio.NewWriter(&output)
+	if err := serveAgentRequests(bytes.NewReader(append(request, '\n')), writer, &agentRuntime{sessions: make(map[string]db.StatementExecer)}); err != nil {
+		t.Fatalf("serve agent requests: %v", err)
+	}
+
+	var responses []agentResponse
+	scanner := bufio.NewScanner(bytes.NewReader(output.Bytes()))
+	for scanner.Scan() {
+		var response agentResponse
+		if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
+			t.Fatalf("decode agent response: %v", err)
+		}
+		responses = append(responses, response)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read agent responses: %v", err)
+	}
+
+	if len(responses) != len(fake.connectProgress)+1 {
+		t.Fatalf("agent response frames = %d, want %d progress frames plus final response", len(responses), len(fake.connectProgress)+1)
+	}
+	for index, response := range responses {
+		if response.ID != 73 {
+			t.Fatalf("response frame %d request ID = %d, want 73", index, response.ID)
+		}
+	}
+	for index, want := range fake.connectProgress {
+		if responses[index].SSHProgress == nil || *responses[index].SSHProgress != want {
+			t.Fatalf("progress response %d = %#v, want %#v", index, responses[index].SSHProgress, want)
+		}
+	}
+	final := responses[len(responses)-1]
+	if !final.Success || final.SSHProgress != nil {
+		t.Fatalf("final connect response = %#v, want successful non-progress response", final)
+	}
+}
+
+func TestServeAgentRequests_ConnectKeepsLegacySingleResponseWithoutProgressSubscription(t *testing.T) {
+	previousFactory := agentDatabaseFactory
+	previousDriverType := agentDriverType
+	t.Cleanup(func() {
+		agentDatabaseFactory = previousFactory
+		agentDriverType = previousDriverType
+	})
+
+	fake := &fakeAgentSSHRuntimeDB{connectProgress: []connection.SSHProgressEvent{
+		{Stage: "tcp_connecting", Status: "running"},
+		{Stage: "tcp_connected", Status: "success"},
+	}}
+	agentDriverType = "kingbase"
+	agentDatabaseFactory = func() db.Database { return fake }
+
+	config := connection.ConnectionConfig{
+		Type:   "kingbase",
+		UseSSH: true,
+		SSH: connection.SSHConfig{
+			Host: "bastion.example.test",
+			Port: 22,
+		},
+	}
+	request, err := json.Marshal(agentRequest{
+		ID:     74,
+		Method: agentMethodConnect,
+		Config: &config,
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy connect request: %v", err)
+	}
+
+	var output bytes.Buffer
+	writer := bufio.NewWriter(&output)
+	if err := serveAgentRequests(bytes.NewReader(append(request, '\n')), writer, &agentRuntime{sessions: make(map[string]db.StatementExecer)}); err != nil {
+		t.Fatalf("serve legacy agent request: %v", err)
+	}
+
+	var responses []agentResponse
+	scanner := bufio.NewScanner(bytes.NewReader(output.Bytes()))
+	for scanner.Scan() {
+		var response agentResponse
+		if err := json.Unmarshal(scanner.Bytes(), &response); err != nil {
+			t.Fatalf("decode legacy agent response: %v", err)
+		}
+		responses = append(responses, response)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("read legacy agent responses: %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("legacy connect response frames = %d, want exactly final response", len(responses))
+	}
+	if !responses[0].Success || responses[0].SSHProgress != nil {
+		t.Fatalf("legacy final connect response = %#v, want successful non-progress response", responses[0])
 	}
 }
 

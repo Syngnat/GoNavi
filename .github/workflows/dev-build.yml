@@ -65,7 +65,7 @@ jobs:
           key: ${{ runner.os }}-node20-frontend-${{ hashFiles('frontend/package-lock.json', 'frontend/patches/*.patch') }}
 
       - name: Install Wails
-        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 
       - name: Build frontend dist
         shell: bash
@@ -644,7 +644,7 @@ jobs:
           fi
 
       - name: Install Wails
-        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+        run: go install -v github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 
       - name: Setup MSYS2 Toolchain For DuckDB (Windows AMD64)
         id: msys2_duckdb
@@ -1933,17 +1933,14 @@ jobs:
           driver-dir: driver-release-assets
           driver-version-index: ${{ runner.temp }}/driver-dev-version-index.json
           driver-latest-index: ${{ runner.temp }}/driver-dev-latest-index.json
-          dmit-ssh-host: ${{ secrets.CDN_DMIT_SSH_HOST }}
-          dmit-ssh-port: ${{ secrets.CDN_DMIT_SSH_PORT }}
-          dmit-ssh-user: ${{ secrets.CDN_DMIT_SSH_USER }}
-          dmit-ssh-private-key: ${{ secrets.CDN_DMIT_SSH_PRIVATE_KEY }}
-          dmit-ssh-known-hosts: ${{ secrets.CDN_DMIT_SSH_KNOWN_HOSTS }}
+          cst-ssh-host: ${{ secrets.CDN_CST_SSH_HOST }}
+          cst-ssh-port: ${{ secrets.CDN_CST_SSH_PORT }}
+          cst-ssh-user: ${{ secrets.CDN_CST_SSH_USER }}
+          cst-ssh-private-key: ${{ secrets.CDN_CST_SSH_PRIVATE_KEY }}
+          cst-ssh-known-hosts: ${{ secrets.CDN_CST_SSH_KNOWN_HOSTS }}
           bero-ssh-host: ${{ secrets.CDN_BERO_SSH_HOST }}
           bero-ssh-port: ${{ secrets.CDN_BERO_SSH_PORT }}
           bero-ssh-user: ${{ secrets.CDN_BERO_SSH_USER }}
           bero-ssh-private-key: ${{ secrets.CDN_BERO_SSH_PRIVATE_KEY }}
           bero-ssh-known-hosts: ${{ secrets.CDN_BERO_SSH_KNOWN_HOSTS }}
           bero-base-url: ${{ vars.CDN_BERO_BASE_URL }}
-          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          cloudflare-api-token: ${{ secrets.CLOUDFLARE_KV_API_TOKEN }}
-          routing-state-kv-id: ${{ vars.ROUTING_STATE_KV_ID }}

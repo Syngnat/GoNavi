@@ -19,6 +19,38 @@ func TestDefaultStaticModelsForProvider_DoesNotReturnBailianStaticModels(t *test
 	}
 }
 
+func TestNormalizeProviderConfig_EndpointGuideQwenRoutes(t *testing.T) {
+	tests := []struct {
+		name          string
+		baseURL       string
+		wantType      string
+		wantAPIFormat string
+		wantBaseURL   string
+	}{
+		{
+			name: "Bailian compatible Chat stays a direct API", baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			wantType: "openai", wantAPIFormat: "openai", wantBaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+		},
+		{
+			name: "Coding Plan legacy Chat URL uses the CLI proxy", baseURL: "https://coding.dashscope.aliyuncs.com/v1",
+			wantType: "custom", wantAPIFormat: "claude-cli", wantBaseURL: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			config := normalizeProviderConfig(ai.ProviderConfig{
+				Type: "openai", APIFormat: "openai", BaseURL: test.baseURL, Model: "chosen-model",
+			})
+			if config.Type != test.wantType || config.APIFormat != test.wantAPIFormat || config.BaseURL != test.wantBaseURL {
+				t.Fatalf("unexpected endpoint route: type=%s format=%s url=%s", config.Type, config.APIFormat, config.BaseURL)
+			}
+			if config.Model != "chosen-model" {
+				t.Fatalf("endpoint normalization changed the selected model: %q", config.Model)
+			}
+		})
+	}
+}
+
 func TestDefaultStaticModelsForProvider_ReturnsDashScopeCodingPlanSupportedModels(t *testing.T) {
 	expected := []string{
 		"qwen3.5-plus",

@@ -178,7 +178,7 @@ describe('DataSyncTaskEditor delivery stage', () => {
     });
   });
 
-  it('reveals migration schema controls only for supported implicit same-name mappings', async () => {
+  it('keeps migration schema controls when same-name mappings have detected key columns', async () => {
     const implicitMapping = {
       ...createDataSyncTableMapping('migration:mapping:1', 'public.orders', 'public.orders'),
       targetMode: 'create_or_reuse' as const,
@@ -203,7 +203,7 @@ describe('DataSyncTaskEditor delivery stage', () => {
       }),
     ).toHaveLength(1);
 
-    const explicitTask = reviseDataSyncTask(implicitTask, {
+    const detectedKeyTask = reviseDataSyncTask(implicitTask, {
       mappings: [{ ...implicitMapping, keyColumns: ['id'] }],
       delivery: {
         ...implicitTask.delivery,
@@ -211,16 +211,83 @@ describe('DataSyncTaskEditor delivery stage', () => {
         createIndexes: true,
       },
     });
-    const explicit = await renderDelivery(explicitTask);
+    const detectedKey = await renderDelivery(detectedKeyTask);
     expect(
-      explicit.renderer.root.findAllByProps({ 'data-delivery-structure': 'true' }),
-    ).toHaveLength(0);
-    expect(explicit.onPatch).toHaveBeenCalledWith({
-      delivery: expect.objectContaining({
-        autoAddColumns: false,
-        createIndexes: false,
+      detectedKey.renderer.root.findAllByProps({
+        'data-structure-option': 'auto-add-columns',
       }),
+    ).toHaveLength(1);
+    expect(detectedKey.onPatch).not.toHaveBeenCalledWith({
+      delivery: expect.objectContaining({ autoAddColumns: false }),
     });
+  });
+
+  it('keeps migration schema controls for same-name tables in different schemas', async () => {
+    const mapping = {
+      ...createDataSyncTableMapping('migration:cross-schema', 'source.orders', 'target.orders'),
+      targetMode: 'existing_only' as const,
+    };
+    const base = createDataSyncTaskDraft({ id: 'migration-cross-schema', kind: 'migration' });
+    const task = reviseDataSyncTask(base, {
+      source: endpoint('source', 'source'),
+      target: endpoint('target', 'target'),
+      mappings: [mapping],
+    });
+
+    const { renderer } = await renderDelivery(task);
+    expect(
+      renderer.root.findAllByProps({
+        'data-structure-option': 'auto-add-columns',
+      }),
+    ).toHaveLength(1);
+  });
+
+  it('keeps schema-only migration writable and exposes automatic missing-column DDL', async () => {
+    const base = createDataSyncTaskDraft({
+      id: 'schema-sync',
+      kind: 'migration',
+      content: 'schema',
+    });
+    const task = reviseDataSyncTask(base, {
+      source: endpoint('source'),
+      target: endpoint('target'),
+      mappings: [
+        createDataSyncTableMapping('schema-sync:mapping:1', 'orders', 'orders'),
+      ],
+      delivery: {
+        ...base.delivery,
+        autoAddColumns: true,
+      },
+    });
+    const { renderer } = await renderDelivery(task);
+    const rendered = JSON.stringify(renderer.toJSON());
+
+    expect(rendered).toContain('此任务仅执行结构变更');
+    expect(
+      renderer.root.findAllByProps({
+        'data-structure-option': 'auto-add-columns',
+      }),
+    ).toHaveLength(1);
+    expect(
+      renderer.root
+        .findAllByType('select')
+        .some((select) => select.props.value === 'schema'),
+    ).toBe(true);
+  });
+
+  it('keeps schema-only migration defaults before table mappings are selected', async () => {
+    const base = createDataSyncTaskDraft({
+      id: 'migration-schema-only-empty',
+      kind: 'migration',
+      content: 'schema',
+    });
+    const task = reviseDataSyncTask(base, {
+      source: endpoint('source', 'source'),
+      target: endpoint('target', 'target'),
+    });
+    const { onPatch } = await renderDelivery(task);
+
+    expect(onPatch).not.toHaveBeenCalled();
   });
 
   it('explains compare tasks without exposing irrelevant write controls', async () => {
@@ -258,6 +325,22 @@ describe('DataSyncTaskEditor delivery stage', () => {
 
     expect(overwrite.props.disabled).toBe(true);
     expect(overwrite.children).toContain('覆盖（当前任务系统暂不支持）');
+  });
+
+  it('disables run recovery for append delivery and exposes the effective policy', async () => {
+    const base = createDataSyncTaskDraft({ id: 'append-recovery', kind: 'reconcile' });
+    const task = reviseDataSyncTask(base, {
+      source: endpoint('source'),
+      target: endpoint('target'),
+      delivery: { ...base.delivery, writeMode: 'append', retryLimit: 0 },
+      resumePolicy: 'manual',
+    });
+    const { renderer, onPatch } = await renderDelivery(task);
+
+    expect(
+      renderer.root.findByProps({ 'data-delivery-recovery': 'append' }),
+    ).toBeTruthy();
+    expect(onPatch).toHaveBeenCalledWith({ resumePolicy: 'never' });
   });
 
   it('hides write recovery and delete controls when the resolved route cannot run CDC', async () => {

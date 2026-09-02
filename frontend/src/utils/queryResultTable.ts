@@ -17,7 +17,9 @@ const isOracleLikeDialect = (dialect: string): boolean => {
 
 const keepsQualifiedTableNameForMetadata = (dialect: string): boolean => {
   const normalized = String(dialect || '').trim().toLowerCase();
-  return normalized === 'duckdb' || isPostgresLikeDialect(normalized);
+  return normalized === 'duckdb'
+    || isSqlServerLikeDialect(normalized)
+    || isPostgresLikeDialect(normalized);
 };
 
 const isPostgresLikeDialect = (dialect: string): boolean => {
@@ -43,6 +45,11 @@ const normalizeCurrentDbName = (currentDb: string, dialect: string): string => {
   const value = String(currentDb || '').trim();
   if (!value) return '';
   return isOracleLikeDialect(dialect) ? value.toUpperCase() : value;
+};
+
+const isSqlServerLikeDialect = (dialect: string): boolean => {
+  const normalized = String(dialect || '').trim().toLowerCase();
+  return ['sqlserver', 'mssql', 'sql_server', 'sql-server'].includes(normalized);
 };
 
 const normalizeQualifiedNameParts = (raw: string, dialect: string): string[] => (
@@ -159,7 +166,7 @@ const resolveDdlTarget = (
   const table = parts[parts.length - 1] || '';
   if (!table) return {};
 
-  if (normalizedDialect === 'sqlserver' || normalizedDialect === 'mssql') {
+  if (isSqlServerLikeDialect(normalizedDialect)) {
     if (parts.length > 3) return {};
     const schema = parts.length >= 2 ? parts[parts.length - 2] : '';
     const database = parts.length === 3 ? parts[0] : currentNamespace;
@@ -261,13 +268,16 @@ export const extractQueryResultTableRef = (
   const fallbackSchema = isOracleLikeDialect(dialect)
     ? defaultOracleSchema || normalizeCurrentDbName(currentDb, dialect)
     : normalizeCurrentDbName(currentDb, dialect);
-  const metadataDbName = owner || fallbackSchema;
+  const sqlServerLikeDialect = isSqlServerLikeDialect(dialect);
+  const metadataDbName = sqlServerLikeDialect
+    ? (parts.length === 3 ? parts[0] : fallbackSchema)
+    : owner || fallbackSchema;
   const qualifiedTableName = owner ? `${owner}.${metadataTableName}` : metadataTableName;
   const pgLikeQualifiedMetadata = isPostgresLikeDialect(dialect) && owner;
   const resolvedMetadataDbName = pgLikeQualifiedMetadata
     ? normalizeCurrentDbName(currentDb, dialect)
     : metadataDbName;
-  const tableName = (isOracleLikeDialect(dialect) && owner) || pgLikeQualifiedMetadata
+  const tableName = (isOracleLikeDialect(dialect) && owner) || pgLikeQualifiedMetadata || (sqlServerLikeDialect && owner)
     ? `${owner}.${metadataTableName}`
     : (keepsQualifiedTableNameForMetadata(dialect) && owner ? `${owner}.${metadataTableName}` : metadataTableName);
   const resolvedMetadataTableName = keepsQualifiedTableNameForMetadata(dialect) && owner

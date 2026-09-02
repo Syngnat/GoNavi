@@ -58,6 +58,7 @@ export const NATIVE_DETACHED_HOST_EVENT_NAMES = [
   'gonavi:ai:inject-prompt',
   'gonavi:ai:config-changed',
   'gonavi:ai:provider-changed',
+  'gonavi:locate-sidebar-object',
   'gonavi:insert-sql',
   'gonavi:insert-sql-to-tab',
   'gonavi:jvm-apply-ai-plan',

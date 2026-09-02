@@ -407,6 +407,227 @@ describe('DriverManagerModal toolbar actions', () => {
     expect(findButton(renderer!, t('driver.modal.footer.background'))).toBeTruthy();
   });
 
+  it('does not restore a stopped download snapshot as still installing', async () => {
+    backendApp.ListDriverDownloadTasks.mockResolvedValue({
+      success: true,
+      data: [{
+        taskId: 'stopped-download-duckdb',
+        driverType: 'duckdb',
+        status: 'downloading',
+        percent: 92,
+        message: 'driver download stopped',
+        running: false,
+        finishedAt: '2026-08-25T14:18:45+08:00',
+      }],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    expect(textContent(renderer!.toJSON())).not.toContain(
+      t('driver.modal.card.installing', { percent: 92 }),
+    );
+    expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.status).toBe('exception');
+    expect(findButton(renderer!, t('driver.modal.footer.close'))).toBeTruthy();
+  });
+
+  it('restores a failed download as a visible terminal error after reopening', async () => {
+    backendApp.ListDriverDownloadTasks.mockResolvedValue({
+      success: true,
+      data: [{
+        taskId: 'failed-download-duckdb',
+        driverType: 'duckdb',
+        status: 'error',
+        percent: 92,
+        message: 'SQL Server prebuilt download failed',
+        running: false,
+        finishedAt: '2026-08-25T14:18:45+08:00',
+      }],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    const renderedText = textContent(renderer!.toJSON());
+    expect(renderedText).toContain('SQL Server prebuilt download failed');
+    expect(renderedText).not.toContain(t('driver.modal.card.installing', { percent: 92 }));
+    expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.status).toBe('exception');
+    expect(findButton(renderer!, t('driver.modal.footer.close'))).toBeTruthy();
+  });
+
+  it('ignores an unscoped stale progress event after reopening', async () => {
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+    expect(renderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
+
+    await emitDriverDownloadProgress({
+      driverType: 'duckdb',
+      status: 'downloading',
+      percent: 45,
+      message: 'stale download from a previous manager',
+    });
+
+    expect(renderer!.root.findAllByProps({ 'data-progress': 'true' })).toHaveLength(0);
+    expect(textContent(renderer!.toJSON())).not.toContain(
+      t('driver.modal.card.installing', { percent: 45 }),
+    );
+  });
+
+  it('ignores unscoped progress while preparing a task-scoped background install', async () => {
+    let resolveVersionList!: (value: unknown) => void;
+    backendApp.GetDriverVersionList.mockReturnValueOnce(new Promise((resolve) => {
+      resolveVersionList = resolve;
+    }));
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    let installPromise!: Promise<unknown>;
+    await act(async () => {
+      installPromise = findButton(renderer!, t('driver.modal.card.action.install')).props.onClick();
+      await Promise.resolve();
+    });
+    expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.percent).toBe(1);
+
+    await emitDriverDownloadProgress({
+      driverType: 'duckdb',
+      status: 'downloading',
+      percent: 45,
+      message: 'stale unscoped download',
+    });
+
+    expect(renderer!.root.findByProps({ 'data-progress': 'true' }).props.percent).toBe(1);
+
+    await act(async () => {
+      resolveVersionList({
+        success: true,
+        data: {
+          versions: [{ version: '2.5.6', downloadUrl: 'builtin://activate/duckdb', recommended: true }],
+        },
+      });
+      await installPromise;
+    });
+  });
+
+  it('accepts unscoped progress for a local import owned by the current manager', async () => {
+    backendApp.SelectDriverPackageFile.mockResolvedValue({
+      success: true,
+      data: { path: 'D:/manual/duckdb-driver-agent.exe' },
+    });
+    let resolveLocalInstall!: (value: unknown) => void;
+    backendApp.InstallLocalDriverPackage.mockReturnValueOnce(new Promise((resolve) => {
+      resolveLocalInstall = resolve;
+    }));
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    let importPromise!: Promise<unknown>;
+    await act(async () => {
+      importPromise = findButton(renderer!, t('driver_manager.action.import_package')).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(backendApp.InstallLocalDriverPackage).toHaveBeenCalledTimes(1);
+
+    await emitDriverDownloadProgress({
+      driverType: 'duckdb',
+      status: 'downloading',
+      percent: 45,
+      message: 'installing local driver',
+    });
+    expect(renderer!.root.findByProps({ className: 'driver-manager-progress' }).props.percent).toBe(45);
+
+    await emitDriverDownloadProgress({
+      driverType: 'duckdb',
+      status: 'done',
+      percent: 100,
+      message: 'local driver installed',
+    });
+    expect(renderer!.root.findByProps({ className: 'driver-manager-progress' }).props.status).toBe('success');
+
+    await act(async () => {
+      resolveLocalInstall({ success: true });
+      await importPromise;
+    });
+  });
+
+  it('finishes a failed local import even when no unscoped terminal event arrives', async () => {
+    backendApp.SelectDriverPackageFile.mockResolvedValue({
+      success: true,
+      data: { path: 'D:/manual/duckdb-driver-agent.exe' },
+    });
+    backendApp.InstallLocalDriverPackage.mockResolvedValue({
+      success: false,
+      message: 'local driver validation failed',
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    await act(async () => {
+      await findButton(renderer!, t('driver_manager.action.import_package')).props.onClick();
+    });
+
+    expect(renderer!.root.findByProps({ className: 'driver-manager-progress' }).props.status).toBe('exception');
+    expect(textContent(renderer!.toJSON())).toContain('local driver validation failed');
+    expect(findButton(renderer!, t('driver.modal.footer.close'))).toBeTruthy();
+  });
+
+  it('accepts unscoped progress for an inline batch install owned by the current manager', async () => {
+    let resolveInlineInstall!: (value: unknown) => void;
+    backendApp.DownloadDriverPackage.mockReturnValueOnce(new Promise((resolve) => {
+      resolveInlineInstall = resolve;
+    }));
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DriverManagerModal open onClose={vi.fn()} />);
+    });
+    await flushPromises();
+
+    await act(async () => {
+      findButton(renderer!, t('driver.modal.toolbar.installAll')).props.onClick();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(backendApp.DownloadDriverPackage).toHaveBeenCalledTimes(1);
+
+    await emitDriverDownloadProgress({
+      driverType: 'duckdb',
+      status: 'downloading',
+      percent: 45,
+      message: 'installing batch driver',
+    });
+    expect(renderer!.root.findByProps({ className: 'driver-manager-progress' }).props.percent).toBe(45);
+
+    await act(async () => {
+      resolveInlineInstall({ success: true });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await flushPromises();
+    expect(renderer!.root.findByProps({ className: 'driver-manager-progress' }).props.status).toBe('success');
+  });
+
   it('keeps a fast completed task terminal when its starter snapshot arrives late', async () => {
     let resolveStart!: (result: unknown) => void;
     backendApp.StartDriverPackageDownload.mockImplementationOnce(() => new Promise((resolve) => {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -226,6 +227,161 @@ func TestDBGetTablesReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *test
 	}
 }
 
+func TestDBGetObjectsDeduplicatesExactTableMetadataNames(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{tables: []string{
+		" ldf_server.ldf_application_type ",
+		"ldf_server.ldf_application_type",
+		"archive.ldf_application_type",
+		"LDF_SERVER.LDF_APPLICATION_TYPE",
+	}}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetObjects(fixture.config, "CRH_AC")
+	if !result.Success {
+		t.Fatalf("expected DBGetObjects success, got failure: %s", result.Message)
+	}
+	objects, ok := result.Data.([]connection.DatabaseObject)
+	if !ok {
+		t.Fatalf("DBGetObjects data type = %T, want []connection.DatabaseObject", result.Data)
+	}
+	tableNames := make([]string, 0, len(objects))
+	for _, object := range objects {
+		if object.Type == "table" {
+			tableNames = append(tableNames, object.Schema+"."+object.Name)
+		}
+	}
+	if len(tableNames) != 3 {
+		t.Fatalf("DBGetObjects table count = %d, want 3: %v", len(tableNames), tableNames)
+	}
+	want := map[string]struct{}{
+		"ldf_server.ldf_application_type": {},
+		"archive.ldf_application_type":    {},
+		"LDF_SERVER.LDF_APPLICATION_TYPE": {},
+	}
+	got := make(map[string]struct{}, len(tableNames))
+	for _, tableName := range tableNames {
+		got[tableName] = struct{}{}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("DBGetObjects table names = %v, want %v", got, want)
+	}
+}
+
+func TestDBGetObjectsStopsAfterMessageBrokerObjects(t *testing.T) {
+	tests := []struct {
+		name         string
+		dbType       string
+		dbName       string
+		tables       []string
+		queryResults []fakeMetadataQueryResult
+		wantObjects  []string
+		wantQueries  []string
+	}{
+		{
+			name:        "mqtt topics preserve case",
+			dbType:      "mqtt",
+			dbName:      "topics",
+			tables:      []string{"Orders", "orders"},
+			wantObjects: []string{"topic:Orders", "topic:orders"},
+		},
+		{
+			name:        "kafka topics preserve case",
+			dbType:      "kafka",
+			dbName:      "topics",
+			tables:      []string{"Orders", "orders"},
+			wantObjects: []string{"topic:Orders", "topic:orders"},
+		},
+		{
+			name:        "rocketmq topics preserve case",
+			dbType:      "rocketmq",
+			dbName:      "topics",
+			tables:      []string{"Orders", "orders"},
+			wantObjects: []string{"topic:Orders", "topic:orders"},
+		},
+		{
+			name:   "rabbitmq queues and exchanges preserve case",
+			dbType: "rabbitmq",
+			dbName: "/",
+			tables: []string{"Orders", "orders"},
+			queryResults: []fakeMetadataQueryResult{
+				{
+					match: "SHOW EXCHANGES",
+					rows: []map[string]interface{}{
+						{"exchange": "Orders", "type": "topic"},
+						{"exchange": "orders", "type": "topic"},
+					},
+					fields: []string{"exchange", "type"},
+				},
+			},
+			wantObjects: []string{
+				"exchange:Orders",
+				"exchange:orders",
+				"queue:Orders",
+				"queue:orders",
+			},
+			wantQueries: []string{"SHOW EXCHANGES"},
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			installFakeOptionalDriverRuntime(t)
+			originalNewDatabaseFunc := newDatabaseFunc
+			originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+			t.Cleanup(func() {
+				newDatabaseFunc = originalNewDatabaseFunc
+				resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+			})
+
+			database := &fakeMetadataRetryDB{
+				tables:       test.tables,
+				queryResults: test.queryResults,
+				queryErr:     errors.New("unexpected relational metadata query"),
+			}
+			newDatabaseFunc = func(dbType string) (db.Database, error) {
+				if dbType != test.dbType {
+					t.Fatalf("newDatabaseFunc type = %q, want %q", dbType, test.dbType)
+				}
+				return database, nil
+			}
+			resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+				return raw, nil
+			}
+
+			application := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+			config := connection.ConnectionConfig{
+				Type: test.dbType,
+				Host: "message-broker.test",
+				Port: 19000 + index,
+			}
+			result := application.DBGetObjects(config, test.dbName)
+			if !result.Success || result.Partial || result.Retryable {
+				t.Fatalf("DBGetObjects(%s) = %#v, want complete success", test.dbType, result)
+			}
+			objects, ok := result.Data.([]connection.DatabaseObject)
+			if !ok {
+				t.Fatalf("DBGetObjects(%s) data type = %T, want []connection.DatabaseObject", test.dbType, result.Data)
+			}
+			gotObjects := make([]string, 0, len(objects))
+			for _, object := range objects {
+				gotObjects = append(gotObjects, object.Type+":"+object.Name)
+			}
+			if !reflect.DeepEqual(gotObjects, test.wantObjects) {
+				t.Fatalf("DBGetObjects(%s) objects = %v, want %v", test.dbType, gotObjects, test.wantObjects)
+			}
+			if !reflect.DeepEqual(database.queries, test.wantQueries) {
+				t.Fatalf("DBGetObjects(%s) queries = %v, want %v", test.dbType, database.queries, test.wantQueries)
+			}
+			for _, query := range database.queries {
+				lowerQuery := strings.ToLower(query)
+				if strings.Contains(lowerQuery, "information_schema") || strings.Contains(lowerQuery, "pg_catalog") || strings.Contains(lowerQuery, "sqlite_") {
+					t.Fatalf("DBGetObjects(%s) executed relational metadata query %q", test.dbType, query)
+				}
+			}
+		})
+	}
+}
+
 func TestDBGetColumnsReusesOceanBaseOracleBaseConnectionForSelectedSchema(t *testing.T) {
 	dbInst := &fakeMetadataRetryDB{
 		columns: []connection.ColumnDefinition{{Name: "ID", Key: "PRI"}},
@@ -383,6 +539,51 @@ func TestDBGetSchemaMetadataReusesOceanBaseOracleBaseConnectionForSelectedSchema
 	}
 	if !strings.Contains(strings.Join(dbInst.queries, "\n"), "FROM all_views WHERE OWNER = 'CRH_AC'") {
 		t.Fatalf("expected explicit CRH_AC owner view query, got %v", dbInst.queries)
+	}
+}
+
+func TestDBGetViewsFailsWhenAllViewMetadataQueriesFail(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		queryErr: errors.New("view metadata permission denied"),
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+
+	result := fixture.app.DBGetViews(fixture.config, "CRH_AC")
+	if result.Success || !result.Retryable {
+		t.Fatalf("expected retryable view metadata failure, got %#v", result)
+	}
+	if !strings.Contains(result.Message, "view metadata permission denied") {
+		t.Fatalf("expected view metadata error to propagate, got %q", result.Message)
+	}
+	views, ok := result.Data.([]map[string]string)
+	if !ok || len(views) != 0 {
+		t.Fatalf("expected no view data on failure, got %#v", result.Data)
+	}
+}
+
+func TestDBGetViewsSucceedsWhenViewFallbackQuerySucceeds(t *testing.T) {
+	dbInst := &fakeMetadataRetryDB{
+		queryResults: []fakeMetadataQueryResult{
+			{match: "information_schema.tables", err: errors.New("catalog query denied")},
+			{match: "SHOW FULL TABLES", rows: []map[string]interface{}{{
+				"table_name": "active_users",
+				"table_type": "VIEW",
+			}}},
+		},
+	}
+	fixture := newOceanBaseOracleMetadataFixture(t, dbInst)
+	config := fixture.config
+	config.Type = "mysql"
+	config.OceanBaseProtocol = ""
+	config.Database = "app"
+
+	result := fixture.app.DBGetViews(config, "app")
+	if !result.Success || result.Retryable {
+		t.Fatalf("expected successful fallback view metadata result, got %#v", result)
+	}
+	views, ok := result.Data.([]map[string]string)
+	if !ok || len(views) != 1 || views[0]["View"] != "active_users" {
+		t.Fatalf("expected fallback view metadata, got %#v", result.Data)
 	}
 }
 
@@ -886,6 +1087,42 @@ func TestDBGetColumnsKeepsDatabaseForMySQLMetadata(t *testing.T) {
 	}
 	if dbInst.columnSchema != "demo_db" || dbInst.columnTable != "users" {
 		t.Fatalf("expected mysql metadata to pass database/table, got %q.%q", dbInst.columnSchema, dbInst.columnTable)
+	}
+}
+
+func TestDBTableExistsNormalizesQualifiedMySQLTableMetadata(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	dbInst := &fakeMetadataRetryDB{tables: []string{"users"}}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return dbInst, nil
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	result := app.DBTableExists(connection.ConnectionConfig{
+		Type: "mysql",
+		Host: "127.0.0.1",
+		Port: 3306,
+		User: "root",
+	}, "demo_db", "demo_db.users")
+
+	if !result.Success {
+		t.Fatalf("expected DBTableExists success, got failure: %s", result.Message)
+	}
+	exists, ok := result.Data.(map[string]bool)
+	if !ok || !exists["exists"] {
+		t.Fatalf("expected qualified MySQL table to exist, got %#v", result.Data)
+	}
+	if dbInst.tableSchema != "demo_db" {
+		t.Fatalf("expected MySQL table lookup database demo_db, got %q", dbInst.tableSchema)
 	}
 }
 

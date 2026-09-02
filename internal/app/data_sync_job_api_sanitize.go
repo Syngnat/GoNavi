@@ -41,6 +41,13 @@ func publicDataSyncRun(run syncjob.RunRecord) syncjob.RunRecord {
 	return run
 }
 
+func publicDataSyncRunPage(page syncjob.RunPage) syncjob.RunPage {
+	for index := range page.Runs {
+		page.Runs[index] = publicDataSyncRun(page.Runs[index])
+	}
+	return page
+}
+
 func publicDataSyncRunEvent(event syncjob.RunEvent) syncjob.RunEvent {
 	if len(event.Payload) == 0 {
 		return event

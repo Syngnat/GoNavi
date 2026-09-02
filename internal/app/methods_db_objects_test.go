@@ -55,6 +55,20 @@ func TestDatabaseObjectFromRowReadsMySQLShowTriggerColumn(t *testing.T) {
 	}
 }
 
+func TestDedupeSortDatabaseObjectsUsesDialectCaseSemantics(t *testing.T) {
+	objects := []connection.DatabaseObject{
+		{Database: "crm", Schema: "public", Name: "Orders", Type: "table"},
+		{Database: "crm", Schema: "PUBLIC", Name: "orders", Type: "TABLE"},
+	}
+
+	if got := dedupeSortDatabaseObjects(objects, databaseObjectIdentifiersAreCaseSensitive("mysql")); len(got) != 1 {
+		t.Fatalf("MySQL case variants should deduplicate, got %#v", got)
+	}
+	if got := dedupeSortDatabaseObjects(objects, databaseObjectIdentifiersAreCaseSensitive("kingbase")); len(got) != 2 {
+		t.Fatalf("Kingbase case variants should remain distinct, got %#v", got)
+	}
+}
+
 func TestBuildListViewQueriesUsesCurrentMySQLDatabaseWhenDBNameEmpty(t *testing.T) {
 	queries := buildListViewQueries(testConnectionConfig("mysql"), "")
 

@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+func TestSSHKeyFileDialogDoesNotFilterExtensionlessKeys(t *testing.T) {
+	if filters := sshKeyFileDialogFilters(); len(filters) != 0 {
+		t.Fatalf("SSH key dialog filters = %#v, want nil/all-files filter", filters)
+	}
+}
+
 func TestResolveFileOpenDialogDirectoryHandlesExtensionlessSSHKeys(t *testing.T) {
 	root := t.TempDir()
 	sshDir := filepath.Join(root, ".ssh")
@@ -40,4 +46,3 @@ func TestResolveFileOpenDialogDirectoryHandlesExtensionlessSSHKeys(t *testing.T)
 		t.Fatalf("directory path kept as-is: got %q, want %q", got, want)
 	}
 }
-

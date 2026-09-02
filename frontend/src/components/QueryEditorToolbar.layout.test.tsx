@@ -105,6 +105,125 @@ describe('QueryEditorToolbar layout', () => {
     );
   });
 
+  it('maps query toolbar button states onto public custom-theme variables', () => {
+    const css = readV2ThemeCss();
+    const baseTokensCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] {'),
+      css.indexOf('body[data-ui-version="v2"][data-platform="darwin"] {'),
+    );
+    const toolbarCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-main {'),
+    );
+    const buttonStateCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn-default:not('),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-word-wrap-action.ant-btn,'),
+    );
+
+    for (const kind of ['button', 'primary']) {
+      for (const state of ['', '-hover', '-active', '-disabled']) {
+        for (const token of ['fg', 'bg', 'border']) {
+          const commonProperty = `--gn-toolbar-${kind}${state}-${token}`;
+          const scopedProperty = `--gn-query-toolbar-${kind}${state}-${token}`;
+          const clientProperty = `--gn-client-query-toolbar-${kind}${state}-${token}`;
+          const actionProperty = kind === 'button'
+            ? `--gn-toolbar-action${state}-${token}`
+            : `--gn-toolbar-action-primary${state}-${token}`;
+          expect(baseTokensCss).toContain(`${commonProperty}:`);
+          expect(toolbarCss).toContain(
+            `${actionProperty}: var(${clientProperty}, var(${scopedProperty}, var(${commonProperty})))`,
+          );
+        }
+      }
+    }
+
+    expect(buttonStateCss).toContain(
+      '.ant-btn-default:not(.gn-v2-query-toolbar-ai-action):not(:disabled):not(.ant-btn-disabled)',
+    );
+    expect(buttonStateCss).toContain('color: var(--gn-toolbar-action-fg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-hover-bg) !important;');
+    expect(buttonStateCss).toContain('border-color: var(--gn-toolbar-action-active-border) !important;');
+    expect(buttonStateCss).toContain('.ant-btn-default:disabled,');
+    expect(buttonStateCss).toContain('color: var(--gn-toolbar-action-disabled-fg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-primary-bg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-primary-hover-bg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-primary-active-bg) !important;');
+    expect(buttonStateCss).toContain('.ant-btn-primary:disabled,');
+    expect(buttonStateCss).toContain('border-color: var(--gn-toolbar-action-primary-disabled-border) !important;');
+  });
+
+  it('lets query-scoped tokens override semantic buttons without losing their fallbacks', () => {
+    const css = readV2ThemeCss();
+    const buttonStateCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar .ant-btn-default:not('),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-query-toolbar-word-wrap-action.ant-btn,'),
+    );
+
+    expect(buttonStateCss).toContain(
+      'color: var(--gn-client-query-toolbar-button-fg, var(--gn-query-toolbar-button-fg, var(--gn-danger))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-query-toolbar-button-bg, var(--gn-query-toolbar-button-bg, var(--gn-toolbar-action-bg))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'color: var(--gn-client-query-toolbar-button-hover-fg, var(--gn-query-toolbar-button-hover-fg, var(--gn-danger))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-query-toolbar-button-active-bg, var(--gn-query-toolbar-button-active-bg, var(--gn-toolbar-action-active-bg))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'color: var(--gn-client-query-toolbar-primary-fg, var(--gn-query-toolbar-primary-fg, var(--gn-on-danger',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-query-toolbar-primary-bg, var(--gn-query-toolbar-primary-bg, var(--gn-danger-strong))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-query-toolbar-primary-hover-bg, var(--gn-query-toolbar-primary-hover-bg, var(--gn-danger-strong-hover',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-query-toolbar-primary-active-bg, var(--gn-query-toolbar-primary-active-bg, var(--gn-danger',
+    );
+  });
+
+  it('keeps query AI purple by default while allowing client and theme overrides in every state', () => {
+    const css = readV2ThemeCss();
+    const aiActionStart = css.indexOf(
+      'body[data-ui-version="v2"] .gn-v2-query-toolbar-ai-action.ant-btn {',
+    );
+    const aiActionCss = css.slice(
+      aiActionStart,
+      css.indexOf('@media (max-width: 900px)', aiActionStart),
+    );
+
+    expect(aiActionCss).toContain(
+      'color: var(--gn-client-query-toolbar-button-fg, var(--gn-query-toolbar-button-fg, var(--gn-purple, #818cf8))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'background: var(--gn-client-query-toolbar-button-bg, var(--gn-query-toolbar-button-bg, var(--gn-toolbar-action-bg))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'border-color: var(--gn-client-query-toolbar-button-border, var(--gn-query-toolbar-button-border, var(--gn-toolbar-action-border))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'color: var(--gn-client-query-toolbar-button-hover-fg, var(--gn-query-toolbar-button-hover-fg, var(--gn-purple, #818cf8))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'background: var(--gn-client-query-toolbar-button-hover-bg, var(--gn-query-toolbar-button-hover-bg, var(--gn-toolbar-action-hover-bg))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'border-color: var(--gn-client-query-toolbar-button-hover-border, var(--gn-query-toolbar-button-hover-border, var(--gn-toolbar-action-hover-border))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'color: var(--gn-client-query-toolbar-button-active-fg, var(--gn-query-toolbar-button-active-fg, var(--gn-purple, #818cf8))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'background: var(--gn-client-query-toolbar-button-active-bg, var(--gn-query-toolbar-button-active-bg, var(--gn-toolbar-action-active-bg))) !important;',
+    );
+    expect(aiActionCss).toContain(
+      'border-color: var(--gn-client-query-toolbar-button-active-border, var(--gn-query-toolbar-button-active-border, var(--gn-toolbar-action-active-border))) !important;',
+    );
+  });
+
   it('keeps run and stop buttons separated in the v2 toolbar action group', () => {
     const toolbarSource = readFileSync(new URL('./QueryEditorToolbar.tsx', import.meta.url), 'utf8');
     const css = readV2ThemeCss();
@@ -229,7 +348,7 @@ describe('QueryEditorToolbar layout', () => {
     expect(wordWrapCss).not.toContain('translateY');
   });
 
-  it('keeps commit button hover styling in source and v2 css', () => {
+  it('lets query-scoped primary tokens restyle transaction commit while retaining warn fallbacks', () => {
     const css = readV2ThemeCss();
     const commitBaseCss = css.slice(
       css.indexOf('body[data-ui-version="v2"] .gn-v2-query-transaction-commit-button {'),
@@ -246,9 +365,17 @@ describe('QueryEditorToolbar layout', () => {
 
     expect(css).toContain('.gn-v2-query-transaction-commit-button:hover');
     expect(css).toContain('.gn-v2-query-transaction-commit-button:focus-visible');
-    expect(commitBaseCss).toContain('background: var(--gn-warn) !important;');
+    expect(commitBaseCss).toContain(
+      'background: var(--gn-client-query-toolbar-primary-bg, var(--gn-query-toolbar-primary-bg, var(--gn-warn))) !important;',
+    );
+    expect(commitBaseCss).toContain(
+      'color: var(--gn-client-query-toolbar-primary-fg, var(--gn-query-toolbar-primary-fg, var(--gn-on-warn, #17130a))) !important;',
+    );
     expect(commitHoverCss).toContain(
-      'background: var(--gn-warn-hover, var(--gn-warn)) !important;',
+      'background: var(--gn-client-query-toolbar-primary-hover-bg, var(--gn-query-toolbar-primary-hover-bg, var(--gn-warn-hover, var(--gn-warn)))) !important;',
+    );
+    expect(commitHoverCss).toContain(
+      'background: var(--gn-client-query-toolbar-primary-active-bg, var(--gn-query-toolbar-primary-active-bg, var(--gn-warn-active, var(--gn-warn)))) !important;',
     );
     expect(commitHoverCss).toContain('box-shadow:');
     expect(commitKbdHoverCss).toContain('background:');

@@ -79,6 +79,17 @@ describe('dataGridPagination', () => {
       supportsApproximateTableCount: false,
       translate: keyEchoTranslate,
     })).toBe('data_grid.pagination.summary.not_counted {"current":1}');
+
+    expect(resolvePaginationSummaryText({
+      pagination: {
+        ...pagination,
+        totalKnown: false,
+        totalCountUnavailableLabel: 'TAG total unavailable',
+      },
+      prefersManualTotalCount: true,
+      supportsApproximateTableCount: false,
+      translate: keyEchoTranslate,
+    })).toBe('data_grid.pagination.summary.total_unavailable {"current":1,"label":"TAG total unavailable"}');
   });
 
   it('resolves pagination page labels through catalog keys', () => {

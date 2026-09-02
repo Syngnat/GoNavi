@@ -18,6 +18,14 @@ var (
 	errTrinoCloseTest        = errors.New("trino close test error")
 )
 
+type fakeTrinoExecResult struct {
+	affected int64
+	err      error
+}
+
+func (r fakeTrinoExecResult) LastInsertId() (int64, error) { return 0, errors.New("not implemented") }
+func (r fakeTrinoExecResult) RowsAffected() (int64, error) { return r.affected, r.err }
+
 type trinoCloseTestDriver struct{}
 
 func (trinoCloseTestDriver) Open(string) (driver.Conn, error) {
@@ -36,6 +44,30 @@ func (trinoCloseTestConn) Close() error {
 
 func (trinoCloseTestConn) Begin() (driver.Tx, error) {
 	return nil, driver.ErrSkip
+}
+
+func TestTrinoRowsAffectedMarksErrorsAsUnknownWriteOutcome(t *testing.T) {
+	rowErr := errors.New("rows affected unavailable")
+	affected, err := trinoRowsAffected(fakeTrinoExecResult{err: rowErr})
+	if affected != 0 {
+		t.Fatalf("trinoRowsAffected() = %d, want 0 with error", affected)
+	}
+	if !errors.Is(err, rowErr) {
+		t.Fatalf("trinoRowsAffected() error = %v, want cause %v", err, rowErr)
+	}
+	if !IsWriteOutcomeUnknown(err) {
+		t.Fatalf("trinoRowsAffected() error = %v, want unknown write outcome", err)
+	}
+}
+
+func TestTrinoRowsAffectedPreservesSuccessfulCount(t *testing.T) {
+	affected, err := trinoRowsAffected(fakeTrinoExecResult{affected: 7})
+	if err != nil {
+		t.Fatalf("trinoRowsAffected() error = %v", err)
+	}
+	if affected != 7 {
+		t.Fatalf("trinoRowsAffected() = %d, want 7", affected)
+	}
 }
 
 func TestTrinoCloseCleansStateWhenDatabaseCloseFails(t *testing.T) {
@@ -64,6 +96,23 @@ func TestTrinoCloseCleansStateWhenDatabaseCloseFails(t *testing.T) {
 	}
 	if trino.namespace != "" {
 		t.Fatalf("Close() namespace = %q, want empty", trino.namespace)
+	}
+}
+
+func TestOpenTrinoSQLConnectionConfiguresPool(t *testing.T) {
+	const driverName = "gonavi_trino_close_test"
+	trinoCloseTestDriverOnce.Do(func() {
+		sql.Register(driverName, trinoCloseTestDriver{})
+	})
+
+	conn, err := openTrinoSQLConnection(driverName, "")
+	if err != nil {
+		t.Fatalf("open test database: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	if got := conn.Stats().MaxOpenConnections; got != defaultSQLMaxOpenConns {
+		t.Fatalf("max open connections = %d, want %d", got, defaultSQLMaxOpenConns)
 	}
 }
 

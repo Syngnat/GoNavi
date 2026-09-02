@@ -29,6 +29,7 @@ describe('sqlFileExecutionTab', () => {
       connectionId: 'conn-1',
       dbName: 'demo',
       filePath: 'D:/sql/seed.sql',
+      sqlFileExecutionFileName: 'seed.sql',
       sqlFileExecutionFileSizeMB: '512.5',
       sqlFileExecutionRequestKey: 'job-1',
     }));

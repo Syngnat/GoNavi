@@ -57,6 +57,12 @@ describe('built-in custom theme presets', () => {
       expect(preset.css).toContain(
         'background-color: var(--gn-monaco-bg, var(--gn-bg-panel-2)) !important;',
       );
+      expect(preset.css).not.toMatch(
+        /^\s*--gn-(?:query|result)-toolbar-(?:button|primary)(?:-(?:hover|active|disabled))?-(?:fg|bg|border)\s*:/m,
+      );
+      expect(preset.css).not.toMatch(
+        /^\s*--gn-client-(?:query|result)-toolbar-(?:button|primary)(?:-(?:hover|active|disabled))?-(?:fg|bg|border)\s*:/m,
+      );
     }
     expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'dark')).toHaveLength(4);
     expect(BUILTIN_CUSTOM_THEME_PRESETS.filter((preset) => preset.baseMode === 'light')).toHaveLength(2);
@@ -72,14 +78,48 @@ describe('built-in custom theme presets', () => {
     expect(comfortDark.css).toContain('--gn-fg-5: #878e98');
     expect(comfortDark.css).toContain('--gn-on-accent: #142019');
     expect(comfortDark.css).toContain('.gn-v2-query-toolbar-save-action');
-    // 保存：default 同族 + fg-1 图标，禁止软绿底/透明底踩 primary 前景
-    expect(comfortDark.css).toContain('color: var(--gn-fg-1) !important');
+    // 保存与其他工具栏 default 按钮共用可覆盖的语义变量。
+    expect(comfortDark.css).toContain(
+      'background: var(--gn-toolbar-action-bg, var(--gn-bg-panel)) !important',
+    );
+    expect(comfortDark.css).toContain(
+      'color: var(--gn-toolbar-action-fg, var(--gn-fg-2)) !important',
+    );
+    expect(comfortDark.css).toContain(
+      'background: var(--gn-toolbar-action-active-bg, var(--gn-bg-active)) !important',
+    );
     expect(comfortDark.css).not.toMatch(
       /\.gn-v2-query-toolbar-save-action[\s\S]{0,200}background:\s*transparent\s*!important/,
     );
     expect(comfortDark.css).toContain('.gn-v2-ai-panel .ai-logo');
     expect(comfortDark.css).toContain('.monaco-editor-background');
     expect(comfortDark.css).not.toContain('background-color: var(--gn-bg-input) !important;');
+  });
+
+  it('keeps semantic query actions scoped-first while preserving preset danger and warn colors', () => {
+    const css = BUILTIN_CUSTOM_THEME_PRESETS[0].css;
+
+    expect(css).toContain(
+      '.ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-query-transaction-commit-button):not(:disabled):not(.ant-btn-disabled)',
+    );
+    expect(css).toContain(
+      'color: var(--gn-client-query-toolbar-primary-fg, var(--gn-query-toolbar-primary-fg, var(--gn-on-danger, #fff))) !important;',
+    );
+    expect(css).toContain(
+      'background: var(--gn-client-query-toolbar-primary-bg, var(--gn-query-toolbar-primary-bg, var(--gn-danger-strong))) !important;',
+    );
+    expect(css).toContain(
+      'background: var(--gn-client-query-toolbar-primary-hover-bg, var(--gn-query-toolbar-primary-hover-bg, var(--gn-danger-strong-hover, var(--gn-danger-strong)))) !important;',
+    );
+    expect(css).toContain(
+      'background: var(--gn-client-query-toolbar-primary-active-bg, var(--gn-query-toolbar-primary-active-bg, var(--gn-danger-strong-hover, var(--gn-danger-strong)))) !important;',
+    );
+    expect(css).toContain(
+      'background: var(--gn-client-query-toolbar-primary-hover-bg, var(--gn-query-toolbar-primary-hover-bg, var(--gn-warn-hover, var(--gn-warn)))) !important;',
+    );
+    expect(css).toContain(
+      'background: var(--gn-client-query-toolbar-primary-active-bg, var(--gn-query-toolbar-primary-active-bg, var(--gn-warn-active, var(--gn-warn)))) !important;',
+    );
   });
 
   it('keeps preset text and solid-button colors at WCAG AA contrast', () => {

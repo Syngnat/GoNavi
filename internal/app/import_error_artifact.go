@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,25 +32,51 @@ type ImportRowError struct {
 }
 
 type ImportErrorArtifact struct {
-	ID        string `json:"id"`
-	Count     int64  `json:"count"`
-	CreatedAt int64  `json:"createdAt"`
+	ID               string `json:"id"`
+	Count            int64  `json:"count"`
+	Bytes            int64  `json:"bytes,omitempty"`
+	OmittedCount     int64  `json:"omittedCount,omitempty"`
+	Truncated        bool   `json:"truncated,omitempty"`
+	RetryableCount   int64  `json:"retryableCount,omitempty"`
+	UnretryableCount int64  `json:"unretryableCount,omitempty"`
+	MaxRows          int64  `json:"maxRows,omitempty"`
+	MaxBytes         int64  `json:"maxBytes,omitempty"`
+	CreatedAt        int64  `json:"createdAt"`
 }
+
+// Error artifacts are intentionally bounded because they live in the user's
+// durable data directory and may contain rejected source values.
+const (
+	maxImportErrorArtifactRows  int64 = 10_000
+	maxImportErrorArtifactBytes int64 = 32 * 1024 * 1024
+	maxImportRetryColumns             = 4096
+)
 
 type importErrorArtifactStore struct {
 	root string
 }
 
 type importErrorArtifactWriter struct {
-	store     *importErrorArtifactStore
-	id        string
-	path      string
-	file      *os.File
-	buffered  *bufio.Writer
-	encoder   *json.Encoder
-	count     int64
-	finished  bool
-	createdAt int64
+	store       *importErrorArtifactStore
+	id          string
+	path        string
+	file        *os.File
+	buffered    *bufio.Writer
+	count       int64
+	bytes       int64
+	omitted     int64
+	truncated   bool
+	retryable   int64
+	unretryable int64
+	finished    bool
+	createdAt   int64
+}
+
+func isRetryableImportErrorRow(row ImportRowError) bool {
+	if len(row.Values) == 0 {
+		return false
+	}
+	return row.Retryable || strings.EqualFold(strings.TrimSpace(row.Category), "database")
 }
 
 func newImportErrorArtifactStore(root string) (*importErrorArtifactStore, error) {
@@ -84,23 +111,49 @@ func (s *importErrorArtifactStore) Begin(_ string) (*importErrorArtifactWriter, 
 		path:      path,
 		file:      f,
 		buffered:  buffered,
-		encoder:   json.NewEncoder(buffered),
 		createdAt: time.Now().UnixMilli(),
 	}, nil
 }
 
 func (w *importErrorArtifactWriter) Append(row ImportRowError) error {
-	if w == nil || w.finished || w.encoder == nil {
+	if w == nil || w.finished || w.buffered == nil {
 		return errors.New("import error artifact writer is closed")
 	}
 	row.Category = strings.ToLower(strings.TrimSpace(row.Category))
 	row.Code = strings.TrimSpace(row.Code)
 	row.Column = strings.TrimSpace(row.Column)
 	row.Message = sqlaudit.RedactError(row.Message)
-	if err := w.encoder.Encode(row); err != nil {
+	retryable := isRetryableImportErrorRow(row)
+	row.Retryable = retryable
+	if w.truncated || w.count >= maxImportErrorArtifactRows {
+		w.truncated = true
+		w.omitted++
+		return nil
+	}
+	encoded, err := json.Marshal(row)
+	if err != nil {
 		return err
 	}
+	encoded = append(encoded, '\n')
+	if w.bytes+int64(len(encoded)) > maxImportErrorArtifactBytes {
+		w.truncated = true
+		w.omitted++
+		return nil
+	}
+	written, err := w.buffered.Write(encoded)
+	if err != nil {
+		return err
+	}
+	if written != len(encoded) {
+		return io.ErrShortWrite
+	}
 	w.count++
+	w.bytes += int64(written)
+	if retryable {
+		w.retryable++
+	} else {
+		w.unretryable++
+	}
 	return nil
 }
 
@@ -123,7 +176,18 @@ func (w *importErrorArtifactWriter) Finish() (ImportErrorArtifact, error) {
 		_ = os.Remove(w.path)
 		return ImportErrorArtifact{}, err
 	}
-	return ImportErrorArtifact{ID: w.id, Count: w.count, CreatedAt: w.createdAt}, nil
+	return ImportErrorArtifact{
+		ID:               w.id,
+		Count:            w.count,
+		Bytes:            w.bytes,
+		OmittedCount:     w.omitted,
+		Truncated:        w.truncated,
+		RetryableCount:   w.retryable,
+		UnretryableCount: w.unretryable,
+		MaxRows:          maxImportErrorArtifactRows,
+		MaxBytes:         maxImportErrorArtifactBytes,
+		CreatedAt:        w.createdAt,
+	}, nil
 }
 
 func (w *importErrorArtifactWriter) Abort() {

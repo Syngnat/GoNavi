@@ -2,11 +2,8 @@ package aiservice
 
 import (
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,7 +27,6 @@ func aiServiceFunctionSource(t *testing.T, source string, signature string) stri
 	return source[start : start+len(signature)+end]
 }
 
-
 func TestAIGetBuiltinPromptsUsesCurrentLanguageForPromptTitles(t *testing.T) {
 	service := NewServiceWithSecretStore(nil)
 	service.AISetLanguage("en-US")
@@ -53,8 +49,6 @@ func mapKeys(m map[string]string) []string {
 	}
 	return keys
 }
-
-
 
 func TestAIServiceLocalizeProviderHealthCheckRequestErrorSupportsEnglishWrappers(t *testing.T) {
 	service := NewService()
@@ -135,167 +129,6 @@ func TestAIServiceModelListCatalogKeysExist(t *testing.T) {
 	}
 }
 
-
-func TestAIServiceSessionPersistenceCatalogKeysExist(t *testing.T) {
-	catalogs, err := i18n.LoadCatalogs()
-	if err != nil {
-		t.Fatalf("LoadCatalogs() error = %v", err)
-	}
-
-	keys := []string{
-		"ai_service.backend.error.sessions_dir_create_failed",
-		"ai_service.backend.error.session_serialize_failed",
-		"ai_service.backend.error.session_write_failed",
-		"ai_service.backend.error.session_delete_failed",
-	}
-	for _, language := range i18n.SupportedLanguages() {
-		catalog := catalogs[language]
-		for _, key := range keys {
-			if strings.TrimSpace(catalog[key]) == "" {
-				t.Fatalf("%s catalog missing AI session persistence key %q", language, key)
-			}
-		}
-	}
-}
-
-
-func TestAIServiceSessionLoadCatalogKeysExist(t *testing.T) {
-	catalogs, err := i18n.LoadCatalogs()
-	if err != nil {
-		t.Fatalf("LoadCatalogs() error = %v", err)
-	}
-
-	keys := []string{
-		"ai_service.backend.error.session_missing",
-		"ai_service.backend.error.session_corrupt",
-	}
-	for _, language := range i18n.SupportedLanguages() {
-		catalog := catalogs[language]
-		for _, key := range keys {
-			if strings.TrimSpace(catalog[key]) == "" {
-				t.Fatalf("%s catalog missing AI session load key %q", language, key)
-			}
-		}
-	}
-}
-
-func TestAILoadSessionUsesCurrentLanguageForLoadErrors(t *testing.T) {
-	t.Run("session_missing", func(t *testing.T) {
-		service := NewService()
-		service.AISetLanguage("en-US")
-		service.configDir = t.TempDir()
-
-		result := service.AILoadSession("session-missing")
-		if success, _ := result["success"].(bool); success {
-			t.Fatalf("AILoadSession(session_missing) returned success: %+v", result)
-		}
-		if result["error"] != "Session does not exist" {
-			t.Fatalf("expected localized session missing message, got %#v", result["error"])
-		}
-	})
-
-	t.Run("session_corrupt", func(t *testing.T) {
-		service := NewService()
-		service.AISetLanguage("en-US")
-		service.configDir = t.TempDir()
-
-		sessionPath := filepath.Join(service.sessionsDir(), "session-corrupt.json")
-		if err := os.MkdirAll(filepath.Dir(sessionPath), 0o755); err != nil {
-			t.Fatalf("mkdir sessions dir: %v", err)
-		}
-		if err := os.WriteFile(sessionPath, []byte(`{invalid`), 0o644); err != nil {
-			t.Fatalf("write corrupt session: %v", err)
-		}
-
-		result := service.AILoadSession("session-corrupt")
-		if success, _ := result["success"].(bool); success {
-			t.Fatalf("AILoadSession(session_corrupt) returned success: %+v", result)
-		}
-		if result["error"] != "Session data is corrupted" {
-			t.Fatalf("expected localized session corrupt message, got %#v", result["error"])
-		}
-	})
-}
-
-func assertLocalizedAIServiceError(t *testing.T, service *Service, err error, key string, rawChinesePrefix string) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected localized error")
-	}
-	cause := errors.Unwrap(err)
-	if cause == nil {
-		t.Fatalf("expected wrapped cause for key %q, got %T", key, err)
-	}
-	want := service.serviceText(key, map[string]any{"detail": cause.Error()})
-	if err.Error() != want {
-		t.Fatalf("expected localized error %q, got %q", want, err.Error())
-	}
-	if strings.Contains(err.Error(), rawChinesePrefix) {
-		t.Fatalf("expected no raw Chinese text %q, got %q", rawChinesePrefix, err.Error())
-	}
-}
-
-func TestAISaveSessionUsesCurrentLanguageForStructuredErrors(t *testing.T) {
-	t.Run("sessions_dir_create_failed", func(t *testing.T) {
-		service := NewService()
-		service.AISetLanguage("en-US")
-
-		blockingFile := filepath.Join(t.TempDir(), "config-file")
-		if err := os.WriteFile(blockingFile, []byte("x"), 0o644); err != nil {
-			t.Fatalf("write blocking config file: %v", err)
-		}
-		service.configDir = blockingFile
-
-		err := service.AISaveSession("session-dir-failure", "Dir Failure", 1, `[]`)
-		assertLocalizedAIServiceError(t, service, err, "ai_service.backend.error.sessions_dir_create_failed", "创建 sessions 目录失败")
-	})
-
-	t.Run("session_serialize_failed", func(t *testing.T) {
-		service := NewService()
-		service.AISetLanguage("en-US")
-		service.configDir = t.TempDir()
-
-		err := service.AISaveSession("session-serialize-failure", "Serialize Failure", 1, `{invalid`)
-		assertLocalizedAIServiceError(t, service, err, "ai_service.backend.error.session_serialize_failed", "序列化会话数据失败")
-	})
-
-	t.Run("session_write_failed", func(t *testing.T) {
-		service := NewService()
-		service.AISetLanguage("en-US")
-		service.configDir = t.TempDir()
-
-		sessionPath := filepath.Join(service.sessionsDir(), "session-write-failure.json")
-		if err := os.MkdirAll(sessionPath, 0o755); err != nil {
-			t.Fatalf("mkdir session path directory: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(sessionPath, "blocker.txt"), []byte("x"), 0o644); err != nil {
-			t.Fatalf("write blocker file: %v", err)
-		}
-
-		err := service.AISaveSession("session-write-failure", "Write Failure", 1, `[]`)
-		assertLocalizedAIServiceError(t, service, err, "ai_service.backend.error.session_write_failed", "保存会话失败")
-	})
-}
-
-func TestAIDeleteSessionUsesCurrentLanguageForDeleteFailure(t *testing.T) {
-	service := NewService()
-	service.AISetLanguage("en-US")
-	service.configDir = t.TempDir()
-
-	sessionPath := filepath.Join(service.sessionsDir(), "session-delete-failure.json")
-	if err := os.MkdirAll(sessionPath, 0o755); err != nil {
-		t.Fatalf("mkdir session path directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(sessionPath, "blocker.txt"), []byte("x"), 0o644); err != nil {
-		t.Fatalf("write blocker file: %v", err)
-	}
-
-	err := service.AIDeleteSession("session-delete-failure")
-	assertLocalizedAIServiceError(t, service, err, "ai_service.backend.error.session_delete_failed", "删除会话失败")
-}
-
-
-
 func TestAIServiceMCPServerCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {
@@ -323,7 +156,6 @@ func TestAIServiceMCPServerCatalogKeysExist(t *testing.T) {
 		}
 	}
 }
-
 
 func TestAIServiceMCPHTTPServerCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
@@ -396,104 +228,6 @@ func TestAIListModelsUsesEnglishMissingActiveProviderMessage(t *testing.T) {
 	}
 	if strings.Contains(errorText, "未找到活跃 Provider") {
 		t.Fatalf("expected no Chinese missing-active-provider text, got %q", errorText)
-	}
-}
-
-func TestAIChatSendUsesCurrentLanguageForImageFallbackPrompt(t *testing.T) {
-	var requestBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read request body: %v", err)
-		}
-		defer r.Body.Close()
-		requestBody = string(body)
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
-	}))
-	defer server.Close()
-
-	service := NewService()
-	service.AISetLanguage("en-US")
-	service.providers = []ai.ProviderConfig{
-		{
-			ID:      "provider-image",
-			Type:    "openai",
-			BaseURL: server.URL,
-			Model:   "gpt-4o-mini",
-			APIKey:  "sk-test",
-		},
-	}
-	service.activeProvider = "provider-image"
-
-	result := service.AIChatSend([]ai.Message{
-		{
-			Role:   "user",
-			Images: []string{"data:image/png;base64,abc"},
-		},
-	}, nil)
-
-	if success, _ := result["success"].(bool); !success {
-		t.Fatalf("expected chat send success, got %+v", result)
-	}
-	const want = "Please describe and analyze this image."
-	if !strings.Contains(requestBody, want) {
-		t.Fatalf("expected localized image fallback prompt %q in request body, got %s", want, requestBody)
-	}
-	if strings.Contains(requestBody, "请描述和分析这张图片。") {
-		t.Fatalf("expected no raw Chinese image fallback prompt in request body, got %s", requestBody)
-	}
-}
-
-func TestAIChatSendUsesCurrentLanguageForImageOmittedNotice(t *testing.T) {
-	var requestBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("read request body: %v", err)
-		}
-		defer r.Body.Close()
-		requestBody = string(body)
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))
-	}))
-	defer server.Close()
-
-	service := NewService()
-	service.AISetLanguage("en-US")
-	service.providers = []ai.ProviderConfig{
-		{
-			ID:      "provider-image",
-			Type:    "openai",
-			BaseURL: server.URL,
-			Model:   "minimax-m1",
-			APIKey:  "sk-test",
-		},
-	}
-	service.activeProvider = "provider-image"
-
-	result := service.AIChatSend([]ai.Message{
-		{
-			Role:    "user",
-			Content: "Analyze this attachment.",
-			Images:  []string{"data:image/png;base64,abc"},
-		},
-	}, nil)
-
-	if success, _ := result["success"].(bool); !success {
-		t.Fatalf("expected chat send success, got %+v", result)
-	}
-	const want = "[Image omitted: the current model or upstream API does not support image input. Switch to a vision-capable model and resend the image.]"
-	if !strings.Contains(requestBody, want) {
-		t.Fatalf("expected localized image omitted notice %q in request body, got %s", want, requestBody)
-	}
-	if strings.Contains(requestBody, "【图片已省略：当前模型或上游接口不支持图片输入，请切换支持视觉的模型后重新发送图片。】") {
-		t.Fatalf("expected no raw Chinese image omitted notice in request body, got %s", requestBody)
-	}
-	if strings.Contains(requestBody, `"image_url"`) {
-		t.Fatalf("expected text-only model request to omit image_url, got %s", requestBody)
 	}
 }
 

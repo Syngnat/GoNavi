@@ -23,7 +23,7 @@ func NewCustomProvider(config ai.ProviderConfig) (Provider, error) {
 	if apiFormat == "" {
 		apiFormat = "openai"
 	}
-	if strings.TrimSpace(config.BaseURL) == "" && apiFormat != "codex-cli" && apiFormat != "claude-cli" && apiFormat != "codebuddy-cli" {
+	if strings.TrimSpace(config.BaseURL) == "" && apiFormat != "codex-cli" && apiFormat != "claude-cli" && apiFormat != "codebuddy-cli" && apiFormat != "grok-cli" && apiFormat != "cursor-cli" {
 		return nil, fmt.Errorf("custom provider Base URL is required")
 	}
 
@@ -38,12 +38,16 @@ func NewCustomProvider(config ai.ProviderConfig) (Provider, error) {
 		innerProvider, err = NewGeminiProvider(config)
 	case "cursor-agent":
 		innerProvider, err = NewCursorAgentProvider(config)
+	case "cursor-cli":
+		innerProvider, err = NewCursorCLIProvider(config)
 	case "codex-cli":
 		innerProvider, err = NewCodexCLIProvider(config)
 	case "claude-cli":
 		innerProvider, err = NewClaudeCLIProvider(config)
 	case "codebuddy-cli":
 		innerProvider, err = NewCodeBuddyCLIProvider(config)
+	case "grok-cli":
+		innerProvider, err = NewGrokCLIProvider(config)
 	default: // "openai" 及其他
 		innerProvider, err = NewOpenAIProvider(config)
 	}

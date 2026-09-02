@@ -127,6 +127,23 @@ describe('extractQueryResultTableRef', () => {
       });
   });
 
+  it('uses the current or explicitly qualified database for SQL Server metadata lookups', () => {
+    expect(extractQueryResultTableRef('SELECT * FROM dbo.orders', 'sqlserver', 'appdb'))
+      .toMatchObject({
+        metadataDbName: 'appdb',
+        metadataTableName: 'dbo.orders',
+        ddlDbName: 'appdb',
+        ddlTableName: 'dbo.orders',
+      });
+    expect(extractQueryResultTableRef('SELECT * FROM sales.dbo.orders', 'sql-server', 'appdb'))
+      .toMatchObject({
+        metadataDbName: 'sales',
+        metadataTableName: 'dbo.orders',
+        ddlDbName: 'sales',
+        ddlTableName: 'dbo.orders',
+      });
+  });
+
   it('resolves Trino catalog and schema namespace for DDL', () => {
     expect(extractQueryResultTableRef('SELECT * FROM hive.audit.orders', 'trino', 'lakehouse.public'))
       .toMatchObject({

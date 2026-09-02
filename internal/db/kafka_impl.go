@@ -41,6 +41,20 @@ type kafkaRuntime interface {
 	DescribeTopic(ctx context.Context, topic string) (kafkaTopicDescription, error)
 	FetchMessages(ctx context.Context, request kafkaFetchRequest) ([]kafkaMessageRecord, error)
 	Publish(ctx context.Context, command kafkaPublishCommand) (int64, error)
+	InspectConsumerGroups(ctx context.Context, groupID string) ([]kafkaConsumerGroupInfo, error)
+}
+
+type kafkaConsumerGroupInfo struct {
+	GroupID       string
+	State         string
+	MemberID      string
+	ClientID      string
+	ClientHost    string
+	Topic         string
+	Partition     *int
+	CurrentOffset *int64
+	LogEndOffset  *int64
+	Lag           *int64
 }
 
 type kafkaTopicInfo struct {
@@ -199,7 +213,7 @@ func (k *KafkaDB) QueryContext(ctx context.Context, query string) ([]map[string]
 	}
 	parsed, ok := parseKafkaSQL(text, k.startLatest)
 	if !ok {
-		return nil, nil, fmt.Errorf("Kafka 查询仅支持 SHOW TOPICS、DESCRIBE TOPIC、SELECT * FROM topic 与 CONSUME FROM topic")
+		return nil, nil, fmt.Errorf("Kafka 查询仅支持 SHOW TOPICS、SHOW/DESCRIBE CONSUMER GROUP、DESCRIBE TOPIC、SELECT * FROM topic 与 CONSUME FROM topic")
 	}
 
 	switch parsed.Action {
@@ -212,6 +226,13 @@ func (k *KafkaDB) QueryContext(ctx context.Context, query string) ([]map[string]
 		if parsed.Limit > 0 && len(rows) > parsed.Limit {
 			rows = rows[:parsed.Limit]
 		}
+		return rows, collectColumns(rows), nil
+	case "show_consumer_groups", "describe_consumer_group":
+		groups, err := k.runtime.InspectConsumerGroups(ctx, strings.TrimSpace(parsed.GroupID))
+		if err != nil {
+			return nil, nil, err
+		}
+		rows := kafkaConsumerGroupRows(groups)
 		return rows, collectColumns(rows), nil
 	case "describe_topic":
 		description, err := k.runtime.DescribeTopic(ctx, kafkaResolveTopic(parsed.Topic, k.defaultTopic))
@@ -736,6 +757,135 @@ func (r *kafkaGoRuntime) ListTopics(ctx context.Context, includeInternal bool) (
 	return topics, nil
 }
 
+func (r *kafkaGoRuntime) InspectConsumerGroups(ctx context.Context, groupID string) ([]kafkaConsumerGroupInfo, error) {
+	if r.client == nil {
+		return nil, fmt.Errorf("连接未打开")
+	}
+	bootstrapAddr := kafka.TCP(r.bootstrap)
+	groupsResp, err := r.client.ListGroups(ctx, &kafka.ListGroupsRequest{Addr: bootstrapAddr})
+	if err != nil {
+		return nil, fmt.Errorf("Kafka 消费组列表读取失败（可能缺少 Describe 权限或 broker 版本不支持）：%w", err)
+	}
+	if groupsResp.Error != nil {
+		return nil, fmt.Errorf("Kafka 消费组列表读取失败（可能缺少 Describe 权限）：%w", groupsResp.Error)
+	}
+	metadata, err := r.client.Metadata(ctx, &kafka.MetadataRequest{Addr: bootstrapAddr})
+	if err != nil {
+		return nil, fmt.Errorf("Kafka broker 元数据读取失败：%w", err)
+	}
+	brokers := make(map[int]kafka.Broker, len(metadata.Brokers))
+	for _, broker := range metadata.Brokers {
+		brokers[broker.ID] = broker
+	}
+	selectedByCoordinator := make(map[string][]string)
+	for _, g := range groupsResp.Groups {
+		if strings.TrimSpace(groupID) == "" || g.GroupID == groupID {
+			coordinator := r.bootstrap
+			if broker, ok := brokers[g.Coordinator]; ok {
+				coordinator = kafkaBrokerAddress(broker)
+			}
+			selectedByCoordinator[coordinator] = append(selectedByCoordinator[coordinator], g.GroupID)
+		}
+	}
+	if len(selectedByCoordinator) == 0 {
+		return []kafkaConsumerGroupInfo{}, nil
+	}
+	rows := make([]kafkaConsumerGroupInfo, 0)
+	for coordinator, selected := range selectedByCoordinator {
+		addr := kafka.TCP(coordinator)
+		desc, err := r.client.DescribeGroups(ctx, &kafka.DescribeGroupsRequest{Addr: addr, GroupIDs: selected})
+		if err != nil {
+			return nil, fmt.Errorf("Kafka 消费组成员读取失败（可能缺少 Describe 权限或 broker 版本不支持）：%w", err)
+		}
+		for _, g := range desc.Groups {
+			groupRowStart := len(rows)
+			if g.Error != nil {
+				return nil, fmt.Errorf("Kafka 消费组 %s 读取失败：%w", g.GroupID, g.Error)
+			}
+			offsets, err := r.client.OffsetFetch(ctx, &kafka.OffsetFetchRequest{Addr: addr, GroupID: g.GroupID})
+			if err != nil {
+				return nil, fmt.Errorf("Kafka 消费组 %s offset 读取失败（需要 Kafka 0.10.2 或更高版本，且可能缺少 Describe 权限）：%w", g.GroupID, err)
+			}
+			if offsets.Error != nil {
+				return nil, fmt.Errorf("Kafka 消费组 %s offset 读取失败（需要 Kafka 0.10.2 或更高版本，且可能缺少 Describe 权限）：%w", g.GroupID, offsets.Error)
+			}
+			membersByPartition := map[string]string{}
+			for _, m := range g.Members {
+				for _, t := range m.MemberAssignments.Topics {
+					for _, p := range t.Partitions {
+						membersByPartition[fmt.Sprintf("%s/%d", t.Topic, p)] = m.MemberID
+					}
+				}
+			}
+			for topic, parts := range offsets.Topics {
+				for _, p := range parts {
+					if p.Error != nil {
+						return nil, fmt.Errorf("Kafka 消费组 %s 的 %s 分区 %d offset 读取失败（可能缺少权限）：%w", g.GroupID, topic, p.Partition, p.Error)
+					}
+					_, end, err := r.partitionOffsets(ctx, topic, p.Partition)
+					if err != nil {
+						return nil, err
+					}
+					row := kafkaConsumerGroupInfo{GroupID: g.GroupID, State: g.GroupState, Topic: topic, Partition: kafkaIntPointer(p.Partition), CurrentOffset: kafkaInt64Pointer(p.CommittedOffset), LogEndOffset: kafkaInt64Pointer(end)}
+					row.Lag = kafkaInt64Pointer(maxInt64(0, end-p.CommittedOffset))
+					row.MemberID = membersByPartition[fmt.Sprintf("%s/%d", topic, p.Partition)]
+					for _, m := range g.Members {
+						if m.MemberID == row.MemberID {
+							row.ClientID = m.ClientID
+							row.ClientHost = m.ClientHost
+						}
+					}
+					rows = append(rows, row)
+					delete(membersByPartition, fmt.Sprintf("%s/%d", topic, p.Partition))
+				}
+			}
+			assignedMembers := make(map[string]struct{}, len(g.Members))
+			for assignment, memberID := range membersByPartition {
+				parts := strings.SplitN(assignment, "/", 2)
+				partition, _ := strconv.Atoi(parts[1])
+				row := kafkaConsumerGroupInfo{GroupID: g.GroupID, State: g.GroupState, Topic: parts[0], Partition: kafkaIntPointer(partition), MemberID: memberID}
+				assignedMembers[memberID] = struct{}{}
+				for _, member := range g.Members {
+					if member.MemberID == memberID {
+						row.ClientID = member.ClientID
+						row.ClientHost = member.ClientHost
+					}
+				}
+				rows = append(rows, row)
+			}
+			for _, member := range g.Members {
+				if _, assigned := assignedMembers[member.MemberID]; !assigned && len(member.MemberAssignments.Topics) == 0 {
+					rows = append(rows, kafkaConsumerGroupInfo{GroupID: g.GroupID, State: g.GroupState, MemberID: member.MemberID, ClientID: member.ClientID, ClientHost: member.ClientHost})
+				}
+			}
+			if len(rows) == groupRowStart {
+				rows = append(rows, kafkaConsumerGroupInfo{GroupID: g.GroupID, State: g.GroupState})
+			}
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].GroupID == rows[j].GroupID {
+			if rows[i].Topic == rows[j].Topic {
+				return kafkaConsumerGroupPartition(rows[i]) < kafkaConsumerGroupPartition(rows[j])
+			}
+			return rows[i].Topic < rows[j].Topic
+		}
+		return rows[i].GroupID < rows[j].GroupID
+	})
+	return rows, nil
+}
+
+func kafkaConsumerGroupPartition(group kafkaConsumerGroupInfo) int {
+	if group.Partition == nil {
+		return -1
+	}
+	return *group.Partition
+}
+
+func kafkaIntPointer(value int) *int { return &value }
+
+func kafkaInt64Pointer(value int64) *int64 { return &value }
+
 func (r *kafkaGoRuntime) DescribeTopic(ctx context.Context, topic string) (kafkaTopicDescription, error) {
 	if r.client == nil {
 		return kafkaTopicDescription{}, fmt.Errorf("连接未打开")
@@ -1036,6 +1186,8 @@ var (
 	kafkaSQLLimitRE      = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
 	kafkaSQLOffsetRE     = regexp.MustCompile(`(?i)\bOFFSET\s+(\d+)`)
 	kafkaShowTopicsRE    = regexp.MustCompile(`(?i)^\s*SHOW\s+TOPICS(?:\s+LIMIT\s+(\d+))?\s*$`)
+	kafkaShowGroupsRE    = regexp.MustCompile(`(?i)^\s*SHOW\s+CONSUMER\s+GROUPS\s*;?\s*$`)
+	kafkaDescribeGroupRE = regexp.MustCompile(`(?i)^\s*(?:DESCRIBE|SHOW)\s+CONSUMER\s+GROUP\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))\s*$`)
 	kafkaDescribeTopicRE = regexp.MustCompile(`(?i)^\s*(?:SHOW|DESCRIBE)\s+TOPIC\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))\s*$`)
 	kafkaConsumeTopicRE  = regexp.MustCompile(`(?i)^\s*CONSUME(?:\s+GROUP\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+)))?\s+FROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([a-zA-Z0-9_.\-]+))`)
 )
@@ -1052,6 +1204,12 @@ func parseKafkaSQL(sqlText string, defaultLatest bool) (kafkaParsedSQL, bool) {
 		}
 		return parsed, true
 	}
+	if kafkaShowGroupsRE.MatchString(text) {
+		return kafkaParsedSQL{Action: "show_consumer_groups"}, true
+	}
+	if matches := kafkaDescribeGroupRE.FindStringSubmatch(text); len(matches) > 0 {
+		return kafkaParsedSQL{Action: "describe_consumer_group", GroupID: firstNonEmpty(matches[1], matches[2], matches[3])}, true
+	}
 	if matches := kafkaDescribeTopicRE.FindStringSubmatch(text); len(matches) > 0 {
 		return kafkaParsedSQL{
 			Action: "describe_topic",
@@ -1064,7 +1222,7 @@ func parseKafkaSQL(sqlText string, defaultLatest bool) (kafkaParsedSQL, bool) {
 			GroupID: firstNonEmpty(matches[1], matches[2], matches[3]),
 			Topic:   firstNonEmpty(matches[4], matches[5], matches[6]),
 			Limit:   defaultKafkaPreviewLimit,
-			Latest:  true,
+			Latest:  defaultLatest,
 		}
 		if limitMatch := kafkaSQLLimitRE.FindStringSubmatch(text); len(limitMatch) > 1 {
 			parsed.Limit, _ = strconv.Atoi(limitMatch[1])
@@ -1095,6 +1253,31 @@ func parseKafkaSQL(sqlText string, defaultLatest bool) (kafkaParsedSQL, bool) {
 		parsed.Offset, _ = strconv.Atoi(offsetMatch[1])
 	}
 	return parsed, true
+}
+
+func kafkaConsumerGroupRows(groups []kafkaConsumerGroupInfo) []map[string]interface{} {
+	rows := make([]map[string]interface{}, 0, len(groups))
+	for _, g := range groups {
+		rows = append(rows, map[string]interface{}{
+			"group": g.GroupID, "state": g.State, "member": g.MemberID, "client_id": g.ClientID, "client_host": g.ClientHost,
+			"topic": g.Topic, "partition": kafkaOptionalInt(g.Partition), "current_offset": kafkaOptionalInt64(g.CurrentOffset), "log_end_offset": kafkaOptionalInt64(g.LogEndOffset), "lag": kafkaOptionalInt64(g.Lag),
+		})
+	}
+	return rows
+}
+
+func kafkaOptionalInt(value *int) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func kafkaOptionalInt64(value *int64) interface{} {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func kafkaTopicRows(topics []kafkaTopicInfo) []map[string]interface{} {

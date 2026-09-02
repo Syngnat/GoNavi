@@ -183,7 +183,7 @@ func reproductionBundleSnapshotFromSync(run syncjob.RunRecord, job syncjob.JobDe
 		"transformKinds":     transformKinds,
 		"batchSize":          strconv.Itoa(maxDiagnosticInt(job.Options.BatchSize)),
 		"maxRetries":         strconv.Itoa(maxDiagnosticInt(job.Options.MaxRetries)),
-		"autoAddColumns":     strconv.FormatBool(job.Options.AutoAddColumns),
+		"autoAddColumns":     strconv.FormatBool(job.AutoAddColumnsEnabled()),
 		"createIndexes":      strconv.FormatBool(job.Options.CreateIndexes),
 		"propagateDeletes":   strconv.FormatBool(job.Options.PropagateDeletes),
 		"captureErrorRows":   strconv.FormatBool(job.Options.CaptureErrorPayload),

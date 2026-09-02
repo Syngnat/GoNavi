@@ -7,8 +7,67 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 )
+
+const mysqlTableCatalogDriverName = "gonavi-mysql-table-catalog"
+
+var (
+	registerMySQLTableCatalogDriverOnce sync.Once
+	mysqlTableCatalogStateMu            sync.Mutex
+	mysqlTableCatalogLastQuery          string
+)
+
+type mysqlTableCatalogDriver struct{}
+
+type mysqlTableCatalogConn struct{}
+
+type mysqlTableCatalogRows struct {
+	index int
+}
+
+func (mysqlTableCatalogDriver) Open(string) (driver.Conn, error) {
+	return mysqlTableCatalogConn{}, nil
+}
+
+func (mysqlTableCatalogConn) Prepare(string) (driver.Stmt, error) {
+	return nil, driver.ErrSkip
+}
+
+func (mysqlTableCatalogConn) Close() error { return nil }
+
+func (mysqlTableCatalogConn) Begin() (driver.Tx, error) {
+	return nil, driver.ErrSkip
+}
+
+func (mysqlTableCatalogConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	mysqlTableCatalogStateMu.Lock()
+	mysqlTableCatalogLastQuery = query
+	mysqlTableCatalogStateMu.Unlock()
+	return &mysqlTableCatalogRows{}, nil
+}
+
+func (r *mysqlTableCatalogRows) Columns() []string {
+	return []string{"TABLE_NAME"}
+}
+
+func (r *mysqlTableCatalogRows) Close() error { return nil }
+
+func (r *mysqlTableCatalogRows) Next(dest []driver.Value) error {
+	rows := [][]driver.Value{
+		{"ldf_application_type"},
+		{"ldf_application_type"},
+		{"md_item_type"},
+	}
+	if r.index >= len(rows) {
+		return io.EOF
+	}
+	dest[0] = rows[r.index][0]
+	r.index++
+	return nil
+}
 
 func TestCollectMySQLDatabaseNames_FallsBackToCurrentDatabase(t *testing.T) {
 	t.Parallel()
@@ -32,6 +91,40 @@ func TestCollectMySQLDatabaseNames_FallsBackToCurrentDatabase(t *testing.T) {
 	want := []string{"biz_app"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("unexpected database names, got=%v want=%v", got, want)
+	}
+}
+
+func TestMySQLGetTablesDeduplicatesMySQLCompatibleCatalogRows(t *testing.T) {
+	registerMySQLTableCatalogDriverOnce.Do(func() {
+		sql.Register(mysqlTableCatalogDriverName, mysqlTableCatalogDriver{})
+	})
+
+	mysqlTableCatalogStateMu.Lock()
+	mysqlTableCatalogLastQuery = ""
+	mysqlTableCatalogStateMu.Unlock()
+
+	conn, err := sql.Open(mysqlTableCatalogDriverName, "")
+	if err != nil {
+		t.Fatalf("open MySQL catalog test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = conn.Close()
+	})
+
+	tables, err := (&MySQLDB{conn: conn}).GetTables("ldf_server_dbs_dev")
+	if err != nil {
+		t.Fatalf("GetTables returned error: %v", err)
+	}
+	want := []string{"ldf_application_type", "md_item_type"}
+	if !reflect.DeepEqual(tables, want) {
+		t.Fatalf("GetTables returned %v, want %v", tables, want)
+	}
+
+	mysqlTableCatalogStateMu.Lock()
+	lastQuery := mysqlTableCatalogLastQuery
+	mysqlTableCatalogStateMu.Unlock()
+	if !strings.Contains(lastQuery, "SELECT TABLE_NAME FROM information_schema.tables") {
+		t.Fatalf("GetTables query should preserve raw catalog rows, got %s", lastQuery)
 	}
 }
 

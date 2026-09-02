@@ -4,7 +4,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"sort"
@@ -148,7 +150,7 @@ func (i *IoTDBDB) Connect(config connection.ConnectionConfig) (err error) {
 	session, err := newIoTDBSessionRunner(runConfig)
 	if err != nil {
 		_ = i.Close()
-		return err
+		return explainIoTDBConnectError(config, err)
 	}
 	i.session = session
 	i.pingTimeout = getConnectTimeout(runConfig)
@@ -157,6 +159,25 @@ func (i *IoTDBDB) Connect(config connection.ConnectionConfig) (err error) {
 		return err
 	}
 	return nil
+}
+
+func explainIoTDBConnectError(config connection.ConnectionConfig, err error) error {
+	if err == nil {
+		return nil
+	}
+	lower := strings.ToLower(err.Error())
+	if !errors.Is(err, io.EOF) &&
+		!errors.Is(err, io.ErrUnexpectedEOF) &&
+		!strings.Contains(lower, "connection reset by peer") {
+		return err
+	}
+
+	endpoint := net.JoinHostPort(strings.TrimSpace(config.Host), strconv.Itoa(config.Port))
+	return fmt.Errorf(
+		"IoTDB RPC 握手未收到有效响应（目标 %s）：%w；请确认目标端口为 IoTDB RPC，容器内 dn_rpc_address 可从容器网络访问（Docker 通常应设为 0.0.0.0），并确保 rpcCompression 与服务端一致",
+		endpoint,
+		err,
+	)
 }
 
 func (i *IoTDBDB) Close() error {

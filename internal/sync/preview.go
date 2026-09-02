@@ -1,6 +1,9 @@
 package sync
 
 import (
+	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
+	"context"
 	"fmt"
 	"strings"
 )
@@ -18,25 +21,45 @@ type PreviewUpdateRow struct {
 }
 
 type TableDiffPreview struct {
-	Table             string             `json:"table"`
-	PKColumn          string             `json:"pkColumn"`
-	PKColumns         []string           `json:"pkColumns,omitempty"`
-	ColumnTypes       map[string]string  `json:"columnTypes,omitempty"`
-	SchemaSummary     string             `json:"schemaSummary,omitempty"`
-	SchemaWarnings    []string           `json:"schemaWarnings,omitempty"`
-	SchemaStatements  []string           `json:"schemaStatements,omitempty"`
-	UnmigratedIndexes []UnmigratedIndex  `json:"unmigratedIndexes,omitempty"`
-	TotalInserts      int                `json:"totalInserts"`
-	TotalUpdates      int                `json:"totalUpdates"`
-	TotalDeletes      int                `json:"totalDeletes"`
-	Inserts           []PreviewRow       `json:"inserts"`
-	Updates           []PreviewUpdateRow `json:"updates"`
-	Deletes           []PreviewRow       `json:"deletes"`
+	Table     string   `json:"table"`
+	PKColumn  string   `json:"pkColumn"`
+	PKColumns []string `json:"pkColumns,omitempty"`
+	// RowSelectionSupported is false when this preview has no stable key. The
+	// rows remain useful as an import sample, but must not be presented as
+	// individually selectable changes.
+	RowSelectionSupported bool               `json:"rowSelectionSupported"`
+	ColumnTypes           map[string]string  `json:"columnTypes,omitempty"`
+	SchemaSummary         string             `json:"schemaSummary,omitempty"`
+	SchemaWarnings        []string           `json:"schemaWarnings,omitempty"`
+	SchemaStatements      []string           `json:"schemaStatements,omitempty"`
+	UnmigratedIndexes     []UnmigratedIndex  `json:"unmigratedIndexes,omitempty"`
+	TotalInserts          int                `json:"totalInserts"`
+	TotalUpdates          int                `json:"totalUpdates"`
+	TotalDeletes          int                `json:"totalDeletes"`
+	Inserts               []PreviewRow       `json:"inserts"`
+	Updates               []PreviewUpdateRow `json:"updates"`
+	Deletes               []PreviewRow       `json:"deletes"`
 }
 
 func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (TableDiffPreview, error) {
+	runner := &SyncEngine{reporter: s.reporter, ctx: context.Background()}
+	return runner.preview(config, tableName, limit)
+}
+
+func (s *SyncEngine) PreviewContext(ctx context.Context, config SyncConfig, tableName string, limit int) (TableDiffPreview, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runner := &SyncEngine{reporter: s.reporter, ctx: markSyncDriverContext(ctx)}
+	return runner.preview(config, tableName, limit)
+}
+
+func (s *SyncEngine) preview(config SyncConfig, tableName string, limit int) (TableDiffPreview, error) {
 	config = normalizeSyncConnectionDatabases(config)
 	config = normalizeMappedSyncTables(config)
+	if err := s.contextError(); err != nil {
+		return TableDiffPreview{}, err
+	}
 	if limit <= 0 {
 		limit = 200
 	}
@@ -71,12 +94,24 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 	if err := sourceDB.Connect(config.SourceConfig); err != nil {
 		return TableDiffPreview{}, syncWrapDetailError("data_sync.backend.error.connect_source_failed", err)
 	}
+	if err := s.contextError(); err != nil {
+		_ = sourceDB.Close()
+		return TableDiffPreview{}, err
+	}
 	defer sourceDB.Close()
+	db.BindMetadataContext(sourceDB, s.context())
+	defer db.ClearMetadataContext(sourceDB)
 
 	if err := targetDB.Connect(config.TargetConfig); err != nil {
 		return TableDiffPreview{}, syncWrapDetailError("data_sync.backend.error.connect_target_failed", err)
 	}
+	if err := s.contextError(); err != nil {
+		_ = targetDB.Close()
+		return TableDiffPreview{}, err
+	}
 	defer targetDB.Close()
+	db.BindMetadataContext(targetDB, s.context())
+	defer db.ClearMetadataContext(targetDB)
 
 	plan, cols, targetCols, err := buildSchemaMigrationPlan(config, tableName, sourceDB, targetDB)
 	if err != nil {
@@ -104,13 +139,30 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 		}, nil
 	}
 
+	tableMode := normalizeSyncMode(config.Mode)
+	needsComparisonKey := tableMode == "insert_update" && plan.TargetTableExists
 	pkCols, err := syncKeyColumnsForTable(config, tableName, cols)
 	if err != nil {
 		return TableDiffPreview{}, err
 	}
-	if len(pkCols) == 0 {
+	if needsComparisonKey && len(pkCols) == 0 {
 		return TableDiffPreview{}, syncTextError("data_sync.backend.error.preview_pk_required", nil)
 	}
+
+	if !needsComparisonKey {
+		previewKeyCols := append([]string(nil), pkCols...)
+		if len(previewKeyCols) > 0 && hasExplicitSyncMappings(config) {
+			for index, sourceKey := range pkCols {
+				mappedKey, ok := projection.TargetColumn(sourceKey)
+				if !ok || strings.TrimSpace(mappedKey) == "" {
+					return TableDiffPreview{}, fmt.Errorf("表 %s 的稳定 key 字段 %s 未映射到目标字段，无法生成预览", tableName, sourceKey)
+				}
+				previewKeyCols[index] = mappedKey
+			}
+		}
+		return s.previewInsertOnlyTable(config, tableName, limit, sourceDB, plan, cols, targetCols, projection, schemaStatements, previewKeyCols)
+	}
+
 	sourcePKCol := pkCols[0]
 	pkColsForCompare := append([]string(nil), pkCols...)
 	if hasExplicitSyncMappings(config) {
@@ -127,20 +179,21 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 	sourceType := resolveMigrationDBType(config.SourceConfig)
 	targetType := resolveMigrationDBType(config.TargetConfig)
 	out := TableDiffPreview{
-		Table:             tableName,
-		PKColumn:          strings.Join(pkColsForCompare, ","),
-		PKColumns:         append([]string(nil), pkColsForCompare...),
-		ColumnTypes:       make(map[string]string, len(cols)),
-		SchemaSummary:     firstNonEmpty(plan.PlannedAction, "结构预览"),
-		SchemaWarnings:    append([]string(nil), plan.Warnings...),
-		SchemaStatements:  append([]string(nil), schemaStatements...),
-		UnmigratedIndexes: append([]UnmigratedIndex(nil), plan.UnmigratedIndexes...),
-		TotalInserts:      0,
-		TotalUpdates:      0,
-		TotalDeletes:      0,
-		Inserts:           make([]PreviewRow, 0),
-		Updates:           make([]PreviewUpdateRow, 0),
-		Deletes:           make([]PreviewRow, 0),
+		Table:                 tableName,
+		PKColumn:              strings.Join(pkColsForCompare, ","),
+		PKColumns:             append([]string(nil), pkColsForCompare...),
+		RowSelectionSupported: true,
+		ColumnTypes:           make(map[string]string, len(cols)),
+		SchemaSummary:         firstNonEmpty(plan.PlannedAction, "结构预览"),
+		SchemaWarnings:        append([]string(nil), plan.Warnings...),
+		SchemaStatements:      append([]string(nil), schemaStatements...),
+		UnmigratedIndexes:     append([]UnmigratedIndex(nil), plan.UnmigratedIndexes...),
+		TotalInserts:          0,
+		TotalUpdates:          0,
+		TotalDeletes:          0,
+		Inserts:               make([]PreviewRow, 0),
+		Updates:               make([]PreviewUpdateRow, 0),
+		Deletes:               make([]PreviewRow, 0),
 	}
 	columnTypes := cols
 	if hasExplicitSyncMappings(config) {
@@ -155,7 +208,6 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 		out.ColumnTypes[name] = typ
 	}
 
-	tableMode := normalizeSyncMode(config.Mode)
 	targetColSet := map[string]struct{}{}
 	if plan.TargetTableExists {
 		resolvedTargetCols := targetCols
@@ -167,45 +219,9 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 		}
 	}
 
-	if !plan.TargetTableExists || tableMode != "insert_update" {
-		sourceCount, counted, err := countTableRowsForSync(sourceDB, sourceType, plan.SourceQueryTable)
-		if err != nil {
-			return TableDiffPreview{}, fmt.Errorf("读取源表数量失败: %w", err)
-		}
-		query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, cols, sourcePKCol, limit, 0)
-		if strings.TrimSpace(query) == "" {
-			return TableDiffPreview{}, fmt.Errorf("当前数据源不支持分页预览")
-		}
-		sourceRows, _, err := sourceDB.Query(query)
-		if err != nil {
-			return TableDiffPreview{}, fmt.Errorf("读取源表失败: %w", err)
-		}
-		if hasExplicitSyncMappings(config) {
-			sourceRows, err = projectSyncRows(projection, sourceRows)
-			if err != nil {
-				return TableDiffPreview{}, err
-			}
-		}
-		if !counted {
-			sourceCount = len(sourceRows)
-		}
-		out.TotalInserts = sourceCount
-		for _, row := range sourceRows {
-			if len(out.Inserts) >= limit {
-				break
-			}
-			key, ok := selectionRowKey(row, pkColsForCompare)
-			if !ok {
-				continue
-			}
-			out.Inserts = append(out.Inserts, PreviewRow{PK: key, Row: row})
-		}
-		return out, nil
-	}
-
 	handled := false
 	if !hasExplicitSyncMappings(config) && len(pkCols) == 1 {
-		handled, _, err = scanTableDiffInPages(sourceDB, targetDB, sourceType, targetType, plan, cols, nil, sourcePKCol, targetColSet, true, func(page pagedDiffPage) error {
+		handled, _, err = scanTableDiffInPagesContext(s.context(), sourceDB, targetDB, sourceType, targetType, plan, cols, nil, sourcePKCol, targetColSet, true, func(page pagedDiffPage) error {
 			out.TotalInserts += len(page.Inserts)
 			out.TotalUpdates += len(page.Updates)
 			out.TotalDeletes += len(page.Deletes)
@@ -255,7 +271,7 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 		return out, nil
 	}
 
-	sourceRows, _, err := sourceDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, plan.SourceQueryTable)))
+	sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(sourceType, plan.SourceQueryTable)))
 	if err != nil {
 		return TableDiffPreview{}, fmt.Errorf("读取源表失败: %w", err)
 	}
@@ -268,7 +284,7 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 
 	targetRows := make([]map[string]interface{}, 0)
 	if plan.TargetTableExists {
-		targetRows, _, err = targetDB.Query(fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, plan.TargetQueryTable)))
+		targetRows, _, err = querySyncDatabaseContext(s.context(), targetDB, fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(targetType, plan.TargetQueryTable)))
 		if err != nil {
 			return TableDiffPreview{}, fmt.Errorf("读取目标表失败: %w", err)
 		}
@@ -317,5 +333,67 @@ func (s *SyncEngine) Preview(config SyncConfig, tableName string, limit int) (Ta
 		}
 	}
 
+	return out, nil
+}
+
+// previewInsertOnlyTable previews paths that import every source row, including
+// auto-creating a missing target. They do not compare against existing rows and
+// therefore must not require or manufacture a stable key.
+func (s *SyncEngine) previewInsertOnlyTable(config SyncConfig, tableName string, limit int, sourceDB db.Database, plan SchemaMigrationPlan, cols, targetCols []connection.ColumnDefinition, projection *CompiledProjection, schemaStatements, selectionKeyCols []string) (TableDiffPreview, error) {
+	sourceType := resolveMigrationDBType(config.SourceConfig)
+	sourceCount, counted, err := countTableRowsForSyncContext(s.context(), sourceDB, sourceType, plan.SourceQueryTable)
+	if err != nil {
+		return TableDiffPreview{}, fmt.Errorf("读取源表数量失败: %w", err)
+	}
+	query := buildPagedSourceTableQuery(sourceType, plan.SourceQueryTable, cols, "", limit, 0)
+	if strings.TrimSpace(query) == "" {
+		return TableDiffPreview{}, fmt.Errorf("当前数据源不支持分页预览")
+	}
+	sourceRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, query)
+	if err != nil {
+		return TableDiffPreview{}, fmt.Errorf("读取源表失败: %w", err)
+	}
+	if hasExplicitSyncMappings(config) {
+		sourceRows, err = projectSyncRows(projection, sourceRows)
+		if err != nil {
+			return TableDiffPreview{}, err
+		}
+	}
+	if !counted {
+		sourceCount = len(sourceRows)
+	}
+	columnTypes := cols
+	if hasExplicitSyncMappings(config) {
+		columnTypes = targetCols
+	}
+	out := TableDiffPreview{
+		Table:                 tableName,
+		PKColumn:              strings.Join(selectionKeyCols, ","),
+		PKColumns:             append([]string(nil), selectionKeyCols...),
+		RowSelectionSupported: len(selectionKeyCols) > 0,
+		ColumnTypes:           make(map[string]string, len(columnTypes)),
+		SchemaSummary:         firstNonEmpty(plan.PlannedAction, "结构预览"),
+		SchemaWarnings:        append([]string(nil), plan.Warnings...),
+		SchemaStatements:      append([]string(nil), schemaStatements...),
+		UnmigratedIndexes:     append([]UnmigratedIndex(nil), plan.UnmigratedIndexes...),
+		TotalInserts:          sourceCount,
+		Inserts:               make([]PreviewRow, 0, min(limit, len(sourceRows))),
+		Updates:               make([]PreviewUpdateRow, 0),
+		Deletes:               make([]PreviewRow, 0),
+	}
+	for _, col := range columnTypes {
+		name := strings.ToLower(strings.TrimSpace(col.Name))
+		typ := strings.TrimSpace(col.Type)
+		if name != "" && typ != "" {
+			out.ColumnTypes[name] = typ
+		}
+	}
+	for _, row := range sourceRows {
+		if len(out.Inserts) >= limit {
+			break
+		}
+		key, _ := selectionRowKey(row, selectionKeyCols)
+		out.Inserts = append(out.Inserts, PreviewRow{PK: key, Row: row})
+	}
 	return out, nil
 }

@@ -422,6 +422,76 @@ func TestExecuteExplainStatementsSingleResultFallbackHonorsContext(t *testing.T)
 	}
 }
 
+type legacyContextBoundaryExplainDatabase struct {
+	db.Database
+	queryCalls int
+	onQuery    func()
+}
+
+func (database *legacyContextBoundaryExplainDatabase) Query(string) ([]map[string]interface{}, []string, error) {
+	database.queryCalls++
+	if database.onQuery != nil {
+		database.onQuery()
+	}
+	return []map[string]interface{}{{"detail": "legacy"}}, []string{"detail"}, nil
+}
+
+type legacyContextBoundaryMultiExplainDatabase struct {
+	legacyContextBoundaryExplainDatabase
+	multiCalls int
+	onMulti    func()
+}
+
+func (database *legacyContextBoundaryMultiExplainDatabase) QueryMulti(string) ([]connection.ResultSetData, error) {
+	database.multiCalls++
+	if database.onMulti != nil {
+		database.onMulti()
+	}
+	return []connection.ResultSetData{{Rows: []map[string]interface{}{{"detail": "legacy"}}, Columns: []string{"detail"}}}, nil
+}
+
+func TestExecuteExplainStatementsLegacyFallbackChecksContextBoundaries(t *testing.T) {
+	t.Run("single result does not dispatch after cancellation", func(t *testing.T) {
+		database := &legacyContextBoundaryExplainDatabase{}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, _, err := executeExplainStatementsWithText(
+			ctx, database, "sqlite", "EXPLAIN QUERY PLAN SELECT 1", nil,
+			connection.ExplainFormatTable, defaultExplainBackendText,
+		)
+		if !errors.Is(err, context.Canceled) || database.queryCalls != 0 {
+			t.Fatalf("result error=%v queryCalls=%d, want pre-dispatch cancellation", err, database.queryCalls)
+		}
+	})
+
+	t.Run("single result reports cancellation observed after dispatch", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		database := &legacyContextBoundaryExplainDatabase{onQuery: cancel}
+
+		_, _, err := executeExplainStatementsWithText(
+			ctx, database, "sqlite", "EXPLAIN QUERY PLAN SELECT 1", nil,
+			connection.ExplainFormatTable, defaultExplainBackendText,
+		)
+		if !errors.Is(err, context.Canceled) || database.queryCalls != 1 {
+			t.Fatalf("result error=%v queryCalls=%d, want post-dispatch cancellation", err, database.queryCalls)
+		}
+	})
+
+	t.Run("multi result reports cancellation observed after dispatch", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		database := &legacyContextBoundaryMultiExplainDatabase{onMulti: cancel}
+
+		_, _, err := executeExplainStatementsWithText(
+			ctx, database, "mysql", "EXPLAIN FORMAT=JSON SELECT 1", nil,
+			connection.ExplainFormatJSON, defaultExplainBackendText,
+		)
+		if !errors.Is(err, context.Canceled) || database.multiCalls != 1 || database.queryCalls != 0 {
+			t.Fatalf("result error=%v multiCalls=%d queryCalls=%d, want post-dispatch cancellation", err, database.multiCalls, database.queryCalls)
+		}
+	})
+}
+
 func TestBuildExplainQuery_UnsupportedDialectReturnsError(t *testing.T) {
 	_, _, _, _, err := buildExplainQuery("mongodb", "db.t.find()")
 	if err == nil {

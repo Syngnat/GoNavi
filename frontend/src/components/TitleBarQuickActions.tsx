@@ -18,9 +18,11 @@ interface TitleBarQuickActionsProps {
   label: string;
   moreLabel: string;
   actions: TitleBarQuickAction[];
+  /** Rendered after the "more" dropdown as standalone buttons (outside the menu). */
+  trailingActions?: TitleBarQuickAction[];
 }
 
-const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, moreLabel, actions }) => {
+const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, moreLabel, actions, trailingActions }) => {
   // Hide tooltips while a dropdown is open so they don't stack on the menu.
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
 
@@ -50,59 +52,63 @@ const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, more
     });
   };
 
+  const renderStandaloneAction = (action: TitleBarQuickAction) => (
+    action.menu && action.menu.length > 0 ? (
+      <Tooltip
+        key={action.key}
+        title={action.menu.map((menuAction) => menuAction.label).join('、')}
+        placement="bottom"
+        mouseEnterDelay={0.75}
+        open={openMenuKey === action.key ? false : undefined}
+      >
+        <Dropdown
+          menu={{ items: buildMenuItems(action.menu), className: 'gn-v2-titlebar-quick-menu' }}
+          trigger={['click']}
+          placement="bottomLeft"
+          rootClassName="gn-v2-titlebar-quick-dropdown gn-v2-action-menu-popup-host"
+          popupRender={(menu) => renderV2ActionMenuPopup(menu, true, {
+            title: action.label,
+            meta: label,
+            icon: action.icon,
+            showHeader: false,
+          })}
+          open={openMenuKey === action.key}
+          onOpenChange={(open) => handleMenuOpenChange(action.key, open)}
+        >
+          <button
+            type="button"
+            className="gn-v2-titlebar-quick-action gn-v2-titlebar-quick-menu"
+            data-titlebar-quick-menu={action.key}
+            data-no-titlebar-toggle="true"
+            aria-label={action.label}
+          >
+            {action.icon}
+            <span>{action.label}</span>
+          </button>
+        </Dropdown>
+      </Tooltip>
+    ) : (
+      <Tooltip key={action.key} title={action.label} placement="bottom" mouseEnterDelay={0.75}>
+        <button
+          type="button"
+          className="gn-v2-titlebar-quick-action"
+          data-titlebar-quick-action={action.key}
+          data-no-titlebar-toggle="true"
+          aria-label={action.label}
+          disabled={action.disabled}
+          onClick={action.onClick}
+        >
+          {action.icon}
+          <span>{action.label}</span>
+        </button>
+      </Tooltip>
+    )
+  );
+
   return (
-    <div className="gn-v2-titlebar-quick-actions" data-titlebar-quick-actions="true" role="group" aria-label={label}>
+    <div className="gn-v2-titlebar-quick-actions" data-titlebar-quick-actions="true" data-no-titlebar-toggle="true" role="group" aria-label={label}>
       <div className="gn-v2-titlebar-quick-primary">
-        {primaryActions.map((action) => (
-          action.menu && action.menu.length > 0 ? (
-            <Tooltip
-              key={action.key}
-              title={action.menu.map((menuAction) => menuAction.label).join('、')}
-              placement="bottom"
-              mouseEnterDelay={0.75}
-              open={openMenuKey === action.key ? false : undefined}
-            >
-              <Dropdown
-                menu={{ items: buildMenuItems(action.menu), className: 'gn-v2-titlebar-quick-menu' }}
-                trigger={['click']}
-                placement="bottomLeft"
-                rootClassName="gn-v2-titlebar-quick-dropdown gn-v2-action-menu-popup-host"
-                popupRender={(menu) => renderV2ActionMenuPopup(menu, true, {
-                  title: action.label,
-                  meta: label,
-                  icon: action.icon,
-                  showHeader: false,
-                })}
-                open={openMenuKey === action.key}
-                onOpenChange={(open) => handleMenuOpenChange(action.key, open)}
-              >
-                <button
-                  type="button"
-                  className="gn-v2-titlebar-quick-action gn-v2-titlebar-quick-menu"
-                  data-titlebar-quick-menu={action.key}
-                  aria-label={action.label}
-                >
-                  {action.icon}
-                  <span>{action.label}</span>
-                </button>
-              </Dropdown>
-            </Tooltip>
-          ) : (
-            <Tooltip key={action.key} title={action.label} placement="bottom" mouseEnterDelay={0.75}>
-              <button
-                type="button"
-                className="gn-v2-titlebar-quick-action"
-                data-titlebar-quick-action={action.key}
-                aria-label={action.label}
-                disabled={action.disabled}
-                onClick={action.onClick}
-              >
-                {action.icon}
-                <span>{action.label}</span>
-              </button>
-            </Tooltip>
-          )
-        ))}
+        {primaryActions.map(renderStandaloneAction)}
       </div>
       {secondaryActions.length > 0 && (
         <Tooltip
@@ -128,14 +134,20 @@ const TitleBarQuickActions: React.FC<TitleBarQuickActionsProps> = ({ label, more
             <button
               type="button"
               className="gn-v2-titlebar-quick-more"
+              data-no-titlebar-toggle="true"
               aria-label={moreLabel}
               data-titlebar-quick-more="true"
             >
               <MoreOutlined aria-hidden="true" />
-              <span>{moreLabel}</span>
+              <span className="gn-v2-titlebar-quick-label">{moreLabel}</span>
             </button>
           </Dropdown>
         </Tooltip>
+      )}
+      {trailingActions && trailingActions.length > 0 && (
+        <div className="gn-v2-titlebar-quick-primary">
+          {trailingActions.map(renderStandaloneAction)}
+        </div>
       )}
     </div>
   );

@@ -69,6 +69,7 @@ export const useDataGridV2Actions = (ctx: DataGridV2ActionsContext) => {
     filterConditions,
     handleBatchFillToSelected,
     handleCellSetNull,
+    handleSetNullForSelectedCells,
     handleCopyColumnData,
     handleCopyContextMenuFieldName,
     handleOpenContextMenuRowEditor,
@@ -801,6 +802,11 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
           case 'set-null':
               handleCellSetNull();
               return;
+          case 'set-null-selected':
+              // This explicit menu action always targets the current cell
+              // selection; the right-clicked cell is not a fallback here.
+              handleSetNullForSelectedCells();
+              return;
           case 'edit-row':
               handleOpenContextMenuRowEditor();
               return;
@@ -867,6 +873,7 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
       getTargets,
       handleBatchFillToSelected,
       handleCellSetNull,
+      handleSetNullForSelectedCells,
       handleUndoContextMenuCellChange,
       handleCopyContextMenuFieldName,
       handleCopyCsv,

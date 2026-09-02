@@ -13,6 +13,86 @@ const flush = async () => {
 };
 
 describe('DataSyncObjectPicker', () => {
+  it('uses modal semantics and closes from Escape or the backdrop', async () => {
+    const close = vi.fn();
+    const renderer = TestRenderer.create(
+      <DataSyncObjectPicker
+        open
+        objects={[]}
+        mappedSourceNames={[]}
+        t={createDataSyncWorkbenchTranslate('zh-CN')}
+        onClose={close}
+        onConfirm={() => undefined}
+      />,
+    );
+    await flush();
+
+    const dialog = renderer.root.findByProps({ 'data-data-sync-object-picker': 'true' });
+    expect(dialog.props).toEqual(
+      expect.objectContaining({ role: 'dialog', 'aria-modal': 'true' }),
+    );
+
+    const preventDefault = vi.fn();
+    act(() => dialog.props.onKeyDown({ key: 'Escape', preventDefault }));
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+
+    const overlay = renderer.root.findByProps({ 'data-data-sync-overlay': 'object-picker' });
+    const backdrop = {};
+    act(() => overlay.props.onMouseDown({ target: backdrop, currentTarget: backdrop }));
+    expect(close).toHaveBeenCalledTimes(2);
+  });
+
+  it('cannot be dismissed while selected objects are being inspected', async () => {
+    let resolveConfirm!: () => void;
+    const confirm = vi.fn(
+      () => new Promise<void>((resolve) => {
+        resolveConfirm = resolve;
+      }),
+    );
+    const close = vi.fn();
+    const renderer = TestRenderer.create(
+      <DataSyncObjectPicker
+        open
+        objects={[{ name: 'orders', kind: 'table' }]}
+        mappedSourceNames={[]}
+        t={createDataSyncWorkbenchTranslate('zh-CN')}
+        onClose={close}
+        onConfirm={confirm}
+      />,
+    );
+    await flush();
+
+    act(() => {
+      renderer.root
+        .findByProps({ 'data-object-name': 'orders' })
+        .findByType('input').props.onChange({ target: { checked: true } });
+    });
+    const addButton = renderer.root
+      .findAllByType('button')
+      .find((button) => button.children.includes('添加 1 个对象'))!;
+    act(() => addButton.props.onClick());
+
+    const dialog = renderer.root.findByProps({ 'data-data-sync-object-picker': 'true' });
+    const preventDefault = vi.fn();
+    act(() => dialog.props.onKeyDown({ key: 'Escape', preventDefault }));
+    const overlay = renderer.root.findByProps({ 'data-data-sync-overlay': 'object-picker' });
+    const backdrop = {};
+    act(() => overlay.props.onMouseDown({ target: backdrop, currentTarget: backdrop }));
+
+    expect(
+      renderer.root.findByProps({ 'aria-label': '关闭' }).props.disabled,
+    ).toBe(true);
+    expect(close).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveConfirm();
+      await Promise.resolve();
+    });
+    expect(confirm).toHaveBeenCalledWith(['orders']);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('searches, selects all filtered objects, preserves cross-search choices, and excludes mapped rows', async () => {
     const confirm = vi.fn(async () => undefined);
     const renderer = TestRenderer.create(
@@ -88,5 +168,47 @@ describe('DataSyncObjectPicker', () => {
     });
     act(() => includeViews.props.onChange({ target: { checked: true } }));
     expect(renderer.root.findByProps({ 'data-object-name': 'orders_view' })).toBeTruthy();
+  });
+
+  it('renders large result sets in bounded batches and resets the batch on search', async () => {
+    const objects = Array.from({ length: 321 }, (_, index) => ({
+      name: `object_${String(index + 1).padStart(3, '0')}`,
+      kind: 'table' as const,
+    }));
+    const renderer = TestRenderer.create(
+      <DataSyncObjectPicker
+        open
+        objects={objects}
+        mappedSourceNames={[]}
+        t={createDataSyncWorkbenchTranslate('en-US')}
+        onClose={() => undefined}
+        onConfirm={() => undefined}
+      />,
+    );
+    await flush();
+
+    expect(
+      renderer.root.findAll(
+        (node) => typeof node.props['data-object-name'] === 'string',
+      ),
+    ).toHaveLength(160);
+    const showMore = () =>
+      renderer.root.findByProps({ 'data-object-picker-control': 'show-more' });
+    act(() => showMore().props.onClick());
+    expect(
+      renderer.root.findAll(
+        (node) => typeof node.props['data-object-name'] === 'string',
+      ),
+    ).toHaveLength(320);
+
+    const search = renderer.root.findByProps({
+      'data-object-picker-control': 'search',
+    });
+    act(() => search.props.onChange({ target: { value: 'object_' } }));
+    expect(
+      renderer.root.findAll(
+        (node) => typeof node.props['data-object-name'] === 'string',
+      ),
+    ).toHaveLength(160);
   });
 });

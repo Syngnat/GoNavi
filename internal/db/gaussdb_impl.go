@@ -15,7 +15,6 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/ssh"
-	"GoNavi-Wails/internal/utils"
 
 	_ "github.com/HuaweiCloudDeveloper/gaussdb-go/stdlib"
 )
@@ -27,6 +26,11 @@ const defaultGaussDBPort = 5432
 type GaussDB struct {
 	PostgresDB
 }
+
+var (
+	openGaussDB                 = sql.Open
+	gaussDBRuntimeSupportStatus = DriverRuntimeSupportStatus
+)
 
 func (g *GaussDB) bindMetadataContext(ctx context.Context) {
 	BindMetadataContext(&g.PostgresDB, ctx)
@@ -119,7 +123,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 		}
 	}()
 
-	if supported, reason := DriverRuntimeSupportStatus("gaussdb"); !supported {
+	if supported, reason := gaussDBRuntimeSupportStatus("gaussdb"); !supported {
 		if strings.TrimSpace(reason) == "" {
 			reason = localizedDriverRuntimeText("driver_manager.backend.status.optional_disabled", map[string]any{"name": "GaussDB"})
 		}
@@ -175,7 +179,7 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 			attemptConfig.Database = dbName
 			dsn := g.getDSN(attemptConfig)
 
-			dbConn, err := sql.Open("gaussdb", dsn)
+			dbConn, err := openGaussDB("gaussdb", dsn)
 			if err != nil {
 				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
 				continue
@@ -197,7 +201,14 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 				logger.Infof("GaussDB 自动选择连接数据库：%s", dbName)
 			}
 
-			g.ensureSearchPath(dsn)
+			if err := g.ensureSearchPath(dsn); err != nil {
+				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
+				if g.conn != nil {
+					_ = g.conn.Close()
+					g.conn = nil
+				}
+				continue
+			}
 
 			return nil
 		}
@@ -209,56 +220,47 @@ func (g *GaussDB) Connect(config connection.ConnectionConfig) (err error) {
 	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
-func (g *GaussDB) ensureSearchPath(baseDSN string) {
+func (g *GaussDB) ensureSearchPath(baseDSN string) error {
 	if g.conn == nil {
-		return
+		return fmt.Errorf("连接未打开")
+	}
+	if postgresDSNHasExplicitSearchPath(baseDSN) {
+		return nil
 	}
 
-	rawSchemas := g.queryUserSchemas()
+	rawSchemas, err := g.queryUserSchemas()
+	if err != nil {
+		return fmt.Errorf("查询用户 schema 失败：%w", err)
+	}
 	if len(rawSchemas) == 0 {
-		return
+		return nil
 	}
 
-	searchPathSQL, normalizedSchemas := buildKingbaseSearchPathCommon(rawSchemas)
+	searchPathSQL, _ := buildKingbaseSearchPathCommon(rawSchemas)
 	if strings.TrimSpace(searchPathSQL) == "" {
-		return
+		return nil
 	}
 
-	searchPathDSNVal := strings.Join(normalizedSchemas, ",")
-	u, parseErr := url.Parse(baseDSN)
-	if parseErr == nil {
-		q := u.Query()
-		q.Set("search_path", searchPathDSNVal)
-		u.RawQuery = q.Encode()
-		newDSN := u.String()
-
-		newDB, err := sql.Open("gaussdb", newDSN)
-		if err == nil {
-			configureSQLConnectionPool(newDB, "gaussdb")
-			newDB.SetConnMaxLifetime(5 * time.Minute)
-			oldConn := g.conn
-			g.conn = newDB
-			if err := g.Ping(); err == nil {
-				_ = oldConn.Close()
-				logger.Infof("GaussDB 已通过 DSN 配置 search_path：%s", searchPathDSNVal)
-				return
-			}
-			_ = newDB.Close()
-			g.conn = oldConn
-			logger.Warnf("GaussDB DSN search_path 验证失败，回退至 SET 方式")
-		}
+	newDSN, err := postgresDSNWithSearchPath(baseDSN, searchPathSQL)
+	if err != nil {
+		return err
 	}
 
-	timeout := g.pingTimeout
-	if timeout <= 0 {
-		timeout = 5 * time.Second
+	newDB, err := openGaussDB("gaussdb", newDSN)
+	if err != nil {
+		return fmt.Errorf("打开带 search_path 的连接失败: %w", err)
 	}
-	ctx, cancel := utils.ContextWithTimeout(timeout)
-	defer cancel()
+	configureSQLConnectionPool(newDB, "gaussdb")
+	newDB.SetConnMaxLifetime(5 * time.Minute)
+	oldConn := g.conn
+	g.conn = newDB
+	if err := g.Ping(); err != nil {
+		_ = newDB.Close()
+		g.conn = oldConn
+		return fmt.Errorf("验证带 search_path 的连接失败: %w", err)
+	}
 
-	if _, err := g.conn.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", searchPathSQL)); err != nil {
-		logger.Warnf("GaussDB 设置 search_path 失败：%v", err)
-		return
-	}
-	logger.Infof("GaussDB 已通过 SET 设置 search_path：%s", searchPathSQL)
+	_ = oldConn.Close()
+	logger.Infof("GaussDB 已通过 DSN 配置 search_path：%s", searchPathSQL)
+	return nil
 }

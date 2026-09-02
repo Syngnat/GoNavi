@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -231,6 +232,29 @@ func TestStorePersistsIncompleteDraftButManagerWillNotRunIt(t *testing.T) {
 	}
 }
 
+func TestStorePutJobUsesPersistedRevisionAsTheCASValue(t *testing.T) {
+	store := openTestStore(t)
+	first := putTestJob(t, store, "forbid")
+	if first.Revision != 1 {
+		t.Fatalf("first persisted revision = %d, want 1", first.Revision)
+	}
+
+	updated := first
+	updated.Name = "orders sync updated"
+	second, err := store.PutJob(context.Background(), updated)
+	if err != nil {
+		t.Fatalf("second save with current revision failed: %v", err)
+	}
+	if second.Revision != 2 {
+		t.Fatalf("second persisted revision = %d, want 2", second.Revision)
+	}
+
+	first.Name = "stale edit"
+	if _, err := store.PutJob(context.Background(), first); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale save error = %v, want ErrRevisionConflict", err)
+	}
+}
+
 func TestStoreResetCheckpointRejectsActiveRun(t *testing.T) {
 	store := openTestStore(t)
 	definition := putTestJob(t, store, "forbid")
@@ -403,5 +427,91 @@ func TestStoreErrorRowRetryClaimFencesTransitionsAndRecoversExpiredLease(t *test
 	resolved, err := store.GetErrorRow(context.Background(), row.ID)
 	if err != nil || resolved.Status != ErrorRowResolved || resolved.Attempts != 2 || resolved.RetryOwner != "" || resolved.RetryLeaseExpiresAt != 0 {
 		t.Fatalf("resolved retried row = %#v, err=%v", resolved, err)
+	}
+}
+
+func TestStorePagesAndClearsOnlyTerminalRunHistory(t *testing.T) {
+	store := openTestStore(t)
+	definition := putTestJob(t, store, "queue")
+	first := createStoredRun(t, store, definition, RunStatusSucceeded)
+	second := createStoredRun(t, store, definition, RunStatusFailed)
+	third := createStoredRun(t, store, definition, RunStatusCanceled)
+	active := createStoredRun(t, store, definition, RunStatusRunning)
+	for index, run := range []RunRecord{first, second, third, active} {
+		if _, err := store.db.ExecContext(context.Background(), `UPDATE data_sync_runs SET created_at = ? WHERE id = ?`, int64(1_000+index), run.ID); err != nil {
+			t.Fatalf("set run created_at: %v", err)
+		}
+	}
+
+	page, err := store.ListRunsPage(context.Background(), definition.ID, nil, 2)
+	if err != nil {
+		t.Fatalf("list first run page: %v", err)
+	}
+	if got := []string{page.Runs[0].ID, page.Runs[1].ID}; !reflect.DeepEqual(got, []string{active.ID, third.ID}) {
+		t.Fatalf("first page = %#v", got)
+	}
+	if page.NextCursor == nil || page.NextCursor.ID != third.ID {
+		t.Fatalf("first next cursor = %#v", page.NextCursor)
+	}
+	if page.Total != 4 {
+		t.Fatalf("first total = %d, want 4", page.Total)
+	}
+	page, err = store.ListRunsPage(context.Background(), definition.ID, page.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("list second run page: %v", err)
+	}
+	if got := []string{page.Runs[0].ID, page.Runs[1].ID}; !reflect.DeepEqual(got, []string{second.ID, first.ID}) {
+		t.Fatalf("second page = %#v", got)
+	}
+	if page.NextCursor != nil {
+		t.Fatalf("second next cursor = %#v, want nil", page.NextCursor)
+	}
+	if page.Total != 4 {
+		t.Fatalf("second total = %d, want 4", page.Total)
+	}
+
+	if _, err := store.PutCheckpoint(context.Background(), Checkpoint{
+		Version: 1, Kind: "watermark", JobID: definition.ID, RunID: third.ID,
+		DefinitionRevision: definition.Revision, Table: "orders", Phase: "batch_committed",
+		CursorType: "watermark", Cursor: json.RawMessage(`{"id":3}`),
+	}); err != nil {
+		t.Fatalf("put checkpoint: %v", err)
+	}
+	if err := store.DeleteRun(context.Background(), active.ID); !errors.Is(err, ErrRunNotDeletable) {
+		t.Fatalf("delete active run error = %v, want ErrRunNotDeletable", err)
+	}
+	if err := store.PurgeJob(context.Background(), definition.ID); !errors.Is(err, ErrJobRunsActive) {
+		t.Fatalf("purge active job error = %v, want ErrJobRunsActive", err)
+	}
+	if _, err := store.GetJob(context.Background(), definition.ID); err != nil {
+		t.Fatalf("active job was deleted: %v", err)
+	}
+	if err := store.DeleteRun(context.Background(), third.ID); err != nil {
+		t.Fatalf("delete terminal run: %v", err)
+	}
+	checkpoint, err := store.GetCheckpoint(context.Background(), definition.ID)
+	if err != nil || checkpoint.RunID != third.ID {
+		t.Fatalf("checkpoint after deleting its history run = %#v, err=%v", checkpoint, err)
+	}
+	deleted, err := store.ClearTerminalRuns(context.Background(), definition.ID)
+	if err != nil || deleted != 2 {
+		t.Fatalf("clear terminal runs = %d, %v; want 2, nil", deleted, err)
+	}
+	remaining, err := store.ListRuns(context.Background(), definition.ID, 10)
+	if err != nil || len(remaining) != 1 || remaining[0].ID != active.ID {
+		t.Fatalf("remaining runs = %#v, err=%v", remaining, err)
+	}
+}
+
+func TestStorePurgeJobAllowsPausedRun(t *testing.T) {
+	store := openTestStore(t)
+	definition := putTestJob(t, store, "queue")
+	_ = createStoredRun(t, store, definition, RunStatusPaused)
+
+	if err := store.PurgeJob(context.Background(), definition.ID); err != nil {
+		t.Fatalf("purge paused job: %v", err)
+	}
+	if _, err := store.GetJob(context.Background(), definition.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("purged job get error = %v, want ErrNotFound", err)
 	}
 }

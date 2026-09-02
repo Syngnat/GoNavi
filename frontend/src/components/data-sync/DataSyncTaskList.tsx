@@ -5,7 +5,15 @@ import type { DataSyncWorkbenchTranslate } from './text';
 
 const taskKindKey = (kind: DataSyncTaskKind) => `task_kind.${kind}` as const;
 
+const endpointName = (
+  task: DataSyncTaskDefinition,
+  side: 'source' | 'target',
+  fallback: string,
+) => task[side].connectionName || task[side].connectionId || fallback;
+
 export const DataSyncTaskList: React.FC<{
+  id?: string;
+  containerRef?: React.Ref<HTMLElement>;
   tasks: DataSyncTaskDefinition[];
   selectedTaskId: string;
   search: string;
@@ -13,7 +21,10 @@ export const DataSyncTaskList: React.FC<{
   onSearchChange: (value: string) => void;
   onSelectTask: (taskId: string) => void;
   onNewTask: () => void;
+  onClose?: () => void;
 }> = ({
+  id,
+  containerRef,
   tasks,
   selectedTaskId,
   search,
@@ -21,19 +32,38 @@ export const DataSyncTaskList: React.FC<{
   onSearchChange,
   onSelectTask,
   onNewTask,
+  onClose,
 }) => (
-  <aside className="gn-data-sync-task-list" aria-label={t('task_list.title')}>
+  <aside
+    ref={containerRef}
+    id={id}
+    className="gn-data-sync-task-list"
+    aria-label={t('task_list.title')}
+  >
     <div className="gn-data-sync-task-list__header">
       <strong>{t('task_list.title')}</strong>
-      <button
-        type="button"
-        className="gn-data-sync-icon-button"
-        aria-label={t('workbench.new_task')}
-        title={t('workbench.new_task')}
-        onClick={onNewTask}
-      >
-        +
-      </button>
+      <span className="gn-data-sync-task-list__header-actions">
+        <button
+          type="button"
+          className="gn-data-sync-icon-button"
+          aria-label={t('workbench.new_task')}
+          title={t('workbench.new_task')}
+          onClick={onNewTask}
+        >
+          +
+        </button>
+        {onClose ? (
+          <button
+            type="button"
+            className="gn-data-sync-icon-button gn-data-sync-task-list__close"
+            aria-label={t('common.dismiss')}
+            title={t('common.dismiss')}
+            onClick={onClose}
+          >
+            ×
+          </button>
+        ) : null}
+      </span>
     </div>
     <label className="gn-data-sync-search">
       <span className="gn-data-sync-visually-hidden">{t('task_list.search')}</span>
@@ -54,12 +84,18 @@ export const DataSyncTaskList: React.FC<{
             className="gn-data-sync-task-row"
             data-task-id={task.id}
             data-selected={task.id === selectedTaskId ? 'true' : 'false'}
+            aria-current={task.id === selectedTaskId ? 'true' : undefined}
             onClick={() => onSelectTask(task.id)}
           >
             <span className="gn-data-sync-task-row__marker" aria-hidden="true" />
             <span className="gn-data-sync-task-row__content">
               <span className="gn-data-sync-task-row__name">
                 {task.name || t(taskKindKey(task.kind))}
+              </span>
+              <span className="gn-data-sync-task-row__route">
+                {endpointName(task, 'source', t('route.pending_source'))}
+                <span aria-hidden="true">→</span>
+                {endpointName(task, 'target', t('route.pending_target'))}
               </span>
               <span className="gn-data-sync-task-row__meta">
                 {t(taskKindKey(task.kind))} ·{' '}

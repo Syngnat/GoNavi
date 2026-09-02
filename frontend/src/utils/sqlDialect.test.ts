@@ -3,10 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { setCurrentLanguage } from '../i18n';
 import {
   isMysqlFamilyDialect,
+  appendTableAlias,
   resolveColumnTypeOptions,
   resolveSqlDialect,
   resolveSqlFunctions,
   resolveSqlKeywords,
+  resolveTableAliasSyntax,
 } from './sqlDialect';
 
 const values = (options: Array<{ value: string }>) => options.map((item) => item.value);
@@ -58,6 +60,23 @@ describe('sqlDialect', () => {
     expect(isMysqlFamilyDialect('oceanbase')).toBe(true);
     expect(isMysqlFamilyDialect('starrocks')).toBe(true);
     expect(isMysqlFamilyDialect('oracle')).toBe(false);
+  });
+
+  it('uses dialect-compatible table alias syntax', () => {
+    expect(resolveTableAliasSyntax('mysql')).toBe('as');
+    expect(resolveTableAliasSyntax('tidb')).toBe('as');
+    expect(resolveTableAliasSyntax('postgres')).toBe('as');
+    expect(resolveTableAliasSyntax('oceanbase')).toBe('as');
+    expect(resolveTableAliasSyntax('oracle')).toBe('bare');
+    expect(resolveTableAliasSyntax(resolveSqlDialect('oceanbase', '', { oceanBaseProtocol: 'oracle' }))).toBe('bare');
+    expect(resolveTableAliasSyntax('dameng')).toBe('bare');
+    expect(resolveTableAliasSyntax('iotdb')).toBe('none');
+    expect(resolveTableAliasSyntax('unknown')).toBe('none');
+    expect(appendTableAlias('system_user', 'su', 'mysql')).toBe('system_user AS su');
+    expect(appendTableAlias('system_user', 'su', 'tidb')).toBe('system_user AS su');
+    expect(appendTableAlias('system_user', 'su', 'oracle')).toBe('system_user su');
+    expect(appendTableAlias('system_user', 'su', 'unknown')).toBe('system_user');
+    expect(appendTableAlias('', 'su', 'mysql')).toBe('AS su');
   });
 
   it('resolves field type options per datasource family', () => {

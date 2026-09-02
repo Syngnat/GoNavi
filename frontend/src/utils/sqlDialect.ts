@@ -215,6 +215,32 @@ export const isOracleLikeDialect = (dbType: string): boolean => (
 
 export const isSqlServerDialect = (dbType: string): boolean => resolveSqlDialect(dbType) === 'sqlserver';
 
+export type TableAliasSyntax = 'as' | 'bare' | 'none';
+
+export const resolveTableAliasSyntax = (dbType: string): TableAliasSyntax => {
+  const dialect = resolveSqlDialect(dbType);
+  if ([
+    'mysql', 'mariadb', 'tidb', 'oceanbase', 'diros', 'starrocks',
+    'postgres', 'kingbase', 'highgo', 'vastbase', 'opengauss', 'gaussdb',
+    'sqlserver', 'sqlite', 'duckdb', 'clickhouse', 'tdengine', 'trino',
+  ].includes(dialect)) {
+    return 'as';
+  }
+  if (['oracle', 'dameng', 'sphinx', 'iris'].includes(dialect)) {
+    return 'bare';
+  }
+  return 'none';
+};
+
+export const appendTableAlias = (tableName: string, alias: string, dbType: string): string => {
+  if (!alias) return tableName;
+  const syntax = resolveTableAliasSyntax(dbType);
+  const prefix = tableName ? `${tableName} ` : '';
+  if (syntax === 'as') return `${prefix}AS ${alias}`;
+  if (syntax === 'bare') return `${prefix}${alias}`;
+  return tableName;
+};
+
 export const isBacktickIdentifierDialect = (dbType: string): boolean => (
   isMysqlFamilyDialect(dbType) || ['clickhouse', 'tdengine', 'iotdb'].includes(resolveSqlDialect(dbType))
 );

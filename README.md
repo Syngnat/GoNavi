@@ -29,6 +29,10 @@
 </p>
 
 <p align="center">
+  <a href="https://mcpvault.io/servers/gonavi/health?utm_source=external_badge&utm_medium=referral&utm_campaign=mcp_health_report"><img src="https://mcpvault.io/badge/gonavi.svg" alt="MCPVault: claimed" /></a>
+</p>
+
+<p align="center">
   <b>Language</b>: English · <a href="README.zh-CN.md">简体中文</a>
   &nbsp;·&nbsp;
   <a href="https://gonavi.org"><b>🌐 Website</b></a>
@@ -44,7 +48,9 @@
 
 <p align="center">
   <sub>Sponsored by
-  <a href="#-sponsors"><b>华龙中转站 / Hualong Transfer Station</b></a></sub>
+  <a href="#-sponsors"><b>APISmart</b></a>
+  ·
+  <a href="#-sponsors"><b>HuaLongAI</b></a></sub>
 </p>
 
 ---
@@ -100,6 +106,43 @@ Each image is a **full GoNavi application window**, scaled proportionally for RE
 </p>
 
 <p align="center"><sub>Real desktop captures · full window</sub></p>
+
+---
+
+## 💖 Sponsors
+
+> **Want to sponsor GoNavi?** We welcome sponsorships and partnerships that help sustain its open-source development. Contact the maintainer on WeChat: `ygf1140302783` (note “GoNavi”) to start a conversation.
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <a href="https://www.apismart.ai/">
+        <img src="assets/sponsors/apismart-logo.png" height="120" alt="APISmart" />
+      </a><br/>
+      <b><a href="https://www.apismart.ai/">APISmart</a></b><br/>
+      <sub>Unified AI model API · OpenAI-compatible</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <a href="https://api.hualong.online/">
+        <img src="assets/sponsors/hualong-mark.png" height="120" alt="HuaLongAI" />
+      </a><br/>
+      <b><a href="https://api.hualong.online/">HuaLongAI</a></b><br/>
+      <sub>AI API Gateway · multi-model routing · domestic high-speed endpoint</sub>
+    </td>
+  </tr>
+</table>
+
+Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](https://api.hualong.online/)** for sponsoring GoNavi open-source development.
+
+| Sponsor | What they offer | Why it fits GoNavi |
+|---|---|---|
+| **[APISmart](https://www.apismart.ai/)** | APISmart provides unified access to leading AI models through a single API. Developers can connect to LLM, image, and video models using one API key and an OpenAI-compatible interface. This eliminates the need to manage multiple providers separately. Intelligent routing and automatic failover help improve reliability, while centralized billing makes usage easier to manage. With APISmart, developers can build and scale AI applications faster through one streamlined platform. | Lets developers and agent workflows use multiple AI capabilities without separately integrating each provider. |
+| **[HuaLongAI](https://api.hualong.online/)** | HuaLongAI is a premium model API relay provider for power AI developers, focused on official direct connectivity. It primarily offers Codex-series models supplied directly from official sources, with no substitutions or dilution, and invites verification. Billing is transparent, with token-level itemized records available for review. It supports enterprise-grade high concurrency and provides enterprise customers with a professional management platform, formal contracts, and invoices; visit the website for contact details. GPT-series models start at a 0.08 rate, with a stable Pro group at 0.15, two-way referral gifts, and uncapped referral rewards. | Stable model access is core infrastructure for GoNavi's schema-aware assistants, MCP, and day-to-day development. |
+
+- APISmart: [https://www.apismart.ai/](https://www.apismart.ai/) — unified AI model API with an OpenAI-compatible interface.
+- HuaLongAI: [https://api.hualong.online/](https://api.hualong.online/) — console, docs, and the domestic high-speed endpoint.
+
+> HuaLongAI also sponsored a **shared 50B token pool** for GoNavi **co-maintainers**, used via **API Key** (not 50B per person). Rules and how to apply: [Issue #671](https://github.com/Syngnat/GoNavi/issues/671).
 
 ---
 
@@ -233,7 +276,7 @@ Elasticsearch connections reuse the query workspace as a version-aware REST cons
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 ```
 
 ### Develop
@@ -495,40 +538,20 @@ fc-cache -fv
 
 ---
 
-## 💖 Sponsors
-
-<p align="center">
-  <a href="https://api-fast.hualong.online/">
-    <img src="assets/sponsors/hualong-mark.png" width="120" alt="华龙中转站 Hualong Transfer Station" />
-  </a>
-</p>
-
-<p align="center">
-  <b><a href="https://api-fast.hualong.online/">华龙中转站 · Hualong Transfer Station</a></b><br/>
-  <sub>AI API Gateway · multi-model routing · domestic high-speed endpoint</sub>
-</p>
-
-Special thanks to **[华龙中转站 (Hualong Transfer Station)](https://api-fast.hualong.online/)** for sponsoring GoNavi open-source development.
-
-| | |
-|---|---|
-| **What they are** | An **AI API Gateway** that unifies multi-model access behind an OpenAI-compatible surface — so you can ship LLM features without fighting provider fragmentation and network friction. |
-| **What you get** | Multi-model routing · OpenAI-compatible API · **domestic high-speed direct endpoint** · practical for indie devs and open-source projects that need reliable LLM access |
-| **Why we recommend them** | GoNavi is AI/MCP-first. Stable model access is core infrastructure for coding agents, schema-aware assistants, and day-to-day development. |
-
-**Looking for a solid LLM relay?**  
-👉 [https://api-fast.hualong.online/](https://api-fast.hualong.online/) — console, docs, and the domestic high-speed endpoint.
-
-> Hualong also sponsored a **shared 50B token pool** for GoNavi **co-maintainers**, used via **API Key** (not 50B per person). Rules and how to apply: [Issue #671](https://github.com/Syngnat/GoNavi/issues/671).
-
----
-
 ## 🤝 Contributing
 
 Issues and PRs welcome. Branch from **`dev`**, PR against **`dev`**.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - Call for contributors (incl. sponsored token pool): [Issue #671](https://github.com/Syngnat/GoNavi/issues/671)
+
+## 🤝 Contributors
+
+<p align="center">
+  <a href="https://github.com/Syngnat/GoNavi/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Syngnat/GoNavi" alt="GoNavi contributors" />
+  </a>
+</p>
 
 ---
 
@@ -556,7 +579,8 @@ Issues and PRs welcome. Branch from **`dev`**, PR against **`dev`**.
 
 ## Links
 
-- [华龙中转站 · Hualong Transfer Station](https://api-fast.hualong.online/) — AI API Gateway (GoNavi sponsor)
+- [APISmart](https://www.apismart.ai/) — Unified AI model API (GoNavi sponsor)
+- [HuaLongAI](https://api.hualong.online/) — AI API Gateway (GoNavi sponsor)
 - [linux.do](https://linux.do/)
 - [AIBook](https://aibook.ren/)
 

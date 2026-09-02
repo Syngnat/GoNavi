@@ -1,17 +1,21 @@
 import React from 'react';
-import { Button, Tooltip } from 'antd';
+import { Button, Segmented, Tooltip } from 'antd';
 import { CodeOutlined, PictureOutlined, SendOutlined, StopOutlined, TableOutlined } from '@ant-design/icons';
 
 import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
 import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 import { AI_CHAT_ATTACHMENT_ACCEPT } from './aiChatAttachments';
+import type { AIRunDispatchMode } from './aiRunHarnessClient';
 
 interface AIChatComposerActionsProps {
   variant: 'legacy' | 'v2';
   input: string;
   draftAttachmentCount: number;
   sending: boolean;
+  dispatchMode?: AIRunDispatchMode;
+  hasActiveRun?: boolean;
+  onDispatchModeChange?: (mode: AIRunDispatchMode) => void;
   darkMode: boolean;
   textColor: string;
   mutedColor: string;
@@ -31,6 +35,9 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
   input,
   draftAttachmentCount,
   sending,
+  dispatchMode = 'queue',
+  hasActiveRun = false,
+  onDispatchModeChange,
   darkMode,
   textColor,
   mutedColor,
@@ -47,6 +54,7 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
     catalogTranslate('en-US', key, params));
   const canSend = input.trim().length > 0 || draftAttachmentCount > 0;
   const isV2 = variant === 'v2';
+  const canChooseDispatchMode = hasActiveRun && typeof onDispatchModeChange === 'function';
   const legacyIconButtonStyle: React.CSSProperties = {
     color: overlayTheme.mutedText,
     border: 'none',
@@ -103,7 +111,22 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
           />
         </Tooltip>
       )}
-      {sending ? (
+      {canChooseDispatchMode && (
+        <Tooltip title={t('ai_chat.input.dispatch.tooltip')}>
+          <Segmented
+            className="ai-run-dispatch-mode"
+            size="small"
+            aria-label={t('ai_chat.input.dispatch.tooltip')}
+            value={dispatchMode}
+            onChange={(value) => onDispatchModeChange?.(String(value) as AIRunDispatchMode)}
+            options={[
+              { label: t('ai_chat.input.dispatch.queue'), value: 'queue' },
+              { label: t('ai_chat.input.dispatch.steer'), value: 'steer' },
+            ]}
+          />
+        </Tooltip>
+      )}
+      {sending && (
         <button
           type={isV2 ? 'button' : undefined}
           className={isV2 ? 'ai-chat-send-btn ai-chat-stop-btn gn-v2-ai-send' : 'ai-chat-send-btn ai-chat-stop-btn'}
@@ -126,13 +149,16 @@ const AIChatComposerActions: React.FC<AIChatComposerActionsProps> = ({
         >
           {isV2 ? <StopOutlined /> : <div style={{ width: 10, height: 10, background: 'currentColor', borderRadius: 2 }} />}
         </button>
-      ) : (
+      )}
+      {(!sending || (hasActiveRun && canSend)) && (
         <button
           type={isV2 ? 'button' : undefined}
           className={isV2 ? 'ai-chat-send-btn gn-v2-ai-send' : 'ai-chat-send-btn'}
           onClick={() => onSend()}
           disabled={!canSend}
-          title={t('ai_chat.input.action.send')}
+          title={canChooseDispatchMode
+            ? t(dispatchMode === 'steer' ? 'ai_chat.input.dispatch.send_steer' : 'ai_chat.input.dispatch.send_queue')
+            : t('ai_chat.input.action.send')}
           style={isV2 ? undefined : {
             background: canSend ? overlayTheme.iconBg : (darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'),
             color: canSend ? overlayTheme.iconColor : mutedColor,

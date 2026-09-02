@@ -1,3 +1,13 @@
+/** Wails keeps the native macOS traffic lights centered 16 CSS px below the window top. */
+const MAC_NATIVE_TITLEBAR_CONTENT_CENTER = 16;
+
+export const getMacNativeTitlebarContentOffset = (titleBarHeight: number, enabled: boolean): number => {
+  if (!enabled || !Number.isFinite(titleBarHeight)) {
+    return 0;
+  }
+  return MAC_NATIVE_TITLEBAR_CONTENT_CENTER - (titleBarHeight / 2);
+};
+
 export const getMacNativeTitlebarPaddingLeft = (uiScale: number, enabled: boolean): number => {
   if (!enabled) {
     return Math.max(12, Math.round(16 * uiScale));

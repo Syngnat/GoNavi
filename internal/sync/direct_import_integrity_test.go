@@ -162,3 +162,29 @@ func TestDirectImportDataOnlyRejectsAutoAddColumnsBeforeClearing(t *testing.T) {
 		t.Fatalf("data-only direct import modified the target: inserted=%d exec=%v", inserted, target.execs)
 	}
 }
+
+func TestDirectImportInsertOnlySamePhysicalTableSkipsPaging(t *testing.T) {
+	config := SyncConfig{
+		Mode: "insert_only",
+		SourceConfig: connection.ConnectionConfig{
+			Type: "mysql", Host: "db.internal", Port: 3306, Database: "app",
+		},
+		TargetConfig: connection.ConnectionConfig{
+			Type: "mysql", Host: "db.internal", Port: 3306, Database: "app",
+		},
+	}
+	plan := SchemaMigrationPlan{
+		SourceQueryTable:  "app.events",
+		TargetQueryTable:  "app.events",
+		TargetTableExists: true,
+	}
+
+	handled, inserted, err := (&SyncEngine{}).tryApplyDirectImportInPages(
+		config, &SyncResult{}, 0, 1, "events", nil, nil, plan,
+		[]connection.ColumnDefinition{{Name: "id", Type: "bigint", Key: "PRI"}}, nil,
+		TableOptions{Insert: true}, "mysql", "mysql", "events",
+	)
+	if err != nil || handled || inserted != 0 {
+		t.Fatalf("self insert-only paging = handled %v inserted %d err %v, want false 0 nil", handled, inserted, err)
+	}
+}

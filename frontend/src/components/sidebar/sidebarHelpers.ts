@@ -62,6 +62,23 @@ const padSidebarTimestampPart = (value: number): string => String(value).padStar
  * 若无法被 Date 可靠解析，则尽量保留原始文本的可读部分。
  */
 export const formatSidebarTableTimestamp = (value: unknown): string => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return [
+      date.getFullYear(),
+      '-',
+      padSidebarTimestampPart(date.getMonth() + 1),
+      '-',
+      padSidebarTimestampPart(date.getDate()),
+      ' ',
+      padSidebarTimestampPart(date.getHours()),
+      ':',
+      padSidebarTimestampPart(date.getMinutes()),
+      ':',
+      padSidebarTimestampPart(date.getSeconds()),
+    ].join('');
+  }
   const text = String(value ?? '').trim();
   if (!text) return '';
 
@@ -243,7 +260,8 @@ export const getV2RailConnectionGroupBadgeText = (
 export const isV2SidebarObjectNode = (
   node: { type?: string } | null | undefined,
 ): boolean => {
-  return node?.type === 'table'
+  return node?.type === 'message-object'
+      || node?.type === 'table'
       || node?.type === 'view'
       || node?.type === 'materialized-view'
       || node?.type === 'sequence'
@@ -295,7 +313,112 @@ export const resolveV2ObjectGroupTitle = (
 export const resolveSidebarTableNameForCopy = (
   node: Pick<SidebarNodeLike, 'title' | 'dataRef'> | null | undefined,
 ): string => {
-  return String(node?.dataRef?.tableName || node?.dataRef?.viewName || node?.dataRef?.sequenceName || node?.dataRef?.packageName || node?.dataRef?.eventName || node?.title || '').trim();
+  return String(
+    node?.dataRef?.messageObjectName
+    || node?.dataRef?.topicName
+    || node?.dataRef?.queueName
+    || node?.dataRef?.exchangeName
+    || node?.dataRef?.tableName
+    || node?.dataRef?.viewName
+    || node?.dataRef?.sequenceName
+    || node?.dataRef?.packageName
+    || node?.dataRef?.eventName
+    || node?.title
+    || '',
+  ).trim();
+};
+
+const SIDEBAR_TITLEBAR_OBJECT_TYPES = new Set([
+  'table',
+  'message-object',
+  'view',
+  'materialized-view',
+  'sequence',
+  'package',
+  'db-trigger',
+  'db-event',
+  'routine',
+]);
+
+/** Extracts the selected object's own name for compact context displays. */
+export const resolveSidebarTitlebarObjectName = (
+  node: Pick<SidebarNodeLike, 'title' | 'type' | 'dataRef'> | null | undefined,
+): string => {
+  // Folder, schema, and namespace rows carry a display title too, but they
+  // are database context rather than a selected table/object. Only mirror
+  // names for rows that the workbench opens as an object.
+  if (!SIDEBAR_TITLEBAR_OBJECT_TYPES.has(String(node?.type || ''))) {
+    return '';
+  }
+  const dataRef = node?.dataRef;
+  const objectName = node?.type === 'db-trigger'
+    ? dataRef?.triggerName
+    : node?.type === 'routine'
+      ? dataRef?.routineName
+      : node?.type === 'db-event'
+        ? dataRef?.eventName
+        : node?.type === 'sequence'
+          ? dataRef?.sequenceName
+          : node?.type === 'package'
+            ? dataRef?.packageName
+            : undefined;
+
+  return String(objectName || resolveSidebarTableNameForCopy(node) || '').trim();
+};
+
+/**
+ * Remove a stale Host result before the row is selected again. An active
+ * loading result is intentionally retained so selecting the row does not
+ * cancel or hide an in-flight metadata request.
+ */
+export const clearSidebarHostConnectionState = <T>(
+  states: Readonly<Record<string, T>>,
+  connectionId: unknown,
+): Record<string, T> => {
+  const key = String(connectionId ?? '').trim();
+  if (!key || !Object.prototype.hasOwnProperty.call(states, key)) {
+    return states;
+  }
+  const currentState = String(states[key] ?? '').trim();
+  if (currentState === 'loading') {
+    return states;
+  }
+  const next = { ...states };
+  delete next[key];
+  return next;
+};
+
+/**
+ * Keep a previously published title-bar selection while the tree is being
+ * rebuilt. A non-empty selected key that still belongs to a saved Host can
+ * briefly have no node during an async subtree refresh; publishing `null` in
+ * that window would erase the useful Host/database/table summary. Keys that
+ * no longer belong to any saved Host are allowed to clear stale context.
+ */
+export const shouldDeferSidebarTitlebarSelection = ({
+  selectedKey,
+  selectedNode,
+  connectionIds,
+}: {
+  selectedKey?: unknown;
+  selectedNode?: { key?: unknown } | null;
+  connectionIds: readonly string[];
+}): boolean => {
+  if (selectedNode) return false;
+  const key = String(selectedKey ?? '').trim();
+  if (!key) return false;
+
+  return connectionIds.some((connectionId) => {
+    const hostId = String(connectionId ?? '').trim();
+    return Boolean(hostId && (key === hostId || key.startsWith(`${hostId}-`)));
+  });
+};
+
+export const resolveSidebarQueriesFolderTitle = (
+  node: Pick<SidebarNodeLike, 'type'> | null | undefined,
+): string | null => {
+  if (node?.type !== 'queries-folder') return null;
+  return t('sidebar.tree.saved_queries');
 };
 
 /** resolveSidebarDatabaseNameForCopy extracts the exact database identifier shown by the node. */
@@ -369,6 +492,7 @@ export const shouldLoadSidebarNodeOnExpand = (
   if (!node || node.isLeaf === true || hasSidebarLazyChildren(node.children)) return false;
   return node.type === 'connection'
       || node.type === 'database'
+      || node.type === 'message-namespace'
       || node.type === 'external-sql-root'
       || node.type === 'table'
       || node.type === 'jvm-mode'

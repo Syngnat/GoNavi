@@ -1,4 +1,4 @@
-import { useStore } from '../store';
+import { type AppearanceSettings, useStore } from '../store';
 import { useCustomThemeStore } from '../customThemeStore';
 import type { TabData } from '../types';
 import {
@@ -626,6 +626,21 @@ export const syncNativeDetachedShortcutOptions = async (
       : shortcutStoreState,
     manager,
   )));
+  return true;
+};
+
+export const syncNativeDetachedAppearance = async (
+  targetWindowIds: Iterable<string>,
+  appearance: AppearanceSettings = useStore.getState().appearance,
+  managerOverride?: NativeDetachedWindowManager,
+): Promise<boolean> => {
+  const manager = managerOverride ?? resolveNativeDetachedWindowManager();
+  if (!manager || typeof manager.SyncHostState !== 'function') return false;
+  const ids = Array.from(new Set(
+    Array.from(targetWindowIds, (id) => String(id || '').trim()).filter(Boolean),
+  ));
+  const storeState = buildNativeDetachedStoreSnapshot({ appearance });
+  await Promise.all(ids.map((id) => syncNativeDetachedHostState(id, storeState, manager)));
   return true;
 };
 

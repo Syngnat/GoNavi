@@ -13,6 +13,14 @@ describe('resolveNewQueryContext', () => {
     })).toEqual({ connectionId: 'conn-b', dbName: 'database_b' });
   });
 
+  it('preserves the explicitly selected sidebar schema for a new query tab', () => {
+    expect(resolveNewQueryContext({
+      sidebarContext: { connectionId: 'conn-b', dbName: 'database_b', schemaName: 'anno' },
+      activeTab: { connectionId: 'conn-b', dbName: 'database_b', schemaName: 'dbms_job' },
+      validConnectionIds,
+    })).toEqual({ connectionId: 'conn-b', dbName: 'database_b', schemaName: 'anno' });
+  });
+
   it('keeps a valid connection-level sidebar selection instead of borrowing the tab database', () => {
     expect(resolveNewQueryContext({
       sidebarContext: { connectionId: 'conn-b', dbName: '' },
@@ -58,6 +66,20 @@ describe('resolveNewQueryContext', () => {
     expect(canInheritNewQueryTableContext({
       activeTab: { ...tableTab, type: 'query' },
       targetContext: { connectionId: 'conn-a', dbName: 'database_a' },
+    })).toBe(false);
+  });
+
+  it('does not inherit a table from a different schema', () => {
+    const tableTab = {
+      type: 'table',
+      connectionId: 'conn-a',
+      dbName: 'database_a',
+      schemaName: 'dbms_job',
+      tableName: 'users',
+    };
+    expect(canInheritNewQueryTableContext({
+      activeTab: tableTab,
+      targetContext: { connectionId: 'conn-a', dbName: 'database_a', schemaName: 'anno' },
     })).toBe(false);
   });
 });

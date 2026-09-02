@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -46,8 +45,12 @@ func (c *ClientImpl) ListServices(ctx context.Context, query ServiceQuery) (*Ser
 	}
 
 	groupName := strings.TrimSpace(query.GroupName)
+	serviceName := strings.TrimSpace(query.ServiceName)
+	if (family == nacosAPIV1 || family == nacosAPIV2) && groupName != "" && serviceName != "" {
+		return c.listCatalogServicesByExactGroup(ctx, query.NamespaceID, groupName, serviceName, pageNo, pageSize)
+	}
 	if family == nacosAPIV3 && groupName != "" {
-		return c.listV3ServicesByExactGroup(ctx, query.NamespaceID, groupName, pageNo, pageSize)
+		return c.listV3ServicesByExactGroup(ctx, query.NamespaceID, groupName, serviceName, pageNo, pageSize)
 	}
 
 	params := url.Values{}
@@ -56,16 +59,18 @@ func (c *ClientImpl) ListServices(ctx context.Context, query ServiceQuery) (*Ser
 	params.Set("namespaceId", normalizeNamespaceID(query.NamespaceID))
 	routes := c.currentAPIRoutes()
 	apiPath := routes.serviceList
-	if (family == nacosAPIV1 || family == nacosAPIV2) && groupName == "" {
+	useCatalog := (family == nacosAPIV1 || family == nacosAPIV2) && (groupName == "" || serviceName != "")
+	if useCatalog {
 		// Nacos 2.x has no cross-group v2 service list, but retains v1 Catalog.
 		apiPath = routesForNacosAPI(nacosAPIV1).serviceList
-		params.Set("serviceNameParam", "")
+		params.Set("serviceNameParam", serviceName)
 		params.Set("groupNameParam", "")
 	} else if family == nacosAPIV1 || family == nacosAPIV2 {
 		apiPath = routes.serviceListByGroup
 		params.Set("groupName", normalizeServiceGroup(groupName))
+		params.Set("serviceNameParam", serviceName)
 	} else {
-		params.Set("serviceNameParam", "")
+		params.Set("serviceNameParam", serviceName)
 		params.Set("groupNameParam", groupName)
 	}
 
@@ -95,6 +100,18 @@ func (c *ClientImpl) ListServices(ctx context.Context, query ServiceQuery) (*Ser
 		}
 		count = payload.TotalCount
 		services = payload.PageItems
+	} else if useCatalog {
+		var payload struct {
+			Count       int64              `json:"count"`
+			ServiceList []nacosServiceItem `json:"serviceList"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return nil, localizedNacosBackendError("nacos.backend.error.parse_services", map[string]any{
+				"detail": err.Error(),
+			})
+		}
+		count = payload.Count
+		services = payload.ServiceList
 	} else if family == nacosAPIV1 && groupName != "" {
 		var payload struct {
 			Count int64    `json:"count"`
@@ -138,6 +155,16 @@ func (c *ClientImpl) ListServices(ctx context.Context, query ServiceQuery) (*Ser
 		count = payload.Count
 		services = payload.ServiceList
 	}
+	if useCatalog && groupName != "" {
+		filtered := make([]nacosServiceItem, 0, len(services))
+		for _, service := range services {
+			if strings.TrimSpace(service.GroupName) == groupName {
+				filtered = append(filtered, service)
+			}
+		}
+		services = filtered
+		count = int64(len(services))
+	}
 
 	names := make([]string, 0, len(services))
 	for _, service := range services {
@@ -154,10 +181,11 @@ func (c *ClientImpl) ListServices(ctx context.Context, query ServiceQuery) (*Ser
 	}, nil
 }
 
-func (c *ClientImpl) listV3ServicesByExactGroup(
+func (c *ClientImpl) listCatalogServicesByExactGroup(
 	ctx context.Context,
 	namespaceID string,
 	groupName string,
+	serviceName string,
 	pageNo int,
 	pageSize int,
 ) (*ServicePage, error) {
@@ -168,8 +196,79 @@ func (c *ClientImpl) listV3ServicesByExactGroup(
 		params.Set("pageNo", strconv.Itoa(remotePageNo))
 		params.Set("pageSize", strconv.Itoa(maxServicePageSize))
 		params.Set("namespaceId", normalizeNamespaceID(namespaceID))
-		params.Set("serviceNameParam", "")
-		params.Set("groupNameParam", regexp.QuoteMeta(groupName))
+		params.Set("serviceNameParam", serviceName)
+		// Nacos validates this parameter as a plain value; regex anchors are rejected.
+		params.Set("groupNameParam", groupName)
+
+		body, status, err := c.doRequest(ctx, http.MethodGet, routesForNacosAPI(nacosAPIV1).serviceList, params, nil)
+		if err != nil {
+			return nil, err
+		}
+		if status < 200 || status >= 300 {
+			return nil, localizedNacosBackendError("nacos.backend.error.http_status", map[string]any{
+				"status": status,
+				"body":   truncateForError(string(body)),
+			})
+		}
+		data, err := unwrapNacosResult(body)
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			ServiceList []nacosServiceItem `json:"serviceList"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return nil, localizedNacosBackendError("nacos.backend.error.parse_services", map[string]any{
+				"detail": err.Error(),
+			})
+		}
+		for _, service := range payload.ServiceList {
+			if strings.TrimSpace(service.GroupName) == groupName {
+				matched = append(matched, service)
+			}
+		}
+		if len(payload.ServiceList) < maxServicePageSize {
+			break
+		}
+	}
+
+	start := (pageNo - 1) * pageSize
+	if start > len(matched) {
+		start = len(matched)
+	}
+	end := min(start+pageSize, len(matched))
+	names := make([]string, 0, end-start)
+	for _, service := range matched[start:end] {
+		if name := qualifyServiceName(service.Name, service.GroupName); name != "" {
+			names = append(names, name)
+		}
+	}
+	return &ServicePage{
+		Count:        int64(len(matched)),
+		ServiceNames: names,
+		PageNo:       pageNo,
+		PageSize:     pageSize,
+	}, nil
+}
+
+func (c *ClientImpl) listV3ServicesByExactGroup(
+	ctx context.Context,
+	namespaceID string,
+	groupName string,
+	serviceName string,
+	pageNo int,
+	pageSize int,
+) (*ServicePage, error) {
+	groupName = normalizeServiceGroup(groupName)
+	matched := make([]nacosServiceItem, 0)
+	for remotePageNo := 1; ; remotePageNo++ {
+		params := url.Values{}
+		params.Set("pageNo", strconv.Itoa(remotePageNo))
+		params.Set("pageSize", strconv.Itoa(maxServicePageSize))
+		params.Set("namespaceId", normalizeNamespaceID(namespaceID))
+		params.Set("serviceNameParam", serviceName)
+		// Nacos validates this parameter as a plain value; regex escaping is rejected.
+		params.Set("groupNameParam", groupName)
 
 		body, status, err := c.doRequest(ctx, http.MethodGet, c.currentAPIRoutes().serviceListByGroup, params, nil)
 		if err != nil {

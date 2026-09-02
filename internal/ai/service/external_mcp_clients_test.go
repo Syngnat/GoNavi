@@ -84,10 +84,21 @@ func isolateDeepSeekHarnessClientFallbacks(t *testing.T) {
 	})
 }
 
+// isolateZCodeHomeFallback disables the ZCode ~/.zcode home-directory fallback so
+// tests exercise the plain PATH-based detection without depending on whether the
+// developer machine happens to have ~/.zcode installed.
+func isolateZCodeHomeFallback(t *testing.T) {
+	t.Helper()
+	originalHomeDirFunc := zCodeHomeDirFunc
+	zCodeHomeDirFunc = func() string { return "" }
+	t.Cleanup(func() { zCodeHomeDirFunc = originalHomeDirFunc })
+}
+
 func TestLocalMCPClientInstallersRejectUndetectedClientsWithoutWritingConfig(t *testing.T) {
 	disableLocalCLICommandShellFallback(t)
 	additionalPaths := isolateAdditionalMCPClientConfigs(t)
 	isolateDeepSeekHarnessClientFallbacks(t)
+	isolateZCodeHomeFallback(t)
 	openCodePath := isolateOpenCodeMCPConfig(t)
 	originalClaudeConfigPathFunc := claudeCodeConfigPathFunc
 	originalCodexConfigPathFunc := codexConfigPathFunc
@@ -545,5 +556,69 @@ func TestResolveDeepSeekHarnessNpxPackageDirEmptyWithoutCache(t *testing.T) {
 	t.Setenv("npm_config_cache", cacheRoot)
 	if got := resolveDeepSeekHarnessNpxPackageDir(); got != "" {
 		t.Fatalf("resolveDeepSeekHarnessNpxPackageDir = %q, want empty", got)
+	}
+}
+
+func TestDetectZCodeClientFallsBackToUserHomeDir(t *testing.T) {
+	disableLocalCLICommandShellFallback(t)
+	originalCLIPathFunc := localCLICommandPathFunc
+	localCLICommandPathFunc = func(string) (string, error) { return "", errors.New("not found") }
+	t.Cleanup(func() { localCLICommandPathFunc = originalCLIPathFunc })
+
+	homeDir := t.TempDir()
+	originalHomeDirFunc := zCodeHomeDirFunc
+	zCodeHomeDirFunc = func() string { return homeDir }
+	t.Cleanup(func() { zCodeHomeDirFunc = originalHomeDirFunc })
+
+	detected, path := detectZCodeClient()
+	if !detected {
+		t.Fatal("expected ZCode client to be detected via its user home directory")
+	}
+	if path != homeDir {
+		t.Fatalf("detected client path = %q, want %q", path, homeDir)
+	}
+}
+
+func TestDetectZCodeClientSkipsHomeDirWhenMissing(t *testing.T) {
+	disableLocalCLICommandShellFallback(t)
+	originalCLIPathFunc := localCLICommandPathFunc
+	localCLICommandPathFunc = func(string) (string, error) { return "", errors.New("not found") }
+	t.Cleanup(func() { localCLICommandPathFunc = originalCLIPathFunc })
+
+	originalHomeDirFunc := zCodeHomeDirFunc
+	zCodeHomeDirFunc = func() string { return "" }
+	t.Cleanup(func() { zCodeHomeDirFunc = originalHomeDirFunc })
+
+	if detected, path := detectZCodeClient(); detected || path != "" {
+		t.Fatalf("home-directory fallback must not fire when missing, got (%t, %q)", detected, path)
+	}
+}
+
+func TestZCodeStatusConnectedWhenOnlyHomeDirDetected(t *testing.T) {
+	disableLocalCLICommandShellFallback(t)
+	paths := isolateAdditionalMCPClientConfigs(t)
+	executablePath := isolateAdditionalMCPClientExecutable(t)
+
+	homeDir := t.TempDir()
+	originalHomeDirFunc := zCodeHomeDirFunc
+	zCodeHomeDirFunc = func() string { return homeDir }
+	t.Cleanup(func() { zCodeHomeDirFunc = originalHomeDirFunc })
+
+	originalCLIPathFunc := localCLICommandPathFunc
+	localCLICommandPathFunc = func(string) (string, error) { return "", errors.New("not found") }
+	t.Cleanup(func() { localCLICommandPathFunc = originalCLIPathFunc })
+
+	service := NewService()
+	service.AISetLanguage(string(i18n.LanguageEnUS))
+	if err := upsertExternalJSONMCPServerConfig(paths.ZCode, gonaviMCPServerID, executablePath, []string{"mcp-server"}, zCodeMCPClientSpec, service.serviceText); err != nil {
+		t.Fatalf("upsertExternalJSONMCPServerConfig returned error: %v", err)
+	}
+
+	status := inspectExternalJSONMCPClientInstallStatus(zCodeMCPClientSpec, executablePath, []string{"mcp-server"}, nil, service.serviceText)
+	if !status.ClientDetected || status.ClientPath != homeDir {
+		t.Fatalf("expected ZCode detected via home directory, got %#v", status)
+	}
+	if !status.Installed || !status.MatchesCurrent {
+		t.Fatalf("expected ZCode config to be reported as connected, got %#v", status)
 	}
 }

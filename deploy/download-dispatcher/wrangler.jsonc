@@ -10,15 +10,6 @@
       "custom_domain": true
     }
   ],
-  "kv_namespaces": [
-    {
-      "binding": "ROUTING_STATE",
-      "id": "00000000000000000000000000000000"
-    }
-  ],
-  "triggers": {
-    "crons": ["*/5 * * * *"]
-  },
   "observability": {
     "enabled": true,
     "logs": {

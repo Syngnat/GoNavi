@@ -76,6 +76,34 @@ class EdgeReleaseRetentionTest(unittest.TestCase):
 
             self.assertEqual(selected, [old])
 
+    def test_driver_latest_and_previous_release_survive_broken_empty_channel_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".state/channels").mkdir(parents=True)
+            (root / ".state/channels/dev.json").write_text(json.dumps({
+                "channel": "dev",
+                "appTag": "dev-current-app",
+                "driverTag": "",
+            }), encoding="utf-8")
+            latest = root / "drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json"
+            latest.parent.mkdir(parents=True)
+            latest.write_text(json.dumps({
+                "tagName": "dev-latest",
+                "mirrorTagName": "dev-current-driver",
+            }), encoding="utf-8")
+            driver_root = root / "drivers/dev/releases/download"
+            current = driver_root / "dev-current-driver"
+            previous = driver_root / "dev-previous-driver"
+            stale = driver_root / "dev-stale-driver"
+            for path, modified_at in ((current, 900), (previous, 800), (stale, 700)):
+                path.mkdir(parents=True)
+                (path / "asset.zip").write_bytes(b"driver")
+                os.utime(path, (modified_at, modified_at))
+
+            selected = MODULE.select_prunable_directories(root, 0, now=1000)
+
+            self.assertEqual(selected, [stale])
+
     def test_rejects_invalid_state_before_selecting_deletions(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

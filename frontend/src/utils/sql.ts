@@ -61,11 +61,18 @@ export const quoteIdentPart = (dbType: string, ident: string) => {
 export const quoteQualifiedIdent = (dbType: string, ident: string) => {
   const raw = (ident || '').trim();
   if (!raw) return raw;
-  if (['rocketmq', 'mqtt', 'kafka', 'rabbitmq'].includes((dbType || '').trim().toLowerCase())) {
+  const normalizedType = (dbType || '').trim().toLowerCase();
+  if (['rocketmq', 'mqtt', 'kafka', 'rabbitmq'].includes(normalizedType)) {
     return quoteIdentPart(dbType, raw);
   }
   const parts = splitQualifiedNameSegments(raw).filter(Boolean);
   if (parts.length === 0) return quoteIdentPart(dbType, raw);
+  // IoTDB Tree SQL reserves the root node as a path keyword. Quoting it makes
+  // an otherwise valid device query fail during parsing, while child nodes can
+  // still be quoted to preserve special characters and reserved words.
+  if (normalizedType === 'iotdb' && normalizeIdentPart(parts[0]).toLowerCase() === 'root') {
+    return ['root', ...parts.slice(1).map((part) => quoteIdentPart(dbType, part))].join('.');
+  }
   if (parts.length === 1 && parts[0] === normalizeIdentPart(raw)) return quoteIdentPart(dbType, raw);
   return parts.map((part) => quoteIdentPart(dbType, part)).join('.');
 };
@@ -131,6 +138,7 @@ export const buildOrderBySQL = (
   fallbackColumns: string[] = [],
 ) => {
   const dbTypeLower = String(dbType || '').trim().toLowerCase();
+  const isElasticsearch = dbTypeLower === 'elasticsearch' || dbTypeLower === 'elastic';
   const items = normalizeSortInfoItems(sortInfo);
   const seen = new Set<string>();
   const sortParts: string[] = [];
@@ -140,6 +148,9 @@ export const buildOrderBySQL = (
     const sortColumn = normalizeIdentPart(String(item?.columnKey || ''));
     const sortOrder = String(item?.order || '');
     const direction = sortOrder === 'ascend' ? 'ASC' : sortOrder === 'descend' ? 'DESC' : '';
+    // Elasticsearch reserves _id for document lookup and disables its fielddata by default.
+    // Ignore stale or user-selected _id sort state instead of issuing a request that ES rejects.
+    if (isElasticsearch && sortColumn.toLowerCase() === '_id') continue;
     if (sortColumn && direction) {
       const key = sortColumn.toLowerCase();
       if (!seen.has(key)) {
@@ -154,9 +165,10 @@ export const buildOrderBySQL = (
   }
 
   // 部分数据源在无显式排序需求时强制 ORDER BY（即使按主键）会显著放大大表预览成本：
-  // MySQL/MariaDB 可能触发 filesort 和 sort memory 错误，DuckDB 大文件可能被排序拖到连接超时。
+  // MySQL/MariaDB 可能触发 filesort 和 sort memory 错误，DuckDB 大文件可能被排序拖到连接超时；
+  // Elasticsearch 的文档定位列 _id 默认禁止 fielddata，按它排序会让普通索引预览直接返回 HTTP 400。
   // 因此仅在用户主动点击排序时下发 ORDER BY，默认分页查询不加兜底排序。
-  if (dbTypeLower === 'mysql' || dbTypeLower === 'goldendb' || dbTypeLower === 'mariadb' || dbTypeLower === 'oceanbase' || dbTypeLower === 'diros' || dbTypeLower === 'starrocks' || dbTypeLower === 'duckdb') {
+  if (dbTypeLower === 'mysql' || dbTypeLower === 'goldendb' || dbTypeLower === 'mariadb' || dbTypeLower === 'oceanbase' || dbTypeLower === 'diros' || dbTypeLower === 'starrocks' || dbTypeLower === 'duckdb' || isElasticsearch) {
     return '';
   }
 

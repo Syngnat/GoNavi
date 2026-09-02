@@ -28,6 +28,10 @@
 </p>
 
 <p align="center">
+  <a href="https://mcpvault.io/servers/gonavi/health?utm_source=external_badge&utm_medium=referral&utm_campaign=mcp_health_report"><img src="https://mcpvault.io/badge/gonavi.svg" alt="MCPVault: claimed" /></a>
+</p>
+
+<p align="center">
   <b>语言</b>：<a href="README.md">English</a> · 简体中文
   &nbsp;·&nbsp;
   <a href="https://gonavi.org"><b>🌐 官网</b></a>
@@ -43,7 +47,9 @@
 
 <p align="center">
   <sub>赞助商 ·
-  <a href="#-赞助商"><b>华龙中转站</b></a></sub>
+  <a href="#-赞助商"><b>APISmart</b></a>
+  ·
+  <a href="#-赞助商"><b>華龍算力</b></a></sub>
 </p>
 
 ---
@@ -99,6 +105,43 @@
 </p>
 
 <p align="center"><sub>真实桌面全窗口截图</sub></p>
+
+---
+
+## 💖 赞助商
+
+> **欢迎赞助 GoNavi！** 我们欢迎个人与企业通过赞助或合作支持项目持续开源发展；有意赞助请通过微信 `ygf1140302783`（备注「GoNavi」）联系维护者沟通。
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%">
+      <a href="https://www.apismart.ai/">
+        <img src="assets/sponsors/apismart-logo.png" height="120" alt="APISmart" />
+      </a><br/>
+      <b><a href="https://www.apismart.ai/">APISmart</a></b><br/>
+      <sub>统一 AI 模型 API · OpenAI 兼容</sub>
+    </td>
+    <td align="center" valign="top" width="50%">
+      <a href="https://api.hualong.online/">
+        <img src="assets/sponsors/hualong-mark.png" height="120" alt="華龍算力" />
+      </a><br/>
+      <b><a href="https://api.hualong.online/">華龍算力</a></b><br/>
+      <sub>AI API Gateway · 多模型统一接入 · 国内直连高速端点</sub>
+    </td>
+  </tr>
+</table>
+
+特别感谢 **[APISmart](https://www.apismart.ai/)** 与 **[華龍算力](https://api.hualong.online/)** 赞助 GoNavi 开源开发。
+
+| 赞助商 | 提供什么 | 为什么适合 GoNavi |
+|---|---|---|
+| **[APISmart](https://www.apismart.ai/)** | APISmart 通过一个 API 提供对主流 AI 模型的统一访问。开发者只需一个 API Key，即可通过兼容 OpenAI 的接口接入大语言模型、图像和视频模型，无需分别管理多个服务商。智能路由与自动故障切换有助于提升可靠性，集中式账单使使用管理更加轻松。借助 APISmart，开发者能以更精简的平台更快构建并扩展 AI 应用。 | 开发者和 Agent 工作流无需分别接入各家服务商，也能使用多种 AI 能力。 |
+| **[華龍算力](https://api.hualong.online/)** | 華龍算力是一家面向重度 AI 开发者、专注官方直连的高品质模型 API 中转服务商。主要营业 Codex 系列模型，100% 官方源直供，不掺假不注水，欢迎检验。计费透明，Token 级账单可逐笔核验。同时支持企业级高并发，并为企业客户提供专业的管理平台；企业客户可签订正式合同并开具发票，更多详情请进入官网获取联系方式。GPT 系列最低至 0.08 倍率，更有 0.15 倍率的 Pro 稳定分组；邀请好友双向赠送，邀请奖励无上限。 | 稳定的模型通道是 GoNavi 的 AI 助手、MCP 与日常开发工作流的基础设施。 |
+
+- APISmart：[https://www.apismart.ai/](https://www.apismart.ai/) — 统一 AI 模型 API，兼容 OpenAI 接口。
+- 華龍算力：[https://api.hualong.online/](https://api.hualong.online/) — 控制台、文档与国内高速端点。
+
+> 華龍算力另向本仓库赞助了 **共享 500 亿（50B）token** 额度，供 GoNavi **共建者** 以 **API Key** 方式协作开发使用（非整库人均 50B）。申请与规则见共建入口：[Issue #671](https://github.com/Syngnat/GoNavi/issues/671)。
 
 ---
 
@@ -232,7 +275,7 @@ Elasticsearch 连接复用查询工作区，并按服务端版本提供受控 RE
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
 
 ```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.15.0
 ```
 
 ### 开发
@@ -498,40 +541,20 @@ fc-cache -fv
 
 ---
 
-## 💖 赞助商
-
-<p align="center">
-  <a href="https://api-fast.hualong.online/">
-    <img src="assets/sponsors/hualong-mark.png" width="120" alt="华龙中转站" />
-  </a>
-</p>
-
-<p align="center">
-  <b><a href="https://api-fast.hualong.online/">华龙中转站 · Hualong Transfer Station</a></b><br/>
-  <sub>AI API Gateway · 多模型统一接入 · 国内直连高速端点</sub>
-</p>
-
-特别感谢 **[华龙中转站](https://api-fast.hualong.online/)** 赞助 GoNavi 开源开发。
-
-| | |
-|---|---|
-| **他们是谁** | **AI API 中转 / Gateway**：以 OpenAI 兼容接口统一多模型接入，帮你少踩「渠道碎片化 + 网络不稳定」的坑。 |
-| **核心能力** | 多模型统一路由 · OpenAI 兼容 · **国内直连高速端点** · 适合个人开发者与开源项目快速接通 LLM |
-| **为什么推荐** | GoNavi 自身是 AI / MCP 一等公民产品；稳定、好用的模型通道，是写代码、做 Agent、联调多 Provider 的基础设施。 |
-
-**需要靠谱的 LLM 中转？**  
-👉 [https://api-fast.hualong.online/](https://api-fast.hualong.online/) — 控制台、文档与国内高速端点。
-
-> 华龙另向本仓库赞助了 **共享 500 亿（50B）token** 额度，供 GoNavi **共建者** 以 **API Key** 方式协作开发使用（非整库人均 50B）。申请与规则见共建入口：[Issue #671](https://github.com/Syngnat/GoNavi/issues/671)。
-
----
-
 ## 🤝 贡献
 
 欢迎 Issue 与 PR。请从 **`dev`** 拉分支，并向 **`dev`** 提 PR。
 
 - [CONTRIBUTING.zh-CN.md](CONTRIBUTING.zh-CN.md)
 - 共建邀请（含赞助 token 池说明）：[Issue #671](https://github.com/Syngnat/GoNavi/issues/671)
+
+## 🤝 共建者
+
+<p align="center">
+  <a href="https://github.com/Syngnat/GoNavi/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=Syngnat/GoNavi" alt="GoNavi 共建者" />
+  </a>
+</p>
 
 ---
 
@@ -559,7 +582,8 @@ fc-cache -fv
 
 ## 友情链接
 
-- [华龙中转站](https://api-fast.hualong.online/) — AI API Gateway（GoNavi 赞助商）
+- [APISmart](https://www.apismart.ai/) — 统一 AI 模型 API（GoNavi 赞助商）
+- [華龍算力](https://api.hualong.online/) — AI API Gateway（GoNavi 赞助商）
 - [linux.do](https://linux.do/)
 - [AI全书](https://aibook.ren/)
 

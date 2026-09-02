@@ -21,7 +21,7 @@ func TestAITestProviderUsesCodexCLIAndClearsAPISecrets(t *testing.T) {
 		return nil
 	}
 
-	service := NewService()
+	service := newProviderManagementTestService(t)
 	result := service.AITestProvider(ai.ProviderConfig{
 		Type:      "custom",
 		APIFormat: "codex-cli",
@@ -50,7 +50,7 @@ func TestCodexCLIRejectsMismatchedAPIKeyAuthBeforeSaveOrTest(t *testing.T) {
 		return nil
 	}
 
-	service := NewService()
+	service := newProviderManagementTestService(t)
 	service.configDir = t.TempDir()
 	invalid := ai.ProviderConfig{
 		ID:        "provider-invalid-codex",
@@ -95,7 +95,7 @@ func TestAITestProviderUsesClaudeSubscriptionWithoutChangingQwenCLI(t *testing.T
 		return nil
 	}
 
-	service := NewService()
+	service := newProviderManagementTestService(t)
 	localResult := service.AITestProvider(ai.ProviderConfig{
 		Type:      "custom",
 		APIFormat: "claude-cli",
@@ -125,7 +125,7 @@ func TestAITestProviderUsesClaudeSubscriptionWithoutChangingQwenCLI(t *testing.T
 }
 
 func TestAISaveProviderRemovesExistingSecretWhenSwitchingToLocalCLIAuth(t *testing.T) {
-	service := NewService()
+	service := newProviderManagementTestService(t)
 	service.configDir = t.TempDir()
 	service.providers = []ai.ProviderConfig{{
 		ID:        "provider-existing",
@@ -167,7 +167,7 @@ func TestAIListModelsReturnsConfiguredLocalCLIModelsWithoutRemoteFetch(t *testin
 		return nil, nil
 	}
 
-	service := NewService()
+	service := newProviderManagementTestService(t)
 	service.providers = []ai.ProviderConfig{{
 		ID:        "provider-codex",
 		Type:      "custom",

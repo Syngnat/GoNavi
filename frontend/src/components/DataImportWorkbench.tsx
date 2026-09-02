@@ -19,6 +19,7 @@ import type { SavedConnection, TabData } from '../types';
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import { BACKEND_CANCELLED_MESSAGE } from '../utils/connectionExport';
+import { isWebRuntime, uploadBrowserFile } from '../utils/browserFileTransfer';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { filterVisibleDatabaseNames, isDatabaseVisible } from '../utils/databaseVisibility';
 import {
@@ -172,6 +173,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [databaseOptions, setDatabaseOptions] = useState<SelectOption[]>([]);
   const [tableOptions, setTableOptions] = useState<SelectOption[]>([]);
   const [filePath, setFilePath] = useState('');
+  const [fileName, setFileName] = useState('');
   const [fileSizeMB, setFileSizeMB] = useState('');
   const [loadingDatabases, setLoadingDatabases] = useState(false);
   const [loadingTables, setLoadingTables] = useState(false);
@@ -197,6 +199,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [capabilityRequestToken, setCapabilityRequestToken] = useState(0);
   const appliedPrefillRef = useRef<string | null>(null);
   const fileSelectionRequestRef = useRef(0);
+  const browserFileInputRef = useRef<HTMLInputElement>(null);
   const tabRef = useRef(tab);
   const wasImportingRef = useRef(false);
   tabRef.current = tab;
@@ -284,7 +287,9 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     fileSelectionRequestRef.current += 1;
     setSelectingFile(false);
     setFilePath('');
+    setFileName('');
     setFileSizeMB('');
+    if (browserFileInputRef.current) browserFileInputRef.current.value = '';
   }, []);
 
   useEffect(() => {
@@ -578,6 +583,13 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     if (importMode === 'table' && !tableImportOptionsValid) return;
     if (importMode === 'table' && (!selectedDbName || !selectedTableName)) return;
     if (selectedDbName && !isDatabaseVisible(selectedConnection, selectedDbName)) return;
+    if (isWebRuntime()) {
+      const input = browserFileInputRef.current;
+      if (!input) return;
+      input.value = '';
+      input.click();
+      return;
+    }
     const requestId = fileSelectionRequestRef.current + 1;
     fileSelectionRequestRef.current = requestId;
     setSelectingFile(true);
@@ -593,6 +605,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
       const nextFilePath = String(res?.data?.filePath || '').trim();
       if (res.success && nextFilePath) {
         setFilePath(nextFilePath);
+        setFileName(getFileName(nextFilePath));
         setFileSizeMB(importMode === 'database'
           ? String(res?.data?.fileSizeMB || '').trim()
           : '');
@@ -603,6 +616,32 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
           detail: res?.message || '',
         }));
       }
+    } catch (error: any) {
+      if (fileSelectionRequestRef.current !== requestId) return;
+      void message.error(t('data_import.workbench.message.select_file_failed', {
+        detail: error?.message || String(error),
+      }));
+    } finally {
+      if (fileSelectionRequestRef.current === requestId) setSelectingFile(false);
+    }
+  };
+
+  const handleBrowserFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const requestId = fileSelectionRequestRef.current + 1;
+    fileSelectionRequestRef.current = requestId;
+    setSelectingFile(true);
+    try {
+      const uploaded = await uploadBrowserFile(
+        file,
+        importMode === 'database' ? 'sql-execution' : 'data-import',
+      );
+      if (fileSelectionRequestRef.current !== requestId) return;
+      setFilePath(uploaded.filePath);
+      setFileName(uploaded.name || file.name);
+      setFileSizeMB(uploaded.fileSizeMB);
     } catch (error: any) {
       if (fileSelectionRequestRef.current !== requestId) return;
       void message.error(t('data_import.workbench.message.select_file_failed', {
@@ -635,6 +674,16 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
         background: shellBackground,
       }}
     >
+      {isWebRuntime() ? (
+        <input
+          ref={browserFileInputRef}
+          data-import-browser-file-input="true"
+          type="file"
+          accept={importMode === 'database' ? '.sql,.sql.gz' : '.csv,.json,.xlsx'}
+          style={{ display: 'none' }}
+          onChange={(event) => { void handleBrowserFileChange(event); }}
+        />
+      ) : null}
       <header
         style={{
           display: 'flex',
@@ -792,7 +841,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
               </Text>
               {filePath && (
                 <div
-                  title={filePath}
+                  title={fileName || filePath}
                   style={{
                     minWidth: 0,
                     overflow: 'hidden',
@@ -805,7 +854,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                     fontSize: 12,
                   }}
                 >
-                  {getFileName(filePath)}
+                  {fileName || getFileName(filePath)}
                 </div>
               )}
               <Button
@@ -1084,6 +1133,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                 connectionConfig={selectedConnectionConfig}
                 dbName={selectedDbName}
                 filePath={filePath}
+                fileName={fileName}
                 fileSizeMB={fileSizeMB}
                 darkMode={darkMode}
                 continueOnError={continueOnError}

@@ -6,6 +6,7 @@ import {
     buildQueryEditorInlineCompletionContext,
     buildQueryEditorTextToElasticsearchMessages,
     buildQueryEditorTextToSqlMessages,
+    isQueryEditorInlineTableAliasPending,
     requestQueryEditorTextToElasticsearch,
     requestQueryEditorInlineCompletion,
     resolveInlineSqlGhostPreviewText,
@@ -20,28 +21,73 @@ import {
     shouldAllowQueryEditorInlineMemoryCompletion,
     shouldTriggerQueryEditorInlineObjectSuggestFallback,
     shouldRequestQueryEditorInlineCompletion,
+    serializeQueryEditorAgentPrompt,
     type QueryEditorAiService,
 } from './QueryEditorAiAssist';
 
-const readyService = (content = 'SELECT * FROM users;'): QueryEditorAiService => ({
-    AIGetProviders: vi.fn(async () => [{
-        id: 'openai-main',
-        type: 'openai' as const,
-        name: 'OpenAI',
-        apiKey: '',
-        hasSecret: true,
-        baseUrl: 'https://api.openai.com/v1',
-        model: 'gpt-5',
-        maxTokens: 2048,
-        temperature: 0.2,
-    }]),
-    AIGetActiveProvider: vi.fn(async () => 'openai-main'),
-    AIGetUserPromptSettings: vi.fn(async () => ({
-        global: 'Keep answers deterministic.',
-        database: 'Prefer readonly SQL.',
-    })),
-    AIChatSend: vi.fn(async () => ({ success: true, content })),
-});
+const queryEditorRunEvents = (content: string, runId = 'query-editor-run') => [
+    {
+        schemaVersion: 1,
+        runId,
+        sessionId: 'query-editor-session',
+        sessionGeneration: 1,
+        sequence: 1,
+        runRevision: 1,
+        attempt: 1,
+        timestamp: 1,
+        kind: 'model_completed',
+        resultingState: 'running_model',
+        payload: { text: content },
+    },
+    {
+        schemaVersion: 1,
+        runId,
+        sessionId: 'query-editor-session',
+        sessionGeneration: 1,
+        sequence: 2,
+        runRevision: 2,
+        attempt: 1,
+        timestamp: 2,
+        kind: 'terminal',
+        resultingState: 'completed',
+        payload: { reason: 'completed' },
+    },
+];
+
+const readyService = (content = 'SELECT * FROM users;'): QueryEditorAiService => {
+    const runId = 'query-editor-run';
+    return {
+        AIGetProviders: vi.fn(async () => [{
+            id: 'openai-main',
+            type: 'openai' as const,
+            name: 'OpenAI',
+            apiKey: '',
+            hasSecret: true,
+            baseUrl: 'https://api.openai.com/v1',
+            model: 'gpt-5',
+            maxTokens: 2048,
+            temperature: 0.2,
+        }]),
+        AIGetActiveProvider: vi.fn(async () => 'openai-main'),
+        AIGetUserPromptSettings: vi.fn(async () => ({
+            global: 'Keep answers deterministic.',
+            database: 'Prefer readonly SQL.',
+        })),
+        AISubmitAgentInput: vi.fn(async (request: { requestId: string }) => ({
+            requestId: request.requestId,
+            sessionId: 'query-editor-session',
+            runId,
+            disposition: 'started',
+            revision: 1,
+            state: 'running_model',
+        })),
+        AIReadAgentRun: vi.fn(async (request: { afterSequence?: number }) => ({
+            run: { id: runId, state: 'completed' },
+            events: queryEditorRunEvents(content, runId).filter((event) => event.sequence > Number(request.afterSequence || 0)),
+            hasMore: false,
+        })),
+    };
+};
 
 describe('QueryEditorAiAssist', () => {
     it('builds a read-first Elasticsearch console prompt with version and mapping context', () => {
@@ -95,7 +141,27 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(result.source).toContain('POST /orders/_search');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledWith(expect.objectContaining({
+            taskKind: 'query_editor_generation',
+            allowTools: false,
+            dispatchMode: 'queue',
+            contextSourceId: 'desktop',
+            contextSourceInstanceId: expect.any(String),
+            provider: 'openai-main',
+            model: 'gpt-5',
+        }));
+    });
+
+    it('serializes role-ordered query editor prompts into the single harness content field', () => {
+        expect(serializeQueryEditorAgentPrompt([
+            { role: 'system', content: 'Return only SQL.' },
+            { role: 'user', content: 'Use the current schema.' },
+        ])).toContain('<query_editor_message index="1" role="system">\nReturn only SQL.\n</query_editor_message>');
+        expect(serializeQueryEditorAgentPrompt([
+            { role: 'system', content: 'Return only SQL.' },
+            { role: 'user', content: 'Use the current schema.' },
+        ])).toContain('<query_editor_message index="2" role="user">\nUse the current schema.\n</query_editor_message>');
     });
 
     it('keeps AI inline suggestions visible when normal SQL suggestions are open', () => {
@@ -510,7 +576,7 @@ describe('QueryEditorAiAssist', () => {
             },
         })).resolves.toBe(' TABLE ');
 
-        expect(service.AIChatSend).not.toHaveBeenCalled();
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
     });
 
     it('builds inline and text-to-sql prompts with custom instructions and schema hints', () => {
@@ -648,17 +714,18 @@ describe('QueryEditorAiAssist', () => {
                 columns: [{ dbName: 'shop', tableName: 'users', name: 'id', type: 'bigint' }],
             },
             editorSnapshot: {
-                prefix: 'select * from users ',
+                prefix: 'select * from users where id ',
                 suffix: '',
-                currentLineBeforeCursor: 'select * from users ',
+                currentLineBeforeCursor: 'select * from users where id ',
                 currentLineAfterCursor: '',
             },
         });
-        expect(insertText).toBe('where id > 1;');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(insertText).toBe('> 1;');
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
 
         const missingProvider = await resolveQueryEditorAiRuntimeReadiness({
-            AIChatSend: vi.fn(),
+            AISubmitAgentInput: vi.fn(),
+            AIReadAgentRun: vi.fn(),
             AIGetProviders: vi.fn(async () => []),
             AIGetActiveProvider: vi.fn(async () => ''),
         });
@@ -668,7 +735,8 @@ describe('QueryEditorAiAssist', () => {
 
     it('caches unavailable inline AI readiness across adjacent automatic requests', async () => {
         const service: QueryEditorAiService = {
-            AIChatSend: vi.fn(),
+            AISubmitAgentInput: vi.fn(),
+            AIReadAgentRun: vi.fn(),
             AIGetProviders: vi.fn(async () => []),
             AIGetActiveProvider: vi.fn(async () => ''),
         };
@@ -682,9 +750,9 @@ describe('QueryEditorAiAssist', () => {
                 columns: [],
             },
             editorSnapshot: {
-                prefix: 'select * from users ',
+                prefix: 'select * from users where id ',
                 suffix: '',
-                currentLineBeforeCursor: 'select * from users ',
+                currentLineBeforeCursor: 'select * from users where id ',
                 currentLineAfterCursor: '',
             },
         };
@@ -720,7 +788,164 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('eos');
-        expect(service.AIChatSend).not.toHaveBeenCalled();
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
+        expect(service.AIGetProviders).not.toHaveBeenCalled();
+        expect(service.AIGetActiveProvider).not.toHaveBeenCalled();
+    });
+
+    it('suggests an alias after a manually completed table source and skips AI', async () => {
+        const service = readyService('SELECT * FROM system_user su;');
+        const request = {
+            service,
+            aiContext: {
+                connectionName: 'Local MySQL',
+                sourceType: 'mysql',
+                currentDb: 'shop',
+                tables: [
+                    { dbName: 'shop', tableName: 'system_user' },
+                    { dbName: 'shop', tableName: 'service_user' },
+                ],
+                columns: [],
+            },
+        };
+
+        await expect(requestQueryEditorInlineCompletion({
+            ...request,
+            editorSnapshot: {
+                prefix: 'SELECT * FROM system_user ',
+                suffix: '',
+                currentLineBeforeCursor: 'SELECT * FROM system_user ',
+                currentLineAfterCursor: '',
+            },
+        })).resolves.toBe('AS su');
+        await expect(requestQueryEditorInlineCompletion({
+            ...request,
+            editorSnapshot: {
+                prefix: 'SELECT * FROM system_user su JOIN service_user ',
+                suffix: '',
+                currentLineBeforeCursor: 'SELECT * FROM system_user su JOIN service_user ',
+                currentLineAfterCursor: '',
+            },
+        })).resolves.toBe('AS su2');
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
+        expect(service.AIGetProviders).not.toHaveBeenCalled();
+        expect(service.AIGetActiveProvider).not.toHaveBeenCalled();
+    });
+
+    it('uses an alias without AS after a manually entered Oracle table name', async () => {
+        const service = readyService('SELECT * FROM system_user su;');
+        await expect(requestQueryEditorInlineCompletion({
+            service,
+            aiContext: {
+                connectionName: 'Local Oracle',
+                sourceType: 'oracle',
+                currentDb: 'ORCL',
+                tables: [{ dbName: 'ORCL', tableName: 'system_user' }],
+                columns: [],
+            },
+            editorSnapshot: {
+                prefix: 'SELECT * FROM system_user ',
+                suffix: '',
+                currentLineBeforeCursor: 'SELECT * FROM system_user ',
+                currentLineAfterCursor: '',
+            },
+        })).resolves.toBe('su');
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
+    });
+
+    it('does not suggest aliases after DML targets but keeps INSERT SELECT aliases', async () => {
+        const service = readyService('SELECT * FROM system_user su;');
+        const request = {
+            service,
+            aiContext: {
+                connectionName: 'Local MySQL',
+                sourceType: 'mysql',
+                currentDb: 'shop',
+                tables: [{ dbName: 'shop', tableName: 'system_user' }],
+                columns: [],
+            },
+        };
+        const makeSnapshot = (prefix: string) => ({
+            prefix,
+            suffix: '',
+            currentLineBeforeCursor: prefix,
+            currentLineAfterCursor: '',
+        });
+
+        for (const prefix of [
+            'UPDATE system_user ',
+            'DELETE FROM system_user ',
+            'INSERT INTO system_user ',
+            'REPLACE INTO system_user ',
+            'MERGE INTO system_user ',
+        ]) {
+            const snapshot = makeSnapshot(prefix);
+            expect(isQueryEditorInlineTableAliasPending(snapshot)).toBe(false);
+            const insertText = await requestQueryEditorInlineCompletion({
+                ...request,
+                editorSnapshot: snapshot,
+            });
+            expect(insertText).not.toBe('AS su');
+            expect(insertText).not.toBe('su');
+        }
+
+        const insertSelectSnapshot = makeSnapshot('INSERT INTO audit_log SELECT * FROM system_user ');
+        expect(isQueryEditorInlineTableAliasPending(insertSelectSnapshot)).toBe(true);
+        await expect(requestQueryEditorInlineCompletion({
+            ...request,
+            editorSnapshot: insertSelectSnapshot,
+        })).resolves.toBe('AS su');
+
+        const functionSelectSnapshot = makeSnapshot("SELECT REPLACE(name, 'x', 'y') FROM system_user ");
+        expect(isQueryEditorInlineTableAliasPending(functionSelectSnapshot)).toBe(true);
+        await expect(requestQueryEditorInlineCompletion({
+            ...request,
+            editorSnapshot: functionSelectSnapshot,
+        })).resolves.toBe('AS su');
+    });
+
+    it('uses the resolved OceanBase Oracle dialect for table aliases', async () => {
+        const service = readyService('SELECT * FROM system_user su;');
+        await expect(requestQueryEditorInlineCompletion({
+            service,
+            aiContext: {
+                connectionName: 'OceanBase Oracle',
+                sourceType: 'oceanbase',
+                sqlDialect: 'oracle',
+                currentDb: 'ORCL',
+                tables: [{ dbName: 'ORCL', tableName: 'system_user' }],
+                columns: [],
+            },
+            editorSnapshot: {
+                prefix: 'SELECT * FROM system_user ',
+                suffix: '',
+                currentLineBeforeCursor: 'SELECT * FROM system_user ',
+                currentLineAfterCursor: '',
+            },
+        })).resolves.toBe('su');
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
+    });
+
+    it('does not suggest an alias after a manually completed table source when disabled', async () => {
+        const service = readyService('SELECT * FROM system_user su;');
+        await expect(requestQueryEditorInlineCompletion({
+            service,
+            autoAddTableAlias: false,
+            aiContext: {
+                connectionName: 'Local MySQL',
+                sourceType: 'mysql',
+                currentDb: 'shop',
+                tables: [{ dbName: 'shop', tableName: 'system_user' }],
+                columns: [],
+            },
+            editorSnapshot: {
+                prefix: 'SELECT * FROM system_user ',
+                suffix: '',
+                currentLineBeforeCursor: 'SELECT * FROM system_user ',
+                currentLineAfterCursor: '',
+            },
+        })).resolves.toBe('');
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
         expect(service.AIGetProviders).not.toHaveBeenCalled();
         expect(service.AIGetActiveProvider).not.toHaveBeenCalled();
     });
@@ -746,7 +971,7 @@ describe('QueryEditorAiAssist', () => {
 
         await expect(requestQueryEditorInlineCompletion(buildRequest('ta'))).resolves.toBe('ble');
         await expect(requestQueryEditorInlineCompletion(buildRequest('TA'))).resolves.toBe('BLE');
-        expect(service.AIChatSend).not.toHaveBeenCalled();
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
     });
 
     it('inherits the typed fragment case for deterministic column-name completion', async () => {
@@ -770,7 +995,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('ort_title');
-        expect(service.AIChatSend).not.toHaveBeenCalled();
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
     });
 
     it('uses deterministic schema metadata for alter-table inline completion and skips AI', async () => {
@@ -797,7 +1022,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('ers');
-        expect(service.AIChatSend).not.toHaveBeenCalled();
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
     });
 
     it('uses grounded AI for ambiguous table-name inline completion when the suggestion matches schema metadata', async () => {
@@ -824,7 +1049,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('deos');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
     });
 
     it('inherits the typed fragment case for grounded AI table-name completion', async () => {
@@ -851,7 +1076,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('ble');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
     });
 
     it('rejects ungrounded AI table-name inline completion when the suggestion is outside schema metadata', async () => {
@@ -878,7 +1103,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
     });
 
     it('uses deterministic schema metadata for alias column inline completion and skips AI', async () => {
@@ -905,7 +1130,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('de');
-        expect(service.AIChatSend).not.toHaveBeenCalled();
+        expect(service.AISubmitAgentInput).not.toHaveBeenCalled();
     });
 
     it('uses grounded AI for ambiguous column-name inline completion when the suggestion matches table metadata', async () => {
@@ -932,7 +1157,7 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('ode');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
     });
 
     it('rejects ungrounded AI column-name inline completion when the suggestion is outside table metadata', async () => {
@@ -959,12 +1184,12 @@ describe('QueryEditorAiAssist', () => {
         });
 
         expect(insertText).toBe('');
-        expect(service.AIChatSend).toHaveBeenCalledTimes(1);
+        expect(service.AISubmitAgentInput).toHaveBeenCalledTimes(1);
     });
 
     it('uses the dedicated inline completion model when configured', async () => {
         const service = {
-            ...readyService('select * from users;'),
+            ...readyService('select * from users where id = 1;'),
             AIGetProviders: vi.fn(async () => [{
                 id: 'openai-main',
                 type: 'openai' as const,
@@ -977,7 +1202,6 @@ describe('QueryEditorAiAssist', () => {
                 maxTokens: 2048,
                 temperature: 0.2,
             }]),
-            AIChatSendWithOptions: vi.fn(async () => ({ success: true, content: 'select * from users where id = 1;' })),
         };
 
         const insertText = await requestQueryEditorInlineCompletion({
@@ -990,28 +1214,26 @@ describe('QueryEditorAiAssist', () => {
                 columns: [{ dbName: 'shop', tableName: 'users', name: 'id', type: 'bigint' }],
             },
             editorSnapshot: {
-                prefix: 'select * from users ',
+                prefix: 'select * from users where id ',
                 suffix: '',
-                currentLineBeforeCursor: 'select * from users ',
+                currentLineBeforeCursor: 'select * from users where id ',
                 currentLineAfterCursor: '',
             },
         });
 
         expect(resolveQueryEditorInlineCompletionModel((await service.AIGetProviders())[0])).toBe('gpt-5-mini');
-        expect(insertText).toBe('where id = 1;');
-        expect(service.AIChatSend).not.toHaveBeenCalled();
-        expect(service.AIChatSendWithOptions).toHaveBeenCalledWith(expect.any(Array), [], {
+        expect(insertText).toBe('= 1;');
+        expect(service.AISubmitAgentInput).toHaveBeenCalledWith(expect.objectContaining({
             model: 'gpt-5-mini',
             maxTokens: 192,
             temperature: 0.1,
-        });
+            taskKind: 'query_editor_generation',
+            allowTools: false,
+        }));
     });
 
     it('falls back to the chat model for inline completion when no dedicated model is configured', async () => {
-        const service = {
-            ...readyService('select * from users;'),
-            AIChatSendWithOptions: vi.fn(async () => ({ success: true, content: 'select * from users where id = 1;' })),
-        };
+        const service = readyService('select * from users where id = 1;');
 
         await requestQueryEditorInlineCompletion({
             service,
@@ -1023,27 +1245,22 @@ describe('QueryEditorAiAssist', () => {
                 columns: [{ dbName: 'shop', tableName: 'users', name: 'id', type: 'bigint' }],
             },
             editorSnapshot: {
-                prefix: 'select * from users ',
+                prefix: 'select * from users where id ',
                 suffix: '',
-                currentLineBeforeCursor: 'select * from users ',
+                currentLineBeforeCursor: 'select * from users where id ',
                 currentLineAfterCursor: '',
             },
         });
 
-        expect(service.AIChatSendWithOptions).toHaveBeenCalledWith(expect.any(Array), [], expect.objectContaining({
+        expect(service.AISubmitAgentInput).toHaveBeenCalledWith(expect.objectContaining({
             model: 'gpt-5',
+            maxTokens: 192,
+            temperature: 0.1,
         }));
     });
 
-    it('uses reasoning content as a fallback for inline completion responses', async () => {
-        const service = {
-            ...readyService(''),
-            AIChatSend: vi.fn(async () => ({
-                success: true,
-                content: '',
-                reasoning_content: 'SELECT * FROM videos WHERE code IS NOT NULL;',
-            })),
-        };
+    it('does not use hidden reasoning as inline SQL output', async () => {
+        const service = readyService('');
 
         const insertText = await requestQueryEditorInlineCompletion({
             service,
@@ -1055,21 +1272,18 @@ describe('QueryEditorAiAssist', () => {
                 columns: [{ dbName: 'shop', tableName: 'videos', name: 'code', type: 'varchar' }],
             },
             editorSnapshot: {
-                prefix: 'select * from videos ',
+                prefix: 'select * from videos where code ',
                 suffix: '',
-                currentLineBeforeCursor: 'select * from videos ',
+                currentLineBeforeCursor: 'select * from videos where code ',
                 currentLineAfterCursor: '',
             },
         });
 
-        expect(insertText).toBe('WHERE code IS NOT NULL;');
+        expect(insertText).toBe('');
     });
 
     it('drops inline completions that introduce tables outside the selected database context', async () => {
-        const service = {
-            ...readyService('select * from orders where id = 1;'),
-            AIChatSendWithOptions: vi.fn(async () => ({ success: true, content: 'select * from orders where id = 1;' })),
-        };
+        const service = readyService('select * from orders where id = 1;');
 
         const insertText = await requestQueryEditorInlineCompletion({
             service,
@@ -1081,9 +1295,9 @@ describe('QueryEditorAiAssist', () => {
                 columns: [{ dbName: 'shop', tableName: 'videos', name: 'code', type: 'varchar' }],
             },
             editorSnapshot: {
-                prefix: 'select * from videos ',
+                prefix: 'select * from videos where code ',
                 suffix: '',
-                currentLineBeforeCursor: 'select * from videos ',
+                currentLineBeforeCursor: 'select * from videos where code ',
                 currentLineAfterCursor: '',
             },
         });

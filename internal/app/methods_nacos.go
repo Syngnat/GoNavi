@@ -121,6 +121,7 @@ type NacosHistoryQuery struct {
 // NacosServiceQuery lists services.
 type NacosServiceQuery struct {
 	NamespaceID string `json:"namespaceId"`
+	ServiceName string `json:"serviceName,omitempty"`
 	GroupName   string `json:"groupName,omitempty"`
 	PageNo      int    `json:"pageNo,omitempty"`
 	PageSize    int    `json:"pageSize,omitempty"`
@@ -459,10 +460,10 @@ func connectNacosClientWithContext(ctx context.Context, client nacos.Client, con
 		return err
 	case <-ctx.Done():
 		_ = client.Close()
-		go func() {
+		trackConnectionHealthCleanup(ctx, func() {
 			<-resultCh
 			_ = client.Close()
-		}()
+		})
 		return ctx.Err()
 	}
 }
@@ -914,6 +915,7 @@ func (a *App) NacosListServices(config connection.ConnectionConfig, query NacosS
 	}
 	page, err := client.ListServices(ctx, nacos.ServiceQuery{
 		NamespaceID: query.NamespaceID,
+		ServiceName: query.ServiceName,
 		GroupName:   query.GroupName,
 		PageNo:      query.PageNo,
 		PageSize:    query.PageSize,

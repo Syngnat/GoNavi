@@ -46,21 +46,54 @@ type executionAuthorizingBackend interface {
 type AppBackend struct {
 	app              *appcore.App
 	mcpQueryExecutor *appcore.MCPQueryExecutor
+	ownsApp          bool
+	// configDir is kept alongside the App so callers that explicitly select a
+	// data root (notably the agent CLI) read the matching AI safety policy. The
+	// previous implementation consulted the process-global active root here,
+	// which could silently authorize against a different profile.
+	configDir string
 }
 
 func NewAppBackend(ctx context.Context) (*AppBackend, error) {
+	return NewAppBackendWithDataRoot(ctx, "")
+}
+
+// NewAppBackendWithDataRoot creates a headless backend rooted at dataRoot.
+// An empty root preserves the normal active-root resolution rules.
+func NewAppBackendWithDataRoot(ctx context.Context, dataRoot string) (*AppBackend, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	a, err := appcore.NewHeadlessApp(ctx, "")
+	root := strings.TrimSpace(dataRoot)
+	var err error
+	if root == "" {
+		root, err = appdata.ResolveActiveRoot()
+	} else {
+		root, err = appdata.ResolveRoot(root)
+	}
 	if err != nil {
 		return nil, err
+	}
+	a, err := appcore.NewHeadlessApp(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	return &AppBackend{app: a, mcpQueryExecutor: appcore.NewMCPQueryExecutor(a), ownsApp: true, configDir: root}, nil
+}
+
+// NewAppBackendFromApp borrows the desktop application's initialized runtime.
+// The returned backend never shuts the App down; lifecycle ownership remains
+// with the Wails host. This keeps desktop Agent tools on the same connection
+// cache, saved-connection store and query audit path as the rest of the app.
+func NewAppBackendFromApp(a *appcore.App) (*AppBackend, error) {
+	if a == nil {
+		return nil, fmt.Errorf("GoNavi App is required")
 	}
 	return &AppBackend{app: a, mcpQueryExecutor: appcore.NewMCPQueryExecutor(a)}, nil
 }
 
 func (b *AppBackend) Close(ctx context.Context) error {
-	if b == nil || b.app == nil {
+	if b == nil || b.app == nil || !b.ownsApp {
 		return nil
 	}
 	b.app.Shutdown()
@@ -153,7 +186,14 @@ func (b *AppBackend) InspectSQL(dbType string, sql string) appcore.SQLInspection
 }
 
 func (b *AppBackend) GetSQLSafetyLevel() ai.SQLPermissionLevel {
-	inspection, err := aiservice.NewProviderConfigStore(appdata.MustResolveActiveRoot(), nil).Inspect()
+	configDir := ""
+	if b != nil {
+		configDir = strings.TrimSpace(b.configDir)
+	}
+	if configDir == "" {
+		configDir = appdata.MustResolveActiveRoot()
+	}
+	inspection, err := aiservice.NewProviderConfigStore(configDir, nil).Inspect()
 	if err != nil {
 		logger.Error(err, "加载 MCP SQL 安全控制失败，按只读模式回退")
 		return ai.PermissionReadOnly

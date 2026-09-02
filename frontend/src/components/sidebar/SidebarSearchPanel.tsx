@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ConfigProvider, Input, Button, Switch, Tooltip } from 'antd';
-import { CloseOutlined, SearchOutlined, ReloadOutlined, TableOutlined, RobotOutlined } from '@ant-design/icons';
+import { ConfigProvider, Input, Tooltip } from 'antd';
+import { CloseOutlined, SearchOutlined, TableOutlined, RobotOutlined } from '@ant-design/icons';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import { t } from '../../i18n';
 import { APP_COMMAND_PALETTE_Z_INDEX } from '../../utils/overlayZIndex';
@@ -29,8 +29,6 @@ export interface SidebarSearchPanelProps<TItem extends V2CommandSearchItemLike =
   activeIndex: number;
   label: string;
   placeholder: string;
-  persistedFilter: string;
-  persistentFilterEnabled: boolean;
   aiMode: boolean;
   objectMode: boolean;
   flatItems: TItem[];
@@ -49,8 +47,6 @@ export interface SidebarSearchPanelProps<TItem extends V2CommandSearchItemLike =
     onItemHover: (key: string) => void;
     onRemoveRecentItem: (item: TItem) => void;
     onClearRecentItems: () => void;
-    onTogglePersistentFilter: (enabled: boolean) => void;
-    onResetFilter: () => void;
   };
 }
 
@@ -60,8 +56,6 @@ const SidebarSearchPanel = <TItem extends V2CommandSearchItemLike>({
   activeIndex,
   label,
   placeholder,
-  persistedFilter,
-  persistentFilterEnabled,
   aiMode,
   objectMode,
   flatItems,
@@ -173,25 +167,6 @@ const SidebarSearchPanel = <TItem extends V2CommandSearchItemLike>({
             onKeyDown={handlers.onKeyDown}
             placeholder={placeholder}
           />
-          <Tooltip title={t('sidebar.command_search.sync_to_filter_tooltip')}>
-            <span className="gn-v2-command-filter-switch" aria-label={t('sidebar.command_search.sync_to_filter_aria')}>
-              <Switch
-                size="small"
-                checked={persistentFilterEnabled}
-                onChange={handlers.onTogglePersistentFilter}
-              />
-            </span>
-          </Tooltip>
-          <Tooltip title={persistedFilter ? t('sidebar.command_search.reset_filter') : t('sidebar.command_search.no_synced_filter')}>
-            <Button
-              size="small"
-              type="text"
-              icon={<ReloadOutlined />}
-              aria-label={t('sidebar.command_search.reset_filter')}
-              disabled={!persistedFilter}
-              onClick={handlers.onResetFilter}
-            />
-          </Tooltip>
           <kbd>esc</kbd>
         </div>
         <div className="gn-v2-command-list">

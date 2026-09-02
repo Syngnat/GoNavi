@@ -66,6 +66,16 @@ describe('editable targets', () => {
       });
     }
   });
+
+  it('treats SVG picker icons as interactive targets through their dropdown ancestor', () => {
+    const pickerPath = {
+      tagName: 'path',
+      isContentEditable: false,
+      closest: (selector: string) => selector.includes('.ant-picker-dropdown') ? {} : null,
+    };
+
+    expect(isEditableElement(pickerPath as unknown as EventTarget)).toBe(true);
+  });
 });
 
 // ─── findReservedConflict ────────────────────────────────────────────
@@ -480,6 +490,12 @@ describe('shortcut defaults', () => {
     expect(SHORTCUT_ACTION_META.closeActiveTab).toMatchObject({
       label: '关闭当前标签页',
       scope: 'global',
+      allowInEditable: true,
+    });
+  });
+
+  it('allows the new query tab shortcut from editable targets', () => {
+    expect(SHORTCUT_ACTION_META.newQueryTab).toMatchObject({
       allowInEditable: true,
     });
   });

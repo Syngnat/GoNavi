@@ -23,6 +23,7 @@ import {
   APP_DETACHED_WINDOW_Z_INDEX_BASE,
   APP_POPUP_Z_INDEX,
 } from '../utils/overlayZIndex';
+import { requestCloseWorkbenchTabs } from '../utils/workbenchTabCloseProtection';
 
 const getTabKindLabel = (type: string): string => {
   if (type === 'query') return t('tab_manager.kind_badge.query');
@@ -56,7 +57,6 @@ const FloatingWorkbenchWindows: React.FC = () => {
   const detachedWorkbenchWindows = useStore((state) => state.detachedWorkbenchWindows);
   const activeTabId = useStore((state) => state.activeTabId);
   const attachWorkbenchTab = useStore((state) => state.attachWorkbenchTab);
-  const closeTab = useStore((state) => state.closeTab);
   const updateDetachedWorkbenchBounds = useStore((state) => state.updateDetachedWorkbenchBounds);
   const focusDetachedWorkbenchTab = useStore((state) => state.focusDetachedWorkbenchTab);
   const dragRef = useRef<{
@@ -352,7 +352,7 @@ const FloatingWorkbenchWindows: React.FC = () => {
                   size="small"
                   icon={<CloseOutlined />}
                   aria-label={t('tab_manager.detached.close')}
-                  onClick={() => closeTab(windowState.tabId)}
+                  onClick={() => requestCloseWorkbenchTabs([windowState.tabId])}
                 />
               </Tooltip>
             </div>

@@ -303,6 +303,68 @@ func TestKingbaseGetDatabasesFallsBackToCurrentDatabase(t *testing.T) {
 	}
 }
 
+func TestKingbaseGetTablesDeduplicatesCatalogRowsByExactQualifiedName(t *testing.T) {
+	registerFakeKingbaseDriverOnce.Do(func() {
+		sql.Register(fakeKingbaseDriverName, fakeKingbaseDriver{})
+	})
+
+	db, err := sql.Open(fakeKingbaseDriverName, "")
+	if err != nil {
+		t.Fatalf("open fake kingbase db failed: %v", err)
+	}
+	defer db.Close()
+
+	const tablesQuery = `
+		SELECT DISTINCT table_schema AS schemaname, table_name AS tablename
+		FROM information_schema.tables
+		WHERE table_type = 'BASE TABLE'
+		  AND table_schema NOT IN ('pg_catalog', 'information_schema')
+		  AND table_schema NOT LIKE 'pg|_%' ESCAPE '|'
+		ORDER BY table_schema, table_name`
+
+	fakeKingbaseStateMu.Lock()
+	fakeKingbaseState.queryErr = nil
+	fakeKingbaseState.queryResults = map[string]fakeKingbaseQueryResult{
+		tablesQuery: {
+			columns: []string{"schemaname", "tablename"},
+			rows: [][]driver.Value{
+				{"ldf_server", "ldf_application_type"},
+				{"ldf_server", "ldf_application_type"},
+				{"LDF_SERVER", "LDF_APPLICATION_TYPE"},
+				{"archive", "ldf_application_type"},
+			},
+		},
+	}
+	fakeKingbaseState.lastQuery = ""
+	fakeKingbaseState.queries = nil
+	fakeKingbaseStateMu.Unlock()
+
+	tables, err := (&KingbaseDB{conn: db}).GetTables("ldf_server_dbs_dev")
+	if err != nil {
+		t.Fatalf("GetTables returned error: %v", err)
+	}
+	want := []string{
+		"ldf_server.ldf_application_type",
+		"LDF_SERVER.LDF_APPLICATION_TYPE",
+		"archive.ldf_application_type",
+	}
+	if len(tables) != len(want) {
+		t.Fatalf("GetTables returned %v, want %v", tables, want)
+	}
+	for index, table := range want {
+		if tables[index] != table {
+			t.Fatalf("GetTables returned %v, want %v", tables, want)
+		}
+	}
+
+	fakeKingbaseStateMu.Lock()
+	lastQuery := fakeKingbaseState.lastQuery
+	fakeKingbaseStateMu.Unlock()
+	if !strings.Contains(lastQuery, "SELECT DISTINCT table_schema") {
+		t.Fatalf("expected GetTables catalog query to use DISTINCT, got %s", lastQuery)
+	}
+}
+
 func TestKingbaseGetIndexesParsesStringUniqueAndVisibleRelation(t *testing.T) {
 	registerFakeKingbaseDriverOnce.Do(func() {
 		sql.Register(fakeKingbaseDriverName, fakeKingbaseDriver{})

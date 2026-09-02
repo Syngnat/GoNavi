@@ -23,6 +23,42 @@ const configuredTask = () => {
 };
 
 describe('static data sync workbench gateway', () => {
+  it('pages and removes only terminal run history', async () => {
+    const task = configuredTask();
+    const runs = Array.from({ length: 27 }, (_, index) => ({
+      id: `run-${index + 1}`,
+      taskId: task.id,
+      taskName: task.name,
+      status: index === 0 ? ('running' as const) : ('succeeded' as const),
+      trigger: 'manual' as const,
+      attempt: 1,
+      resumable: false,
+      message: '',
+      startedAt: `2026-08-08T01:${String(index).padStart(2, '0')}:00.000Z`,
+      finishedAt: '',
+      rowsRead: 0,
+      rowsWritten: 0,
+      rowsFailed: 0,
+      throughput: 0,
+      checkpoint: '',
+    }));
+    const gateway = createStaticDataSyncWorkbenchGateway({ tasks: [task], runs });
+
+    const first = await gateway.listRunsPage();
+    expect(first.runs).toHaveLength(10);
+    expect(first.nextCursor).toEqual({ createdAt: 0, id: 'run-10' });
+    const second = await gateway.listRunsPage(first.nextCursor);
+    expect(second.runs.map((run) => run.id)).toEqual(
+      Array.from({ length: 10 }, (_, index) => `run-${index + 11}`),
+    );
+    expect((await gateway.listRunsPage(null, 50)).runs).toHaveLength(27);
+
+    await expect(gateway.deleteRun('run-1')).rejects.toThrow('not terminal');
+    await gateway.deleteRun('run-2');
+    expect(await gateway.clearTerminalRuns()).toBe(25);
+    expect(await gateway.listRuns()).toHaveLength(1);
+  });
+
   it('persists task references in memory and binds preflight to the task revision', async () => {
     const task = configuredTask();
     const gateway = createStaticDataSyncWorkbenchGateway({
@@ -42,6 +78,7 @@ describe('static data sync workbench gateway', () => {
     expect(preflight).toMatchObject({
       taskId: task.id,
       taskRevision: task.revision,
+      taskEditEpoch: task.editEpoch,
       status: 'passed',
       issues: [],
       definitionHash: `static:${task.id}:${task.revision}`,

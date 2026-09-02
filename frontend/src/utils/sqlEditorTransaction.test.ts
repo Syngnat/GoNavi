@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canReusePendingSqlEditorTransactionForType,
   hasTopLevelSqlEditorForUpdate,
+  isSqlEditorSchemaChangingStatement,
   resolveSqlEditorOperationKeyword,
   shouldUseSqlEditorManagedTransaction,
   shouldUseSqlEditorManagedTransactionForType,
@@ -40,6 +41,13 @@ describe('sqlEditorTransaction', () => {
     expect(resolveSqlEditorOperationKeyword('WITH target AS (SELECT id FROM users) SELECT * FROM target')).toBe('select');
     expect(resolveSqlEditorOperationKeyword('WITH target AS (SELECT id FROM users) UPDATE users SET synced = 1')).toBe('update');
     expect(resolveSqlEditorOperationKeyword('WITH target AS (SELECT id FROM users) DELETE FROM users WHERE id IN (SELECT id FROM target)')).toBe('delete');
+  });
+
+  it('recognizes only schema-changing statements for metadata invalidation', () => {
+    expect(isSqlEditorSchemaChangingStatement('-- apply schema\nALTER TABLE users ADD COLUMN email VARCHAR(128)')).toBe(true);
+    expect(isSqlEditorSchemaChangingStatement('CREATE OR REPLACE VIEW active_users AS SELECT * FROM users')).toBe(true);
+    expect(isSqlEditorSchemaChangingStatement('TRUNCATE TABLE users')).toBe(false);
+    expect(isSqlEditorSchemaChangingStatement("SELECT 'DROP TABLE users' AS note")).toBe(false);
   });
 
   it('detects only top-level SELECT FOR UPDATE clauses', () => {

@@ -23,6 +23,13 @@ type DataSourceOperationCapability struct {
 	MessageKey   string `json:"messageKey,omitempty"`
 }
 
+type DataSourceNavigationCapabilities struct {
+	PrimaryVisibilitySupported         bool   `json:"primaryVisibilitySupported"`
+	PrimaryKind                        string `json:"primaryKind"`
+	SecondarySchemaVisibilitySupported bool   `json:"secondarySchemaVisibilitySupported"`
+	SchemaIdentifierCaseSensitive      bool   `json:"schemaIdentifierCaseSensitive"`
+}
+
 // DataSourceUICapabilities keeps UI-specific affordances in the same registry
 // as the backend operation boundaries. All fields are intentionally false by
 // default so a newly declared profile must opt into an entry point explicitly.
@@ -46,30 +53,32 @@ type DataSourceUICapabilities struct {
 // DataSourceCapability is the shared, generated data-source contract returned
 // by backend APIs and consumed directly by the frontend registry import.
 type DataSourceCapability struct {
-	Type                string                        `json:"type"`
-	Query               DataSourceOperationCapability `json:"query"`
-	Metadata            DataSourceOperationCapability `json:"metadata"`
-	Transaction         DataSourceOperationCapability `json:"transaction"`
-	Pagination          DataSourceOperationCapability `json:"pagination"`
-	Cancel              DataSourceOperationCapability `json:"cancel"`
-	Schema              DataSourceOperationCapability `json:"schema"`
-	Sampling            DataSourceOperationCapability `json:"sampling"`
-	Streaming           DataSourceOperationCapability `json:"streaming"`
-	DangerousOperations DataSourceOperationCapability `json:"dangerousOperations"`
-	UI                  DataSourceUICapabilities      `json:"ui"`
+	Type                string                           `json:"type"`
+	Query               DataSourceOperationCapability    `json:"query"`
+	Metadata            DataSourceOperationCapability    `json:"metadata"`
+	Transaction         DataSourceOperationCapability    `json:"transaction"`
+	Pagination          DataSourceOperationCapability    `json:"pagination"`
+	Cancel              DataSourceOperationCapability    `json:"cancel"`
+	Schema              DataSourceOperationCapability    `json:"schema"`
+	Sampling            DataSourceOperationCapability    `json:"sampling"`
+	Streaming           DataSourceOperationCapability    `json:"streaming"`
+	DangerousOperations DataSourceOperationCapability    `json:"dangerousOperations"`
+	UI                  DataSourceUICapabilities         `json:"ui"`
+	Navigation          DataSourceNavigationCapabilities `json:"navigation"`
 }
 
 type dataSourceCapabilityProfile struct {
-	Query               DataSourceOperationCapability `json:"query"`
-	Metadata            DataSourceOperationCapability `json:"metadata"`
-	Transaction         DataSourceOperationCapability `json:"transaction"`
-	Pagination          DataSourceOperationCapability `json:"pagination"`
-	Cancel              DataSourceOperationCapability `json:"cancel"`
-	Schema              DataSourceOperationCapability `json:"schema"`
-	Sampling            DataSourceOperationCapability `json:"sampling"`
-	Streaming           DataSourceOperationCapability `json:"streaming"`
-	DangerousOperations DataSourceOperationCapability `json:"dangerousOperations"`
-	UI                  DataSourceUICapabilities      `json:"ui"`
+	Query               DataSourceOperationCapability    `json:"query"`
+	Metadata            DataSourceOperationCapability    `json:"metadata"`
+	Transaction         DataSourceOperationCapability    `json:"transaction"`
+	Pagination          DataSourceOperationCapability    `json:"pagination"`
+	Cancel              DataSourceOperationCapability    `json:"cancel"`
+	Schema              DataSourceOperationCapability    `json:"schema"`
+	Sampling            DataSourceOperationCapability    `json:"sampling"`
+	Streaming           DataSourceOperationCapability    `json:"streaming"`
+	DangerousOperations DataSourceOperationCapability    `json:"dangerousOperations"`
+	UI                  DataSourceUICapabilities         `json:"ui"`
+	Navigation          DataSourceNavigationCapabilities `json:"navigation"`
 }
 
 type dataSourceCapabilityRegistry struct {
@@ -95,7 +104,7 @@ func mustLoadDataSourceCapabilityRegistry() dataSourceCapabilityRegistry {
 }
 
 func validateDataSourceCapabilityRegistry(registry dataSourceCapabilityRegistry) error {
-	if registry.Version != 1 {
+	if registry.Version != 2 {
 		return fmt.Errorf("unsupported version %d", registry.Version)
 	}
 	if len(registry.Profiles) == 0 {
@@ -106,9 +115,23 @@ func validateDataSourceCapabilityRegistry(registry dataSourceCapabilityRegistry)
 			return fmt.Errorf("missing required profile %q", requiredProfile)
 		}
 	}
+	validPrimaryKinds := map[string]struct{}{
+		"none": {}, "database": {}, "catalog": {}, "owner": {}, "namespace": {},
+		"index": {}, "vhost": {}, "catalog_schema": {}, "redis_db": {},
+	}
 	for profileName, profile := range registry.Profiles {
 		if strings.TrimSpace(profileName) == "" {
 			return fmt.Errorf("profile name is empty")
+		}
+		primaryKind := strings.TrimSpace(profile.Navigation.PrimaryKind)
+		if _, ok := validPrimaryKinds[primaryKind]; !ok {
+			return fmt.Errorf("profile %q has invalid navigation primary kind %q", profileName, primaryKind)
+		}
+		if profile.Navigation.PrimaryVisibilitySupported && primaryKind == "none" {
+			return fmt.Errorf("profile %q enables primary visibility without a primary kind", profileName)
+		}
+		if profile.Navigation.SecondarySchemaVisibilitySupported && !profile.Navigation.PrimaryVisibilitySupported {
+			return fmt.Errorf("profile %q enables schema visibility without primary visibility", profileName)
 		}
 		for operationName, operation := range profileOperations(profile) {
 			if operation.Supported {
@@ -212,5 +235,6 @@ func resolveDataSourceCapability(normalizedType string, customFallback bool) Dat
 		Streaming:           profile.Streaming,
 		DangerousOperations: profile.DangerousOperations,
 		UI:                  profile.UI,
+		Navigation:          profile.Navigation,
 	}
 }

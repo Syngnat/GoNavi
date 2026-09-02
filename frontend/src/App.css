@@ -330,6 +330,17 @@ body[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
     white-space: nowrap;
 }
 
+/* 字段候选的备注跟随加宽后的弹层使用剩余空间，避免被默认 48% 列宽提前截断。 */
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .left {
+    flex: 0 1 auto;
+    min-width: 0;
+}
+
+.gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label > .contents > .main > .right {
+    flex: 1 1 auto;
+    max-width: none;
+}
+
 /* 表候选使用 Monaco 原生 CompletionItemLabel：第一行表名，第二行注释。 */
 .gn-query-monaco-stage .monaco-editor .suggest-widget .monaco-list .monaco-list-row:not(.string-label) {
     height: var(--gn-query-suggest-row-height, 36px) !important;
@@ -434,33 +445,33 @@ body[data-theme='dark'] {
 }
 
 /* 暗色 + 透明：提升选中/焦点可读性，避免默认蓝色在半透明背景下发灰 */
-body[data-theme='dark'] .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected,
-body[data-theme='dark'] .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected:hover {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected,
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected:hover {
     background: rgba(246, 196, 83, 0.24) !important;
     color: rgba(255, 236, 179, 0.98) !important;
 }
 
-body[data-theme='dark'] .redis-viewer-workbench .ant-tree .ant-tree-treenode:hover {
+body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode:hover {
     background: rgba(255, 255, 255, 0.05) !important;
 }
 
-body[data-theme='dark'] .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
-body[data-theme='dark'] .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
+body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
+body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
     background: linear-gradient(90deg, rgba(246, 196, 83, 0.22), rgba(246, 196, 83, 0.08)) !important;
     border: 1px solid rgba(246, 196, 83, 0.24) !important;
 }
 
-body[data-theme='dark'] .ant-checkbox-checked .ant-checkbox-inner {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox-checked .ant-checkbox-inner {
     background-color: #f6c453 !important;
     border-color: #f6c453 !important;
 }
 
-body[data-theme='dark'] .ant-checkbox-indeterminate .ant-checkbox-inner::after {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox-indeterminate .ant-checkbox-inner::after {
     background-color: #f6c453 !important;
 }
 
-body[data-theme='dark'] .ant-checkbox:hover .ant-checkbox-inner,
-body[data-theme='dark'] .ant-checkbox-wrapper:hover .ant-checkbox-inner {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox:hover .ant-checkbox-inner,
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox-wrapper:hover .ant-checkbox-inner {
     border-color: #f6c453 !important;
 }
 
@@ -468,12 +479,12 @@ body[data-theme='dark'] .ant-checkbox-wrapper:hover .ant-checkbox-inner {
     border-color: var(--gn-on-accent, #fff) !important;
 }
 
-body[data-theme='dark'] .ant-radio-checked .ant-radio-inner {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-radio-checked .ant-radio-inner {
     border-color: #f6c453 !important;
     background-color: #f6c453 !important;
 }
 
-body[data-theme='dark'] .ant-radio-wrapper:hover .ant-radio-inner,
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-radio-wrapper:hover .ant-radio-inner,
 /* 这两条是旧版 UI 的琥珀强调色，必须排除 v2：
    v2 的强调色是绿色（v2-theme.css 的 --gn-accent 与 antd colorPrimary 均为绿），
    而这里的选择器特异性更高（.ant-switch.ant-switch-checked 是两个类），
@@ -486,46 +497,46 @@ body[data-theme='dark']:not([data-ui-version='v2']) .ant-switch.ant-switch-check
     background: #d8a93b !important;
 }
 
-body[data-theme='dark'] .ant-table-tbody > tr.ant-table-row-selected > td,
-body[data-theme='dark'] .ant-table-tbody .ant-table-row.ant-table-row-selected > .ant-table-cell {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody > tr.ant-table-row-selected > td,
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody .ant-table-row.ant-table-row-selected > .ant-table-cell {
     background: rgba(246, 196, 83, 0.18) !important;
 }
 
-body[data-theme='dark'] .ant-table-tbody > tr.ant-table-row-selected:hover > td,
-body[data-theme='dark'] .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell {
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody > tr.ant-table-row-selected:hover > td,
+body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell {
     background: rgba(246, 196, 83, 0.26) !important;
 }
 
-body[data-theme='dark'] .redis-viewer-workbench .ant-radio-button-wrapper {
+body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper {
     background: rgba(255, 255, 255, 0.04);
     border-color: rgba(255, 255, 255, 0.08);
     color: rgba(230, 234, 242, 0.9);
 }
 
-body[data-theme='dark'] .redis-viewer-workbench .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
     background: rgba(246, 196, 83, 0.16);
     border-color: rgba(246, 196, 83, 0.3);
     color: #f6c453;
 }
 
-body[data-theme='light'] .redis-viewer-workbench .ant-tree .ant-tree-treenode:hover {
+body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode:hover {
     background: rgba(15, 23, 42, 0.04) !important;
 }
 
-body[data-theme='light'] .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
-body[data-theme='light'] .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
+body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
+body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
     color: rgba(15, 23, 42, 0.92) !important;
     background: linear-gradient(90deg, rgba(22, 119, 255, 0.12), rgba(22, 119, 255, 0.04)) !important;
     border: 1px solid rgba(22, 119, 255, 0.18) !important;
 }
 
-body[data-theme='light'] .redis-viewer-workbench .ant-radio-button-wrapper {
+body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper {
     background: rgba(255, 255, 255, 0.72);
     border-color: rgba(15, 23, 42, 0.08);
     color: rgba(51, 65, 85, 0.88);
 }
 
-body[data-theme='light'] .redis-viewer-workbench .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
     background: rgba(22, 119, 255, 0.1);
     border-color: rgba(22, 119, 255, 0.22);
     color: #1677ff;
@@ -1200,6 +1211,10 @@ body[data-theme='dark'] .gn-connection-type-group:hover:not([aria-pressed='true'
 }
 
 /* URI 命令按钮：仅当前操作组使用绿色交互态，不影响弹窗底栏。 */
+.gn-conn-uri-actions {
+    margin-top: 6px;
+}
+
 .gn-conn-uri-actions .ant-space-item > .ant-btn {
     transition: background-color 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.1s ease, box-shadow 0.14s ease;
 }
@@ -1775,6 +1790,53 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     border-radius: 6px !important;
 }
 
+/* URI 连接串：对齐 demo .uri-block textarea（需在 .gn-conn-dense textarea 之后以覆盖 32px 最小高度） */
+.gn-conn-uri-block textarea.ant-input {
+    width: 100%;
+    min-height: 52px;
+    resize: vertical;
+    font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-size: 11.5px !important;
+    line-height: 1.4;
+    box-sizing: border-box;
+}
+
+/* 密排多行字段外壳：TextArea 使用 noStyle，间距与高度由外壳承担（需在 .gn-conn-dense textarea 之后） */
+.gn-conn-multiline-field {
+    margin-bottom: 8px;
+}
+
+.gn-conn-multiline-field > .gn-conn-el {
+    margin-bottom: 4px;
+}
+
+.gn-conn-multiline-field > .gn-conn-field-hint {
+    margin-top: 6px;
+    margin-bottom: 0;
+}
+
+.gn-conn-dense .gn-conn-multiline-field textarea.ant-input {
+    width: 100%;
+    min-height: 40px;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.gn-conn-uri-block .gn-conn-multiline-field textarea.ant-input {
+    min-height: 40px;
+    font-family: var(--gn-font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+    font-size: 11.5px !important;
+    line-height: 1.4;
+}
+
+/* 库范围 tags Select：noStyle 后由 f-ctrl 外壳撑开高度 */
+.gn-conn-f-ctrl > .ant-select {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+
 .gn-conn-dense .ant-input-affix-wrapper .ant-input {
     height: auto !important;
     min-height: 0 !important;
@@ -1888,6 +1950,17 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
 }
 
 .gn-conn-mode-extra .ant-form-item {
+    margin-bottom: 8px;
+}
+
+body[data-ui-version="v2"] .gn-conn-dense .gn-conn-mode-extra .ant-form-item {
+    margin-bottom: 8px !important;
+}
+
+/* mode-extra 顶部 tags Select 使用 noStyle，间距由块级外壳承担（对齐 demo .mode-extra 输入与下方 f-row 间距） */
+.gn-conn-mode-extra > .ant-select {
+    display: block;
+    width: 100%;
     margin-bottom: 8px;
 }
 
@@ -2460,6 +2533,7 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
 .gonavi-titlebar-leading {
     display: flex;
     min-width: 0;
+    max-width: 100%;
     flex: 1 1 auto;
     align-items: center;
     gap: 8px;
@@ -2495,11 +2569,24 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
 .gonavi-titlebar-quick-actions-slot {
     display: flex;
     min-width: 0;
-    flex: 1 1 auto;
+    flex: 0 1 auto;
+    max-width: min(560px, 44vw);
     align-items: center;
     margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
     -webkit-app-region: drag;
     --wails-draggable: drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-right {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    height: 100%;
 }
 
 /* Primary: elevated capsule so "新建查询/连接" reads first */
@@ -2547,7 +2634,11 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     max-width: 100%;
     flex: 0 1 auto;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
     margin-left: 0;
     overflow: hidden;
     -webkit-app-region: drag;
@@ -2566,19 +2657,19 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
 .gn-v2-titlebar-quick-action,
 .gn-v2-titlebar-quick-more {
     display: inline-flex;
-    height: 26px;
+    height: var(--gn-titlebar-action-height, 26px);
     flex: 0 0 auto;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     padding: 0 8px;
-    border: 0.5px solid transparent;
-    border-radius: 6px;
+    border: 0;
+    border-radius: 5px;
     background: transparent;
-    color: var(--gn-fg-4, var(--ant-color-text-tertiary));
+    color: var(--gn-fg-3, var(--ant-color-text-tertiary));
     cursor: pointer;
     font: inherit;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 550;
     line-height: 1;
     white-space: nowrap;
     -webkit-app-region: no-drag;
@@ -2590,9 +2681,9 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
 .gn-v2-titlebar-quick-action:focus-visible,
 .gn-v2-titlebar-quick-more:hover,
 .gn-v2-titlebar-quick-more:focus-visible {
-    border-color: color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 28%, transparent);
-    background: var(--gn-accent-soft, var(--ant-color-primary-bg));
-    color: var(--gn-accent, var(--ant-color-primary));
+    border-color: transparent;
+    background: var(--gn-bg-hover);
+    color: var(--gn-fg-1);
     outline: none;
 }
 
@@ -2602,6 +2693,18 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     font-size: 13px;
 }
 
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-action,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
+    gap: 6px;
+    font-size: 12px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-action .anticon,
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .anticon {
+    font-size: 15px;
+    color: var(--gn-fg-4);
+}
+
 /* "更多" shows icon + label like other titlebar quick actions */
 .gn-v2-titlebar-quick-more {
     position: relative;
@@ -2609,6 +2712,20 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     padding: 0 8px;
     justify-content: center;
     gap: 5px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
+    gap: 6px;
+    width: auto;
+    min-width: 0;
+    padding-inline: 8px;
+    border: 0;
+    border-radius: 5px;
+    margin-left: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-label {
+    display: inline;
 }
 
 @media (max-width: 1180px) {
@@ -2645,14 +2762,114 @@ body[data-ui-version="v2"] .gn-conn-check-line .ant-form-item {
     }
 }
 
+@media (max-width: 920px) {
+    body[data-ui-version="v2"] .gonavi-titlebar-primary-actions {
+        margin-right: 6px;
+    }
+
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar {
+    display: flex !important;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+}
+
+body[data-ui-version="v2"] .gonavi-titlebar-leading {
+    min-width: 0;
+    flex: 0 1 auto;
+    max-width: 100%;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot {
+    max-width: min(620px, 42vw);
+    flex: 0 1 auto;
+    margin-left: 10px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions {
+    max-width: 100%;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar > .gn-v2-titlebar-right {
+    min-width: 0;
+    margin-left: auto;
+    align-self: stretch;
+}
+
+/* Docked collapsed actions occupy a second row. Keep titlebar content and
+   custom Windows controls in the compact upper row so the rows never overlap. */
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked:not(.gn-v2-titlebar-native-mac) > .gonavi-titlebar-leading,
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked:not(.gn-v2-titlebar-native-mac) > .gn-v2-titlebar-right {
+    align-self: flex-start;
+    height: var(--gn-titlebar-collapsed-upper-height, 29px);
+    min-height: var(--gn-titlebar-collapsed-upper-height, 29px);
+}
+
+/* Native traffic lights keep a fixed vertical center while UI Scale changes the custom bar height. */
+body[data-ui-version="v2"] .gn-v2-titlebar-native-mac > .gonavi-titlebar-leading,
+body[data-ui-version="v2"] .gn-v2-titlebar-native-mac > .gn-v2-titlebar-right {
+    position: relative;
+    top: var(--gn-titlebar-native-content-offset, 0px);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-right .titlebar-window-controls {
+    min-width: max-content;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls {
+    flex: 0 0 auto;
+}
+
+body[data-ui-version="v2"][data-platform='linux'] .gn-v2-titlebar > div:last-child {
+    min-width: max(96px, calc(var(--gn-titlebar-action-height, 34px) * 3));
+}
+
+@media (max-width: 720px) {
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot {
+        max-width: 180px;
+    }
+}
+
+@media (max-width: 420px) {
+    /* Leave room for native window controls while keeping every command reachable. */
+    body[data-ui-version="v2"] .gonavi-titlebar-primary-action,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
+        width: 38px !important;
+        min-width: 38px !important;
+        padding-inline: 0 !important;
+        gap: 0 !important;
+        font-size: 0 !important;
+    }
+
+    body[data-ui-version="v2"] .gonavi-titlebar-primary-action .anticon,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .anticon {
+        margin: 0;
+    }
+}
+
 body[data-platform='windows'] .titlebar-window-controls {
     gap: 8px;
+}
+
+body[data-ui-version="v2"][data-platform='windows'] .titlebar-window-controls {
+    gap: 0;
+    border-left: 0;
+    padding-left: 0;
+    margin-left: 0;
 }
 
 .titlebar-window-controls > .ant-btn.ant-btn-text {
     border: 0 !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.ant-btn-text,
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
+    height: 100% !important;
+    min-height: 100% !important;
 }
 
 .titlebar-window-controls > .titlebar-close-btn.ant-btn-text:hover {
@@ -3337,7 +3554,7 @@ body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] [da
   transition: none;
 }
 
-body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-rail-sidebar-toggle-slot {
+body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] .gn-v2-connection-rail {
   display: none;
 }
 
@@ -3423,9 +3640,121 @@ body[data-theme='dark'] .gonavi-about-project-entry:hover:not(:disabled) {
 
 .gonavi-ai-settings-nav-item:focus-visible,
 .gonavi-ai-provider-select:focus-visible,
-.gonavi-ai-provider-add:focus-visible {
+.gonavi-ai-provider-add:focus-visible,
+.gonavi-ai-provider-support > summary:focus-visible,
+.gonavi-ai-provider-support-table:focus-visible,
+.gonavi-ai-cli-details > summary:focus-visible,
+.gonavi-ai-provider-more > summary:focus-visible {
   outline: 2px solid rgba(22, 163, 74, 0.55);
   outline-offset: -2px;
+}
+
+.gonavi-ai-cli-model-fields,
+.gonavi-ai-provider-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 0 12px;
+}
+
+.gonavi-ai-cli-model-fields > .ant-form-item,
+.gonavi-ai-provider-field-grid > .ant-form-item {
+  min-width: 0;
+}
+
+.gonavi-ai-provider-form > .gonavi-ai-provider-field-grid > .ant-form-item,
+.gonavi-ai-provider-more .gonavi-ai-provider-field-grid > .ant-form-item {
+  margin-bottom: 12px;
+}
+
+.gonavi-ai-provider-form[hidden] {
+  display: none;
+}
+
+.gonavi-ai-provider-guide {
+  margin: 14px 0 12px;
+}
+
+.gonavi-ai-provider-guide-label {
+  display: block;
+  font-size: var(--gn-font-size-sm, 12px);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.gonavi-ai-provider-guide .gonavi-ai-provider-field-grid {
+  gap: 10px 12px;
+}
+
+.gonavi-ai-provider-guide .gonavi-ai-provider-field-grid > div {
+  min-width: 0;
+}
+
+.gonavi-ai-provider-guide-hint,
+.gonavi-ai-provider-guide-restore,
+.gonavi-ai-provider-support {
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 1.6;
+}
+
+.gonavi-ai-provider-guide-hint {
+  margin: 8px 0 2px;
+}
+
+.gonavi-ai-provider-guide-restore {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.gonavi-ai-provider-support > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.gonavi-ai-provider-support p {
+  margin: 6px 0 8px;
+}
+
+.gonavi-ai-provider-support-table {
+  max-height: 280px;
+  overflow: auto;
+}
+
+.gonavi-ai-provider-support table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: left;
+}
+
+.gonavi-ai-provider-support th,
+.gonavi-ai-provider-support td {
+  padding: 6px 8px;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid currentColor;
+  border-bottom-color: color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.gonavi-ai-provider-support th:first-child {
+  width: 35%;
+  font-weight: 500;
+}
+
+.gonavi-ai-provider-support caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.gonavi-ai-provider-support-configured {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.9em;
+  opacity: 0.7;
 }
 
 body[data-theme='dark'] .gonavi-ai-settings-nav-item:hover:not(.is-active),
@@ -3802,13 +4131,6 @@ body[data-theme='dark'] .gonavi-settings-center-entry:hover {
     gap: 12px !important;
   }
 
-  .gonavi-ai-settings-flat {
-    grid-template-columns: 148px minmax(0, 1fr) !important;
-  }
-
-  .gonavi-ai-settings-content {
-    padding-left: 16px !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4366,12 +4688,12 @@ body .gonavi-about-update-channel .ant-segmented-item {
 }
 
 body .gonavi-about-update-channel .ant-segmented-item-label {
-  min-height: calc(var(--gn-control-height, 32px) - 4px) !important;
+  min-height: calc(var(--gn-control-height, 32px) - 6px) !important;
   padding: 0 8px !important;
   color: rgba(15, 23, 42, 0.62) !important;
   font-size: var(--gn-font-size-sm, 12px) !important;
   font-weight: 600 !important;
-  line-height: calc(var(--gn-control-height, 32px) - 4px) !important;
+  line-height: calc(var(--gn-control-height, 32px) - 6px) !important;
 }
 
 body .gonavi-about-update-channel .ant-segmented-item-selected,
@@ -4444,6 +4766,23 @@ body[data-ui-version='v2'] .gonavi-about-update-channel.ant-segmented .ant-segme
   outline: 2px solid var(--gn-accent) !important;
   outline-offset: -2px;
   border-radius: 4px;
+}
+
+/* 数据库显示范围弹窗：搜索框与刷新按钮并排、等高 */
+.gn-schema-visibility-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.gn-schema-visibility-search .ant-input-affix-wrapper {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+body[data-ui-version='v2'] .gn-schema-visibility-search .ant-btn {
+  height: var(--gn-control-height, 32px) !important;
 }
 
 /* ── Theme settings (v2 only): clean desktop settings ─── */
@@ -4838,8 +5177,19 @@ body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-ite
   color: var(--gn-settings-muted) !important;
 }
 
-body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-thumb {
-  display: none !important;
+/*
+ * rc-segmented removes .ant-segmented-item-selected while its thumb moves.
+ * Do not hide that thumb: WebView2/WKWebView may not emit transitionend for
+ * a display:none node, leaving every item unstyled until the panel remounts.
+ * Keep the moving layer visually identical to the GoNavi selected state.
+ */
+body[data-ui-version='v2'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-thumb {
+  display: block !important;
+  box-sizing: border-box !important;
+  border: 1px solid var(--gn-settings-accent) !important;
+  border-radius: 8px !important;
+  background: var(--gn-settings-accent-soft) !important;
+  box-shadow: none !important;
 }
 
 body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected,
@@ -4855,6 +5205,19 @@ body .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-ite
   font-weight: 700 !important;
 }
 
+/* The radio input updates before rc-segmented restores its selected class. */
+body[data-ui-version='v2'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item-input:checked + .ant-segmented-item-label {
+  color: var(--gn-settings-accent) !important;
+  font-weight: 700 !important;
+}
+
+/* Keep the parent pill selected while rc-segmented is moving its thumb. */
+body[data-ui-version='v2'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:has(> .ant-segmented-item-input:checked) {
+  border-color: var(--gn-settings-accent) !important;
+  background: var(--gn-settings-accent-soft) !important;
+  box-shadow: none !important;
+}
+
 body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected,
 body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item[aria-selected='true'] {
   border-color: color-mix(in srgb, var(--gn-settings-accent) 70%, rgba(255, 255, 255, 0.2)) !important;
@@ -4864,6 +5227,15 @@ body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice
 body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item.ant-segmented-item-selected .ant-segmented-item-label,
 body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item[aria-selected='true'] .ant-segmented-item-label {
   color: #86efac !important;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item-input:checked + .ant-segmented-item-label {
+  color: #86efac !important;
+}
+
+body[data-ui-version='v2'][data-theme='dark'] .gonavi-theme-settings .gonavi-settings-segmented-choice .ant-segmented-item:has(> .ant-segmented-item-input:checked) {
+  border-color: color-mix(in srgb, var(--gn-settings-accent) 70%, rgba(255, 255, 255, 0.2)) !important;
+  background: color-mix(in srgb, var(--gn-settings-accent) 22%, transparent) !important;
 }
 
 /* 界面版本预览：预览画布保留边界，选择项本身保持平面。 */

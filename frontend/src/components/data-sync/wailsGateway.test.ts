@@ -125,8 +125,13 @@ const apiFixture = (
     }),
   ),
   DataSyncJobSave: vi.fn(async (definition) => success(definition)),
+  DataSyncJobDelete: vi.fn(async () => success()),
   DataSyncRunCancel: vi.fn(async () => success()),
+  DataSyncRunClearTerminal: vi.fn(async () => success({ deleted: 0 })),
+  DataSyncRunDelete: vi.fn(async () => success()),
+  DataSyncRunEventList: vi.fn(async () => success([])),
   DataSyncRunList: vi.fn(async () => success([])),
+  DataSyncRunPage: vi.fn(async () => success({ runs: [], nextCursor: null })),
   DataSyncRunResume: vi.fn(async () => success(runFixture('resume-run', 'resume'))),
   DataSyncRunRetry: vi.fn(async () => success(runFixture('retry-run', 'retry'))),
   DataSyncRunStart: vi.fn(async () => success(runFixture('run-1', 'manual'))),
@@ -177,6 +182,169 @@ const preflightData = (task = taskFixture(), approvalRequired = true) => ({
 });
 
 describe('real Wails data sync gateway', () => {
+  it('returns the CDC probe reason for an adapter that is registered but not ready', async () => {
+    const base = createDataSyncTaskDraft({ id: 'mongo-cdc', kind: 'cdc' });
+    const task = reviseDataSyncTask(base, {
+      source: {
+        connectionId: 'source-id',
+        connectionName: 'Mongo source',
+        type: 'mongodb',
+        database: 'sales',
+        schema: '',
+      },
+      target: {
+        connectionId: 'target-id',
+        connectionName: 'Target',
+        type: 'postgresql',
+        database: 'warehouse',
+        schema: 'ods',
+      },
+      incremental: {
+        mode: 'cdc',
+        initialSnapshot: false,
+        startPosition: 'latest',
+        adapter: 'mongodb-change-stream',
+        slotName: '',
+        publicationName: '',
+      },
+    });
+    const api = apiFixture({
+      DataSyncCDCProbe: vi.fn(async () => success({
+        adapter: 'mongodb-change-stream',
+        supported: true,
+        ready: false,
+        reason: 'MongoDB must run as a replica set or sharded cluster',
+      })),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(gateway.resolveCapability(task)).resolves.toMatchObject({
+      canExecute: false,
+      supportsCdc: true,
+      cdcProbeReady: false,
+      cdcProbeReason: 'MongoDB must run as a replica set or sharded cluster',
+    });
+    expect(api.DataSyncCDCProbe).toHaveBeenCalledWith(
+      'source-id',
+      'sales',
+      '',
+      '',
+    );
+  });
+
+  it('probes CDC sources even when a draft has no persisted adapter yet', async () => {
+    const base = createDataSyncTaskDraft({ id: 'mongo-cdc-draft', kind: 'cdc' });
+    const task = reviseDataSyncTask(base, {
+      source: {
+        connectionId: 'source-id',
+        connectionName: 'Mongo source',
+        type: 'mongodb',
+        database: 'sales',
+        schema: '',
+      },
+      target: {
+        connectionId: 'target-id',
+        connectionName: 'Target',
+        type: 'postgresql',
+        database: 'warehouse',
+        schema: 'ods',
+      },
+      mappings: [{
+        ...createDataSyncTableMapping('mongo-orders', 'orders', 'ods.orders'),
+        keyColumns: ['_id'],
+      }],
+    });
+    const api = apiFixture({
+      DataSyncJobList: vi.fn(async () => success([encodeDataSyncJobDefinition(task)])),
+      DataSyncCDCAdapterList: vi.fn(async () => {
+        throw new Error('adapter list is unavailable');
+      }),
+      DataSyncCDCProbe: vi.fn(async () => success({
+        adapter: 'mongodb-change-stream',
+        supported: true,
+        ready: true,
+        reason: '',
+      })),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(gateway.listCdcSources()).resolves.toMatchObject([{
+      taskId: task.id,
+      adapter: 'mongodb-change-stream',
+      status: 'ready',
+    }]);
+    expect(api.DataSyncCDCProbe).toHaveBeenCalledWith('source-id', 'sales', '', '');
+  });
+
+  it('rethrows a Web RPC abort from CDC probing instead of reporting capability unavailable', async () => {
+    const task = reviseDataSyncTask(
+      createDataSyncTaskDraft({ id: 'persisted-cdc', kind: 'cdc' }),
+      {
+        source: {
+          connectionId: 'source-id',
+          connectionName: 'Mongo source',
+          type: 'mongodb',
+          database: 'sales',
+          schema: '',
+        },
+        target: {
+          connectionId: 'target-id',
+          connectionName: 'Target',
+          type: 'postgresql',
+          database: 'warehouse',
+          schema: 'ods',
+        },
+      },
+    );
+    const api = apiFixture({
+      DataSyncJobList: vi.fn(async () =>
+        success([encodeDataSyncJobDefinition(task)]),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+    await gateway.listTasks();
+
+    const abortError = Object.assign(new Error('aborted'), {
+      name: 'AbortError',
+      code: 'WEB_RPC_ABORTED',
+      dispatchState: 'possibly_dispatched',
+    });
+    const invokeWithOptions = vi.fn(async (
+      _namespace: string,
+      _receiver: string,
+      method: string,
+    ) => {
+      if (method === 'DataSyncCheckpointGet') {
+        return { success: false, message: 'data sync job record not found' };
+      }
+      throw abortError;
+    });
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { __GONAVI_WEB_RPC__: { invokeWithOptions } },
+    });
+    const controller = new AbortController();
+    try {
+      await expect(
+        gateway.listCdcSources({ signal: controller.signal }),
+      ).rejects.toBe(abortError);
+    } finally {
+      if (originalWindow) {
+        Object.defineProperty(globalThis, 'window', originalWindow);
+      } else {
+        delete (globalThis as { window?: unknown }).window;
+      }
+    }
+    expect(invokeWithOptions).toHaveBeenCalledWith(
+      'app',
+      'App',
+      'DataSyncCDCProbe',
+      ['source-id', 'sales', '', ''],
+      { signal: controller.signal },
+    );
+  });
+
   it('returns localized-form validation codes before calling backend preflight', async () => {
     const base = taskFixture();
     const task = reviseDataSyncTask(base, {
@@ -196,10 +364,27 @@ describe('real Wails data sync gateway', () => {
       expect.arrayContaining([
         'source_object_required',
         'target_object_required',
-        'key_columns_required',
       ]),
     );
     expect(api.DataSyncJobPreflight).not.toHaveBeenCalled();
+  });
+
+  it('sends a keyless snapshot mapping to backend preflight so target existence can decide', async () => {
+    const task = reviseDataSyncTask(taskFixture(), {
+      mappings: [
+        {
+          ...createDataSyncTableMapping('map-keyless', 'orders', 'ods.orders'),
+          targetMode: 'create_or_reuse',
+        },
+      ],
+    });
+    const api = apiFixture();
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const preflight = await gateway.preflightTask(task);
+
+    expect(preflight.status).toBe('passed');
+    expect(api.DataSyncJobPreflight).toHaveBeenCalledTimes(1);
   });
 
   it('uses only saved connection IDs for metadata and never forwards sanitized configs', async () => {
@@ -285,6 +470,103 @@ describe('real Wails data sync gateway', () => {
     await expect(malformedGateway.listTasks()).rejects.toThrow('omitted data');
   });
 
+  it('pages through all run events using their sequence cursor', async () => {
+    const events = Array.from({ length: 501 }, (_, index) => ({
+      runId: 'run-1',
+      sequence: index + 1,
+      type: 'log',
+      message: `event-${index + 1}`,
+      createdAt: NOW,
+    }));
+    const api = apiFixture({
+      DataSyncRunEventList: vi.fn(async (runId, afterSequence, limit) =>
+        success(
+          events
+            .filter((event) => event.runId === runId && event.sequence > afterSequence)
+            .slice(0, limit),
+        ),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const listed = await gateway.listRunEvents('run-1');
+
+    expect(listed).toHaveLength(501);
+    expect(listed.map((event) => event.sequence)).toEqual(
+      events.map((event) => event.sequence),
+    );
+    expect(api.DataSyncRunEventList).toHaveBeenNthCalledWith(1, 'run-1', 0, 500);
+    expect(api.DataSyncRunEventList).toHaveBeenNthCalledWith(2, 'run-1', 500, 500);
+  });
+
+  it('uses the run-history cursor and terminal-history commands', async () => {
+    const api = apiFixture({
+      DataSyncRunPage: vi.fn(async (_taskId, beforeCreatedAt, beforeId) =>
+        success({
+          runs: [runFixture(`run-${beforeId || 'first'}`, 'manual')],
+          total: 2,
+          nextCursor:
+            beforeCreatedAt === 0
+              ? { createdAt: NOW - 1, id: 'run-first' }
+              : null,
+        }),
+      ),
+      DataSyncRunClearTerminal: vi.fn(async () => success({ deleted: 7 })),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const first = await gateway.listRunsPage();
+    expect(first.total).toBe(2);
+    expect(first.nextCursor).toEqual({ createdAt: NOW - 1, id: 'run-first' });
+    await gateway.listRunsPage(first.nextCursor, 50);
+    await gateway.deleteRun('run-first');
+    await expect(gateway.clearTerminalRuns()).resolves.toBe(7);
+
+    expect(api.DataSyncRunPage).toHaveBeenNthCalledWith(1, '', 0, '', 10);
+    expect(api.DataSyncRunPage).toHaveBeenNthCalledWith(2, '', NOW - 1, 'run-first', 50);
+    expect(api.DataSyncRunDelete).toHaveBeenCalledWith('run-first');
+    expect(api.DataSyncRunClearTerminal).toHaveBeenCalledWith('');
+  });
+
+  it('falls back to the legacy run list until an older desktop backend is restarted', async () => {
+    const api = apiFixture({
+      DataSyncRunPage: vi.fn(async () => {
+        throw new TypeError('window.go.app.App.DataSyncRunPage is not a function');
+      }),
+      DataSyncRunList: vi.fn(async () => success([runFixture('legacy-run', 'manual')])),
+      DataSyncRunDelete: vi.fn(async () => {
+        throw new TypeError('window.go.app.App.DataSyncRunDelete is not a function');
+      }),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(gateway.listRunsPage()).resolves.toMatchObject({
+      runs: [{ id: 'legacy-run' }],
+      nextCursor: null,
+    });
+    await expect(gateway.deleteRun('legacy-run')).rejects.toThrow(
+      'restart the desktop backend',
+    );
+  });
+
+  it('falls back to the legacy run list when an older run-page response lacks total', async () => {
+    const api = apiFixture({
+      DataSyncRunPage: vi.fn(async () => success({
+        runs: [runFixture('stale-page-run', 'manual')],
+        nextCursor: null,
+      })),
+      DataSyncRunList: vi.fn(async () => success([runFixture('legacy-run', 'manual')])),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(gateway.listRunsPage()).resolves.toMatchObject({
+      runs: [{ id: 'legacy-run' }],
+      nextCursor: null,
+      total: 1,
+    });
+    expect(api.DataSyncRunList).toHaveBeenCalledWith('', 10);
+  });
+
   it('mints a memory-only token only after countdown and consumes it once on start', async () => {
     const task = taskFixture();
     const api = apiFixture();
@@ -364,6 +646,98 @@ describe('real Wails data sync gateway', () => {
     await expect(gateway.saveTask(task)).rejects.toThrow(
       'run preflight again',
     );
+  });
+
+  it('archives the persisted task and drops cached preflight evidence', async () => {
+    const task = taskFixture();
+    const api = apiFixture();
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+    await gateway.preflightTask(task);
+
+    await expect(gateway.deleteTask(task.id)).resolves.toBeUndefined();
+
+    expect(api.DataSyncJobDelete).toHaveBeenCalledWith(task.id);
+    // 缓存的预检证据已随任务删除，再次保存就绪任务时必须重新预检。
+    await expect(gateway.saveTask(task)).rejects.toThrow('run preflight');
+  });
+
+  it('deletes an unsaved local draft without touching the backend', async () => {
+    const draft = { ...taskFixture(), id: 'data-sync-local-tab-1' };
+    const api = apiFixture();
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    await expect(gateway.deleteTask(draft.id)).resolves.toBeUndefined();
+
+    expect(api.DataSyncJobDelete).not.toHaveBeenCalled();
+  });
+
+  it('requires a fresh preflight for the persisted revision before a ready task can run', async () => {
+    const task = taskFixture();
+    const savedTask = { ...task, revision: task.revision + 1 };
+    const api = apiFixture({
+      DataSyncJobPreflight: vi.fn(async (definition) =>
+        success({
+          ...preflightData(task, false),
+          definition,
+          definitionHash: `revision-${definition.revision}`,
+          approvalRequired: false,
+        }),
+      ),
+      DataSyncJobSave: vi.fn(async () =>
+        success(encodeDataSyncJobDefinition(savedTask)),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const beforeSave = await gateway.preflightTask(task);
+    const saved = await gateway.saveTask(task);
+
+    await expect(gateway.startTask(saved, beforeSave)).rejects.toThrow(
+      'run preflight again',
+    );
+
+    const afterSave = await gateway.preflightTask(saved);
+    await expect(gateway.startTask(saved, afterSave)).resolves.toMatchObject({
+      id: 'run-1',
+      status: 'queued',
+    });
+    expect(api.DataSyncRunStart).toHaveBeenCalledWith(
+      saved.id,
+      saved.revision,
+      '',
+    );
+  });
+
+  it('submits the persisted revision after local edits and accepts the server revision', async () => {
+    const task = taskFixture();
+    const edited = reviseDataSyncTask(task, { name: 'Edited orders sync' });
+    const api = apiFixture({
+      DataSyncJobPreflight: vi.fn(async (definition) =>
+        success({
+          ...preflightData(edited, false),
+          definition,
+          definitionHash: `definition-${definition.revision}`,
+          approvalRequired: false,
+        }),
+      ),
+      DataSyncJobSave: vi.fn(async (definition) =>
+        success({ ...definition, revision: definition.revision + 1 }),
+      ),
+    });
+    const gateway = createWailsDataSyncWorkbenchGateway({ api, now: () => NOW });
+
+    const preflight = await gateway.preflightTask(edited);
+    const saved = await gateway.saveTask(edited);
+
+    expect(edited.revision).toBe(task.revision);
+    expect(edited.editEpoch).toBe(task.editEpoch + 1);
+    expect(api.DataSyncJobSave).toHaveBeenCalledWith(
+      expect.objectContaining({ revision: task.revision }),
+      '',
+    );
+    expect(saved.revision).toBe(task.revision + 1);
+    expect(saved.editEpoch).toBe(0);
+    expect(preflight.taskEditEpoch).toBe(edited.editEpoch);
   });
 
   it('retries only a listed full-payload row at the current task revision', async () => {

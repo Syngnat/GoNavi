@@ -423,6 +423,84 @@ body[data-custom-theme][data-ui-version="v2"] {
   --gn-danger-strong: #dc2626;
   --gn-on-danger: #ffffff;
 
+  /* Query editor + result grid toolbar buttons. */
+  --gn-toolbar-button-fg: #e9e5ff;
+  --gn-toolbar-button-bg: #1d202b;
+  --gn-toolbar-button-border: rgba(196, 181, 253, 0.18);
+  --gn-toolbar-button-hover-fg: #f5f3ff;
+  --gn-toolbar-button-hover-bg: rgba(255, 255, 255, 0.06);
+  --gn-toolbar-button-hover-border: rgba(196, 181, 253, 0.28);
+  --gn-toolbar-button-active-fg: #f5f3ff;
+  --gn-toolbar-button-active-bg: rgba(255, 255, 255, 0.10);
+  --gn-toolbar-button-active-border: rgba(196, 181, 253, 0.28);
+  --gn-toolbar-button-disabled-fg: #7c6aa8;
+  --gn-toolbar-button-disabled-bg: rgba(255, 255, 255, 0.10);
+  --gn-toolbar-button-disabled-border: rgba(196, 181, 253, 0.18);
+  --gn-toolbar-primary-fg: #ffffff;
+  --gn-toolbar-primary-bg: #8b5cf6;
+  --gn-toolbar-primary-border: #8b5cf6;
+  --gn-toolbar-primary-hover-fg: #ffffff;
+  --gn-toolbar-primary-hover-bg: #a78bfa;
+  --gn-toolbar-primary-hover-border: #a78bfa;
+  --gn-toolbar-primary-active-fg: #ffffff;
+  --gn-toolbar-primary-active-bg: #7c3aed;
+  --gn-toolbar-primary-active-border: #7c3aed;
+  --gn-toolbar-primary-disabled-fg: #7c6aa8;
+  --gn-toolbar-primary-disabled-bg: rgba(255, 255, 255, 0.10);
+  --gn-toolbar-primary-disabled-border: rgba(196, 181, 253, 0.18);
+
+  /* Query toolbar overrides. */
+  --gn-query-toolbar-button-fg: var(--gn-toolbar-button-fg);
+  --gn-query-toolbar-button-bg: var(--gn-toolbar-button-bg);
+  --gn-query-toolbar-button-border: var(--gn-toolbar-button-border);
+  --gn-query-toolbar-button-hover-fg: var(--gn-toolbar-button-hover-fg);
+  --gn-query-toolbar-button-hover-bg: var(--gn-toolbar-button-hover-bg);
+  --gn-query-toolbar-button-hover-border: var(--gn-toolbar-button-hover-border);
+  --gn-query-toolbar-button-active-fg: var(--gn-toolbar-button-active-fg);
+  --gn-query-toolbar-button-active-bg: var(--gn-toolbar-button-active-bg);
+  --gn-query-toolbar-button-active-border: var(--gn-toolbar-button-active-border);
+  --gn-query-toolbar-button-disabled-fg: var(--gn-toolbar-button-disabled-fg);
+  --gn-query-toolbar-button-disabled-bg: var(--gn-toolbar-button-disabled-bg);
+  --gn-query-toolbar-button-disabled-border: var(--gn-toolbar-button-disabled-border);
+  --gn-query-toolbar-primary-fg: var(--gn-toolbar-primary-fg);
+  --gn-query-toolbar-primary-bg: var(--gn-toolbar-primary-bg);
+  --gn-query-toolbar-primary-border: var(--gn-toolbar-primary-border);
+  --gn-query-toolbar-primary-hover-fg: var(--gn-toolbar-primary-hover-fg);
+  --gn-query-toolbar-primary-hover-bg: var(--gn-toolbar-primary-hover-bg);
+  --gn-query-toolbar-primary-hover-border: var(--gn-toolbar-primary-hover-border);
+  --gn-query-toolbar-primary-active-fg: var(--gn-toolbar-primary-active-fg);
+  --gn-query-toolbar-primary-active-bg: var(--gn-toolbar-primary-active-bg);
+  --gn-query-toolbar-primary-active-border: var(--gn-toolbar-primary-active-border);
+  --gn-query-toolbar-primary-disabled-fg: var(--gn-toolbar-primary-disabled-fg);
+  --gn-query-toolbar-primary-disabled-bg: var(--gn-toolbar-primary-disabled-bg);
+  --gn-query-toolbar-primary-disabled-border: var(--gn-toolbar-primary-disabled-border);
+
+  /* Result grid toolbar overrides. */
+  --gn-result-toolbar-button-fg: var(--gn-toolbar-button-fg);
+  --gn-result-toolbar-button-bg: var(--gn-toolbar-button-bg);
+  --gn-result-toolbar-button-border: var(--gn-toolbar-button-border);
+  --gn-result-toolbar-button-hover-fg: var(--gn-toolbar-button-hover-fg);
+  --gn-result-toolbar-button-hover-bg: var(--gn-toolbar-button-hover-bg);
+  --gn-result-toolbar-button-hover-border: var(--gn-toolbar-button-hover-border);
+  --gn-result-toolbar-button-active-fg: var(--gn-toolbar-button-active-fg);
+  --gn-result-toolbar-button-active-bg: var(--gn-toolbar-button-active-bg);
+  --gn-result-toolbar-button-active-border: var(--gn-toolbar-button-active-border);
+  --gn-result-toolbar-button-disabled-fg: var(--gn-toolbar-button-disabled-fg);
+  --gn-result-toolbar-button-disabled-bg: var(--gn-toolbar-button-disabled-bg);
+  --gn-result-toolbar-button-disabled-border: var(--gn-toolbar-button-disabled-border);
+  --gn-result-toolbar-primary-fg: var(--gn-toolbar-primary-fg);
+  --gn-result-toolbar-primary-bg: var(--gn-toolbar-primary-bg);
+  --gn-result-toolbar-primary-border: var(--gn-toolbar-primary-border);
+  --gn-result-toolbar-primary-hover-fg: var(--gn-toolbar-primary-hover-fg);
+  --gn-result-toolbar-primary-hover-bg: var(--gn-toolbar-primary-hover-bg);
+  --gn-result-toolbar-primary-hover-border: var(--gn-toolbar-primary-hover-border);
+  --gn-result-toolbar-primary-active-fg: var(--gn-toolbar-primary-active-fg);
+  --gn-result-toolbar-primary-active-bg: var(--gn-toolbar-primary-active-bg);
+  --gn-result-toolbar-primary-active-border: var(--gn-toolbar-primary-active-border);
+  --gn-result-toolbar-primary-disabled-fg: var(--gn-toolbar-primary-disabled-fg);
+  --gn-result-toolbar-primary-disabled-bg: var(--gn-toolbar-primary-disabled-bg);
+  --gn-result-toolbar-primary-disabled-border: var(--gn-toolbar-primary-disabled-border);
+
   /* Optional Ant Design token bridge. */
   --gn-ant-primary: #8b5cf6;
   --gn-ant-on-primary: #ffffff;

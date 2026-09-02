@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { message } from 'antd';
 import { t } from '../i18n';
+import { downloadBrowserFileFromResult } from '../utils/browserFileTransfer';
 import {
   createEphemeralExportProgressTaskKey,
   consumeExportProgressTaskRequest,
@@ -133,6 +134,9 @@ export function useExportProgressRunner(options?: UseExportProgressRunnerOptions
     try {
       const result = await runOptions.run(jobId);
       if (result.success) {
+        if (!downloadBrowserFileFromResult(result as any)) {
+          throw new Error(t('data_export.message.export_failed', { error: 'Browser download is unavailable' }));
+        }
         finishExportProgressTask(taskKey, jobId, (prev): ExportProgressState => ({
           ...prev,
           open: true,

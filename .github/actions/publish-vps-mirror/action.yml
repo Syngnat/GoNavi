@@ -1,5 +1,5 @@
 name: Publish verified download edges
-description: Publish immutable assets to the DMIT edge and Bero origin before mutable pointers and KV control
+description: Publish immutable assets to the Cst edge and Bero origin
 
 inputs:
   channel: { required: true, description: stable or dev }
@@ -11,23 +11,20 @@ inputs:
   driver-dir: { required: false, default: '', description: Driver release assets }
   driver-version-index: { required: false, default: '', description: Versioned driver index }
   driver-latest-index: { required: false, default: '', description: Mutable driver index }
-  dmit-ssh-host: { required: true, description: DMIT SSH host }
-  dmit-ssh-port: { required: true, description: DMIT SSH port }
-  dmit-ssh-user: { required: true, description: Restricted gonavi-cdn user }
-  dmit-ssh-private-key: { required: true, description: DMIT deployment key }
-  dmit-ssh-known-hosts: { required: true, description: Pinned DMIT host key }
+  cst-ssh-host: { required: true, description: Cst SSH host }
+  cst-ssh-port: { required: true, description: Cst SSH port }
+  cst-ssh-user: { required: true, description: Restricted gonavi-cdn user }
+  cst-ssh-private-key: { required: true, description: Cst deployment key }
+  cst-ssh-known-hosts: { required: true, description: Pinned Cst host key }
   bero-ssh-host: { required: true, description: Bero origin SSH host; must be 94.103.173.47 }
   bero-ssh-port: { required: true, description: Bero origin SSH port; must be 37167 }
   bero-ssh-user: { required: true, description: Restricted gonavi-cdn user }
   bero-ssh-private-key: { required: true, description: Bero origin deployment key }
   bero-ssh-known-hosts: { required: true, description: Pinned Bero origin host key }
-  bero-base-url: { required: true, description: HTTPS Cloudflare-proxied Bero origin base URL }
-  cloudflare-account-id: { required: true, description: Cloudflare account ID }
-  cloudflare-api-token: { required: true, description: Token restricted to Workers KV Storage Write }
-  routing-state-kv-id: { required: true, description: Download dispatcher routing KV namespace ID }
+  bero-base-url: { required: true, description: HTTPS Bero origin base URL }
   throughput-warning-mbps: { required: false, default: '20', description: Observability-only public eight-Range warning threshold }
-  dmit-max-bytes: { required: false, default: '9000000000', description: Maximum DMIT mirror bytes }
-  dmit-reserve-free-bytes: { required: false, default: '2000000000', description: Minimum free bytes preserved on DMIT }
+  cst-max-bytes: { required: false, default: '9000000000', description: Maximum Cst mirror bytes }
+  cst-reserve-free-bytes: { required: false, default: '2000000000', description: Minimum free bytes preserved on Cst }
   bero-max-bytes: { required: false, default: '9000000000', description: Maximum Bero origin bytes }
   bero-reserve-free-bytes: { required: false, default: '2000000000', description: Minimum free bytes preserved on Bero }
 
@@ -57,7 +54,7 @@ runs:
           --download-dispatcher-url "https://download-dispatch.syngnat.top/v1/resolve" \
           --download-path-prefix "${download_path_prefix}"
 
-    - name: Publish verified static edges and KV control
+    - name: Publish verified static edges
       shell: bash
       env:
         PUB_CHANNEL: ${{ inputs.channel }}
@@ -70,19 +67,16 @@ runs:
         PUB_DRIVER_VERSION_INDEX: ${{ inputs.driver-version-index }}
         PUB_DRIVER_LATEST_INDEX: ${{ inputs.driver-latest-index }}
         PUB_GENERATION: ${{ inputs.channel }}-${{ github.run_id }}-${{ github.run_attempt }}
-        PUB_CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
-        PUB_CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
-        PUB_ROUTING_STATE_KV_ID: ${{ inputs.routing-state-kv-id }}
         PUB_THROUGHPUT_WARN_MBPS: ${{ inputs.throughput-warning-mbps }}
-        EDGE_DMIT_HOST: ${{ inputs.dmit-ssh-host }}
-        EDGE_DMIT_PORT: ${{ inputs.dmit-ssh-port }}
-        EDGE_DMIT_USER: ${{ inputs.dmit-ssh-user }}
-        EDGE_DMIT_PRIVATE_KEY: ${{ inputs.dmit-ssh-private-key }}
-        EDGE_DMIT_KNOWN_HOSTS: ${{ inputs.dmit-ssh-known-hosts }}
-        EDGE_DMIT_ROOT: /srv/gonavi-downloads
-        EDGE_DMIT_BASE_URL: https://download.syngnat.top
-        EDGE_DMIT_MAX_BYTES: ${{ inputs.dmit-max-bytes }}
-        EDGE_DMIT_RESERVE_FREE_BYTES: ${{ inputs.dmit-reserve-free-bytes }}
+        EDGE_CST_HOST: ${{ inputs.cst-ssh-host }}
+        EDGE_CST_PORT: ${{ inputs.cst-ssh-port }}
+        EDGE_CST_USER: ${{ inputs.cst-ssh-user }}
+        EDGE_CST_PRIVATE_KEY: ${{ inputs.cst-ssh-private-key }}
+        EDGE_CST_KNOWN_HOSTS: ${{ inputs.cst-ssh-known-hosts }}
+        EDGE_CST_ROOT: /srv/gonavi-downloads
+        EDGE_CST_BASE_URL: https://download.syngnat.top
+        EDGE_CST_MAX_BYTES: ${{ inputs.cst-max-bytes }}
+        EDGE_CST_RESERVE_FREE_BYTES: ${{ inputs.cst-reserve-free-bytes }}
         EDGE_BERO_HOST: ${{ inputs.bero-ssh-host }}
         EDGE_BERO_PORT: ${{ inputs.bero-ssh-port }}
         EDGE_BERO_USER: ${{ inputs.bero-ssh-user }}

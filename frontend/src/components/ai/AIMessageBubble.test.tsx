@@ -28,6 +28,26 @@ const REQUIRED_MESSAGE_BUBBLE_KEYS = [
 const AI_MESSAGE_BUBBLE_SOURCE = new URL('./AIMessageBubble.tsx', import.meta.url);
 
 describe('AIMessageBubble', () => {
+  const renderActionBar = (canRetry: boolean, excludeFromAIContext?: boolean) => renderToStaticMarkup(
+    <AIMessageBubble
+      msg={{
+        id: canRetry ? 'assistant-retryable' : 'assistant-blocked',
+        role: 'assistant',
+        content: excludeFromAIContext ? '请求超时' : '普通回复',
+        timestamp: Date.now(),
+        excludeFromAIContext,
+      }}
+      canRetry={canRetry}
+      darkMode={false}
+      overlayTheme={buildOverlayWorkbenchTheme(false)}
+      textColor="#1f2937"
+      onEdit={() => {}}
+      onRetry={() => {}}
+      onDelete={() => {}}
+      toolResultsById={new Map()}
+    />,
+  );
+
   it('renders thinking, tool progress and raw error actions after extracting status blocks', () => {
     const markup = renderToStaticMarkup(
       <AIMessageBubble
@@ -49,6 +69,7 @@ describe('AIMessageBubble', () => {
             },
           ],
         }}
+        canRetry={false}
         darkMode={false}
         overlayTheme={buildOverlayWorkbenchTheme(false)}
         textColor="#1f2937"
@@ -97,5 +118,10 @@ describe('AIMessageBubble', () => {
       '应用到诊断控制台',
     ]) {
     }
+  });
+
+  it('only renders Reload when the full conversation marks the assistant retry as safe', () => {
+    expect(renderActionBar(true)).toContain('anticon-reload');
+    expect(renderActionBar(false, true)).not.toContain('anticon-reload');
   });
 });

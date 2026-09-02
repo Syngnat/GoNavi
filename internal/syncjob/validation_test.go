@@ -1,10 +1,73 @@
 package syncjob
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 )
+
+// 用户实际存储的迁移任务 JSON 形状：autoAddColumns 被旧版 omitempty 抹掉。
+const legacyMigrationJobJSON = `{
+  "id": "sync-job-3755986b",
+  "name": "一次性迁移",
+  "kind": "migration",
+  "lifecycle": "ready",
+  "sourceMode": "tables",
+  "source": {"connectionId": "src"},
+  "target": {"connectionId": "dst"},
+  "mappings": [{
+    "enabled": true,
+    "sourceTable": "test",
+    "targetTable": "test",
+    "targetTableStrategy": "smart"
+  }],
+  "options": {
+    "batchSize": 1000,
+    "content": "both",
+    "errorPolicy": "stop",
+    "maxRetries": 3,
+    "retryBackoffMillis": 500,
+    "syncMode": "insert_update",
+    "targetTableStrategy": "smart"
+  }
+}`
+
+func TestAutoAddColumnsEnabledDefaultsLegacyMigrationJobsOn(t *testing.T) {
+	var definition JobDefinition
+	if err := json.Unmarshal([]byte(legacyMigrationJobJSON), &definition); err != nil {
+		t.Fatalf("unmarshal legacy job: %v", err)
+	}
+
+	// GetJob 不做归一化：读取路径必须直接兜底为开启。
+	if !definition.AutoAddColumnsEnabled() {
+		t.Fatal("legacy migration job without autoAddColumns must default to enabled")
+	}
+
+	// 归一化后显式落盘 true，存储自描述。
+	normalized := NormalizeDefinition(definition)
+	if normalized.Options.AutoAddColumns == nil || !*normalized.Options.AutoAddColumns {
+		t.Fatalf("normalization should materialize the default, got %+v", normalized.Options.AutoAddColumns)
+	}
+}
+
+func TestAutoAddColumnsEnabledRespectsExplicitOffAndOtherKinds(t *testing.T) {
+	explicitOff := false
+	migration := JobDefinition{Kind: JobKindMigration, Options: ExecutionOptions{Content: "both", AutoAddColumns: &explicitOff}}
+	if migration.AutoAddColumnsEnabled() {
+		t.Fatal("explicitly disabled auto-add-columns must stay off")
+	}
+
+	reconcile := JobDefinition{Kind: JobKindReconcile, Options: ExecutionOptions{Content: "data"}}
+	if reconcile.AutoAddColumnsEnabled() {
+		t.Fatal("non-migration kinds must default to off when the field is absent")
+	}
+
+	dataOnlyMigration := JobDefinition{Kind: JobKindMigration, Options: ExecutionOptions{Content: "data"}}
+	if dataOnlyMigration.AutoAddColumnsEnabled() {
+		t.Fatal("data-only migration must default to off when the field is absent")
+	}
+}
 
 func validValidationTestDefinition() JobDefinition {
 	return JobDefinition{
@@ -91,6 +154,20 @@ func TestContinuousCDCJobsAreScheduledAndForbidOverlap(t *testing.T) {
 	err := ValidateDefinition(definition)
 	if err == nil || !strings.Contains(err.Error(), "forbid concurrency") {
 		t.Fatalf("ValidateDefinition error = %v, want continuous overlap error", err)
+	}
+}
+
+func TestValidateDefinitionAllowsCDCAdapterToBeResolvedFromTheSource(t *testing.T) {
+	definition := validValidationTestDefinition()
+	definition.Lifecycle = JobLifecycleEnabled
+	definition.IncrementalMode = IncrementalCDC
+	definition.CDC = &CDCSpec{StartPosition: "latest"}
+	definition.Mappings[0].KeyColumns = []string{"id"}
+	definition.Schedule = ScheduleSpec{Kind: ScheduleContinuous}
+	definition.ConcurrencyPolicy = "forbid"
+
+	if err := ValidateDefinition(definition); err != nil {
+		t.Fatalf("CDC definition without a user-selected adapter was rejected: %v", err)
 	}
 }
 

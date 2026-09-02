@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -19,8 +20,9 @@ import (
 )
 
 const (
-	defaultMCPHTTPAddr = "127.0.0.1:8765"
-	defaultMCPHTTPPath = "/mcp"
+	defaultMCPHTTPAddr            = "127.0.0.1:8765"
+	defaultMCPHTTPPath            = "/mcp"
+	defaultMCPHTTPShutdownTimeout = 10 * time.Second
 )
 
 type mcpHTTPServerRuntime struct {
@@ -250,14 +252,51 @@ func (s *Service) stopMCPHTTPServer(ctx context.Context, message string) (ai.MCP
 	return status, err
 }
 
-// Shutdown 释放 AI Service 中的运行时资源。
+// Shutdown releases runtime resources for Wails callers which do not have a
+// shutdown context. The desktop lifecycle uses the package-level
+// ShutdownWithContext entry point instead, keeping context.Context out of the
+// generated Wails surface.
 func (s *Service) Shutdown() {
+	ShutdownWithContext(s, nil)
+}
+
+// ShutdownWithContext fences new Agent Run Harness requests, checkpoints and
+// stops owner workers, then stops MCP before closing the encrypted Ledger.
+// It is intentionally a package function rather than a Service method: Wails
+// only binds exported methods, and context.Context is not a frontend command
+// argument. The ordering matters because MCP/tool shutdown paths may still
+// need the Ledger to commit their final checkpoint or terminal event.
+func ShutdownWithContext(s *Service, ctx context.Context) {
+	if s == nil {
+		return
+	}
+	harness, ledger := s.detachAgentHarness()
+	var result error
+	if harness != nil {
+		result = errors.Join(result, harness.Close())
+	}
+
 	s.cancelMCPHTTPStart()
 	s.mcpHTTPOpMu.Lock()
-	defer s.mcpHTTPOpMu.Unlock()
+	stopCtx, cancel := s.shutdownMCPHTTPContext(ctx)
+	_, stopErr := s.stopMCPHTTPServer(stopCtx, s.serviceText("ai_settings.mcp_http.message.stopped", nil))
+	cancel()
+	s.mcpHTTPOpMu.Unlock()
+	result = errors.Join(result, stopErr)
 
-	ctx := context.Background()
-	_, _ = s.stopMCPHTTPServer(ctx, s.serviceText("ai_settings.mcp_http.message.stopped", nil))
+	if ledger != nil {
+		result = errors.Join(result, ledger.Close())
+	}
+	if result != nil {
+		logger.Warnf("关闭 AI 服务运行时资源失败：%v", result)
+	}
+}
+
+func (s *Service) shutdownMCPHTTPContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if ctx == nil {
+		ctx = s.agentLifecycleContext()
+	}
+	return context.WithTimeout(context.WithoutCancel(ctx), defaultMCPHTTPShutdownTimeout)
 }
 
 func (s *Service) beginMCPHTTPStart(ctx context.Context) *mcpHTTPStartAttempt {

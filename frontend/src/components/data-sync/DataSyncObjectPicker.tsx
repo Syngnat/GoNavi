@@ -1,9 +1,13 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import type { DataSyncObjectMetadata } from './model';
 import type { DataSyncWorkbenchTranslate } from './text';
 
 const normalizeName = (value: string): string => value.trim().toLowerCase();
+const OBJECT_BATCH_SIZE = 160;
+const FOCUSABLE_SELECTOR =
+  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 const formatBytes = (value?: number): string => {
   if (!Number.isFinite(value) || Number(value) < 0) return '';
@@ -54,6 +58,8 @@ export const DataSyncObjectPicker: React.FC<{
   const [includeViews, setIncludeViews] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(OBJECT_BATCH_SIZE);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -61,6 +67,28 @@ export const DataSyncObjectPicker: React.FC<{
     setIncludeViews(false);
     setSelected(new Set());
     setSubmitting(false);
+    setVisibleLimit(OBJECT_BATCH_SIZE);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || typeof document === 'undefined') return undefined;
+    const returnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusSearch = () =>
+      dialogRef.current
+        ?.querySelector<HTMLInputElement>('[data-object-picker-control="search"]')
+        ?.focus();
+    const frame =
+      typeof globalThis.requestAnimationFrame === 'function'
+        ? globalThis.requestAnimationFrame(focusSearch)
+        : undefined;
+    if (frame === undefined) focusSearch();
+    return () => {
+      if (frame !== undefined && typeof globalThis.cancelAnimationFrame === 'function') {
+        globalThis.cancelAnimationFrame(frame);
+      }
+      returnFocus?.focus();
+    };
   }, [open]);
 
   const mapped = useMemo(
@@ -75,14 +103,21 @@ export const DataSyncObjectPicker: React.FC<{
         (!needle || normalizeName(object.name).includes(needle)),
     );
   }, [includeViews, objects, search]);
-  const eligibleFiltered = filtered.filter(
-    (object) => !mapped.has(normalizeName(object.name)),
+  const eligibleFiltered = useMemo(
+    () => filtered.filter((object) => !mapped.has(normalizeName(object.name))),
+    [filtered, mapped],
   );
+  const visibleObjects = filtered.slice(0, visibleLimit);
+  const remainingCount = Math.max(0, filtered.length - visibleObjects.length);
   const allFilteredSelected =
     eligibleFiltered.length > 0 &&
     eligibleFiltered.every((object) => selected.has(object.name));
 
   if (!open) return null;
+
+  const requestClose = () => {
+    if (!submitting) onClose();
+  };
 
   const toggleSelected = (name: string, checked: boolean) => {
     setSelected((previous) => {
@@ -93,14 +128,57 @@ export const DataSyncObjectPicker: React.FC<{
     });
   };
 
-  return (
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      requestClose();
+      return;
+    }
+    if (event.key !== 'Tab' || !dialogRef.current) return;
+    const focusable = Array.from(
+      dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    ).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const picker = (
     <div
-      className="gn-data-sync-object-picker"
-      role="dialog"
-      aria-modal="false"
-      aria-label={t('mapping.picker_title')}
-      data-data-sync-object-picker="true"
+      className="gn-data-sync-overlay"
+      data-data-sync-overlay="object-picker"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) requestClose();
+      }}
     >
+      <div
+        ref={dialogRef}
+        className="gn-data-sync-object-picker"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('mapping.picker_title')}
+        data-data-sync-object-picker="true"
+        onKeyDown={handleKeyDown}
+      >
+        <header className="gn-data-sync-object-picker__header">
+          <strong>{t('mapping.picker_title')}</strong>
+          <button
+            type="button"
+            className="gn-data-sync-icon-button"
+            aria-label={t('common.dismiss')}
+            disabled={submitting}
+            onClick={requestClose}
+          >
+            ×
+          </button>
+        </header>
       <div className="gn-data-sync-object-picker__toolbar">
         <label className="gn-data-sync-object-picker__search">
           <span className="gn-data-sync-visually-hidden">{t('mapping.search_objects')}</span>
@@ -110,7 +188,10 @@ export const DataSyncObjectPicker: React.FC<{
             value={search}
             placeholder={t('mapping.search_objects')}
             autoFocus
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setVisibleLimit(OBJECT_BATCH_SIZE);
+              setSearch(event.target.value);
+            }}
           />
         </label>
         <label className="gn-data-sync-object-picker__view-toggle">
@@ -118,7 +199,10 @@ export const DataSyncObjectPicker: React.FC<{
             type="checkbox"
             data-object-picker-control="include-views"
             checked={includeViews}
-            onChange={(event) => setIncludeViews(event.target.checked)}
+            onChange={(event) => {
+              setVisibleLimit(OBJECT_BATCH_SIZE);
+              setIncludeViews(event.target.checked);
+            }}
           />
           <span>{t('mapping.include_views')}</span>
         </label>
@@ -162,7 +246,7 @@ export const DataSyncObjectPicker: React.FC<{
         {filtered.length === 0 ? (
           <p className="gn-data-sync-object-picker__empty">{t('mapping.no_objects')}</p>
         ) : (
-          filtered.map((object) => {
+          visibleObjects.map((object) => {
             const alreadyMapped = mapped.has(normalizeName(object.name));
             const checked = selected.has(object.name);
             return (
@@ -192,6 +276,42 @@ export const DataSyncObjectPicker: React.FC<{
             );
           })
         )}
+        {remainingCount > 0 ? (
+          <button
+            type="button"
+            className="gn-data-sync-object-picker__more"
+            data-object-picker-control="show-more"
+            onClick={() => {
+              const firstNewRowIndex = visibleObjects.length;
+              const buttonWillUnmount = remainingCount <= OBJECT_BATCH_SIZE;
+              setVisibleLimit((current) => current + OBJECT_BATCH_SIZE);
+              if (buttonWillUnmount && typeof globalThis.requestAnimationFrame === 'function') {
+                globalThis.requestAnimationFrame(() => {
+                  const dialog = dialogRef.current;
+                  const firstNewEnabledInput = Array.from(
+                    dialog?.querySelectorAll<HTMLElement>(
+                      '.gn-data-sync-object-picker__item',
+                    ) || [],
+                  )
+                    .slice(firstNewRowIndex)
+                    .map((row) =>
+                      row.querySelector<HTMLInputElement>('input:not(:disabled)'),
+                    )
+                    .find((input): input is HTMLInputElement => Boolean(input));
+                  const fallback = dialog?.querySelector<HTMLButtonElement>(
+                    '.gn-data-sync-object-picker__actions button:not(:disabled)',
+                  );
+                  (firstNewEnabledInput || fallback)?.focus();
+                });
+              }
+            }}
+          >
+            {t('mapping.show_more', {
+              count: Math.min(OBJECT_BATCH_SIZE, remainingCount),
+              remaining: remainingCount,
+            })}
+          </button>
+        ) : null}
       </div>
 
       <footer className="gn-data-sync-object-picker__actions">
@@ -199,7 +319,7 @@ export const DataSyncObjectPicker: React.FC<{
           type="button"
           className="gn-data-sync-button"
           disabled={submitting}
-          onClick={onClose}
+          onClick={requestClose}
         >
           {t('common.cancel')}
         </button>
@@ -223,6 +343,9 @@ export const DataSyncObjectPicker: React.FC<{
             : t('mapping.add_selected', { count: selected.size })}
         </button>
       </footer>
+      </div>
     </div>
   );
+
+  return typeof document === 'undefined' ? picker : createPortal(picker, document.body);
 };

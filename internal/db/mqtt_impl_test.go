@@ -167,6 +167,29 @@ func TestMQTTQueryExecAndColumns(t *testing.T) {
 		t.Fatalf("expected payload_encoding column, got %v", columns)
 	}
 
+	_, _, err = client.Query(`CONSUME FROM "devices/+/telemetry" QOS 2 LIMIT 1`)
+	if err != nil {
+		t.Fatalf("CONSUME topic with QoS failed: %v", err)
+	}
+	lastFetch := fakeRuntime.fetchRequests[len(fakeRuntime.fetchRequests)-1]
+	if lastFetch.QoS != 2 {
+		t.Fatalf("expected per-subscription QoS 2, got %#v", lastFetch)
+	}
+
+	rows, columns, err = client.Query(`UNSUBSCRIBE FROM "devices/+/telemetry"`)
+	if err != nil {
+		t.Fatalf("UNSUBSCRIBE topic failed: %v", err)
+	}
+	if !reflect.DeepEqual(fakeRuntime.unsubscribeTopics, []string{"devices/+/telemetry"}) {
+		t.Fatalf("unexpected MQTT unsubscribe calls: %v", fakeRuntime.unsubscribeTopics)
+	}
+	if len(rows) != 1 || rows[0]["topic"] != "devices/+/telemetry" || rows[0]["unsubscribed"] != true {
+		t.Fatalf("unexpected MQTT unsubscribe result: %#v", rows)
+	}
+	if !reflect.DeepEqual(columns, []string{"topic", "unsubscribed"}) {
+		t.Fatalf("unexpected MQTT unsubscribe columns: %v", columns)
+	}
+
 	affected, err := client.Exec(`{"publish":"devices/device-001/telemetry","payload":{"id":1},"qos":2,"retain":true}`)
 	if err != nil {
 		t.Fatalf("mqtt publish failed: %v", err)
@@ -194,7 +217,7 @@ func TestMQTTQueryExecAndColumns(t *testing.T) {
 		names = append(names, col.Name)
 	}
 	joined := strings.Join(names, ",")
-	for _, want := range []string{"topic", "payload", "payload_encoding"} {
+	for _, want := range []string{"stream_offset", "topic", "payload", "payload_encoding"} {
 		if !containsString(names, want) {
 			t.Fatalf("expected mqtt column %q in %s", want, joined)
 		}
@@ -222,13 +245,38 @@ func TestMQTTQueryExecAndColumns(t *testing.T) {
 	if _, _, err := client.Query(`SELECT COUNT(*) FROM "devices/+/telemetry"`); err == nil || !strings.Contains(err.Error(), "COUNT(*)") {
 		t.Fatalf("expected COUNT(*) to be rejected, got %v", err)
 	}
+	if _, _, err := client.Query(`DROP TOPIC "devices/+/telemetry"`); err == nil || !strings.Contains(err.Error(), "UNSUBSCRIBE FROM topic") {
+		t.Fatalf("expected supported-command error to mention UNSUBSCRIBE, got %v", err)
+	}
+}
+
+func TestParseMQTTUnsubscribe(t *testing.T) {
+	for _, testCase := range []struct {
+		query string
+		topic string
+	}{
+		{query: `UNSUBSCRIBE FROM "devices/+/telemetry"`, topic: "devices/+/telemetry"},
+		{query: "unsubscribe from `events/#`;", topic: "events/#"},
+		{query: " Unsubscribe FROM plain/topic ", topic: "plain/topic"},
+	} {
+		parsed, ok := parseMQTTSQL(testCase.query)
+		if !ok || parsed.Action != "unsubscribe" || parsed.Topic != testCase.topic {
+			t.Errorf("parseMQTTSQL(%q) = %#v, %v", testCase.query, parsed, ok)
+		}
+	}
+	for _, query := range []string{"UNSUBSCRIBE", "UNSUBSCRIBE FROM", `UNSUBSCRIBE FROM ""`} {
+		if parsed, ok := parseMQTTSQL(query); ok {
+			t.Errorf("parseMQTTSQL(%q) unexpectedly succeeded: %#v", query, parsed)
+		}
+	}
 }
 
 type fakeMQTTRuntime struct {
-	fetchResponses map[string][]mqttMessageRecord
-	fetchRequests  []mqttFetchRequest
-	published      []mqttPublishCommand
-	closed         bool
+	fetchResponses    map[string][]mqttMessageRecord
+	fetchRequests     []mqttFetchRequest
+	published         []mqttPublishCommand
+	unsubscribeTopics []string
+	closed            bool
 }
 
 func (f *fakeMQTTRuntime) Close() error {
@@ -258,4 +306,9 @@ func (f *fakeMQTTRuntime) FetchMessages(ctx context.Context, request mqttFetchRe
 func (f *fakeMQTTRuntime) Publish(ctx context.Context, command mqttPublishCommand) (int64, error) {
 	f.published = append(f.published, command)
 	return 1, nil
+}
+
+func (f *fakeMQTTRuntime) Unsubscribe(ctx context.Context, topic string) (bool, error) {
+	f.unsubscribeTopics = append(f.unsubscribeTopics, topic)
+	return true, nil
 }

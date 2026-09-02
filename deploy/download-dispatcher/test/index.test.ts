@@ -1,979 +1,328 @@
-import { env, SELF } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
-import {
-  isPublicationVerificationFresh,
-  isReadyHealthPayload,
-  isRoutingStateFresh,
-  nextNodeHealth,
-  orderedNodeIds,
-  probeEdge,
-  refreshChannel,
-  selectLegacyRedirectCandidate,
-} from "../src/core";
+import { describe, expect, it } from "vitest";
+import { handleRequest, orderedNodeIds, selectLegacyRedirectCandidate } from "../src/core";
+
+const DISPATCHER_URL = "https://download-dispatch.syngnat.top";
+const CST_BASE_URL = "https://download.syngnat.top";
+const BERO_BASE_URL = "https://origin-download.syngnat.top:8443";
+
+type Candidate = { source: string; url: string };
+type ResolveBody = { url: string; source: string; generation: string; candidates: Candidate[] };
+
+function healthPayload(nodeId: string, appTag = "dev-current", generation = "dev-generation") {
+  return {
+    schemaVersion: 1,
+    status: "ok",
+    ready: true,
+    nodeId,
+    generation,
+    channels: {
+      dev: {
+        schemaVersion: 2,
+        generation,
+        channel: "dev",
+        appTag,
+        driverTag: null,
+        status: "active",
+        verifiedAt: "2026-09-01T00:00:00Z",
+      },
+    },
+  };
+}
+
+function createHealthFetch(options: {
+  cst?: unknown | Response;
+  bero?: unknown | Response;
+  throwFor?: "cst" | "bero";
+} = {}) {
+  const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    calls.push({ url: requestUrl, init });
+    const parsed = new URL(requestUrl);
+    const node = parsed.hostname === "download.syngnat.top" ? "cst" : "bero";
+    if (options.throwFor === node) throw new Error(`${node} unavailable`);
+    const value = options[node] ?? healthPayload(node);
+    if (value instanceof Response) return value;
+    return Response.json(value);
+  };
+  return { fetchImpl, calls };
+}
+
+function resolveRequest(path: string, options: { format?: "json"; requireCurrent?: boolean; method?: string } = {}): Request {
+  const url = new URL("/v1/resolve", DISPATCHER_URL);
+  url.searchParams.set("path", path);
+  if (options.format) url.searchParams.set("format", options.format);
+  if (options.requireCurrent) url.searchParams.set("require-current", "1");
+  return new Request(url, { method: options.method ?? "GET" });
+}
+
+async function readResolve(path: string, options: { requireCurrent?: boolean; fetchImpl?: typeof fetch } = {}): Promise<{ response: Response; body: ResolveBody }> {
+  const response = await handleRequest(
+    resolveRequest(path, { ...options, format: "json" }),
+    {} as Env,
+    options.fetchImpl,
+  );
+  return { response, body: await response.json<ResolveBody>() };
+}
 
 describe("download dispatcher", () => {
-  afterEach(async () => {
-    await Promise.all([
-      env.ROUTING_STATE.delete("control:stable"),
-      env.ROUTING_STATE.delete("control:dev"),
-      env.ROUTING_STATE.delete("routing:stable"),
-      env.ROUTING_STATE.delete("routing:dev"),
-    ]);
+  it("keeps the static Cst, Bero order independent of runtime state", () => {
+    expect(orderedNodeIds()).toEqual(["cst", "bero"]);
   });
 
-  it("keeps DMIT first and Bero second in every region", () => {
-    expect(orderedNodeIds()).toEqual(["dmit", "bero"]);
+  it("returns exact Cst, Bero, and GitHub candidates for stable app assets", async () => {
+    const path = "/gonavi/releases/download/v1.2.3/GoNavi.zip";
+    const { response, body } = await readResolve(path);
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      url: `${CST_BASE_URL}${path}`,
+      source: "cst",
+      generation: "",
+      candidates: [
+        { source: "cst", url: `${CST_BASE_URL}${path}` },
+        { source: "bero", url: `${BERO_BASE_URL}${path}` },
+        { source: "github", url: "https://github.com/Syngnat/GoNavi/releases/download/v1.2.3/GoNavi.zip" },
+      ],
+    });
+    expect(response.headers.get("Location")).toBe(`${CST_BASE_URL}${path}`);
+    expect(response.headers.get("X-GoNavi-Download-Source")).toBe("cst");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
-  it("keeps legacy 302 downloads on healthy DMIT before Bero and GitHub", () => {
+  it("uses Cst for legacy redirects and keeps Bero ahead of GitHub", async () => {
+    const path = "/drivers/releases/download/driver-v1/mysql.zip";
+    const response = await handleRequest(resolveRequest(path), {} as Env);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(`${CST_BASE_URL}${path}`);
+    expect(response.headers.get("X-GoNavi-Download-Source")).toBe("cst");
     const candidates = [
-      { source: "dmit", url: "https://download.syngnat.top/asset" },
-      { source: "bero", url: "https://origin-download.syngnat.top:8443/asset" },
-      { source: "github", url: "https://github.com/example/asset" },
+      { source: "cst", url: `${CST_BASE_URL}${path}` },
+      { source: "bero", url: `${BERO_BASE_URL}${path}` },
+      { source: "github", url: "https://github.com/fallback" },
     ];
-    expect(selectLegacyRedirectCandidate(candidates).source).toBe("dmit");
-    expect(selectLegacyRedirectCandidate(candidates.filter((candidate) => candidate.source !== "dmit")).source).toBe("bero");
-    expect(selectLegacyRedirectCandidate(candidates.filter((candidate) => candidate.source === "github")).source).toBe("github");
+    expect(selectLegacyRedirectCandidate(candidates)).toBe(candidates[0]);
+    expect(selectLegacyRedirectCandidate(candidates.slice(1))).toBe(candidates[1]);
+    expect(selectLegacyRedirectCandidate(candidates.slice(2))).toBe(candidates[2]);
   });
 
-  it("opens after two successes and closes after three failures", () => {
-    const generation = "stable-v1";
-    let state = nextNodeHealth(undefined, generation, { ok: true, detail: "ok" }, "t1");
-    expect(state.healthy).toBe(false);
-    state = nextNodeHealth(state, generation, { ok: true, detail: "ok" }, "t2");
-    expect(state.healthy).toBe(true);
-
-    state = nextNodeHealth(state, generation, { ok: false, detail: "timeout" }, "t3");
-    state = nextNodeHealth(state, generation, { ok: false, detail: "timeout" }, "t4");
-    expect(state.healthy).toBe(true);
-    state = nextNodeHealth(state, generation, { ok: false, detail: "timeout" }, "t5");
-    expect(state.healthy).toBe(false);
+  it("keeps HEAD responses bodyless while preserving resolver metadata", async () => {
+    const path = "/gonavi/releases/download/v1.2.3/GoNavi.zip";
+    const response = await handleRequest(resolveRequest(path, { method: "HEAD" }), {} as Env);
+    expect(response.status).toBe(302);
+    expect(response.body).toBeNull();
+    expect(response.headers.get("Location")).toBe(`${CST_BASE_URL}${path}`);
+    expect(response.headers.get("X-GoNavi-Download-Source")).toBe("cst");
   });
 
-  it("immediately isolates health from an older generation", () => {
-    const oldState = {
-      generation: "stable-old",
-      healthy: true,
-      consecutiveFailures: 0,
-      consecutiveSuccesses: 9,
-      checkedAt: "old",
-      detail: "ok",
-    };
-    const next = nextNodeHealth(oldState, "stable-new", { ok: true, detail: "ok" }, "new");
-    expect(next.healthy).toBe(false);
-    expect(next.consecutiveSuccesses).toBe(1);
+  it("does not emit JSON payloads for HEAD resolver requests", async () => {
+    const path = "/gonavi/releases/download/v1.2.3/GoNavi.zip";
+    const response = await handleRequest(resolveRequest(path, { method: "HEAD", format: "json" }), {} as Env);
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
+    expect(response.headers.get("Location")).toBe(`${CST_BASE_URL}${path}`);
+    expect(response.headers.get("Content-Type")).toContain("application/json");
   });
 
-  it("stops routing to stale health state", () => {
-    const now = Date.parse("2026-08-12T12:00:00Z");
-    expect(isRoutingStateFresh("2026-08-12T11:48:01Z", now)).toBe(true);
-    expect(isRoutingStateFresh("2026-08-12T11:47:59Z", now)).toBe(false);
-    expect(isRoutingStateFresh("invalid", now)).toBe(false);
+  it.each([
+    ["stable app", "/gonavi/releases/download/v1.2.3/GoNavi.zip"],
+    ["dev app", "/gonavi/dev/releases/download/dev-2026-09-01/GoNavi.zip"],
+    ["stable driver", "/drivers/releases/download/v1.2.3/mysql.zip"],
+    ["dev driver", "/drivers/dev/releases/download/dev-2026-09-01/mysql.zip"],
+    ["stable app manifest", "/gonavi/releases/latest/latest.json"],
+    ["dev app manifest", "/gonavi/dev/releases/latest/latest-dev.json"],
+    ["stable driver index", "/drivers/releases/latest/GoNavi-DriverAgents-Index.json"],
+    ["dev driver index", "/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json"],
+  ])("keeps cst, bero, github for %s", async (_label, path) => {
+    const { body } = await readResolve(path);
+    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["cst", "bero", "github"]);
+    expect(body.candidates[0].url).toBe(`${CST_BASE_URL}${path}`);
+    expect(body.candidates[1].url).toBe(`${BERO_BASE_URL}${path}`);
   });
 
-  it("accepts only a recent, canonical CI publication verification", () => {
-    const now = Date.parse("2026-08-12T12:00:00Z");
-    expect(isPublicationVerificationFresh("2026-08-12T11:45:00Z", now)).toBe(true);
-    expect(isPublicationVerificationFresh("2026-08-12T11:44:59Z", now)).toBe(false);
-    expect(isPublicationVerificationFresh("2026-08-12T12:00:01Z", now)).toBe(false);
-    expect(isPublicationVerificationFresh("2026-08-12T11:45:00.001Z", now)).toBe(true);
-    expect(isPublicationVerificationFresh("2026-08-12T11:45:00+00:00", now)).toBe(false);
-    expect(isPublicationVerificationFresh(null, now)).toBe(false);
-  });
-
-  it("requires ready=true and the exact channel generation", () => {
-    expect(isReadyHealthPayload({
-      status: "bootstrap",
-      ready: false,
-      channels: {},
-    }, "stable", "stable-1")).toBe(false);
-    expect(isReadyHealthPayload({
-      status: "ok",
-      ready: true,
-      channels: { stable: { generation: "stable-old" } },
-    }, "stable", "stable-1")).toBe(false);
-    expect(isReadyHealthPayload({
-      status: "ok",
-      ready: true,
-      channels: { stable: { generation: "stable-1" } },
-    }, "stable", "stable-1")).toBe(true);
-  });
-
-  it("uses manual redirect handling for Worker edge probes", async () => {
-    const requests: RequestInit[] = [];
-    const control = {
-      schemaVersion: 1 as const,
-      channel: "dev" as const,
-      generation: "dev-1",
-      appTag: "dev-1",
-      driverTag: null,
-      probePath: "/gonavi/dev/releases/download/dev-1/GoNavi-dev-1-Windows-Amd64-Portable.exe",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    const fetchImpl: typeof fetch = async (_input, init) => {
-      requests.push(init ?? {});
-      if (requests.length === 1) {
-        return Response.json({
-          status: "ok",
-          ready: true,
-          channels: { dev: { generation: "dev-1" } },
-        });
-      }
-      return new Response(new Uint8Array(1024), {
-        status: 206,
-        headers: {
-          "Content-Length": "1024",
-          "Content-Range": "bytes 0-1023/1024",
-        },
-      });
-    };
-
-    await expect(probeEdge(control, "dmit", fetchImpl)).resolves.toEqual({ ok: true, detail: "ok" });
-    expect(requests).toHaveLength(2);
-    expect(requests.map((request) => request.redirect)).toEqual(["manual", "manual"]);
-  });
-
-  it("accepts legacy dual-node routing state but routes only through DMIT", async () => {
-    const generation = "stable-legacy";
-    await env.ROUTING_STATE.put("control:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      appTag: "v1.2.3",
-      driverTag: null,
-      probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    }));
-    await env.ROUTING_STATE.put("routing:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      control: {
-        schemaVersion: 1,
-        channel: "stable",
-        generation,
-        probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-        probeSize: 1024,
-        probeSha256: "a".repeat(64),
-        nodes: {
-          dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-          tencent: { baseUrl: "https://legacy-edge.invalid", enabled: true },
-        },
-      },
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-        tencent: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    try {
-      const response = await SELF.fetch(
-        "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      );
-      const body = await response.json<{ candidates: Array<{ source: string }> }>();
-      expect(body.candidates.map((candidate) => candidate.source)).toEqual(["dmit", "github"]);
-    } finally {
-      await env.ROUTING_STATE.delete("routing:stable");
+  it("uses the shared current dev app tag when both origins are healthy", async () => {
+    const path = "/gonavi/dev/releases/download/dev-current/GoNavi.zip";
+    const { fetchImpl, calls } = createHealthFetch();
+    const { response, body } = await readResolve(path, { requireCurrent: true, fetchImpl });
+    expect(response.status).toBe(200);
+    expect(body.candidates).toEqual([
+      { source: "cst", url: `${CST_BASE_URL}${path}` },
+      { source: "bero", url: `${BERO_BASE_URL}${path}` },
+      { source: "github", url: "https://github.com/Syngnat/GoNavi/releases/download/dev-latest/GoNavi.zip" },
+    ]);
+    expect(calls.map((call) => call.url)).toEqual([
+      `${CST_BASE_URL}/healthz`,
+      `${BERO_BASE_URL}/healthz`,
+    ]);
+    for (const call of calls) {
+      expect(call.init?.redirect).toBe("manual");
+      expect(new Headers(call.init?.headers).get("Accept")).toBe("application/json");
+      expect(new Headers(call.init?.headers).get("Cache-Control")).toBe("no-cache, no-store");
     }
   });
 
-  it("does not reuse a legacy netcup fallback before Bero receives that generation", async () => {
-    const generation = "stable-legacy-netcup";
-    const legacyControl = {
-      schemaVersion: 1,
-      channel: "stable" as const,
-      generation,
-      appTag: "v1.2.3",
-      driverTag: null,
-      probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-        netcup: { baseUrl: "https://origin.example", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:stable", JSON.stringify(legacyControl));
-    await env.ROUTING_STATE.put("routing:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      control: legacyControl,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: false,
-          consecutiveFailures: 3,
-          consecutiveSuccesses: 0,
-          checkedAt: new Date().toISOString(),
-          detail: "timeout",
-        },
-        netcup: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string; url: string }> }>();
-    expect(body.candidates).toEqual([
-      { source: "github", url: "https://github.com/Syngnat/GoNavi/releases/download/v1.2.3/GoNavi.zip" },
-    ]);
-  });
-
-  it("routes healthy DMIT, then Bero, then GitHub", async () => {
-    const generation = "stable-dual-edge";
-    const control = {
-      schemaVersion: 1,
-      channel: "stable" as const,
-      generation,
-      appTag: "v1.2.3",
-      driverTag: null,
-      probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-        bero: { baseUrl: "https://origin-download.syngnat.top:8443", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:stable", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-        bero: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string; url: string }> }>();
-    expect(body.candidates).toEqual([
-      { source: "dmit", url: "https://download.syngnat.top/gonavi/releases/download/v1.2.3/GoNavi.zip" },
-      { source: "bero", url: "https://origin-download.syngnat.top:8443/gonavi/releases/download/v1.2.3/GoNavi.zip" },
-      { source: "github", url: "https://github.com/Syngnat/GoNavi/releases/download/v1.2.3/GoNavi.zip" },
-    ]);
-  });
-
-  it("falls back to healthy Bero when DMIT is unhealthy", async () => {
-    const generation = "stable-bero-fallback";
-    const control = {
-      schemaVersion: 1,
-      channel: "stable" as const,
-      generation,
-      appTag: "v1.2.3",
-      driverTag: null,
-      probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-        bero: { baseUrl: "https://origin-download.syngnat.top:8443", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:stable", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: false,
-          consecutiveFailures: 3,
-          consecutiveSuccesses: 0,
-          checkedAt: new Date().toISOString(),
-          detail: "timeout",
-        },
-        bero: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      { redirect: "manual" },
+  it("applies require-current to legacy redirects as well as JSON responses", async () => {
+    const path = "/gonavi/dev/releases/download/dev-current/GoNavi.zip";
+    const { fetchImpl } = createHealthFetch();
+    const response = await handleRequest(
+      resolveRequest(path, { requireCurrent: true }),
+      {} as Env,
+      fetchImpl,
     );
     expect(response.status).toBe(302);
-    expect(response.headers.get("X-GoNavi-Download-Source")).toBe("bero");
-    expect(response.headers.get("Location")).toBe(
-      "https://origin-download.syngnat.top:8443/gonavi/releases/download/v1.2.3/GoNavi.zip",
+    expect(response.headers.get("Location")).toBe(`${CST_BASE_URL}${path}`);
+  });
+
+  it("rejects a stale immutable dev app asset with the current tag", async () => {
+    const path = "/gonavi/dev/releases/download/dev-stale/GoNavi.zip";
+    const { fetchImpl } = createHealthFetch();
+    const response = await handleRequest(
+      resolveRequest(path, { requireCurrent: true }),
+      {} as Env,
+      fetchImpl,
     );
-  });
-
-  it("does not accept a Bero origin IP as a public fallback URL", async () => {
-    await env.ROUTING_STATE.put("control:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation: "stable-invalid-bero-url",
-      appTag: "v1.2.3",
-      driverTag: null,
-      probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-        bero: { baseUrl: "https://94.103.173.47", enabled: true },
-      },
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string }> }>();
-    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["github"]);
-  });
-
-  it("routes immutable assets to DMIT only when their app or driver tag matches the active control", async () => {
-    const generation = "stable-run-1";
-    const control = {
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      appTag: "v1.2.3",
-      driverTag: "driver-v1",
-      probePath: "/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:stable", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:stable", JSON.stringify({
-      schemaVersion: 1,
-      channel: "stable",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    try {
-      const resolveSources = async (path: string): Promise<string[]> => {
-        const response = await SELF.fetch(
-          `https://download-dispatch.syngnat.top/v1/resolve?format=json&path=${encodeURIComponent(path)}`,
-        );
-        const body = await response.json<{ candidates: Array<{ source: string }> }>();
-        return body.candidates.map((candidate) => candidate.source);
-      };
-
-      await expect(resolveSources("/gonavi/releases/download/v1.2.3/GoNavi.zip")).resolves.toEqual(["dmit", "github"]);
-      await expect(resolveSources("/gonavi/releases/download/v1.2.4/GoNavi.zip")).resolves.toEqual(["github"]);
-      await expect(resolveSources("/drivers/releases/download/driver-v1/mysql.zip")).resolves.toEqual(["dmit", "github"]);
-      await expect(resolveSources("/drivers/releases/download/driver-v2/mysql.zip")).resolves.toEqual(["github"]);
-      await expect(resolveSources("/gonavi/releases/latest/latest.json")).resolves.toEqual(["dmit", "github"]);
-      await expect(resolveSources("/drivers/releases/latest/GoNavi-DriverAgents-Index.json")).resolves.toEqual(["dmit", "github"]);
-    } finally {
-      await env.ROUTING_STATE.delete("routing:stable");
-    }
-  });
-
-  it("keeps a newly published dev tag on GitHub until the matching DMIT generation is active", async () => {
-    const generation = "dev-run-1";
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      appTag: "dev-current",
-      driverTag: "driver-current",
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    try {
-      const resolveSources = async (path: string): Promise<string[]> => {
-        const response = await SELF.fetch(
-          `https://download-dispatch.syngnat.top/v1/resolve?format=json&path=${encodeURIComponent(path)}`,
-        );
-        const body = await response.json<{ candidates: Array<{ source: string }> }>();
-        return body.candidates.map((candidate) => candidate.source);
-      };
-
-      await expect(resolveSources("/gonavi/dev/releases/download/dev-current/GoNavi.zip")).resolves.toEqual(["dmit", "github"]);
-      await expect(resolveSources("/gonavi/dev/releases/download/dev-next/GoNavi.zip")).resolves.toEqual(["github"]);
-      await expect(resolveSources("/drivers/dev/releases/download/driver-current/mysql.zip")).resolves.toEqual(["dmit", "github"]);
-      await expect(resolveSources("/drivers/dev/releases/download/driver-next/mysql.zip")).resolves.toEqual(["github"]);
-      await expect(resolveSources("/gonavi/dev/releases/latest/latest-dev.json")).resolves.toEqual(["dmit", "github"]);
-      await expect(resolveSources("/drivers/dev/releases/latest/GoNavi-DriverAgents-Index.json")).resolves.toEqual(["dmit", "github"]);
-    } finally {
-      await env.ROUTING_STATE.delete("routing:dev");
-    }
-  });
-
-  it("rejects a gated stale dev app tag instead of falling back to mutable GitHub", async () => {
-    const generation = "dev-gate-stale";
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      appTag: "dev-current",
-      driverTag: null,
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?require-current=1&path=/gonavi/dev/releases/download/dev-stale/GoNavi.zip",
-      { redirect: "manual" },
-    );
-    const body = await response.json<{ error: string; code: string; requestedTag: string; currentTag: string }>();
     expect(response.status).toBe(409);
-    expect(response.headers.get("Location")).toBeNull();
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-    expect(body).toEqual({
+    await expect(response.json()).resolves.toEqual({
       error: "requested dev app asset is no longer current",
       code: "current_asset_mismatch",
       requestedTag: "dev-stale",
       currentTag: "dev-current",
     });
+    expect(response.headers.get("Location")).toBeNull();
   });
 
-  it("redirects a gated current dev app tag directly to healthy DMIT", async () => {
-    const generation = "dev-gate-current";
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      appTag: "dev-current",
-      driverTag: null,
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?require-current=1&path=/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      { redirect: "manual" },
-    );
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "https://download.syngnat.top/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-    );
-    expect(response.headers.get("X-GoNavi-Download-Source")).toBe("dmit");
-  });
-
-  it("returns DMIT, Bero, then GitHub for a gated current dev app", async () => {
-    const generation = "dev-gate-json";
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      appTag: "dev-current",
-      driverTag: null,
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-        bero: { baseUrl: "https://origin-download.syngnat.top:8443", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-        bero: {
-          generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&require-current=1&path=/gonavi/dev/releases/download/dev-current/GoNavi.zip",
+  it("keeps the fallback chain available when one origin is unavailable", async () => {
+    const path = "/gonavi/dev/releases/download/dev-current/GoNavi.zip";
+    const { fetchImpl } = createHealthFetch({ throwFor: "cst" });
+    const response = await handleRequest(
+      resolveRequest(path, { requireCurrent: true, format: "json" }),
+      {} as Env,
+      fetchImpl,
     );
     expect(response.status).toBe(200);
-    const body = await response.json<{ candidates: Array<{ source: string; url: string }> }>();
-    expect(body.candidates).toEqual([
-      {
-        source: "dmit",
-        url: "https://download.syngnat.top/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      },
-      {
-        source: "bero",
-        url: "https://origin-download.syngnat.top:8443/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      },
-      {
-        source: "github",
-        url: "https://github.com/Syngnat/GoNavi/releases/download/dev-latest/GoNavi.zip",
-      },
-    ]);
-  });
-
-  it("falls back to GitHub when a gated current dev app tag has no healthy edge", async () => {
-    const generation = "dev-gate-unhealthy";
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      appTag: "dev-current",
-      driverTag: null,
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-        bero: { baseUrl: "https://origin-download.syngnat.top:8443", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation,
-      control,
-      nodes: {
-        dmit: {
-          generation,
-          healthy: false,
-          consecutiveFailures: 3,
-          consecutiveSuccesses: 0,
-          checkedAt: new Date().toISOString(),
-          detail: "timeout",
-        },
-        bero: {
-          generation,
-          healthy: false,
-          consecutiveFailures: 3,
-          consecutiveSuccesses: 0,
-          checkedAt: new Date().toISOString(),
-          detail: "timeout",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?require-current=1&path=/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      { redirect: "manual" },
-    );
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "https://github.com/Syngnat/GoNavi/releases/download/dev-latest/GoNavi.zip",
-    );
-    expect(response.headers.get("X-GoNavi-Download-Source")).toBe("github");
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-  });
-
-  it("routes a freshly CI-verified current generation through DMIT before cron has state", async () => {
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation: "dev-verified-1",
-      appTag: "dev-current",
-      driverTag: "driver-current",
-      verifiedAt: new Date().toISOString(),
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-
-    const resolveSources = async (path: string): Promise<string[]> => {
-      const response = await SELF.fetch(
-        `https://download-dispatch.syngnat.top/v1/resolve?format=json&path=${encodeURIComponent(path)}`,
-      );
-      const body = await response.json<{ candidates: Array<{ source: string }> }>();
-      return body.candidates.map((candidate) => candidate.source);
-    };
-
-    await expect(resolveSources("/gonavi/dev/releases/download/dev-current/GoNavi.zip")).resolves.toEqual(["dmit", "github"]);
-    await expect(resolveSources("/drivers/dev/releases/download/driver-current/mysql.zip")).resolves.toEqual(["dmit", "github"]);
-    await expect(resolveSources("/gonavi/dev/releases/latest/latest-dev.json")).resolves.toEqual(["dmit", "github"]);
-    await expect(resolveSources("/gonavi/dev/releases/download/dev-next/GoNavi.zip")).resolves.toEqual(["github"]);
-    await expect(resolveSources("/drivers/dev/releases/download/driver-next/mysql.zip")).resolves.toEqual(["github"]);
-  });
-
-  it("does not reuse an old healthy routing state after control advances", async () => {
-    const oldControl = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation: "dev-old",
-      appTag: "dev-old",
-      driverTag: null,
-      probePath: "/gonavi/dev/releases/download/dev-old/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://old-edge.example", enabled: true },
-      },
-    };
-    const currentControl = {
-      ...oldControl,
-      generation: "dev-new",
-      appTag: "dev-new",
-      probePath: "/gonavi/dev/releases/download/dev-new/GoNavi.zip",
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation: oldControl.generation,
-      control: oldControl,
-      nodes: {
-        dmit: {
-          generation: oldControl.generation,
-          healthy: true,
-          consecutiveFailures: 0,
-          consecutiveSuccesses: 2,
-          checkedAt: new Date().toISOString(),
-          detail: "ok",
-        },
-      },
-      checkedAt: new Date().toISOString(),
-    }));
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(currentControl));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/dev/releases/download/dev-new/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string; url: string }> }>();
-    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["github"]);
-    expect(body.candidates.some((candidate) => candidate.url.includes("old-edge.example"))).toBe(false);
-  });
-
-  it("does not bootstrap an unverified or expired control", async () => {
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation: "dev-expired",
-      appTag: "dev-current",
-      driverTag: null,
-      verifiedAt: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string }> }>();
-    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["github"]);
-  });
-
-  it("does not let a fresh publication proof override a stale unhealthy state", async () => {
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation: "dev-stale-unhealthy",
-      appTag: "dev-current",
-      driverTag: null,
-      verifiedAt: new Date().toISOString(),
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    await env.ROUTING_STATE.put("routing:dev", JSON.stringify({
-      schemaVersion: 1,
-      channel: "dev",
-      generation: control.generation,
-      control,
-      nodes: {
-        dmit: {
-          generation: control.generation,
-          healthy: false,
-          consecutiveFailures: 3,
-          consecutiveSuccesses: 0,
-          checkedAt: new Date(Date.now() - 13 * 60 * 1000).toISOString(),
-          detail: "timeout",
-        },
-      },
-      checkedAt: new Date(Date.now() - 13 * 60 * 1000).toISOString(),
-    }));
-
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string }> }>();
-    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["github"]);
-  });
-
-  it("promotes a freshly verified generation after its first successful cron probe", async () => {
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation: "dev-cron-verified",
-      appTag: "dev-current",
-      driverTag: null,
-      verifiedAt: new Date().toISOString(),
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    let requests = 0;
-    const fetchImpl: typeof fetch = async () => {
-      requests += 1;
-      if (requests === 1) {
-        return Response.json({
-          status: "ok",
-          ready: true,
-          channels: { dev: { generation: control.generation } },
-        });
-      }
-      return new Response(new Uint8Array(1024), {
-        status: 206,
-        headers: {
-          "Content-Length": "1024",
-          "Content-Range": "bytes 0-1023/1024",
-        },
-      });
-    };
-
-    const state = await refreshChannel(env, "dev", fetchImpl);
-    expect(requests).toBe(2);
-    expect(state.nodes.dmit).toMatchObject({
-      generation: control.generation,
-      healthy: true,
-      consecutiveFailures: 0,
-      consecutiveSuccesses: 2,
+    await expect(response.json()).resolves.toMatchObject({
+      source: "cst",
+      candidates: [
+        { source: "cst", url: `${CST_BASE_URL}${path}` },
+        { source: "bero", url: `${BERO_BASE_URL}${path}` },
+        { source: "github", url: "https://github.com/Syngnat/GoNavi/releases/download/dev-latest/GoNavi.zip" },
+      ],
     });
   });
 
-  it("does not promote a freshly verified generation when its first cron probe fails", async () => {
-    const control = {
-      schemaVersion: 1,
-      channel: "dev",
-      generation: "dev-cron-failed",
-      appTag: "dev-current",
-      driverTag: null,
-      verifiedAt: new Date().toISOString(),
-      probePath: "/gonavi/dev/releases/download/dev-current/GoNavi.zip",
-      probeSize: 1024,
-      probeSha256: "a".repeat(64),
-      nodes: {
-        dmit: { baseUrl: "https://download.syngnat.top", enabled: true },
-      },
-    };
-    await env.ROUTING_STATE.put("control:dev", JSON.stringify(control));
-    const fetchImpl: typeof fetch = async () => new Response(null, { status: 503 });
+  it("fails closed when static origins disagree or both are unavailable", async () => {
+    const path = "/gonavi/dev/releases/download/dev-current/GoNavi.zip";
+    const mismatch = createHealthFetch({ cst: healthPayload("cst", "dev-new") });
+    const mismatchResponse = await handleRequest(
+      resolveRequest(path, { requireCurrent: true }),
+      {} as Env,
+      mismatch.fetchImpl,
+    );
+    expect(mismatchResponse.status).toBe(503);
+    await expect(mismatchResponse.json()).resolves.toEqual({
+      error: "current dev app asset is temporarily unavailable",
+      code: "current_asset_unavailable",
+    });
 
-    const state = await refreshChannel(env, "dev", fetchImpl);
-    expect(state.nodes.dmit).toMatchObject({
-      generation: control.generation,
-      healthy: false,
-      consecutiveFailures: 1,
-      consecutiveSuccesses: 0,
+    const unavailable = createHealthFetch({
+      cst: new Response(null, { status: 503 }),
+      bero: new Response(null, { status: 503 }),
+    });
+    const unavailableResponse = await handleRequest(
+      resolveRequest(path, { requireCurrent: true }),
+      {} as Env,
+      unavailable.fetchImpl,
+    );
+    expect(unavailableResponse.status).toBe(503);
+    expect(unavailableResponse.headers.get("Location")).toBeNull();
+  });
+
+  it("fails closed when origins share an app tag but publish different generations", async () => {
+    const path = "/gonavi/dev/releases/download/dev-current/GoNavi.zip";
+    const mismatchedGeneration = createHealthFetch({
+      cst: healthPayload("cst", "dev-current", "generation-cst"),
+      bero: healthPayload("bero", "dev-current", "generation-bero"),
+    });
+    const response = await handleRequest(
+      resolveRequest(path, { requireCurrent: true }),
+      {} as Env,
+      mismatchedGeneration.fetchImpl,
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "current dev app asset is temporarily unavailable",
+      code: "current_asset_unavailable",
     });
   });
 
-  it("reads publication control from the routing KV namespace", async () => {
-    await env.ROUTING_STATE.delete("control:stable");
-    await expect(refreshChannel(env, "stable")).rejects.toThrow(
-      "publication control is missing for stable",
+  it("rejects a health payload whose channel generation differs from its envelope", async () => {
+    const invalidCst = healthPayload("cst");
+    invalidCst.channels.dev.generation = "channel-only-generation";
+    const response = await handleRequest(
+      resolveRequest("/gonavi/dev/releases/download/dev-current/GoNavi.zip", { requireCurrent: true }),
+      {} as Env,
+      createHealthFetch({ cst: invalidCst, bero: new Response(null, { status: 503 }) }).fetchImpl,
     );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "current dev app asset is temporarily unavailable",
+      code: "current_asset_unavailable",
+    });
   });
 
-  it("redirects to GitHub when no healthy edge is available", async () => {
-    await env.ROUTING_STATE.delete("routing:stable");
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-      { redirect: "manual" },
-    );
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(
-      "https://github.com/Syngnat/GoNavi/releases/download/v1.2.3/GoNavi.zip",
-    );
-  });
-
-  it("returns ordered fallback candidates in JSON without proxying the file", async () => {
-    await env.ROUTING_STATE.delete("routing:stable");
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?format=json&path=/gonavi/releases/download/v1.2.3/GoNavi.zip",
-    );
-    const body = await response.json<{ candidates: Array<{ source: string; url: string }> }>();
-    expect(response.status).toBe(200);
-    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["github"]);
-    expect(response.headers.get("Cache-Control")).toBe("no-store");
-  });
-
-  it("dispatches mutable app and driver pointers through the GitHub fallback", async () => {
-    await env.ROUTING_STATE.delete("routing:stable");
-    for (const [path, githubSuffix] of [
-      ["/gonavi/releases/latest/latest.json", "/Syngnat/GoNavi/releases/latest/download/latest.json"],
-      ["/drivers/releases/latest/GoNavi-DriverAgents-Index.json", "/Syngnat/GoNavi-DriverAgents/releases/latest/download/GoNavi-DriverAgents-Index.json"],
-    ]) {
-      const response = await SELF.fetch(
-        `https://download-dispatch.syngnat.top/v1/resolve?format=json&path=${encodeURIComponent(path)}`,
-      );
-      const body = await response.json<{ candidates: Array<{ source: string; url: string }> }>();
-      expect(response.status).toBe(200);
-      expect(body.candidates.map((candidate) => candidate.source)).toEqual(["github"]);
-      expect(new URL(body.candidates[0].url).pathname).toBe(githubSuffix);
-    }
-  });
-
-  it("rejects paths outside immutable release roots", async () => {
-    const response = await SELF.fetch(
-      "https://download-dispatch.syngnat.top/v1/resolve?path=https://evil.example/file",
+  it.each([
+    ["stable app", "/gonavi/releases/download/v1.2.3/GoNavi.zip"],
+    ["dev app manifest", "/gonavi/dev/releases/latest/latest-dev.json"],
+    ["dev driver", "/drivers/dev/releases/download/dev-current/mysql.zip"],
+  ])("rejects require-current for %s", async (_label, path) => {
+    const response = await handleRequest(
+      resolveRequest(path, { requireCurrent: true }),
+      {} as Env,
+      async () => { throw new Error("health must not be queried"); },
     );
     expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "require-current is only supported for immutable dev app assets",
+      code: "invalid_current_asset_request",
+    });
+  });
+
+  it("does not read KV even when a legacy environment would throw", async () => {
+    const failingLegacyEnv = { ROUTING_STATE: { get: async () => { throw new Error("KV unavailable"); } } } as unknown as Env;
+    const response = await handleRequest(resolveRequest("/gonavi/releases/download/v1.2.3/GoNavi.zip", { format: "json" }), failingLegacyEnv);
+    expect(response.status).toBe(200);
+    const body = await response.json<ResolveBody>();
+    expect(body.candidates.map((candidate) => candidate.source)).toEqual(["cst", "bero", "github"]);
+  });
+
+  it.each([
+    "https://evil.example/file",
+    "//evil.example/file",
+    "/gonavi/releases/download/../secret.zip",
+    "/gonavi/releases/download/v1.2.3",
+    "/gonavi/releases/other/v1.2.3/file.zip",
+    "/unknown/releases/download/v1.2.3/file.zip",
+    "/gonavi/releases/download/v1.2.3/file%2Fname.zip",
+  ])("rejects a path outside the asset allowlist: %s", async (path) => {
+    const response = await handleRequest(resolveRequest(path, { format: "json" }), {} as Env);
+    expect(response.status).toBe(400);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({ error: "invalid asset path" });
+  });
+
+  it("rejects duplicate path parameters", async () => {
+    const url = new URL("/v1/resolve", DISPATCHER_URL);
+    url.searchParams.append("path", "/gonavi/releases/download/v1.2.3/GoNavi.zip");
+    url.searchParams.append("path", "/gonavi/releases/download/v2.0.0/GoNavi.zip");
+    expect((await handleRequest(new Request(url), {} as Env)).status).toBe(400);
+  });
+
+  it("serves health, rejects unknown routes, and limits methods", async () => {
+    const health = await handleRequest(new Request(`${DISPATCHER_URL}/healthz`), {} as Env);
+    expect(health.status).toBe(200);
+    await expect(health.json()).resolves.toEqual({ status: "ok", ready: true });
+    expect((await handleRequest(new Request(`${DISPATCHER_URL}/missing`), {} as Env)).status).toBe(404);
+    const post = await handleRequest(new Request(`${DISPATCHER_URL}/healthz`, { method: "POST" }), {} as Env);
+    expect(post.status).toBe(405);
+    expect(post.headers.get("Allow")).toBe("GET, HEAD");
   });
 });

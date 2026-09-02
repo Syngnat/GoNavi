@@ -21,7 +21,10 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 	if tableMode == "insert_update" && plan.TargetTableExists {
 		return false, 0, nil
 	}
-	if tableMode == "full_overwrite" && plan.TargetTableExists && isSamePhysicalSyncTable(config, plan, sourceType, targetType) {
+	if plan.TargetTableExists && isSamePhysicalSyncTable(config, plan, sourceType, targetType) {
+		// OFFSET pagination observes rows appended by insert_only self-syncs.
+		// Fall back to the snapshot path so it reads a fixed source set instead
+		// of repeatedly importing its own newly written rows.
 		return false, 0, nil
 	}
 	if !opts.Insert {
@@ -33,10 +36,11 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 	}
 
 	pkCol, ok := directImportPaginationPK(sourceType, sourceCols)
-	if !ok && !supportsDirectImportPagination(sourceType) {
-		return false, 0, nil
-	}
-	if !ok && len(opts.SelectedInsertPKs) > 0 {
+	if !ok {
+		// OFFSET pagination without a deterministic ordering key can duplicate
+		// or skip rows. Fall back to the snapshot path, which preserves the
+		// correct auto-create/no-primary-key semantics without pretending its
+		// source order is stable.
 		return false, 0, nil
 	}
 
@@ -50,11 +54,7 @@ func (s *SyncEngine) tryApplyDirectImportInPages(config SyncConfig, res *SyncRes
 		return true, 0, fmt.Errorf("目标驱动不支持应用数据变更 (ApplyChanges)")
 	}
 
-	if strings.TrimSpace(pkCol) != "" {
-		s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：按主键 %s 每批读取 %d 行", pkCol, pageSize))
-	} else {
-		s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：每批读取 %d 行", pageSize))
-	}
+	s.appendLog(config.JobID, res, "info", fmt.Sprintf("  -> 启用分页流式导入：按主键 %s 每批读取 %d 行", pkCol, pageSize))
 	s.progress(config.JobID, tableIndex, totalTables, tableName, "分页读取源表数据")
 	firstRows, _, err := querySyncDatabaseContext(s.context(), sourceDB, firstPageQuery)
 	if err != nil {
@@ -145,6 +145,9 @@ func (s *SyncEngine) prepareDirectImportTargetColumnSet(config SyncConfig, res *
 			if err != nil {
 				s.appendLog(config.JobID, res, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))
 				return nil, fmt.Errorf("自动补字段失败：字段=%s: %w", colName, err)
+			}
+			if warning := relaxedNotNullAddColumnWarning(srcCol); warning != "" {
+				s.appendLog(config.JobID, res, "warn", "  -> "+warning)
 			}
 			if _, err := execSyncDatabaseContext(s.context(), targetDB, alterSQL); err != nil {
 				s.appendLog(config.JobID, res, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))

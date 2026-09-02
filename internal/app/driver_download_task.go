@@ -139,14 +139,22 @@ func (a *App) updateDriverDownloadTaskProgress(driverType string, status string,
 	if !ok || task.DriverType != normalizedDriverType {
 		return ""
 	}
-	task.Status = normalizeDriverDownloadTaskStatus(status)
-	task.Percent = clampDriverDownloadTaskPercent(percent)
-	if task.Status == "start" {
-		task.Percent = 0
+	if task.Status == "done" || task.Status == "error" {
+		return task.TaskID
 	}
-	if task.Status == "done" {
-		task.Percent = 100
+	nextStatus := normalizeDriverDownloadTaskStatus(status)
+	nextPercent := clampDriverDownloadTaskPercent(percent)
+	if nextStatus == "start" {
+		nextPercent = 0
 	}
+	if nextStatus == "done" {
+		nextPercent = 100
+	}
+	if nextStatus == "error" && task.Percent > nextPercent {
+		nextPercent = task.Percent
+	}
+	task.Status = nextStatus
+	task.Percent = nextPercent
 	if trimmedMessage := strings.TrimSpace(message); trimmedMessage != "" {
 		task.Message = trimmedMessage
 	}

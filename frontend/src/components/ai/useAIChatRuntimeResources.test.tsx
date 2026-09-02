@@ -105,4 +105,18 @@ describe('useAIChatRuntimeResources', () => {
       renderer!.unmount();
     });
   });
+
+  it('does not require a browser window while a detached surface is rendered server-side', async () => {
+    vi.unstubAllGlobals();
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<Harness />);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      renderer!.unmount();
+    });
+  });
 });

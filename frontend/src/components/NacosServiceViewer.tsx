@@ -97,6 +97,7 @@ type ServiceViewContext = {
   page: number;
   pageSize: number;
   group: string;
+  serviceName: string;
 };
 
 type NacosLoadOptions = {
@@ -107,6 +108,7 @@ type LoadServices = (
   page?: number,
   requestedGroup?: string,
   requestedPageSize?: number,
+  requestedServiceName?: string,
   options?: NacosLoadOptions,
 ) => Promise<void>;
 
@@ -199,6 +201,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
   const [pageNo, setPageNo] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [groupFilter, setGroupFilter] = useState(() => String(initialGroup || '').trim());
+  const [serviceFilter, setServiceFilter] = useState('');
   const [selectedServiceRaw, setSelectedServiceRaw] = useState<string | null>(null);
   const [selectedServiceDetail, setSelectedServiceDetail] = useState<NacosServiceDetail | null>(null);
   const [instances, setInstances] = useState<NacosInstance[]>([]);
@@ -238,6 +241,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     page: 1,
     pageSize: 50,
     group: String(initialGroup || '').trim(),
+    serviceName: '',
   });
   activeContextRef.current = { connectionId, namespaceId, rpcConfig };
 
@@ -308,6 +312,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
       page = 1,
       requestedGroup = groupFilter.trim(),
       requestedPageSize = pageSize,
+      requestedServiceName = serviceFilter.trim(),
       options?: NacosLoadOptions,
     ) => {
       if (!rpcConfig) return;
@@ -317,11 +322,13 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         page,
         pageSize: requestedPageSize,
         group: requestedGroup,
+        serviceName: requestedServiceName,
       };
       setLoadingServices(true);
       try {
         const res = await (window as any).go.app.App.NacosListServices(rpcConfig, {
           namespaceId: namespaceId || '',
+          serviceName: requestedServiceName,
           groupName: requestedGroup,
           pageNo: page,
           pageSize: requestedPageSize,
@@ -336,7 +343,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         const total = Number(pageData.count) || names.length;
         const lastPage = Math.max(1, Math.ceil(total / requestedPageSize));
         if (names.length === 0 && page > lastPage) {
-          await loadServices(lastPage, requestedGroup, requestedPageSize, options);
+          await loadServices(lastPage, requestedGroup, requestedPageSize, requestedServiceName, options);
           return;
         }
         setServiceNames(names);
@@ -362,7 +369,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
         }
       }
     },
-    [rpcConfig, namespaceId, groupFilter, pageSize, closeInstanceModal],
+    [rpcConfig, namespaceId, groupFilter, pageSize, serviceFilter, closeInstanceModal],
   );
 
   const loadInstances = useCallback(
@@ -454,6 +461,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     instanceRequestIdRef.current += 1;
     selectedServiceRawRef.current = null;
     setGroupFilter(requestedGroup);
+    setServiceFilter('');
     setServiceNames([]);
     setServiceTotal(0);
     setPageNo(1);
@@ -464,7 +472,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     closeInstanceModal();
     setLoadingServices(false);
     setLoadingInstances(false);
-    void loadServices(1, requestedGroup);
+    void loadServices(1, requestedGroup, undefined, '');
     return () => {
       serviceRequestIdRef.current += 1;
       instanceRequestIdRef.current += 1;
@@ -496,7 +504,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
     const refresh = async () => {
       if (cancelled || autoRefreshGenerationRef.current !== generation) return;
       const view = serviceViewRef.current;
-      await loadServicesRef.current(view.page, view.group, view.pageSize, { silent: true });
+      await loadServicesRef.current(view.page, view.group, view.pageSize, view.serviceName, { silent: true });
       if (cancelled || autoRefreshGenerationRef.current !== generation) return;
       const selected = selectedServiceRawRef.current;
       if (selected) {
@@ -558,6 +566,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
           currentView.requestId === sourceView.requestId ? 1 : currentView.page,
           currentView.group,
           currentView.pageSize,
+          currentView.serviceName,
         );
       }
       message.success(tr('nacos_service.message.service_create_success'));
@@ -611,7 +620,7 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
           const lastRemainingPage = Math.max(1, Math.ceil(remainingTotal / currentView.pageSize));
           refreshPage = Math.min(sourceView.page, lastRemainingPage);
         }
-        await loadServices(refreshPage, currentView.group, currentView.pageSize);
+        await loadServices(refreshPage, currentView.group, currentView.pageSize, currentView.serviceName);
       }
       message.success(tr('nacos_service.message.service_delete_success'));
     } catch (error: any) {
@@ -957,6 +966,15 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
                 onChange={(event) => setGroupFilter(event.target.value)}
                 onPressEnter={() => void loadServices(1)}
               />
+              <Input
+                allowClear
+                {...noAutoCapInputProps}
+                style={{ width: 180 }}
+                placeholder={tr('nacos_service.field.service')}
+                value={serviceFilter}
+                onChange={(event) => setServiceFilter(event.target.value)}
+                onPressEnter={() => void loadServices(1, groupFilter.trim(), pageSize, serviceFilter.trim())}
+              />
               <Button icon={<ReloadOutlined />} loading={loadingServices} onClick={() => void loadServices(1)}>
                 {tr('nacos_viewer.action.refresh')}
               </Button>
@@ -1101,10 +1119,10 @@ const NacosServiceViewer: React.FC<NacosServiceViewerProps> = ({
                 onChange={(page, nextPageSize) => {
                   const size = nextPageSize || pageSize;
                   if (size !== pageSize) {
-                    void loadServices(1, groupFilter.trim(), size);
+                    void loadServices(1, groupFilter.trim(), size, serviceFilter.trim());
                     return;
                   }
-                  void loadServices(page, groupFilter.trim(), size);
+                  void loadServices(page, groupFilter.trim(), size, serviceFilter.trim());
                 }}
               />
             </div>

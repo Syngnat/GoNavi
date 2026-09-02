@@ -167,6 +167,7 @@ type ConfigListenTarget struct {
 // ServiceQuery lists services under a namespace.
 type ServiceQuery struct {
 	NamespaceID string `json:"namespaceId"`
+	ServiceName string `json:"serviceName,omitempty"`
 	GroupName   string `json:"groupName,omitempty"`
 	PageNo      int    `json:"pageNo,omitempty"`
 	PageSize    int    `json:"pageSize,omitempty"`

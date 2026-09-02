@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	defaultStreamableHTTPAddr = "127.0.0.1:8765"
-	defaultStreamableHTTPPath = "/mcp"
+	defaultStreamableHTTPAddr     = "127.0.0.1:8765"
+	defaultStreamableHTTPPath     = "/mcp"
+	streamableHTTPShutdownTimeout = 5 * time.Second
 )
 
 // HTTPServerOptions 描述远程 Streamable HTTP MCP 入口。
@@ -128,11 +129,15 @@ func StartAppStreamableHTTPServer(ctx context.Context, options HTTPServerOptions
 		return nil, err
 	}
 
+	closeBackendAfterServerStops(handle, backend)
+	return handle, nil
+}
+
+func closeBackendAfterServerStops(handle *StreamableHTTPServerHandle, backend Backend) {
 	go func() {
 		_ = handle.Wait()
 		_ = backend.Close(context.Background())
 	}()
-	return handle, nil
 }
 
 // RunAppStreamableHTTPServer 启动基于真实 GoNavi App 的 Streamable HTTP MCP server。
@@ -175,17 +180,27 @@ func StartStreamableHTTPServer(ctx context.Context, backend Backend, options HTT
 		JSONResponse:   normalized.JSONResponse,
 		SessionTimeout: 30 * time.Minute,
 	})
+	return startStreamableHTTPServer(ctx, normalized, streamableHandler, streamableHTTPShutdownTimeout)
+}
+
+func startStreamableHTTPServer(ctx context.Context, options HTTPServerOptions, streamableHandler http.Handler, shutdownTimeout time.Duration) (*StreamableHTTPServerHandle, error) {
+	var activeRequests sync.WaitGroup
+	requestHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		activeRequests.Add(1)
+		defer activeRequests.Done()
+		streamableHandler.ServeHTTP(w, req)
+	})
 
 	httpServer := &http.Server{
-		Addr:              normalized.Addr,
-		Handler:           streamableHTTPRoutes(normalized, streamableHandler),
+		Addr:              options.Addr,
+		Handler:           streamableHTTPRoutes(options, requestHandler),
 		ReadHeaderTimeout: httpserverlimits.ReadHeaderTimeout,
 		ReadTimeout:       httpserverlimits.ReadTimeout,
 		WriteTimeout:      httpserverlimits.WriteTimeout,
 		IdleTimeout:       httpserverlimits.IdleTimeout,
 	}
 
-	listener, err := net.Listen("tcp", normalized.Addr)
+	listener, err := net.Listen("tcp", options.Addr)
 	if err != nil {
 		return nil, err
 	}
@@ -193,8 +208,8 @@ func StartStreamableHTTPServer(ctx context.Context, backend Backend, options HTT
 	serverCtx, cancel := context.WithCancel(ctx)
 	handle := &StreamableHTTPServerHandle{
 		Addr:       listener.Addr().String(),
-		Path:       normalized.Path,
-		SchemaOnly: normalized.SchemaOnly,
+		Path:       options.Path,
+		SchemaOnly: options.SchemaOnly,
 		cancel:     cancel,
 		done:       make(chan struct{}),
 	}
@@ -208,16 +223,21 @@ func StartStreamableHTTPServer(ctx context.Context, backend Backend, options HTT
 		select {
 		case err := <-errCh:
 			cancel()
+			// Serve can fail for reasons other than an intentional shutdown while
+			// authenticated handlers are still using the backend.
+			activeRequests.Wait()
 			if errors.Is(err, http.ErrServerClosed) {
 				handle.complete(nil)
 				return
 			}
 			handle.complete(err)
 		case <-serverCtx.Done():
-			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 			defer shutdownCancel()
 			shutdownErr := httpServer.Shutdown(shutdownCtx)
 			serveErr := <-errCh
+			// A Shutdown timeout does not stop active handlers; keep the backend alive until they return.
+			activeRequests.Wait()
 			if shutdownErr != nil && !errors.Is(shutdownErr, http.ErrServerClosed) {
 				handle.complete(shutdownErr)
 				return

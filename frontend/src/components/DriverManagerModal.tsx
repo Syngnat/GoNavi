@@ -81,7 +81,7 @@ type DriverDownloadTaskSnapshot = {
   status: DriverProgressState['status'];
   percent: number;
   message?: string;
-  running: boolean;
+  running?: boolean;
   startedAt?: string;
   finishedAt?: string;
 };
@@ -249,10 +249,14 @@ const normalizeDriverDownloadTaskSnapshot = (value: unknown): DriverDownloadTask
   const item = (value || {}) as Record<string, unknown>;
   const taskId = String(item.taskId || '').trim();
   const driverType = String(item.driverType || '').trim().toLowerCase();
-  const status = String(item.status || '').trim().toLowerCase();
-  if (!taskId || !driverType || !['start', 'downloading', 'done', 'error'].includes(status)) {
+  const rawStatus = String(item.status || '').trim().toLowerCase();
+  if (!taskId || !driverType || !['start', 'downloading', 'done', 'error'].includes(rawStatus)) {
     return null;
   }
+  const running = typeof item.running === 'boolean' ? item.running : undefined;
+  const status = running === false && (rawStatus === 'start' || rawStatus === 'downloading')
+    ? 'error'
+    : rawStatus;
   return {
     taskId,
     driverType,
@@ -261,7 +265,7 @@ const normalizeDriverDownloadTaskSnapshot = (value: unknown): DriverDownloadTask
     status: status as DriverProgressState['status'],
     percent: Math.max(0, Math.min(100, Number(item.percent || 0))),
     message: String(item.message || '').trim() || undefined,
-    running: item.running === true,
+    running,
     startedAt: String(item.startedAt || '').trim() || undefined,
     finishedAt: String(item.finishedAt || '').trim() || undefined,
   };
@@ -667,6 +671,7 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
   const downloadDirRef = useRef(downloadDir);
   const progressMapRef = useRef<Record<string, DriverProgressState>>({});
   const progressTaskIdMapRef = useRef<Record<string, string>>({});
+  const tasklessProgressOwnerRef = useRef('');
   const versionLoadPromiseMapRef = useRef<Record<string, Promise<DriverVersionOption[]>>>({});
   const statusRequestGenerationRef = useRef(0);
   const networkRequestGenerationRef = useRef(0);
@@ -1258,6 +1263,9 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           return;
         }
         const taskId = String(event.taskId || '').trim();
+        if (!taskId && tasklessProgressOwnerRef.current !== driverType) {
+          return;
+        }
         const messageText = String(event.message || '').trim();
         const percent = Math.max(0, Math.min(100, Number(event.percent || 0)));
         const incomingProgress: DriverProgressState = {
@@ -1337,6 +1345,8 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
     row: DriverStatusRow,
     actionOptions?: { silentToast?: boolean; skipRefresh?: boolean; runInline?: boolean },
   ) => {
+    const normalizedDriverType = String(row.type || '').trim().toLowerCase();
+    let ownsTasklessProgress = false;
     setActionState({ driverType: row.type, kind: 'install' });
     clearDriverDownloadTaskId(row.type);
     updateDriverProgress(row.type, {
@@ -1362,6 +1372,10 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       const selectedVersion = selectedOption?.version || row.pinnedVersion || '';
       const selectedDownloadURL = selectedOption?.downloadUrl || row.defaultDownloadUrl || '';
       const runInline = actionOptions?.runInline === true;
+      if (runInline) {
+        tasklessProgressOwnerRef.current = normalizedDriverType;
+        ownsTasklessProgress = true;
+      }
       const result = runInline
         ? await DownloadDriverPackage(row.type, selectedVersion, selectedDownloadURL, downloadDir)
         : await StartDriverPackageDownload(row.type, selectedVersion, selectedDownloadURL, downloadDir);
@@ -1432,6 +1446,9 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       }
       return false;
     } finally {
+      if (ownsTasklessProgress && tasklessProgressOwnerRef.current === normalizedDriverType) {
+        tasklessProgressOwnerRef.current = '';
+      }
       setActionState({ driverType: '', kind: '' });
     }
   }, [appendOperationLog, applyDriverDownloadTaskSnapshot, clearDriverDownloadTaskId, clearDriverProgress, downloadDir, loadVersionOptions, refreshStatus, resolveDriverErrorMessage, selectedVersionMap, updateDriverProgress, versionMap]);
@@ -1451,7 +1468,10 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       return false;
     }
 
+    const normalizedDriverType = String(row.type || '').trim().toLowerCase();
+    tasklessProgressOwnerRef.current = normalizedDriverType;
     setActionState({ driverType: row.type, kind: 'local' });
+    clearDriverDownloadTaskId(row.type);
     updateDriverProgress(row.type, {
       status: 'start',
       message: t('driver.modal.progress.localImport.start'),
@@ -1479,6 +1499,11 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
           ],
         );
         appendOperationLog(row.type, `[ERROR] ${errText}`);
+        updateDriverProgress(row.type, {
+          status: 'error',
+          message: errText,
+          percent: 0,
+        });
         if (!options?.silentToast) {
           message.error(errText);
         }
@@ -1493,9 +1518,12 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
       }
       return true;
     } finally {
+      if (tasklessProgressOwnerRef.current === normalizedDriverType) {
+        tasklessProgressOwnerRef.current = '';
+      }
       setActionState({ driverType: '', kind: '' });
     }
-  }, [appendOperationLog, downloadDir, refreshStatus, resolveDriverErrorMessage, resolveLocalImportVersion, updateDriverProgress]);
+  }, [appendOperationLog, clearDriverDownloadTaskId, downloadDir, refreshStatus, resolveDriverErrorMessage, resolveLocalImportVersion, updateDriverProgress]);
 
   const installDriverFromLocalFile = useCallback(async (row: DriverStatusRow) => {
     const fileRes = await SelectDriverPackageFile(downloadDir);
@@ -2183,6 +2211,17 @@ const DriverManagerModal: React.FC<{ open: boolean; onClose: () => void; onBack?
                   showInfo={false}
                   size="small"
                 />
+                {progressState.status === 'error' && progressState.message ? (
+                  <Paragraph
+                    className="driver-manager-progress-error"
+                    type="danger"
+                    role="alert"
+                    ellipsis={{ rows: 2, expandable: true, symbol: t('driver.modal.card.expand') }}
+                    style={{ marginBottom: 0 }}
+                  >
+                    {progressState.message}
+                  </Paragraph>
+                ) : null}
               </div>
             ) : null}
             {renderDriverActions(row)}

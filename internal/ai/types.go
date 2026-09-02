@@ -98,23 +98,50 @@ const (
 
 // ProviderConfig AI Provider 配置
 type ProviderConfig struct {
-	ID                    string            `json:"id"`
-	Type                  string            `json:"type"` // openai | anthropic | gemini | custom
-	Name                  string            `json:"name"`
-	AuthMode              string            `json:"authMode,omitempty"` // api-key | local-cli
-	APIKey                string            `json:"apiKey"`
-	SecretRef             string            `json:"secretRef,omitempty"`
-	HasSecret             bool              `json:"hasSecret,omitempty"`
-	BaseURL               string            `json:"baseUrl"`
-	Model                 string            `json:"model"`
-	InlineCompletionModel string            `json:"inlineCompletionModel,omitempty"`
-	Models                []string          `json:"models,omitempty"`
-	APIFormat             string            `json:"apiFormat,omitempty"` // openai | openai-responses | anthropic | gemini | cursor-agent | codex-cli | claude-cli | codebuddy-cli
-	Headers               map[string]string `json:"headers,omitempty"`
-	MaxTokens             int               `json:"maxTokens"`
-	Temperature           float64           `json:"temperature"`
+	ID                    string   `json:"id"`
+	Type                  string   `json:"type"` // openai | anthropic | gemini | custom
+	Name                  string   `json:"name"`
+	AuthMode              string   `json:"authMode,omitempty"` // api-key | local-cli
+	APIKey                string   `json:"apiKey"`
+	SecretRef             string   `json:"secretRef,omitempty"`
+	HasSecret             bool     `json:"hasSecret,omitempty"`
+	BaseURL               string   `json:"baseUrl"`
+	Model                 string   `json:"model"`
+	InlineCompletionModel string   `json:"inlineCompletionModel,omitempty"`
+	Models                []string `json:"models,omitempty"`
+	// Optional model-picker preferences. They do not alter CLI login or account permissions.
+	DisabledModels []string          `json:"disabledModels,omitempty"`
+	CustomModels   []string          `json:"customModels,omitempty"`
+	APIFormat      string            `json:"apiFormat,omitempty"` // openai | openai-responses | anthropic | gemini | cursor-agent | cursor-cli | codex-cli | claude-cli | codebuddy-cli | grok-cli
+	Headers        map[string]string `json:"headers,omitempty"`
+	MaxTokens      int               `json:"maxTokens"`
+	Temperature    float64           `json:"temperature"`
 	// ThinkingIntensity 可选：off/low/medium/high。空值表示沿用供应商默认（多数等价 medium）。
 	ThinkingIntensity string `json:"thinkingIntensity,omitempty"`
+	// Effort 是本机 CLI 供应商的推理档位。它与 ThinkingIntensity 是两条独立的链：
+	// 后者面向 API 供应商，值域由 GoNavi 定义；Effort 的合法值域由目标 CLI 决定，
+	// 三个 CLI 两两不同（codex 6 / claude 5 / grok 4），因此不共用同一个枚举。
+	// 空值表示沿用该 CLI 自身的默认档位，不下发任何档位参数。
+	Effort string `json:"effort,omitempty"`
+}
+
+// CLICapabilityView 是按 CLI 的模型/档位能力在前端的只读投影。
+// 前端不得自己维护一份值域副本：值域、拒绝语义与预填来源都只有 Go 侧一个 owner，
+// 复制一份必然随上游 CLI 版本漂移而失真。
+type CLICapabilityView struct {
+	APIFormat string `json:"apiFormat"`
+	Command   string `json:"command"`
+	// SupportsEffort 为 false 时前端不应显示档位控件，而不是显示一个无效的通用输入框。
+	SupportsEffort bool     `json:"supportsEffort"`
+	EffortValues   []string `json:"effortValues"`
+	// EffortValuesVerified 为 false 表示值域来自推断，界面应提示该档位未经实测确认。
+	EffortValuesVerified bool `json:"effortValuesVerified"`
+	// SupportsModelDiscovery 为 true 时该 CLI 能自行枚举模型，界面可给下拉而非手填。
+	SupportsModelDiscovery bool `json:"supportsModelDiscovery"`
+	HasConfigSource        bool `json:"hasConfigSource"`
+	// DefaultModel / DefaultEffort 来自该 CLI 自身的用户配置，仅用于预填。
+	DefaultModel  string `json:"defaultModel"`
+	DefaultEffort string `json:"defaultEffort"`
 }
 
 // UserPromptSettings 表示用户级自定义提示词配置

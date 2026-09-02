@@ -17,6 +17,7 @@ import {
 import { buildSQLFileExecutionWorkbenchTab } from '../../utils/sqlFileExecutionTab';
 import type { BuildDataImportWorkbenchTabInput } from '../../utils/dataImportTab';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
+import { uploadBrowserFile } from '../../utils/browserFileTransfer';
 import { filterVisibleDatabaseNames } from '../../utils/databaseVisibility';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
@@ -88,6 +89,7 @@ type UseSidebarExternalSqlWorkflowOptions = {
   setExpandedKeys: React.Dispatch<React.SetStateAction<React.Key[]>>;
   setAutoExpandParent: React.Dispatch<React.SetStateAction<boolean>>;
   getActiveContext: () => ActiveExecutionContext;
+  isWebRuntime?: boolean;
 };
 
 export const launchDatabaseSQLImportWorkbench = (
@@ -446,6 +448,7 @@ export const useSidebarExternalSqlWorkflow = ({
   setExpandedKeys,
   setAutoExpandParent,
   getActiveContext,
+  isWebRuntime = false,
 }: UseSidebarExternalSqlWorkflowOptions) => {
   const [isExternalSQLFileModalOpen, setIsExternalSQLFileModalOpen] = useState(false);
   const [externalSQLFileForm] = Form.useForm();
@@ -459,6 +462,8 @@ export const useSidebarExternalSqlWorkflow = ({
   const [loadingExternalSQLBindingDatabases, setLoadingExternalSQLBindingDatabases] = useState(false);
   const [savingExternalSQLBinding, setSavingExternalSQLBinding] = useState(false);
   const externalSQLBindingDatabaseRequestRef = useRef(0);
+  const browserSQLFileInputRef = useRef<HTMLInputElement>(null);
+  const browserSQLExecutionContextRef = useRef<ActiveExecutionContext>(null);
 
   const loadExternalSQLBindingDatabases = useCallback(async (
     connectionId: string,
@@ -558,6 +563,17 @@ export const useSidebarExternalSqlWorkflow = ({
       message.warning(t('sidebar.message.select_connection_or_database_first'));
       return;
     }
+    if (isWebRuntime) {
+      const input = browserSQLFileInputRef.current;
+      if (!input) {
+        message.error(t('sidebar.message.read_file_failed', { error: 'Browser file upload is unavailable' }));
+        return;
+      }
+      browserSQLExecutionContextRef.current = ctx;
+      input.value = '';
+      input.click();
+      return;
+    }
     const res = await selectSQLFileForExecution();
     if (res.success) {
       const data = normalizeSQLFileDialogData(res.data);
@@ -588,6 +604,28 @@ export const useSidebarExternalSqlWorkflow = ({
       });
     } else if (res.message !== '已取消') {
       message.error(t('sidebar.message.read_file_failed', { error: res.message }));
+    }
+  };
+
+  const handleBrowserSQLFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const ctx = browserSQLExecutionContextRef.current;
+    browserSQLExecutionContextRef.current = null;
+    event.target.value = '';
+    if (!file || !ctx?.connectionId) return;
+    try {
+      const uploaded = await uploadBrowserFile(file, 'sql-execution');
+      openSQLFileExecutionWorkbench({
+        connectionId: ctx.connectionId,
+        dbName: String(ctx.dbName || '').trim(),
+        filePath: uploaded.filePath,
+        fileName: uploaded.name || file.name,
+        fileSizeMB: uploaded.fileSizeMB,
+      });
+    } catch (error: any) {
+      message.error(t('sidebar.message.read_file_failed', {
+        error: error?.message || String(error),
+      }));
     }
   };
 
@@ -1128,6 +1166,15 @@ export const useSidebarExternalSqlWorkflow = ({
     handleAddExternalSQLDirectory,
     handleRemoveExternalSQLDirectory,
     handleRefreshExternalSQLDirectory,
+    browserSQLFileInputProps: {
+      ref: browserSQLFileInputRef,
+      type: 'file' as const,
+      accept: '.sql,.sql.gz',
+      style: { display: 'none' },
+      onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+        void handleBrowserSQLFileChange(event);
+      },
+    },
     externalSQLFileModalProps: {
       open: isExternalSQLFileModalOpen,
       mode: externalSQLFileModalMode,

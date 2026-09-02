@@ -174,7 +174,7 @@ func TestRunSyncPostgresLikeSourceQueryMapsCompositePrimaryKey(t *testing.T) {
 	}
 }
 
-func TestLoadSourceQueryContextRejectsInvalidCompositeKeyMappings(t *testing.T) {
+func TestLoadSourceQueryContextRejectsInvalidMappedKeyReferences(t *testing.T) {
 	target := &fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{
 		"app.orders": compositeKeyColumns(),
 	}}
@@ -188,9 +188,8 @@ func TestLoadSourceQueryContextRejectsInvalidCompositeKeyMappings(t *testing.T) 
 		keyColumns []string
 		want       string
 	}{
-		{name: "missing key", keyColumns: []string{"tenant"}, want: "数量一致"},
+		{name: "unmapped key", keyColumns: []string{"missing"}, want: "未唯一映射"},
 		{name: "duplicate key", keyColumns: []string{"tenant", "tenant"}, want: "字段重复"},
-		{name: "non primary key", keyColumns: []string{"order_no", "status_raw"}, want: "必须属于目标表主键"},
 	}
 
 	for _, tc := range cases {

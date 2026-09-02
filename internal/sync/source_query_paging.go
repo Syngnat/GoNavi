@@ -12,7 +12,11 @@ func (s *SyncEngine) tryApplySourceQueryInPages(config SyncConfig, res *SyncResu
 	if hasExplicitSyncMappings(config) {
 		return false, pagedDiffCounts{}, nil
 	}
-	if len(ctx.PKColumns) > 1 {
+	// Paging uses OFFSET and must have exactly one stable ordering key. A
+	// missing key used to produce LIMIT/OFFSET without ORDER BY for direct
+	// imports, which can duplicate or skip query-result rows.
+	pageKey := strings.TrimSpace(ctx.PKColumn)
+	if len(ctx.PKColumns) > 1 || pageKey == "" || strings.Contains(pageKey, ",") {
 		return false, pagedDiffCounts{}, nil
 	}
 	sourceType := resolveMigrationDBType(config.SourceConfig)
@@ -170,6 +174,8 @@ func scanSourceQueryDiffInPagesContextWithBatchSize(ctx context.Context, sourceD
 	}
 
 	totals := pagedDiffCounts{}
+	seenSourceKeys := make(map[string]struct{})
+	seenTargetKeys := make(map[string]struct{})
 	for offset := 0; ; offset += pageSize {
 		query := buildSourceQueryPageSQL(sourceType, sourceQuery, pkCol, pageSize, offset)
 		sourceRows, _, err := querySyncDatabaseContext(ctx, sourceDB, query)
@@ -178,6 +184,9 @@ func scanSourceQueryDiffInPagesContextWithBatchSize(ctx context.Context, sourceD
 		}
 		if len(sourceRows) == 0 {
 			break
+		}
+		if err := validatePagedUniqueKeys(sourceRows, pkCol, seenSourceKeys, "source query result"); err != nil {
+			return true, totals, err
 		}
 
 		pkValues := collectPKValues(sourceRows, pkCol)
@@ -190,6 +199,9 @@ func scanSourceQueryDiffInPagesContextWithBatchSize(ctx context.Context, sourceD
 			targetRows, _, err = querySyncDatabaseContext(ctx, targetDB, targetQuery)
 			if err != nil {
 				return true, totals, fmt.Errorf("按主键读取目标表失败(offset=%d): %w", offset, err)
+			}
+			if err := validatePagedUniqueKeys(targetRows, pkCol, seenTargetKeys, "target table"); err != nil {
+				return true, totals, err
 			}
 		}
 
@@ -267,6 +279,20 @@ func scanSourceQueryDiffInPagesContextWithBatchSize(ctx context.Context, sourceD
 	return true, totals, nil
 }
 
+func validatePagedUniqueKeys(rows []map[string]interface{}, keyColumn string, seen map[string]struct{}, side string) error {
+	for _, row := range rows {
+		key, ok := syncRowKey(row, []string{keyColumn})
+		if !ok {
+			return fmt.Errorf("%s contains a row without a complete stable key (%s)", side, keyColumn)
+		}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%s contains duplicate stable key values (%s)", side, keyColumn)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
 func buildSourceQueryPageSQL(dbType, sourceQuery, orderCol string, limit, offset int) string {
 	subquery, ok := normalizeSourceQueryForPaging(sourceQuery)
 	if !ok {
@@ -307,12 +333,16 @@ func buildSourceQueryPKInSelectSQL(dbType, sourceQuery string, cols []connection
 }
 
 func countSourceQueryRowsForSync(database db.Database, dbType, sourceQuery string) (int, bool, error) {
+	return countSourceQueryRowsForSyncContext(context.Background(), database, dbType, sourceQuery)
+}
+
+func countSourceQueryRowsForSyncContext(ctx context.Context, database db.Database, dbType, sourceQuery string) (int, bool, error) {
 	subquery, ok := normalizeSourceQueryForPaging(sourceQuery)
 	if !ok {
 		return 0, false, nil
 	}
 	query := fmt.Sprintf("SELECT COUNT(*) AS __gonavi_count__ FROM (%s) AS __gonavi_source_query__", subquery)
-	rows, _, err := database.Query(query)
+	rows, _, err := querySyncDatabaseContext(ctx, database, query)
 	if err != nil {
 		return 0, true, err
 	}

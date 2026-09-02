@@ -88,10 +88,11 @@ type cloudBackupFile struct {
 }
 
 type cloudBackupPayload struct {
-	SchemaVersion int                      `json:"schemaVersion"`
-	CreatedAt     string                   `json:"createdAt"`
-	Connections   connectionPackagePayload `json:"connections"`
-	Files         []cloudBackupFile        `json:"files,omitempty"`
+	SchemaVersion           int                                 `json:"schemaVersion"`
+	CreatedAt               string                              `json:"createdAt"`
+	Connections             connectionPackagePayload            `json:"connections"`
+	ConnectionSidebarLayout *connection.ConnectionSidebarLayout `json:"connectionSidebarLayout,omitempty"`
+	Files                   []cloudBackupFile                   `json:"files,omitempty"`
 }
 
 type cloudBackupRestoreTarget struct {
@@ -108,10 +109,11 @@ type cloudBackupFileSnapshot struct {
 }
 
 type cloudBackupConnectionFilesSnapshot struct {
-	connectionsData    []byte
-	connectionsExists  bool
-	dailySecretsData   []byte
-	dailySecretsExists bool
+	connectionsData         []byte
+	connectionsExists       bool
+	dailySecretsData        []byte
+	dailySecretsExists      bool
+	connectionSidebarLayout connectionSidebarLayoutSnapshot
 }
 
 type cloudBackupRestoreConfirmationToken struct {
@@ -586,6 +588,7 @@ func (a *App) buildCloudBackupPayload(config CloudBackupConfig) ([]byte, error) 
 		return nil, errors.New("select at least one cloud backup category")
 	}
 	var connections connectionPackagePayload
+	var connectionSidebarLayout *connection.ConnectionSidebarLayout
 	var files []cloudBackupFile
 	buildSnapshot := func(repo *savedConnectionRepository) error {
 		if _, ok := selected[CloudBackupCategoryConnections]; ok {
@@ -593,6 +596,13 @@ func (a *App) buildCloudBackupPayload(config CloudBackupConfig) ([]byte, error) 
 			connections, err = a.buildConnectionPackagePayloadUnlocked(repo, nil, nil)
 			if err != nil {
 				return err
+			}
+			layout, err := a.connectionSidebarLayoutRepository().loadUnlocked()
+			if err != nil {
+				return err
+			}
+			if layout.Initialized {
+				connectionSidebarLayout = &layout
 			}
 		}
 		var err error
@@ -612,7 +622,13 @@ func (a *App) buildCloudBackupPayload(config CloudBackupConfig) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	payload := cloudBackupPayload{SchemaVersion: cloudBackupPayloadSchemaVersion, CreatedAt: time.Now().UTC().Format(time.RFC3339), Connections: connections, Files: files}
+	payload := cloudBackupPayload{
+		SchemaVersion:           cloudBackupPayloadSchemaVersion,
+		CreatedAt:               time.Now().UTC().Format(time.RFC3339),
+		Connections:             connections,
+		ConnectionSidebarLayout: connectionSidebarLayout,
+		Files:                   files,
+	}
 	return json.Marshal(payload)
 }
 
@@ -962,6 +978,7 @@ func (a *App) CloudBackupRestore(request CloudBackupRestoreRequest) (CloudBackup
 	}
 
 	repo := a.savedConnectionRepository()
+	layoutRepo := a.connectionSidebarLayoutRepository()
 	restoreMutations := func() error {
 		filesToRestore := append([]cloudBackupFile(nil), settingsFiles...)
 		var connectionSnapshot cloudBackupConnectionFilesSnapshot
@@ -999,6 +1016,20 @@ func (a *App) CloudBackupRestore(request CloudBackupRestoreRequest) (CloudBackup
 					return fmt.Errorf("restore connections failed: %w (rollback failed: %v)", importErr, rollbackErr)
 				}
 				return importErr
+			}
+			if payload.ConnectionSidebarLayout != nil {
+				_, replaceErr := layoutRepo.replaceUnlocked(connection.ConnectionSidebarLayoutInput{
+					ConnectionTags:         payload.ConnectionSidebarLayout.ConnectionTags,
+					SidebarRootOrder:       payload.ConnectionSidebarLayout.SidebarRootOrder,
+					RootSortMode:           payload.ConnectionSidebarLayout.RootSortMode,
+					RootConnectionSortMode: payload.ConnectionSidebarLayout.RootConnectionSortMode,
+				})
+				if replaceErr != nil {
+					if rollbackErr := rollbackMutations(); rollbackErr != nil {
+						return fmt.Errorf("restore connection sidebar layout failed: %w (rollback failed: %v)", replaceErr, rollbackErr)
+					}
+					return fmt.Errorf("restore connection sidebar layout: %w", replaceErr)
+				}
 			}
 		}
 		if len(savedQueryFiles) > 0 {
@@ -1052,7 +1083,7 @@ func buildCloudBackupRestorePreview(payload cloudBackupPayload, selectedCategori
 		category := CloudBackupCategory{ID: categoryID}
 		if categoryID == CloudBackupCategoryConnections {
 			category.ItemCount = len(payload.Connections.Connections)
-			if category.ItemCount == 0 {
+			if category.ItemCount == 0 && payload.ConnectionSidebarLayout == nil {
 				continue
 			}
 			preview.ConnectionCount = category.ItemCount
@@ -1223,6 +1254,12 @@ func captureCloudBackupConnectionFilesSnapshotUnlocked(repo *savedConnectionRepo
 	if err != nil {
 		return cloudBackupConnectionFilesSnapshot{}, err
 	}
+	snapshot.connectionSidebarLayout, err = captureConnectionSidebarLayoutSnapshotUnlocked(
+		newConnectionSidebarLayoutRepository(repo.configDir),
+	)
+	if err != nil {
+		return cloudBackupConnectionFilesSnapshot{}, err
+	}
 	return snapshot, nil
 }
 
@@ -1237,6 +1274,7 @@ func (snapshot cloudBackupConnectionFilesSnapshot) restoreUnlocked(repo *savedCo
 	return errors.Join(
 		restoreCloudBackupOptionalFile(repo.connectionsPath(), snapshot.connectionsExists, snapshot.connectionsData, 0o644),
 		restoreCloudBackupOptionalFile(repo.dailySecrets().Path(), snapshot.dailySecretsExists, snapshot.dailySecretsData, 0o600),
+		snapshot.connectionSidebarLayout.restoreUnlocked(newConnectionSidebarLayoutRepository(repo.configDir)),
 	)
 }
 
@@ -1522,18 +1560,15 @@ func writeCloudBackupFile(target string, data []byte, mode os.FileMode) error {
 }
 
 func (a *App) initializeCloudBackup(ctx context.Context) {
-	if _, err := a.CloudBackupGetConfig(); err != nil {
+	a.initializeCloudBackupLifecycle(ctx)
+	// Startup must only inspect non-sensitive metadata. CloudBackupGetConfig
+	// reads credentials from the OS keyring, which would trigger a macOS
+	// authorization prompt on every development rebuild. Credentials are
+	// loaded when the settings/API path or an actual sync operation is used.
+	if _, err := a.loadCloudBackupConfig(); err != nil {
 		logger.Warnf("加载云端备份配置失败：%v", err)
 	}
 	a.restartCloudBackupScheduler()
-	config, err := a.loadCloudBackupConfig()
-	if err == nil && config.Enabled {
-		go func() {
-			if _, checkErr := a.CloudBackupListRestorePoints(); checkErr != nil {
-				logger.Warnf("启动时检查云端备份失败：%v", checkErr)
-			}
-		}()
-	}
 }
 
 func (a *App) restartCloudBackupScheduler() {
@@ -1541,11 +1576,11 @@ func (a *App) restartCloudBackupScheduler() {
 		return
 	}
 	a.cloudBackupSchedulerMu.Lock()
+	defer a.cloudBackupSchedulerMu.Unlock()
 	if a.cloudBackupSchedulerCancel != nil {
 		a.cloudBackupSchedulerCancel()
 	}
 	a.cloudBackupSchedulerCancel = nil
-	a.cloudBackupSchedulerMu.Unlock()
 	config, err := a.loadCloudBackupConfig()
 	if err != nil || !config.Enabled {
 		return
@@ -1554,11 +1589,18 @@ func (a *App) restartCloudBackupScheduler() {
 	if interval <= 0 {
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	a.cloudBackupSchedulerMu.Lock()
+	a.cloudBackupLifecycleMu.Lock()
+	parent := a.cloudBackupLifecycleContextLocked(context.Background())
+	if a.cloudBackupShuttingDown || parent.Err() != nil {
+		a.cloudBackupLifecycleMu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(parent)
 	a.cloudBackupSchedulerCancel = cancel
-	a.cloudBackupSchedulerMu.Unlock()
+	a.cloudBackupBackgroundWG.Add(1)
+	a.cloudBackupLifecycleMu.Unlock()
 	go func() {
+		defer a.cloudBackupBackgroundWG.Done()
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -1602,11 +1644,73 @@ func (a *App) markCloudBackupDirty() {
 	if config.Schedule != CloudBackupScheduleImmediate {
 		return
 	}
-	go func() {
-		if _, err := a.cloudBackupSync(context.Background()); err != nil {
-			logger.Warnf("修改后同步云端备份失败：%v", err)
+	a.queueImmediateCloudBackup()
+}
+
+func (a *App) initializeCloudBackupLifecycle(parent context.Context) {
+	a.cloudBackupLifecycleMu.Lock()
+	defer a.cloudBackupLifecycleMu.Unlock()
+	if a.cloudBackupShuttingDown {
+		return
+	}
+	a.cloudBackupLifecycleContextLocked(parent)
+}
+
+func (a *App) cloudBackupLifecycleContextLocked(parent context.Context) context.Context {
+	if a.cloudBackupLifecycleCtx != nil {
+		return a.cloudBackupLifecycleCtx
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	a.cloudBackupLifecycleCtx, a.cloudBackupLifecycleCancel = context.WithCancel(parent)
+	a.cloudBackupImmediateSignal = make(chan struct{}, 1)
+	return a.cloudBackupLifecycleCtx
+}
+
+func (a *App) queueImmediateCloudBackup() {
+	a.cloudBackupLifecycleMu.Lock()
+	if a.cloudBackupShuttingDown {
+		a.cloudBackupLifecycleMu.Unlock()
+		return
+	}
+	ctx := a.cloudBackupLifecycleContextLocked(context.Background())
+	if ctx.Err() != nil {
+		a.cloudBackupLifecycleMu.Unlock()
+		return
+	}
+	if !a.cloudBackupImmediateStarted {
+		a.cloudBackupImmediateStarted = true
+		a.cloudBackupBackgroundWG.Add(1)
+		go a.runImmediateCloudBackup(ctx, a.cloudBackupImmediateSignal)
+	}
+	select {
+	case a.cloudBackupImmediateSignal <- struct{}{}:
+	default:
+	}
+	a.cloudBackupLifecycleMu.Unlock()
+}
+
+func (a *App) runImmediateCloudBackup(ctx context.Context, signal <-chan struct{}) {
+	defer a.cloudBackupBackgroundWG.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
 		}
-	}()
+		select {
+		case <-ctx.Done():
+			return
+		case <-signal:
+			if ctx.Err() != nil {
+				return
+			}
+			if _, err := a.cloudBackupSync(ctx); err != nil && ctx.Err() == nil {
+				logger.Warnf("修改后同步云端备份失败：%v", err)
+			}
+		}
+	}
 }
 
 func (a *App) cloudBackupDirtyState() (bool, uint64) {
@@ -1633,6 +1737,13 @@ func (a *App) shutdownCloudBackup() {
 		a.cloudBackupSchedulerCancel = nil
 	}
 	a.cloudBackupSchedulerMu.Unlock()
+	a.cloudBackupLifecycleMu.Lock()
+	a.cloudBackupShuttingDown = true
+	if a.cloudBackupLifecycleCancel != nil {
+		a.cloudBackupLifecycleCancel()
+	}
+	a.cloudBackupLifecycleMu.Unlock()
+	a.cloudBackupBackgroundWG.Wait()
 	config, err := a.loadCloudBackupConfig()
 	if err != nil || !config.Enabled || config.Schedule != CloudBackupScheduleOnExit {
 		return

@@ -23,6 +23,7 @@ import { useAIChatContextBinding } from './useAIChatContextBinding';
 import { useAIChatDraftAttachments } from './useAIChatDraftAttachments';
 import { useAISlashCommandMenu } from './useAISlashCommandMenu';
 import type { AIChatAttachment } from '../../types';
+import type { AIRunDispatchMode } from './aiRunHarnessClient';
 
 interface AIChatInputProps {
     input: string;
@@ -30,6 +31,9 @@ interface AIChatInputProps {
     draftAttachments: AIChatAttachment[];
     setDraftAttachments: React.Dispatch<React.SetStateAction<AIChatAttachment[]>>;
     sending: boolean;
+    dispatchMode?: AIRunDispatchMode;
+    hasActiveRun?: boolean;
+    onDispatchModeChange?: (mode: AIRunDispatchMode) => void;
     onSend: () => void;
     onStop: () => void;
     handleKeyDown: (e: React.KeyboardEvent) => void;
@@ -57,7 +61,8 @@ interface AIChatInputProps {
 }
 
 export const AIChatInput: React.FC<AIChatInputProps> = ({
-    input, setInput, draftAttachments, setDraftAttachments, sending, onSend, onStop, handleKeyDown,
+    input, setInput, draftAttachments, setDraftAttachments, sending, dispatchMode = 'queue', hasActiveRun = false,
+    onDispatchModeChange, onSend, onStop, handleKeyDown,
     activeConnName, activeContext, activeProvider, dynamicModels, loadingModels,
     sendShortcutBinding, shortcutPlatform = 'windows', composerNotice, onComposerAction,
     onModelChange, onFetchModels, thinkingIntensity, onThinkingIntensityChange,
@@ -315,6 +320,9 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                             input={input}
                             draftAttachmentCount={draftAttachments.length}
                             sending={sending}
+                            dispatchMode={dispatchMode}
+                            hasActiveRun={hasActiveRun}
+                            onDispatchModeChange={onDispatchModeChange}
                             darkMode={darkMode}
                             textColor={textColor}
                             mutedColor={mutedColor}
@@ -426,6 +434,9 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                             input={input}
                             draftAttachmentCount={draftAttachments.length}
                             sending={sending}
+                            dispatchMode={dispatchMode}
+                            hasActiveRun={hasActiveRun}
+                            onDispatchModeChange={onDispatchModeChange}
                             darkMode={darkMode}
                             textColor={textColor}
                             mutedColor={mutedColor}

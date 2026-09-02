@@ -55,6 +55,7 @@ func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) co
 		logger.Warnf("DBGetObjects 获取基础对象失败：%s err=%v", formatConnSummary(runConfig), tableErr)
 		return failedObjectMetadataResult(tableType, tableErr)
 	}
+	tables = dedupeMetadataTableNames(tables)
 	objects = append(objects, buildNamedObjects(dbName, tableType, tables)...)
 
 	warnings := make([]string, 0)
@@ -69,10 +70,29 @@ func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) co
 		warnings = append(warnings, warning)
 		failedObjectTypes = append(failedObjectTypes, objectType)
 	}
+	buildResult := func() connection.QueryResult {
+		partial := len(failedObjectTypes) > 0
+		result := connection.QueryResult{
+			Success:           true,
+			Data:              dedupeSortDatabaseObjects(objects, databaseObjectIdentifiersAreCaseSensitive(dbType)),
+			Partial:           partial,
+			Warnings:          warnings,
+			FailedObjectTypes: failedObjectTypes,
+			Retryable:         partial,
+		}
+		if partial {
+			result.Message = "对象元数据不完整，可重试"
+		}
+		return result
+	}
 
 	if dbType == "rabbitmq" {
 		metadataObjects, metadataErr := listObjectsByQueries(dbInst, runConfig, dbName, "exchange", buildMessageExchangeMetadataQueries(dbType))
 		appendMetadataObjects("exchange", metadataObjects, metadataErr)
+	}
+	switch dbType {
+	case "mqtt", "kafka", "rocketmq", "rabbitmq":
+		return buildResult()
 	}
 
 	viewLookup, viewErr := listViewNameLookupWithStatus(dbInst, runConfig, dbName)
@@ -90,19 +110,7 @@ func (a *App) DBGetObjects(config connection.ConnectionConfig, dbName string) co
 	metadataObjects, metadataErr = listObjectsByQueries(dbInst, runConfig, dbName, "event", buildObjectEventMetadataQueries(dbType, dbName))
 	appendMetadataObjects("event", metadataObjects, metadataErr)
 
-	partial := len(failedObjectTypes) > 0
-	result := connection.QueryResult{
-		Success:           true,
-		Data:              dedupeSortDatabaseObjects(objects),
-		Partial:           partial,
-		Warnings:          warnings,
-		FailedObjectTypes: failedObjectTypes,
-		Retryable:         partial,
-	}
-	if partial {
-		result.Message = "对象元数据不完整，可重试"
-	}
-	return result
+	return buildResult()
 }
 
 func objectMetadataWarning(objectType string, err error) string {
@@ -306,7 +314,17 @@ func splitObjectSchemaName(raw string) (string, string) {
 	return "", text
 }
 
-func dedupeSortDatabaseObjects(objects []connection.DatabaseObject) []connection.DatabaseObject {
+func databaseObjectIdentifiersAreCaseSensitive(dbType string) bool {
+	switch resolveDDLDBType(connection.ConnectionConfig{Type: dbType}) {
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "oracle", "dameng",
+		"mqtt", "kafka", "rocketmq", "rabbitmq":
+		return true
+	default:
+		return false
+	}
+}
+
+func dedupeSortDatabaseObjects(objects []connection.DatabaseObject, preserveCase bool) []connection.DatabaseObject {
 	seen := make(map[string]struct{}, len(objects))
 	result := make([]connection.DatabaseObject, 0, len(objects))
 	for _, object := range objects {
@@ -317,7 +335,13 @@ func dedupeSortDatabaseObjects(objects []connection.DatabaseObject) []connection
 		if object.Name == "" || object.Type == "" {
 			continue
 		}
-		key := strings.ToLower(strings.Join([]string{object.Database, object.Type, object.Schema, object.Name, object.Parent}, "\x00"))
+		keyParts := []string{object.Database, object.Type, object.Schema, object.Name, object.Parent}
+		if !preserveCase {
+			for index := range keyParts {
+				keyParts[index] = strings.ToLower(keyParts[index])
+			}
+		}
+		key := strings.Join(keyParts, "\x00")
 		if _, ok := seen[key]; ok {
 			continue
 		}

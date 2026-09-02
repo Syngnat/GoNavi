@@ -536,6 +536,18 @@ class PrepareVPSReleasePayloadTest(unittest.TestCase):
         self.assertIn(".gonavi-mirror-root", source)
         self.assertIn("gonavi-edge-transaction", source)
 
+    def test_publish_script_only_requires_driver_parity_for_driver_releases(self) -> None:
+        source = PUBLISH_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'if [[ "${PUB_DRIVER_ENABLED}" == true && "${cst_driver_tag}" != "${bero_driver_tag}" ]]; then',
+            source,
+        )
+        self.assertIn(
+            'if [[ "${PUB_DRIVER_ENABLED}" == true && "${cst_driver_tag}" != "${PUB_DRIVER_TAG}" ]]; then',
+            source,
+        )
+
     def test_workflows_pass_explicit_driver_mode(self) -> None:
         dev_source = DEV_WORKFLOW.read_text(encoding="utf-8")
         stable_source = PUBLISH_RELEASE_WORKFLOW.read_text(encoding="utf-8")

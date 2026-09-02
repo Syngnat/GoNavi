@@ -12,12 +12,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"GoNavi-Wails/internal/ai/runharness"
 	aiservice "GoNavi-Wails/internal/ai/service"
 	appcore "GoNavi-Wails/internal/app"
 	"GoNavi-Wails/internal/uievents"
@@ -216,21 +216,18 @@ func (m *Manager) emit(name string, args ...any) {
 	ctx := m.runtimeCtx
 	emitToWails := m.emitToWails
 	emitToChildren := m.emitToChildren
-	emitToChild := m.emitToChild
 	emitToChildBestEffort := m.emitToChildBestEffort
 	shared := m.shared
 	m.mu.RUnlock()
 	if ctx != nil && emitToWails != nil {
 		emitToWails(ctx, name, args...)
 	}
-	if strings.HasPrefix(name, "ai:stream:") {
-		if aiStreamEventRequiresReliableDelivery(args) {
-			if emitToChild != nil {
-				emitToChild("ai-chat", name, args...)
-			} else if shared != nil {
-				shared.EmitTo("ai-chat", name, args...)
-			}
-		} else if emitToChildBestEffort != nil {
+	if name == runharness.EventName {
+		// Run events are durably sequenced before publication. A detached chat
+		// window can replay any dropped best-effort notification through
+		// AIReadAgentRun, so the bridge must not preserve the old stream-specific
+		// reliability and chunk-coalescing behavior.
+		if emitToChildBestEffort != nil {
 			emitToChildBestEffort("ai-chat", name, args...)
 		} else if shared != nil {
 			shared.EmitToBestEffort("ai-chat", name, args...)
@@ -242,26 +239,6 @@ func (m *Manager) emit(name string, args ...any) {
 	} else if shared != nil {
 		shared.Emit(name, args...)
 	}
-}
-
-func aiStreamEventRequiresReliableDelivery(args []any) bool {
-	if len(args) != 1 {
-		return true
-	}
-	payload, ok := args[0].(map[string]any)
-	if !ok {
-		return true
-	}
-	if done, _ := payload["done"].(bool); done {
-		return true
-	}
-	if errorText, _ := payload["error"].(string); strings.TrimSpace(errorText) != "" {
-		return true
-	}
-	toolCalls := reflect.ValueOf(payload["tool_calls"])
-	return toolCalls.IsValid() &&
-		(toolCalls.Kind() == reflect.Array || toolCalls.Kind() == reflect.Slice) &&
-		toolCalls.Len() > 0
 }
 
 // Open launches one native Wails child process. Existing IDs are focused

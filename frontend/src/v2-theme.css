@@ -26,6 +26,7 @@ body[data-ui-version="v2"][data-theme="light"] {
 
   --gn-bg-app:      #f6f6f4;
   --gn-bg-chrome:   #ececea;
+  --gn-bg-chrome-strong: #e8eeeb;
   --gn-bg-panel:    #ffffff;
   --gn-bg-panel-2:  #fafaf8;
   /* All Monaco editors share this surface token (see .gn-monaco-surface). */
@@ -78,6 +79,7 @@ body[data-ui-version="v2"][data-theme="dark"] {
 
   --gn-bg-app:      #0c0e12;
   --gn-bg-chrome:   #14171c;
+  --gn-bg-chrome-strong: #11161b;
   --gn-bg-panel:    #161a21;
   --gn-bg-panel-2:  #1b1f27;
   --gn-monaco-bg:   var(--gn-bg-panel);
@@ -134,6 +136,34 @@ body[data-ui-version="v2"] {
   --gn-v2-menu-item-radius: 5px;
   --gn-v2-menu-surface-radius: 10px;
   --gn-v2-menu-surface-padding: 4px;
+
+  /* Query/DataGrid 工具栏按钮的公开主题契约。
+     自定义主题可覆盖这组通用变量，也可用 --gn-query-toolbar-* /
+     --gn-result-toolbar-* 变量只调整其中一组。 */
+  --gn-toolbar-button-fg: var(--gn-fg-2);
+  --gn-toolbar-button-bg: var(--gn-bg-panel);
+  --gn-toolbar-button-border: var(--gn-br-2);
+  --gn-toolbar-button-hover-fg: var(--gn-fg-1);
+  --gn-toolbar-button-hover-bg: var(--gn-bg-hover);
+  --gn-toolbar-button-hover-border: var(--gn-br-3);
+  --gn-toolbar-button-active-fg: var(--gn-fg-1);
+  --gn-toolbar-button-active-bg: var(--gn-bg-active);
+  --gn-toolbar-button-active-border: var(--gn-br-3);
+  --gn-toolbar-button-disabled-fg: var(--gn-fg-5);
+  --gn-toolbar-button-disabled-bg: var(--gn-bg-active);
+  --gn-toolbar-button-disabled-border: var(--gn-br-2);
+  --gn-toolbar-primary-fg: var(--gn-ant-on-primary, var(--gn-on-accent, #fff));
+  --gn-toolbar-primary-bg: var(--gn-accent-strong, var(--gn-accent));
+  --gn-toolbar-primary-border: var(--gn-accent-strong, var(--gn-accent-2));
+  --gn-toolbar-primary-hover-fg: var(--gn-ant-on-primary, var(--gn-on-accent, #fff));
+  --gn-toolbar-primary-hover-bg: var(--gn-accent-strong-hover, var(--gn-accent-2));
+  --gn-toolbar-primary-hover-border: var(--gn-accent-strong-hover, var(--gn-accent-2));
+  --gn-toolbar-primary-active-fg: var(--gn-ant-on-primary, var(--gn-on-accent, #fff));
+  --gn-toolbar-primary-active-bg: var(--gn-accent-strong-active, var(--gn-accent-2));
+  --gn-toolbar-primary-active-border: var(--gn-accent-strong-active, var(--gn-accent-2));
+  --gn-toolbar-primary-disabled-fg: var(--gn-fg-5);
+  --gn-toolbar-primary-disabled-bg: var(--gn-bg-active);
+  --gn-toolbar-primary-disabled-border: var(--gn-br-2);
   font-family: var(--gn-font-sans) !important;
   font-size: var(--gn-font-size, var(--gonavi-font-size, 14px));
   -webkit-font-smoothing: antialiased;
@@ -425,6 +455,23 @@ body[data-ui-version="v2"] .ant-input-search-button {
   background: var(--gn-accent) !important;
   border-color: var(--gn-accent-2) !important;
   color: #fff !important;
+}
+
+/* 搜索框和按钮共用边界，避免全局圆角影响拼接。 */
+body[data-ui-version="v2"] .ant-input-search > .ant-input-group > .ant-input-affix-wrapper {
+  border-inline-end: none !important;
+  border-start-end-radius: 0 !important;
+  border-end-end-radius: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-input-search > .ant-input-group > .ant-input-group-addon:last-child {
+  inset-inline-start: 0 !important;
+}
+
+body[data-ui-version="v2"] .ant-input-search > .ant-input-group > .ant-input-group-addon:last-child .ant-input-search-button {
+  margin-inline-end: 0 !important;
+  border-start-start-radius: 0 !important;
+  border-end-start-radius: 0 !important;
 }
 
 /* ─── Select dropdown ─────────────────────────────────── */
@@ -2127,9 +2174,9 @@ body[data-ui-version="v2"] .gn-v2-app-sider {
 
 body[data-ui-version="v2"] .gn-v2-sidebar-redesign {
   --gn-v2-rail-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
+  --gn-v2-explorer-scale: var(--gn-ui-scale, 1);
   width: 100%;
   background: var(--gn-bg-panel-2);
-  border-right: 0.5px solid var(--gn-br-1);
   overflow: hidden;
 }
 
@@ -2145,6 +2192,10 @@ body[data-ui-version="v2"] .gn-v2-connection-rail {
   border-right: 0.5px solid var(--gn-br-1);
   /* Match explorer panel — no tint strip (tinted empty rail looked worse) */
   background: transparent;
+}
+
+body[data-ui-version="v2"] .ant-layout-sider[data-sidebar-actions-placement='titlebar'] .gn-v2-connection-rail {
+  display: none;
 }
 
 body[data-ui-version="v2"] .gn-v2-rail-sidebar-toggle-slot {
@@ -2378,6 +2429,12 @@ body[data-ui-version="v2"] .gn-v2-rail-tool:focus-visible {
   outline-offset: 1px;
 }
 
+body[data-ui-version="v2"] .gn-v2-rail-tool.is-active {
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-active));
+  color: var(--gn-accent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 28%, transparent);
+}
+
 body[data-ui-version="v2"] .gn-v2-rail-item.is-active {
   background: var(--gn-bg-active);
   box-shadow: inset 0 0 0 0.5px var(--gn-br-1);
@@ -2492,128 +2549,210 @@ body[data-ui-version="v2"] .gn-v2-rail-create-label {
 
 body[data-ui-version="v2"] .gn-v2-object-explorer {
   min-width: 0;
-  flex: 1 1 calc(100% - calc(38px * var(--gn-v2-rail-scale)));
+  flex: 1 1 0;
   background: var(--gn-bg-panel-2);
   overflow: hidden;
   container-type: inline-size;
   container-name: gn-v2-object-explorer;
 }
 
-body[data-ui-version="v2"] .gn-v2-active-connection-header {
-  padding: 10px 10px 8px 12px;
-  min-height: 52px;
-  border-bottom: 0.5px solid var(--gn-br-1);
+/* Keep the current connection/database/object path visible beside its explorer tools.
+   The copy owns the flexible space; every action remains fixed and reachable. */
+body[data-ui-version="v2"] .gn-v2-explorer-actions {
+  min-width: 0;
+  min-height: calc(46px * var(--gn-v2-explorer-scale));
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: calc(2px * var(--gn-v2-explorer-scale));
+  padding: calc(2px * var(--gn-v2-explorer-scale)) calc(10px * var(--gn-v2-explorer-scale)) calc(4px * var(--gn-v2-explorer-scale));
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: none;
+  background: var(--gn-bg-panel-2);
+  scrollbar-width: none;
 }
 
-body[data-ui-version="v2"] .gn-v2-active-connection-trigger {
-  min-width: 0;
-  flex: 1 1 auto;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
+body[data-ui-version="v2"] .gn-v2-explorer-actions::-webkit-scrollbar {
+  display: none;
 }
 
-body[data-ui-version="v2"] .gn-v2-active-connection-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-copy strong,
-body[data-ui-version="v2"] .gn-v2-active-connection-copy span {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--gn-font-sans);
-  letter-spacing: 0;
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-copy strong {
-  color: var(--gn-fg-1);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-copy span {
-  margin-top: 2px;
-  color: var(--gn-fg-4);
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.2;
-}
-
-/* Empty database selection: guide tone, not error tone */
-body[data-ui-version="v2"] .gn-v2-active-connection-copy span.is-placeholder {
-  color: var(--gn-fg-5);
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-tooltip {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-width: min(320px, calc(100vw - 24px));
-  overflow-wrap: anywhere;
-  font-family: var(--gn-font-sans);
-  letter-spacing: 0;
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-tooltip strong {
-  color: var(--gn-fg-1);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.35;
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-tooltip span {
-  color: var(--gn-fg-3);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-body[data-ui-version="v2"] .gn-v2-active-connection-actions {
+body[data-ui-version="v2"] .gn-v2-explorer-context {
+  min-width: calc(88px * var(--gn-v2-explorer-scale));
+  max-width: 100%;
+  flex: 1 1 calc(128px * var(--gn-v2-explorer-scale));
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: calc(6px * var(--gn-v2-explorer-scale));
+  padding-inline: calc(1px * var(--gn-v2-explorer-scale));
+  overflow: visible;
+  color: var(--gn-fg-3);
+  font-family: var(--gn-font-sans);
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-copy {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  min-height: calc(3.15em + 2px * var(--gn-v2-explorer-scale));
+  flex: 1 1 auto;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: calc(1px * var(--gn-v2-explorer-scale));
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  line-height: 1.05;
+  overflow: hidden;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context[data-sidebar-active-context="false"] .gn-v2-explorer-context-copy {
+  align-items: stretch;
+  text-align: start;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context[data-sidebar-active-context="false"] .gn-v2-explorer-context-line.is-database {
+  order: -1;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context[data-sidebar-active-context="true"][data-sidebar-active-context-depth="connection"] .gn-v2-explorer-context-copy {
+  justify-content: center;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context[data-sidebar-active-context="true"] .gn-v2-explorer-context-line:empty {
+  display: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-line {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 1em;
+  overflow: hidden;
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-line.is-connection {
+  color: var(--gn-fg-2);
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  font-weight: 750;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-line.is-database,
+body[data-ui-version="v2"] .gn-v2-explorer-context-line.is-object {
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  font-weight: 500;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-tooltip-popup {
+  max-width: min(calc(360px * var(--gn-ui-scale, 1)), calc(100vw - 24px));
+  pointer-events: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-tooltip {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: calc(2px * var(--gn-ui-scale, 1));
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px));
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-tooltip-line {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-tooltip-line.is-connection {
+  font-family: var(--gn-font-sans);
+  font-weight: 750;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-context-tooltip-line.is-database,
+body[data-ui-version="v2"] .gn-v2-explorer-context-tooltip-line.is-object {
+  font-family: var(--gn-font-mono);
+  font-weight: 500;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-action-group,
+body[data-ui-version="v2"] .gn-v2-explorer-action-wrap {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
-  opacity: 0.72;
-  transition: opacity 140ms ease;
 }
 
-body[data-ui-version="v2"] .gn-v2-active-connection-header:hover .gn-v2-active-connection-actions,
-body[data-ui-version="v2"] .gn-v2-active-connection-header:focus-within .gn-v2-active-connection-actions {
-  opacity: 1;
+body[data-ui-version="v2"] .gn-v2-explorer-action-group {
+  gap: calc(2px * var(--gn-v2-explorer-scale));
 }
 
-@container gn-v2-object-explorer (max-width: 440px) {
-  body[data-ui-version="v2"] .gn-v2-active-connection-header {
-    padding-right: 8px;
-    padding-left: 10px;
-    gap: 4px;
+body[data-ui-version="v2"] .gn-v2-explorer-tool.ant-btn {
+  width: calc(26px * var(--gn-v2-explorer-scale));
+  min-width: calc(26px * var(--gn-v2-explorer-scale));
+  height: calc(26px * var(--gn-v2-explorer-scale)) !important;
+  flex: 0 0 calc(26px * var(--gn-v2-explorer-scale));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  border: 0;
+  border-radius: calc(7px * var(--gn-v2-explorer-scale));
+  color: var(--gn-fg-3);
+  transition: background-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tool.ant-btn .anticon {
+  font-size: calc(14px * var(--gn-v2-explorer-scale));
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tool.ant-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-hover));
+  color: var(--gn-accent);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tool.ant-btn:focus-visible,
+body[data-ui-version="v2"] .gn-v2-explorer-action-wrap:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 1px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tool.ant-btn.is-active {
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-active));
+  color: var(--gn-accent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 28%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tool.ant-btn:disabled {
+  color: var(--gn-fg-5);
+  opacity: 0.58;
+}
+
+@container gn-v2-object-explorer (max-width: 300px) {
+  body[data-ui-version="v2"] .gn-v2-explorer-actions {
+    justify-content: flex-start;
+    padding-right: calc(8px * var(--gn-v2-explorer-scale));
+    padding-left: calc(8px * var(--gn-v2-explorer-scale));
   }
 
-  body[data-ui-version="v2"] .gn-v2-active-connection-actions {
-    gap: 2px;
+  body[data-ui-version="v2"] .gn-v2-explorer-context {
+    min-width: calc(68px * var(--gn-v2-explorer-scale));
   }
-
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-search {
-  padding: 10px 10px 6px !important;
+  padding: calc(10px * var(--gn-v2-explorer-scale)) calc(10px * var(--gn-v2-explorer-scale)) calc(6px * var(--gn-v2-explorer-scale)) !important;
   border-bottom: none !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-command-row,
 body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row {
   display: flex;
   align-items: center;
@@ -2624,38 +2763,6 @@ body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row {
 body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row .ant-input-affix-wrapper {
   flex: 1 1 auto;
   min-width: 0;
-}
-
-body[data-ui-version="v2"] .gn-v2-explorer-command-trigger {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 0.5px solid var(--gn-br-2);
-  border-radius: 7px;
-  padding: 0 8px;
-  background: var(--gn-bg-panel-2);
-  color: var(--gn-fg-4);
-  cursor: text;
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
-}
-
-body[data-ui-version="v2"] .gn-v2-explorer-command-trigger:hover {
-  border-color: var(--gn-accent);
-  background: var(--gn-bg-hover);
-  color: var(--gn-fg-2);
-}
-
-body[data-ui-version="v2"] .gn-v2-explorer-command-trigger > span:nth-child(2) {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-action {
@@ -2695,7 +2802,7 @@ body[data-ui-version="v2"] .gn-v2-command-backdrop {
 
 body[data-ui-version="v2"] .gn-v2-command-palette {
   width: min(720px, calc(100vw - 32px));
-  max-height: min(760px, calc(100vh - 48px));
+  max-height: min(760px, 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2736,38 +2843,6 @@ body[data-ui-version="v2"] .gn-v2-command-searchbar .ant-input::placeholder {
 body[data-ui-version="v2"] .gn-v2-command-searchbar > .anticon {
   font-size: 18px;
   color: var(--gn-fg-4);
-}
-
-body[data-ui-version="v2"] .gn-v2-command-filter-switch {
-  height: 30px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-body[data-ui-version="v2"] .gn-v2-command-searchbar .ant-switch {
-  flex: 0 0 auto;
-}
-
-body[data-ui-version="v2"] .gn-v2-command-searchbar .ant-btn {
-  width: 30px !important;
-  height: 30px !important;
-  flex: 0 0 30px;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  border-radius: 8px !important;
-  color: var(--gn-fg-4) !important;
-}
-
-body[data-ui-version="v2"] .gn-v2-command-searchbar .ant-btn:hover:not(:disabled) {
-  background: var(--gn-bg-hover) !important;
-  color: var(--gn-fg-2) !important;
-}
-
-body[data-ui-version="v2"] .gn-v2-command-searchbar .ant-btn:disabled {
-  color: var(--gn-fg-5) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-command-searchbar > kbd,
@@ -3002,27 +3077,6 @@ body[data-ui-version="v2"] .gn-v2-explorer-search .ant-input-prefix .anticon {
 
 body[data-ui-version="v2"] .gn-v2-explorer-search .ant-input-suffix {
   margin-inline-start: 8px !important;
-}
-
-body[data-ui-version="v2"] .gn-v2-search-shortcut {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-body[data-ui-version="v2"] .gn-v2-search-shortcut kbd {
-  min-width: 18px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0.5px solid var(--gn-br-2);
-  border-radius: 5px;
-  background: var(--gn-bg-panel-2);
-  color: var(--gn-fg-3);
-  font-family: var(--gn-font-mono);
-  font-size: 11px;
-  font-weight: 700;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs {
@@ -3516,7 +3570,7 @@ body[data-ui-version="v2"] .gn-v2-tree-status.is-loading::before {
   width: 10px;
   height: 10px;
   flex: 0 0 10px;
-  border: 2px solid rgba(37, 99, 235, 0.24);
+  border: 2px solid rgba(37, 99, 235, 0.58);
   border-top-color: #2563eb;
   background: transparent;
   box-shadow: none;
@@ -3784,6 +3838,7 @@ body[data-ui-version="v2"] .gn-v2-empty-hero {
 }
 
 body[data-ui-version="v2"] .gn-v2-empty-hero {
+  --gn-v2-empty-hero-padding-inline-start: 30px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -4041,6 +4096,7 @@ body[data-ui-version="v2"] .gn-v2-empty-resource-empty .ant-btn {
 
 @media (max-width: 1360px) {
   body[data-ui-version="v2"] .gn-v2-empty-hero {
+    --gn-v2-empty-hero-padding-inline-start: 24px;
     padding: 22px 22px 16px 24px;
   }
 
@@ -4073,6 +4129,10 @@ body[data-ui-version="v2"] .gn-v2-empty-resource-empty .ant-btn {
     padding-right: 16px;
   }
 
+  body[data-ui-version="v2"] .gn-v2-empty-hero {
+    --gn-v2-empty-hero-padding-inline-start: 16px;
+  }
+
   body[data-ui-version="v2"] .gn-v2-empty-resource-empty {
     grid-template-columns: 28px minmax(0, 1fr);
   }
@@ -4083,6 +4143,30 @@ body[data-ui-version="v2"] .gn-v2-empty-resource-empty .ant-btn {
   }
 }
 
+/* The docked collapsed toolbar needs a second titlebar band. The empty
+   workbench already has clear space above its heading, so let that one screen
+   reclaim the band instead of shifting every landing-page element downward. */
+body[data-ui-version="v2"]
+  [data-gonavi-close-shortcut-scope="workspace"][data-empty-workbench='true'][data-collapsed-sidebar-actions-docked='true'][data-security-update-banner-visible='false']
+  > .ant-layout {
+  margin-top: calc(-1 * var(--gn-v2-empty-workbench-titlebar-overlap, 0px));
+}
+
+/* Only the eyebrow crosses the docked toolbar row. Keep the headline and all
+   following content on their normal left edge while moving this short label
+   just past the six scaled toolbar actions. */
+body[data-ui-version="v2"]
+  [data-gonavi-close-shortcut-scope="workspace"][data-empty-workbench='true'][data-collapsed-sidebar-actions-docked='true'][data-security-update-banner-visible='false']
+  .gn-v2-empty-eyebrow {
+  padding-left: max(
+    0px,
+    calc(
+      (182px * var(--gn-ui-scale, 1))
+      - var(--gn-v2-empty-hero-padding-inline-start, 30px)
+    )
+  );
+}
+
 /* ─── Full V2 workbench shell: app / topbar / workspace ─ */
 body[data-ui-version="v2"] .gn-v2-app-root {
   background: var(--gn-bg-app) !important;
@@ -4091,80 +4175,60 @@ body[data-ui-version="v2"] .gn-v2-app-root {
 
 body[data-ui-version="v2"] .gn-v2-titlebar {
   position: relative;
-  background: var(--gn-bg-chrome) !important;
-  border-bottom: 0.5px solid var(--gn-br-1) !important;
+  overflow: visible;
+  background: var(--gn-bg-panel-2) !important;
+  border: 0 !important;
   box-shadow: none !important;
 }
 
+/* When the V2 explorer is collapsed on macOS or Windows, reuse the otherwise
+   empty lower titlebar band for the same six scaled actions shown by the
+   expanded explorer toolbar. Keep the Windows window controls out of its way. */
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions {
+  --gn-v2-explorer-scale: var(--gn-ui-scale, 1);
+  position: absolute;
+  left: calc(6px * var(--gn-ui-scale, 1));
+  right: calc(var(--gn-titlebar-window-controls-width, 0px) + 6px);
+  bottom: 1px;
+  z-index: 4;
+  display: flex;
+  min-width: 0;
+  max-width: none;
+  height: calc(26px * var(--gn-v2-explorer-scale));
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(2px * var(--gn-ui-scale, 1));
+  padding: 0 calc(2px * var(--gn-ui-scale, 1));
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Keep the shared focus ring inside the scrolling titlebar host. */
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions .gn-v2-explorer-tool.ant-btn:focus-visible,
+body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions .gn-v2-explorer-action-wrap:focus-visible {
+  outline-offset: -3px;
+}
+
 body[data-ui-version="v2"] .gn-v2-titlebar-brand {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 5px;
-  background: linear-gradient(135deg, var(--gn-accent) 0%, var(--gn-accent-2) 100%);
+  background: var(--gn-accent-strong, var(--gn-accent));
   color: var(--gn-on-accent, #fff);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   font-family: var(--gn-font-mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
-  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.3);
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  line-height: 1.05;
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-copy strong {
-  color: var(--gn-fg-2);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-copy small {
-  max-width: 260px;
-  margin-top: 2px;
-  overflow: hidden;
-  color: var(--gn-fg-4);
-  font-family: var(--gn-font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-center {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  display: inline-flex;
-  max-width: 520px;
-  transform: translate(-50%, -50%);
-  align-items: center;
-  gap: 8px;
-  color: var(--gn-fg-3);
-  font-family: var(--gn-font-mono);
-  font-size: 12px;
-  font-weight: 650;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-center span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-live {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 7px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+  box-shadow: inset 0 0.5px 0 rgba(255,255,255,0.22), 0 1px 2px color-mix(in srgb, var(--gn-accent-strong, var(--gn-accent)) 24%, transparent);
 }
 
 body[data-ui-version="v2"] .gn-v2-app-shell {
@@ -4473,6 +4537,30 @@ body[data-ui-version="v2"] .gn-v2-data-grid-toolbar-frame {
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll {
+  --gn-toolbar-action-fg: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-toolbar-button-fg)));
+  --gn-toolbar-action-bg: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-toolbar-button-bg)));
+  --gn-toolbar-action-border: var(--gn-client-result-toolbar-button-border, var(--gn-result-toolbar-button-border, var(--gn-toolbar-button-border)));
+  --gn-toolbar-action-hover-fg: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-toolbar-button-hover-fg)));
+  --gn-toolbar-action-hover-bg: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, var(--gn-toolbar-button-hover-bg)));
+  --gn-toolbar-action-hover-border: var(--gn-client-result-toolbar-button-hover-border, var(--gn-result-toolbar-button-hover-border, var(--gn-toolbar-button-hover-border)));
+  --gn-toolbar-action-active-fg: var(--gn-client-result-toolbar-button-active-fg, var(--gn-result-toolbar-button-active-fg, var(--gn-toolbar-button-active-fg)));
+  --gn-toolbar-action-active-bg: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, var(--gn-toolbar-button-active-bg)));
+  --gn-toolbar-action-active-border: var(--gn-client-result-toolbar-button-active-border, var(--gn-result-toolbar-button-active-border, var(--gn-toolbar-button-active-border)));
+  --gn-toolbar-action-disabled-fg: var(--gn-client-result-toolbar-button-disabled-fg, var(--gn-result-toolbar-button-disabled-fg, var(--gn-toolbar-button-disabled-fg)));
+  --gn-toolbar-action-disabled-bg: var(--gn-client-result-toolbar-button-disabled-bg, var(--gn-result-toolbar-button-disabled-bg, var(--gn-toolbar-button-disabled-bg)));
+  --gn-toolbar-action-disabled-border: var(--gn-client-result-toolbar-button-disabled-border, var(--gn-result-toolbar-button-disabled-border, var(--gn-toolbar-button-disabled-border)));
+  --gn-toolbar-action-primary-fg: var(--gn-client-result-toolbar-primary-fg, var(--gn-result-toolbar-primary-fg, var(--gn-toolbar-primary-fg)));
+  --gn-toolbar-action-primary-bg: var(--gn-client-result-toolbar-primary-bg, var(--gn-result-toolbar-primary-bg, var(--gn-toolbar-primary-bg)));
+  --gn-toolbar-action-primary-border: var(--gn-client-result-toolbar-primary-border, var(--gn-result-toolbar-primary-border, var(--gn-toolbar-primary-border)));
+  --gn-toolbar-action-primary-hover-fg: var(--gn-client-result-toolbar-primary-hover-fg, var(--gn-result-toolbar-primary-hover-fg, var(--gn-toolbar-primary-hover-fg)));
+  --gn-toolbar-action-primary-hover-bg: var(--gn-client-result-toolbar-primary-hover-bg, var(--gn-result-toolbar-primary-hover-bg, var(--gn-toolbar-primary-hover-bg)));
+  --gn-toolbar-action-primary-hover-border: var(--gn-client-result-toolbar-primary-hover-border, var(--gn-result-toolbar-primary-hover-border, var(--gn-toolbar-primary-hover-border)));
+  --gn-toolbar-action-primary-active-fg: var(--gn-client-result-toolbar-primary-active-fg, var(--gn-result-toolbar-primary-active-fg, var(--gn-toolbar-primary-active-fg)));
+  --gn-toolbar-action-primary-active-bg: var(--gn-client-result-toolbar-primary-active-bg, var(--gn-result-toolbar-primary-active-bg, var(--gn-toolbar-primary-active-bg)));
+  --gn-toolbar-action-primary-active-border: var(--gn-client-result-toolbar-primary-active-border, var(--gn-result-toolbar-primary-active-border, var(--gn-toolbar-primary-active-border)));
+  --gn-toolbar-action-primary-disabled-fg: var(--gn-client-result-toolbar-primary-disabled-fg, var(--gn-result-toolbar-primary-disabled-fg, var(--gn-toolbar-primary-disabled-fg)));
+  --gn-toolbar-action-primary-disabled-bg: var(--gn-client-result-toolbar-primary-disabled-bg, var(--gn-result-toolbar-primary-disabled-bg, var(--gn-toolbar-primary-disabled-bg)));
+  --gn-toolbar-action-primary-disabled-border: var(--gn-client-result-toolbar-primary-disabled-border, var(--gn-result-toolbar-primary-disabled-border, var(--gn-toolbar-primary-disabled-border)));
   min-height: 44px;
   padding: 7px 12px !important;
   gap: 4px !important;
@@ -4482,6 +4570,78 @@ body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll {
 body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn {
   height: 28px !important;
   border-radius: 7px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-toolbar-action-fg) !important;
+  background: var(--gn-toolbar-action-bg) !important;
+  border-color: var(--gn-toolbar-action-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled):hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-toolbar-action-hover-fg) !important;
+  background: var(--gn-toolbar-action-hover-bg) !important;
+  border-color: var(--gn-toolbar-action-hover-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled):active,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not(.gn-v2-ai-insight-button):not(:disabled):not(.ant-btn-disabled)[aria-expanded="true"] {
+  color: var(--gn-toolbar-action-active-fg) !important;
+  background: var(--gn-toolbar-action-active-bg) !important;
+  border-color: var(--gn-toolbar-action-active-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:disabled,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-disabled {
+  color: var(--gn-toolbar-action-disabled-fg) !important;
+  background: var(--gn-toolbar-action-disabled-bg) !important;
+  border-color: var(--gn-toolbar-action-disabled-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-danger))) !important;
+  background: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-toolbar-action-bg))) !important;
+  border-color: var(--gn-client-result-toolbar-button-border, var(--gn-result-toolbar-button-border, var(--gn-toolbar-action-border))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-danger))) !important;
+  background: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, var(--gn-toolbar-action-hover-bg))) !important;
+  border-color: var(--gn-client-result-toolbar-button-hover-border, var(--gn-result-toolbar-button-hover-border, var(--gn-toolbar-action-hover-border))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default.ant-btn-dangerous:not(:disabled):not(.ant-btn-disabled):active {
+  color: var(--gn-client-result-toolbar-button-active-fg, var(--gn-result-toolbar-button-active-fg, var(--gn-danger))) !important;
+  background: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, var(--gn-toolbar-action-active-bg))) !important;
+  border-color: var(--gn-client-result-toolbar-button-active-border, var(--gn-result-toolbar-button-active-border, var(--gn-toolbar-action-active-border))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled) {
+  color: var(--gn-toolbar-action-primary-fg) !important;
+  background: var(--gn-toolbar-action-primary-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled):hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled):focus-visible {
+  color: var(--gn-toolbar-action-primary-hover-fg) !important;
+  background: var(--gn-toolbar-action-primary-hover-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-hover-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.ant-btn-dangerous):not(.gn-v2-commit-button):not(:disabled):not(.ant-btn-disabled):active {
+  color: var(--gn-toolbar-action-primary-active-fg) !important;
+  background: var(--gn-toolbar-action-primary-active-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-active-border) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.gn-v2-commit-button):disabled,
+body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-primary:not(.gn-v2-commit-button).ant-btn-disabled {
+  color: var(--gn-toolbar-action-primary-disabled-fg) !important;
+  background: var(--gn-toolbar-action-primary-disabled-bg) !important;
+  border-color: var(--gn-toolbar-action-primary-disabled-border) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-data-grid-toolbar-action {
@@ -4567,9 +4727,9 @@ body[data-ui-version="v2"] .gn-v2-toolbar-kbd {
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button {
-  border-color: var(--gn-accent-2) !important;
-  background: var(--gn-accent) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  border-color: var(--gn-client-result-toolbar-primary-border, var(--gn-result-toolbar-primary-border, var(--gn-accent-2))) !important;
+  background: var(--gn-client-result-toolbar-primary-bg, var(--gn-result-toolbar-primary-bg, var(--gn-accent))) !important;
+  color: var(--gn-client-result-toolbar-primary-fg, var(--gn-result-toolbar-primary-fg, var(--gn-on-accent, #fff))) !important;
   font-weight: 750 !important;
 }
 
@@ -4582,24 +4742,25 @@ body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button {
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:hover,
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:focus,
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:focus-visible {
-  border-color: var(--gn-accent-hover, var(--gn-accent-2)) !important;
-  background: var(--gn-accent-hover, var(--gn-accent-2)) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  border-color: var(--gn-client-result-toolbar-primary-hover-border, var(--gn-result-toolbar-primary-hover-border, var(--gn-accent-hover, var(--gn-accent-2)))) !important;
+  background: var(--gn-client-result-toolbar-primary-hover-bg, var(--gn-result-toolbar-primary-hover-bg, var(--gn-accent-hover, var(--gn-accent-2)))) !important;
+  color: var(--gn-client-result-toolbar-primary-hover-fg, var(--gn-result-toolbar-primary-hover-fg, var(--gn-on-accent, #fff))) !important;
   box-shadow: var(--gn-shadow-sm), inset 0 0.5px 0 rgba(255, 255, 255, 0.15) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:active {
-  border-color: var(--gn-accent-active, var(--gn-accent-2)) !important;
-  background: var(--gn-accent-active, var(--gn-accent-2)) !important;
-  color: var(--gn-on-accent, #fff) !important;
+  border-color: var(--gn-client-result-toolbar-primary-active-border, var(--gn-result-toolbar-primary-active-border, var(--gn-accent-active, var(--gn-accent-2)))) !important;
+  background: var(--gn-client-result-toolbar-primary-active-bg, var(--gn-result-toolbar-primary-active-bg, var(--gn-accent-active, var(--gn-accent-2)))) !important;
+  color: var(--gn-client-result-toolbar-primary-active-fg, var(--gn-result-toolbar-primary-active-fg, var(--gn-on-accent, #fff))) !important;
   box-shadow: none !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled {
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button.ant-btn-disabled {
   opacity: 1;
-  border-color: var(--gn-br-2) !important;
-  background: var(--gn-bg-active) !important;
-  color: var(--gn-fg-5) !important;
+  border-color: var(--gn-client-result-toolbar-primary-disabled-border, var(--gn-result-toolbar-primary-disabled-border, var(--gn-br-2))) !important;
+  background: var(--gn-client-result-toolbar-primary-disabled-bg, var(--gn-result-toolbar-primary-disabled-bg, var(--gn-bg-active))) !important;
+  color: var(--gn-client-result-toolbar-primary-disabled-fg, var(--gn-result-toolbar-primary-disabled-fg, var(--gn-fg-5))) !important;
   box-shadow: none !important;
 }
 
@@ -4621,14 +4782,23 @@ body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:active .gn-v2-t
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button {
-  border-color: transparent !important;
-  background: var(--gn-info-soft) !important;
-  color: var(--gn-info) !important;
+  border-color: var(--gn-client-result-toolbar-button-border, var(--gn-result-toolbar-button-border, transparent)) !important;
+  background: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-info-soft))) !important;
+  color: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-info))) !important;
   font-weight: 750 !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:hover {
-  filter: brightness(0.96);
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:focus-visible {
+  border-color: var(--gn-client-result-toolbar-button-hover-border, var(--gn-result-toolbar-button-hover-border, transparent)) !important;
+  background: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, color-mix(in srgb, var(--gn-info-soft) 96%, var(--gn-info) 4%))) !important;
+  color: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-info))) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button:active {
+  border-color: var(--gn-client-result-toolbar-button-active-border, var(--gn-result-toolbar-button-active-border, transparent)) !important;
+  background: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, color-mix(in srgb, var(--gn-info-soft) 90%, var(--gn-info) 10%))) !important;
+  color: var(--gn-client-result-toolbar-button-active-fg, var(--gn-result-toolbar-button-active-fg, var(--gn-info))) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button .gn-v2-toolbar-kbd {
@@ -4638,15 +4808,23 @@ body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button .gn-v2-tool
 }
 
 body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide {
-  border-color: var(--gn-br-1) !important;
-  background: var(--gn-bg-panel) !important;
-  color: var(--gn-fg-2) !important;
+  border-color: var(--gn-toolbar-action-border) !important;
+  background: var(--gn-toolbar-action-bg) !important;
+  color: var(--gn-toolbar-action-fg) !important;
   font-weight: 650 !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:hover {
-  background: var(--gn-bg-hover) !important;
-  color: var(--gn-fg-1) !important;
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:hover,
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:focus-visible {
+  border-color: var(--gn-toolbar-action-hover-border) !important;
+  background: var(--gn-toolbar-action-hover-bg) !important;
+  color: var(--gn-toolbar-action-hover-fg) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-query-result-toolbar-hide:active {
+  border-color: var(--gn-toolbar-action-active-border) !important;
+  background: var(--gn-toolbar-action-active-bg) !important;
+  color: var(--gn-toolbar-action-active-fg) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-smart-filter-panel {

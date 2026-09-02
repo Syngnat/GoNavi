@@ -66,15 +66,36 @@ describe('sidebarLocate', () => {
 
     expect(resolveSidebarLocateTarget(request!, { groupBySchema: true })).toMatchObject({
       targetKey: 'conn-1-main-view-public.orders_view',
-      schemaKey: 'conn-1-main-schema-public',
-      objectGroupKey: 'conn-1-main-schema-public-views',
+      schemaKey: 'conn-1-main-schema-6%3Apublic',
+      objectGroupKey: 'conn-1-main-schema-6%3Apublic-views',
       expectedAncestorKeys: [
         'conn-1',
         'conn-1-main',
-        'conn-1-main-schema-public',
-        'conn-1-main-schema-public-views',
+        'conn-1-main-schema-6%3Apublic',
+        'conn-1-main-schema-6%3Apublic-views',
       ],
     });
+  });
+
+  it('keeps an empty schema key distinct from a schema literally named default', () => {
+    const emptySchemaTarget = resolveSidebarLocateTarget({
+      connectionId: 'conn-1',
+      dbName: 'main',
+      tableName: 'orders',
+      schemaName: '',
+      objectGroup: 'tables',
+    }, { groupBySchema: true });
+    const namedDefaultSchemaTarget = resolveSidebarLocateTarget({
+      connectionId: 'conn-1',
+      dbName: 'main',
+      tableName: 'default.orders',
+      schemaName: 'default',
+      objectGroup: 'tables',
+    }, { groupBySchema: true });
+
+    expect(emptySchemaTarget.schemaKey).toBe('conn-1-main-schema-0%3A');
+    expect(namedDefaultSchemaTarget.schemaKey).toBe('conn-1-main-schema-7%3Adefault');
+    expect(emptySchemaTarget.schemaKey).not.toBe(namedDefaultSchemaTarget.schemaKey);
   });
 
   it('builds a locate request from the active table tab', () => {
@@ -113,6 +134,178 @@ describe('sidebarLocate', () => {
       connectionId: 'conn-1',
       dbName: 'main',
     })).toBeNull();
+  });
+
+  it('builds locate requests from object-edit SQL editor tabs', () => {
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-routine-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'example',
+      routineName: 'main.func_name',
+      schemaName: 'main',
+      sidebarLocateKey: 'conn-1-example-routine-func-main.func_name',
+    })).toMatchObject({
+      tabId: 'conn-1-example-routine-func-main.func_name',
+      tableName: 'main.func_name',
+      schemaName: 'main',
+      objectGroup: 'routines',
+    });
+
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-view-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      viewName: 'public.orders_view',
+    })).toMatchObject({
+      tableName: 'public.orders_view',
+      schemaName: 'public',
+      objectGroup: 'views',
+    });
+
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-trigger-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      triggerName: 'audit.users_bi',
+    })).toMatchObject({
+      objectGroup: 'triggers',
+      tableName: 'audit.users_bi',
+    });
+
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-event-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      eventName: 'nightly_cleanup',
+      schemaName: 'main',
+    })).toMatchObject({
+      objectGroup: 'events',
+      tableName: 'nightly_cleanup',
+      schemaName: 'main',
+    });
+
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'event-def-conn-1-main-nightly_cleanup',
+      type: 'event-def',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      eventName: 'nightly_cleanup',
+    })).toMatchObject({
+      objectGroup: 'events',
+      tableName: 'nightly_cleanup',
+    });
+
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-1',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'main',
+    })).toBeNull();
+  });
+
+  it('builds saved-query locate requests from plain query tabs', () => {
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-saved-1',
+      title: '123456',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'missav_bot',
+      savedQueryId: 'sq-123',
+    })).toMatchObject({
+      connectionId: 'conn-1',
+      dbName: 'missav_bot',
+      savedQueryId: 'sq-123',
+      savedQueryName: '123456',
+      objectGroup: 'savedQueries',
+    });
+
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-2',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'main',
+    })).toBeNull();
+  });
+
+  it('prefers object-edit identity over the saved query binding', () => {
+    expect(normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-routine-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'example',
+      routineName: 'main.func_name',
+      savedQueryId: 'sq-123',
+    })).toMatchObject({
+      objectGroup: 'routines',
+      tableName: 'main.func_name',
+    });
+  });
+
+  it('locates a saved query node under the all-saved-queries root', () => {
+    const request = normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-saved-1',
+      title: '123456',
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'missav_bot',
+      savedQueryId: 'sq-123',
+    });
+    expect(request).not.toBeNull();
+
+    const target = resolveSidebarLocateTarget(request!, { groupBySchema: false });
+    expect(target).toMatchObject({
+      targetKey: 'all-saved-query-sq-123',
+      objectGroupKey: 'all-saved-queries',
+      expectedAncestorKeys: ['all-saved-queries'],
+    });
+
+    const tree = [
+      {
+        key: 'all-saved-queries',
+        type: 'all-saved-queries',
+        children: [
+          {
+            key: 'all-saved-queries-connection-conn-1',
+            type: 'saved-query-group',
+            children: [
+              {
+                key: 'all-saved-queries-connection-conn-1-db-missav_bot',
+                type: 'saved-query-group',
+                children: [
+                  {
+                    key: 'all-saved-query-sq-123',
+                    type: 'saved-query',
+                    dataRef: { id: 'sq-123', name: '123456', connectionId: 'conn-1', dbName: 'missav_bot' },
+                  },
+                  {
+                    key: 'all-saved-query-sq-456',
+                    type: 'saved-query',
+                    dataRef: { id: 'sq-456', name: '其他查询', connectionId: 'conn-1', dbName: 'missav_bot' },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    expect(findSidebarNodePathForLocate(tree, target)).toEqual([
+      'all-saved-queries',
+      'all-saved-queries-connection-conn-1',
+      'all-saved-queries-connection-conn-1-db-missav_bot',
+      'all-saved-query-sq-123',
+    ]);
   });
 
   it('keeps table-style view tabs on the views branch', () => {
@@ -197,7 +390,7 @@ describe('sidebarLocate', () => {
 
     expect(resolveSidebarLocateTarget(request!, { groupBySchema: true })).toMatchObject({
       targetKey: 'view-def-conn-1-main-sales.mv_daily',
-      objectGroupKey: 'conn-1-main-schema-sales-materializedViews',
+      objectGroupKey: 'conn-1-main-schema-5%3Asales-materializedViews',
     });
   });
 
@@ -340,6 +533,108 @@ describe('sidebarLocate', () => {
       'conn-1-main-schema-reporting',
       'conn-1-main-schema-reporting-routines',
       'conn-1-main-routine-reporting.refresh_stats',
+    ]);
+  });
+
+  it('locates a DuckDB macro from an object-edit SQL editor tab', () => {
+    const request = normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-routine-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'example',
+      routineName: 'main.func_name',
+      schemaName: 'main',
+      sidebarLocateKey: 'conn-1-example-routine-func-main.func_name',
+    });
+    expect(request).not.toBeNull();
+
+    const target = resolveSidebarLocateTarget(request!, { groupBySchema: false });
+    const tree = [
+      {
+        key: 'conn-1',
+        children: [
+          {
+            key: 'conn-1-example',
+            dataRef: { id: 'conn-1', dbName: 'example' },
+            children: [
+              {
+                key: 'conn-1-example-routines',
+                children: [
+                  {
+                    key: 'conn-1-example-routine-func-main.func_name',
+                    type: 'routine',
+                    dataRef: {
+                      id: 'conn-1',
+                      dbName: 'example',
+                      routineName: 'main.func_name',
+                      routineType: 'FUNCTION',
+                      schemaName: 'main',
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    expect(findSidebarNodePathForLocate(tree, target)).toEqual([
+      'conn-1',
+      'conn-1-example',
+      'conn-1-example-routines',
+      'conn-1-example-routine-func-main.func_name',
+    ]);
+  });
+
+  it('locates a MySQL event from an object-edit SQL editor tab', () => {
+    const request = normalizeSidebarLocateObjectRequestFromTab({
+      id: 'query-edit-event-123',
+      type: 'query',
+      queryMode: 'object-edit',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      eventName: 'nightly_cleanup',
+      schemaName: 'main',
+    });
+    expect(request).not.toBeNull();
+
+    const target = resolveSidebarLocateTarget(request!, { groupBySchema: false });
+    const tree = [
+      {
+        key: 'conn-1',
+        children: [
+          {
+            key: 'conn-1-main',
+            dataRef: { id: 'conn-1', dbName: 'main' },
+            children: [
+              {
+                key: 'conn-1-main-events',
+                children: [
+                  {
+                    key: 'conn-1-main-event-main-nightly_cleanup',
+                    type: 'db-event',
+                    dataRef: {
+                      id: 'conn-1',
+                      dbName: 'main',
+                      eventName: 'nightly_cleanup',
+                      schemaName: 'main',
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    expect(findSidebarNodePathForLocate(tree, target)).toEqual([
+      'conn-1',
+      'conn-1-main',
+      'conn-1-main-events',
+      'conn-1-main-event-main-nightly_cleanup',
     ]);
   });
 
@@ -764,6 +1059,50 @@ describe('sidebarLocate', () => {
       'conn-1-SYSDBA',
       'conn-1-SYSDBA-tables',
       'conn-1-SYSDBA-table-V_ACCOUNT',
+    ]);
+  });
+
+  it('decodes schema-aware table keys during visual locate fallback', () => {
+    const schemaAwareIdentity = `reporting${String.fromCharCode(0)}orders`;
+    const nodeKey = `conn-1-main-table-${encodeURIComponent(schemaAwareIdentity)}`;
+    const target = resolveSidebarLocateTarget({
+      tabId: 'stale-table-tab-id',
+      connectionId: 'conn-1',
+      dbName: 'main',
+      tableName: 'reporting.orders',
+      schemaName: 'reporting',
+      objectGroup: 'tables',
+    }, { groupBySchema: false });
+
+    const tree = [
+      {
+        key: 'conn-1',
+        children: [
+          {
+            key: 'conn-1-main',
+            dataRef: { id: 'conn-1', dbName: 'main' },
+            children: [
+              {
+                key: 'conn-1-main-tables',
+                children: [
+                  {
+                    key: nodeKey,
+                    type: 'table',
+                    dataRef: {},
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    expect(findSidebarNodePathForLocate(tree, target)).toEqual([
+      'conn-1',
+      'conn-1-main',
+      'conn-1-main-tables',
+      nodeKey,
     ]);
   });
 

@@ -237,6 +237,17 @@ export const reconcileApplicationQuitSavedSQLTargets = (
   });
 };
 
+export const assertApplicationQuitSavedSQLTargetsUnchanged = (
+  savedTargets: ApplicationQuitSavedSQLTarget[],
+): void => {
+  const changedWhileSaving = savedTargets.find(({ target }) => (
+    getQueryTabDraft(target.tabId, target.draft) !== target.draft
+  ));
+  if (changedWhileSaving) {
+    throw new Error(`SQL changed while saving: ${changedWhileSaving.target.title}`);
+  }
+};
+
 export const saveLatestApplicationQuitUnsavedSQLState = async ({
   getState,
   updateTabs,
@@ -256,12 +267,7 @@ export const saveLatestApplicationQuitUnsavedSQLState = async ({
     writeSQLFile,
   );
 
-  const changedWhileSaving = savedTargets.find(({ target }) => (
-    getQueryTabDraft(target.tabId, target.draft) !== target.draft
-  ));
-  if (changedWhileSaving) {
-    throw new Error(`SQL changed while saving: ${changedWhileSaving.target.title}`);
-  }
+  assertApplicationQuitSavedSQLTargetsUnchanged(savedTargets);
 
   updateTabs((tabs) => reconcileApplicationQuitSavedSQLTargets(tabs, savedTargets));
   savedTargets.forEach(({ target }) => clearQueryTabDraft(target.tabId));

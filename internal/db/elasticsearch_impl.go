@@ -43,6 +43,8 @@ type ElasticsearchDB struct {
 	forwarder        *ssh.LocalForwarder
 }
 
+var _ BatchApplierContext = (*ElasticsearchDB)(nil)
+
 func (e *ElasticsearchDB) ElasticsearchConsoleTransportUsable() bool {
 	return e.consoleClient != nil
 }
@@ -222,9 +224,13 @@ func (e *ElasticsearchDB) Connect(config connection.ConnectionConfig) (err error
 
 		e.client = client
 		e.consoleClient = consoleClient
+		verificationStartedAt := time.Now()
 		if err := e.Ping(); err != nil {
 			e.client = nil
 			e.consoleClient = nil
+			if e.forwarder != nil {
+				err = wrapDatabaseConnectionVerifyErrorWithForwarder(err, e.forwarder, verificationStartedAt)
+			}
 			logger.Warnf("Elasticsearch 连接验证失败：%d/%d 模式=%s 错误=%v", idx+1, len(attempts), sslLabel, err)
 			lastErr = err
 			continue
@@ -939,11 +945,15 @@ func (e *ElasticsearchDB) esBulkActionMeta(action, indexName string, docID strin
 // resolveWriteIndex 解析别名 metadata 中唯一标记为 is_write_index 的索引。
 // 直接索引名通过 GetAlias 的 404 判定；别名缺失或冲突时拒绝写入。
 func (e *ElasticsearchDB) resolveWriteIndex(indexOrAlias string) (string, error) {
+	return e.resolveWriteIndexContext(context.Background(), indexOrAlias)
+}
+
+func (e *ElasticsearchDB) resolveWriteIndexContext(ctx context.Context, indexOrAlias string) (string, error) {
 	indexOrAlias = strings.TrimSpace(indexOrAlias)
 	if indexOrAlias == "" {
 		return "", fmt.Errorf("未指定索引或别名")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	res, err := e.client.Indices.GetAlias(
@@ -1008,6 +1018,10 @@ func isESMetaField(name string) bool {
 
 // ApplyChanges 实现 BatchApplier 接口，通过 ES _bulk API 批量提交增删改。
 func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return e.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (e *ElasticsearchDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
 	if e.client == nil {
 		return localizedDatabaseRuntimeError("db.backend.error.connection_not_open", nil)
 	}
@@ -1020,20 +1034,9 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 	var bulkBody bytes.Buffer
 
 	// 如果目标是别名（非直接索引），解析出实际的可写索引名。
-	writeIndexName, err := e.resolveWriteIndex(indexName)
+	writeIndexName, err := e.resolveWriteIndexContext(ctx, indexName)
 	if err != nil {
 		return fmt.Errorf("解析写入索引失败：%w", err)
-	}
-
-	// resolveWriteIndex 确定写操作的目标索引。
-	// 如果文档数据中包含 _index（来自查询结果），使用实际索引名而非别名。
-	resolveWriteIndex := func(vals map[string]interface{}) string {
-		if idx, ok := vals["_index"]; ok {
-			if idxStr := strings.TrimSpace(fmt.Sprintf("%v", idx)); idxStr != "" {
-				return idxStr
-			}
-		}
-		return writeIndexName
 	}
 
 	// 删除操作
@@ -1042,8 +1045,7 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 		if !ok {
 			return fmt.Errorf("删除操作缺少 _id")
 		}
-		writeIdx := resolveWriteIndex(pk)
-		actionJSON, _ := json.Marshal(e.esBulkActionMeta("delete", writeIdx, fmt.Sprintf("%v", idVal)))
+		actionJSON, _ := json.Marshal(e.esBulkActionMeta("delete", writeIndexName, fmt.Sprintf("%v", idVal)))
 		bulkBody.Write(actionJSON)
 		bulkBody.WriteByte('\n')
 	}
@@ -1054,8 +1056,7 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 		if !ok {
 			return fmt.Errorf("更新操作缺少 _id")
 		}
-		writeIdx := resolveWriteIndex(update.Values)
-		actionJSON, _ := json.Marshal(e.esBulkActionMeta("update", writeIdx, fmt.Sprintf("%v", idVal)))
+		actionJSON, _ := json.Marshal(e.esBulkActionMeta("update", writeIndexName, fmt.Sprintf("%v", idVal)))
 		bulkBody.Write(actionJSON)
 		bulkBody.WriteByte('\n')
 
@@ -1087,8 +1088,7 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 			}
 		}
 
-		writeIdx := resolveWriteIndex(insert)
-		actionJSON, _ := json.Marshal(e.esBulkActionMeta("index", writeIdx, docID))
+		actionJSON, _ := json.Marshal(e.esBulkActionMeta("index", writeIndexName, docID))
 		bulkBody.Write(actionJSON)
 		bulkBody.WriteByte('\n')
 		docJSON, _ := json.Marshal(doc)
@@ -1100,7 +1100,7 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	res, err := e.client.Bulk(
@@ -1123,28 +1123,29 @@ func (e *ElasticsearchDB) ApplyChanges(tableName string, changes connection.Chan
 
 	// 检查是否有单条操作失败
 	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err == nil {
-		if hasErrors, ok := result["errors"].(bool); ok && hasErrors {
-			if items, ok := result["items"].([]interface{}); ok {
-				for _, item := range items {
-					itemMap, ok := item.(map[string]interface{})
+	if err := json.Unmarshal(body, &result); err != nil {
+		return MarkWriteOutcomeUnknown(fmt.Errorf("解析 ES 批量操作响应失败，写入状态未知：%w", err))
+	}
+	if hasErrors, ok := result["errors"].(bool); ok && hasErrors {
+		if items, ok := result["items"].([]interface{}); ok {
+			for _, item := range items {
+				itemMap, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				for _, op := range itemMap {
+					opMap, ok := op.(map[string]interface{})
 					if !ok {
 						continue
 					}
-					for _, op := range itemMap {
-						opMap, ok := op.(map[string]interface{})
-						if !ok {
-							continue
-						}
-						if errMap, ok := opMap["error"].(map[string]interface{}); ok {
-							reason, _ := errMap["reason"].(string)
-							return fmt.Errorf("ES 批量操作部分失败：%s", reason)
-						}
+					if errMap, ok := opMap["error"].(map[string]interface{}); ok {
+						reason, _ := errMap["reason"].(string)
+						return fmt.Errorf("ES 批量操作部分失败：%s", reason)
 					}
 				}
 			}
-			return fmt.Errorf("ES 批量操作部分失败")
 		}
+		return fmt.Errorf("ES 批量操作部分失败")
 	}
 
 	logger.Infof("ES 批量操作完成：索引=%s 删除=%d 更新=%d 新增=%d",

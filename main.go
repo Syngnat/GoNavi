@@ -133,6 +133,14 @@ func main() {
 	// Create an instance of the app structure
 	application := app.NewApp()
 	aiService := aiservice.NewServiceWithConfigChangeHandler(app.NewCloudBackupChangeHandler(application))
+	agentTools, agentToolsErr := newDesktopAgentToolCatalog(application, aiService)
+	if agentToolsErr != nil {
+		logger.Warnf("初始化 AI Agent 工具目录失败：%v", agentToolsErr)
+	} else if err := aiservice.ConfigureAgentHarnessDependencies(aiService, aiservice.AgentHarnessDependencies{
+		Tools: agentTools,
+	}); err != nil {
+		logger.Warnf("配置 AI Agent Run Harness 依赖失败：%v", err)
+	}
 	nativeWindowManager, nativeWindowErr := nativewindow.NewManager(assets, application, aiService)
 	if nativeWindowErr != nil {
 		logger.Warnf("初始化原生独立窗口管理器失败：%v", nativeWindowErr)
@@ -199,7 +207,7 @@ func main() {
 		},
 		OnShutdown: func(ctx context.Context) {
 			nativewindow.ShutdownLifecycle(nativeWindowManager)
-			aiService.Shutdown()
+			aiservice.ShutdownWithContext(aiService, ctx)
 			application.Shutdown()
 		},
 		OnBeforeClose: app.NewBeforeCloseHandler(application),
@@ -215,6 +223,21 @@ func main() {
 	if err != nil {
 		logger.Error(err, "应用启动失败")
 	}
+}
+
+// newDesktopAgentToolCatalog keeps the Wails adapter on the same complete Go
+// tool catalog as the CLI: database/MCP tools plus snapshot-bound workspace
+// inspection. The catalog itself owns no desktop lifecycle; AppBackend merely
+// borrows the already-created application instance.
+func newDesktopAgentToolCatalog(application *app.App, aiService *aiservice.Service) (*mcpserver.CompositeToolCatalog, error) {
+	backend, err := mcpserver.NewAppBackendFromApp(application)
+	if err != nil {
+		return nil, err
+	}
+	return mcpserver.NewCompositeToolCatalog(
+		mcpserver.NewAgentToolCatalogWithDynamicSource(backend, mcpserver.NewServiceMCPSource(aiService)),
+		mcpserver.NewWorkspaceSnapshotToolCatalog(),
+	), nil
 }
 
 func buildMacApplicationMenu(onNativeSelectCurrentLine func(), frameless bool) *menu.Menu {

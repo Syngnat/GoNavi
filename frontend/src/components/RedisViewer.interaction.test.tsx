@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RedisViewer from './RedisViewer';
 
 const appCss = readFileSync(new URL('../App.css', import.meta.url), 'utf8');
+const v2WorkbenchCss = readFileSync(new URL('../styles/v2-theme-workbench.css', import.meta.url), 'utf8');
 
 const storeState = vi.hoisted(() => ({
   connections: [
@@ -82,6 +83,9 @@ vi.mock('@ant-design/icons', async () => {
     CopyOutlined: Icon,
     FolderOpenOutlined: Icon,
     KeyOutlined: Icon,
+    PartitionOutlined: Icon,
+    UnorderedListOutlined: Icon,
+    TagsOutlined: Icon,
     RightOutlined: Icon,
     DownOutlined: Icon,
   };
@@ -203,6 +207,24 @@ const findFirstLeafNode = (nodes: any[]): any | null => {
   return null;
 };
 
+const findLeafNodeByRawKey = (nodes: any[], rawKey: string): any | null => {
+  for (const node of nodes) {
+    if (!node || typeof node !== 'object') {
+      continue;
+    }
+    if (node.nodeType === 'leaf' && node.rawKey === rawKey) {
+      return node;
+    }
+    if (Array.isArray(node.children)) {
+      const nested = findLeafNodeByRawKey(node.children, rawKey);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return null;
+};
+
 describe('RedisViewer tree interactions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -276,6 +298,220 @@ describe('RedisViewer tree interactions', () => {
       },
     });
     vi.stubGlobal('ResizeObserver', undefined);
+  });
+
+  it('requests regular key pages in batches of one hundred', async () => {
+    redisBackend.RedisScanKeys.mockReset();
+    redisBackend.RedisScanKeys
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          cursor: '27',
+          keys: [{ key: 'app:user:1', type: 'string', ttl: -1 }],
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          cursor: '0',
+          keys: [{ key: 'app:user:2', type: 'string', ttl: -1 }],
+        },
+      });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    expect(redisBackend.RedisScanKeys.mock.calls[0]?.slice(1)).toEqual(['*', '0', 100]);
+
+    const loadMoreButton = findButtonByText(renderer!, 'Load more');
+    expect(loadMoreButton).toBeTruthy();
+    await act(async () => {
+      loadMoreButton!.props.onClick?.();
+    });
+    await flushEffects();
+
+    expect(redisBackend.RedisScanKeys.mock.calls[1]?.slice(1)).toEqual(['*', '27', 100]);
+    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(2);
+
+    renderer!.unmount();
+  });
+
+  it('uses native scrolling for a small Key page and virtualizes larger loaded sets', async () => {
+    redisBackend.RedisScanKeys.mockResolvedValue({
+      success: true,
+      data: {
+        cursor: '0',
+        keys: createRedisKeyBatch(0, 101),
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    expect(antdState.treeProps.virtual).toBe(false);
+    renderer!.unmount();
+
+    redisBackend.RedisScanKeys.mockResolvedValue({
+      success: true,
+      data: {
+        cursor: '0',
+        keys: createRedisKeyBatch(0, 500),
+      },
+    });
+
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    expect(antdState.treeProps.virtual).toBe(false);
+    renderer!.unmount();
+
+    redisBackend.RedisScanKeys.mockResolvedValue({
+      success: true,
+      data: {
+        cursor: '0',
+        keys: createRedisKeyBatch(0, 501),
+      },
+    });
+
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    expect(antdState.treeProps.virtual).toBe(true);
+    const largeSetScanCount = redisBackend.RedisScanKeys.mock.calls.length;
+    for (const mode of ['list', 'type'] as const) {
+      await act(async () => {
+        renderer!.root.findByProps({ 'data-redis-key-view-mode': mode }).props.onClick?.();
+      });
+      await flushEffects();
+      expect(antdState.treeProps.virtual).toBe(true);
+      expect(redisBackend.RedisScanKeys).toHaveBeenCalledTimes(largeSetScanCount);
+    }
+    renderer!.unmount();
+  });
+
+  it('switches between tree, list, and type Key views without rescanning', async () => {
+    redisBackend.RedisScanKeys.mockResolvedValue({
+      success: true,
+      data: {
+        cursor: '0',
+        keys: [
+          { key: 'app:user:1', type: 'string', ttl: -1 },
+          { key: 'app:user:2', type: 'string', ttl: 120 },
+          { key: 'app:order:1', type: 'hash', ttl: -1 },
+          { key: 'misc', type: 'set', ttl: -1 },
+        ],
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    let typeGroupTitleRenderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    const initialScanCount = redisBackend.RedisScanKeys.mock.calls.length;
+    const treeButton = renderer!.root.findByProps({ 'data-redis-key-view-mode': 'tree' });
+    const listButton = renderer!.root.findByProps({ 'data-redis-key-view-mode': 'list' });
+    const typeButton = renderer!.root.findByProps({ 'data-redis-key-view-mode': 'type' });
+    expect(treeButton.props['aria-pressed']).toBe(true);
+    expect(treeButton.props['aria-label']).toBe('Tree view');
+    expect(listButton.props['aria-label']).toBe('List view');
+    expect(typeButton.props['aria-label']).toBe('Group by type');
+    expect(antdState.treeProps.virtual).toBe(false);
+
+    const appGroup = antdState.treeProps.treeData.find((node: any) => node.key === 'group:app');
+    const appGroupTitle = antdState.treeProps.titleRender(appGroup);
+    await act(async () => {
+      appGroupTitle.props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn() });
+    });
+    expect(antdState.treeProps.expandedKeys).toContain('group:app');
+
+    const selectedLeaf = findLeafNodeByRawKey(antdState.treeProps.treeData, 'app:user:1');
+    const checkedLeaf = findLeafNodeByRawKey(antdState.treeProps.treeData, 'app:order:1');
+    await act(async () => {
+      antdState.treeProps.onSelect?.([selectedLeaf.key]);
+      antdState.treeProps.onCheck?.(
+        { checked: [checkedLeaf.key], halfChecked: [] },
+        { checked: true, node: checkedLeaf },
+      );
+    });
+    await flushEffects();
+
+    await act(async () => {
+      listButton.props.onClick?.();
+    });
+    await flushEffects();
+
+    expect(redisBackend.RedisScanKeys).toHaveBeenCalledTimes(initialScanCount);
+    expect(antdState.treeProps.virtual).toBe(false);
+    expect(antdState.treeProps.treeData.every((node: any) => node.nodeType === 'leaf')).toBe(true);
+    expect(antdState.treeProps.treeData.map((node: any) => node.leafLabel)).toEqual([
+      'app:order:1',
+      'app:user:1',
+      'app:user:2',
+      'misc',
+    ]);
+    expect(antdState.treeProps.selectedKeys).toEqual(['key:app:user:1']);
+    expect(antdState.treeProps.checkedKeys.checked).toContain('key:app:order:1');
+    expect(renderer!.root.findByProps({ 'data-redis-key-view-mode': 'list' }).props['aria-pressed']).toBe(true);
+
+    await act(async () => {
+      typeButton.props.onClick?.();
+    });
+    await flushEffects();
+
+    expect(redisBackend.RedisScanKeys).toHaveBeenCalledTimes(initialScanCount);
+    expect(antdState.treeProps.virtual).toBe(false);
+    expect(antdState.treeProps.treeData.map((node: any) => node.key)).toEqual([
+      'type-group:string',
+      'type-group:hash',
+      'type-group:set',
+    ]);
+    expect(antdState.treeProps.treeData.map((node: any) => node.groupLeafCount)).toEqual([2, 1, 1]);
+    expect(antdState.treeProps.selectedKeys).toEqual(['key:app:user:1']);
+    expect(antdState.treeProps.checkedKeys.checked).toEqual(expect.arrayContaining([
+      'key:app:order:1',
+      'type-group:hash',
+    ]));
+
+    const stringTypeGroup = antdState.treeProps.treeData[0];
+    await act(async () => {
+      typeGroupTitleRenderer = create(antdState.treeProps.titleRender(stringTypeGroup));
+    });
+    expect(typeGroupTitleRenderer!.root.findAllByProps({ 'aria-label': 'Filter by namespace' })).toHaveLength(0);
+    const typeGroupEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    await act(async () => {
+      typeGroupTitleRenderer!.root.findByProps({ role: 'button' }).props.onClick(typeGroupEvent);
+    });
+    expect(antdState.treeProps.expandedKeys).toContain('type-group:string');
+
+    await act(async () => {
+      renderer!.root.findByProps({ 'data-redis-key-view-mode': 'tree' }).props.onClick?.();
+    });
+    await flushEffects();
+    expect(antdState.treeProps.expandedKeys).toContain('group:app');
+    expect(antdState.treeProps.virtual).toBe(false);
+
+    await act(async () => {
+      renderer!.root.findByProps({ 'data-redis-key-view-mode': 'type' }).props.onClick?.();
+    });
+    await flushEffects();
+    expect(antdState.treeProps.expandedKeys).toContain('type-group:string');
+    expect(antdState.treeProps.virtual).toBe(false);
+
+    typeGroupTitleRenderer!.unmount();
+    renderer!.unmount();
   });
 
   it('toggles namespace expansion from row clicks without checking the group', async () => {
@@ -357,7 +593,7 @@ describe('RedisViewer tree interactions', () => {
       expect.any(Object),
       '[aA][pP][pP]:[uU][sS][eE][rR]*',
       '0',
-      600,
+      100,
     );
 
     groupTitleRenderer!.unmount();
@@ -391,6 +627,12 @@ describe('RedisViewer tree interactions', () => {
     expect(renderedText).toContain('db2');
     expect(renderedText).toContain('Cluster');
     expect(renderedText).toContain('3 nodes');
+    expect(redisBackend.RedisScanKeys).toHaveBeenLastCalledWith(
+      expect.any(Object),
+      '*',
+      '0',
+      2000,
+    );
 
     renderer!.unmount();
   });
@@ -735,7 +977,7 @@ describe('RedisViewer tree interactions', () => {
       expect.any(Object),
       'app:user',
       '0',
-      600,
+      100,
     );
 
     renderer!.unmount();
@@ -776,8 +1018,8 @@ describe('RedisViewer tree interactions', () => {
     await flushEffects();
 
     expect(redisBackend.RedisScanKeys.mock.calls.map((call) => call.slice(1))).toEqual([
-      ['*[mM][pP][pP]*', '0', 600],
-      ['*[mM][pP][pP]*', '27', 600],
+      ['*[mM][pP][pP]*', '0', 100],
+      ['*[mM][pP][pP]*', '27', 100],
     ]);
     expect(countLeafNodes(antdState.treeProps.treeData)).toBe(2);
 
@@ -797,8 +1039,8 @@ describe('RedisViewer tree interactions', () => {
     await flushEffects();
 
     expect(redisBackend.RedisScanKeys.mock.calls.map((call) => call.slice(1))).toEqual([
-      ['*[mM][pP][pP]*', '0', 600],
-      ['*[mM][pP][pP]*', '27', 600],
+      ['*[mM][pP][pP]*', '0', 100],
+      ['*[mM][pP][pP]*', '27', 100],
     ]);
     expect(countLeafNodes(antdState.treeProps.treeData)).toBe(2);
 
@@ -806,7 +1048,7 @@ describe('RedisViewer tree interactions', () => {
   });
 
   it('keeps exact search continuation available after the first page', async () => {
-    const firstPage = Array.from({ length: 600 }, (_, index) => ({
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
       key: `app:user:${index}`,
       type: 'string',
       ttl: -1,
@@ -826,7 +1068,7 @@ describe('RedisViewer tree interactions', () => {
       })
       .mockResolvedValueOnce({
         success: true,
-        data: { cursor: '0', keys: [{ key: 'app:user:600', type: 'string', ttl: -1 }] },
+        data: { cursor: '0', keys: [{ key: 'app:user:100', type: 'string', ttl: -1 }] },
       });
 
     let renderer: ReactTestRenderer;
@@ -851,7 +1093,7 @@ describe('RedisViewer tree interactions', () => {
       })
       .mockResolvedValueOnce({
         success: true,
-        data: { cursor: '0', keys: [{ key: 'app:user:600', type: 'string', ttl: -1 }] },
+        data: { cursor: '0', keys: [{ key: 'app:user:100', type: 'string', ttl: -1 }] },
       });
 
     const searchInput = renderer!.root.findAllByType('input')
@@ -861,8 +1103,8 @@ describe('RedisViewer tree interactions', () => {
     });
     await flushEffects();
 
-    expect(redisBackend.RedisScanKeys.mock.calls[0]?.slice(1)).toEqual(['app:user', '0', 600]);
-    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(600);
+    expect(redisBackend.RedisScanKeys.mock.calls[0]?.slice(1)).toEqual(['app:user', '0', 100]);
+    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(100);
     const loadMoreButton = findButtonByText(renderer!, 'Load more');
     expect(loadMoreButton).toBeTruthy();
     await act(async () => {
@@ -870,8 +1112,8 @@ describe('RedisViewer tree interactions', () => {
     });
     await flushEffects();
 
-    expect(redisBackend.RedisScanKeys.mock.calls[1]?.slice(1)).toEqual(['app:user', '27', 1000]);
-    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(601);
+    expect(redisBackend.RedisScanKeys.mock.calls[1]?.slice(1)).toEqual(['app:user', '27', 100]);
+    expect(countLeafNodes(antdState.treeProps.treeData)).toBe(101);
 
     renderer!.unmount();
   });
@@ -1251,6 +1493,139 @@ describe('RedisViewer tree interactions', () => {
     renderer!.unmount();
   });
 
+  it('filters Hash rows by field and value with case-insensitive AND matching', async () => {
+    redisBackend.RedisGetValue.mockResolvedValue({
+      success: true,
+      data: {
+        key: 'app:user:1',
+        type: 'hash',
+        ttl: -1,
+        value: {
+          UserName: 'Alice',
+          userEmail: 'alice@example.com',
+          team: 'Platform',
+          status: 'ACTIVE',
+        },
+        length: 4,
+      },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    const leafNode = findFirstLeafNode(antdState.treeProps.treeData);
+    await act(async () => {
+      antdState.treeProps.onSelect?.([leafNode.key]);
+    });
+    await flushEffects();
+
+    const fieldFilter = renderer!.root.findByProps({ 'data-redis-hash-field-filter': 'true' });
+    const valueFilter = renderer!.root.findByProps({ 'data-redis-hash-value-filter': 'true' });
+    expect(fieldFilter.props.allowClear).toBe(true);
+    expect(valueFilter.props.allowClear).toBe(true);
+    expect(fieldFilter.props['aria-label']).toBe('Filter fields');
+    expect(valueFilter.props['aria-label']).toBe('Filter values');
+
+    await act(async () => {
+      fieldFilter.props.onChange?.({ target: { value: 'USER' } });
+    });
+    let hashTable = [...antdState.tableProps].reverse().find((props) => props.rowKey === 'field');
+    expect(hashTable.dataSource.map((row: any) => row.field)).toEqual(['UserName', 'userEmail']);
+
+    await act(async () => {
+      fieldFilter.props.onChange?.({ target: { value: '' } });
+      valueFilter.props.onChange?.({ target: { value: 'alice' } });
+    });
+    hashTable = [...antdState.tableProps].reverse().find((props) => props.rowKey === 'field');
+    expect(hashTable.dataSource.map((row: any) => row.field)).toEqual(['UserName', 'userEmail']);
+
+    const currentFieldFilter = renderer!.root.findByProps({ 'data-redis-hash-field-filter': 'true' });
+    await act(async () => {
+      currentFieldFilter.props.onChange?.({ target: { value: 'EMAIL' } });
+    });
+    hashTable = [...antdState.tableProps].reverse().find((props) => props.rowKey === 'field');
+    expect(hashTable.dataSource.map((row: any) => row.field)).toEqual(['userEmail']);
+    expect(hashTable.pagination.showTotal()).toBe('1 of 4 items');
+    expect(renderer!.root.findByProps({ className: 'redis-value-table-shell' }).props['data-redis-value-total']).toBe(1);
+
+    const currentValueFilter = renderer!.root.findByProps({ 'data-redis-hash-value-filter': 'true' });
+    await act(async () => {
+      currentFieldFilter.props.onChange?.({ target: { value: '' } });
+      currentValueFilter.props.onChange?.({ target: { value: '' } });
+    });
+    hashTable = [...antdState.tableProps].reverse().find((props) => props.rowKey === 'field');
+    expect(hashTable.dataSource).toHaveLength(4);
+
+    renderer!.unmount();
+  });
+
+  it('keeps Hash filters on refresh and clears them when switching Keys', async () => {
+    redisBackend.RedisGetValue.mockImplementation(async (_config: any, key: string) => ({
+      success: true,
+      data: key === 'app:user:1'
+        ? {
+            key,
+            type: 'hash',
+            ttl: -1,
+            value: { userName: 'Alice', team: 'Platform' },
+            length: 2,
+          }
+        : {
+            key,
+            type: 'hash',
+            ttl: -1,
+            value: { account: 'Bob', status: 'ACTIVE' },
+            length: 2,
+          },
+    }));
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<RedisViewer connectionId="redis-1" redisDB={0} />);
+    });
+    await flushEffects();
+
+    const firstLeaf = findLeafNodeByRawKey(antdState.treeProps.treeData, 'app:user:1');
+    await act(async () => {
+      antdState.treeProps.onSelect?.([firstLeaf.key]);
+    });
+    await flushEffects();
+
+    let fieldFilter = renderer!.root.findByProps({ 'data-redis-hash-field-filter': 'true' });
+    await act(async () => {
+      fieldFilter.props.onChange?.({ target: { value: 'user' } });
+    });
+    await flushEffects();
+
+    const detailActions = renderer!.root.findByProps({ className: 'redis-key-detail-actions' });
+    const refreshButton = detailActions.findAllByType('button')
+      .find((node) => collectRenderedText(node.props.children).includes('Refresh'));
+    await act(async () => {
+      refreshButton!.props.onClick?.();
+    });
+    await flushEffects();
+    fieldFilter = renderer!.root.findByProps({ 'data-redis-hash-field-filter': 'true' });
+    expect(fieldFilter.props.value).toBe('user');
+
+    const secondLeaf = findLeafNodeByRawKey(antdState.treeProps.treeData, 'app:user:2');
+    await act(async () => {
+      antdState.treeProps.onSelect?.([secondLeaf.key]);
+    });
+    await flushEffects();
+
+    fieldFilter = renderer!.root.findByProps({ 'data-redis-hash-field-filter': 'true' });
+    const valueFilter = renderer!.root.findByProps({ 'data-redis-hash-value-filter': 'true' });
+    expect(fieldFilter.props.value).toBe('');
+    expect(valueFilter.props.value).toBe('');
+    const hashTable = [...antdState.tableProps].reverse().find((props) => props.rowKey === 'field');
+    expect(hashTable.dataSource.map((row: any) => row.field)).toEqual(['account', 'status']);
+
+    renderer!.unmount();
+  });
+
   it.each([
     { buttonText: 'Push to tail', inputId: 'new-list-value', value: 'tail-item', position: 'right' },
     { buttonText: 'Push to head', inputId: 'new-list-value-left', value: 'head-item', position: 'left' },
@@ -1448,6 +1823,24 @@ describe('RedisViewer tree interactions', () => {
   it('only shows the Redis value table scrollbar when its rows overflow', () => {
     expect(appCss).toMatch(
       /\.redis-value-table-shell \.ant-table-body\s*\{[^}]*overflow-y:\s*auto\s*!important;/s,
+    );
+  });
+
+  it('keeps the V2 Redis Key hover highlight on a single row surface', () => {
+    expect(v2WorkbenchCss).toMatch(
+      /body\[data-ui-version="v2"\] \.gn-v2-redis-workbench \.ant-tree \.ant-tree-treenode:hover\s*\{[^}]*background:\s*var\(--gn-bg-hover\)\s*!important;/s,
+    );
+    expect(v2WorkbenchCss).toMatch(
+      /\.ant-tree-treenode\.ant-tree-treenode-selected:hover\s*\{[^}]*background:\s*var\(--gn-bg-selected\)\s*!important;[^}]*border:\s*none\s*!important;/s,
+    );
+    expect(v2WorkbenchCss).toMatch(
+      /body\[data-ui-version="v2"\] \.gn-v2-redis-workbench \.ant-tree \.ant-tree-node-content-wrapper:hover,[^{]*\{[^}]*background:\s*transparent\s*!important;/s,
+    );
+  });
+
+  it('allows the V2 Redis header and Key card to shrink inside the sidebar grid column', () => {
+    expect(v2WorkbenchCss).toMatch(
+      /body\[data-ui-version="v2"\] \.gn-v2-redis-header,\s*body\[data-ui-version="v2"\] \.gn-v2-redis-tree-card\s*\{[^}]*min-width:\s*0\s*;/s,
     );
   });
 

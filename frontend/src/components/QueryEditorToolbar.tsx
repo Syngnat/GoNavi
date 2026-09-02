@@ -22,7 +22,8 @@ import {
 
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
-import type { SavedConnection } from "../types";
+import type { ConnectionDisplaySortMode, ConnectionTag, SavedConnection } from "../types";
+import { flattenSidebarConnectionTagTree } from './sidebarV2Utils';
 import {
   getShortcutDisplayLabel,
   type ShortcutPlatform,
@@ -49,6 +50,10 @@ export type QueryEditorToolbarProps = {
   currentConnectionId: string;
   currentDb: string;
   queryCapableConnections: SavedConnection[];
+  connectionTags?: ConnectionTag[];
+  sidebarRootOrder?: string[];
+  rootSortMode?: ConnectionTag['sortMode'];
+  rootConnectionSortMode?: ConnectionDisplaySortMode;
   dbList: string[];
   schemaSelect?: QueryEditorSchemaSelectProps;
   maxRows: number;
@@ -225,6 +230,10 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
   currentConnectionId,
   currentDb,
   queryCapableConnections,
+  connectionTags = [],
+  sidebarRootOrder = [],
+  rootSortMode = 'manual',
+  rootConnectionSortMode = 'createdAt',
   dbList,
   schemaSelect,
   maxRows,
@@ -273,8 +282,18 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
     setOpenToolbarMenu((current) => open ? key : current === key ? null : current);
   };
   const baseMoreMenuItems = saveMoreMenuItems ?? [];
+  const orderedQueryCapableConnections = React.useMemo(
+    () => flattenSidebarConnectionTagTree(
+      queryCapableConnections,
+      connectionTags,
+      sidebarRootOrder,
+      rootSortMode,
+      rootConnectionSortMode,
+    ),
+    [connectionTags, queryCapableConnections, rootConnectionSortMode, rootSortMode, sidebarRootOrder],
+  );
   const connectionSelectOptions: FullNameSelectOption[] =
-    queryCapableConnections.map((connection) => ({
+    orderedQueryCapableConnections.map((connection) => ({
       label: connection.name,
       value: connection.id,
       title: "",
@@ -698,7 +717,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                 <Button
                   className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action" : undefined}
                   icon={<RobotOutlined />}
-                  style={{ color: "#818cf8" }}
+                  style={isV2Ui ? undefined : { color: "#818cf8" }}
                   aria-label={aiMoreTitle}
                   aria-haspopup="menu"
                   aria-expanded={isV2Ui ? openToolbarMenu === "ai" : undefined}
@@ -717,7 +736,7 @@ const QueryEditorToolbar: React.FC<QueryEditorToolbarProps> = ({
                   aria-label={triggerSqlAiCompletionLabel}
                   className={isV2Ui ? "gn-v2-query-toolbar-icon-action gn-v2-query-toolbar-ai-action" : undefined}
                   icon={<RobotOutlined />}
-                  style={{ color: "#818cf8" }}
+                  style={isV2Ui ? undefined : { color: "#818cf8" }}
                   onMouseDown={onCaptureEditorCursorPosition}
                   onClick={onTriggerSqlAiCompletion}
                 >

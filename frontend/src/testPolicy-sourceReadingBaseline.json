@@ -1,4 +1,5 @@
 [
+  "App.collapsed-titlebar-actions.test.ts",
   "App.tool-center.test.ts",
   "components/ConnectionModal.i18n.test.tsx",
   "components/DataGrid.ddl.test.tsx",
@@ -8,6 +9,7 @@
   "components/QueryEditorTransaction.i18n.test.ts",
   "components/Sidebar.locate-toolbar.test.tsx",
   "components/TableExportWorkbench.test.tsx",
+  "components/TitleBarPrimaryActions.test.tsx",
   "components/ai/AIMCPServerFormPanel.test.tsx",
   "i18n/catalog.test.ts",
   "utils/overlayZIndex.test.ts"

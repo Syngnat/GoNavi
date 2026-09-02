@@ -3,6 +3,24 @@ import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu
 
 describe('Sidebar legacy database menu order', () => {
 
+  it('shows schema visibility from datasource capabilities instead of schema-prefix rendering', () => {
+    const node = {
+      type: 'database',
+      title: 'main_db',
+      dataRef: { id: 'sqlserver-1', dbName: 'main_db', config: { type: 'sqlserver' } },
+    };
+    const items = buildSidebarLegacyNodeMenuItems(node, {
+      getMetadataDialect: () => 'sqlserver',
+      isPostgresSchemaDialect: () => false,
+      shouldHideSchemaPrefix: () => false,
+      isStructureOnlyDbType: () => false,
+      handleV2DatabaseContextMenuAction: vi.fn(),
+      openSchemaVisibilitySettings: vi.fn(),
+    }) as Array<{ key?: string }>;
+
+    expect(items.some((item) => item?.key === 'schema-visibility')).toBe(true);
+  });
+
   it('routes copy database name through the shared database action handler', () => {
     const handleV2DatabaseContextMenuAction = vi.fn();
     const node = {

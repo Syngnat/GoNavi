@@ -6,6 +6,7 @@ import { t as catalogTranslate } from '../../i18n/catalog';
 import { useOptionalI18n } from '../../i18n/provider';
 import type { AIProviderConfig } from '../../types';
 import { isLocalCLISubscriptionProvider } from '../../utils/aiProviderPresets';
+import { enabledProviderModels } from '../../utils/aiProviderManagement';
 
 interface AIChatProviderModelSelectProps {
   activeProvider?: AIProviderConfig | null;
@@ -33,9 +34,10 @@ const AIChatProviderModelSelect: React.FC<AIChatProviderModelSelectProps> = ({
   }
 
   const usesLocalCLI = isLocalCLISubscriptionProvider(activeProvider);
-  const options = (dynamicModels.length > 0 ? dynamicModels : (activeProvider.models || []))
-    .map((item) => String(item || '').trim())
-    .filter(Boolean)
+  const options = enabledProviderModels(
+    [...(dynamicModels.length > 0 ? dynamicModels : (activeProvider.models || [])), ...(activeProvider.customModels || [])],
+    activeProvider.disabledModels,
+  )
     .map((model) => ({ label: model, value: model }));
 
   const handleOpenChange = (open: boolean) => {

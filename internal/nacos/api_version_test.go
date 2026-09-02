@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -579,7 +578,7 @@ func TestNacosV3ListServicesFiltersExactGroupAcrossPages(t *testing.T) {
 	}
 }
 
-func TestNacosV3ListServicesEscapesExactGroupPattern(t *testing.T) {
+func TestNacosV3ListServicesFiltersExactGroupWithoutRegex(t *testing.T) {
 	const targetGroup = "PAY[1]"
 
 	recorder := &nacosAPIRequestRecorder{}
@@ -589,11 +588,6 @@ func TestNacosV3ListServicesEscapesExactGroupPattern(t *testing.T) {
 		case nacosV3ReadinessPath:
 			writeNacosResult(w, nacosAPIV3, "ok")
 		case routesForNacosAPI(nacosAPIV3).serviceList:
-			groupPattern, err := regexp.Compile(request.Form.Get("groupNameParam"))
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
 			candidates := []nacosServiceItem{
 				{Name: "literal", GroupName: targetGroup},
 				{Name: "regex-lookalike", GroupName: "PAY1"},
@@ -601,9 +595,7 @@ func TestNacosV3ListServicesEscapesExactGroupPattern(t *testing.T) {
 			}
 			pageItems := make([]nacosServiceItem, 0, len(candidates))
 			for _, candidate := range candidates {
-				if groupPattern.MatchString(candidate.GroupName) {
-					pageItems = append(pageItems, candidate)
-				}
+				pageItems = append(pageItems, candidate)
 			}
 			writeNacosResult(w, nacosAPIV3, map[string]any{
 				"totalCount":     len(pageItems),
@@ -633,7 +625,7 @@ func TestNacosV3ListServicesEscapesExactGroupPattern(t *testing.T) {
 	}
 
 	request := mustLastNacosAPIRequest(t, recorder, http.MethodGet, routesForNacosAPI(nacosAPIV3).serviceList)
-	if got, want := request.values.Get("groupNameParam"), regexp.QuoteMeta(targetGroup); got != want {
+	if got, want := request.values.Get("groupNameParam"), targetGroup; got != want {
 		t.Fatalf("groupNameParam = %q, want %q", got, want)
 	}
 }

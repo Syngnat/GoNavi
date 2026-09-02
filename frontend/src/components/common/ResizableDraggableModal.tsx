@@ -171,16 +171,20 @@ const DraggableResizableModalFrame: React.FC<DraggableResizableModalFrameProps> 
     const modalRect = modalNode.getBoundingClientRect();
     const maxWidth = Math.max(minResizableWidth, window.innerWidth - modalRect.left - VIEWPORT_PADDING);
     const maxHeight = Math.max(minResizableHeight, window.innerHeight - modalRect.top - VIEWPORT_PADDING);
+    // Pin only the axis this handle drives. Pinning both would freeze the untouched
+    // axis at its measured pixel value and stop it following the viewport.
+    const affectsWidth = direction !== 'south';
+    const affectsHeight = direction !== 'east';
 
     event.preventDefault();
     event.stopPropagation();
     pendingClickCleanupRef.current?.();
     activeInteractionRef.current = 'resize';
     setIsResizing(true);
-    setSize({
-      width: rect.width,
-      height: rect.height,
-    });
+    setSize((previous) => ({
+      width: affectsWidth ? rect.width : previous.width,
+      height: affectsHeight ? rect.height : previous.height,
+    }));
 
     const suppressInteractionClick = (clickEvent: MouseEvent) => {
       clickEvent.preventDefault();
@@ -201,10 +205,10 @@ const DraggableResizableModalFrame: React.FC<DraggableResizableModalFrameProps> 
       }
       const deltaX = moveEvent.clientX - startX;
       const deltaY = moveEvent.clientY - startY;
-      setSize({
-        width: direction === 'south' ? rect.width : clamp(rect.width + deltaX, minResizableWidth, maxWidth),
-        height: direction === 'east' ? rect.height : clamp(rect.height + deltaY, minResizableHeight, maxHeight),
-      });
+      setSize((previous) => ({
+        width: affectsWidth ? clamp(rect.width + deltaX, minResizableWidth, maxWidth) : previous.width,
+        height: affectsHeight ? clamp(rect.height + deltaY, minResizableHeight, maxHeight) : previous.height,
+      }));
     };
 
     const finishResize = (completed: boolean, updateState = true) => {

@@ -142,6 +142,29 @@ func TestRunVersionRejectsExtraArguments(t *testing.T) {
 	}
 }
 
+func TestRunAgentPreservesMissingLifecycleContext(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run(nil, []string{"agent", "run", "--prompt", "hello"}, &stdout, &stderr)
+	if code != ExitExecution {
+		t.Fatalf("Run(nil, agent run) = %d, want execution failure; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "agent run harness root context is required") {
+		t.Fatalf("missing lifecycle-context diagnostic: %s", stderr.String())
+	}
+}
+
+func TestRunAgentHelpStillWorksWithoutLifecycleContext(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := Run(nil, []string{"agent", "run", "--help"}, &stdout, &stderr); code != ExitSuccess {
+		t.Fatalf("Run(nil, agent run --help) = %d, stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Usage: gonavi agent run") {
+		t.Fatalf("agent help output missing usage: %s", stdout.String())
+	}
+}
+
 func TestRunAuditWithoutSubcommandRejectsBeforeBackendInitialization(t *testing.T) {
 	previous := newBackend
 	started := false

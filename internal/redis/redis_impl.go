@@ -45,8 +45,9 @@ const (
 	redisClusterLogicalDBCount        = 16
 	redisScanDefaultTargetCount int64 = 2000
 	redisScanMaxTargetCount     int64 = 10000
-	redisScanMinStepCount       int64 = 200
+	redisKeyScanMinStepCount    int64 = 100
 	redisScanMaxStepCount       int64 = 2000
+	redisHashScanStepCount      int64 = 200
 	redisScanMaxRounds                = 64
 	redisScanMaxDuration              = 12 * time.Second
 	redisSearchMaxTargetCount   int64 = 1000
@@ -766,8 +767,8 @@ func normalizeRedisScanTargetCount(count int64) int64 {
 }
 
 func normalizeRedisScanStepCount(targetCount int64) int64 {
-	if targetCount < redisScanMinStepCount {
-		return redisScanMinStepCount
+	if targetCount < redisKeyScanMinStepCount {
+		return redisKeyScanMinStepCount
 	}
 	if targetCount > redisScanMaxStepCount {
 		return redisScanMaxStepCount
@@ -894,7 +895,7 @@ func (r *RedisClientImpl) GetKeyType(key string) (string, error) {
 	if r.client == nil {
 		return "", fmt.Errorf("Redis 客户端未连接")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 5*time.Second)
 	defer cancel()
 	return r.client.Type(ctx, r.toPhysicalKey(key)).Result()
 }
@@ -904,7 +905,7 @@ func (r *RedisClientImpl) GetTTL(key string) (int64, error) {
 	if r.client == nil {
 		return 0, fmt.Errorf("Redis 客户端未连接")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 5*time.Second)
 	defer cancel()
 
 	ttl, err := r.client.TTL(ctx, r.toPhysicalKey(key)).Result()
@@ -992,7 +993,7 @@ func (r *RedisClientImpl) GetValue(key string) (*RedisValue, error) {
 		TTL:  ttl,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(metadataContextFor(r), 30*time.Second)
 	defer cancel()
 
 	switch keyType {
@@ -1159,7 +1160,7 @@ func readRedisHashEntriesWithFallback(
 	entries := make(map[string]string)
 	var cursor uint64
 	for round := 0; round < redisScanMaxRounds; round++ {
-		pairs, nextCursor, scanErr := scan(cursor, redisScanMinStepCount)
+		pairs, nextCursor, scanErr := scan(cursor, redisHashScanStepCount)
 		if scanErr != nil {
 			return nil, 0, scanErr
 		}

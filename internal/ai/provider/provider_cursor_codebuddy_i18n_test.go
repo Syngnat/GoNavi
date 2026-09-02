@@ -233,10 +233,10 @@ func TestCursorAndCodeBuddySourceUseEnglishErrorWrappers(t *testing.T) {
 			path:      "codebuddy_cli.go",
 			signature: "func resolveCodeBuddyCLICommand(lookPath func(string) (string, error)) (string, error) {",
 			rawMessages: []string{
-				`"未找到 codebuddy 命令，请先安装 CodeBuddy CLI: npm install -g @tencent/codebuddy"`,
+				`"未找到 codebuddy 命令，请先安装 CodeBuddy CLI: npm install -g @tencent-ai/codebuddy-code"`,
 			},
 			requiredTexts: []string{
-				`"CodeBuddy CLI command not found. Install it first: npm install -g @tencent/codebuddy"`,
+				`"CodeBuddy CLI command not found. Install it first: npm install -g @tencent-ai/codebuddy-code"`,
 			},
 		},
 		{
@@ -349,7 +349,7 @@ func TestCodeBuddyCLIUsesEnglishInstallHint(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing command error")
 	}
-	if got, want := err.Error(), "CodeBuddy CLI command not found. Install it first: npm install -g @tencent/codebuddy"; got != want {
+	if got, want := err.Error(), "CodeBuddy CLI command not found. Install it first: npm install -g @tencent-ai/codebuddy-code"; got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
 }

@@ -36,10 +36,11 @@ func (executor appDataSyncJobExecutor) executeCDCJob(
 	if len(mappings) == 0 {
 		return syncjob.ExecutionOutcome{}, errors.New("CDC requires at least one enabled object mapping")
 	}
-	adapter, err := executor.app.dataSyncCDCAdapters().Get(definition.CDC.Adapter)
+	adapter, err := executor.app.resolveDataSyncCDCAdapter(source.Config)
 	if err != nil {
 		return syncjob.ExecutionOutcome{}, err
 	}
+	definition.CDC.Adapter = adapter.Name()
 	cdcRequest := buildDataSyncCDCRequest(source, mappings)
 	definitionHash, err := dataSyncJobDefinitionHash(definition)
 	if err != nil {

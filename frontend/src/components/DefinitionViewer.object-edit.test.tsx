@@ -133,13 +133,18 @@ describe('DefinitionViewer object edit entry', () => {
       button.props.onClick();
     });
 
-    expect(storeState.setActiveContext).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'main' });
+    expect(storeState.setActiveContext).toHaveBeenCalledWith({
+      connectionId: 'conn-1',
+      dbName: 'main',
+      schemaName: 'reporting',
+    });
     expect(storeState.addTab).toHaveBeenCalledWith(expect.objectContaining({
       id: 'view-def-conn-1-main-reporting.active_users',
       title: 'Edit View: reporting.active_users',
       type: 'query',
       connectionId: 'conn-1',
       dbName: 'main',
+      schemaName: 'reporting',
       queryMode: 'object-edit',
       query: expect.stringContaining('CREATE OR REPLACE VIEW reporting.active_users AS'),
     }));
@@ -237,6 +242,8 @@ describe('DefinitionViewer object edit entry', () => {
       title: 'Edit Function/procedure: reporting.refresh_stats',
       type: 'query',
       queryMode: 'object-edit',
+      routineName: 'reporting.refresh_stats',
+      routineType: 'FUNCTION',
       query: expect.stringContaining('CREATE OR REPLACE FUNCTION reporting.refresh_stats()'),
     }));
   });
@@ -277,6 +284,8 @@ describe('DefinitionViewer object edit entry', () => {
       title: 'Edit Function/procedure: reporting.refresh_stats',
       type: 'query',
       queryMode: 'object-edit',
+      routineName: 'reporting.refresh_stats',
+      routineType: 'FUNCTION',
       query: expect.stringContaining('CREATE OR REPLACE FUNCTION reporting.refresh_stats()'),
     }));
   });

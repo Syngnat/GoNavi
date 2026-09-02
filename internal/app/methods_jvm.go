@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -253,12 +254,19 @@ func hashJSONValue(value any) (string, error) {
 }
 
 func (a *App) TestJVMConnection(cfg connection.ConnectionConfig) connection.QueryResult {
+	return a.testJVMConnectionWithContext(a.ctx, cfg)
+}
+
+func (a *App) testJVMConnectionWithContext(ctx context.Context, cfg connection.ConnectionConfig) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	normalized, provider, err := resolveJVMProvider(cfg)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	if err := provider.TestConnection(a.ctx, normalized); err != nil {
+	if err := provider.TestConnection(ctx, normalized); err != nil {
 		return connection.QueryResult{Success: false, Message: jvm.DescribeConnectionTestError(normalized, err)}
 	}
 

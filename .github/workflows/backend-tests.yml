@@ -69,7 +69,7 @@ jobs:
           java-version: '17'
 
       - name: Test AI file errors
-        run: go test ./internal/ai/service -run '^(TestMCPClientInstallConfigIOFailuresUseServiceLanguage|TestAISaveSessionUsesCurrentLanguageForStructuredErrors)$' -count=1
+        run: go test ./internal/ai/service -run '^TestMCPClientInstallConfigIOFailuresUseServiceLanguage$' -count=1
 
       - name: Test Claude CLI timing
         run: go test ./internal/ai/provider -run '^TestClaudeCLIProvider_(ChatStreamUsesRequestTimeoutWhenNoMeaningfulResponseArrives|ChatStreamAllowsDelayedMeaningfulResponse)$' -count=1

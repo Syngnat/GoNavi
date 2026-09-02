@@ -1,15 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
+import { getCurrentLanguage, setCurrentLanguage } from '../../i18n';
+
 import {
     buildBoundedQueryEditorCompletionSuggestions,
     buildQueryEditorAliasMap,
+    buildQueryEditorTableSourceAlias,
     buildQueryEditorResultSetMergeKey,
     collectQueryEditorReferencedDatabaseNames,
     collectQueryEditorTableReferences,
     createBoundedQueryEditorCompletionCandidateBatch,
     findCompletionTablesByDatabase,
     getCompletionTableSchemaCounts,
+    getQueryEditorDocumentOffsetAtPosition,
+    isSystemMetadataQueryResult,
     isOracleBaseTableReference,
+    isQueryEditorTableAliasCompletionContext,
+    isQueryEditorTableSourceAtPosition,
     isQueryEditorTableSourceCompletionContext,
     materializeBoundedQueryEditorCompletionBatches,
     rankQueryEditorCompletionCandidate,
@@ -18,8 +25,10 @@ import {
     resolveOracleLikeDefaultSchemaName,
     resolveOracleLikeExecutionSchemaName,
     resolveOracleLikeLookupSchemaCandidates,
+    resolveQueryEditorHoverTarget,
     resolveQueryEditorMonacoLanguage,
     resolveQueryEditorNavigationTarget,
+    resolveQueryEditorNavigationDecorations,
     selectUnqualifiedCompletionSynonyms,
     shouldHandleQueryEditorRunShortcutFallback,
     splitCompletionSchemaAndTable,
@@ -64,6 +73,26 @@ describe('QueryEditor result merge identity', () => {
         expect(first).not.toBe(second);
         expect(first).toContain('::0::0');
         expect(second).toContain('::1::0');
+    });
+});
+
+describe('QueryEditor system metadata guard', () => {
+    it('keeps SQL Server system schemas read-only when metadata uses the current database', () => {
+        expect(isSystemMetadataQueryResult({
+            tableName: 'sys.objects',
+            metadataDbName: 'appdb',
+            metadataTableName: 'sys.objects',
+        }, 'sqlserver')).toBe(true);
+        expect(isSystemMetadataQueryResult({
+            tableName: 'INFORMATION_SCHEMA.TABLES',
+            metadataDbName: 'appdb',
+            metadataTableName: '[INFORMATION_SCHEMA].[TABLES]',
+        }, 'mssql')).toBe(true);
+        expect(isSystemMetadataQueryResult({
+            tableName: 'dbo.orders',
+            metadataDbName: 'appdb',
+            metadataTableName: 'dbo.orders',
+        }, 'sqlserver')).toBe(false);
     });
 });
 
@@ -324,6 +353,39 @@ describe('QueryEditorHelpers Oracle-like execution schema', () => {
 });
 
 describe('QueryEditorHelpers qualified navigation (MySQL db.table + PG schema.table)', () => {
+    it('generates table source aliases from name initials and resolves collisions', () => {
+        expect(buildQueryEditorTableSourceAlias('system_user', '')).toBe('su');
+        expect(buildQueryEditorTableSourceAlias('code_query_record_zykj', '')).toBe('cqrz');
+        expect(buildQueryEditorTableSourceAlias('public.system_user', 'SELECT * FROM system_user su')).toBe('su2');
+        expect(buildQueryEditorTableSourceAlias('system_user', 'SELECT * FROM system_user su JOIN service_user su2')).toBe('su3');
+    });
+
+    it('only permits table aliases for SELECT table sources', () => {
+        for (const sql of [
+            'UPDATE system_user ',
+            'DELETE FROM system_user ',
+            'INSERT INTO system_user ',
+            'REPLACE INTO system_user ',
+            'MERGE INTO system_user ',
+        ]) {
+            expect(isQueryEditorTableSourceCompletionContext(sql)).toBe(true);
+            expect(isQueryEditorTableAliasCompletionContext(sql)).toBe(false);
+        }
+
+        for (const sql of [
+            'SELECT * FROM system_user ',
+            "SELECT REPLACE(name, 'x', 'y') FROM system_user ",
+            'SELECT INSERT(name, 1, 0, \'x\') FROM system_user ',
+            'SELECT * FROM system_user su JOIN service_user ',
+            'SELECT * FROM system_user su, service_user ',
+            'INSERT INTO audit_log SELECT * FROM system_user ',
+            'INSERT INTO audit_log SELECT * FROM (SELECT * FROM system_user ',
+        ]) {
+            expect(isQueryEditorTableSourceCompletionContext(sql)).toBe(true);
+            expect(isQueryEditorTableAliasCompletionContext(sql)).toBe(true);
+        }
+    });
+
     it('keeps a dotted Dameng owner intact when metadata already identifies it', () => {
         expect(splitCompletionSchemaAndTable(
             'PEM2.4_V1_1.COM_APPROVE_INFO',
@@ -364,6 +426,36 @@ describe('QueryEditorHelpers qualified navigation (MySQL db.table + PG schema.ta
 
         const unqualified = buildQueryEditorAliasMap('SELECT p.* FROM PERSON p', 'A');
         expect(unqualified.p).toEqual({ dbName: 'A', tableName: 'PERSON' });
+    });
+
+    it('uses a supplied full-document alias map when resolving a local hover probe', () => {
+        const fullSql = 'SELECT u.id\nFROM users u';
+        const aliasMap = buildQueryEditorAliasMap(fullSql, 'app');
+
+        expect(resolveQueryEditorHoverTarget(
+            'u.id',
+            'u.id',
+            2,
+            'app',
+            ['app'],
+            [{ dbName: 'app', tableName: 'users' }],
+            [{ dbName: 'app', tableName: 'users', name: 'id', type: 'bigint' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: 'u.id', offset: 1 },
+            '',
+            aliasMap,
+        )).toMatchObject({
+            kind: 'column',
+            dbName: 'app',
+            tableName: 'users',
+            columnName: 'id',
+        });
     });
 
     it('collects table names and aliases from comma-separated FROM sources', () => {
@@ -511,6 +603,73 @@ SELECT * FROM analytics.public.events;
         });
     });
 
+    it('prefers an unqualified table in the selected database over a same-name visible database', () => {
+        const sql = 'SELECT * FROM test';
+        const tables = [{ dbName: 'ecom_dev_0705', tableName: 'test' }];
+        const visibleDbs = ['ecom_dev_0705', 'ecom_test_0705', 'test'];
+
+        expect(resolveQueryEditorNavigationTarget(
+            sql,
+            sql.length,
+            'ecom_dev_0705',
+            visibleDbs,
+            tables,
+        )).toEqual({
+            type: 'table',
+            dbName: 'ecom_dev_0705',
+            tableName: 'test',
+            schemaName: undefined,
+        });
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'ecom_dev_0705',
+            visibleDbs,
+            tables,
+            [],
+        )).toEqual(expect.objectContaining({
+            kind: 'table',
+            dbName: 'ecom_dev_0705',
+            tableName: 'test',
+        }));
+
+        expect(resolveQueryEditorNavigationTarget(
+            'USE test',
+            'USE test'.length,
+            'ecom_dev_0705',
+            visibleDbs,
+            tables,
+        )).toEqual({ type: 'database', dbName: 'test' });
+    });
+
+    it('keeps a multiline table source in the selected database over a same-name visible database', () => {
+        const sql = 'SELECT *\nFROM\n  test';
+        const tables = [{ dbName: 'ecom_dev_0705', tableName: 'test' }];
+        const visibleDbs = ['ecom_dev_0705', 'test'];
+
+        expect(isQueryEditorTableSourceAtPosition(sql, 3, 7)).toBe(true);
+        expect(resolveQueryEditorNavigationTarget(
+            '  test',
+            7,
+            'ecom_dev_0705',
+            visibleDbs,
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+        )).toEqual({
+            type: 'table',
+            dbName: 'ecom_dev_0705',
+            tableName: 'test',
+            schemaName: undefined,
+        });
+    });
+
     it('resolves PostgreSQL schema.table under the current database', () => {
         const tables = [
             { dbName: 'appdb', tableName: 'public.users' },
@@ -539,6 +698,89 @@ SELECT * FROM analytics.public.events;
             dbName: 'appdb',
             tableName: 'billing.orders',
             schemaName: 'billing',
+        });
+    });
+
+    it('prefers the selected PostgreSQL schema for an unqualified table name', () => {
+        const sql = 'SELECT * FROM users';
+        const tables = [
+            { dbName: 'appdb', tableName: 'public.users' },
+            { dbName: 'appdb', tableName: 'sales.users' },
+        ];
+
+        expect(resolveQueryEditorNavigationTarget(
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'sales',
+        )).toEqual({
+            type: 'table',
+            dbName: 'appdb',
+            tableName: 'sales.users',
+            schemaName: 'sales',
+        });
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'sales',
+        )).toMatchObject({
+            kind: 'table',
+            dbName: 'appdb',
+            tableName: 'sales.users',
+            schemaName: 'sales',
+        });
+    });
+
+    it('keeps the selected PostgreSQL schema when inferring a table without metadata', () => {
+        const sql = 'SELECT * FROM users';
+
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'sales',
+            undefined,
+            true,
+        )).toMatchObject({
+            kind: 'table',
+            dbName: 'appdb',
+            tableName: 'users',
+            schemaName: 'sales',
         });
     });
 
@@ -578,5 +820,368 @@ SELECT * FROM analytics.public.events;
             tableName: 'billing.orders',
             schemaName: 'billing',
         });
+    });
+});
+
+describe('QueryEditorHelpers cross-line qualified identifier resolution', () => {
+    const tables = [
+        { dbName: 'other', tableName: 'users' },
+        { dbName: 'mydb', tableName: 'users' },
+    ];
+
+    it('resolves a db.table qualifier split across lines instead of falling back to the current database', () => {
+        // 悬停第二行的 users：限定名被格式化拆行后必须仍解析到 mydb，而不是当前库 other 的同名表
+        const sql = 'SELECT * FROM mydb\n        . users';
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            '        . users',
+            12,
+            'other',
+            ['other', 'mydb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 12) },
+        )).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
+
+        // 反向断言：不给全文上下文时保持旧行为（回退当前库），确保参数可选且不破坏既有调用
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            '        . users',
+            12,
+            'other',
+            ['other', 'mydb'],
+            tables,
+            [],
+        )).toMatchObject({ kind: 'table', dbName: 'other', tableName: 'users' });
+    });
+
+    it('absorbs backtick-quoted segments split across lines', () => {
+        const sql = 'SELECT * FROM `mydb`.\n    `users` WHERE id = 1';
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            '    `users` WHERE id = 1',
+            10,
+            'other',
+            ['other', 'mydb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 10) },
+        )).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
+    });
+
+    it('keeps single-line resolution intact when document context is provided', () => {
+        const sql = 'select * from mydb.users';
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'other',
+            ['other', 'mydb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: sql.length - 1 },
+        )).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
+    });
+
+    it('does not absorb across statement terminators while expanding the window', () => {
+        const sql = 'select * from a.b;\nselect * from c.d';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            'select * from c.d',
+            18,
+            'other',
+            ['other'],
+            [{ dbName: 'c', tableName: 'd' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 18) },
+        );
+        expect(target).toMatchObject({ kind: 'table', dbName: 'c', tableName: 'd' });
+    });
+
+    it('resolves an unqualified table when FROM and the table are on different lines', () => {
+        const sql = 'SELECT *\nFROM\n  users';
+        const lineContent = '  users';
+        const column = lineContent.length + 1;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'other',
+            ['other'],
+            [{ dbName: 'other', tableName: 'users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 3, column) },
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'other', tableName: 'users' });
+    });
+
+    it('resolves a qualified table when the dot is on its own line', () => {
+        const sql = 'SELECT * FROM mydb\n  .\n  users';
+        const lineContent = '  users';
+        const column = lineContent.length + 1;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'other',
+            ['other', 'mydb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 3, column) },
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
+    });
+
+    it('keeps a cross-line target when the current line probe is temporarily empty', () => {
+        const sql = 'SELECT * FROM mydb\n  .\n  users';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            '',
+            1,
+            'other',
+            ['other', 'mydb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 3, 3) },
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
+    });
+
+    it('infers a table source while table metadata is still loading', () => {
+        const sql = 'SELECT *\nFROM test_users;';
+        const lineContent = 'FROM test_users;';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            12,
+            'main',
+            ['main'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 12) },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'main', tableName: 'test_users' });
+    });
+
+    it('infers a table source from the SQL prefix even when the caller probe is false', () => {
+        const sql = 'SELECT *\nFROM test_users;';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            'FROM test_users;',
+            12,
+            'main',
+            ['main'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 12) },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'main', tableName: 'test_users' });
+    });
+
+    it('infers a cross-line table source when metadata misses the table', () => {
+        const sql = 'SELECT *\nFROM\n  test_users;';
+        const lineContent = '  test_users;';
+        const column = lineContent.length + 1;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'main',
+            ['main'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 3, column) },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'main',
+            tableName: 'test_users',
+        });
+    });
+
+    it('anchors the hover range on the table token after FROM', () => {
+        const sql = 'SELECT *\nFROM test_users;';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            'FROM test_users;',
+            6,
+            'main',
+            ['main'],
+            [{ dbName: 'main', tableName: 'test_users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 6) },
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            tableName: 'test_users',
+            range: { startColumn: 6, endColumn: 16 },
+        });
+    });
+
+    it('anchors navigation decoration on the table token after FROM', () => {
+        const line = 'SELECT * FROM users';
+        const decorations = resolveQueryEditorNavigationDecorations(
+            line,
+            15,
+            'main',
+            ['main'],
+            [{ dbName: 'main', tableName: 'users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            'Ctrl',
+        );
+
+        expect(decorations).toMatchObject([
+            { startColumn: 15, endColumn: 20 },
+        ]);
+    });
+
+    it('uses the sidebar locate hint when table ctrl-click is configured for locating', () => {
+        const previousLanguage = getCurrentLanguage();
+        setCurrentLanguage('en-US');
+        try {
+            const decorations = resolveQueryEditorNavigationDecorations(
+                'SELECT * FROM users',
+                15,
+                'main',
+                ['main'],
+                [{ dbName: 'main', tableName: 'users' }],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                'Ctrl',
+                false,
+                undefined,
+                '',
+                'locate',
+            );
+
+            expect(decorations[0]?.hoverMessage).toBe('Ctrl + click to locate this table in the left schema tree');
+        } finally {
+            setCurrentLanguage(previousLanguage);
+        }
+    });
+
+    it('strips a stale SQL keyword tail from a hover identifier', () => {
+        const sql = 'SELECT *\nFROM test_users;';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            'OM test_users;',
+            12,
+            'main',
+            ['main'],
+            [{ dbName: 'main', tableName: 'test_users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, 12) },
+        );
+
+        expect(target).toMatchObject({ kind: 'table', tableName: 'test_users' });
     });
 });

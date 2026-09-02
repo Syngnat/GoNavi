@@ -45,6 +45,7 @@ export const buildSQLFileExecutionWorkbenchTab = (
     connectionId,
     ...(dbName ? { dbName } : {}),
     filePath,
+    sqlFileExecutionFileName: fileName || undefined,
     sqlFileExecutionFileSizeMB: String(input.fileSizeMB || '').trim() || undefined,
     ...(requestKey ? { sqlFileExecutionRequestKey: requestKey } : {}),
   };

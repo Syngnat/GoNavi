@@ -6,13 +6,15 @@ import {
   getMessagePublishPresentation,
 } from './messagePublish';
 
+const keyTranslate = (key: string) => key;
+
 describe('messagePublish', () => {
-  it('localizes presentation copy through the supplied translator while keeping transport names raw', () => {
+  it('localizes every presentation label through the supplied translator', () => {
     const t = (key: string) => key;
 
     expect(getMessagePublishPresentation({ type: 'rabbitmq' }, t)).toMatchObject({
-      transportLabel: 'RabbitMQ Queue',
-      destinationLabel: 'Queue',
+      transportLabel: 'message_publish.presentation.transport.rabbitmq_queue',
+      destinationLabel: 'message_publish.presentation.destination.queue',
       destinationPlaceholder: 'message_publish.presentation.rabbitmq.destination_placeholder',
       destinationRequiredMessage: 'message_publish.presentation.rabbitmq.destination_required',
       alertMessage: 'message_publish.presentation.rabbitmq.alert',
@@ -21,8 +23,8 @@ describe('messagePublish', () => {
     });
 
     expect(getMessagePublishPresentation({ type: 'rocketmq' }, t)).toMatchObject({
-      transportLabel: 'RocketMQ Topic',
-      destinationLabel: 'Topic',
+      transportLabel: 'message_publish.presentation.transport.rocketmq_topic',
+      destinationLabel: 'message_publish.presentation.destination.topic',
       destinationPlaceholder: 'message_publish.presentation.rocketmq.destination_placeholder',
       destinationRequiredMessage: 'message_publish.presentation.topic_required',
       alertMessage: 'message_publish.presentation.rocketmq.alert',
@@ -33,8 +35,8 @@ describe('messagePublish', () => {
     });
 
     expect(getMessagePublishPresentation({ type: 'mqtt' }, t)).toMatchObject({
-      transportLabel: 'MQTT Topic',
-      destinationLabel: 'Topic',
+      transportLabel: 'message_publish.presentation.transport.mqtt_topic',
+      destinationLabel: 'message_publish.presentation.destination.topic',
       destinationPlaceholder: 'message_publish.presentation.mqtt.destination_placeholder',
       destinationRequiredMessage: 'message_publish.presentation.topic_required',
       alertMessage: 'message_publish.presentation.mqtt.alert',
@@ -43,8 +45,8 @@ describe('messagePublish', () => {
     });
 
     expect(getMessagePublishPresentation({ type: 'kafka' }, t)).toMatchObject({
-      transportLabel: 'Kafka Topic',
-      destinationLabel: 'Topic',
+      transportLabel: 'message_publish.presentation.transport.kafka_topic',
+      destinationLabel: 'message_publish.presentation.destination.topic',
       destinationPlaceholder: 'message_publish.presentation.kafka.destination_placeholder',
       destinationRequiredMessage: 'message_publish.presentation.topic_required',
       alertMessage: 'message_publish.presentation.kafka.alert',
@@ -54,7 +56,7 @@ describe('messagePublish', () => {
     });
   });
 
-  it('localizes command validation errors while preserving raw protocol details', () => {
+  it('localizes command validation errors without leaking runtime parser text', () => {
     const t = (key: string, params?: Record<string, unknown>) => (
       params ? `${key} ${JSON.stringify(params)}` : key
     );
@@ -77,7 +79,9 @@ describe('messagePublish', () => {
         body: '{bad',
       },
       t,
-    )).toThrow(/message_publish\.error\.invalid_json_detail .*message_publish\.field\.body/);
+    )).toThrow(
+      'message_publish.error.invalid_json {"field":"message_publish.field.body"}',
+    );
 
     expect(() => buildMessagePublishCommand(
       { type: 'kafka' },
@@ -88,7 +92,7 @@ describe('messagePublish', () => {
         headers: '["bad"]',
       },
       t,
-    )).toThrow(/message_publish\.error\.json_object_required .*"field":"Headers"/);
+    )).toThrow(/message_publish\.error\.json_object_required .*"field":"message_publish\.field\.headers"/);
 
     expect(() => buildMessagePublishCommand(
       { type: 'mqtt' },
@@ -122,9 +126,10 @@ describe('messagePublish', () => {
         body: '{"id":1,"event":"created"}',
         headers: '{"x-env":"dev"}',
       },
+      keyTranslate,
     );
 
-    expect(result.transportLabel).toBe('Kafka Topic');
+    expect(result.transportLabel).toBe('message_publish.presentation.transport.kafka_topic');
     expect(result.destinationLabel).toBe('orders.events');
     expect(result.commandText).toContain('"publish": "orders.events"');
     expect(result.commandText).toContain('"tenant": "a"');
@@ -143,6 +148,7 @@ describe('messagePublish', () => {
         body: 'hello gonavi',
         headers: '',
       },
+      keyTranslate,
     );
 
     expect(result.commandText).toContain('"key": "tenant-a"');
@@ -158,7 +164,8 @@ describe('messagePublish', () => {
         body: '{"ok":true}',
         headers: '["bad"]',
       },
-    )).toThrow(/Headers.*JSON object/);
+      keyTranslate,
+    )).toThrow(/message_publish\.error\.json_object_required/);
   });
 
   it('seeds Kafka default publish draft with a JSON body example', () => {
@@ -179,21 +186,22 @@ describe('messagePublish', () => {
         bodyMode: 'json',
         body: '{"id":1,"event":"created"}',
       },
+      keyTranslate,
     );
 
-    expect(result.transportLabel).toBe('MQTT Topic');
+    expect(result.transportLabel).toBe('message_publish.presentation.transport.mqtt_topic');
     expect(result.destinationLabel).toBe('devices/device-001/telemetry');
     expect(result.commandText).toContain('"publish": "devices/device-001/telemetry"');
     expect(result.commandText).toContain('"qos": 1');
     expect(result.commandText).toContain('"retain": true');
   });
 
-  it('seeds MQTT default publish draft with connection qos and retain defaults', () => {
+  it('does not reuse an MQTT subscription filter as the default publish topic', () => {
     expect(createDefaultMessagePublishDraft(
       { type: 'mqtt', database: 'devices/+/telemetry', connectionParams: 'qos=1&retain=true' },
       '',
     )).toMatchObject({
-      destination: 'devices/+/telemetry',
+      destination: '',
       qos: 1,
       retain: true,
       bodyMode: 'json',
@@ -212,9 +220,10 @@ describe('messagePublish', () => {
         headers: '{"x-env":"dev"}',
         properties: '{"content_type":"application/json"}',
       },
+      keyTranslate,
     );
 
-    expect(result.transportLabel).toBe('RabbitMQ Queue');
+    expect(result.transportLabel).toBe('message_publish.presentation.transport.rabbitmq_queue');
     expect(result.destinationLabel).toBe('orders.queue');
     expect(result.commandText).toContain('"publish": "orders.queue"');
     expect(result.commandText).toContain('"exchange": "events.topic"');
@@ -234,6 +243,39 @@ describe('messagePublish', () => {
     });
   });
 
+  it('seeds an explicit RabbitMQ exchange target without inventing a queue', () => {
+    expect(createDefaultMessagePublishDraft(
+      { type: 'rabbitmq', connectionParams: 'defaultQueue=orders.queue' },
+      '',
+      'events.topic',
+    )).toMatchObject({
+      destination: '',
+      exchange: 'events.topic',
+      routingKey: '',
+      bodyMode: 'json',
+    });
+  });
+
+  it('publishes directly to a RabbitMQ exchange without requiring a queue', () => {
+    const result = buildMessagePublishCommand(
+      { type: 'rabbitmq' },
+      {
+        destination: '',
+        exchange: 'events.fanout',
+        routingKey: '',
+        bodyMode: 'json',
+        body: '{"event":"refresh"}',
+      },
+      keyTranslate,
+    );
+
+    expect(result.transportLabel).toBe('message_publish.presentation.transport.rabbitmq_exchange');
+    expect(result.destinationLabel).toBe('events.fanout');
+    expect(result.commandText).toContain('"publish": ""');
+    expect(result.commandText).toContain('"exchange": "events.fanout"');
+    expect(result.commandText).toContain('"routing_key": ""');
+  });
+
   it('builds a RocketMQ publish JSON command with tag, keys and delay level', () => {
     const result = buildMessagePublishCommand(
       { type: 'rocketmq' },
@@ -246,10 +288,11 @@ describe('messagePublish', () => {
         body: '{"id":1,"event":"created"}',
         properties: '{"trace":"trace-1"}',
       },
+      keyTranslate,
     );
 
     const command = JSON.parse(result.commandText);
-    expect(result.transportLabel).toBe('RocketMQ Topic');
+    expect(result.transportLabel).toBe('message_publish.presentation.transport.rocketmq_topic');
     expect(result.destinationLabel).toBe('orders.events');
     expect(command).toMatchObject({
       publish: 'orders.events',

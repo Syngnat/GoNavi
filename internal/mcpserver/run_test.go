@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,6 +16,16 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+type closeTrackingBackend struct {
+	*fakeBackend
+	closed chan struct{}
+}
+
+func (b *closeTrackingBackend) Close(context.Context) error {
+	close(b.closed)
+	return nil
+}
 
 type bearerTokenRoundTripper struct {
 	token string
@@ -48,6 +59,87 @@ func TestStartStreamableHTTPServerStopsWhenContextIsCanceled(t *testing.T) {
 
 	if err := handle.Wait(); err != nil {
 		t.Fatalf("HTTP server returned error after context cancellation: %v", err)
+	}
+}
+
+func TestStreamableHTTPServerWaitsForActiveHandlerBeforeClosingBackend(t *testing.T) {
+	const shutdownTimeout = 20 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	backend := &closeTrackingBackend{
+		fakeBackend: &fakeBackend{},
+		closed:      make(chan struct{}),
+	}
+	handlerStarted := make(chan struct{})
+	releaseHandler := make(chan struct{}, 1)
+	t.Cleanup(func() {
+		select {
+		case releaseHandler <- struct{}{}:
+		default:
+		}
+	})
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(handlerStarted)
+		<-releaseHandler
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	handle, err := startStreamableHTTPServer(ctx, HTTPServerOptions{
+		Addr:  "127.0.0.1:0",
+		Path:  "/mcp",
+		Token: "test-token",
+	}, handler, shutdownTimeout)
+	if err != nil {
+		t.Fatalf("startStreamableHTTPServer returned error: %v", err)
+	}
+	closeBackendAfterServerStops(handle, backend)
+
+	requestDone := make(chan error, 1)
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, "http://"+handle.Addr+handle.Path, nil)
+		if err != nil {
+			requestDone <- err
+			return
+		}
+		req.Header.Set("Authorization", "Bearer test-token")
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		requestDone <- err
+	}()
+
+	select {
+	case <-handlerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	cancel()
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 3*shutdownTimeout)
+	defer stopCancel()
+	if err := handle.Stop(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Stop returned %v while handler was still active, want deadline exceeded", err)
+	}
+	select {
+	case <-backend.closed:
+		t.Fatal("backend closed while handler was still active")
+	default:
+	}
+
+	releaseHandler <- struct{}{}
+	if err := <-requestDone; err != nil {
+		t.Fatalf("request returned error after handler release: %v", err)
+	}
+	if err := handle.Wait(); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Wait returned %v after shutdown timeout, want deadline exceeded", err)
+	}
+	select {
+	case <-backend.closed:
+	case <-time.After(time.Second):
+		t.Fatal("backend did not close after handler completed")
 	}
 }
 
@@ -115,7 +207,9 @@ func TestStartStreamableHTTPServerSupportsNormalSessionAndSSE(t *testing.T) {
 		}
 	})
 
-	httpClient := &http.Client{Transport: bearerTokenRoundTripper{token: "test-token", base: http.DefaultTransport}}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	t.Cleanup(transport.CloseIdleConnections)
+	httpClient := &http.Client{Transport: bearerTokenRoundTripper{token: "test-token", base: transport}}
 	client := mcp.NewClient(&mcp.Implementation{Name: "run-test-client", Version: "v0.0.1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{
 		Endpoint:   "http://" + handle.Addr + handle.Path,

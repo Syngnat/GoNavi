@@ -4,6 +4,7 @@ import { Alert, Button, Card, InputNumber, Segmented, Select, Space, Typography 
 import DataGrid, { GONAVI_ROW_KEY } from '../components/DataGrid';
 import { t } from '../i18n';
 import { useStore } from '../store';
+import type { SavedConnection } from '../types';
 import type { EditRowLocator } from '../utils/rowLocator';
 import type { DataTableDensity } from '../utils/dataGridDisplay';
 
@@ -25,6 +26,7 @@ type HarnessRuntimeConfig = {
 };
 
 type HarnessRestoreSnapshot = {
+  connections: SavedConnection[];
   appearance: ReturnType<typeof useStore.getState>['appearance'];
   theme: ReturnType<typeof useStore.getState>['theme'];
   uiScale: number;
@@ -33,6 +35,19 @@ type HarnessRestoreSnapshot = {
   bodyTheme: string | null;
   bodyFontSize: string;
   rootVars: Record<string, string>;
+};
+
+const HARNESS_CONNECTION: SavedConnection = {
+  id: 'perf-conn',
+  name: 'Perf Data Grid',
+  config: {
+    id: 'perf-conn',
+    type: 'mysql',
+    host: '127.0.0.1',
+    port: 3306,
+    user: 'root',
+    database: 'perf_lab',
+  },
 };
 
 const hasHarnessAppearanceDrift = (
@@ -126,7 +141,8 @@ const buildHarnessColumns = (count: number): string[] => {
     if (index === 0) return 'id';
     if (index === 1) return 'created_at';
     if (index === 2) return 'updated_at';
-    if (index === 3) return 'status';
+    if (index === 3) return 'register_date';
+    if (index === 4) return 'status';
     return `col_${String(index + 1).padStart(2, '0')}`;
   });
 };
@@ -140,6 +156,7 @@ const buildHarnessData = (rowCount: number, columnNames: string[]): HarnessRow[]
       id: rowNumber,
       created_at: `2026-05-${String((rowNumber % 28) + 1).padStart(2, '0')} 09:${String(rowNumber % 60).padStart(2, '0')}:12`,
       updated_at: `2026-05-${String((rowNumber % 28) + 1).padStart(2, '0')} 18:${String((rowNumber * 3) % 60).padStart(2, '0')}:45`,
+      register_date: `2026-05-${String((rowNumber % 28) + 1).padStart(2, '0')} 09:10:11`,
       status: rowNumber % 3 === 0 ? 'active' : (rowNumber % 3 === 1 ? 'pending' : 'archived'),
     };
     columnNames.forEach((columnName, columnIndex) => {
@@ -193,6 +210,7 @@ const PerfDataGridHarness: React.FC = () => {
     if (restoreSnapshotRef.current) return;
     const currentState = useStore.getState();
     restoreSnapshotRef.current = {
+      connections: currentState.connections,
       appearance: { ...currentState.appearance },
       theme: currentState.theme,
       uiScale: currentState.uiScale,
@@ -204,10 +222,12 @@ const PerfDataGridHarness: React.FC = () => {
         DOCUMENT_ROOT_VAR_KEYS.map((key) => [key, document.documentElement.style.getPropertyValue(key)])
       ),
     };
+    currentState.replaceConnections([HARNESS_CONNECTION]);
 
     return () => {
       const snapshot = restoreSnapshotRef.current;
       if (!snapshot) return;
+      useStore.getState().replaceConnections(snapshot.connections);
       useStore.getState().setAppearance(snapshot.appearance);
       useStore.getState().setTheme(snapshot.theme);
       useStore.getState().setUiScale(snapshot.uiScale);

@@ -80,11 +80,8 @@ const parseRequiredPayload = (
   }
   try {
     return JSON.parse(text);
-  } catch (error: any) {
-    throw new Error(translate('message_publish.error.invalid_json_detail', {
-      field: fieldLabel,
-      detail: error?.message || String(error),
-    }));
+  } catch {
+    throw new Error(translate('message_publish.error.invalid_json', { field: fieldLabel }));
   }
 };
 
@@ -113,11 +110,8 @@ const parseOptionalJSONObject = (
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
-  } catch (error: any) {
-    throw new Error(translate('message_publish.error.invalid_json_detail', {
-      field: fieldLabel,
-      detail: error?.message || String(error),
-    }));
+  } catch {
+    throw new Error(translate('message_publish.error.invalid_json', { field: fieldLabel }));
   }
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
     throw new Error(translate('message_publish.error.json_object_required', { field: fieldLabel }));
@@ -167,7 +161,10 @@ const resolveDefaultDestination = (config: ConnectionLike, explicitDestination: 
     return String(config?.database || params.get('defaultTopic') || params.get('topic') || '').trim();
   }
   if (resolvedType === 'mqtt') {
-    return String(config?.database || params.get('defaultTopic') || params.get('topic') || '').trim();
+    const configuredTopic = String(
+      config?.database || params.get('defaultTopic') || params.get('topic') || '',
+    ).trim();
+    return /[#+]/.test(configuredTopic) ? '' : configuredTopic;
   }
   if (resolvedType === 'rabbitmq') {
     return String(params.get('defaultQueue') || params.get('queue') || '').trim();
@@ -184,8 +181,8 @@ export const getMessagePublishPresentation = (
 
   if (resolvedType === 'rabbitmq') {
     return {
-      transportLabel: 'RabbitMQ Queue',
-      destinationLabel: 'Queue',
+      transportLabel: tr('message_publish.presentation.transport.rabbitmq_queue'),
+      destinationLabel: tr('message_publish.presentation.destination.queue'),
       destinationPlaceholder: tr('message_publish.presentation.rabbitmq.destination_placeholder'),
       destinationRequiredMessage: tr('message_publish.presentation.rabbitmq.destination_required'),
       alertMessage: tr('message_publish.presentation.rabbitmq.alert'),
@@ -208,8 +205,8 @@ export const getMessagePublishPresentation = (
 
   if (resolvedType === 'rocketmq') {
     return {
-      transportLabel: 'RocketMQ Topic',
-      destinationLabel: 'Topic',
+      transportLabel: tr('message_publish.presentation.transport.rocketmq_topic'),
+      destinationLabel: tr('message_publish.presentation.destination.topic'),
       destinationPlaceholder: tr('message_publish.presentation.rocketmq.destination_placeholder'),
       destinationRequiredMessage: tr('message_publish.presentation.topic_required'),
       alertMessage: tr('message_publish.presentation.rocketmq.alert'),
@@ -232,8 +229,8 @@ export const getMessagePublishPresentation = (
 
   if (resolvedType === 'mqtt') {
     return {
-      transportLabel: 'MQTT Topic',
-      destinationLabel: 'Topic',
+      transportLabel: tr('message_publish.presentation.transport.mqtt_topic'),
+      destinationLabel: tr('message_publish.presentation.destination.topic'),
       destinationPlaceholder: tr('message_publish.presentation.mqtt.destination_placeholder'),
       destinationRequiredMessage: tr('message_publish.presentation.topic_required'),
       alertMessage: tr('message_publish.presentation.mqtt.alert'),
@@ -255,8 +252,8 @@ export const getMessagePublishPresentation = (
   }
 
   return {
-    transportLabel: 'Kafka Topic',
-    destinationLabel: 'Topic',
+    transportLabel: tr('message_publish.presentation.transport.kafka_topic'),
+    destinationLabel: tr('message_publish.presentation.destination.topic'),
     destinationPlaceholder: tr('message_publish.presentation.kafka.destination_placeholder'),
     destinationRequiredMessage: tr('message_publish.presentation.topic_required'),
     alertMessage: tr('message_publish.presentation.kafka.alert'),
@@ -280,16 +277,23 @@ export const getMessagePublishPresentation = (
 export const createDefaultMessagePublishDraft = (
   config: ConnectionLike,
   destination = '',
+  explicitExchange = '',
 ): MessagePublishDraft => {
   const resolvedType = resolveDataSourceType(config as any);
   const resolvedDestination = resolveDefaultDestination(config, destination);
   const params = resolveConnectionParams(config);
 
   if (resolvedType === 'rabbitmq') {
+    const exchangeTarget = normalizeRabbitMQExchange(explicitExchange);
+    const directExchangeDestination = exchangeTarget
+      ? String(destination || '').trim()
+      : resolvedDestination;
     return {
-      destination: resolvedDestination,
-      exchange: normalizeRabbitMQExchange(params.get('defaultExchange') || params.get('exchange') || ''),
-      routingKey: resolvedDestination,
+      destination: directExchangeDestination,
+      exchange: exchangeTarget || normalizeRabbitMQExchange(
+        params.get('defaultExchange') || params.get('exchange') || '',
+      ),
+      routingKey: directExchangeDestination,
       bodyMode: 'json',
       body: '{\n  "event": "test",\n  "source": "gonavi"\n}',
       headers: '{\n  "x-source": "gonavi"\n}',
@@ -342,8 +346,10 @@ export const buildMessagePublishCommand = (
   const tr = translate;
   const bodyFieldLabel = tr('message_publish.field.body');
   const messageKeyFieldLabel = tr('message_publish.field.message_key');
+  const headersFieldLabel = tr('message_publish.field.headers');
+  const propertiesFieldLabel = tr('message_publish.field.properties');
   const destination = String(draft.destination || '').trim();
-  if (!destination) {
+  if (!destination && resolvedType !== 'rabbitmq') {
     throw new Error(tr('message_publish.error.destination_required'));
   }
 
@@ -364,7 +370,7 @@ export const buildMessagePublishCommand = (
     return {
       commandText: JSON.stringify(command, null, 2),
       destinationLabel: destination,
-      transportLabel: 'MQTT Topic',
+      transportLabel: tr('message_publish.presentation.transport.mqtt_topic'),
     };
   }
 
@@ -393,7 +399,7 @@ export const buildMessagePublishCommand = (
       command.delayLevel = Math.trunc(delayLevel);
     }
 
-    const properties = parseOptionalJSONObject(draft.properties, 'Properties', tr);
+    const properties = parseOptionalJSONObject(draft.properties, propertiesFieldLabel, tr);
     if (properties && Object.keys(properties).length > 0) {
       command.properties = properties;
     }
@@ -401,34 +407,46 @@ export const buildMessagePublishCommand = (
     return {
       commandText: JSON.stringify(command, null, 2),
       destinationLabel: destination,
-      transportLabel: 'RocketMQ Topic',
+      transportLabel: tr('message_publish.presentation.transport.rocketmq_topic'),
     };
   }
 
   if (resolvedType === 'rabbitmq') {
     const params = resolveConnectionParams(config);
     const bodyMode = normalizeMode(draft.bodyMode, 'json');
+    const exchange = normalizeRabbitMQExchange(
+      draft.exchange || params.get('defaultExchange') || params.get('exchange') || '',
+    );
+    if (!destination && !exchange) {
+      throw new Error(tr('message_publish.error.destination_required'));
+    }
+    const routingKey = String(draft.routingKey || '').trim() || destination;
     const command: Record<string, unknown> = {
       publish: destination,
       payload: parseRequiredPayload(draft.body, bodyMode, bodyFieldLabel, tr),
-      exchange: normalizeRabbitMQExchange(draft.exchange || params.get('defaultExchange') || params.get('exchange') || ''),
-      routing_key: String(draft.routingKey || '').trim() || destination,
+      exchange,
+      routing_key: routingKey,
     };
 
-    const headers = parseOptionalJSONObject(draft.headers, 'Headers', tr);
+    const headers = parseOptionalJSONObject(draft.headers, headersFieldLabel, tr);
     if (headers && Object.keys(headers).length > 0) {
       command.headers = headers;
     }
 
-    const properties = parseOptionalJSONObject(draft.properties, 'Properties', tr);
+    const properties = parseOptionalJSONObject(draft.properties, propertiesFieldLabel, tr);
     if (properties && Object.keys(properties).length > 0) {
       command.properties = properties;
     }
 
+    const directExchangePublish = !destination && Boolean(exchange);
     return {
       commandText: JSON.stringify(command, null, 2),
-      destinationLabel: destination,
-      transportLabel: 'RabbitMQ Queue',
+      destinationLabel: directExchangePublish
+        ? [exchange, routingKey].filter(Boolean).join(' · ')
+        : destination,
+      transportLabel: directExchangePublish
+        ? tr('message_publish.presentation.transport.rabbitmq_exchange')
+        : tr('message_publish.presentation.transport.rabbitmq_queue'),
     };
   }
 
@@ -445,7 +463,7 @@ export const buildMessagePublishCommand = (
       command.key = keyPayload;
     }
 
-    const headers = parseOptionalJSONObject(draft.headers, 'Headers', tr);
+    const headers = parseOptionalJSONObject(draft.headers, headersFieldLabel, tr);
     if (headers && Object.keys(headers).length > 0) {
       command.headers = headers;
     }
@@ -453,7 +471,7 @@ export const buildMessagePublishCommand = (
     return {
       commandText: JSON.stringify(command, null, 2),
       destinationLabel: destination,
-      transportLabel: 'Kafka Topic',
+      transportLabel: tr('message_publish.presentation.transport.kafka_topic'),
     };
   }
 

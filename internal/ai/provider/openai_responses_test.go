@@ -3,12 +3,14 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"GoNavi-Wails/internal/ai"
 )
@@ -351,6 +353,205 @@ func TestOpenAIResponsesProviderChatStreamParsesTypedEvents(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesProviderChatStreamOutlivesHTTPClientTimeout(t *testing.T) {
+	const clientTimeout = 50 * time.Millisecond
+	attempts := 0
+	transport := responsesRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		reader, writer := io.Pipe()
+		go func() {
+			defer writer.Close()
+			_, _ = io.WriteString(writer, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"slow \"}\n\n")
+
+			timer := time.NewTimer(3 * clientTimeout)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				_, _ = io.WriteString(writer, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"done\"}\n\n")
+				_, _ = io.WriteString(writer, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_slow\",\"status\":\"completed\"}}\n\n")
+			case <-req.Context().Done():
+				_ = writer.CloseWithError(req.Context().Err())
+			}
+		}()
+
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       reader,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Request:    req,
+		}, nil
+	})
+
+	providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+		Type:      "custom",
+		APIFormat: "openai-responses",
+		APIKey:    "sk-test",
+		BaseURL:   "https://provider.test/v1",
+		Model:     "glm-test",
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	provider := providerInstance.(*OpenAIResponsesProvider)
+	provider.client = &http.Client{Transport: transport, Timeout: clientTimeout}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var content strings.Builder
+	done := false
+	err = provider.ChatStream(ctx, ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	}, func(chunk ai.StreamChunk) {
+		content.WriteString(chunk.Content)
+		done = done || chunk.Done
+	})
+	if err != nil {
+		t.Fatalf("slow stream: %v", err)
+	}
+	if content.String() != "slow done" || !done {
+		t.Fatalf("chunks content=%q done=%t", content.String(), done)
+	}
+	if attempts != 1 {
+		t.Fatalf("requests=%d, want 1 (no retry)", attempts)
+	}
+}
+
+func TestOpenAIResponsesProviderChatStreamRespectsContextCancellation(t *testing.T) {
+	transport := responsesRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		reader, writer := io.Pipe()
+		go func() {
+			_, _ = io.WriteString(writer, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"started\"}\n\n")
+			<-req.Context().Done()
+			_ = writer.CloseWithError(req.Context().Err())
+		}()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       reader,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Request:    req,
+		}, nil
+	})
+
+	providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+		Type:      "custom",
+		APIFormat: "openai-responses",
+		APIKey:    "sk-test",
+		BaseURL:   "https://provider.test/v1",
+		Model:     "glm-test",
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	provider := providerInstance.(*OpenAIResponsesProvider)
+	provider.client = &http.Client{Transport: transport, Timeout: 50 * time.Millisecond}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = provider.ChatStream(ctx, ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	}, func(chunk ai.StreamChunk) {
+		if chunk.Content == "started" {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("stream error=%v, want context canceled", err)
+	}
+}
+
+func TestOpenAIResponsesProviderChatStreamBoundsErrorBodyRead(t *testing.T) {
+	const clientTimeout = 40 * time.Millisecond
+	transport := responsesRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		reader, writer := io.Pipe()
+		go func() {
+			<-req.Context().Done()
+			_ = writer.CloseWithError(req.Context().Err())
+		}()
+		return &http.Response{
+			StatusCode:    http.StatusBadRequest,
+			Body:          reader,
+			ContentLength: -1,
+			Header:        http.Header{"Content-Type": []string{"application/json"}},
+			Request:       req,
+		}, nil
+	})
+
+	providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+		Type:      "custom",
+		APIFormat: "openai-responses",
+		APIKey:    "sk-test",
+		BaseURL:   "https://provider.test/v1",
+		Model:     "glm-test",
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	provider := providerInstance.(*OpenAIResponsesProvider)
+	provider.client = &http.Client{Transport: transport, Timeout: clientTimeout}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*clientTimeout)
+	defer cancel()
+	started := time.Now()
+	err = provider.ChatStream(ctx, ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	}, func(ai.StreamChunk) {})
+	if err == nil || !strings.Contains(err.Error(), "error response body read timed out") {
+		t.Fatalf("stream error=%v, want bounded error-body timeout", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("outer context ended unexpectedly: %v", ctx.Err())
+	}
+	if elapsed := time.Since(started); elapsed > 5*clientTimeout {
+		t.Fatalf("error body read returned after %s, want timeout near %s", elapsed, clientTimeout)
+	}
+}
+
+func TestOpenAIResponsesProviderChatKeepsHTTPClientTimeout(t *testing.T) {
+	const clientTimeout = 50 * time.Millisecond
+	transport := responsesRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		reader, writer := io.Pipe()
+		go func() {
+			<-req.Context().Done()
+			_ = writer.CloseWithError(req.Context().Err())
+		}()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       reader,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Request:    req,
+		}, nil
+	})
+
+	providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+		Type:      "custom",
+		APIFormat: "openai-responses",
+		APIKey:    "sk-test",
+		BaseURL:   "https://provider.test/v1",
+		Model:     "glm-test",
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	provider := providerInstance.(*OpenAIResponsesProvider)
+	provider.client = &http.Client{Transport: transport, Timeout: clientTimeout}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	started := time.Now()
+	_, err = provider.Chat(ctx, ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("chat error=%v, want HTTP client timeout", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatalf("outer context ended unexpectedly: %v", ctx.Err())
+	}
+	if elapsed := time.Since(started); elapsed > 5*clientTimeout {
+		t.Fatalf("chat timed out after %s, want client timeout near %s", elapsed, clientTimeout)
+	}
+}
+
 func TestBuildOpenAIResponsesInputPreservesAssistantTextAsMessage(t *testing.T) {
 	input := buildOpenAIResponsesInput([]ai.Message{
 		{Role: "assistant", Content: "I will inspect the schema first."},
@@ -586,6 +787,26 @@ func TestOpenAIResponsesProviderChatReportsAPIAndEmptyOutputErrors(t *testing.T)
 			body: `{"id":"resp_incomplete","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}]}`,
 			want: "max_output_tokens",
 		},
+		{
+			name: "failed_output_with_code_only",
+			body: `{"id":"resp_failed","status":"failed","error":{"code":"provider_overloaded"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}`,
+			want: "provider_overloaded",
+		},
+		{
+			name: "completed_output_with_code_only_error",
+			body: `{"id":"resp_failed","status":"completed","error":{"code":"provider_overloaded"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}`,
+			want: "provider_overloaded",
+		},
+		{
+			name: "cancelled_output",
+			body: `{"id":"resp_cancelled","status":"cancelled","error":{"code":"user_cancelled"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}`,
+			want: "user_cancelled",
+		},
+		{
+			name: "unexpected_terminal_status",
+			body: `{"id":"resp_in_progress","status":"in_progress","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}`,
+			want: "in_progress",
+		},
 	}
 
 	for _, tt := range tests {
@@ -613,6 +834,88 @@ func TestOpenAIResponsesProviderChatReportsAPIAndEmptyOutputErrors(t *testing.T)
 	}
 }
 
+func TestOpenAIResponsesProviderChatStreamRejectsInvalidTerminalEvent(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "failed",
+			body: `{"type":"response.completed","response":{"id":"resp_failed","status":"failed","error":{"code":"provider_overloaded"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "provider_overloaded",
+		},
+		{
+			name: "incomplete",
+			body: `{"type":"response.completed","response":{"id":"resp_incomplete","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}]}}`,
+			want: "max_output_tokens",
+		},
+		{
+			name: "cancelled",
+			body: `{"type":"response.completed","response":{"id":"resp_cancelled","status":"cancelled","error":{"code":"user_cancelled"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "user_cancelled",
+		},
+		{
+			name: "canceled",
+			body: `{"type":"response.completed","response":{"id":"resp_canceled","status":"canceled","error":{"code":"user_canceled"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "user_canceled",
+		},
+		{
+			name: "unexpected_terminal_status",
+			body: `{"type":"response.completed","response":{"id":"resp_in_progress","status":"in_progress","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "in_progress",
+		},
+		{
+			name: "completed_with_top_level_message",
+			body: `{"type":"response.completed","message":"upstream response failed","response":{"id":"resp_completed","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "upstream response failed",
+		},
+		{
+			name: "completed_with_top_level_code",
+			body: `{"type":"response.completed","code":"provider_overloaded","response":{"id":"resp_completed","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "provider_overloaded",
+		},
+		{
+			name: "completed_with_top_level_error",
+			body: `{"type":"response.completed","error":{"message":"invalid tool output"},"response":{"id":"resp_completed","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"must not be accepted"}]}]}}`,
+			want: "invalid tool output",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = w.Write([]byte("data: " + tt.body + "\n\n"))
+			}))
+			defer server.Close()
+
+			providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+				Type: "custom", APIFormat: "openai-responses", APIKey: "sk-test", BaseURL: server.URL + "/v1", Model: "gpt-test",
+			})
+			if err != nil {
+				t.Fatalf("create provider: %v", err)
+			}
+
+			oldState := json.RawMessage(`{"input":[{"type":"message","role":"user","content":"previous"}]}`)
+			done := false
+			nextState, err := providerInstance.(*OpenAIResponsesProvider).ChatStreamWithState(
+				context.Background(), oldState, ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}},
+				func(chunk ai.StreamChunk) { done = done || chunk.Done },
+			)
+			if err == nil || !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(tt.want)) {
+				t.Fatalf("expected stream error containing %q, got %v", tt.want, err)
+			}
+			if done {
+				t.Fatal("non-completed terminal status emitted Done")
+			}
+			if string(nextState) != string(oldState) {
+				t.Fatalf("terminal failure advanced provider state: old=%s next=%s", oldState, nextState)
+			}
+		})
+	}
+}
+
 func TestOpenAIResponsesProviderChatStreamReportsFailedAndErrorEvents(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -625,9 +928,54 @@ func TestOpenAIResponsesProviderChatStreamReportsFailedAndErrorEvents(t *testing
 			want:  "rate limited",
 		},
 		{
+			name:  "response_failed_top_level_error",
+			event: `data: {"type":"response.failed","error":{"code":"invalid_request_error","message":"invalid tool output"}}`,
+			want:  "invalid tool output",
+		},
+		{
+			name:  "response_failed_top_level_message_before_nested_code",
+			event: `data: {"type":"response.failed","message":"request input is invalid","response":{"status":"failed","error":{"code":"server_error"}}}`,
+			want:  "request input is invalid",
+		},
+		{
+			name:  "response_failed_nested_code_only",
+			event: `data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error"}}}`,
+			want:  "server_error",
+		},
+		{
+			name:  "response_failed_top_level_error_code_only",
+			event: `data: {"type":"response.failed","error":{"code":"provider_overloaded"}}`,
+			want:  "provider_overloaded",
+		},
+		{
+			name:  "response_failed_top_level_code_only",
+			event: `data: {"type":"response.failed","code":"response_validation_failed"}`,
+			want:  "response_validation_failed",
+		},
+		{
+			name:  "response_failed_top_level_error_string",
+			event: `data: {"type":"response.failed","error":"provider rejected the response"}`,
+			want:  "provider rejected the response",
+		},
+		{
+			name:  "response_failed_nested_error_string",
+			event: `data: {"type":"response.failed","response":{"status":"failed","error":"provider overloaded"}}`,
+			want:  "provider overloaded",
+		},
+		{
+			name:  "response_failed_blank_details_use_fallback",
+			event: `data: {"type":"response.failed","message":"  ","code":"\t","error":{"message":"\n","code":" "},"response":{"status":"failed","error":{"message":" ","code":"  "}}}`,
+			want:  "OpenAI Responses request failed",
+		},
+		{
 			name:  "error_event",
 			event: `data: {"type":"error","code":"server_error","message":"upstream unavailable"}`,
 			want:  "upstream unavailable",
+		},
+		{
+			name:  "error_event_code_only",
+			event: `data: {"type":"error","code":"gateway_timeout"}`,
+			want:  "gateway_timeout",
 		},
 		{
 			name:  "response_incomplete",
@@ -712,8 +1060,8 @@ func TestOpenAIResponsesProviderChatRetriesWithoutToolsOnHTTP400(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected tools fallback to succeed, got %v", err)
 	}
-	if requestCount != 3 {
-		t.Fatalf("expected include fallback before the retry without tools, got %d requests", requestCount)
+	if requestCount != 2 {
+		t.Fatalf("expected one retry without unsupported tools, got %d requests", requestCount)
 	}
 	if response.Content != "pong" {
 		t.Fatalf("unexpected fallback response: %#v", response)
@@ -766,6 +1114,212 @@ func TestOpenAIResponsesProviderChatRetriesWithoutUnsupportedIncludeOnHTTP400(t 
 	}
 	if response.Content != "pong" || requestCount != 2 {
 		t.Fatalf("unexpected include fallback result: response=%#v requests=%d", response, requestCount)
+	}
+}
+
+func TestOpenAIResponsesProviderChatDoesNotDropToolsForUnrelatedClientError(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		defer r.Body.Close()
+
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if _, hasTools := payload["tools"]; !hasTools {
+			t.Fatalf("tools were removed from retry request: %#v", payload)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Invalid JSON data: input did not match any variant of ResponseInput"}}`))
+	}))
+	defer server.Close()
+
+	providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+		Type: "custom", APIFormat: "openai-responses", APIKey: "sk-test", BaseURL: server.URL + "/v1", Model: "glm-test",
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+
+	_, err = providerInstance.Chat(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "continue"}},
+		Tools: []ai.Tool{{
+			Type: "function",
+			Function: ai.ToolFunction{
+				Name:       "execute_sql",
+				Parameters: map[string]any{"type": "object"},
+			},
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Invalid JSON data") {
+		t.Fatalf("expected original input error, got %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("requests=%d, want 1 (unrelated client errors must not trigger compatibility fallback)", requestCount)
+	}
+}
+
+func TestOpenAIResponsesProviderChatDoesNotDropToolsForNestedSchemaJSONPointer(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+	}{
+		{
+			name:    "relative JSON pointer",
+			message: `unexpected field: tools/0/parameters/properties/sql/nullable`,
+		},
+		{
+			name:    "fragment JSON pointer",
+			message: `unexpected field: #/tools/0/parameters/properties/sql/nullable`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requestCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requestCount++
+				defer r.Body.Close()
+
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+				if _, hasTools := payload["tools"]; !hasTools {
+					t.Fatalf("tools were removed from retry request: %#v", payload)
+				}
+
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error": map[string]any{"message": tt.message},
+				})
+			}))
+			defer server.Close()
+
+			providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+				Type: "custom", APIFormat: "openai-responses", APIKey: "sk-test", BaseURL: server.URL + "/v1", Model: "glm-test",
+			})
+			if err != nil {
+				t.Fatalf("create provider: %v", err)
+			}
+
+			_, err = providerInstance.Chat(context.Background(), ai.ChatRequest{
+				Messages: []ai.Message{{Role: "user", Content: "continue"}},
+				Tools: []ai.Tool{{
+					Type: "function",
+					Function: ai.ToolFunction{
+						Name:       "execute_sql",
+						Parameters: map[string]any{"type": "object"},
+					},
+				}},
+			})
+			if err == nil || !strings.Contains(err.Error(), tt.message) {
+				t.Fatalf("expected original nested schema error, got %v", err)
+			}
+			if requestCount != 1 {
+				t.Fatalf("requests=%d, want 1 (nested schema errors must not trigger tools fallback)", requestCount)
+			}
+		})
+	}
+}
+
+func TestOpenAIResponsesUnsupportedCapabilityErrorClassification(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		is   func(error) bool
+		want bool
+	}{
+		{
+			name: "tools explicitly unsupported on 400",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 400): tools unsupported"),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: true,
+		},
+		{
+			name: "function calling unsupported on 422",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 422): model does not support function calling"),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: true,
+		},
+		{
+			name: "include unknown parameter",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 400): unknown parameter: include"),
+			is:   isOpenAIResponsesUnsupportedIncludeError,
+			want: true,
+		},
+		{
+			name: "invalid response input is unrelated",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 400): input did not match any variant of ResponseInput"),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "invalid tools schema is not unsupported",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 422): invalid tools schema"),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "nested tools schema unexpected field is not unsupported",
+			err:  fmt.Errorf(`OpenAI Responses API returned error (HTTP 422): tools[0].parameters: unexpected field "nullable"`),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "nested tools schema path separated by whitespace is not unsupported",
+			err:  fmt.Errorf(`OpenAI Responses API returned error (HTTP 422): unexpected field: tools [0].parameters.nullable`),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "nested dotted tools path separated by whitespace is not unsupported",
+			err:  fmt.Errorf(`OpenAI Responses API returned error (HTTP 422): unexpected field: tools .0.parameters.nullable`),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "nested tools schema value not allowed is not unsupported",
+			err:  fmt.Errorf(`OpenAI Responses API returned error (HTTP 400): tools[0].parameters.properties.sql: value is not allowed`),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "nested tools schema relative JSON pointer is not unsupported",
+			err:  fmt.Errorf(`OpenAI Responses API returned error (HTTP 422): unexpected field: tools/0/parameters/properties/sql/nullable`),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "nested tools schema fragment JSON pointer is not unsupported",
+			err:  fmt.Errorf(`OpenAI Responses API returned error (HTTP 422): unexpected field: #/tools/0/parameters/properties/sql/nullable`),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "unsupported response input item is not unsupported tools",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 400): unsupported ResponseInput item type function_call"),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+		{
+			name: "404 is not a compatibility fallback",
+			err:  fmt.Errorf("OpenAI Responses API returned error (HTTP 404): tools unsupported"),
+			is:   isOpenAIResponsesUnsupportedToolsError,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.is(tt.err); got != tt.want {
+				t.Fatalf("classification=%t, want %t for %v", got, tt.want, tt.err)
+			}
+		})
 	}
 }
 

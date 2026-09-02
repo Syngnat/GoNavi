@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
@@ -253,6 +255,109 @@ func TestRetryImportJobFailedRowsOnlySubmitsArtifactRows(t *testing.T) {
 	if !containsRecoveryJob(jobs, parent.ID, importJobRecoveryActionRetryFailedRows) {
 		t.Fatalf("missing failed-row retry history entry: %#v", jobs)
 	}
+}
+
+func TestInspectRetryableImportErrorArtifactReportsRecoveryScope(t *testing.T) {
+	app, _ := newImportRecoveryTestApp(t)
+	artifactStore, err := app.ensureImportErrorArtifactStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := artifactStore.Begin("scope-import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := []ImportRowError{
+		{SourceRow: 2, Category: "database", Retryable: true, Values: map[string]interface{}{"id": "2"}},
+		{SourceRow: 3, Category: "parse", Message: "malformed row"},
+		{SourceRow: 4, Category: "database", Message: "missing values"},
+	}
+	for _, row := range rows {
+		if err := writer.Append(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifact, err := writer.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := app.inspectRetryableImportErrorArtifact(artifact.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scope.retryableCount != 1 || scope.unretryableCount != 2 || len(scope.columns) != 1 || scope.columns[0] != "id" {
+		t.Fatalf("unexpected recovery scope: %#v", scope)
+	}
+}
+
+func TestStreamRetryableImportErrorArtifactStopsWithoutReadingWholeFile(t *testing.T) {
+	app, _ := newImportRecoveryTestApp(t)
+	artifactStore, err := app.ensureImportErrorArtifactStore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := artifactStore.Begin("stream-import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := int64(0); index < maxImportErrorArtifactRows; index++ {
+		if err := writer.Append(ImportRowError{
+			SourceRow: index + 1,
+			Category:  "database",
+			Values:    map[string]interface{}{"id": index},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	artifact, err := writer.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := errors.New("stop after first row")
+	seen := 0
+	err = app.streamRetryableImportErrorArtifact(artifact.ID, func(ImportRowError) error {
+		seen++
+		return stop
+	})
+	if !errors.Is(err, stop) || seen != 1 {
+		t.Fatalf("streaming callback did not stop early: err=%v seen=%d", err, seen)
+	}
+}
+
+func TestStreamImportErrorArtifactRowsRejectsLegacyFilesBeyondCurrentQuotas(t *testing.T) {
+	t.Run("bytes", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "oversized-*.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer file.Close()
+		if err := file.Truncate(maxImportErrorArtifactBytes + 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := streamImportErrorArtifactRows(file, nil); !errors.Is(err, errImportJobRetryUnavailable) {
+			t.Fatalf("oversized legacy artifact error = %v", err)
+		}
+	})
+
+	t.Run("rows", func(t *testing.T) {
+		file, err := os.CreateTemp(t.TempDir(), "too-many-rows-*.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		line := `{"sourceRow":1,"category":"parse","message":"invalid"}` + "\n"
+		if _, err := file.WriteString(strings.Repeat(line, int(maxImportErrorArtifactRows+1))); err != nil {
+			file.Close()
+			t.Fatal(err)
+		}
+		if _, err := file.Seek(0, 0); err != nil {
+			file.Close()
+			t.Fatal(err)
+		}
+		defer file.Close()
+		if err := streamImportErrorArtifactRows(file, nil); !errors.Is(err, errImportJobRetryUnavailable) {
+			t.Fatalf("over-row legacy artifact error = %v", err)
+		}
+	})
 }
 
 func TestRecoveryActionsFailClosedForUnknownOutcome(t *testing.T) {

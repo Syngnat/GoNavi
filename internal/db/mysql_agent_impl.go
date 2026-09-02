@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"GoNavi-Wails/internal/connection"
 )
@@ -31,7 +32,11 @@ const (
 	mysqlAgentMethodGetTriggers      = "getTriggers"
 	mysqlAgentMethodApplyChanges     = "applyChanges"
 	mysqlAgentDefaultScannerMaxBytes = 8 << 20
+	mysqlAgentControlCallTimeout     = 30 * time.Second
+	mysqlAgentShutdownCallTimeout    = 2 * time.Second
 )
+
+var errMySQLAgentTransportStopped = errors.New("MySQL 驱动代理传输已关闭")
 
 type mysqlAgentRequest struct {
 	ID        int64                        `json:"id"`
@@ -53,12 +58,19 @@ type mysqlAgentResponse struct {
 }
 
 type mysqlAgentClient struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	reader *bufio.Reader
-	nextID int64
-	mu     sync.Mutex
-	stderr boundedDiagnosticTail
+	cmd             *exec.Cmd
+	stdin           io.WriteCloser
+	stdout          io.ReadCloser
+	reader          *bufio.Reader
+	nextID          int64
+	callGateOnce    sync.Once
+	callGate        chan struct{}
+	stateMu         sync.Mutex
+	stopOnce        sync.Once
+	stopErr         error
+	stopped         error
+	stderr          boundedDiagnosticTail
+	shutdownTimeout time.Duration
 }
 
 func newMySQLAgentClient(executablePath string) (*mysqlAgentClient, error) {
@@ -95,6 +107,7 @@ func newMySQLAgentClient(executablePath string) (*mysqlAgentClient, error) {
 	client := &mysqlAgentClient{
 		cmd:    cmd,
 		stdin:  stdin,
+		stdout: stdout,
 		reader: bufio.NewReader(stdout),
 	}
 	go client.captureStderr(stderr)
@@ -119,8 +132,21 @@ func (c *mysqlAgentClient) stderrText() string {
 }
 
 func (c *mysqlAgentClient) call(req mysqlAgentRequest, out interface{}, fields *[]string, rowsAffected *int64) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	return c.runWithContext(context.Background(), req.Method, func() error {
+		return c.callLocked(req, out, fields, rowsAffected)
+	})
+}
+
+func (c *mysqlAgentClient) callContext(ctx context.Context, req mysqlAgentRequest, out interface{}, fields *[]string, rowsAffected *int64) error {
+	return c.runWithContext(ctx, req.Method, func() error {
+		return c.callLocked(req, out, fields, rowsAffected)
+	})
+}
+
+func (c *mysqlAgentClient) callLocked(req mysqlAgentRequest, out interface{}, fields *[]string, rowsAffected *int64) error {
+	if err := c.stoppedError(); err != nil {
+		return fmt.Errorf("MySQL 驱动代理传输不可用：%w", err)
+	}
 
 	c.nextID++
 	req.ID = c.nextID
@@ -132,6 +158,7 @@ func (c *mysqlAgentClient) call(req mysqlAgentRequest, out interface{}, fields *
 	payload = append(payload, '\n')
 	if _, err := c.stdin.Write(payload); err != nil {
 		stderrText := c.stderrText()
+		_ = c.forceTerminate(err)
 		if stderrText == "" {
 			return fmt.Errorf("调用 MySQL 驱动代理失败：%w", err)
 		}
@@ -141,6 +168,7 @@ func (c *mysqlAgentClient) call(req mysqlAgentRequest, out interface{}, fields *
 	line, err := c.reader.ReadBytes('\n')
 	if err != nil {
 		stderrText := c.stderrText()
+		_ = c.forceTerminate(err)
 		if stderrText == "" {
 			return fmt.Errorf("读取 MySQL 驱动代理响应失败：%w", err)
 		}
@@ -149,7 +177,13 @@ func (c *mysqlAgentClient) call(req mysqlAgentRequest, out interface{}, fields *
 
 	var resp mysqlAgentResponse
 	if err := json.Unmarshal(line, &resp); err != nil {
+		_ = c.forceTerminate(err)
 		return fmt.Errorf("解析 MySQL 驱动代理响应失败：%w", err)
+	}
+	if resp.ID != req.ID {
+		violation := fmt.Errorf("MySQL 驱动代理协议错误：响应 ID 不匹配：收到 %d，期望 %d", resp.ID, req.ID)
+		_ = c.forceTerminate(violation)
+		return violation
 	}
 	if !resp.Success {
 		errText := strings.TrimSpace(resp.Error)
@@ -173,20 +207,172 @@ func (c *mysqlAgentClient) call(req mysqlAgentRequest, out interface{}, fields *
 	return nil
 }
 
+func (c *mysqlAgentClient) runWithContext(ctx context.Context, method string, operation func() error) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return mysqlAgentContextError(method, err)
+	}
+	if err := c.acquireCallGate(ctx); err != nil {
+		return mysqlAgentContextError(method, err)
+	}
+	defer c.releaseCallGate()
+	if err := ctx.Err(); err != nil {
+		return mysqlAgentContextError(method, err)
+	}
+
+	if ctx.Done() == nil {
+		return operation()
+	}
+
+	// Anonymous pipes do not reliably support deadlines on every target OS.
+	// Only a request that already owns the serial transport may tear it down.
+	// A caller whose context expires while waiting for the gate returns above
+	// without interrupting the legitimate long-running request ahead of it.
+	// context.AfterFunc avoids leaving one watcher goroutine behind per call.
+	terminateDone := make(chan struct{})
+	stopTerminate := context.AfterFunc(ctx, func() {
+		defer close(terminateDone)
+		_ = c.forceTerminate(ctx.Err())
+	})
+
+	err := operation()
+	if stopTerminate() {
+		return err
+	}
+	<-terminateDone
+	return mysqlAgentContextError(method, ctx.Err())
+}
+
+func (c *mysqlAgentClient) acquireCallGate(ctx context.Context) error {
+	gate := c.callGateChannel()
+	if ctx == nil || ctx.Done() == nil {
+		<-gate
+		return nil
+	}
+	select {
+	case <-gate:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *mysqlAgentClient) releaseCallGate() {
+	c.callGateChannel() <- struct{}{}
+}
+
+func (c *mysqlAgentClient) callGateChannel() chan struct{} {
+	c.callGateOnce.Do(func() {
+		c.callGate = make(chan struct{}, 1)
+		c.callGate <- struct{}{}
+	})
+	return c.callGate
+}
+
+func mysqlAgentContextError(method string, err error) error {
+	if err == nil {
+		err = context.Canceled
+	}
+	action := strings.TrimSpace(method)
+	if action == "" {
+		action = "IPC"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("MySQL 驱动代理 %s 请求超时：%w", action, err)
+	}
+	return fmt.Errorf("MySQL 驱动代理 %s 请求已取消：%w", action, err)
+}
+
+func (c *mysqlAgentClient) callWithTimeout(req mysqlAgentRequest, out interface{}, fields *[]string, rowsAffected *int64, timeout time.Duration) error {
+	if timeout <= 0 {
+		return c.call(req, out, fields, rowsAffected)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return c.callContext(ctx, req, out, fields, rowsAffected)
+}
+
+func (c *mysqlAgentClient) stoppedError() error {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.stopped
+}
+
+func (c *mysqlAgentClient) markStopped(cause error) {
+	stoppedErr := errMySQLAgentTransportStopped
+	if cause != nil && !errors.Is(cause, errMySQLAgentTransportStopped) {
+		stoppedErr = fmt.Errorf("%w（原因：%v）", errMySQLAgentTransportStopped, cause)
+	}
+	c.stateMu.Lock()
+	if c.stopped == nil {
+		c.stopped = stoppedErr
+	}
+	c.stateMu.Unlock()
+}
+
+func (c *mysqlAgentClient) forceTerminate(cause error) error {
+	// A terminated transport is never reused: a response may still be buffered
+	// in the killed agent, so recovery must create a fresh client via Connect.
+	c.markStopped(cause)
+	return c.stopProcess(true)
+}
+
+func (c *mysqlAgentClient) stopProcess(force bool) error {
+	// A forced stop must be able to interrupt a graceful wait already running
+	// inside stopOnce, so issue Kill before entering the once gate.
+	if force && c.cmd != nil && c.cmd.Process != nil {
+		_ = c.cmd.Process.Kill()
+	}
+	c.stopOnce.Do(func() {
+		// Close both pipe directions before waiting. This unblocks an in-flight
+		// call without taking the serial gate; waiting for it here would recreate the
+		// shutdown deadlock this cleanup path is meant to break.
+		if c.stdin != nil {
+			_ = c.stdin.Close()
+		}
+		if c.stdout != nil {
+			_ = c.stdout.Close()
+		}
+		if c.cmd == nil || c.cmd.Process == nil {
+			return
+		}
+		c.stopErr = waitForAgentExit(c.cmd.Wait, c.cmd.Process.Kill, agentProcessExitTimeout)
+	})
+	return c.stopErr
+}
+
 func (c *mysqlAgentClient) close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return closeAgentProcess(c.stdin, c.cmd)
+	c.markStopped(errMySQLAgentTransportStopped)
+	return c.stopProcess(false)
+}
+
+func (c *mysqlAgentClient) shutdownCallTimeout() time.Duration {
+	if c.shutdownTimeout > 0 {
+		return c.shutdownTimeout
+	}
+	return mysqlAgentShutdownCallTimeout
 }
 
 type MySQLAgentDB struct {
-	client *mysqlAgentClient
+	lifecycleMu sync.Mutex
+	clientMu    sync.RWMutex
+	client      *mysqlAgentClient
 }
 
+var _ QueryContexter = (*MySQLAgentDB)(nil)
+var _ ExecContexter = (*MySQLAgentDB)(nil)
+
 func (m *MySQLAgentDB) Connect(config connection.ConnectionConfig) error {
-	if m.client != nil {
-		_ = m.client.close()
-		m.client = nil
+	// Connect deliberately replaces any prior client, including one stopped by
+	// a cancelled request; cancelled SQL is never replayed on the new process.
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	oldClient := m.takeClient()
+	if oldClient != nil {
+		_ = oldClient.close()
 	}
 
 	executablePath, err := ResolveMySQLAgentExecutablePath("")
@@ -204,33 +390,66 @@ func (m *MySQLAgentDB) Connect(config connection.ConnectionConfig) error {
 		_ = client.close()
 		return err
 	}
-	m.client = client
+	m.setClient(client)
 	return nil
 }
 
 func (m *MySQLAgentDB) Close() error {
-	if m.client == nil {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	client := m.takeClient()
+	if client == nil {
 		return nil
 	}
-	_ = m.client.call(mysqlAgentRequest{Method: mysqlAgentMethodClose}, nil, nil, nil)
-	err := m.client.close()
-	m.client = nil
+	closeErr := client.callWithTimeout(
+		mysqlAgentRequest{Method: mysqlAgentMethodClose},
+		nil,
+		nil,
+		nil,
+		client.shutdownCallTimeout(),
+	)
+	if closeErr != nil {
+		return client.forceTerminate(closeErr)
+	}
+	err := client.close()
 	return err
 }
 
 func (m *MySQLAgentDB) Ping() error {
+	ctx, cancel := context.WithTimeout(context.Background(), mysqlAgentControlCallTimeout)
+	defer cancel()
+	return m.PingContext(ctx)
+}
+
+func (m *MySQLAgentDB) PingContext(ctx context.Context) error {
 	client, err := m.requireClient()
 	if err != nil {
 		return err
 	}
-	return client.call(mysqlAgentRequest{Method: mysqlAgentMethodPing}, nil, nil, nil)
+	return client.callContext(ctx, mysqlAgentRequest{Method: mysqlAgentMethodPing}, nil, nil, nil)
 }
 
 func (m *MySQLAgentDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	return m.Query(query)
+	client, err := m.requireClient()
+	if err != nil {
+		return nil, nil, err
+	}
+	var data []map[string]interface{}
+	var fields []string
+	if err := client.callContext(ctx, mysqlAgentRequest{
+		Method: mysqlAgentMethodQuery,
+		Query:  query,
+	}, &data, &fields, nil); err != nil {
+		return nil, nil, err
+	}
+	return data, fields, nil
 }
 
 func (m *MySQLAgentDB) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -250,10 +469,24 @@ func (m *MySQLAgentDB) Query(query string) ([]map[string]interface{}, []string, 
 }
 
 func (m *MySQLAgentDB) ExecContext(ctx context.Context, query string) (int64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
-	return m.Exec(query)
+	client, err := m.requireClient()
+	if err != nil {
+		return 0, err
+	}
+	var affected int64
+	if err := client.callContext(ctx, mysqlAgentRequest{
+		Method: mysqlAgentMethodExec,
+		Query:  query,
+	}, nil, nil, &affected); err != nil {
+		return 0, err
+	}
+	return affected, nil
 }
 
 func (m *MySQLAgentDB) Exec(query string) (int64, error) {
@@ -408,8 +641,25 @@ func (m *MySQLAgentDB) ApplyChanges(tableName string, changes connection.ChangeS
 }
 
 func (m *MySQLAgentDB) requireClient() (*mysqlAgentClient, error) {
-	if m.client == nil {
+	m.clientMu.RLock()
+	client := m.client
+	m.clientMu.RUnlock()
+	if client == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
-	return m.client, nil
+	return client, nil
+}
+
+func (m *MySQLAgentDB) takeClient() *mysqlAgentClient {
+	m.clientMu.Lock()
+	client := m.client
+	m.client = nil
+	m.clientMu.Unlock()
+	return client
+}
+
+func (m *MySQLAgentDB) setClient(client *mysqlAgentClient) {
+	m.clientMu.Lock()
+	m.client = client
+	m.clientMu.Unlock()
 }

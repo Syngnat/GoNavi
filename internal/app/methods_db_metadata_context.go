@@ -12,8 +12,9 @@ import (
 // metadataSession 仅持有一个 MCP 元数据请求的资源。
 // Close 只会在执行请求的协程、元数据方法返回后调用，避免与运行中的查询并发关闭驱动。
 type metadataSession struct {
-	app *App
-	ctx context.Context
+	app         *App
+	ctx         context.Context
+	synchronous bool
 
 	closeOnce sync.Once
 	mu        sync.Mutex
@@ -28,6 +29,10 @@ type metadataRedisOpenResult struct {
 }
 
 func newMetadataSession(owner *App, ctx context.Context) *metadataSession {
+	return newMetadataSessionWithMode(owner, ctx, false)
+}
+
+func newMetadataSessionWithMode(owner *App, ctx context.Context, synchronous bool) *metadataSession {
 	if owner == nil {
 		return nil
 	}
@@ -45,7 +50,7 @@ func newMetadataSession(owner *App, ctx context.Context) *metadataSession {
 	sessionApp.localizer = owner.localizer
 	owner.i18nMu.RUnlock()
 
-	session := &metadataSession{app: sessionApp, ctx: ctx}
+	session := &metadataSession{app: sessionApp, ctx: ctx, synchronous: synchronous}
 	sessionApp.metadataSession = session
 	return session
 }
@@ -82,6 +87,21 @@ func (s *metadataSession) openRedisClient(config connection.ConnectionConfig) (r
 	}
 	if err := s.ctx.Err(); err != nil {
 		return nil, err
+	}
+	if s.synchronous {
+		client, err := s.app.openRedisClientIsolated(config)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.ctx.Err(); err != nil {
+			_ = client.Close()
+			return nil, err
+		}
+		if !s.bindRedisClient(client) {
+			_ = client.Close()
+			return nil, context.Canceled
+		}
+		return client, nil
 	}
 	resultCh := make(chan metadataRedisOpenResult, 1)
 	go func() {
@@ -173,6 +193,28 @@ func (a *App) runMetadataWithContext(ctx context.Context, operation func(*App) c
 		// Query 会收到 ctx，工作协程只在查询返回后关闭资源。
 		return connection.QueryResult{Success: false, Message: ctx.Err().Error()}
 	}
+}
+
+// runWebMetadataWithContext is deliberately synchronous. Context-aware
+// drivers observe cancellation through their bound metadata context; legacy
+// Connect/query calls finish in this goroutine before the HTTP handler returns.
+func (a *App) runWebMetadataWithContext(ctx context.Context, operation func(*App) connection.QueryResult) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	session := newMetadataSessionWithMode(a, ctx, true)
+	if session == nil {
+		return connection.QueryResult{Success: false, Message: "元数据会话不可用"}
+	}
+	defer session.Close()
+	result := operation(session.app)
+	if err := ctx.Err(); err != nil && result.Success {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return result
 }
 
 func (a *App) DBGetDatabasesContext(ctx context.Context, config connection.ConnectionConfig) connection.QueryResult {

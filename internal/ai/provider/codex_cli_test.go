@@ -88,7 +88,7 @@ func TestBuildCodexCLIEnvRemovesAPIKeyOverrides(t *testing.T) {
 		"CODEX_API_KEY=codex-key",
 		"OPENAI_API_KEY=openai-key",
 		"OPENAI_BASE_URL=https://example.invalid",
-	})
+	}, "")
 
 	for _, key := range []string{"CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"} {
 		if got := envValue(env, key); got != "" {
@@ -274,9 +274,13 @@ func TestCodexCLIProviderStopsRunningProcessWhenDeadlineExpires(t *testing.T) {
 	restore := overrideCodexCLIForTest(t, "sleep")
 	defer restore()
 
-	originalTimeout := codexCLIRequestTimeout
-	codexCLIRequestTimeout = 200 * time.Millisecond
-	defer func() { codexCLIRequestTimeout = originalTimeout }()
+	originalIdle, originalMax := cliStreamIdleTimeout, cliStreamMaxTimeout
+	cliStreamIdleTimeout = 200 * time.Millisecond
+	cliStreamMaxTimeout = time.Second
+	defer func() {
+		cliStreamIdleTimeout = originalIdle
+		cliStreamMaxTimeout = originalMax
+	}()
 
 	provider, _ := NewCodexCLIProvider(ai.ProviderConfig{AuthMode: "local-cli"})
 	started := time.Now()

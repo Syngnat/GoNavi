@@ -1111,20 +1111,22 @@ func (a *App) MySQLShowCreateTable(config connection.ConnectionConfig, dbName st
 }
 
 type dbQueryAuditOptions struct {
-	trackHistory             bool
-	auditAll                 bool
-	auditWrites              bool
-	source                   string
-	executionContext         context.Context
-	classifyConnectionErrors bool
+	trackHistory              bool
+	auditAll                  bool
+	auditWrites               bool
+	source                    string
+	executionContext          context.Context
+	synchronousConnectionWait bool
+	classifyConnectionErrors  bool
 }
 
 type dbQueryMultiAuditOptions struct {
-	auditAll                 bool
-	auditWrites              bool
-	source                   string
-	executionContext         context.Context
-	classifyConnectionErrors bool
+	auditAll                  bool
+	auditWrites               bool
+	source                    string
+	executionContext          context.Context
+	synchronousConnectionWait bool
+	classifyConnectionErrors  bool
 }
 
 func buildQueryConnectionFailure(err error, queryID string, classify bool) connection.QueryResult {
@@ -1379,7 +1381,13 @@ func (a *App) dbQueryWithCancel(
 		cleanupRunningQuery()
 	}()
 
-	dbInst, err := a.getDatabaseWithContext(ctx, runConfig, false)
+	var dbInst db.Database
+	var err error
+	if auditOptions.synchronousConnectionWait {
+		dbInst, err = a.getDatabaseSynchronouslyWithContext(ctx, runConfig, false)
+	} else {
+		dbInst, err = a.getDatabaseWithContext(ctx, runConfig, false)
+	}
 	if err != nil {
 		logger.Error(err, "DBQuery 获取连接失败：%s", formatConnSummary(runConfig))
 		return buildQueryConnectionFailure(err, queryID, auditOptions.classifyConnectionErrors)
@@ -1452,7 +1460,13 @@ func (a *App) dbQueryWithCancel(
 			if a.invalidateCachedDatabase(runConfig, err) {
 				requestTrace.MarkRetry("cached connection refresh")
 				setRunningQueryCancellable(true)
-				retryInst, retryErr := a.getDatabaseWithContext(ctx, runConfig, true)
+				var retryInst db.Database
+				var retryErr error
+				if auditOptions.synchronousConnectionWait {
+					retryInst, retryErr = a.getDatabaseSynchronouslyWithContext(ctx, runConfig, true)
+				} else {
+					retryInst, retryErr = a.getDatabaseWithContext(ctx, runConfig, true)
+				}
 				if retryErr != nil {
 					logger.Error(retryErr, "DBQuery 重建连接失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 					return buildQueryConnectionFailure(retryErr, queryID, auditOptions.classifyConnectionErrors)
@@ -1619,7 +1633,13 @@ func (a *App) dbQueryMulti(
 		cleanupRunningQuery()
 	}()
 
-	dbInst, err := a.getDatabaseWithContext(ctx, runConfig, false)
+	var dbInst db.Database
+	var err error
+	if auditOptions.synchronousConnectionWait {
+		dbInst, err = a.getDatabaseSynchronouslyWithContext(ctx, runConfig, false)
+	} else {
+		dbInst, err = a.getDatabaseWithContext(ctx, runConfig, false)
+	}
 	if err != nil {
 		logger.Error(err, "DBQueryMulti 获取连接失败：%s", formatConnSummary(runConfig))
 		return buildQueryConnectionFailure(err, queryID, auditOptions.classifyConnectionErrors)
@@ -1746,7 +1766,13 @@ func (a *App) dbQueryMulti(
 		if a.invalidateCachedDatabase(runConfig, err) {
 			requestTrace.MarkRetry("cached connection refresh")
 			setRunningQueryCancellable(true)
-			retryInst, retryErr := a.getDatabaseWithContext(ctx, runConfig, true)
+			var retryInst db.Database
+			var retryErr error
+			if auditOptions.synchronousConnectionWait {
+				retryInst, retryErr = a.getDatabaseSynchronouslyWithContext(ctx, runConfig, true)
+			} else {
+				retryInst, retryErr = a.getDatabaseWithContext(ctx, runConfig, true)
+			}
 			if retryErr != nil {
 				logger.Error(retryErr, "DBQueryMulti 重建连接失败：%s SQL片段=%q", formatConnSummary(runConfig), sqlSnippet(query))
 				return buildQueryConnectionFailure(retryErr, queryID, auditOptions.classifyConnectionErrors)
@@ -2333,6 +2359,12 @@ func shouldTryQueryResultFirst(dbType string, query string) bool {
 		return true
 	}
 	keyword := leadingSQLKeyword(query)
+	if normalizeSQLClassifierDBType(dbType) == "mqtt" && keyword == "unsubscribe" {
+		// MQTT models UNSUBSCRIBE as a query command because it returns the
+		// released topic filter. Route it through QueryContext instead of the
+		// JSON-only publish Exec path.
+		return true
+	}
 	switch keyword {
 	case "explain", "pragma":
 		return true
@@ -2403,6 +2435,16 @@ func looksLikeSQLServerProcedureInvocation(query string) bool {
 }
 
 func (a *App) DBQueryIsolated(config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
+	return a.dbQueryIsolatedContext(context.Background(), config, dbName, query)
+}
+
+func (a *App) dbQueryIsolatedContext(parent context.Context, config connection.ConnectionConfig, dbName string, query string) connection.QueryResult {
+	if parent == nil {
+		parent = context.Background()
+	}
+	if err := parent.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error(), Data: map[string]any{"cancelled": true}}
+	}
 	runConfig := normalizeRunConfig(config, dbName)
 
 	query = sanitizeSQLForPgLike(resolveDDLDBType(config), query)
@@ -2423,8 +2465,11 @@ func (a *App) DBQueryIsolated(config connection.ConnectionConfig, dbName string,
 			logger.Error(closeErr, "DBQueryIsolated 关闭临时连接失败：%s", formatConnSummary(runConfig))
 		}
 	}()
+	if err := parent.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error(), Data: map[string]any{"cancelled": true}}
+	}
 
-	ctx, cancel := newQueryExecutionContext(runConfig)
+	ctx, cancel := newQueryExecutionContextWithParent(parent, runConfig)
 	defer cancel()
 
 	isReadQuery := isReadOnlySQLQuery(runConfig.Type, query)
@@ -2443,7 +2488,15 @@ func (a *App) DBQueryIsolated(config connection.ConnectionConfig, dbName string,
 		}); ok {
 			data, columns, err = q.QueryContext(ctx, query)
 		} else {
+			if contextErr := ctx.Err(); contextErr != nil {
+				return buildQueryExecutionFailure(ctx, contextErr, contextErr.Error(), "")
+			}
 			data, columns, err = dbInst.Query(query)
+			if ctx.Err() != nil {
+				return a.buildCancellationUnsupportedExecutionResult(connection.QueryResult{
+					Data: data, Fields: columns, Messages: messages,
+				}, err)
+			}
 		}
 		if err == nil {
 			return connection.QueryResult{Success: true, Data: data, Fields: columns, Messages: messages}
@@ -2463,7 +2516,15 @@ func (a *App) DBQueryIsolated(config connection.ConnectionConfig, dbName string,
 	}); ok {
 		affected, err = e.ExecContext(ctx, query)
 	} else {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return buildQueryExecutionFailure(ctx, contextErr, contextErr.Error(), "")
+		}
 		affected, err = dbInst.Exec(query)
+		if ctx.Err() != nil {
+			return a.buildCancellationUnsupportedExecutionResult(connection.QueryResult{
+				Data: map[string]int64{"affectedRows": affected},
+			}, err)
+		}
 	}
 	if err != nil {
 		err = classifyDispatchedWriteError(err)
@@ -2558,10 +2619,29 @@ func (a *App) DBGetDatabases(config connection.ConnectionConfig) connection.Quer
 		}
 	}
 	if err != nil {
+		var partialErr *db.PartialMetadataError
+		if errors.As(err, &partialErr) {
+			warning := partialErr.Error()
+			logger.Warnf("DBGetDatabases 获取到部分数据库列表：%s err=%s", formatConnSummary(runConfig), warning)
+			resData := make([]map[string]string, 0, len(dbs))
+			for _, name := range dbs {
+				resData = append(resData, map[string]string{"Database": name})
+			}
+			return connection.QueryResult{
+				Success:           len(resData) > 0,
+				Data:              resData,
+				Message:           warning,
+				Partial:           true,
+				Warnings:          partialErr.Warnings(),
+				FailedObjectTypes: []string{"database"},
+				Retryable:         true,
+			}
+		}
 		logger.Error(err, "DBGetDatabases 获取数据库列表失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
+	dbs = dedupeMetadataDatabaseNames(dbs)
 	resData := make([]map[string]string, 0, len(dbs))
 	for _, name := range dbs {
 		resData = append(resData, map[string]string{"Database": name})
@@ -2643,6 +2723,7 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 		logger.Error(err, "DBGetTables 获取表列表失败：%s", formatConnSummary(runConfig))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
+	tables = dedupeMetadataTableNames(tables)
 
 	if isSQLiteConnection(runConfig) {
 		cachedStats, cacheErr := a.readSQLiteTableStats(runConfig, dbName)
@@ -2692,6 +2773,49 @@ func (a *App) DBGetTables(config connection.ConnectionConfig, dbName string) con
 	}
 
 	return connection.QueryResult{Success: true, Data: resData}
+}
+
+// Metadata may come from a driver agent or catalog query with duplicate rows.
+// Preserve exact identifiers and order while removing only identical nonblank entries.
+func dedupeMetadataDatabaseNames(databases []string) []string {
+	if len(databases) == 0 {
+		return databases
+	}
+	seen := make(map[string]struct{}, len(databases))
+	result := make([]string, 0, len(databases))
+	for _, database := range databases {
+		if strings.TrimSpace(database) == "" {
+			continue
+		}
+		if _, exists := seen[database]; exists {
+			continue
+		}
+		seen[database] = struct{}{}
+		result = append(result, database)
+	}
+	return result
+}
+
+// Metadata may come from an optional driver agent or a catalog view with
+// duplicate rows. Preserve exact identifiers and order while removing only
+// identical nonblank entries so schema-qualified names remain distinct.
+func dedupeMetadataTableNames(tables []string) []string {
+	if len(tables) == 0 {
+		return tables
+	}
+	seen := make(map[string]struct{}, len(tables))
+	result := make([]string, 0, len(tables))
+	for _, table := range tables {
+		if strings.TrimSpace(table) == "" {
+			continue
+		}
+		if _, exists := seen[table]; exists {
+			continue
+		}
+		seen[table] = struct{}{}
+		result = append(result, table)
+	}
+	return result
 }
 
 func buildRedisTablesPartialResult(tables []string, reason string) connection.QueryResult {
@@ -2811,6 +2935,20 @@ func lookupExactTableExists(database tableNameMetadataProvider, dbName, tableNam
 	return containsExactTableName(tables, tableName), nil
 }
 
+func normalizeTableExistsLookup(config connection.ConnectionConfig, dbName, tableName string) (string, string) {
+	// MySQL-family drivers enumerate TABLE_NAME without the database prefix,
+	// while callers may pass a qualified object (database.table) from a data
+	// sync mapping. Keep the database in the GetTables argument and compare the
+	// bare table name, matching the contract used by GetColumns and DDL paths.
+	switch resolveDDLDBType(config) {
+	case "mysql", "mariadb":
+		if schema, table := normalizeMetadataSchemaAndTable(config, dbName, tableName); strings.TrimSpace(table) != "" {
+			return schema, table
+		}
+	}
+	return dbName, tableName
+}
+
 // DBTableExists checks one table against the driver's table-name metadata without
 // loading row counts, storage statistics, or sampled message fields.
 func (a *App) DBTableExists(config connection.ConnectionConfig, dbName string, tableName string) connection.QueryResult {
@@ -2819,7 +2957,8 @@ func (a *App) DBTableExists(config connection.ConnectionConfig, dbName string, t
 		return connection.QueryResult{Success: true, Data: map[string]bool{"exists": false}}
 	}
 
-	runConfig := normalizeMetadataRunConfig(config, dbName)
+	lookupDBName, lookupTableName := normalizeTableExistsLookup(config, dbName, targetTableName)
+	runConfig := normalizeMetadataRunConfig(config, lookupDBName)
 	if strings.EqualFold(strings.TrimSpace(runConfig.Type), "redis") {
 		runConfig.Type = "redis"
 		client, err := a.getRedisClient(runConfig)
@@ -2841,7 +2980,7 @@ func (a *App) DBTableExists(config connection.ConnectionConfig, dbName string, t
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	exists, err := lookupExactTableExists(dbInst, dbName, targetTableName)
+	exists, err := lookupExactTableExists(dbInst, lookupDBName, lookupTableName)
 	if err != nil && shouldRefreshCachedConnection(err) {
 		if a.invalidateCachedDatabase(runConfig, err) {
 			retryInst, retryErr := a.getDatabaseForcePing(runConfig)
@@ -2849,7 +2988,7 @@ func (a *App) DBTableExists(config connection.ConnectionConfig, dbName string, t
 				logger.Error(retryErr, "DBTableExists 重建连接失败：%s 表=%s.%s", formatConnSummary(runConfig), dbName, targetTableName)
 				return connection.QueryResult{Success: false, Message: retryErr.Error()}
 			}
-			exists, err = lookupExactTableExists(retryInst, dbName, targetTableName)
+			exists, err = lookupExactTableExists(retryInst, lookupDBName, lookupTableName)
 		}
 	}
 	if err != nil {
@@ -2875,7 +3014,18 @@ func (a *App) DBGetViews(config connection.ConnectionConfig, dbName string) conn
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	views := mapValuesSorted(listViewNameLookup(dbInst, runConfig, dbName))
+	viewLookup, err := listViewNameLookupWithStatus(dbInst, runConfig, dbName)
+	if err != nil {
+		logger.Warnf("DBGetViews 获取视图元数据失败：%s err=%v", formatConnSummary(runConfig), err)
+		return connection.QueryResult{
+			Success:   false,
+			Message:   err.Error(),
+			Data:      []map[string]string{},
+			Retryable: true,
+		}
+	}
+
+	views := mapValuesSorted(viewLookup)
 	resData := make([]map[string]string, 0, len(views))
 	for _, name := range views {
 		resData = append(resData, map[string]string{"View": name})

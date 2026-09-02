@@ -195,6 +195,49 @@ class Transaction:
             fail("deployment probe metadata is invalid")
         return metadata
 
+    def inherited_driver_tag(self) -> str:
+        try:
+            state = json.loads(self.channel_state_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            state = {}
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"unable to read previous channel state: {exc}")
+        if not isinstance(state, dict) or (state and state.get("channel") != self.args.channel):
+            fail(f"invalid previous channel state: {self.channel_state_path}")
+
+        latest_path = self.root / self.driver_latest_relative
+        try:
+            latest = json.loads(latest_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            latest = {}
+        except (OSError, json.JSONDecodeError) as exc:
+            fail(f"unable to read current driver index: {exc}")
+        if not isinstance(latest, dict):
+            fail(f"invalid current driver index: {latest_path}")
+
+        state_tag = state.get("driverTag")
+        if not isinstance(state_tag, str):
+            state_tag = ""
+        latest_tag = latest.get("mirrorTagName") or latest.get("tagName")
+        if not isinstance(latest_tag, str):
+            latest_tag = ""
+        if not latest_tag:
+            if state_tag:
+                fail(
+                    "previous channel state references a driver tag but the current "
+                    f"driver index is missing: state={state_tag!r}"
+                )
+            return ""
+        if state_tag and state_tag != latest_tag:
+            fail(
+                "previous channel state and current driver index disagree: "
+                f"state={state_tag!r} latest={latest_tag!r}"
+            )
+        validate_token(latest_tag, "inherited driver tag")
+        if not (self.driver_download_parent / latest_tag).is_dir():
+            fail(f"inherited driver release is missing: {latest_tag}")
+        return latest_tag
+
     def checksum_entries(self) -> list[tuple[str, Path]]:
         if not self.payload.is_dir() or not self.checksums_path.is_file():
             fail("staged payload or SHA256SUMS is missing")
@@ -289,6 +332,7 @@ class Transaction:
         # the checked bytes cannot change between hashing and atomic promotion.
         self.seal_payload()
         metadata = self.verify()
+        active_driver_tag = self.args.driver_tag or self.inherited_driver_tag()
         self.promote_directory(
             self.payload
             / self.app_download_parent.relative_to(self.root)
@@ -311,6 +355,7 @@ class Transaction:
             fail("promoted immutable probe asset verification failed")
         ready = {
             **metadata,
+            "driverTag": active_driver_tag,
             "nodeId": self.args.node_id,
             "status": "ready",
             "verifiedAt": utc_now(),

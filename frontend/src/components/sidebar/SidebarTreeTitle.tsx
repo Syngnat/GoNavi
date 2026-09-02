@@ -16,6 +16,7 @@ import {
   formatSidebarRowCount,
   formatSidebarTableSize,
   formatSidebarTableTimestamp,
+  resolveSidebarQueriesFolderTitle,
   resolveV2ObjectGroupTitle,
 } from './sidebarHelpers';
 import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
@@ -138,7 +139,8 @@ export const renderSidebarV2TreeTitle = ({
     );
   }
   const displayTitle = (() => {
-    if (node.type === 'queries-folder') return t('sidebar.tree.saved_queries');
+    const queriesFolderTitle = resolveSidebarQueriesFolderTitle(node);
+    if (queriesFolderTitle) return queriesFolderTitle;
     if (node.type === 'external-sql-root') return t('sidebar.external_sql.root');
     if (node.type === 'object-group') {
       const objectGroupTitle = resolveV2ObjectGroupTitle(node);
@@ -177,7 +179,8 @@ export const renderSidebarV2TreeTitle = ({
     : '';
   const redisDbIndex = Number(node?.dataRef?.redisDB);
   const redisDbBaseTitle = Number.isFinite(redisDbIndex) ? `db${redisDbIndex}` : displayTitle;
-  const isMono = node.type === 'table'
+  const isMono = node.type === 'message-object'
+    || node.type === 'table'
     || node.type === 'view'
     || node.type === 'materialized-view'
     || node.type === 'sequence'
@@ -190,7 +193,7 @@ export const renderSidebarV2TreeTitle = ({
   const titleClassName = [
     'gn-v2-tree-title',
     isMono ? 'is-mono' : '',
-    node.type === 'object-group' ? 'is-group' : '',
+    node.type === 'object-group' || node.type === 'message-object-group' ? 'is-group' : '',
     node.type === 'tag' ? 'is-connection-group' : '',
     sidebarDropPlacement ? `is-drop-${sidebarDropPlacement}` : '',
     node.type === 'redis-db' ? 'is-redis-db' : '',

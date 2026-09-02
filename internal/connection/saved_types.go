@@ -11,6 +11,7 @@ type SchemaVisibilityRule struct {
 type SavedConnectionInput struct {
 	ID                         string                          `json:"id,omitempty"`
 	Name                       string                          `json:"name"`
+	CreatedAt                  int64                           `json:"createdAt,omitempty"`
 	EnvironmentType            string                          `json:"environmentType,omitempty"`
 	Config                     ConnectionConfig                `json:"config"`
 	IncludeDatabases           []string                        `json:"includeDatabases,omitempty"`
@@ -36,9 +37,21 @@ type SavedConnectionInput struct {
 	ClearSensitiveParams       bool                            `json:"clearSensitiveConnectionParams,omitempty"`
 }
 
+// ConnectionVisibilityInput updates only the database and schema visibility
+// metadata of an existing saved connection.
+type ConnectionVisibilityInput struct {
+	ID                         string                          `json:"id"`
+	IncludeDatabases           []string                        `json:"includeDatabases,omitempty"`
+	IncludeDatabasePatterns    []string                        `json:"includeDatabasePatterns,omitempty"`
+	ExcludeDatabasePatterns    []string                        `json:"excludeDatabasePatterns,omitempty"`
+	IncludeRedisDatabases      []int                           `json:"includeRedisDatabases,omitempty"`
+	SchemaVisibilityByDatabase map[string]SchemaVisibilityRule `json:"schemaVisibilityByDatabase,omitempty"`
+}
+
 type SavedConnectionView struct {
 	ID                         string                          `json:"id"`
 	Name                       string                          `json:"name"`
+	CreatedAt                  int64                           `json:"createdAt,omitempty"`
 	EnvironmentType            string                          `json:"environmentType,omitempty"`
 	Config                     ConnectionConfig                `json:"config"`
 	IncludeDatabases           []string                        `json:"includeDatabases,omitempty"`

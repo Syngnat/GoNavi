@@ -73,6 +73,16 @@ func buildAddColumnSQLForPair(sourceType string, targetType string, targetQueryT
 	}
 }
 
+// relaxedNotNullAddColumnWarning explains why ADD COLUMN deliberately uses
+// NULL even when the source field is NOT NULL: existing target rows have no
+// value for the new field, so adding the constraint directly would fail.
+func relaxedNotNullAddColumnWarning(sourceCol connection.ColumnDefinition) string {
+	if normalizeColumnNullable(sourceCol.Nullable) != "NO" {
+		return ""
+	}
+	return fmt.Sprintf("字段 %s 在已有目标表中新增时已按 NULL 创建，未保留源端 NOT NULL 约束；请补齐历史数据后按需手工收紧约束", sourceCol.Name)
+}
+
 func executeSQLStatements(execFn func(string) (int64, error), statements []string) error {
 	for _, stmt := range statements {
 		trimmed := strings.TrimSpace(stmt)

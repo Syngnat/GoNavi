@@ -204,6 +204,87 @@ func TestElasticsearchApplyChangesResolvesWriteAliasMetadata(t *testing.T) {
 	}
 }
 
+func TestElasticsearchApplyChangesUsesAliasWriteIndexDespiteChangeSetIndex(t *testing.T) {
+	const alias = "events"
+	const writeIndex = "events-live"
+	const archivedIndex = "events-archive"
+
+	server := newMockESServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/_alias/"+alias:
+			writeJSON(w, map[string]interface{}{
+				archivedIndex: map[string]interface{}{"aliases": map[string]interface{}{
+					alias: map[string]interface{}{"is_write_index": false},
+				}},
+				writeIndex: map[string]interface{}{"aliases": map[string]interface{}{
+					alias: map[string]interface{}{"is_write_index": true},
+				}},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/_bulk":
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Errorf("读取 bulk 请求失败：%v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+			if len(lines) != 5 {
+				t.Errorf("unexpected bulk NDJSON line count: got %d want 5, body=%q", len(lines), body)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			for _, expected := range []struct {
+				line      int
+				operation string
+				id        string
+			}{
+				{line: 0, operation: "delete", id: "deleted"},
+				{line: 1, operation: "update", id: "updated"},
+				{line: 3, operation: "index", id: "inserted"},
+			} {
+				var action map[string]map[string]interface{}
+				if err := json.Unmarshal([]byte(lines[expected.line]), &action); err != nil {
+					t.Errorf("解析 bulk action 失败：%v", err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				metadata, ok := action[expected.operation]
+				if !ok || len(action) != 1 {
+					t.Errorf("bulk action line %d: got %v, want only %q", expected.line, action, expected.operation)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if got, _ := metadata["_id"].(string); got != expected.id {
+					t.Errorf("%s action used _id %q, want %q", expected.operation, got, expected.id)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				if got, _ := metadata["_index"].(string); got != writeIndex {
+					t.Errorf("%s action wrote to %q, want alias write index %q", expected.operation, got, writeIndex)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+			}
+			writeJSON(w, map[string]interface{}{"errors": false, "items": []interface{}{}})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	db := newTestESDB(t, server.URL, alias)
+	err := db.ApplyChanges(alias, connection.ChangeSet{
+		Deletes: []map[string]interface{}{{"_id": "deleted", "_index": archivedIndex}},
+		Updates: []connection.UpdateRow{{
+			Keys:   map[string]interface{}{"_id": "updated"},
+			Values: map[string]interface{}{"message": "updated", "_index": archivedIndex},
+		}},
+		Inserts: []map[string]interface{}{{"_id": "inserted", "message": "inserted", "_index": archivedIndex}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyChanges returned error: %v", err)
+	}
+}
+
 // buildMockESMappingResponse 构造模拟的 mapping 响应 JSON。
 func buildMockESMappingResponse(indexName string, fields map[string]string) map[string]interface{} {
 	properties := make(map[string]interface{})

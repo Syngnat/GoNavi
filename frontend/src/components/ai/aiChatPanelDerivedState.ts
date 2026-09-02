@@ -1,14 +1,11 @@
 import type { SqlLog } from '../../store';
 import type { AIChatMessage, AIContextItem } from '../../types';
 import { t as translateCatalog, type I18nParams } from '../../i18n';
-import type { AIToolContextEntry } from './aiLocalToolExecutor';
 import type { AIChatInlineHistorySession, AIChatInsightItem, AIChatPanelMode } from './AIChatPanelModeContent';
 
 interface InferAIChatConnectionContextArgs {
   activeConnectionId?: string;
   activeDbName?: string;
-  messages: AIChatMessage[];
-  toolContextEntries: Iterable<AIToolContextEntry>;
 }
 
 interface CollectAIChatContextTableNamesArgs {
@@ -26,43 +23,10 @@ interface BuildAIChatInsightsArgs {
 export const inferAIChatConnectionContext = ({
   activeConnectionId,
   activeDbName,
-  messages,
-  toolContextEntries,
 }: InferAIChatConnectionContextArgs) => {
-  let inferredConnectionId = activeConnectionId;
-  let inferredDbName = activeDbName;
-
-  if (!inferredConnectionId || !inferredDbName) {
-    const allMsgText = messages.map((item) => item.content || '').join(' ');
-    let bestMatch: { connectionId: string; dbName: string } | null = null;
-    let bestScore = 0;
-
-    for (const entry of toolContextEntries) {
-      let score = 0;
-      for (const table of entry.tables) {
-        if (allMsgText.includes(table)) {
-          score += 1;
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        bestMatch = { connectionId: entry.connectionId, dbName: entry.dbName };
-      }
-    }
-
-    if (bestMatch) {
-      if (!inferredConnectionId) {
-        inferredConnectionId = bestMatch.connectionId;
-      }
-      if (!inferredDbName) {
-        inferredDbName = bestMatch.dbName;
-      }
-    }
-  }
-
   return {
-    inferredConnectionId,
-    inferredDbName,
+    inferredConnectionId: activeConnectionId,
+    inferredDbName: activeDbName,
   };
 };
 

@@ -467,6 +467,64 @@ func TestManagerShutdownCancelsExecutorsAndWaitsForGoroutines(t *testing.T) {
 	}
 }
 
+func TestManagerConstructorContextCancellationStopsExecutor(t *testing.T) {
+	store := openTestStore(t)
+	definition := putTestJob(t, store, "queue")
+	started := make(chan struct{})
+	exited := make(chan error, 1)
+	executor := ExecutorFunc(func(ctx context.Context, _ ExecutionRequest, _ RunReporter) (ExecutionOutcome, error) {
+		close(started)
+		<-ctx.Done()
+		cause := context.Cause(ctx)
+		exited <- cause
+		return ExecutionOutcome{}, cause
+	})
+	managerCtx, cancelManager := context.WithCancel(context.Background())
+	manager, err := NewManager(managerCtx, store, executor, ManagerOptions{
+		SchedulerInterval: time.Hour,
+		HeartbeatInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("new manager: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := manager.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown manager: %v", err)
+		}
+	})
+	if _, err := manager.StartRun(context.Background(), definition.ID); err != nil {
+		t.Fatalf("start run: %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not start")
+	}
+
+	cancelManager()
+	select {
+	case <-manager.ctx.Done():
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("manager runtime context did not observe constructor context cancellation")
+	}
+	select {
+	case cause := <-exited:
+		if !errors.Is(cause, context.Canceled) {
+			t.Fatalf("executor cancellation cause = %v, want context.Canceled", cause)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("executor did not observe constructor context cancellation")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := manager.Shutdown(ctx); err != nil {
+		t.Fatalf("shutdown after constructor context cancellation: %v", err)
+	}
+}
+
 func TestManagerAutomaticallyResumesRecoveredRunWhenConfigured(t *testing.T) {
 	store := openTestStore(t)
 	definition := putTestJob(t, store, "forbid")

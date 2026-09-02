@@ -55,7 +55,9 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
-    strictPort: true,
+    // Let Wails discover the next available port when another Vite instance
+    // is already listening on the default development port.
+    strictPort: false,
   },
   build: {
     outDir: 'dist', // Standard Wails output directory

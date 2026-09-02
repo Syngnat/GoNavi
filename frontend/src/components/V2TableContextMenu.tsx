@@ -28,8 +28,10 @@ import {
   FileTextOutlined,
   FolderAddOutlined,
   HddOutlined,
+  InboxOutlined,
   PushpinOutlined,
   PlusOutlined,
+  PlayCircleOutlined,
   UndoOutlined,
   SortAscendingOutlined,
   SortDescendingOutlined,
@@ -518,8 +520,12 @@ const primaryShortcut = (
 
 export type V2ConnectionContextMenuActionKey =
   | 'new-db'
+  | 'visibility'
   | 'refresh'
   | 'new-query'
+  | 'open-message-workbench'
+  | 'consume-messages'
+  | 'publish-message'
   | 'open-sql-file'
   | 'new-command'
   | 'open-monitor'
@@ -586,8 +592,13 @@ export const V2ConnectionContextMenuView: React.FC<{
   hostSummary?: string;
   driverLabel?: string;
   isRedis?: boolean;
+  supportsCreateIndex?: boolean;
+  createIndexLabel?: string;
   supportsCreateDatabase?: boolean;
+  supportsVisibility?: boolean;
   supportsQueryEditor?: boolean;
+  isMessageQueue?: boolean;
+  supportsMessagePublish?: boolean;
   tags?: V2ConnectionContextMenuTagItem[];
   onAction?: (action: V2ConnectionContextMenuActionKey) => void;
 }> = ({
@@ -596,8 +607,13 @@ export const V2ConnectionContextMenuView: React.FC<{
   hostSummary,
   driverLabel,
   isRedis = false,
+  supportsCreateIndex = false,
+  createIndexLabel,
   supportsCreateDatabase = true,
+  supportsVisibility = false,
   supportsQueryEditor = true,
+  isMessageQueue = false,
+  supportsMessagePublish = false,
   tags = [],
   onAction,
 }) => {
@@ -625,8 +641,15 @@ export const V2ConnectionContextMenuView: React.FC<{
           { action: 'refresh', icon: <ReloadOutlined />, title: t('connection.sidebar.menu.refresh'), kbd: primaryShortcut('R', shortcutPlatform), featured: true },
           { action: 'new-command', icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_command_window'), featured: true },
           { action: 'open-monitor', icon: <DashboardOutlined />, title: t('redis_monitor.title.instance') },
+        ]) : isMessageQueue ? renderItems([
+          { action: 'open-message-workbench', icon: <InboxOutlined />, title: t('message_queue_workbench.tab_kind'), featured: true },
+          { action: 'consume-messages', icon: <PlayCircleOutlined />, title: t('message_consume.action.subscribe'), featured: true },
+          ...(supportsMessagePublish ? [{ action: 'publish-message' as const, icon: <SendOutlined />, title: t('message_queue_workbench.action.publish') }] : []),
+          { action: 'refresh', icon: <ReloadOutlined />, title: t('connection.sidebar.menu.refresh'), kbd: primaryShortcut('R', shortcutPlatform) },
         ]) : renderItems([
-          ...(supportsCreateDatabase ? [{ action: 'new-db' as const, icon: <DatabaseOutlined />, title: t('connection.sidebar.menu.createDatabase'), kbd: primaryShortcut('N', shortcutPlatform), featured: true }] : []),
+          ...(supportsCreateIndex ? [{ action: 'new-db' as const, icon: <DatabaseOutlined />, title: createIndexLabel || t('query_editor.elasticsearch.templates.create_index'), kbd: primaryShortcut('N', shortcutPlatform), featured: true }]
+            : supportsCreateDatabase ? [{ action: 'new-db' as const, icon: <DatabaseOutlined />, title: t('connection.sidebar.menu.createDatabase'), kbd: primaryShortcut('N', shortcutPlatform), featured: true }]
+              : []),
           { action: 'refresh', icon: <ReloadOutlined />, title: t('connection.sidebar.menu.refresh'), kbd: primaryShortcut('R', shortcutPlatform) },
           ...(supportsQueryEditor ? [
             { action: 'new-query' as const, icon: <ConsoleSqlOutlined />, title: t('sidebar.menu.new_query') },
@@ -636,6 +659,7 @@ export const V2ConnectionContextMenuView: React.FC<{
 
         <div className="gn-v2-context-menu-section-title">{t('connection.sidebar.menu.section')}</div>
         {renderItems([
+          ...(supportsVisibility ? [{ action: 'visibility' as const, icon: <EyeInvisibleOutlined />, title: t('sidebar.database_schema_visibility.menu.manage') }] : []),
           { action: 'edit', icon: <EditOutlined />, title: t('sidebar.menu.edit_connection'), kbd: 'F2' },
           { action: 'copy-connection', icon: <CopyOutlined />, title: t('connection.sidebar.menu.copy') },
           { action: 'disconnect', icon: <DisconnectOutlined />, title: t('connection.sidebar.menu.disconnect') },
@@ -678,6 +702,7 @@ export type V2CellContextMenuActionKey =
   | 'copy-column-data'
   | 'undo-cell-change'
   | 'set-null'
+  | 'set-null-selected'
   | 'edit-row'
   | 'fill-selected'
   | 'paste-copied-columns'
@@ -803,6 +828,7 @@ export const V2CellContextMenuView: React.FC<{
   tableName?: string;
   rowLabel?: string;
   selectedRowCount?: number;
+  selectedCellCount?: number;
   canModifyData?: boolean;
   canUndoCellChange?: boolean;
   copiedRowCount?: number;
@@ -815,6 +841,7 @@ export const V2CellContextMenuView: React.FC<{
   tableName,
   rowLabel,
   selectedRowCount = 0,
+  selectedCellCount = 0,
   canModifyData = false,
   canUndoCellChange = false,
   copiedRowCount = 0,
@@ -827,6 +854,9 @@ export const V2CellContextMenuView: React.FC<{
     onAction as (action: string) => void,
   );
   const selectedCountLabel = Math.max(0, selectedRowCount).toLocaleString(getCurrentLanguage());
+  const normalizedSelectedCellCount = Number.isFinite(Number(selectedCellCount))
+    ? Math.max(0, Math.trunc(Number(selectedCellCount)))
+    : 0;
   const menuTitle = fieldName || t('data_grid.context_menu.column_unnamed_field');
   const meta = [tableName, rowLabel || t('data_grid.context_menu.current_row')].filter(Boolean).join(' · ') || t('data_grid.context_menu.current_cell');
 
@@ -855,6 +885,12 @@ export const V2CellContextMenuView: React.FC<{
                 disabled: !canUndoCellChange,
               },
               { action: 'set-null', icon: <ClearOutlined />, title: t('data_grid.batch_fill.set_null') },
+              {
+                action: 'set-null-selected',
+                icon: <ClearOutlined />,
+                title: t('data_grid.batch_fill.set_null_selected'),
+                disabled: normalizedSelectedCellCount <= 0,
+              },
               { action: 'edit-row', icon: <EditOutlined />, title: t('data_grid.context_menu.edit_row'), kbd: '↵' },
               { action: 'copy-row-for-paste', icon: <CopyOutlined />, title: t('data_grid.context_menu.copy_row_as_new') },
               {

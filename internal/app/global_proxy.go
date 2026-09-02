@@ -18,6 +18,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 	proxytunnel "GoNavi-Wails/internal/proxy"
+	"golang.org/x/net/http/httpproxy"
 )
 
 type globalProxySnapshot struct {
@@ -181,6 +182,115 @@ func newStrictHTTPClientWithGlobalProxy(timeout time.Duration) *http.Client {
 	return client
 }
 
+type platformSystemProxyResolver func(*url.URL) (*url.URL, error)
+
+func defaultHTTPProxyFunc() func(*http.Request) (*url.URL, error) {
+	return newDefaultHTTPProxyFunc(
+		httpproxy.FromEnvironment(),
+		proxyEnvironmentValue("ALL_PROXY", "all_proxy"),
+		resolvePlatformSystemProxy,
+	)
+}
+
+func newDefaultHTTPProxyFunc(
+	environment *httpproxy.Config,
+	allProxy string,
+	systemResolver platformSystemProxyResolver,
+) func(*http.Request) (*url.URL, error) {
+	if environment == nil {
+		environment = &httpproxy.Config{}
+	}
+	environmentProxyFunc := environment.ProxyFunc()
+
+	return func(req *http.Request) (*url.URL, error) {
+		if req == nil || req.URL == nil {
+			return nil, nil
+		}
+		if environmentNoProxyMatches(environment, req.URL) {
+			return nil, nil
+		}
+		if environmentProxyConfigured(environment) {
+			proxyURL, err := environmentProxyFunc(req.URL)
+			if err != nil {
+				// Preserve httpproxy's CGI HTTP_PROXY rejection instead of hiding
+				// the security error behind ALL_PROXY or the platform proxy.
+				return nil, err
+			}
+			if proxyURL != nil {
+				return proxyURL, nil
+			}
+		}
+		if strings.TrimSpace(allProxy) != "" {
+			return parseAllProxyEnvironmentURL(allProxy)
+		}
+		if environmentProxyConfigured(environment) {
+			// Treat the environment as a complete policy. In particular, an
+			// HTTP_PROXY-only environment leaves HTTPS direct rather than mixing
+			// it with a platform proxy selected from a different configuration.
+			return nil, nil
+		}
+		if systemResolver == nil {
+			return nil, nil
+		}
+		return systemResolver(req.URL)
+	}
+}
+
+func proxyEnvironmentValue(names ...string) string {
+	for _, name := range names {
+		if value := os.Getenv(name); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func parseAllProxyEnvironmentURL(raw string) (*url.URL, error) {
+	proxyText := strings.TrimSpace(raw)
+	if proxyText == "" {
+		return nil, nil
+	}
+	if !strings.Contains(proxyText, "://") {
+		proxyText = "http://" + proxyText
+	}
+	proxyURL, err := url.Parse(proxyText)
+	if err != nil || proxyURL.Hostname() == "" {
+		return nil, errors.New("invalid ALL_PROXY proxy URL")
+	}
+	proxyURL.Scheme = strings.ToLower(proxyURL.Scheme)
+	switch proxyURL.Scheme {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return nil, fmt.Errorf("unsupported ALL_PROXY scheme %q", proxyURL.Scheme)
+	}
+	if (proxyURL.Path != "" && proxyURL.Path != "/") || proxyURL.RawQuery != "" || proxyURL.Fragment != "" {
+		return nil, errors.New("ALL_PROXY proxy URL must not contain a path, query, or fragment")
+	}
+	return proxyURL, nil
+}
+
+func environmentProxyConfigured(environment *httpproxy.Config) bool {
+	if environment == nil {
+		return false
+	}
+	return environment.HTTPProxy != "" || environment.HTTPSProxy != ""
+}
+
+func environmentNoProxyMatches(environment *httpproxy.Config, target *url.URL) bool {
+	if environment == nil || target == nil || strings.TrimSpace(environment.NoProxy) == "" {
+		return false
+	}
+	// httpproxy does not expose its matcher separately. Supplying valid
+	// sentinel proxies lets the same parser answer only the bypass question.
+	bypassConfig := &httpproxy.Config{
+		HTTPProxy:  "http://gonavi-no-proxy-sentinel.invalid",
+		HTTPSProxy: "http://gonavi-no-proxy-sentinel.invalid",
+		NoProxy:    environment.NoProxy,
+	}
+	proxyURL, err := bypassConfig.ProxyFunc()(target)
+	return err == nil && proxyURL == nil
+}
+
 func strictHTTPSRedirectPolicy(req *http.Request, via []*http.Request) error {
 	if req == nil || req.URL == nil || !strings.EqualFold(req.URL.Scheme, "https") {
 		return errors.New("refusing non-HTTPS redirect for update or driver download")
@@ -227,14 +337,14 @@ func buildHTTPTransportWithGlobalProxy() http.RoundTripper {
 	transport := baseTransport.Clone()
 	snapshot := currentGlobalProxyConfig()
 	if !snapshot.Enabled {
-		transport.Proxy = http.ProxyFromEnvironment
+		transport.Proxy = defaultHTTPProxyFunc()
 		return transport
 	}
 
 	transportWithProxy, err := buildHTTPTransportForProxyConfig(snapshot.Proxy)
 	if err != nil {
 		logger.Warnf("全局代理配置无效，回退系统代理：%v", err)
-		transport.Proxy = http.ProxyFromEnvironment
+		transport.Proxy = defaultHTTPProxyFunc()
 		return transport
 	}
 	return transportWithProxy
@@ -248,13 +358,13 @@ func buildStrictHTTPTransportWithGlobalProxy() http.RoundTripper {
 	transport := baseTransport.Clone()
 	snapshot := currentGlobalProxyConfig()
 	if !snapshot.Enabled {
-		transport.Proxy = http.ProxyFromEnvironment
+		transport.Proxy = defaultHTTPProxyFunc()
 		return transport
 	}
 	proxyURL, err := buildProxyURLFromConfig(snapshot.Proxy)
 	if err != nil {
 		logger.Warnf("全局代理配置无效，严格 TLS 请求回退系统代理：%v", err)
-		transport.Proxy = http.ProxyFromEnvironment
+		transport.Proxy = defaultHTTPProxyFunc()
 		return transport
 	}
 	transport.Proxy = http.ProxyURL(proxyURL)

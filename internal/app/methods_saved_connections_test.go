@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -222,6 +224,55 @@ func TestSaveConnectionSanitizesSchemaVisibilityRules(t *testing.T) {
 	}
 	if !reflect.DeepEqual(result.SchemaVisibilityByDatabase, expected) {
 		t.Fatalf("expected schema visibility rules to be sanitized, got %#v", result.SchemaVisibilityByDatabase)
+	}
+}
+
+func TestSaveConnectionKeepsCaseDistinctPostgresSchemaVisibilityRules(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	result, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:   "conn-postgres-schema-rules",
+		Name: "Postgres schema rules",
+		Config: connection.ConnectionConfig{
+			ID:   "conn-postgres-schema-rules",
+			Type: "postgres",
+		},
+		SchemaVisibilityByDatabase: map[string]connection.SchemaVisibilityRule{
+			"analytics": {Mode: "include", Schemas: []string{"foo", "Foo"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.SchemaVisibilityByDatabase["analytics"].Schemas; !reflect.DeepEqual(got, []string{"foo", "Foo"}) {
+		t.Fatalf("expected case-distinct PostgreSQL schemas, got %#v", got)
+	}
+}
+
+func TestSaveConnectionDeduplicatesDuckDBSchemaVisibilityRulesCaseInsensitively(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	result, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:   "conn-duckdb-schema-rules",
+		Name: "DuckDB schema rules",
+		Config: connection.ConnectionConfig{
+			ID:   "conn-duckdb-schema-rules",
+			Type: "duckdb",
+		},
+		SchemaVisibilityByDatabase: map[string]connection.SchemaVisibilityRule{
+			"analytics": {Mode: "include", Schemas: []string{"foo", "Foo"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := map[string]connection.SchemaVisibilityRule{
+		"analytics": {Mode: "include", Schemas: []string{"foo"}},
+	}
+	if !reflect.DeepEqual(result.SchemaVisibilityByDatabase, expected) {
+		t.Fatalf("expected case-insensitive DuckDB schemas to collapse, got %#v", result.SchemaVisibilityByDatabase)
 	}
 }
 
@@ -600,6 +651,212 @@ func TestDuplicateConnectionClonesSecretBundle(t *testing.T) {
 	}
 	if resolved.Password != "postgres-secret" {
 		t.Fatalf("expected duplicated secret bundle, got %q", resolved.Password)
+	}
+}
+
+func TestUpdateConnectionVisibilityPreservesSavedConnectionAndDailySecret(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	_, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:                         "conn-visibility",
+		Name:                       "Production reporting",
+		EnvironmentType:            "production",
+		IncludeDatabases:           []string{"old-db"},
+		IncludeDatabasePatterns:    []string{"old_%"},
+		ExcludeDatabasePatterns:    []string{"old_tmp%"},
+		IncludeRedisDatabases:      []int{1},
+		SchemaVisibilityByDatabase: map[string]connection.SchemaVisibilityRule{"old-db": {Mode: "include", Schemas: []string{"public"}}},
+		IconType:                   "postgres",
+		IconColor:                  "#1677ff",
+		Config: connection.ConnectionConfig{
+			ID:       "conn-visibility",
+			Type:     "postgres",
+			Host:     "db.local",
+			Port:     5432,
+			User:     "reporter",
+			Database: "reporting",
+			Password: "primary-secret",
+			UseSSH:   true,
+			SSH: connection.SSHConfig{
+				Host:     "jump.local",
+				Port:     22,
+				User:     "ops",
+				Password: "ssh-secret",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secretPath := app.dailySecretStore().Path()
+	secretBefore, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatalf("read daily secret before visibility update: %v", err)
+	}
+	secretInfoBefore, err := os.Stat(secretPath)
+	if err != nil {
+		t.Fatalf("stat daily secret before visibility update: %v", err)
+	}
+
+	updated, err := app.UpdateConnectionVisibility(connection.ConnectionVisibilityInput{
+		ID:                      " conn-visibility ",
+		IncludeDatabases:        []string{" reporting ", "reporting", "Reporting", "", strings.Repeat("d", maxIncludedDatabaseNameBytes+1)},
+		IncludeDatabasePatterns: []string{" report_% ", "report_%"},
+		ExcludeDatabasePatterns: []string{" archive_% ", "archive_%"},
+		IncludeRedisDatabases:   []int{31, 0, 31, -1},
+		SchemaVisibilityByDatabase: map[string]connection.SchemaVisibilityRule{
+			" reporting ": {Mode: "include", Schemas: []string{" public ", "public", "audit"}},
+			"invalid":     {Mode: "all", Schemas: []string{"public"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated.ID != "conn-visibility" || updated.Name != "Production reporting" {
+		t.Fatalf("visibility update changed identity metadata: %#v", updated)
+	}
+	if updated.EnvironmentType != "production" {
+		t.Fatalf("visibility update changed environment type: %q", updated.EnvironmentType)
+	}
+	if updated.Config.Host != "db.local" || updated.Config.Port != 5432 || updated.Config.User != "reporter" || updated.Config.Database != "reporting" {
+		t.Fatalf("visibility update changed connection config: %#v", updated.Config)
+	}
+	if updated.Config.Password != "" || updated.Config.SSH.Password != "" {
+		t.Fatalf("visibility update returned plaintext secrets: %#v", updated.Config)
+	}
+	if updated.IconType != "postgres" || updated.IconColor != "#1677ff" {
+		t.Fatalf("visibility update changed icon metadata: type=%q color=%q", updated.IconType, updated.IconColor)
+	}
+	if !updated.HasPrimaryPassword || !updated.HasSSHPassword {
+		t.Fatalf("visibility update changed secret flags: %#v", updated)
+	}
+	if !reflect.DeepEqual(updated.IncludeDatabases, []string{"reporting", "Reporting"}) {
+		t.Fatalf("unexpected included databases: %#v", updated.IncludeDatabases)
+	}
+	if !reflect.DeepEqual(updated.IncludeDatabasePatterns, []string{"report_%"}) ||
+		!reflect.DeepEqual(updated.ExcludeDatabasePatterns, []string{"archive_%"}) {
+		t.Fatalf("unexpected database patterns: include=%#v exclude=%#v", updated.IncludeDatabasePatterns, updated.ExcludeDatabasePatterns)
+	}
+	if !reflect.DeepEqual(updated.IncludeRedisDatabases, []int{31, 0}) {
+		t.Fatalf("unexpected Redis databases: %#v", updated.IncludeRedisDatabases)
+	}
+	expectedSchemas := map[string]connection.SchemaVisibilityRule{
+		"reporting": {Mode: "include", Schemas: []string{"public", "audit"}},
+	}
+	if !reflect.DeepEqual(updated.SchemaVisibilityByDatabase, expectedSchemas) {
+		t.Fatalf("unexpected schema visibility: %#v", updated.SchemaVisibilityByDatabase)
+	}
+
+	password, err := app.RevealSavedConnectionPrimaryPassword("conn-visibility")
+	if err != nil || password != "primary-secret" {
+		t.Fatalf("RevealSavedConnectionPrimaryPassword returned password=%q err=%v", password, err)
+	}
+	secretAfter, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatalf("read daily secret after visibility update: %v", err)
+	}
+	secretInfoAfter, err := os.Stat(secretPath)
+	if err != nil {
+		t.Fatalf("stat daily secret after visibility update: %v", err)
+	}
+	if !bytes.Equal(secretAfter, secretBefore) {
+		t.Fatalf("visibility update rewrote daily secret contents:\nbefore=%s\nafter=%s", secretBefore, secretAfter)
+	}
+	if !secretInfoAfter.ModTime().Equal(secretInfoBefore.ModTime()) {
+		t.Fatalf("visibility update changed daily secret mtime: before=%v after=%v", secretInfoBefore.ModTime(), secretInfoAfter.ModTime())
+	}
+
+	persisted, err := app.GetEditableSavedConnection("conn-visibility")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(persisted.IncludeDatabases, updated.IncludeDatabases) ||
+		!reflect.DeepEqual(persisted.IncludeDatabasePatterns, updated.IncludeDatabasePatterns) ||
+		!reflect.DeepEqual(persisted.ExcludeDatabasePatterns, updated.ExcludeDatabasePatterns) ||
+		!reflect.DeepEqual(persisted.IncludeRedisDatabases, updated.IncludeRedisDatabases) ||
+		!reflect.DeepEqual(persisted.SchemaVisibilityByDatabase, updated.SchemaVisibilityByDatabase) {
+		t.Fatalf("visibility update was not persisted: %#v", persisted)
+	}
+}
+
+func TestUpdateConnectionVisibilityClearsFields(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+	_, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:                      "conn-clear-visibility",
+		IncludeDatabases:        []string{"app"},
+		IncludeDatabasePatterns: []string{"app_%"},
+		ExcludeDatabasePatterns: []string{"app_tmp%"},
+		IncludeRedisDatabases:   []int{0, 1},
+		SchemaVisibilityByDatabase: map[string]connection.SchemaVisibilityRule{
+			"app": {Mode: "exclude", Schemas: []string{"internal"}},
+		},
+		Config: connection.ConnectionConfig{ID: "conn-clear-visibility", Type: "mysql"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := app.UpdateConnectionVisibility(connection.ConnectionVisibilityInput{ID: "conn-clear-visibility"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.IncludeDatabases != nil || updated.IncludeDatabasePatterns != nil || updated.ExcludeDatabasePatterns != nil ||
+		updated.IncludeRedisDatabases != nil || updated.SchemaVisibilityByDatabase != nil {
+		t.Fatalf("expected all visibility fields to be cleared, got %#v", updated)
+	}
+
+	persisted, err := app.GetEditableSavedConnection("conn-clear-visibility")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.IncludeDatabases != nil || persisted.IncludeDatabasePatterns != nil || persisted.ExcludeDatabasePatterns != nil ||
+		persisted.IncludeRedisDatabases != nil || persisted.SchemaVisibilityByDatabase != nil {
+		t.Fatalf("expected cleared visibility fields to persist, got %#v", persisted)
+	}
+}
+
+func TestUpdateConnectionVisibilityRejectsInvalidPatternsWithoutChangingSavedData(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+	_, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:                      "conn-invalid-visibility",
+		IncludeDatabasePatterns: []string{"existing_%"},
+		Config:                  connection.ConnectionConfig{ID: "conn-invalid-visibility", Type: "mysql"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = app.UpdateConnectionVisibility(connection.ConnectionVisibilityInput{
+		ID:                      "conn-invalid-visibility",
+		IncludeDatabasePatterns: []string{strings.Repeat("租", 86)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "database include pattern exceeds 256 UTF-8 bytes") {
+		t.Fatalf("expected invalid include pattern error, got %v", err)
+	}
+	persisted, findErr := app.GetEditableSavedConnection("conn-invalid-visibility")
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	if !reflect.DeepEqual(persisted.IncludeDatabasePatterns, []string{"existing_%"}) {
+		t.Fatalf("invalid visibility update changed saved data: %#v", persisted.IncludeDatabasePatterns)
+	}
+}
+
+func TestUpdateConnectionVisibilityReturnsNotFound(t *testing.T) {
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+
+	_, err := app.UpdateConnectionVisibility(connection.ConnectionVisibilityInput{
+		ID:               "missing-connection",
+		IncludeDatabases: []string{"app"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "saved connection not found: missing-connection") {
+		t.Fatalf("expected saved connection not found error, got %v", err)
 	}
 }
 

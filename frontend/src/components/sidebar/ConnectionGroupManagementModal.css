@@ -1,0 +1,318 @@
+.connection-group-management-modal .ant-modal {
+  max-width: calc(100vw - 24px);
+}
+
+.connection-group-management-modal .ant-modal-content {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12)) !important;
+}
+
+.connection-group-management-modal .ant-modal-header {
+  margin: 0 !important;
+  padding: 17px 20px 15px !important;
+  border-bottom: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.10)) !important;
+}
+
+.connection-group-management-modal .ant-modal-close {
+  top: 13px !important;
+  inset-inline-end: 14px !important;
+}
+
+.connection-group-management-modal .ant-modal-body {
+  max-height: calc(100vh - 132px);
+  overflow: auto;
+  padding: 0 !important;
+}
+
+.connection-group-management-layout {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  min-height: 540px;
+}
+
+.connection-group-management-sidebar {
+  min-width: 0;
+  padding: 18px 14px;
+  border-inline-end: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.10));
+  background: var(--gn-bg-panel-2, rgba(248, 250, 252, 0.72));
+}
+
+.connection-group-management-new-group.ant-btn {
+  height: 34px;
+  border-color: var(--gn-br-3, rgba(15, 23, 42, 0.18));
+  background: var(--gn-toolbar-primary-bg, var(--gn-accent, #16a34a));
+  color: var(--gn-toolbar-primary-fg, #fff);
+  font-weight: 600;
+}
+
+.connection-group-management-new-group.ant-btn:hover,
+.connection-group-management-new-group.ant-btn:focus-visible {
+  border-color: var(--gn-accent-strong, #15803d);
+  color: var(--gn-toolbar-primary-hover-fg, #fff);
+  background: var(--gn-toolbar-primary-hover-bg, var(--gn-accent-strong, #15803d));
+}
+
+.connection-group-management-tree.ant-tree {
+  margin-top: 14px;
+  max-height: 472px;
+  overflow: auto;
+  background: transparent;
+}
+
+.connection-group-management-tree .ant-tree-treenode {
+  width: 100%;
+  padding: 1px 0;
+}
+
+.connection-group-management-tree .ant-tree-node-content-wrapper {
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 5px;
+}
+
+.connection-group-management-tree .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: var(--gn-bg-active, rgba(22, 163, 74, 0.12));
+}
+
+.connection-group-tree-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-group-tree-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connection-group-tree-count {
+  flex: 0 0 auto;
+  min-width: 20px;
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-group-management-content {
+  min-width: 0;
+  padding: 18px 20px 22px;
+}
+
+.connection-group-management-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.connection-group-management-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.connection-group-management-title.ant-typography {
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  line-height: 30px;
+}
+
+.connection-group-management-selected-tag.ant-tag {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.connection-group-management-toolbar-actions {
+  flex-wrap: nowrap;
+}
+
+.connection-group-management-toolbar-button.ant-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: var(--gn-br-3, rgba(15, 23, 42, 0.18));
+  background: var(--gn-bg-panel, transparent);
+}
+
+.connection-group-management-toolbar-button.ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):hover,
+.connection-group-management-toolbar-button.ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous):focus-visible {
+  border-color: var(--gn-accent, #16a34a);
+  color: var(--gn-accent, #16a34a);
+  background: var(--gn-bg-hover, rgba(22, 163, 74, 0.08));
+}
+
+.connection-group-management-toolbar-button.ant-btn-dangerous:hover,
+.connection-group-management-toolbar-button.ant-btn-dangerous:focus-visible {
+  background: color-mix(in srgb, var(--ant-color-error, #ff4d4f) 8%, transparent);
+}
+
+.connection-group-management-sort.ant-select {
+  width: 116px;
+}
+
+.connection-group-management-sort-control {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 9px;
+  border: 1px solid var(--gn-br-3, rgba(15, 23, 42, 0.18));
+  border-radius: 6px;
+  background: var(--gn-bg-panel, transparent);
+  color: var(--gn-fg-2, inherit);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.connection-group-management-sort-control:hover,
+.connection-group-management-sort-control:focus-within {
+  border-color: var(--gn-accent, #16a34a);
+  background: var(--gn-bg-hover, rgba(22, 163, 74, 0.08));
+}
+
+.connection-group-management-sort-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.connection-group-management-sort-label:focus-visible {
+  outline: 2px solid var(--gn-accent, #16a34a);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.connection-group-management-table .ant-table {
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.10));
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.connection-group-management-table .ant-table-thead > tr > th {
+  height: 38px;
+  padding-block: 8px;
+  border-bottom-color: var(--gn-br-2, rgba(15, 23, 42, 0.10));
+  background: var(--gn-bg-panel-2, rgba(248, 250, 252, 0.78));
+  color: var(--gn-fg-2, inherit);
+  font-weight: 600;
+}
+
+.connection-group-management-table .ant-table-tbody > tr > td {
+  height: 40px;
+  padding-block: 7px;
+  border-bottom-color: var(--gn-br-2, rgba(15, 23, 42, 0.08));
+}
+
+.connection-group-management-table .ant-table-tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+.connection-group-management-table .ant-table-tbody > tr.ant-table-row-selected > td {
+  background: var(--gn-bg-active, rgba(22, 163, 74, 0.10));
+}
+
+.connection-group-management-table .ant-table-tbody > tr.ant-table-row-selected:hover > td {
+  background: color-mix(in srgb, var(--gn-bg-active) 72%, var(--gn-bg-hover));
+}
+
+.connection-group-management-cell-text.ant-typography {
+  display: block;
+  min-width: 0;
+  margin: 0;
+}
+
+.connection-group-management-row-actions .ant-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: var(--gn-br-3, rgba(15, 23, 42, 0.18));
+  background: var(--gn-bg-panel, transparent);
+}
+
+.connection-group-management-row-actions .ant-btn:hover,
+.connection-group-management-row-actions .ant-btn:focus-visible {
+  border-color: var(--gn-br-3, rgba(15, 23, 42, 0.18));
+  background: var(--gn-bg-hover, rgba(15, 23, 42, 0.05));
+}
+
+.connection-group-management-row-actions .connection-group-management-row-delete.ant-btn-dangerous {
+  border-color: var(--ant-color-error, #ff4d4f);
+  color: var(--ant-color-error, #ff4d4f);
+}
+
+.connection-group-management-row-actions .connection-group-management-row-delete.ant-btn-dangerous:hover,
+.connection-group-management-row-actions .connection-group-management-row-delete.ant-btn-dangerous:focus-visible {
+  border-color: var(--ant-color-error-hover, #ff7875);
+  color: var(--ant-color-error-hover, #ff7875);
+  background: color-mix(in srgb, var(--ant-color-error, #ff4d4f) 8%, transparent);
+}
+
+@media (max-width: 860px) {
+  .connection-group-management-layout {
+    grid-template-columns: 218px minmax(0, 1fr);
+  }
+
+  .connection-group-management-content {
+    padding-inline: 16px;
+  }
+
+  .connection-group-management-toolbar {
+    align-items: start;
+  }
+}
+
+@media (max-width: 680px) {
+  .connection-group-management-modal .ant-modal {
+    max-width: calc(100vw - 16px);
+    margin-inline: 8px;
+  }
+
+  .connection-group-management-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .connection-group-management-sidebar {
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.10));
+  }
+
+  .connection-group-management-tree.ant-tree {
+    max-height: 220px;
+  }
+
+  .connection-group-management-content {
+    padding: 14px 12px 16px;
+  }
+
+  .connection-group-management-toolbar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .connection-group-management-toolbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .connection-group-management-sort-control {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .connection-group-management-sort.ant-select {
+    width: min(180px, 55vw);
+  }
+}

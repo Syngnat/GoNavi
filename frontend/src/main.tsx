@@ -24,6 +24,9 @@ const resolveDevHarnessMode = (): string => {
     }
 };
 
+const devHarnessMode = import.meta.env.DEV ? resolveDevHarnessMode() : '';
+const isPerfDataGridHarness = devHarnessMode === 'datagrid-perf';
+
 if (
     typeof window !== 'undefined'
     && (
@@ -33,25 +36,90 @@ if (
 ) {
     const existingRuntime = (window as any).runtime || {};
     const existingEventsOnMultiple = existingRuntime.EventsOnMultiple;
+    const existingEventsEmit = existingRuntime.EventsEmit;
+    const localRuntimeEventListeners = new Map<string, Set<(...args: any[]) => void>>();
+    const emitLocalRuntimeEvent = (eventName: string, ...args: any[]) => {
+        for (const listener of [...(localRuntimeEventListeners.get(eventName) || [])]) {
+            listener(...args);
+        }
+    };
+    const subscribeLocalRuntimeEvent = (
+        eventName: string,
+        callback: (...args: any[]) => void,
+        maxCallbacks: number,
+    ) => {
+        let remaining = maxCallbacks;
+        const listener = (...args: any[]) => {
+            callback(...args);
+            if (remaining > 0) {
+                remaining -= 1;
+                if (remaining === 0) {
+                    localRuntimeEventListeners.get(eventName)?.delete(listener);
+                }
+            }
+        };
+        const listeners = localRuntimeEventListeners.get(eventName) || new Set();
+        listeners.add(listener);
+        localRuntimeEventListeners.set(eventName, listeners);
+        return () => {
+            listeners.delete(listener);
+            if (listeners.size === 0) localRuntimeEventListeners.delete(eventName);
+        };
+    };
     (window as any).runtime = {
         ...existingRuntime,
-        EventsOnMultiple: (...args: any[]) => {
-            const off = typeof existingEventsOnMultiple === 'function'
-                ? existingEventsOnMultiple(...args)
+        EventsOnMultiple: (eventName: string, callback: (...args: any[]) => void, maxCallbacks = -1) => {
+            const offExisting = typeof existingEventsOnMultiple === 'function'
+                ? existingEventsOnMultiple(eventName, callback, maxCallbacks)
                 : undefined;
-            return typeof off === 'function' ? off : () => {};
+            const offLocal = subscribeLocalRuntimeEvent(eventName, callback, maxCallbacks);
+            return () => {
+                offLocal();
+                if (typeof offExisting === 'function') offExisting();
+            };
         },
-        EventsOff: typeof existingRuntime.EventsOff === 'function' ? existingRuntime.EventsOff : () => {},
-        EventsOffAll: typeof existingRuntime.EventsOffAll === 'function' ? existingRuntime.EventsOffAll : () => {},
-        EventsEmit: typeof existingRuntime.EventsEmit === 'function' ? existingRuntime.EventsEmit : () => {},
+        EventsOff: (eventName: string, ...additionalEventNames: string[]) => {
+            existingRuntime.EventsOff?.(eventName, ...additionalEventNames);
+            for (const name of [eventName, ...additionalEventNames]) {
+                localRuntimeEventListeners.delete(name);
+            }
+        },
+        EventsOffAll: () => {
+            existingRuntime.EventsOffAll?.();
+            localRuntimeEventListeners.clear();
+        },
+        EventsEmit: (eventName: string, ...args: any[]) => {
+            existingEventsEmit?.(eventName, ...args);
+            emitLocalRuntimeEvent(eventName, ...args);
+        },
     };
 
-    const mockConnections: any[] = [];
+    const mockConnections: any[] = isPerfDataGridHarness ? [{
+        id: 'perf-conn',
+        name: 'Perf Data Grid',
+        config: {
+            id: 'perf-conn',
+            type: 'mysql',
+            host: '127.0.0.1',
+            port: 3306,
+            user: 'root',
+            database: 'perf_lab',
+        },
+    }] : [];
+    let mockConnectionSidebarLayout: any = {
+        initialized: false,
+        revision: 0,
+        connectionTags: [],
+        sidebarRootOrder: [],
+        rootSortMode: 'manual',
+        rootConnectionSortMode: 'createdAt',
+    };
     const mockSavedQueries: any[] = [];
     const mockSavedQueryGroups: any[] = [];
     const mockQueryTables = [
         { table_name: 'videos', table_comment: 'sample video records' },
         { table_name: 'users', table_comment: 'sample users' },
+        ...(isPerfDataGridHarness ? [{ table_name: 'perf_grid', table_comment: 'data grid performance harness' }] : []),
     ];
     const mockQueryColumns = [
         { tableName: 'videos', name: 'id', type: 'bigint', comment: 'primary key' },
@@ -59,6 +127,13 @@ if (
         { tableName: 'videos', name: 'title', type: 'varchar', comment: 'video title' },
         { tableName: 'users', name: 'id', type: 'bigint', comment: 'primary key' },
         { tableName: 'users', name: 'name', type: 'varchar', comment: 'display name' },
+        ...(isPerfDataGridHarness ? [
+            { tableName: 'perf_grid', name: 'id', type: 'bigint', comment: 'primary key' },
+            { tableName: 'perf_grid', name: 'created_at', type: 'datetime', comment: 'created time' },
+            { tableName: 'perf_grid', name: 'updated_at', type: 'timestamp', comment: 'updated time' },
+            { tableName: 'perf_grid', name: 'register_date', type: 'date', comment: 'date with preserved time' },
+            { tableName: 'perf_grid', name: 'status', type: 'varchar', comment: 'record status' },
+        ] : []),
     ];
     const mockConnectionSecrets = new Map<string, any>();
     const mockProviders: any[] = [];
@@ -71,6 +146,227 @@ if (
         database: '',
         jvm: '',
         jvmDiagnostic: '',
+    };
+    const mockAgentSessions = new Map<string, any>();
+    const mockAgentRuns = new Map<string, any>();
+    const mockWorkspaceSnapshots = new Map<string, any>();
+    let mockAgentSequence = 0;
+    let mockAgentSessionSequence = 0;
+    let mockRunPolicy: any = {
+        schemaVersion: 1,
+        revision: 1,
+        policy: {
+            defaultDispatchMode: 'queue',
+            softToolRoundLimit: 10,
+            maxToolRounds: 15,
+            maxConsecutiveFailedToolRounds: 3,
+            maxToolNudges: 2,
+            maxModelRetriesPerTurn: 1,
+            maxActiveDuration: '30m',
+            modelTurnTimeout: '0s',
+            modelIdleTimeout: '0s',
+            defaultToolTimeout: '0s',
+            maxTotalTokens: 0,
+            maxToolResultBytes: 1048576,
+        },
+        // Go's time.Duration is encoded as nanoseconds by the Wails binding.
+        // Keep the browser mock in the same shape so settings and lease
+        // renewal code exercise the real serialization contract.
+        runtime: {
+            controlPollInterval: 200_000_000,
+            workspaceSnapshotRenewInterval: 5_000_000_000,
+            workspaceSnapshotLeaseDuration: 15_000_000_000,
+            policyWatchInterval: 500_000_000,
+        },
+    };
+    const mockAgentNow = () => new Date().toISOString();
+    const cloneMockAgentSession = (session: any, includeMessages = true) => ({
+        sessionId: session.id,
+        title: session.title,
+        revision: session.revision,
+        generation: session.generation,
+        archived: session.archived === true,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        runs: [...mockAgentRuns.values()]
+            .filter((run) => run.sessionId === session.id)
+            .map((run) => cloneBrowserMockValue(run.snapshot)),
+        ...(includeMessages ? { messages: cloneBrowserMockValue(session.messages) } : {}),
+    });
+    const emitMockAgentEvent = (
+        run: any,
+        kind: string,
+        payload: Record<string, unknown>,
+        resultingState = run.snapshot.state,
+    ) => {
+        const sequence = run.snapshot.nextSequence;
+        const event = {
+            schemaVersion: 1,
+            runId: run.snapshot.runId,
+            sessionId: run.snapshot.sessionId,
+            sessionGeneration: run.snapshot.sessionGeneration,
+            sequence,
+            runRevision: run.snapshot.revision,
+            attempt: run.snapshot.attempt,
+            timestamp: mockAgentNow(),
+            kind,
+            resultingState,
+            payload,
+        };
+        run.nextSequence = sequence;
+        run.snapshot.nextSequence = sequence + 1;
+        run.events.push(event);
+        emitLocalRuntimeEvent('ai:run:event', cloneBrowserMockValue(event));
+        return event;
+    };
+    const updateMockAgentRunState = (run: any, state: string) => {
+        run.snapshot.state = state;
+        run.snapshot.revision += 1;
+        run.snapshot.updatedAt = mockAgentNow();
+        const session = mockAgentSessions.get(run.snapshot.sessionId);
+        if (session) {
+            session.revision += 1;
+            session.updatedAt = run.snapshot.updatedAt;
+        }
+    };
+    const mockAgentResponse = (request: any) => request?.taskKind === 'query_editor_generation'
+        ? 'SELECT * FROM `videos` LIMIT 100;'
+        : 'Browser mock agent response.';
+    const runMockAgentTurn = (run: any, request: any) => {
+        window.setTimeout(() => {
+            if (run.snapshot.state === 'canceled') return;
+            updateMockAgentRunState(run, 'running_model');
+            const text = mockAgentResponse(request);
+            emitMockAgentEvent(run, 'model_delta', { text }, 'running_model');
+            window.setTimeout(() => {
+                if (run.snapshot.state === 'canceled') return;
+                emitMockAgentEvent(run, 'model_completed', { text }, 'running_model');
+                const session = mockAgentSessions.get(run.snapshot.sessionId);
+                if (session) {
+                    session.messages.push({
+                        id: `agent-message-${run.snapshot.runId}-assistant`,
+                        sessionId: run.snapshot.sessionId,
+                        runId: run.snapshot.runId,
+                        sequence: run.nextSequence,
+                        role: 'assistant',
+                        content: text,
+                        createdAt: mockAgentNow(),
+                    });
+                }
+                updateMockAgentRunState(run, 'completed');
+                emitMockAgentEvent(run, 'terminal', { reason: 'completed' }, 'completed');
+            }, 0);
+        }, 0);
+    };
+    const submitMockAgentInput = async (request: any) => {
+        const requestId = String(request?.requestId || '').trim();
+        if (!requestId) throw new Error('requestId is required');
+        const requestedSessionId = String(request?.sessionId || '').trim();
+        const sessionId = requestedSessionId || `agent-session-${++mockAgentSessionSequence}`;
+        let session = mockAgentSessions.get(sessionId);
+        if (!session) {
+            const now = mockAgentNow();
+            session = {
+                id: sessionId,
+                title: String(request?.content || 'New conversation').trim().slice(0, 80) || 'New conversation',
+                revision: 1,
+                generation: 1,
+                archived: false,
+                createdAt: now,
+                updatedAt: now,
+                messages: [],
+            };
+            mockAgentSessions.set(sessionId, session);
+        }
+        if (Number(request?.expectedRevision || 0) > 0 && Number(request.expectedRevision) !== session.revision) {
+            throw new Error('revision_conflict');
+        }
+        const content = String(request?.content || '');
+        const activeRun = [...mockAgentRuns.values()]
+            .reverse()
+            .find((candidate) => candidate.snapshot.sessionId === sessionId
+                && !['completed', 'failed', 'canceled', 'exhausted'].includes(candidate.snapshot.state));
+        if (request?.dispatchMode === 'steer' && activeRun) {
+            session.messages.push({
+                id: `agent-message-${activeRun.snapshot.runId}-steer-${Date.now()}`,
+                sessionId,
+                runId: activeRun.snapshot.runId,
+                sequence: activeRun.nextSequence + 1,
+                role: 'user',
+                content,
+                createdAt: mockAgentNow(),
+            });
+            session.revision += 1;
+            session.updatedAt = mockAgentNow();
+            activeRun.snapshot.revision += 1;
+            emitMockAgentEvent(activeRun, 'input', { requestId, dispatchMode: 'steer' });
+            return {
+                requestId,
+                sessionId,
+                runId: activeRun.snapshot.runId,
+                disposition: 'steered',
+                revision: activeRun.snapshot.revision,
+                state: activeRun.snapshot.state,
+            };
+        }
+        const runId = `agent-run-${++mockAgentSequence}`;
+        const now = mockAgentNow();
+        const run = {
+            nextSequence: 0,
+            events: [] as any[],
+            snapshot: {
+                runId,
+                sessionId,
+                requestId,
+                sessionGeneration: session.generation,
+                state: 'queued',
+                revision: 1,
+                attempt: 1,
+                nextSequence: 1,
+                createdAt: now,
+                updatedAt: now,
+                taskKind: request?.taskKind || 'chat',
+                allowTools: request?.allowTools !== false,
+                provider: String(request?.provider || ''),
+                model: String(request?.model || ''),
+                thinking: String(request?.thinking || ''),
+            },
+        };
+        mockAgentRuns.set(runId, run);
+        session.messages.push({
+            id: `agent-message-${runId}-user`,
+            sessionId,
+            runId,
+            sequence: 0,
+            role: 'user',
+            content,
+            attachments: Array.isArray(request?.attachments) ? cloneBrowserMockValue(request.attachments) : [],
+            createdAt: now,
+        });
+        session.revision += 1;
+        session.updatedAt = now;
+        emitMockAgentEvent(run, 'input', { requestId, dispatchMode: request?.dispatchMode || 'queue' }, 'queued');
+        runMockAgentTurn(run, request);
+        return {
+            requestId,
+            sessionId,
+            runId,
+            disposition: 'started',
+            revision: run.snapshot.revision,
+            state: run.snapshot.state,
+        };
+    };
+    const controlMockAgentRun = async (request: any) => {
+        const run = mockAgentRuns.get(String(request?.runId || '').trim());
+        if (!run) throw new Error('run not found');
+        if (Number(request?.expectedRevision || 0) > 0 && Number(request.expectedRevision) !== run.snapshot.revision) {
+            throw new Error('revision_conflict');
+        }
+        if (request?.action === 'cancel' && !['completed', 'failed', 'canceled', 'exhausted'].includes(run.snapshot.state)) {
+            updateMockAgentRunState(run, 'canceled');
+            emitMockAgentEvent(run, 'terminal', { reason: 'canceled' }, 'canceled');
+        }
+        return cloneBrowserMockValue(run.snapshot);
     };
     let mockMCPServers: any[] = [];
     let mockMCPHTTPServerStatus: any = {
@@ -208,6 +504,7 @@ if (
     };
     let mockSkills: any[] = [];
     let mockGlobalProxy: any = { enabled: false, type: 'socks5', host: '', port: 1080, user: '', password: '', hasPassword: false };
+    let mockDownloadSource: 'cst' | 'bero' | 'github' = 'cst';
     let mockUpdateChannel: 'latest' | 'dev' = 'latest';
     const mockReleasePublishedAt = '2026-07-08T11:15:00Z';
     const buildMockUpdateInfo = () => ({
@@ -261,6 +558,7 @@ if (
         const hasIncludeDatabases = Object.prototype.hasOwnProperty.call(input || {}, 'includeDatabases');
         const hasIncludeDatabasePatterns = Object.prototype.hasOwnProperty.call(input || {}, 'includeDatabasePatterns');
         const hasExcludeDatabasePatterns = Object.prototype.hasOwnProperty.call(input || {}, 'excludeDatabasePatterns');
+        const hasIncludeRedisDatabases = Object.prototype.hasOwnProperty.call(input || {}, 'includeRedisDatabases');
         const hasSchemaVisibilityByDatabase = Object.prototype.hasOwnProperty.call(input || {}, 'schemaVisibilityByDatabase');
         const existingSecrets = existing ? (mockConnectionSecrets.get(existing.id) || {}) : {};
         const config = (input?.config && typeof input.config === 'object') ? input.config : {};
@@ -324,7 +622,9 @@ if (
             excludeDatabasePatterns: hasExcludeDatabasePatterns
                 ? (Array.isArray(input?.excludeDatabasePatterns) ? [...input.excludeDatabasePatterns] : undefined)
                 : existing?.excludeDatabasePatterns,
-            includeRedisDatabases: Array.isArray(input?.includeRedisDatabases) ? [...input.includeRedisDatabases] : existing?.includeRedisDatabases,
+            includeRedisDatabases: hasIncludeRedisDatabases
+                ? (Array.isArray(input?.includeRedisDatabases) ? [...input.includeRedisDatabases] : undefined)
+                : existing?.includeRedisDatabases,
             schemaVisibilityByDatabase: hasSchemaVisibilityByDatabase
                 ? (input?.schemaVisibilityByDatabase && typeof input.schemaVisibilityByDatabase === 'object'
                     ? cloneBrowserMockValue(input.schemaVisibilityByDatabase)
@@ -344,6 +644,25 @@ if (
         };
         upsertMockConnection(view);
         return cloneBrowserMockValue(view);
+    };
+
+    const updateMockConnectionVisibility = (input: any) => {
+        const existing = mockConnections.find((item) => item.id === input?.id);
+        if (!existing) {
+            throw new Error(`saved connection not found: ${String(input?.id || '')}`);
+        }
+        const updated = {
+            ...existing,
+            includeDatabases: Array.isArray(input?.includeDatabases) ? [...input.includeDatabases] : undefined,
+            includeDatabasePatterns: Array.isArray(input?.includeDatabasePatterns) ? [...input.includeDatabasePatterns] : undefined,
+            excludeDatabasePatterns: Array.isArray(input?.excludeDatabasePatterns) ? [...input.excludeDatabasePatterns] : undefined,
+            includeRedisDatabases: Array.isArray(input?.includeRedisDatabases) ? [...input.includeRedisDatabases] : undefined,
+            schemaVisibilityByDatabase: input?.schemaVisibilityByDatabase && typeof input.schemaVisibilityByDatabase === 'object'
+                ? cloneBrowserMockValue(input.schemaVisibilityByDatabase)
+                : undefined,
+        };
+        upsertMockConnection(updated);
+        return cloneBrowserMockValue(updated);
     };
 
     const saveMockQuery = (input: any) => {
@@ -480,6 +799,45 @@ if (
                 GetUpdateDownloadTask: async () => ({ success: true, data: { task: null } }),
                 SetLanguage: async () => null,
                 GetSavedConnections: async () => cloneBrowserMockValue(mockConnections),
+                BootstrapConnectionSidebarLayout: async (input: any) => {
+                    if (
+                        !mockConnectionSidebarLayout.initialized
+                        && Array.isArray(input?.connectionTags)
+                        && input.connectionTags.length > 0
+                    ) {
+                        mockConnectionSidebarLayout = {
+                            initialized: true,
+                            revision: 1,
+                            connectionTags: cloneBrowserMockValue(input.connectionTags),
+                            sidebarRootOrder: cloneBrowserMockValue(input.sidebarRootOrder || []),
+                            rootSortMode: 'manual',
+                            rootConnectionSortMode: input?.rootConnectionSortMode === 'name' ? 'name' : 'createdAt',
+                        };
+                    }
+                    return cloneBrowserMockValue(mockConnectionSidebarLayout);
+                },
+                SaveConnectionSidebarLayout: async (input: any) => {
+                    if (Number(input?.expectedRevision) !== Number(mockConnectionSidebarLayout.revision)) {
+                        return {
+                            conflict: true,
+                            layout: cloneBrowserMockValue(mockConnectionSidebarLayout),
+                        };
+                    }
+                    const layout = input?.layout || {};
+                    mockConnectionSidebarLayout = {
+                        initialized: true,
+                        revision: Number(mockConnectionSidebarLayout.revision) + 1,
+                        connectionTags: cloneBrowserMockValue(layout.connectionTags || []),
+                        sidebarRootOrder: cloneBrowserMockValue(layout.sidebarRootOrder || []),
+                        rootSortMode: 'manual',
+                        rootConnectionSortMode: layout.rootConnectionSortMode === 'name' ? 'name' : 'createdAt',
+                    };
+                    return {
+                        conflict: false,
+                        layout: cloneBrowserMockValue(mockConnectionSidebarLayout),
+                    };
+                },
+                LoadConnectionSidebarLayout: async () => cloneBrowserMockValue(mockConnectionSidebarLayout),
                 GetEditableSavedConnection: async (id: string) => {
                     const existing = mockConnections.find((item) => item.id === id);
                     if (!existing) {
@@ -500,12 +858,24 @@ if (
                 },
                 ListInstalledFontFamilies: async () => ({ success: true, data: [] }),
                 SaveConnection: async (input: any) => saveMockConnection(input),
+                UpdateConnectionVisibility: async (input: any) => updateMockConnectionVisibility(input),
                 DeleteConnection: async (id: string) => {
                     const index = mockConnections.findIndex((item) => item.id === id);
                     if (index >= 0) {
                         mockConnections.splice(index, 1);
                     }
                     mockConnectionSecrets.delete(id);
+                    return null;
+                },
+                DeleteConnections: async (ids: string[]) => {
+                    const requested = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id).trim()).filter(Boolean));
+                    for (let index = mockConnections.length - 1; index >= 0; index -= 1) {
+                        if (requested.has(String(mockConnections[index]?.id || ''))) {
+                            mockConnectionSecrets.delete(mockConnections[index].id);
+                            mockConnections.splice(index, 1);
+                        }
+                    }
+                    requested.forEach((id) => mockConnectionSecrets.delete(id));
                     return null;
                 },
                 DuplicateConnection: async (id: string) => {
@@ -789,6 +1159,12 @@ if (
                 }) => ({ success: false, message: t('app.browser_mock.export_connection_package_unsupported') }),
                 ExportData: async () => ({ success: false }),
                 GetGlobalProxyConfig: async () => ({ success: true, data: cloneBrowserMockValue(mockGlobalProxy) }),
+                GetDownloadSourceConfig: async () => ({ source: mockDownloadSource }),
+                SaveDownloadSourceConfig: async (source: string) => {
+                    const normalized = String(source || '').trim().toLowerCase();
+                    mockDownloadSource = normalized === 'bero' || normalized === 'github' ? normalized : 'cst';
+                    return { source: mockDownloadSource };
+                },
                 SetUpdateChannel: async (channel: string) => {
                     mockUpdateChannel = String(channel || '').trim().toLowerCase() === 'dev' ? 'dev' : 'latest';
                     return { success: true, data: { channel: mockUpdateChannel } };
@@ -887,27 +1263,100 @@ if (
                 },
                 AIGetActiveProvider: async () => mockActiveProviderId,
                 AISetActiveProvider: async (id: string) => {
+                    if (!mockProviders.some((item) => item.id === id)) throw new Error(`provider not found: ${id}`);
                     mockActiveProviderId = id;
-                    return null;
                 },
+                AIGetCLICapabilities: async () => [],
+                AIGetCLIModelCatalog: async () => ({ models: [], source: 'none', stale: false }),
+                AIListCLIModels: async () => [],
                 AIGetSafetyLevel: async () => mockAISafetyLevel,
                 AIGetContextLevel: async () => mockAIContextLevel,
                 AIGetBuiltinPrompts: async () => ({}),
                 AIGetUserPromptSettings: async () => cloneBrowserMockValue(mockAIUserPromptSettings),
-                AIChatSend: async () => ({
-                    success: true,
-                    content: 'SELECT * FROM `videos` LIMIT 100;',
-                }),
-                AIChatSendWithOptions: async (messages: any[], tools: any[], options: any) => {
-                    (window as any).__gonaviLastAIChatSendWithOptions = {
-                        messages: cloneBrowserMockValue(messages),
-                        tools: cloneBrowserMockValue(tools),
-                        options: cloneBrowserMockValue(options),
-                    };
+                AISubmitAgentInput: async (request: any) => submitMockAgentInput(request),
+                AIControlAgentRun: async (request: any) => controlMockAgentRun(request),
+                AIReadAgentRun: async (request: any) => {
+                    const run = mockAgentRuns.get(String(request?.runId || '').trim());
+                    if (!run) throw new Error('run not found');
+                    const afterSequence = Math.max(0, Number(request?.afterSequence || 0));
+                    const limit = Math.max(1, Math.min(1000, Number(request?.limit || 100)));
+                    const events = run.events
+                        .filter((event: any) => event.sequence > afterSequence)
+                        .slice(0, limit);
+                    const lastSequence = events.length > 0
+                        ? events[events.length - 1].sequence
+                        : afterSequence;
                     return {
-                        success: true,
-                        content: 'SELECT * FROM `videos` LIMIT 100;',
+                        run: cloneBrowserMockValue(run.snapshot),
+                        events: cloneBrowserMockValue(events),
+                        nextSequence: run.snapshot.nextSequence,
+                        hasMore: run.events.some((event: any) => event.sequence > lastSequence),
                     };
+                },
+                AIListAgentSessions: async (request: any = {}) => {
+                    const offset = Math.max(0, Number(request?.offset || 0));
+                    const limit = Math.max(1, Math.min(1000, Number(request?.limit || 100)));
+                    const sessions = [...mockAgentSessions.values()]
+                        .filter((session) => request?.activeOnly !== true || !session.archived)
+                        .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
+                    return {
+                        sessions: sessions.slice(offset, offset + limit).map((session) => cloneMockAgentSession(session, false)),
+                        total: sessions.length,
+                    };
+                },
+                AIReadAgentSession: async (request: any) => {
+                    const session = mockAgentSessions.get(String(request?.sessionId || '').trim());
+                    if (!session) throw new Error('session not found');
+                    const limit = Math.max(1, Math.min(10000, Number(request?.limit || 10000)));
+                    const projection = cloneMockAgentSession(session, true);
+                    projection.messages = projection.messages.slice(-limit);
+                    return projection;
+                },
+                AIMutateAgentSession: async (request: any) => {
+                    const session = mockAgentSessions.get(String(request?.sessionId || '').trim());
+                    if (!session) throw new Error('session not found');
+                    if (Number(request?.expectedRevision || 0) > 0 && Number(request.expectedRevision) !== session.revision) {
+                        throw new Error('revision_conflict');
+                    }
+                    if (Object.prototype.hasOwnProperty.call(request || {}, 'title')) {
+                        session.title = String(request.title || '').trim();
+                    }
+                    if (Object.prototype.hasOwnProperty.call(request || {}, 'archived')) {
+                        session.archived = request.archived === true;
+                    }
+                    session.revision += 1;
+                    session.updatedAt = mockAgentNow();
+                    return cloneMockAgentSession(session, false);
+                },
+                AIUpdateWorkspaceSnapshot: async (snapshot: any) => {
+                    const sourceId = String(snapshot?.sourceId || '').trim();
+                    const sourceInstanceId = String(snapshot?.sourceInstanceId || '').trim();
+                    const revision = Number(snapshot?.revision || 0);
+                    if (!sourceId || !sourceInstanceId || revision < 1) {
+                        throw new Error('workspace snapshot sourceId, sourceInstanceId, and revision are required');
+                    }
+                    const key = `${sourceId}:${sourceInstanceId}`;
+                    const previous = mockWorkspaceSnapshots.get(key);
+                    if (previous && revision < previous.revision) throw new Error('revision_conflict');
+                    const content = JSON.stringify(snapshot);
+                    const contentHash = `browser-mock-${content.length.toString(16)}-${revision}`;
+                    mockWorkspaceSnapshots.set(key, { revision, contentHash, snapshot: cloneBrowserMockValue(snapshot) });
+                    return { sourceId, revision, contentHash, accepted: true };
+                },
+                AIGetRunPolicy: async () => cloneBrowserMockValue(mockRunPolicy),
+                AIGetAgentLedgerStatus: async () => ({ state: 'ready' }),
+                AISaveRunPolicy: async (request: any) => {
+                    const expectedRevision = Number(request?.expectedRevision || 0);
+                    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || expectedRevision !== mockRunPolicy.revision) {
+                        throw new Error('revision_conflict');
+                    }
+                    mockRunPolicy = {
+                        schemaVersion: 1,
+                        revision: mockRunPolicy.revision + 1,
+                        policy: cloneBrowserMockValue(request?.policy || {}),
+                        runtime: cloneBrowserMockValue(request?.runtime || mockRunPolicy.runtime),
+                    };
+                    return cloneBrowserMockValue(mockRunPolicy);
                 },
                 AISaveUserPromptSettings: async (input: any) => {
                     mockAIUserPromptSettings = {
@@ -1071,11 +1520,11 @@ if (
                     mockSkills = mockSkills.filter((item) => item.id !== id);
                     return null;
                 },
-                AITestProvider: async (input: any) => ({
-                    success: String(input?.apiKey || '').trim() !== '',
-                    message: String(input?.apiKey || '').trim() !== ''
-                        ? t('app.browser_mock.provider.test_success')
-                        : t('app.browser_mock.provider.test_failed_detail', { detail: 'missing api key' }),
+                AITestProvider: async () => ({
+                    success: false,
+                    checkKind: 'none',
+                    modelVerified: false,
+                    message: t('ai_settings.message.preview_check_unavailable'),
                 }),
                 AISetSafetyLevel: async (level: string) => {
                     mockAISafetyLevel = String(level || 'readonly');
@@ -1112,8 +1561,6 @@ if (
     };
 }
 const rootNode = document.getElementById('root')!;
-
-const devHarnessMode = import.meta.env.DEV ? resolveDevHarnessMode() : '';
 
 const readBrowserLanguages = (): string[] => {
     if (typeof navigator === 'undefined') return [];

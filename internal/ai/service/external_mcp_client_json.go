@@ -17,12 +17,15 @@ const (
 
 var zCodeConfigPathFunc = resolveZCodeConfigPath
 var kimiCodeConfigPathFunc = resolveKimiCodeConfigPath
+var zCodeClientDetectFunc = detectZCodeClient
+var zCodeHomeDirFunc = resolveZCodeHomeDir
 
 type externalJSONMCPClientSpec struct {
 	Client         string
 	DisplayName    string
 	CLICommand     string
 	ConfigPathFunc func() (string, error)
+	DetectFunc     func() (bool, string)
 	ServerPath     []string
 	EnabledKey     string
 }
@@ -39,6 +42,9 @@ var zCodeMCPClientSpec = externalJSONMCPClientSpec{
 	CLICommand:  zCodeClientCommandName,
 	ConfigPathFunc: func() (string, error) {
 		return zCodeConfigPathFunc()
+	},
+	DetectFunc: func() (bool, string) {
+		return zCodeClientDetectFunc()
 	},
 	ServerPath: []string{"mcp", "servers"},
 	EnabledKey: "enable",
@@ -81,6 +87,56 @@ func resolveKimiCodeConfigPath() (string, error) {
 	return filepath.Join(configRoot, "mcp.json"), nil
 }
 
+// detectZCodeClient reports whether a ZCode installation is present and returns
+// the path surfaced in the status UI. ZCode installs a CLI (zcode) and a
+// per-user data directory (~/.zcode) on every platform, but its installer does
+// not reliably put the zcode command on PATH, so a PATH-only lookup would
+// report a false negative even though ZCode is installed. The user-level
+// ~/.zcode directory is a fixed, cross-platform installation marker, so it is
+// used as the fallback.
+func detectZCodeClient() (bool, string) {
+	if detected, path := detectLocalCLICommand(zCodeClientCommandName); detected {
+		return true, path
+	}
+	if homeDir := zCodeHomeDirFunc(); homeDir != "" {
+		return true, homeDir
+	}
+	return false, ""
+}
+
+func resolveZCodeHomeDir() string {
+	configPath, err := resolveZCodeConfigPath()
+	if err != nil {
+		return ""
+	}
+	// The MCP config lives at ~/.zcode/cli/config.json; the installation marker
+	// is the directory two levels up (~/.zcode).
+	homeDir := filepath.Dir(filepath.Dir(configPath))
+	info, err := os.Stat(homeDir)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	return filepath.Clean(homeDir)
+}
+
+func detectExternalJSONMCPClientCommand(spec externalJSONMCPClientSpec) (bool, string) {
+	if spec.DetectFunc != nil {
+		return spec.DetectFunc()
+	}
+	return detectLocalCLICommand(spec.CLICommand)
+}
+
+func requireExternalJSONMCPClientCommand(spec externalJSONMCPClientSpec, textFuncs ...mcpClientInstallTextFunc) error {
+	if detected, _ := detectExternalJSONMCPClientCommand(spec); detected {
+		return nil
+	}
+	text := firstMCPClientInstallText(textFuncs)
+	return fmt.Errorf("%s", mcpClientInstallText(text, "ai.service.mcp_client.local_client_not_detected", map[string]any{
+		"label":   strings.TrimSpace(spec.DisplayName),
+		"command": strings.TrimSpace(spec.CLICommand),
+	}))
+}
+
 func resolveMCPClientUserHomeDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -115,7 +171,7 @@ func (s *Service) installExternalJSONMCPClient(spec externalJSONMCPClientSpec) (
 			map[string]any{"detail": localizeMCPClientPathDetail(s.serviceText, err)},
 		)
 	}
-	if err := requireLocalMCPClientCommand(spec.CLICommand, spec.DisplayName, s.serviceText); err != nil {
+	if err := requireExternalJSONMCPClientCommand(spec, s.serviceText); err != nil {
 		return ai.MCPClientInstallResult{}, err
 	}
 
@@ -140,7 +196,7 @@ func (s *Service) installExternalJSONMCPClient(spec externalJSONMCPClientSpec) (
 func inspectExternalJSONMCPClientInstallStatus(spec externalJSONMCPClientSpec, expectedCommand string, expectedArgs []string, expectedErr error, textFuncs ...mcpClientInstallTextFunc) ai.MCPClientInstallStatus {
 	text := firstMCPClientInstallText(textFuncs)
 	configPath, pathErr := spec.ConfigPathFunc()
-	clientDetected, clientPath := detectLocalCLICommand(spec.CLICommand)
+	clientDetected, clientPath := detectExternalJSONMCPClientCommand(spec)
 	status := ai.MCPClientInstallStatus{
 		Client:         spec.Client,
 		DisplayName:    spec.DisplayName,
@@ -193,7 +249,8 @@ func inspectExternalJSONMCPClientInstallStatus(spec externalJSONMCPClientSpec, e
 }
 
 func repairExternalJSONMCPClientConfig(spec externalJSONMCPClientSpec, expectedCommand string, expectedArgs []string, text mcpClientInstallTextFunc) error {
-	if !isLocalMCPClientCommandDetected(spec.CLICommand) {
+	detected, _ := detectExternalJSONMCPClientCommand(spec)
+	if !detected {
 		return nil
 	}
 	configPath, err := spec.ConfigPathFunc()

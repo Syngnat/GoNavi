@@ -8,12 +8,35 @@ import (
 	"path/filepath"
 	"testing"
 
+	"GoNavi-Wails/internal/ai/runharness"
+	aiservice "GoNavi-Wails/internal/ai/service"
+	"GoNavi-Wails/internal/app"
+
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/menu/keys"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
+
+func TestNewDesktopAgentToolCatalogIncludesWorkspaceInspection(t *testing.T) {
+	application := app.NewApp()
+	service := aiservice.NewService()
+	catalog, err := newDesktopAgentToolCatalog(application, service)
+	if err != nil {
+		t.Fatalf("newDesktopAgentToolCatalog: %v", err)
+	}
+
+	for _, name := range []string{"execute_sql", "inspect_active_tab"} {
+		descriptor, executor, err := catalog.Resolve(context.Background(), name)
+		if err != nil || executor == nil {
+			t.Fatalf("Resolve(%q) = %#v, %v", name, descriptor, err)
+		}
+		if name == "inspect_active_tab" && descriptor.Effect != runharness.ToolEffectReadOnly {
+			t.Fatalf("workspace tool effect = %q, want read_only", descriptor.Effect)
+		}
+	}
+}
 
 func TestShouldEnableWindowsMSISingleInstanceOnlyForInstalledMainGUI(t *testing.T) {
 	installDir := t.TempDir()

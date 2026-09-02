@@ -25,8 +25,8 @@ retention_target="/usr/local/libexec/gonavi-edge-retention"
 [[ "${public_root}" == /srv/* && -f "${server_source}" ]] || { echo "invalid root or server config" >&2; exit 2; }
 [[ -f "${transaction_source}" && -f "${retention_source}" ]] || { echo "run installer from a complete GoNavi checkout" >&2; exit 2; }
 case "${node_id}:${server_kind}" in
-  dmit:caddy|bero:nginx) ;;
-  dmit:*) echo "DMIT must retain its existing Caddy listener" >&2; exit 2 ;;
+  cst:nginx|bero:nginx) ;;
+  cst:*) echo "Cst must use the Nginx static-site configuration" >&2; exit 2 ;;
   bero:*) echo "Bero must use the Nginx static-site configuration" >&2; exit 2 ;;
   *) echo "unsupported edge node: ${node_id}" >&2; exit 2 ;;
 esac
@@ -78,81 +78,44 @@ visudo -cf "${sudoers_tmp}"
 install -m 0440 -o root -g root "${sudoers_tmp}" /etc/sudoers.d/gonavi-cdn-edge
 rm -f -- "${sudoers_tmp}"
 
-# The installer never installs another listener or rewrites unrelated hosts.
-if [[ "${server_kind}" == caddy ]]; then
-  # DMIT retains its existing Caddy listener and must explicitly import the
-  # managed snippet from its Caddyfile.
-  command -v caddy >/dev/null || { echo "caddy is not installed" >&2; exit 2; }
-  caddyfile="/etc/caddy/Caddyfile"
-  site_dir="/etc/caddy/conf.d"
-  site_path="${site_dir}/gonavi-download.caddy"
-  [[ -f "${caddyfile}" ]] || { echo "missing ${caddyfile}" >&2; exit 2; }
-  caddy validate --config "${server_source}" --adapter caddyfile
-  install -d -m 0755 "${site_dir}"
-  backup_path="$(mktemp)"
-  had_site=false
-  if [[ -f "${site_path}" ]]; then
-    cp -- "${site_path}" "${backup_path}"
-    had_site=true
-  fi
-  install -m 0644 "${server_source}" "${site_path}"
-  if ! grep -Eq '^[[:space:]]*import[[:space:]]+/etc/caddy/conf\.d/(\*|\*\.caddy)[[:space:]]*$' "${caddyfile}"; then
-    rm -f -- "${backup_path}"
-    echo "Caddy snippet staged at ${site_path}; add import /etc/caddy/conf.d/*.caddy while replacing only the existing download.syngnat.top block, then validate and reload Caddy"
-    exit 3
-  fi
-  if ! caddy validate --config "${caddyfile}" --adapter caddyfile; then
-    if [[ "${had_site}" == true ]]; then
-      install -m 0644 "${backup_path}" "${site_path}"
-    else
-      rm -f -- "${site_path}"
-    fi
-    rm -f -- "${backup_path}"
-    echo "Caddy validation failed; managed snippet was rolled back" >&2
-    exit 1
-  fi
-  rm -f -- "${backup_path}"
-  systemctl reload caddy
-else
-  # Bero serves the dedicated Cloudflare hostname on :8443 because sing-box
-  # owns :443. The caller supplies a complete static-site server snippet.
-  command -v nginx >/dev/null || { echo "nginx is not installed" >&2; exit 2; }
-  grep -Eq '^[[:space:]]*server_name[[:space:]]+' "${server_source}" || { echo "Bero Nginx config must declare server_name" >&2; exit 2; }
-  grep -Fq "root ${public_root}" "${server_source}" || { echo "Bero Nginx config must serve the mirror root" >&2; exit 2; }
-  grep -Eq '^[[:space:]]*listen[[:space:]]+8443[[:space:]]+ssl;' "${server_source}" || {
-    echo "Bero Nginx config must listen on 8443 with TLS" >&2
-    exit 2
-  }
-  if grep -Eq '^[[:space:]]*listen[[:space:]]+(\[::\]:)?(80|443|2053)[[:space:];]' "${server_source}"; then
-    echo "Bero Nginx config must not claim ports 80, 443, or 2053" >&2
-    exit 2
-  fi
-  site_dir="/etc/nginx/conf.d"
-  site_path="${site_dir}/gonavi-download.conf"
-  install -d -m 0755 "${site_dir}"
-  backup_path="$(mktemp)"
-  had_site=false
-  if [[ -f "${site_path}" ]]; then
-    cp -- "${site_path}" "${backup_path}"
-    had_site=true
-  fi
-  install -m 0644 "${server_source}" "${site_path}"
-  if ! nginx -t; then
-    if [[ "${had_site}" == true ]]; then
-      install -m 0644 "${backup_path}" "${site_path}"
-    else
-      rm -f -- "${site_path}"
-    fi
-    rm -f -- "${backup_path}"
-    echo "Nginx validation failed; managed snippet was rolled back" >&2
-    exit 1
-  fi
-  rm -f -- "${backup_path}"
-  if systemctl is-active --quiet nginx; then
-    systemctl reload nginx
+# Both static origins use Nginx on :8443 because sing-box owns the common
+# public ports on Cst and Bero. The caller supplies a complete server snippet.
+command -v nginx >/dev/null || { echo "nginx is not installed" >&2; exit 2; }
+grep -Eq '^[[:space:]]*server_name[[:space:]]+' "${server_source}" || { echo "Nginx config must declare server_name" >&2; exit 2; }
+grep -Fq "root ${public_root}" "${server_source}" || { echo "Nginx config must serve the mirror root" >&2; exit 2; }
+grep -Eq '^[[:space:]]*listen[[:space:]]+8443[[:space:]]+ssl;' "${server_source}" || {
+  echo "Nginx config must listen on 8443 with TLS" >&2
+  exit 2
+}
+if grep -Eq '^[[:space:]]*listen[[:space:]]+(\[::\]:)?(80|443|2053)[[:space:];]' "${server_source}"; then
+  echo "Nginx config must not claim ports 80, 443, or 2053" >&2
+  exit 2
+fi
+site_dir="/etc/nginx/conf.d"
+site_path="${site_dir}/gonavi-download.conf"
+install -d -m 0755 "${site_dir}"
+backup_path="$(mktemp)"
+had_site=false
+if [[ -f "${site_path}" ]]; then
+  cp -- "${site_path}" "${backup_path}"
+  had_site=true
+fi
+install -m 0644 "${server_source}" "${site_path}"
+if ! nginx -t; then
+  if [[ "${had_site}" == true ]]; then
+    install -m 0644 "${backup_path}" "${site_path}"
   else
-    systemctl enable --now nginx
+    rm -f -- "${site_path}"
   fi
+  rm -f -- "${backup_path}"
+  echo "Nginx validation failed; managed snippet was rolled back" >&2
+  exit 1
+fi
+rm -f -- "${backup_path}"
+if systemctl is-active --quiet nginx; then
+  systemctl reload nginx
+else
+  systemctl enable --now nginx
 fi
 
 echo "GoNavi static edge installed: node=${node_id} server=${server_kind} root=${public_root} user=${deploy_user}"

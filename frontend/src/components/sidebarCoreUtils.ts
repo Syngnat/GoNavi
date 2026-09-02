@@ -55,7 +55,8 @@ export const resolveSidebarContextMenuPosition = (
 };
 
 export const isV2SidebarObjectNode = (node: Pick<SidebarObjectNodeLike, 'type'> | null | undefined): boolean => {
-  return node?.type === 'table'
+  return node?.type === 'message-object'
+    || node?.type === 'table'
     || node?.type === 'view'
     || node?.type === 'materialized-view'
     || node?.type === 'sequence'
@@ -69,6 +70,17 @@ export const resolveSidebarObjectDragText = (
   node: Pick<SidebarObjectNodeLike, 'type' | 'title' | 'dataRef'> | null | undefined,
 ): string => {
   const dataRef = node?.dataRef || {};
+  if (node?.type === 'message-object') {
+    return String(
+      dataRef.messageObjectName
+      || dataRef.topicName
+      || dataRef.queueName
+      || dataRef.exchangeName
+      || dataRef.tableName
+      || node?.title
+      || '',
+    ).trim();
+  }
   if (node?.type === 'table') return String(dataRef.tableName || node?.title || '').trim();
   if (node?.type === 'view' || node?.type === 'materialized-view') return String(dataRef.viewName || dataRef.tableName || node?.title || '').trim();
   if (node?.type === 'sequence') return String(dataRef.sequenceName || node?.title || '').trim();

@@ -38,20 +38,30 @@ type DataSourceUICapabilities struct {
 	SupportsApproximateTotalPages  bool `json:"supportsApproximateTotalPages"`
 }
 
+// DataSourceNavigationCapabilities exposes the navigation filtering contract
+// declared by internal/db to Wails callers.
+type DataSourceNavigationCapabilities struct {
+	PrimaryVisibilitySupported         bool   `json:"primaryVisibilitySupported"`
+	PrimaryKind                        string `json:"primaryKind"`
+	SecondarySchemaVisibilitySupported bool   `json:"secondarySchemaVisibilitySupported"`
+	SchemaIdentifierCaseSensitive      bool   `json:"schemaIdentifierCaseSensitive"`
+}
+
 // DataSourceCapability is the backend-authoritative Wails DTO for the shared
 // data-source capability registry.
 type DataSourceCapability struct {
-	DatabaseType        string                        `json:"databaseType"`
-	Query               DataSourceOperationCapability `json:"query"`
-	Metadata            DataSourceOperationCapability `json:"metadata"`
-	Transaction         DataSourceOperationCapability `json:"transaction"`
-	Pagination          DataSourceOperationCapability `json:"pagination"`
-	Cancel              DataSourceOperationCapability `json:"cancel"`
-	Schema              DataSourceOperationCapability `json:"schema"`
-	Sampling            DataSourceOperationCapability `json:"sampling"`
-	Streaming           DataSourceOperationCapability `json:"streaming"`
-	DangerousOperations DataSourceOperationCapability `json:"dangerousOperations"`
-	UI                  DataSourceUICapabilities      `json:"ui"`
+	DatabaseType        string                           `json:"databaseType"`
+	Query               DataSourceOperationCapability    `json:"query"`
+	Metadata            DataSourceOperationCapability    `json:"metadata"`
+	Transaction         DataSourceOperationCapability    `json:"transaction"`
+	Pagination          DataSourceOperationCapability    `json:"pagination"`
+	Cancel              DataSourceOperationCapability    `json:"cancel"`
+	Schema              DataSourceOperationCapability    `json:"schema"`
+	Sampling            DataSourceOperationCapability    `json:"sampling"`
+	Streaming           DataSourceOperationCapability    `json:"streaming"`
+	DangerousOperations DataSourceOperationCapability    `json:"dangerousOperations"`
+	UI                  DataSourceUICapabilities         `json:"ui"`
+	Navigation          DataSourceNavigationCapabilities `json:"navigation"`
 }
 
 // DataSourceCapability resolves a saved connection to its explicit capability
@@ -105,6 +115,12 @@ func dataSourceCapabilityFromDB(capability db.DataSourceCapability) DataSourceCa
 			PreferManualTotalCount:         capability.UI.PreferManualTotalCount,
 			SupportsApproximateTableCount:  capability.UI.SupportsApproximateTableCount,
 			SupportsApproximateTotalPages:  capability.UI.SupportsApproximateTotalPages,
+		},
+		Navigation: DataSourceNavigationCapabilities{
+			PrimaryVisibilitySupported:         capability.Navigation.PrimaryVisibilitySupported,
+			PrimaryKind:                        capability.Navigation.PrimaryKind,
+			SecondarySchemaVisibilitySupported: capability.Navigation.SecondarySchemaVisibilitySupported,
+			SchemaIdentifierCaseSensitive:      capability.Navigation.SchemaIdentifierCaseSensitive,
 		},
 	}
 }

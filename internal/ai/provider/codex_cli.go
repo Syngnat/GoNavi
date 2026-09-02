@@ -12,17 +12,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
 	ai "GoNavi-Wails/internal/ai"
 	"GoNavi-Wails/internal/logger"
 )
 
-var codexLookPath = exec.LookPath
+var codexLookPath = lookupLocalCLICommand
 var codexCommandContext = exec.CommandContext
 var codexEvalSymlinks = filepath.EvalSymlinks
 var codexCLIChatGPTAuthCheck = CheckCodexCLIAuth
-var codexCLIRequestTimeout = 120 * time.Second
 
 const codexCLIMaxJSONLineBytes = 8 * 1024 * 1024
 const codexCLILoginConfigOverride = `model_reasoning_effort="high"`
@@ -41,7 +39,9 @@ var codexCLIDisabledFeatures = []string{
 	"request_permissions_tool",
 	"memories",
 	"chronicle",
-	"child_agents_md",
+	// "child_agents_md" 已在 Codex CLI 0.150.1 中移除；继续传入会让 codex 在配置校验阶段
+	// 直接以 `Unknown feature flag: child_agents_md` 退出，导致整个 provider 不可用。
+	// 子 Agent 能力仍由下面的 multi_agent / multi_agent_v2 / enable_fanout 关闭，隔离未削弱。
 	"multi_agent",
 	"multi_agent_v2",
 	"enable_fanout",
@@ -146,7 +146,7 @@ func CheckCodexCLIAuth(ctx context.Context) error {
 		"login", "status", "-c", codexCLILoginConfigOverride,
 	)
 	cmd := codexCommandContext(ctx, command.Path, args...)
-	cmd.Env = buildCodexCLIEnv(cmd.Environ())
+	cmd.Env = buildCodexCLIEnv(cmd.Environ(), command.Path)
 	output, err := cmd.CombinedOutput()
 	detail := strings.TrimSpace(string(output))
 	if err != nil {
@@ -176,7 +176,7 @@ func isCodexCLIChatGPTLoginStatus(status string) bool {
 }
 
 func (p *CodexCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
-	result, err := p.run(ctx, req)
+	result, err := p.run(ctx, req, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (p *CodexCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Ch
 }
 
 func (p *CodexCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, callback func(ai.StreamChunk)) error {
-	result, err := p.run(ctx, req)
+	_, err := p.run(ctx, req, callback)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return context.Canceled
@@ -196,19 +196,12 @@ func (p *CodexCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, c
 		callback(ai.StreamChunk{Error: err.Error(), Done: true})
 		return nil
 	}
-	if result.Thinking != "" {
-		callback(ai.StreamChunk{Thinking: result.Thinking})
-	}
-	if result.Content != "" {
-		callback(ai.StreamChunk{Content: result.Content})
-	}
-	callback(ai.StreamChunk{Done: true})
 	return nil
 }
 
-func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest) (codexCLIResult, error) {
-	ctx, cancel := ensureClaudeCLITimeout(ctx, codexCLIRequestTimeout)
-	defer cancel()
+func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest, onChunk func(ai.StreamChunk)) (codexCLIResult, error) {
+	ctx, watchdog := startCLIIdleWatchdog(ctx, cliStreamIdleTimeout, cliStreamMaxTimeout)
+	defer watchdog.Close()
 	if err := codexCLIChatGPTAuthCheck(ctx); err != nil {
 		return codexCLIResult{}, err
 	}
@@ -233,7 +226,7 @@ func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest) (codexCL
 	cmd := codexCommandContext(ctx, command.Path, args...)
 	cmd.Dir = workDir
 	cmd.Stdin = strings.NewReader(prompt)
-	cmd.Env = buildCodexCLIEnv(cmd.Environ())
+	cmd.Env = buildCodexCLIEnv(cmd.Environ(), command.Path)
 
 	requestLog := logAIUpstreamRequestStart(
 		p.Name(),
@@ -266,6 +259,7 @@ func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest) (codexCL
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), codexCLIMaxJSONLineBytes)
 	for scanner.Scan() {
+		watchdog.Bump()
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			continue
@@ -275,17 +269,20 @@ func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest) (codexCL
 			logger.Warnf("CodexCLI 忽略非 JSON 输出：requestId=%s line=%s", requestLog.id, RedactAIUpstreamLogText(string(line)))
 			continue
 		}
-		consumeCodexCLIEvent(&result, event)
+		delta := consumeCodexCLIEvent(&result, event)
+		if onChunk != nil && delta.Thinking != "" {
+			onChunk(ai.StreamChunk{Thinking: delta.Thinking})
+		}
 	}
 	scanErr := scanner.Err()
 	waitErr := cmd.Wait()
 
-	if errors.Is(ctx.Err(), context.Canceled) && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		requestErr = context.Canceled
+	if watchdog.TimedOut() || isClaudeCLITimeout(ctx, waitErr) {
+		requestErr = watchdog.TimeoutError("Codex CLI")
 		return codexCLIResult{}, requestErr
 	}
-	if isClaudeCLITimeout(ctx, waitErr) {
-		requestErr = fmt.Errorf("Codex CLI timed out after %s; check the local Codex login and network connection", codexCLIRequestTimeout)
+	if errors.Is(ctx.Err(), context.Canceled) {
+		requestErr = context.Canceled
 		return codexCLIResult{}, requestErr
 	}
 	if scanErr != nil {
@@ -318,6 +315,12 @@ func (p *CodexCLIProvider) run(ctx context.Context, req ai.ChatRequest) (codexCL
 		requestErr = fmt.Errorf("Codex CLI did not complete the request: %s", detail)
 		return codexCLIResult{}, requestErr
 	}
+	if onChunk != nil {
+		if result.Content != "" {
+			onChunk(ai.StreamChunk{Content: result.Content})
+		}
+		onChunk(ai.StreamChunk{Done: true})
+	}
 	return result, nil
 }
 
@@ -344,25 +347,40 @@ func buildCodexCLIArgs(config ai.ProviderConfig) []string {
 	if model := strings.TrimSpace(config.Model); model != "" {
 		args = append(args, "-m", model)
 	}
+	// codex 没有专用档位 flag，只能走 -c 配置键；形态与值域由能力表持有。
+	// 注意 --ignore-user-config 已经把用户 config.toml 整个隔离掉了，
+	// 所以这里不传就等于跑 codex 内置默认档位，用户在 codex 侧调的偏好不会生效。
+	if capability, ok := LookupCLICapability("codex-cli"); ok {
+		if effort, err := capability.NormalizeEffort(config.Effort); err == nil {
+			args = capability.AppendEffortArgs(args, effort)
+		}
+	}
 	return append(args, "-")
 }
 
-func buildCodexCLIEnv(baseEnv []string) []string {
-	return removeEnvKeys(baseEnv, "CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL")
+func buildCodexCLIEnv(baseEnv []string, commandPath string) []string {
+	return EnrichCLICommandPATH(removeEnvKeys(baseEnv, "CODEX_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL"), commandPath)
 }
 
-func consumeCodexCLIEvent(result *codexCLIResult, event codexCLIEvent) {
+type codexCLIStreamDelta struct {
+	Thinking string
+}
+
+func consumeCodexCLIEvent(result *codexCLIResult, event codexCLIEvent) codexCLIStreamDelta {
+	delta := codexCLIStreamDelta{}
 	switch event.Type {
 	case "item.completed":
 		switch event.Item.Type {
 		case "agent_message":
 			if text := strings.TrimSpace(event.Item.Text); text != "" {
 				// Codex 可能在内部循环中产生多条 agent_message；最终一条才是用户可见答案。
+				// 正文不能边到边推：前端按增量拼接，草稿+终稿会叠在一起。
 				result.Content = text
 			}
 		case "reasoning":
 			if text := strings.TrimSpace(event.Item.Text); text != "" {
 				result.Thinking = text
+				delta.Thinking = text
 			}
 		}
 	case "turn.completed":
@@ -390,6 +408,7 @@ func consumeCodexCLIEvent(result *codexCLIResult, event codexCLIEvent) {
 			result.LastError = message
 		}
 	}
+	return delta
 }
 
 func resolveCodexCLICommand(goos, goarch string, lookPath func(string) (string, error), exists func(string) bool) (codexCLICommand, error) {

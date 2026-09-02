@@ -30,12 +30,13 @@ import type { AIToolResultIndex } from './aiToolResultIndex';
 
 interface AIMessageBubbleProps {
   msg: AIChatMessage;
+  canRetry: boolean;
   darkMode: boolean;
   overlayTheme: OverlayWorkbenchTheme;
   textColor: string;
   onEdit: (msg: AIChatMessage) => void;
   onRetry: (msg: AIChatMessage) => void;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
   activeConnectionId?: string;
   activeConnectionConfig?: any;
   activeDbName?: string;
@@ -45,12 +46,13 @@ interface AIMessageBubbleProps {
 interface AIMessageActionBarProps {
   msg: AIChatMessage;
   isUser: boolean;
+  canRetry: boolean;
   isCopied: boolean;
   textColor: string;
   mutedText: string;
   onEdit: (msg: AIChatMessage) => void;
   onRetry: (msg: AIChatMessage) => void;
-  onDelete: (id: string) => void;
+  onDelete?: (id: string) => void;
   onCopy: () => void;
   copy: (key: string, params?: I18nParams) => string;
 }
@@ -95,6 +97,7 @@ const AIMessageAttachmentSummary: React.FC<{
 const AIMessageActionBar: React.FC<AIMessageActionBarProps> = ({
   msg,
   isUser,
+  canRetry,
   isCopied,
   textColor,
   mutedText,
@@ -128,7 +131,7 @@ const AIMessageActionBar: React.FC<AIMessageActionBarProps> = ({
           onMouseLeave={(event) => { event.currentTarget.style.color = mutedText; }}
         />
       </Tooltip>
-    ) : (
+    ) : canRetry ? (
       <Tooltip title={copy('ai_chat.message.action.retry')}>
         <ReloadOutlined
           className="ai-action-icon"
@@ -138,16 +141,18 @@ const AIMessageActionBar: React.FC<AIMessageActionBarProps> = ({
           onMouseLeave={(event) => { event.currentTarget.style.color = mutedText; }}
         />
       </Tooltip>
-    )}
-    <Tooltip title={copy('ai_chat.message.action.delete')}>
-      <DeleteOutlined
-        className="ai-action-icon"
-        onClick={() => onDelete(msg.id)}
-        style={{ cursor: 'pointer', color: mutedText }}
-        onMouseEnter={(event) => { event.currentTarget.style.color = '#ef4444'; }}
-        onMouseLeave={(event) => { event.currentTarget.style.color = mutedText; }}
-      />
-    </Tooltip>
+    ) : null}
+    {onDelete ? (
+      <Tooltip title={copy('ai_chat.message.action.delete')}>
+        <DeleteOutlined
+          className="ai-action-icon"
+          onClick={() => onDelete(msg.id)}
+          style={{ cursor: 'pointer', color: mutedText }}
+          onMouseEnter={(event) => { event.currentTarget.style.color = '#ef4444'; }}
+          onMouseLeave={(event) => { event.currentTarget.style.color = mutedText; }}
+        />
+      </Tooltip>
+    ) : null}
   </div>
 );
 
@@ -189,6 +194,7 @@ const AIRawErrorButton: React.FC<{
 
 export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   msg,
+  canRetry,
   darkMode,
   overlayTheme,
   textColor,
@@ -314,6 +320,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
           <AIMessageActionBar
             msg={msg}
             isUser={isUser}
+            canRetry={canRetry}
             isCopied={isCopied}
             textColor={textColor}
             mutedText={overlayTheme.mutedText}

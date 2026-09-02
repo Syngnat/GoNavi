@@ -123,12 +123,17 @@ describe('TriggerViewer object edit entry', () => {
       button.props.onClick();
     });
 
-    expect(storeState.setActiveContext).toHaveBeenCalledWith({ connectionId: 'conn-1', dbName: 'main' });
+    expect(storeState.setActiveContext).toHaveBeenCalledWith({
+      connectionId: 'conn-1',
+      dbName: 'main',
+      schemaName: 'audit',
+    });
     expect(storeState.addTab).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Edit trigger: audit.users_bi',
       type: 'query',
       connectionId: 'conn-1',
       dbName: 'main',
+      schemaName: 'audit',
       queryMode: 'object-edit',
       query: expect.stringContaining('CREATE TRIGGER users_bi BEFORE INSERT'),
     }));
@@ -173,6 +178,7 @@ END;`;
     expect(query).toContain('FULL_TRIGGER_DDL_TAIL');
     expect(query).not.toContain('[CLOB preview:');
     expect(query).not.toContain('Only a trigger definition fragment was returned');
+    expect(query).not.toMatch(/\bDROP\s+TRIGGER\b/i);
   });
 
   it('resolves the table before loading Oracle metadata for a restored trigger tab', async () => {

@@ -7,7 +7,12 @@ import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from 
 import type { DragEndEvent, DragMoveEvent, DragStartEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, horizontalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { useStore, type RecentConnectionTarget, type RecentSQLFile } from '../store';
+import {
+  sanitizeTabEnvironmentAccentThickness,
+  useStore,
+  type RecentConnectionTarget,
+  type RecentSQLFile,
+} from '../store';
 import type { ExternalSQLDirectory, SavedConnection, SavedQuery, TabData } from '../types';
 import { t } from '../i18n';
 import {
@@ -28,6 +33,20 @@ import {
   normalizeSQLFileReadContent,
 } from '../utils/sqlFileTabDirty';
 import { clearSQLFileTabDraft, getSQLFileTabDraft } from '../utils/sqlFileTabDrafts';
+import {
+  clearQueryTabDraft,
+} from '../utils/sqlFileTabDrafts';
+import {
+  buildApplicationQuitUnsavedSQLLabel,
+  assertApplicationQuitSavedSQLTargetsUnchanged,
+  collectApplicationQuitUnsavedSQLTargets,
+  reconcileApplicationQuitSavedSQLTargets,
+  saveApplicationQuitUnsavedSQLTargets,
+} from '../utils/sqlEditorApplicationQuit';
+import {
+  getDirtyWorkbenchTabCloseGuards,
+  REQUEST_CLOSE_WORKBENCH_TABS_EVENT,
+} from '../utils/workbenchTabCloseProtection';
 import {
   buildExternalSQLTabId,
   normalizeExternalSQLPath,
@@ -70,6 +89,7 @@ const getTabKindLabel = (tab: TabData): string => {
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
   if (tab.type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
+  if (tab.type === 'message-queue') return t('message_queue_workbench.tab_kind');
   if (tab.type.startsWith('redis')) return t('tab_manager.kind_badge.redis');
   if (tab.type.startsWith('jvm')) return t('tab_manager.kind_badge.jvm');
   if (tab.type === 'trigger') return t('tab_manager.kind_badge.trigger');
@@ -101,6 +121,16 @@ export const isRunningDataImportWorkbenchTab = (
 ): boolean => tab.type === 'data-import' && tab.dataImportRunning === true;
 
 export const TAB_WORKBENCH_CLASS_NAME = 'tab-workbench';
+export const TAB_ENVIRONMENT_ACCENT_CSS_HEIGHT = 'var(--gn-tab-environment-accent-thickness, 2px)';
+
+export const buildTabWorkbenchStyle = (
+  isV2Ui: boolean,
+  v2TabWidth: number,
+  tabEnvironmentAccentThickness: unknown,
+): React.CSSProperties => ({
+  ...(isV2Ui ? { '--gn-v2-tab-width': `${v2TabWidth}px` } : {}),
+  '--gn-tab-environment-accent-thickness': `${sanitizeTabEnvironmentAccentThickness(tabEnvironmentAccentThickness)}px`,
+} as React.CSSProperties);
 
 export const V2_WORKBENCH_TAB_MIN_WIDTH = 112;
 export const V2_WORKBENCH_TAB_MAX_WIDTH = 260;
@@ -300,6 +330,7 @@ const getTabKindTooltipLabel = (tab: TabData): string => {
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
   if (tab.type === 'sql-analysis') return t('tab_manager.hover.kind.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.hover.kind.sql_audit');
+  if (tab.type === 'message-queue') return t('message_queue_workbench.tab_kind');
   if (tab.type === 'redis-keys') return t('tab_manager.hover.kind.redis_keys');
   if (tab.type === 'redis-command') return t('tab_manager.hover.kind.redis_command');
   if (tab.type === 'redis-monitor') return t('tab_manager.hover.kind.redis_monitor');
@@ -334,6 +365,7 @@ const getTabObjectLabel = (tab: TabData): string => {
   if (tab.resourcePath) return tab.resourcePath;
   if (tab.filePath) return tab.filePath;
   if (tab.type === 'sql-analysis' || tab.type === 'sql-audit') return tab.title;
+  if (tab.type === 'message-queue') return tab.messageQueueTarget || tab.dbName || '';
   if (tab.type.startsWith('redis')) return `db${tab.redisDB ?? 0}`;
   return '';
 };
@@ -351,6 +383,15 @@ const getCloseTabsToRightIds = (tabs: TabData[], id: string): string[] => {
   const index = tabs.findIndex((tab) => tab.id === id);
   if (index < 0 || index >= tabs.length - 1) return [];
   return tabs.slice(index + 1).map((tab) => tab.id);
+};
+
+/** Close only the target set confirmed by the user, even if tabs change later. */
+export const closeConfirmedWorkbenchTabs = (
+  targetIds: readonly string[],
+  closeTab: (id: string) => void,
+): void => {
+  Array.from(new Set(targetIds.map((id) => String(id || '').trim()).filter(Boolean)))
+    .forEach((id) => closeTab(id));
 };
 
 export const stopTabHoverDragPropagation = (event: React.SyntheticEvent<HTMLElement>) => {
@@ -818,10 +859,6 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   const setActiveTab = useStore(state => state.setActiveTab);
   const addTab = useStore(state => state.addTab);
   const closeTab = useStore(state => state.closeTab);
-  const closeOtherTabs = useStore(state => state.closeOtherTabs);
-  const closeTabsToLeft = useStore(state => state.closeTabsToLeft);
-  const closeTabsToRight = useStore(state => state.closeTabsToRight);
-  const closeAllTabs = useStore(state => state.closeAllTabs);
   const moveTab = useStore(state => state.moveTab);
   const setAIPanelVisible = useStore(state => state.setAIPanelVisible);
   const detachedTabIdSet = useMemo(
@@ -893,9 +930,11 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
     };
   }, [dockedTabs.length, isV2Ui]);
 
-  const tabWorkbenchStyle = isV2Ui
-    ? ({ '--gn-v2-tab-width': `${v2TabWidth}px` } as React.CSSProperties)
-    : undefined;
+  const tabWorkbenchStyle = buildTabWorkbenchStyle(
+    isV2Ui,
+    v2TabWidth,
+    appearance.tabEnvironmentAccentThickness,
+  );
   const detachTabToWindow = useCallback((tabId: string, preferred?: { x?: number; y?: number; width?: number; height?: number }) => {
     const tab = tabs.find((item) => item.id === tabId);
     if (tab && isBackgroundTaskWorkbenchTab(tab)) {
@@ -1063,10 +1102,112 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
     const dedupeKey = closableTabs.map((tab) => tab.id).sort().join('\n');
     if (pendingCloseTabIdsRef.current.has(dedupeKey)) return;
     pendingCloseTabIdsRef.current.add(dedupeKey);
-    void requestCloseSQLFileTabs(closableTabs, closeConfirmedTabs).finally(() => {
+    void (async () => {
+      let sqlTargets;
+      try {
+        const latestState = useStore.getState();
+        sqlTargets = await collectApplicationQuitUnsavedSQLTargets(
+          closableTabs,
+          latestState.savedQueries,
+        );
+      } catch (error) {
+        message.error(t('tab_manager.close_protection.inspect_failed', {
+          detail: error instanceof Error ? error.message : String(error),
+        }));
+        return;
+      }
+      let dataGuards = getDirtyWorkbenchTabCloseGuards(closableTabs.map((tab) => tab.id));
+      if (sqlTargets.length === 0 && dataGuards.length === 0) {
+        // Inspecting an external SQL file is asynchronous. Re-read the live
+        // tab state before the no-prompt close so edits made during that read
+        // are never discarded without a confirmation.
+        const finalState = useStore.getState();
+        const finalTargetTabs = finalState.tabs.filter((tab) => targetIdSet.has(tab.id));
+        sqlTargets = await collectApplicationQuitUnsavedSQLTargets(
+          finalTargetTabs,
+          finalState.savedQueries,
+        );
+        dataGuards = getDirtyWorkbenchTabCloseGuards(finalTargetTabs.map((tab) => tab.id));
+        if (sqlTargets.length === 0 && dataGuards.length === 0) {
+          closeConfirmedTabs();
+          return;
+        }
+      }
+
+      const label = sqlTargets.length === 1 && dataGuards.length === 0
+        ? buildApplicationQuitUnsavedSQLLabel(sqlTargets)
+        : String(sqlTargets.length + dataGuards.length);
+      let destroyConfirm: (() => void) | null = null;
+      const confirmRef = Modal.confirm({
+        title: t('tab_manager.close_protection.title'),
+        content: t(
+          sqlTargets.length === 1 && dataGuards.length === 0
+            ? 'tab_manager.close_protection.content_single'
+            : 'tab_manager.close_protection.content_multiple',
+          { label },
+        ),
+        okText: t('tab_manager.close_protection.save_close'),
+        cancelText: t('common.cancel'),
+        closable: true,
+        maskClosable: true,
+        okButtonProps: { type: 'primary' },
+        footer: (_, { OkBtn, CancelBtn }) => (
+          <>
+            <Button
+              onClick={() => {
+                destroyConfirm?.();
+                void Promise.all(dataGuards.map(({ guard }) => guard.discard()))
+                  .then(() => {
+                    sqlTargets.forEach(({ tabId }) => clearQueryTabDraft(tabId));
+                    closeConfirmedTabs();
+                  });
+              }}
+            >
+              {t('tab_manager.close_protection.discard_close')}
+            </Button>
+            <CancelBtn />
+            <OkBtn />
+          </>
+        ),
+        onOk: async () => {
+          try {
+            const latestState = useStore.getState();
+            const latestTargetTabs = latestState.tabs.filter((tab) => targetIdSet.has(tab.id));
+            const latestSqlTargets = await collectApplicationQuitUnsavedSQLTargets(
+              latestTargetTabs,
+              latestState.savedQueries,
+            );
+            const latestDataGuards = getDirtyWorkbenchTabCloseGuards(
+              latestTargetTabs.map((tab) => tab.id),
+            );
+            const savedTargets = await saveApplicationQuitUnsavedSQLTargets(
+              latestSqlTargets,
+              latestState.saveQuery,
+            );
+            assertApplicationQuitSavedSQLTargetsUnchanged(savedTargets);
+            useStore.setState((state) => ({
+              tabs: reconcileApplicationQuitSavedSQLTargets(state.tabs, savedTargets),
+            }));
+            savedTargets.forEach(({ target }) => clearQueryTabDraft(target.tabId));
+            for (const { guard } of latestDataGuards) {
+              if (!(await guard.save())) {
+                throw new Error(t('tab_manager.close_protection.save_failed'));
+              }
+            }
+            closeConfirmedTabs();
+          } catch (error) {
+            message.error(t('tab_manager.close_protection.save_failed_detail', {
+              detail: error instanceof Error ? error.message : String(error),
+            }));
+            throw error;
+          }
+        },
+      });
+      destroyConfirm = confirmRef.destroy;
+    })().finally(() => {
       pendingCloseTabIdsRef.current.delete(dedupeKey);
     });
-  }, [requestCloseSQLFileTabs]);
+  }, []);
 
   const requestCloseActiveWorkspaceTab = useCallback(() => {
     if (!dockedActiveTabId) return;
@@ -1082,6 +1223,19 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       window.removeEventListener(CLOSE_ACTIVE_WORKSPACE_TAB_EVENT, requestCloseActiveWorkspaceTab);
     };
   }, [requestCloseActiveWorkspaceTab]);
+
+  useEffect(() => {
+    const handleRequestedClose = (event: Event) => {
+      const tabIds = (event as CustomEvent<{ tabIds?: unknown }>).detail?.tabIds;
+      if (!Array.isArray(tabIds)) return;
+      const normalizedTabIds = tabIds.map((id) => String(id || '').trim()).filter(Boolean);
+      closeTabsWithSQLFilePrompt(normalizedTabIds, () => {
+        closeConfirmedWorkbenchTabs(normalizedTabIds, closeTab);
+      });
+    };
+    window.addEventListener(REQUEST_CLOSE_WORKBENCH_TABS_EVENT, handleRequestedClose);
+    return () => window.removeEventListener(REQUEST_CLOSE_WORKBENCH_TABS_EVENT, handleRequestedClose);
+  }, [closeTab, closeTabsWithSQLFilePrompt]);
 
   const onEdit = (targetKey: React.MouseEvent | React.KeyboardEvent | string, action: 'add' | 'remove') => {
     if (action === 'remove') {
@@ -1375,28 +1529,40 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
         icon: <CloseCircleOutlined />,
         label: t('tab_manager.menu.close_other'),
         disabled: tabs.length <= 1,
-        onClick: () => closeTabsWithSQLFilePrompt(getCloseOtherTabIds(tabs, tab.id), () => closeOtherTabs(tab.id)),
+        onClick: () => {
+          const targetIds = getCloseOtherTabIds(tabs, tab.id);
+          closeTabsWithSQLFilePrompt(targetIds, () => closeConfirmedWorkbenchTabs(targetIds, closeTab));
+        },
       },
       {
         key: 'close-left',
         icon: <ArrowLeftOutlined />,
         label: t('tab_manager.menu.close_left'),
         disabled: index === 0,
-        onClick: () => closeTabsWithSQLFilePrompt(getCloseTabsToLeftIds(dockedTabs, tab.id), () => closeTabsToLeft(tab.id)),
+        onClick: () => {
+          const targetIds = getCloseTabsToLeftIds(dockedTabs, tab.id);
+          closeTabsWithSQLFilePrompt(targetIds, () => closeConfirmedWorkbenchTabs(targetIds, closeTab));
+        },
       },
       {
         key: 'close-right',
         icon: <ArrowRightOutlined />,
         label: t('tab_manager.menu.close_right'),
         disabled: index === dockedTabs.length - 1,
-        onClick: () => closeTabsWithSQLFilePrompt(getCloseTabsToRightIds(dockedTabs, tab.id), () => closeTabsToRight(tab.id)),
+        onClick: () => {
+          const targetIds = getCloseTabsToRightIds(dockedTabs, tab.id);
+          closeTabsWithSQLFilePrompt(targetIds, () => closeConfirmedWorkbenchTabs(targetIds, closeTab));
+        },
       },
       {
         key: 'close-all',
         icon: <CloseOutlined />,
         label: t('tab_manager.menu.close_all'),
         disabled: tabs.length === 0,
-        onClick: () => closeTabsWithSQLFilePrompt(tabs.map((item) => item.id), () => closeAllTabs()),
+        onClick: () => {
+          const targetIds = tabs.map((item) => item.id);
+          closeTabsWithSQLFilePrompt(targetIds, () => closeConfirmedWorkbenchTabs(targetIds, closeTab));
+        },
       },
     ];
     
@@ -1420,7 +1586,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       closable: !isV2Ui,
       children: <WorkbenchTabContent tab={tab} isActive={tabIsActive} />,
     };
-  }), [dockedTabs, dockedActiveTabId, tabs, connections, connectionGroupNameById, appearance.tabDisplay, closeOtherTabs, closeTabsToLeft, closeTabsToRight, closeAllTabs, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, isV2Ui, languagePreference]);
+  }), [dockedTabs, dockedActiveTabId, tabs, connections, connectionGroupNameById, appearance.tabDisplay, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, isV2Ui, languagePreference]);
 
   const queryCapableConnections = useMemo(
     () => connections.filter((connection) => getDataSourceCapabilities(connection.config).supportsQueryEditor),
@@ -1850,7 +2016,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
               right: 8px;
               bottom: 0;
               left: 8px;
-              height: 4px;
+              height: ${TAB_ENVIRONMENT_ACCENT_CSS_HEIGHT};
               box-sizing: border-box;
               border-radius: 4px 4px 0 0;
               background: var(--gn-tab-environment-color);

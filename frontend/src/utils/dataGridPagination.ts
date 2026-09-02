@@ -7,6 +7,8 @@ export type PaginationStateLike = {
   approximateTotal?: number;
   totalCountLoading?: boolean;
   totalCountCancelled?: boolean;
+  totalCountUnavailableLabel?: string;
+  totalCountUnavailableReason?: string;
 };
 
 export type PaginationI18nParams = Record<string, string | number | boolean | null | undefined>;
@@ -44,6 +46,13 @@ export const resolvePaginationSummaryText = (params: {
   const currentCount = resolveCurrentCount(pagination);
   const total = toFiniteNonNegativeNumber(pagination.total) ?? 0;
   const approximateTotal = resolveApproximateTotal(pagination);
+
+  if (pagination.totalCountUnavailableLabel) {
+    return translate('data_grid.pagination.summary.total_unavailable', {
+      current: currentCount,
+      label: pagination.totalCountUnavailableLabel,
+    });
+  }
 
   if (pagination.totalKnown === false) {
     if (pagination.totalCountLoading) {

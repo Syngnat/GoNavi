@@ -5,10 +5,24 @@ import {
   getDataSourceCapabilities,
   getDataSourceCapabilityContract,
   getDataSourceOperationCapability,
+  isMessageQueueDataSource,
+  resolveMessageQueueExecutionDbName,
   shouldShowOceanBaseRowNumberColumn,
 } from './dataSourceCapabilities';
 
 describe('dataSourceCapabilities', () => {
+  it('keeps topic defaults out of non-RabbitMQ workbench identities', () => {
+    expect(resolveMessageQueueExecutionDbName({ type: 'mqtt', database: 'devices/#' })).toBe('topics');
+    expect(resolveMessageQueueExecutionDbName({ type: 'kafka', database: 'orders.events' }, 'legacy-topic')).toBe('topics');
+    expect(resolveMessageQueueExecutionDbName({ type: 'rocketmq' }, '')).toBe('topics');
+  });
+
+  it('uses the selected or configured RabbitMQ vhost as the workbench boundary', () => {
+    expect(resolveMessageQueueExecutionDbName({ type: 'rabbitmq', database: '/orders' })).toBe('/orders');
+    expect(resolveMessageQueueExecutionDbName({ type: 'rabbitmq', database: '/orders' }, '/billing')).toBe('/billing');
+    expect(resolveMessageQueueExecutionDbName({ type: 'rabbitmq' })).toBe('/');
+  });
+
   it('treats Oracle table preview totals as manual exact count plus approximate metadata count', () => {
     expect(getDataSourceCapabilities({ type: 'oracle' })).toMatchObject({
       type: 'oracle',
@@ -24,6 +38,7 @@ describe('dataSourceCapabilities', () => {
       preferManualTotalCount: true,
       supportsApproximateTableCount: true,
       supportsApproximateTotalPages: true,
+      schemaIdentifierCaseSensitive: false,
     });
   });
 
@@ -205,12 +220,13 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
-  it('treats Elasticsearch as a queryable read-only datasource', () => {
+  it('gives Elasticsearch a dedicated index-create shortcut without changing MongoDB', () => {
     expect(getDataSourceCapabilities({ type: 'elasticsearch' })).toMatchObject({
       type: 'elasticsearch',
       supportsQueryEditor: true,
       supportsSqlQueryExport: false,
       supportsCopyInsert: false,
+      supportsCreateIndex: true,
       supportsCreateDatabase: false,
       supportsRenameDatabase: false,
       supportsDropDatabase: false,
@@ -219,7 +235,31 @@ describe('dataSourceCapabilities', () => {
     expect(getDataSourceCapabilities({ type: 'custom', driver: 'elastic' })).toMatchObject({
       type: 'elasticsearch',
       supportsQueryEditor: true,
+      supportsCreateIndex: true,
+      supportsCreateDatabase: false,
       forceReadOnlyQueryResult: false,
+    });
+    expect(getDataSourceCapabilities({ type: 'mongodb' })).toMatchObject({
+      type: 'mongodb',
+      supportsCreateIndex: false,
+      supportsCreateDatabase: false,
+    });
+  });
+
+  it('does not expose Elasticsearch index creation for protected connections', () => {
+    expect(getDataSourceCapabilities({
+      type: 'elasticsearch',
+      readOnly: true,
+    })).toMatchObject({
+      supportsCreateIndex: false,
+      supportsCreateDatabase: false,
+    });
+    expect(getDataSourceCapabilities({
+      type: 'elasticsearch',
+      protection: { restrictStructureEdit: true },
+    })).toMatchObject({
+      supportsCreateIndex: false,
+      supportsCreateDatabase: false,
     });
   });
 
@@ -453,6 +493,19 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
+  it('separates message-oriented primary workbenches from relational query editors', () => {
+    [
+      { type: 'mqtts' },
+      { type: 'apache-kafka' },
+      { type: 'custom', driver: 'rocket-mq' },
+      { type: 'rabbit_mq' },
+    ].forEach((config) => {
+      expect(isMessageQueueDataSource(config), JSON.stringify(config)).toBe(true);
+    });
+    expect(isMessageQueueDataSource({ type: 'postgres' })).toBe(false);
+    expect(isMessageQueueDataSource({ type: 'redis' })).toBe(false);
+  });
+
   it('treats RabbitMQ as a queryable messaging datasource with publish support', () => {
     expect(getDataSourceCapabilities({ type: 'rabbitmq' })).toMatchObject({
       type: 'rabbitmq',
@@ -530,8 +583,14 @@ describe('dataSourceCapabilities', () => {
 
   it('exposes complete, guided capability contracts to every frontend entry point', () => {
     const redis = getDataSourceCapabilityContract({ type: 'redis' });
-    expect(Object.keys(redis).filter((key) => key !== 'type' && key !== 'ui').sort())
+    expect(Object.keys(redis).filter((key) => key !== 'type' && key !== 'ui' && key !== 'navigation').sort())
       .toEqual([...DATA_SOURCE_CAPABILITY_OPERATIONS].sort());
+    expect(Object.keys(redis.navigation).sort()).toEqual([
+      'primaryKind',
+      'primaryVisibilitySupported',
+      'schemaIdentifierCaseSensitive',
+      'secondarySchemaVisibilitySupported',
+    ]);
     expect(redis.query).toMatchObject({
       supported: false,
       reason: 'dedicated_workbench',

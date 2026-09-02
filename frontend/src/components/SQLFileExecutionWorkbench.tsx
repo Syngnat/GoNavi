@@ -19,6 +19,7 @@ import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { confirmProductionRisk } from '../utils/productionRiskConfirm';
+import { invokeAppWithSignal } from '../utils/webRpc';
 import { resolveConnectionHostSummary } from '../utils/tabDisplay';
 import { formatExportElapsed, resolveExportElapsedMs } from '../utils/exportProgress';
 import { resolveDataImportCapabilityReasonKey } from './dataImportCapability';
@@ -183,6 +184,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
   const [capabilityRequestToken, setCapabilityRequestToken] = useState(0);
   const [executionPending, setExecutionPending] = useState(false);
   const [preflightError, setPreflightError] = useState('');
+  const executionRPCAbortRef = useRef<AbortController | null>(null);
   const [capabilityState, setCapabilityState] = useState<{
     status: 'idle' | 'loading' | 'ready' | 'error';
     supported: boolean;
@@ -223,12 +225,23 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     () => resolveConnectionHostSummary(connection?.config),
     [connection?.config],
   );
+  const displayFileName = String(tab.sqlFileExecutionFileName || '').trim()
+    || getFileName(String(tab.filePath || '').trim());
   const { state, reset, cancelExecution, runSQLFileExecutionWithProgress, isRunning } = useSQLFileExecutionRunner({
     showToast: true,
   });
+  const displayFileReference = String(tab.sqlFileExecutionFileName || '').trim()
+    || state.filePath
+    || tab.filePath
+    || '-';
   const terminal = state.status === 'done'
     || state.status === 'cancelled'
     || state.status === 'error';
+
+  useEffect(() => () => {
+    executionRPCAbortRef.current?.abort();
+    executionRPCAbortRef.current = null;
+  }, []);
   const completedWithErrors = state.status === 'done' && state.failed > 0;
   const capabilityAllowsExecution = capabilityState.status === 'ready'
     && capabilityState.supported;
@@ -338,7 +351,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
       const approved = await confirmProductionRisk({
         connection,
         action: t('connection.production_risk.action.execute_sql'),
-        target: [tab.dbName, getFileName(filePath)].filter(Boolean).join(' / '),
+        target: [tab.dbName, displayFileName].filter(Boolean).join(' / '),
         translate: t,
       });
       if (!approved) return;
@@ -369,14 +382,34 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
         filePath,
         fileSizeMB: tab.sqlFileExecutionFileSizeMB,
         run: async (jobId) => {
-          const result = await ImportDatabaseSQLWithOptions(
-            connectionConfig as any,
+          executionRPCAbortRef.current?.abort();
+          const controller = new AbortController();
+          executionRPCAbortRef.current = controller;
+          const args = [
+            connectionConfig,
             String(tab.dbName || '').trim(),
             filePath,
             jobId,
             continueOnError,
             mysqlGTIDMode,
-          );
+          ];
+          const result = await invokeAppWithSignal(
+            'ImportDatabaseSQLWithOptions',
+            args,
+            controller.signal,
+            () => ImportDatabaseSQLWithOptions(
+              connectionConfig as any,
+              String(tab.dbName || '').trim(),
+              filePath,
+              jobId,
+              continueOnError,
+              mysqlGTIDMode,
+            ),
+          ).finally(() => {
+            if (executionRPCAbortRef.current === controller) {
+              executionRPCAbortRef.current = null;
+            }
+          });
           if (continueOnError && result.data?.completed === true) {
             return { ...result, success: true };
           }
@@ -397,6 +430,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
     connection,
     connectionConfig,
     continueOnError,
+    displayFileName,
     executionPending,
     isRunning,
     runSQLFileExecutionWithProgress,
@@ -501,7 +535,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
 
               <Text type="secondary">{t('sidebar.sql_file_exec.workbench.label.file_path')}</Text>
               <Paragraph style={{ marginBottom: 0, wordBreak: 'break-all' }}>
-                {tab.filePath || '-'}
+                {tab.sqlFileExecutionFileName || tab.filePath || '-'}
               </Paragraph>
 
               <Text type="secondary">{t('sidebar.sql_file_exec.file_size').replace(/[:：]\s*$/, '')}</Text>
@@ -649,7 +683,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                   {state.title || tab.title || t('sidebar.sql_file_exec.title')}
                 </Title>
                 <div style={{ marginTop: 6, color: secondaryTextColor, fontSize: 13 }}>
-                  {state.jobId ? `${state.filePath || tab.filePath || '-'} · ${currentSummary}` : t('sidebar.sql_file_exec.workbench.description.current_task_empty')}
+                  {state.jobId ? `${displayFileReference} · ${currentSummary}` : t('sidebar.sql_file_exec.workbench.description.current_task_empty')}
                 </div>
               </div>
 
@@ -681,7 +715,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                     {t('sidebar.sql_file_exec.workbench.label.file_path')}
                   </div>
                   <div style={{ color: headingColor, fontWeight: 600, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {state.filePath || tab.filePath || '-'}
+                    {displayFileReference}
                   </div>
                 </div>
                 <div>
@@ -720,7 +754,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                       {t('sidebar.sql_file_exec.workbench.label.file_path')}
                     </div>
                     <Paragraph style={{ marginBottom: 0, wordBreak: 'break-all' }}>
-                      {state.filePath || '-'}
+                      {displayFileReference}
                     </Paragraph>
                   </div>
                 </div>
@@ -855,7 +889,7 @@ const SQLFileExecutionWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
 
                           <Text type="secondary">{t('sidebar.sql_file_exec.workbench.label.file_path')}</Text>
                           <Paragraph style={{ marginBottom: 0, wordBreak: 'break-all' }}>
-                            {entry.filePath || '-'}
+                            {tab.sqlFileExecutionFileName || entry.filePath || '-'}
                           </Paragraph>
                         </div>
                       </div>

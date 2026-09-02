@@ -1411,7 +1411,7 @@ func TestRunSync_SourceQueryMappingProjectionErrorDoesNotLeakPayload(t *testing.
 	}
 }
 
-func TestRunSync_SourceQueryMappingRejectsKeyThatDoesNotMatchTargetPK(t *testing.T) {
+func TestRunSync_SourceQueryMappingAllowsBusinessKeyDifferentFromTargetPK(t *testing.T) {
 	sourceDB := &fakeMigrationDB{}
 	targetDB := &fakeQuerySyncTargetDB{fakeMigrationDB: fakeMigrationDB{columns: map[string][]connection.ColumnDefinition{
 		"app.people": {
@@ -1436,11 +1436,11 @@ func TestRunSync_SourceQueryMappingRejectsKeyThatDoesNotMatchTargetPK(t *testing
 			Columns:    []SyncColumnMapping{{Source: "external_id", Target: "external_code"}},
 		}},
 	})
-	if result.Success || !strings.Contains(result.Message, "必须与目标表主键 user_id 一致") {
-		t.Fatalf("RunSync() = %+v, want mapped-key rejection", result)
+	if !result.Success || result.TablesSynced != 1 {
+		t.Fatalf("RunSync() = %+v, want a runnable mapped business-key sync", result)
 	}
-	if len(sourceDB.queryLog) != 0 {
-		t.Fatalf("invalid mapped key executed source query: %#v", sourceDB.queryLog)
+	if len(sourceDB.queryLog) != 1 || sourceDB.queryLog[0] != "SELECT external_id FROM active_accounts" {
+		t.Fatalf("mapped business key did not execute source query: %#v", sourceDB.queryLog)
 	}
 }
 

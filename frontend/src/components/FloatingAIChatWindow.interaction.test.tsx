@@ -59,6 +59,7 @@ const storeState = vi.hoisted(() => ({
   updateDetachedAIChatBounds: vi.fn(),
   focusDetachedAIChatPanel: vi.fn(),
 }));
+const aiTerminalGuard = vi.hoisted(() => vi.fn(async (): Promise<boolean> => true));
 
 vi.mock('../store', () => ({
   useStore: (selector: (state: typeof storeState) => unknown) => selector(storeState),
@@ -77,11 +78,26 @@ vi.mock('antd', () => ({
 }));
 
 vi.mock('./AIChatPanel', () => ({
-  default: ({ onWindowDragStart }: { onWindowDragStart?: (event: React.PointerEvent) => void }) => (
-    <div className="ai-chat-panel">
-      <div className="ai-chat-header" onPointerDown={onWindowDragStart} />
-    </div>
-  ),
+  default: ({
+    onAttach,
+    onClose,
+    onRegisterTerminalGuard,
+    onWindowDragStart,
+  }: {
+    onAttach?: () => void;
+    onClose?: () => void;
+    onRegisterTerminalGuard?: (guard: (() => Promise<boolean>) | null) => void;
+    onWindowDragStart?: (event: React.PointerEvent) => void;
+  }) => {
+    onRegisterTerminalGuard?.(aiTerminalGuard);
+    return (
+      <div className="ai-chat-panel">
+        <div className="ai-chat-header" onPointerDown={onWindowDragStart} />
+        <button type="button" data-ai-close onClick={onClose}>close</button>
+        <button type="button" data-ai-attach onClick={onAttach}>attach</button>
+      </div>
+    );
+  },
 }));
 
 describe('FloatingAIChatWindow pointer interaction lifecycle', () => {
@@ -91,6 +107,7 @@ describe('FloatingAIChatWindow pointer interaction lifecycle', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    aiTerminalGuard.mockResolvedValue(true);
     storeState.theme = 'light';
     storeState.detachedAIChatWindow = {
       x: 120,
@@ -170,6 +187,55 @@ describe('FloatingAIChatWindow pointer interaction lifecycle', () => {
     const style = renderer?.root.findByType('style');
     expect(style?.props.children).toContain('background: #ffffff;');
     expect(style?.props.children).toContain('border: 1px solid rgba(0,0,0,0.12);');
+  });
+
+  it('waits for the terminal guard before closing the detached panel', async () => {
+    let resolveGuard!: (value: boolean) => void;
+    aiTerminalGuard.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      resolveGuard = resolve;
+    }));
+    await renderWindow();
+
+    act(() => {
+      renderer?.root.findByProps({ 'data-ai-close': true }).props.onClick();
+    });
+    expect(storeState.setAIPanelVisible).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveGuard(true);
+      await Promise.resolve();
+    });
+    expect(storeState.setAIPanelVisible).toHaveBeenCalledWith(false);
+  });
+
+  it('forwards the web-floating terminal guard to its App host', async () => {
+    const onRegisterTerminalGuard = vi.fn();
+    await act(async () => {
+      renderer = create(
+        <FloatingAIChatWindow
+          darkMode={false}
+          overlayTheme={{} as OverlayWorkbenchTheme}
+          onOpenSettings={vi.fn()}
+          onRegisterTerminalGuard={onRegisterTerminalGuard}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(onRegisterTerminalGuard).toHaveBeenCalledWith(aiTerminalGuard);
+  });
+
+  it('keeps the detached panel open when the terminal guard rejects attach', async () => {
+    aiTerminalGuard.mockResolvedValueOnce(false);
+    await renderWindow();
+
+    await act(async () => {
+      renderer?.root.findByProps({ 'data-ai-attach': true }).props.onClick();
+      await Promise.resolve();
+    });
+
+    expect(aiTerminalGuard).toHaveBeenCalledTimes(1);
+    expect(storeState.attachAIChatPanel).not.toHaveBeenCalled();
   });
 
   it('removes an active instance global pointer listeners before unmounting', async () => {

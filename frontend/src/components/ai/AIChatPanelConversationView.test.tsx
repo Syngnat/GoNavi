@@ -91,4 +91,92 @@ describe('AIChatPanelConversationView', () => {
     expect(markup).toContain('旧会话');
     expect(markup).toContain('down');
   });
+
+  it('keeps Retry after a completed tool round because retry branches the transcript', () => {
+    const markup = renderWithI18n(
+      <AIChatPanelConversationView
+        mode="chat"
+        messages={[
+          { id: 'user-1', role: 'user', content: '插入一行', timestamp: 1 },
+          {
+            id: 'assistant-call',
+            role: 'assistant',
+            content: '正在执行',
+            timestamp: 2,
+            tool_calls: [{
+              id: 'call-insert',
+              type: 'function',
+              function: { name: 'execute_sql', arguments: '{"sql":"INSERT INTO t VALUES (1)"}' },
+            }],
+          },
+          {
+            id: 'tool-result',
+            role: 'tool',
+            content: '{"affectedRows":1}',
+            timestamp: 3,
+            tool_call_id: 'call-insert',
+          },
+          { id: 'assistant-final', role: 'assistant', content: '已插入', timestamp: 4 },
+        ]}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#0f172a"
+        mutedColor="#64748b"
+        quickActionBg="rgba(255,255,255,0.8)"
+        quickActionBorder="1px solid rgba(0,0,0,0.06)"
+        showScrollBottom={false}
+        contextTableNames={[]}
+        isV2Ui
+        insights={[]}
+        sessions={[]}
+        activeSessionId="session-1"
+        messagesEndRef={createRef<HTMLDivElement>()}
+        onScrollMessages={() => {}}
+        onQuickAction={() => {}}
+        onSelectSession={() => {}}
+        onEditMessage={() => {}}
+        onRetryMessage={() => {}}
+        onDeleteMessage={() => {}}
+        onMessageRenderError={() => {}}
+        onScrollBottom={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('anticon-reload');
+  });
+
+  it('keeps Retry for a settled plain-text assistant turn without later tools', () => {
+    const markup = renderWithI18n(
+      <AIChatPanelConversationView
+        mode="chat"
+        messages={[
+          { id: 'user-1', role: 'user', content: '解释查询', timestamp: 1 },
+          { id: 'assistant-1', role: 'assistant', content: '查询说明', timestamp: 2 },
+        ]}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#0f172a"
+        mutedColor="#64748b"
+        quickActionBg="rgba(255,255,255,0.8)"
+        quickActionBorder="1px solid rgba(0,0,0,0.06)"
+        showScrollBottom={false}
+        contextTableNames={[]}
+        isV2Ui
+        insights={[]}
+        sessions={[]}
+        activeSessionId="session-1"
+        messagesEndRef={createRef<HTMLDivElement>()}
+        onScrollMessages={() => {}}
+        onQuickAction={() => {}}
+        onSelectSession={() => {}}
+        onEditMessage={() => {}}
+        onRetryMessage={() => {}}
+        onDeleteMessage={() => {}}
+        onMessageRenderError={() => {}}
+        onScrollBottom={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('anticon-reload');
+  });
 });

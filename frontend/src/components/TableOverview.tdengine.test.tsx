@@ -664,6 +664,84 @@ describe('TableOverview metadata compatibility', () => {
     }));
   });
 
+  it('keeps v2 cards fixed-height and reserves metadata slots when values are missing', async () => {
+    storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-data' };
+    storeState.connections = [{
+      id: 'conn-1',
+      config: {
+        type: 'mysql',
+        host: '127.0.0.1',
+        port: 3306,
+        user: 'root',
+        password: 'secret',
+        database: 'app_db',
+        useSSH: false,
+        ssh: { host: '', port: 22, user: '', password: '', keyPath: '' },
+      },
+    }];
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          TABLE_NAME: 'complete_table',
+          TABLE_COMMENT: '完整备注',
+          TABLE_ROWS: 12,
+          DATA_LENGTH: 4096,
+          INDEX_LENGTH: 1024,
+          ENGINE: 'InnoDB',
+          CREATE_TIME: '2026-05-01 09:00:00',
+          UPDATE_TIME: '2026-06-02 10:30:00',
+        },
+        {
+          TABLE_NAME: 'sparse_table',
+          TABLE_COMMENT: '',
+          TABLE_ROWS: 3,
+          DATA_LENGTH: 2048,
+          INDEX_LENGTH: 0,
+          ENGINE: '',
+          CREATE_TIME: '',
+          UPDATE_TIME: '',
+        },
+      ],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<TableOverview tab={{
+        id: 'tab-1',
+        title: '表概览 - app_db',
+        type: 'table-overview',
+        connectionId: 'conn-1',
+        dbName: 'app_db',
+      } as any} />);
+    });
+    await flushPromises();
+
+    const completeCard = renderer!.root.findByProps({ 'data-table-overview-card': 'complete_table' });
+    const sparseCard = renderer!.root.findByProps({ 'data-table-overview-card': 'sparse_table' });
+    const cardGrid = renderer!.root.findByProps({ className: 'gn-v2-table-card-grid' });
+    const readCardField = (card: any, field: string) => collectText(
+      card.findByProps({ 'data-table-overview-card-field': field }),
+    );
+
+    expect(cardGrid.props.style.gridAutoRows).toBe(180);
+    expect([completeCard, sparseCard].map((card) => card.props.style.height)).toEqual(['100%', '100%']);
+    expect(readCardField(completeCard, 'comment')).toContain('完整备注');
+    expect(readCardField(completeCard, 'updated')).toContain('2026-06-02 10:30:00');
+    expect(readCardField(completeCard, 'created')).toContain('2026-05-01 09:00:00');
+    expect(readCardField(completeCard, 'engine')).toBe('InnoDB');
+    expect(readCardField(sparseCard, 'comment')).toBe('—');
+    expect(readCardField(sparseCard, 'updated')).toContain('—');
+    expect(readCardField(sparseCard, 'created')).toContain('—');
+    expect(readCardField(sparseCard, 'engine')).toBe('—');
+
+    await act(async () => {
+      renderer!.root.findByProps({ 'data-table-overview-view-mode': 'list' }).props.onClick();
+    });
+    expect(renderer!.root.findAllByProps({ 'data-table-overview-card-field': 'updated' })).toHaveLength(1);
+    expect(renderer!.root.findAllByProps({ 'data-table-overview-card-field': 'created' })).toHaveLength(1);
+  });
+
   it('uses the table default open behavior for list double-clicks', async () => {
     storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-design' };
     let renderer: ReactTestRenderer;

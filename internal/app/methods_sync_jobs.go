@@ -227,10 +227,11 @@ func (a *App) DataSyncJobDelete(jobID string) connection.QueryResult {
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	if err := manager.DeleteJob(context.Background(), strings.TrimSpace(jobID)); err != nil {
+	// 删除即永久移除任务及其运行记录/检查点/错误行（区别于"归档"生命周期）。
+	if err := manager.PurgeJob(context.Background(), strings.TrimSpace(jobID)); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	return connection.QueryResult{Success: true, Message: "data sync job archived"}
+	return connection.QueryResult{Success: true, Message: "data sync job deleted"}
 }
 
 func (a *App) DataSyncSchedulePreview(definition syncjob.JobDefinition, count int) connection.QueryResult {
@@ -339,6 +340,54 @@ func (a *App) DataSyncRunList(jobID string, limit int) connection.QueryResult {
 		runs[index] = publicDataSyncRun(runs[index])
 	}
 	return connection.QueryResult{Success: true, Data: runs}
+}
+
+// DataSyncRunPage returns terminal and active run history through a stable
+// keyset cursor. The cursor is opaque to callers apart from being echoed into
+// the next request.
+func (a *App) DataSyncRunPage(jobID string, beforeCreatedAt int64, beforeID string, limit int) connection.QueryResult {
+	manager, err := a.ensureDataSyncJobManager()
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	var cursor *syncjob.RunCursor
+	if beforeCreatedAt != 0 || strings.TrimSpace(beforeID) != "" {
+		if beforeCreatedAt <= 0 || strings.TrimSpace(beforeID) == "" {
+			return connection.QueryResult{Success: false, Message: "data sync run cursor requires createdAt and id"}
+		}
+		cursor = &syncjob.RunCursor{CreatedAt: beforeCreatedAt, ID: strings.TrimSpace(beforeID)}
+	}
+	if limit != 10 && limit != 50 && limit != 100 {
+		return connection.QueryResult{Success: false, Message: "data sync run page size must be 10, 50, or 100"}
+	}
+	page, err := manager.ListRunsPage(context.Background(), strings.TrimSpace(jobID), cursor, limit)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return connection.QueryResult{Success: true, Data: publicDataSyncRunPage(page)}
+}
+
+func (a *App) DataSyncRunDelete(runID string) connection.QueryResult {
+	manager, err := a.ensureDataSyncJobManager()
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	if err := manager.DeleteRun(context.Background(), strings.TrimSpace(runID)); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return connection.QueryResult{Success: true, Message: "data sync terminal run deleted"}
+}
+
+func (a *App) DataSyncRunClearTerminal(jobID string) connection.QueryResult {
+	manager, err := a.ensureDataSyncJobManager()
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	deleted, err := manager.ClearTerminalRuns(context.Background(), strings.TrimSpace(jobID))
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return connection.QueryResult{Success: true, Message: "data sync terminal run history cleared", Data: map[string]int{"deleted": deleted}}
 }
 
 func (a *App) DataSyncRunEventList(runID string, afterSequence int64, limit int) connection.QueryResult {

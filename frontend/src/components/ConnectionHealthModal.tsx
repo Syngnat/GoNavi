@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './common/ResizableDraggableModal';
 import { Alert, Button, Checkbox, Empty, Space, Tag, Typography, message } from 'antd';
 import {
@@ -14,17 +14,20 @@ import { t } from '../i18n';
 import { downloadBrowserTextFile } from '../utils/browserFileTransfer';
 import {
   buildConnectionHealthGroups,
-  normalizeConnectionHealthReports,
+  normalizeConnectionHealthRun,
   serializeConnectionHealthReportExport,
   type ConnectionHealthCheck,
   type ConnectionHealthReport,
+  type ConnectionHealthRun,
   type ConnectionHealthStatus,
 } from '../utils/connectionHealth';
+import { APP_FOREGROUND_MODAL_Z_INDEX } from '../utils/overlayZIndex';
 
 type ConnectionHealthModalProps = {
   open: boolean;
   targetConnectionIds?: string[];
   onClose: () => void;
+  zIndex?: number;
 };
 
 const statusIcon = (status: ConnectionHealthStatus) => {
@@ -48,6 +51,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
   open,
   targetConnectionIds = [],
   onClose,
+  zIndex = APP_FOREGROUND_MODAL_Z_INDEX,
 }) => {
   const connections = useStore((state) => state.connections);
   const connectionTags = useStore((state) => state.connectionTags);
@@ -61,15 +65,34 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
   );
   const [selectedConnectionIds, setSelectedConnectionIds] = useState<string[]>([]);
   const [reports, setReports] = useState<ConnectionHealthReport[]>([]);
+  const [run, setRun] = useState<ConnectionHealthRun | null>(null);
   const [running, setRunning] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
+  const pendingRunStartRef = useRef<{ id: number; cancelWhenStarted: boolean } | null>(null);
+  const nextRunStartIDRef = useRef(0);
+  const cancellingRunIDRef = useRef('');
+  const activeRunIDRef = useRef('');
+
+  const releaseInactiveRun = (runID: string, message: string) => {
+    if (activeRunIDRef.current !== runID) return;
+    activeRunIDRef.current = '';
+    setRun(null);
+    setReports([]);
+    setRunning(false);
+    setCancelling(false);
+    setError(message);
+  };
 
   const targetKey = targetConnectionIds.join('|');
   useEffect(() => {
-    if (!open) return;
+    if (!open || running) return;
     const requested = targetConnectionIds.filter((id) => validConnectionIds.has(id));
     setSelectedConnectionIds(requested.length > 0 ? Array.from(new Set(requested)) : connections.map((connection) => connection.id));
     setReports([]);
+    setRun(null);
+    activeRunIDRef.current = '';
+    setCancelling(false);
     setError('');
   }, [connections, open, targetKey, validConnectionIds]);
 
@@ -92,27 +115,141 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
   };
 
   const runHealthChecks = async () => {
-    if (running || selectedIds.length === 0) return;
+    if (running || pendingRunStartRef.current || selectedIds.length === 0) return;
     const backend = (window as any).go?.app?.App;
-    if (typeof backend?.InspectSavedConnectionsHealth !== 'function') {
+    if (typeof backend?.StartSavedConnectionsHealthRun !== 'function') {
       setError(t('connection_health.error.backend_unavailable'));
       return;
     }
     setRunning(true);
     setError('');
+    setReports([]);
+    setRun(null);
+    activeRunIDRef.current = '';
+    setCancelling(false);
+    const startID = ++nextRunStartIDRef.current;
+    pendingRunStartRef.current = { id: startID, cancelWhenStarted: false };
     try {
-      const nextReports = normalizeConnectionHealthReports(
-        await backend.InspectSavedConnectionsHealth(selectedIds),
+      const nextRun = normalizeConnectionHealthRun(
+        await backend.StartSavedConnectionsHealthRun(selectedIds),
       );
-      if (nextReports.length === 0) {
-        throw new Error('empty health reports');
+      if (!nextRun || nextRun.status === 'rejected') {
+        if (nextRun?.status === 'rejected') {
+          setError(t('connection_health.error.run_busy'));
+        }
+        throw new Error('invalid health run');
       }
-      setReports(nextReports);
+      activeRunIDRef.current = nextRun.runId;
+      setRun(nextRun);
+      setReports(nextRun.reports);
+      if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+        setRunning(false);
+        setCancelling(false);
+      }
+      const pendingStart = pendingRunStartRef.current;
+      pendingRunStartRef.current = null;
+      if (pendingStart?.id === startID && pendingStart.cancelWhenStarted) {
+        void cancelHealthChecks(nextRun.runId);
+      }
     } catch {
-      setError(t('connection_health.error.run_failed'));
-    } finally {
+      setError((current) => current || t('connection_health.error.run_failed'));
       setRunning(false);
+      pendingRunStartRef.current = null;
     }
+  };
+
+  const cancelHealthChecks = async (runID = run?.runId) => {
+    if (!runID || cancelling || cancellingRunIDRef.current === runID) return;
+    const backend = (window as any).go?.app?.App;
+    if (typeof backend?.CancelSavedConnectionsHealthRun !== 'function') {
+      setError(t('connection_health.error.backend_unavailable'));
+      return;
+    }
+    cancellingRunIDRef.current = runID;
+    setCancelling(true);
+    try {
+      const nextRun = normalizeConnectionHealthRun(
+        await backend.CancelSavedConnectionsHealthRun(runID),
+      );
+      if (!nextRun) {
+        releaseInactiveRun(runID, t('connection_health.error.run_failed'));
+        return;
+      }
+      if (activeRunIDRef.current !== runID) return;
+      setRun(nextRun);
+      setReports(nextRun.reports);
+      if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+        setRunning(false);
+        setCancelling(false);
+      }
+    } catch {
+      if (activeRunIDRef.current === runID) {
+        setError(t('connection_health.error.run_failed'));
+      }
+    } finally {
+      if (cancellingRunIDRef.current === runID) {
+        cancellingRunIDRef.current = '';
+        setCancelling(false);
+      }
+    }
+  };
+
+  const activeRunID = run?.runId || '';
+  useEffect(() => {
+    if (!open || !activeRunID || !running || run?.status === 'completed' || run?.status === 'cancelled') return;
+    const backend = (window as any).go?.app?.App;
+    if (typeof backend?.GetSavedConnectionsHealthRun !== 'function') {
+      setError(t('connection_health.error.backend_unavailable'));
+      return;
+    }
+
+    let disposed = false;
+    let pollInFlight = false;
+    const poll = async () => {
+      if (disposed || pollInFlight) return;
+      pollInFlight = true;
+      try {
+        const nextRun = normalizeConnectionHealthRun(
+          await backend.GetSavedConnectionsHealthRun(activeRunID),
+        );
+        if (!nextRun || nextRun.status === 'rejected') {
+          if (!disposed && activeRunIDRef.current === activeRunID) {
+            releaseInactiveRun(activeRunID, t('connection_health.error.run_failed'));
+          }
+          return;
+        }
+        if (disposed || activeRunIDRef.current !== activeRunID) return;
+        setError('');
+        setRun(nextRun);
+        setReports(nextRun.reports);
+        if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+          setRunning(false);
+          setCancelling(false);
+        }
+      } catch {
+        if (!disposed && activeRunIDRef.current === activeRunID) {
+          setError(t('connection_health.error.run_failed'));
+        }
+      } finally {
+        pollInFlight = false;
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(() => void poll(), 250);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [activeRunID, open, run?.status, running]);
+
+  const handleClose = () => {
+    if (running && activeRunID) {
+      void cancelHealthChecks(activeRunID);
+    } else if (pendingRunStartRef.current) {
+      pendingRunStartRef.current.cancelWhenStarted = true;
+    }
+    onClose();
   };
 
   const exportReports = () => {
@@ -171,14 +308,23 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
         </Space>
       )}
       open={open}
-      onCancel={onClose}
+      onCancel={handleClose}
       width={860}
+      centered
+      zIndex={zIndex}
       destroyOnHidden
       footer={(
         <Space>
-          <Button onClick={onClose}>{t('connection_health.action.close')}</Button>
+          <Button onClick={handleClose}>{t('connection_health.action.close')}</Button>
           <Button icon={<DownloadOutlined />} disabled={reports.length === 0} onClick={exportReports}>
             {t('connection_health.action.export')}
+          </Button>
+          <Button
+            danger
+            disabled={!running || !run || cancelling || run.status === 'cancelling'}
+            onClick={() => void cancelHealthChecks()}
+          >
+            {t('connection_health.action.cancel')}
           </Button>
           <Button
             type="primary"
@@ -194,6 +340,36 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
     >
       <div style={{ display: 'grid', gap: 16 }}>
         <Alert type="info" showIcon message={t('connection_health.description')} />
+        {run && (
+          <>
+            <Alert
+              type={run.status === 'cancelled' ? 'warning' : 'info'}
+              showIcon
+              message={t('connection_health.progress.count', { completed: run.completed, total: run.total })}
+              description={run.status === 'cancelled'
+                ? t('connection_health.progress.cancelled', { remaining: run.remainingConnectionIds.length })
+                : run.status === 'cancelling'
+                  ? t('connection_health.progress.cancelling')
+                  : run.status === 'completed'
+                    ? t('connection_health.progress.completed')
+                    : t('connection_health.progress.running')}
+            />
+            {run.status === 'cancelled' && run.remainingConnectionIds.length > 0 && (
+              <div data-connection-health-remaining style={{ display: 'grid', gap: 6 }}>
+                <Typography.Text type="secondary">
+                  {t('connection_health.progress.remaining_title')}
+                </Typography.Text>
+                <Space size={[4, 4]} wrap>
+                  {run.remainingConnectionIds.map((connectionID) => {
+                    const connection = connections.find((item) => item.id === connectionID);
+                    const label = connection?.name ? `${connection.name} (${connectionID})` : connectionID;
+                    return <Tag key={connectionID}>{label}</Tag>;
+                  })}
+                </Space>
+              </div>
+            )}
+          </>
+        )}
         {connections.length === 0 ? (
           <Empty description={t('connection_health.empty.connections')} />
         ) : (

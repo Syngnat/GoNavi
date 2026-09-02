@@ -96,21 +96,49 @@ func runtimeBridgeScript() string {
     }
   };
 
-  var invoke = async function (namespace, receiver, method, args) {
-    var response = await fetch(apiBase + '/api/invoke', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      credentials: 'same-origin',
-      body: JSON.stringify({
-        namespace: namespace,
-        receiver: receiver,
-        method: method,
-        args: Array.isArray(args) ? args : []
-      })
-    });
-    var payload = await response.json().catch(function () { return {}; });
+  var buildAbortError = function (dispatchState) {
+    var error = new Error('Web RPC request was aborted');
+    error.name = 'AbortError';
+    error.code = 'WEB_RPC_ABORTED';
+    error.dispatchState = dispatchState;
+    return error;
+  };
+
+  var invokeWithOptions = async function (namespace, receiver, method, args, options) {
+    options = options || {};
+    var signal = options.signal;
+    if (signal && signal.aborted) {
+      throw buildAbortError('not_started');
+    }
+    var response;
+    var payload;
+    try {
+      response = await fetch(apiBase + '/api/invoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        credentials: 'same-origin',
+        signal: signal,
+        body: JSON.stringify({
+          namespace: namespace,
+          receiver: receiver,
+          method: method,
+          args: Array.isArray(args) ? args : []
+        })
+      });
+      payload = await response.json().catch(function (error) {
+        if ((signal && signal.aborted) || (error && error.name === 'AbortError')) {
+          throw error;
+        }
+        return {};
+      });
+    } catch (error) {
+      if ((signal && signal.aborted) || (error && error.name === 'AbortError')) {
+        throw buildAbortError('possibly_dispatched');
+      }
+      throw error;
+    }
     if (!response.ok || payload.error) {
       throw new Error(payload.error || ('invoke failed with status ' + response.status));
     }
@@ -127,6 +155,10 @@ func runtimeBridgeScript() string {
       }
     }
     return payload.result;
+  };
+
+  var invoke = function (namespace, receiver, method, args) {
+    return invokeWithOptions(namespace, receiver, method, args, {});
   };
 
   var buildServiceProxy = function (namespace, receiver) {
@@ -216,6 +248,10 @@ func runtimeBridgeScript() string {
       fileDialog: false,
       clipboard: typeof navigator !== 'undefined' && !!navigator.clipboard
     }
+  };
+  window.__GONAVI_WEB_RPC__ = {
+    invoke: invoke,
+    invokeWithOptions: invokeWithOptions
   };
   window.go = {
     ...existingGo,

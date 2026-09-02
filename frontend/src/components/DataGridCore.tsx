@@ -84,12 +84,13 @@ import {
 } from './dataGridColumnOrder';
 import {
     TEMPORAL_FORMATS,
-    formatFromDayjs,
     getTemporalPickerFormat,
     getTemporalPickerType,
     isTemporalColumnType,
     parseToDayjs,
     resolveTemporalEditorSaveValue,
+    isTemporalPickerPopupFocused,
+    TEMPORAL_PICKER_INTERACTION_DELAY_MS,
     type TemporalConnectionLike,
     type TemporalPickerType,
 } from './dataGridTemporal';
@@ -261,6 +262,88 @@ const collectDataGridCellSelectionRowKeys = (cellKeys: Iterable<string>): string
         rowKeys.add(parsed.rowKey);
     }
     return Array.from(rowKeys);
+};
+const filterDataGridCellSelectionToVisibleRows = ({
+    cellKeys,
+    rows,
+    rowKeyField = GONAVI_ROW_KEY,
+}: {
+    cellKeys: Iterable<string>;
+    rows: Iterable<Record<string, any>>;
+    rowKeyField?: string;
+}): Set<string> => {
+    const visibleRowKeys = new Set<string>();
+    for (const row of rows) {
+        const rowKey = row?.[rowKeyField];
+        if (rowKey === undefined || rowKey === null) continue;
+        visibleRowKeys.add(String(rowKey));
+    }
+
+    const visibleCells = new Set<string>();
+    for (const cellKey of cellKeys) {
+        const parsed = splitCellKey(cellKey);
+        if (parsed && visibleRowKeys.has(parsed.rowKey)) {
+            visibleCells.add(cellKey);
+        }
+    }
+    return visibleCells;
+};
+type DataGridCellSelectionAnchor = {
+    rowKey: string;
+    colName: string;
+    rowIndex: number;
+    colIndex: number;
+};
+const resolveDataGridCellSelectionAnchor = ({
+    cellKeys,
+    rows,
+    columnNames,
+    preferredAnchor,
+}: {
+    cellKeys: Iterable<string>;
+    rows: Iterable<Record<string, any>>;
+    columnNames: Iterable<string>;
+    preferredAnchor?: { rowKey: string; colName: string } | null;
+}): DataGridCellSelectionAnchor | null => {
+    const selectedCells = new Set(cellKeys);
+    if (selectedCells.size === 0) return null;
+
+    const rowList = Array.from(rows);
+    const columns = Array.from(columnNames, (columnName) => String(columnName));
+    const columnIndexMap = new Map<string, number>();
+    columns.forEach((columnName, index) => columnIndexMap.set(columnName, index));
+
+    const rowIndexMap = new Map<string, number>();
+    rowList.forEach((row, index) => {
+        const rowKey = row?.[GONAVI_ROW_KEY];
+        if (rowKey === undefined || rowKey === null) return;
+        rowIndexMap.set(String(rowKey), index);
+    });
+
+    const resolveCandidate = (rowKey: string, colName: string): DataGridCellSelectionAnchor | null => {
+        const rowIndex = rowIndexMap.get(rowKey);
+        const colIndex = columnIndexMap.get(colName);
+        if (rowIndex === undefined || colIndex === undefined) return null;
+        if (!selectedCells.has(makeCellKey(rowKey, colName))) return null;
+        return { rowKey, colName, rowIndex, colIndex };
+    };
+
+    if (preferredAnchor) {
+        const preferred = resolveCandidate(String(preferredAnchor.rowKey), String(preferredAnchor.colName));
+        if (preferred) return preferred;
+    }
+
+    for (const [rowIndex, row] of rowList.entries()) {
+        const rowKey = row?.[GONAVI_ROW_KEY];
+        if (rowKey === undefined || rowKey === null) continue;
+        const rowKeyText = String(rowKey);
+        for (const [colIndex, colName] of columns.entries()) {
+            if (selectedCells.has(makeCellKey(rowKeyText, colName))) {
+                return { rowKey: rowKeyText, colName, rowIndex, colIndex };
+            }
+        }
+    }
+    return null;
 };
 const collectDataGridFillTemplateTargetRowKeys = ({
     selectedRowKeys,
@@ -1062,11 +1145,19 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   deletedRowKeys,
   ...restProps
 }) => {
-  const [editing, setEditing] = useState(false);
-  const inputRef = useRef<any>(null);
-  const cellRef = useRef<HTMLElement>(null);
-  const pickerOpenRef = useRef(false);
-  const scrollLockRef = useRef<{ el: HTMLElement; handler: (e: WheelEvent) => void } | null>(null);
+    const [editing, setEditing] = useState(false);
+    const editingSessionRef = useRef(0);
+    const editingRef = useRef(editing);
+    editingRef.current = editing;
+    const inputRef = useRef<any>(null);
+    const cellRef = useRef<HTMLElement>(null);
+    const pickerOpenRef = useRef(false);
+    const pickerInteractionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pickerInteractionTokenRef = useRef(0);
+    const pickerPendingValueRef = useRef<dayjs.Dayjs | null | undefined>(undefined);
+    const pickerCommitSessionRef = useRef<number | null>(null);
+    const pickerSaveSessionRef = useRef<number | null>(null);
+    const scrollLockRef = useRef<{ el: HTMLElement; handler: (e: WheelEvent) => void } | null>(null);
   const form = useContext(EditableContext);
   const cellContextMenuContext = useContext(CellContextMenuContext);
   const i18nLanguage = useDataGridI18nLanguage();
@@ -1075,6 +1166,9 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   /** DatePicker 面板打开时锁定表格滚动，关闭时恢复 */
   const lockTableScroll = useCallback((lock: boolean) => {
       if (lock) {
+          if (scrollLockRef.current) {
+              return;
+          }
           // 查找虚拟滚动容器或常规滚动容器
           const tableWrapper = cellRef.current?.closest?.('.ant-table-wrapper') as HTMLElement | null;
           if (tableWrapper) {
@@ -1089,7 +1183,47 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
       }
   }, []);
 
+  const cancelPickerInteraction = useCallback(() => {
+    if (pickerInteractionTimerRef.current !== null) {
+      clearTimeout(pickerInteractionTimerRef.current);
+      pickerInteractionTimerRef.current = null;
+    }
+    pickerInteractionTokenRef.current += 1;
+  }, []);
+
+  const closeEditing = useCallback((expectedSessionId?: number) => {
+    if (
+      expectedSessionId !== undefined
+      && editingSessionRef.current !== expectedSessionId
+    ) {
+      return false;
+    }
+    editingSessionRef.current += 1;
+    editingRef.current = false;
+    cancelPickerInteraction();
+    pickerOpenRef.current = false;
+    pickerPendingValueRef.current = undefined;
+    lockTableScroll(false);
+    setEditing(false);
+    return true;
+  }, [cancelPickerInteraction, lockTableScroll]);
+
+  const toggleEdit = useCallback(() => {
+    editingSessionRef.current += 1;
+    cancelPickerInteraction();
+    pickerOpenRef.current = false;
+    pickerPendingValueRef.current = undefined;
+    setEditing((current) => !current);
+  }, [cancelPickerInteraction]);
+
   useEffect(() => {
+    if (!editing) {
+      pickerOpenRef.current = false;
+      pickerPendingValueRef.current = undefined;
+      lockTableScroll(false);
+      return;
+    }
+    cancelPickerInteraction();
     if (editing) {
       // 每次进入编辑时强制设置表单值（覆盖 form store 中可能残留的旧值）
       const raw = record[dataIndex];
@@ -1103,22 +1237,37 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
       }
       inputRef.current?.focus();
     }
-  }, [editing]);
+  }, [cancelPickerInteraction, editing, lockTableScroll]);
 
-  const toggleEdit = () => {
-    setEditing(!editing);
-  };
+  useEffect(() => () => {
+    editingSessionRef.current += 1;
+    cancelPickerInteraction();
+    pickerOpenRef.current = false;
+    pickerPendingValueRef.current = undefined;
+    pickerCommitSessionRef.current = null;
+    pickerSaveSessionRef.current = null;
+    lockTableScroll(false);
+  }, [cancelPickerInteraction, lockTableScroll]);
 
-  const save = async (pickerValue?: dayjs.Dayjs | null) => {
+  const save = async (
+    pickerValue?: dayjs.Dayjs | null,
+    expectedSessionId?: number,
+  ) => {
+    const saveSessionId = expectedSessionId ?? editingSessionRef.current;
     try {
-      if (!form || !editing) return;
+      if (!form || !editingRef.current || editingSessionRef.current !== saveSessionId) return;
+      if (pickerSaveSessionRef.current === saveSessionId) return;
+      pickerSaveSessionRef.current = saveSessionId;
+      cancelPickerInteraction();
+      pickerPendingValueRef.current = undefined;
       const fieldName = getCellFieldName(record, dataIndex);
       await form.validateFields([fieldName]);
+      if (!editingRef.current || editingSessionRef.current !== saveSessionId) return;
       let nextValue = form.getFieldValue(fieldName);
       if (isDateTimeField) {
-        nextValue = resolveTemporalEditorSaveValue(nextValue, pickerValue, pickerType);
+        nextValue = resolveTemporalEditorSaveValue(nextValue, pickerValue, pickerType, record?.[dataIndex]);
       }
-      toggleEdit();
+      closeEditing(saveSessionId);
       // 仅当值发生变化时才标记为修改，避免“双击-失焦”导致整行进入 modified 状态（蓝色高亮不清除）。
       if (!isCellValueEqualForDiff(record?.[dataIndex], nextValue)) {
         handleSave({ ...record, [dataIndex]: nextValue });
@@ -1130,7 +1279,17 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
     } catch (errInfo) {
       console.log('Save failed:', errInfo);
       // 日期时间类型保存失败时兜底退出编辑，避免 DatePicker 卡在编辑态
-      if (isDateTimeField && editing) setEditing(false);
+      if (
+        isDateTimeField
+        && editingRef.current
+        && editingSessionRef.current === saveSessionId
+      ) {
+        closeEditing(saveSessionId);
+      }
+    } finally {
+      if (pickerSaveSessionRef.current === saveSessionId) {
+        pickerSaveSessionRef.current = null;
+      }
     }
   };
 
@@ -1146,6 +1305,55 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   const pickerType = getTemporalPickerType(columnType, dbType, connectionConfig);
   const isDateTimeField = !!pickerType && !(/^0{4}-0{2}-0{2}/.test(String(record?.[dataIndex] || '')));
 
+  const schedulePickerInteraction = (
+    action: 'save' | 'close',
+    pickerValue?: dayjs.Dayjs | null,
+    relatedTarget?: EventTarget | null,
+    expectedSessionId?: number,
+  ) => {
+    if (!isDateTimeField || !pickerType) return;
+    const sessionId = expectedSessionId ?? editingSessionRef.current;
+    if (!editingRef.current || editingSessionRef.current !== sessionId) return;
+    if (pickerInteractionTimerRef.current !== null) {
+      clearTimeout(pickerInteractionTimerRef.current);
+    }
+    const token = ++pickerInteractionTokenRef.current;
+    pickerInteractionTimerRef.current = setTimeout(() => {
+      pickerInteractionTimerRef.current = null;
+      if (
+        token !== pickerInteractionTokenRef.current
+        || editingSessionRef.current !== sessionId
+        || !editingRef.current
+        || pickerOpenRef.current
+        || pickerCommitSessionRef.current === sessionId
+        || isTemporalPickerPopupFocused(relatedTarget)
+      ) {
+        return;
+      }
+      if (action === 'save') {
+        const value = pickerValue !== undefined ? pickerValue : pickerPendingValueRef.current;
+        pickerPendingValueRef.current = undefined;
+        void save(value, sessionId);
+        return;
+      }
+      pickerPendingValueRef.current = undefined;
+      closeEditing(sessionId);
+    }, TEMPORAL_PICKER_INTERACTION_DELAY_MS);
+  };
+
+  const commitPickerValue = (value?: dayjs.Dayjs | null, expectedSessionId?: number) => {
+    const sessionId = expectedSessionId ?? editingSessionRef.current;
+    if (!editingRef.current || editingSessionRef.current !== sessionId) return;
+    pickerCommitSessionRef.current = sessionId;
+    cancelPickerInteraction();
+    pickerPendingValueRef.current = undefined;
+    void save(value, sessionId).finally(() => {
+      if (pickerCommitSessionRef.current === sessionId) {
+        pickerCommitSessionRef.current = null;
+      }
+    });
+  };
+
   const isRowDeleted = deletedRowKeys && rowKeyStr && record?.[GONAVI_ROW_KEY] !== undefined
     ? deletedRowKeys.has(rowKeyStr(record[GONAVI_ROW_KEY]))
     : false;
@@ -1153,6 +1361,7 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   const isModified = !editing && !isRowDeleted && modifiedColumns && rowKeyStr && record?.[GONAVI_ROW_KEY] !== undefined
     ? !!modifiedColumns[rowKeyStr(record[GONAVI_ROW_KEY])]?.has(dataIndex)
     : false;
+  const editingSessionId = editingSessionRef.current;
 
   if (editable) {
     childNode = editing ? (
@@ -1163,9 +1372,22 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
               ref={inputRef}
               style={{ width: '100%' }}
               format={TEMPORAL_FORMATS[pickerType]}
-              onChange={(value) => setTimeout(() => { void save(value); }, 0)}
-              onOpenChange={lockTableScroll}
-              onBlur={() => setTimeout(() => { void save(); }, 0)}
+              onChange={(value) => {
+                if (editingSessionRef.current !== editingSessionId) return;
+                pickerPendingValueRef.current = value;
+                schedulePickerInteraction('save', value, undefined, editingSessionId);
+              }}
+              onOpenChange={(open) => {
+                if (editingSessionRef.current !== editingSessionId) return;
+                pickerOpenRef.current = open;
+                lockTableScroll(open);
+                if (open) {
+                  cancelPickerInteraction();
+                } else {
+                  schedulePickerInteraction('save', undefined, undefined, editingSessionId);
+                }
+              }}
+              onBlur={(event) => schedulePickerInteraction('save', undefined, event?.relatedTarget, editingSessionId)}
               needConfirm={false}
             />
           ) : pickerType === 'datetime' ? (
@@ -1178,7 +1400,9 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
               renderExtraFooter={() => (
                 <a
                   style={{ padding: '0 2px' }}
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
+                    if (editingSessionRef.current !== editingSessionId) return;
                     // 自定义"此刻"：仅将当前时间填入表单字段，面板保持打开。
                     // 用户需点击"确定"才真正保存，替代内置 showNow 的自动提交行为。
                     const fieldName = getCellFieldName(record, dataIndex);
@@ -1186,18 +1410,22 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
                   }}
                 >{dateTimePickerNowLabel}</a>
               )}
-              onOk={(value) => setTimeout(() => { void save((value as dayjs.Dayjs | null | undefined) ?? undefined); }, 0)}
+              onOk={(value) => commitPickerValue(
+                value as dayjs.Dayjs | null | undefined,
+                editingSessionId,
+              )}
               onOpenChange={(open) => {
+                if (editingSessionRef.current !== editingSessionId) return;
                 pickerOpenRef.current = open;
                 lockTableScroll(open);
-                // 面板关闭（点击外部）时退出编辑，不保存；仅"确定"按钮（onOk）触发保存
-                if (!open) setTimeout(() => { if (editing) toggleEdit(); }, 0);
+                // 面板关闭（点击外部）时延迟退出，给 Portal 面板重新获得焦点的机会。
+                if (open) {
+                  cancelPickerInteraction();
+                } else {
+                  schedulePickerInteraction('close', undefined, undefined, editingSessionId);
+                }
               }}
-              onBlur={() => {
-                // 兜底：面板未打开或已关闭时，点击外部通过 blur 退出编辑。
-                // 延迟检查面板状态，避免点击自定义"此刻"按钮时误退出（此时面板仍打开）。
-                setTimeout(() => { if (editing && !pickerOpenRef.current) setEditing(false); }, 150);
-              }}
+              onBlur={(event) => schedulePickerInteraction('close', undefined, event?.relatedTarget, editingSessionId)}
               needConfirm
             />
           ) : (
@@ -1206,9 +1434,22 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
               style={{ width: '100%' }}
               format={TEMPORAL_FORMATS[pickerType]}
               picker={pickerType as any}
-              onChange={(value) => setTimeout(() => { void save(value); }, 0)}
-              onOpenChange={lockTableScroll}
-              onBlur={() => setTimeout(() => { void save(); }, 0)}
+              onChange={(value) => {
+                if (editingSessionRef.current !== editingSessionId) return;
+                pickerPendingValueRef.current = value;
+                schedulePickerInteraction('save', value, undefined, editingSessionId);
+              }}
+              onOpenChange={(open) => {
+                if (editingSessionRef.current !== editingSessionId) return;
+                pickerOpenRef.current = open;
+                lockTableScroll(open);
+                if (open) {
+                  cancelPickerInteraction();
+                } else {
+                  schedulePickerInteraction('save', undefined, undefined, editingSessionId);
+                }
+              }}
+              onBlur={(event) => schedulePickerInteraction('save', undefined, event?.relatedTarget, editingSessionId)}
               needConfirm={false}
             />
           )
@@ -1218,8 +1459,8 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
             ref={inputRef}
             className="data-grid-inline-editor-input"
             style={{ width: '100%', ...inputCellPadding }}
-            onPressEnter={() => { void save(); }}
-            onBlur={() => { void save(); }}
+            onPressEnter={() => { void save(undefined, editingSessionId); }}
+            onBlur={() => { void save(undefined, editingSessionId); }}
             onFocus={(e) => {
               try {
                 (e.target as HTMLInputElement)?.select?.();
@@ -1414,6 +1655,8 @@ interface DataGridProps {
         approximateTotal?: number,
         totalCountLoading?: boolean,
         totalCountCancelled?: boolean,
+        totalCountUnavailableLabel?: string,
+        totalCountUnavailableReason?: string,
     };
     onRequestTotalCount?: () => void;
     onCancelTotalCount?: () => void;
@@ -1436,6 +1679,8 @@ interface DataGridProps {
     initialViewModeScope?: 'shared' | 'local';
     onDataViewActivate?: () => void;
     onDataChange?: (rows: any[]) => void;
+    /** Workbench tab that owns editable changes in this grid. */
+    workbenchTabId?: string;
 }
 
 type GridFilterCondition = FilterCondition & {
@@ -1758,6 +2003,8 @@ export {
     makeCellKey,
     splitCellKey,
     collectDataGridCellSelectionRowKeys,
+    filterDataGridCellSelectionToVisibleRows,
+    resolveDataGridCellSelectionAnchor,
     collectDataGridFillTemplateTargetRowKeys,
     trimSimpleCache,
     looksLikeDateTimeText,

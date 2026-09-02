@@ -30,6 +30,23 @@ describe('dataGridTemporal helpers', () => {
       .toBe('2026-06-11');
   });
 
+  it('preserves the original time when a date editor receives a datetime-shaped value', () => {
+    const originalValue = '2020-01-05 12:34:56';
+    const pickerValue = dayjs('2020-01-06 09:08:07');
+
+    expect(resolveTemporalEditorSaveValue(undefined, pickerValue, 'date', originalValue))
+      .toBe('2020-01-06 12:34:56');
+  });
+
+  it('keeps an RFC3339 date editor on its original calendar day and preserves its time suffix', () => {
+    const originalValue = '2025-10-01T23:14:15.123456Z';
+    const parsed = parseToDayjs(originalValue, 'date');
+
+    expect(parsed?.format('YYYY-MM-DD')).toBe('2025-10-01');
+    expect(resolveTemporalEditorSaveValue(undefined, dayjs('2025-10-02'), 'date', originalValue))
+      .toBe('2025-10-02T23:14:15.123456Z');
+  });
+
   it('keeps OceanBase Oracle DATE columns as date-only editors', () => {
     const pickerType = getTemporalPickerType('DATE', 'oracle', {
       type: 'oceanbase',

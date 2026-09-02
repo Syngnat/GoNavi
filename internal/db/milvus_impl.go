@@ -50,6 +50,8 @@ type MilvusDB struct {
 	forwarder   *ssh.LocalForwarder
 }
 
+var _ BatchApplierContext = (*MilvusDB)(nil)
+
 func (m *MilvusDB) Connect(config connection.ConnectionConfig) (err error) {
 	_ = m.Close()
 	defer func() {
@@ -348,7 +350,11 @@ func (m *MilvusDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 }
 
 func (m *MilvusDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultMilvusQueryTimeout)
+	return m.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (m *MilvusDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
+	ctx, cancel := context.WithTimeout(ctx, defaultMilvusQueryTimeout)
 	defer cancel()
 	collection := strings.TrimSpace(tableName)
 	if collection == "" {
@@ -358,13 +364,24 @@ func (m *MilvusDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 	if err != nil {
 		return err
 	}
+	writeApplied := false
+	writeError := func(err error) error {
+		if writeApplied {
+			return MarkWriteOutcomeUnknown(err)
+		}
+		return err
+	}
 
 	if len(changes.Deletes) > 0 {
 		ids := milvusRowIDs(changes.Deletes, primaryField)
+		if len(ids) != len(changes.Deletes) {
+			return fmt.Errorf("Milvus delete is missing primary key field %q", primaryField)
+		}
 		if len(ids) > 0 {
 			if err := m.deleteEntities(ctx, collection, milvusIDFilter(primaryField, ids)); err != nil {
-				return err
+				return writeError(err)
 			}
+			writeApplied = true
 		}
 	}
 
@@ -380,14 +397,14 @@ func (m *MilvusDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 			}
 			id, ok := milvusRowID(row, primaryField)
 			if !ok {
-				return fmt.Errorf("Milvus update is missing primary key field %q", primaryField)
+				return writeError(fmt.Errorf("Milvus update is missing primary key field %q", primaryField))
 			}
 			existingRows, _, queryErr := m.queryEntities(ctx, collection, milvusIDFilter(primaryField, []interface{}{id}), []string{"*"}, 1, 0)
 			if queryErr != nil {
-				return queryErr
+				return writeError(queryErr)
 			}
 			if len(existingRows) == 0 {
-				return fmt.Errorf("Milvus entity with %s=%v was not found", primaryField, id)
+				return writeError(fmt.Errorf("Milvus entity with %s=%v was not found", primaryField, id))
 			}
 			merged := existingRows[0]
 			for key, value := range row {
@@ -397,14 +414,15 @@ func (m *MilvusDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 		}
 		if len(rows) > 0 {
 			if err := m.upsertEntities(ctx, collection, rows, false); err != nil {
-				return err
+				return writeError(err)
 			}
+			writeApplied = true
 		}
 	}
 
 	if len(changes.Inserts) > 0 {
 		if err := m.insertEntities(ctx, collection, changes.Inserts); err != nil {
-			return err
+			return writeError(err)
 		}
 	}
 	return nil

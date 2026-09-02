@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Drawer, Button, Tooltip, Input } from 'antd';
 import { MenuFoldOutlined, PlusOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { t as catalogTranslate } from '../../i18n/catalog';
-import { useStore } from '../../store';
+import { useStore, type AIChatSessionSummary } from '../../store';
 import { useOptionalI18n } from '../../i18n/provider';
 
 interface AIHistoryDrawerProps {
@@ -15,18 +15,19 @@ interface AIHistoryDrawerProps {
     borderColor: string;
     onCreateNew: () => void;
     onSelectSession: (sessionId: string) => void;
+    onArchiveSession: (session: AIChatSessionSummary) => Promise<void> | void;
     disabled?: boolean;
+    navigationDisabled?: boolean;
     sessionId: string;
 }
 
 export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
     open, onClose, bgColor, darkMode, textColor, mutedColor, borderColor,
-    onCreateNew, onSelectSession, disabled = false, sessionId
+    onCreateNew, onSelectSession, onArchiveSession, disabled = false, navigationDisabled = disabled, sessionId
 }) => {
     const i18n = useOptionalI18n();
     const t = i18n?.t ?? ((key: string) => catalogTranslate('en-US', key));
     const aiChatSessions = useStore(state => state.aiChatSessions);
-    const deleteAISession = useStore(state => state.deleteAISession);
 
     const [searchText, setSearchText] = useState('');
     const normalizedSearchText = searchText.trim().toLowerCase();
@@ -39,7 +40,9 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
     }, [open, searchText]);
 
     const sortedSessions = React.useMemo(
-        () => [...aiChatSessions].sort((left, right) => right.updatedAt - left.updatedAt),
+        () => aiChatSessions
+            .filter((session) => !session.archived)
+            .sort((left, right) => right.updatedAt - left.updatedAt),
         [aiChatSessions],
     );
 
@@ -114,9 +117,9 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
                         <div
                             key={session.id}
                             className={`ai-history-item ${sessionId === session.id ? 'active' : ''}`}
-                            aria-disabled={disabled}
+                            aria-disabled={navigationDisabled}
                             onClick={() => {
-                                if (disabled) return;
+                                if (navigationDisabled) return;
                                 onSelectSession(session.id);
                                 onClose();
                             }}
@@ -124,7 +127,7 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
                                 padding: '10px 12px',
                                 borderRadius: 6,
                                 marginBottom: 4,
-                                cursor: disabled ? 'not-allowed' : 'pointer',
+                                cursor: navigationDisabled ? 'not-allowed' : 'pointer',
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
@@ -150,7 +153,9 @@ export const AIHistoryDrawer: React.FC<AIHistoryDrawerProps> = ({
                                     icon={<DeleteOutlined />}
                                     onClick={(e) => {
                                         e.stopPropagation();
-                                        deleteAISession(session.id);
+                                        void Promise.resolve(onArchiveSession(session)).catch((error) => {
+                                            console.warn('Failed to archive AI agent session', error);
+                                        });
                                     }}
                                     style={{ display: sessionId === session.id ? 'inline-flex' : undefined }}
                                 />

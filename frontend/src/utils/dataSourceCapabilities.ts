@@ -9,7 +9,7 @@ import { normalizeOceanBaseProtocol } from './oceanBaseProtocol';
 
 type ConnectionLike = Pick<
   ConnectionConfig,
-  'type' | 'driver' | 'oceanBaseProtocol' | 'readOnly' | 'protection'
+  'type' | 'driver' | 'oceanBaseProtocol' | 'readOnly' | 'protection' | 'database'
 > | null | undefined;
 
 const normalizeDataSourceToken = (raw: string): string => {
@@ -110,6 +110,39 @@ export const resolveDataSourceType = (config: ConnectionLike): string => {
   return type;
 };
 
+const MESSAGE_QUEUE_DATA_SOURCE_TYPES = new Set([
+  'mqtt',
+  'kafka',
+  'rocketmq',
+  'rabbitmq',
+]);
+
+/**
+ * Message queues still expose a query command grammar for advanced users, but
+ * their primary workbench is message-oriented rather than a SQL editor.
+ */
+export const isMessageQueueDataSource = (config: ConnectionLike): boolean => (
+  MESSAGE_QUEUE_DATA_SOURCE_TYPES.has(resolveDataSourceType(config))
+);
+
+/**
+ * Resolve the synthetic namespace used to identify and execute an MQ
+ * workbench. Topic defaults belong to the consume/publish forms, not to the
+ * workbench identity. RabbitMQ is the exception because its vhost is a real
+ * execution boundary.
+ */
+export const resolveMessageQueueExecutionDbName = (
+  config: ConnectionLike,
+  explicitDbName?: unknown,
+): string => {
+  const type = resolveDataSourceType(config);
+  const explicit = String(explicitDbName || '').trim();
+  const configured = String(config?.database || '').trim();
+  if (type === 'rabbitmq') return explicit || configured || '/';
+  if (MESSAGE_QUEUE_DATA_SOURCE_TYPES.has(type)) return 'topics';
+  return explicit || configured;
+};
+
 export const shouldShowOceanBaseRowNumberColumn = (config: ConnectionLike): boolean => {
   if (!config) return false;
   const type = normalizeDataSourceToken(String(config.type || ''));
@@ -137,6 +170,24 @@ export type DataSourceOperationCapability = {
   reason?: string;
   alternative?: string;
   messageKey?: string;
+};
+
+export type DataSourceNavigationPrimaryKind =
+  | 'none'
+  | 'database'
+  | 'catalog'
+  | 'owner'
+  | 'namespace'
+  | 'index'
+  | 'vhost'
+  | 'catalog_schema'
+  | 'redis_db';
+
+export type DataSourceNavigationCapabilities = {
+  primaryVisibilitySupported: boolean;
+  primaryKind: DataSourceNavigationPrimaryKind;
+  secondarySchemaVisibilitySupported: boolean;
+  schemaIdentifierCaseSensitive: boolean;
 };
 
 export type DataSourceUICapabilityFlags = {
@@ -168,6 +219,7 @@ export type DataSourceCapabilityContract = {
   streaming: DataSourceOperationCapability;
   dangerousOperations: DataSourceOperationCapability;
   ui: DataSourceUICapabilityFlags;
+  navigation: DataSourceNavigationCapabilities;
 };
 
 type DataSourceCapabilityProfile = Omit<DataSourceCapabilityContract, 'type'>;
@@ -198,6 +250,7 @@ const cloneCapabilityProfile = (
   streaming: cloneOperationCapability(profile.streaming),
   dangerousOperations: cloneOperationCapability(profile.dangerousOperations),
   ui: { ...profile.ui },
+  navigation: { ...profile.navigation },
 });
 
 export const getDataSourceCapabilityContract = (config: ConnectionLike): DataSourceCapabilityContract => {
@@ -227,11 +280,16 @@ export type DataSourceCapabilities = {
   sampling: DataSourceOperationCapability;
   streaming: DataSourceOperationCapability;
   dangerousOperations: DataSourceOperationCapability;
+  navigation: DataSourceNavigationCapabilities;
+  supportsPrimaryVisibility: boolean;
+  supportsSecondarySchemaVisibility: boolean;
+  schemaIdentifierCaseSensitive: boolean;
   supportsQueryEditor: boolean;
   supportsExplainDiagnosis: boolean;
   supportsSqlQueryExport: boolean;
   supportsCopyInsert: boolean;
   supportsCopyTable: boolean;
+  supportsCreateIndex: boolean;
   supportsCreateDatabase: boolean;
   supportsCreateDatabaseCharset: boolean;
   supportsRenameDatabase: boolean;
@@ -263,6 +321,10 @@ export const getDataSourceCapabilities = (config: ConnectionLike): DataSourceCap
     sampling: contract.sampling,
     streaming: contract.streaming,
     dangerousOperations: contract.dangerousOperations,
+    navigation: contract.navigation,
+    supportsPrimaryVisibility: contract.navigation.primaryVisibilitySupported,
+    supportsSecondarySchemaVisibility: contract.navigation.secondarySchemaVisibilitySupported,
+    schemaIdentifierCaseSensitive: contract.navigation.schemaIdentifierCaseSensitive,
     supportsQueryEditor: contract.query.supported,
     supportsExplainDiagnosis: ui.explainDiagnosis === true,
     supportsSqlQueryExport: ui.sqlQueryExport === true,
@@ -272,6 +334,7 @@ export const getDataSourceCapabilities = (config: ConnectionLike): DataSourceCap
       && !dataImportRestricted
       && !structureEditRestricted
       && ui.copyTable === true,
+    supportsCreateIndex: contract.type === 'elasticsearch' && !structureEditRestricted,
     supportsCreateDatabase: !structureEditRestricted && ui.createDatabase === true,
     supportsCreateDatabaseCharset:
       !structureEditRestricted && ui.createDatabaseCharset === true,

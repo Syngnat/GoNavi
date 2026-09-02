@@ -44,7 +44,12 @@ export const useAIChatRuntimeResources = ({
   const activeProviderIdRef = useRef<string | null>(null);
 
   const getAIService = useCallback(
-    () => (window as any).go?.aiservice?.Service as AIChatRuntimeService | undefined,
+    () => {
+      // Detached surfaces can be rendered in SSR/test environments before a
+      // browser global (and therefore the Wails service) exists.
+      if (typeof window === 'undefined') return undefined;
+      return (window as any).go?.aiservice?.Service as AIChatRuntimeService | undefined;
+    },
     [],
   );
 
@@ -133,9 +138,10 @@ export const useAIChatRuntimeResources = ({
       void loadSkills();
       void loadActiveProvider();
     };
-    window.addEventListener('gonavi:ai:config-changed', handleAIConfigChanged as EventListener);
+    const browserWindow = typeof window === 'undefined' ? undefined : window;
+    browserWindow?.addEventListener?.('gonavi:ai:config-changed', handleAIConfigChanged as EventListener);
     return () => {
-      window.removeEventListener('gonavi:ai:config-changed', handleAIConfigChanged as EventListener);
+      browserWindow?.removeEventListener?.('gonavi:ai:config-changed', handleAIConfigChanged as EventListener);
     };
   }, [loadActiveProvider, loadMCPTools, loadSkills, loadUserPromptSettings]);
 
@@ -146,8 +152,9 @@ export const useAIChatRuntimeResources = ({
       activeProviderIdRef.current = null;
       void loadActiveProvider();
     };
-    window.addEventListener('gonavi:ai:provider-changed', handleProviderChanged);
-    return () => window.removeEventListener('gonavi:ai:provider-changed', handleProviderChanged);
+    const browserWindow = typeof window === 'undefined' ? undefined : window;
+    browserWindow?.addEventListener?.('gonavi:ai:provider-changed', handleProviderChanged);
+    return () => browserWindow?.removeEventListener?.('gonavi:ai:provider-changed', handleProviderChanged);
   }, [loadActiveProvider]);
 
   const handleModelChange = useCallback(async (model: string) => {
@@ -219,7 +226,8 @@ export const useAIChatRuntimeResources = ({
 
   const handleOpenSettingsFromPanel = useCallback(() => {
     onOpenSettings?.();
-    window.setTimeout(() => {
+    const browserWindow = typeof window === 'undefined' ? undefined : window;
+    browserWindow?.setTimeout?.(() => {
       void loadActiveProvider();
     }, 500);
   }, [loadActiveProvider, onOpenSettings]);

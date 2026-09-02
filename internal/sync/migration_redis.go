@@ -4,6 +4,7 @@ import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
 	redispkg "GoNavi-Wails/internal/redis"
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -29,6 +30,15 @@ type redisMigrationClient interface {
 
 var newSyncDatabase = db.NewDatabase
 var newRedisSourceClient = func() redisMigrationClient { return redispkg.NewRedisClient() }
+
+func bindRedisMigrationContext(client redisMigrationClient, ctx context.Context) func() {
+	redisClient, ok := client.(redispkg.RedisClient)
+	if !ok || ctx == nil {
+		return func() {}
+	}
+	redispkg.BindMetadataContext(redisClient, ctx)
+	return func() { redispkg.ClearMetadataContext(redisClient) }
+}
 
 func isRedisToMongoKeyspacePair(config SyncConfig) bool {
 	return resolveMigrationDBType(config.SourceConfig) == "redis" && resolveMigrationDBType(config.TargetConfig) == "mongodb"
@@ -105,6 +115,16 @@ func buildRedisToMongoPlan(config SyncConfig, keyName string, targetDB db.Databa
 }
 
 func listRedisMigrationKeys(client redisMigrationClient, selected []string) ([]string, error) {
+	return listRedisMigrationKeysContext(context.Background(), client, selected)
+}
+
+func listRedisMigrationKeysContext(ctx context.Context, client redisMigrationClient, selected []string) ([]string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(selected) > 0 {
 		return dedupeStrings(selected), nil
 	}
@@ -112,12 +132,18 @@ func listRedisMigrationKeys(client redisMigrationClient, selected []string) ([]s
 	keys := make([]string, 0, 64)
 	seen := map[string]struct{}{}
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		result, err := client.ScanKeys("*", cursor, 1000)
 		if err != nil {
 			return nil, err
 		}
 		if result != nil {
 			for _, item := range result.Keys {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				key := strings.TrimSpace(item.Key)
 				if key == "" {
 					continue
@@ -227,6 +253,10 @@ func buildRedisMongoExistingDocsQuery(collection string, ids []string) (string, 
 }
 
 func loadExistingRedisMongoDocs(targetDB db.Database, collection string, ids []string) (map[string]map[string]interface{}, error) {
+	return loadExistingRedisMongoDocsContext(context.Background(), targetDB, collection, ids)
+}
+
+func loadExistingRedisMongoDocsContext(ctx context.Context, targetDB db.Database, collection string, ids []string) (map[string]map[string]interface{}, error) {
 	result := make(map[string]map[string]interface{}, len(ids))
 	if len(ids) == 0 {
 		return result, nil
@@ -235,11 +265,14 @@ func loadExistingRedisMongoDocs(targetDB db.Database, collection string, ids []s
 	if err != nil {
 		return nil, err
 	}
-	rows, _, err := targetDB.Query(query)
+	rows, _, err := querySyncDatabaseContext(ctx, targetDB, query)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		id := strings.TrimSpace(fmt.Sprintf("%v", row["_id"]))
 		if id == "" || id == "<nil>" {
 			continue
@@ -250,10 +283,17 @@ func loadExistingRedisMongoDocs(targetDB db.Database, collection string, ids []s
 }
 
 func buildRedisMongoChanges(config SyncConfig, keys []string, client redisMigrationClient, targetDB db.Database, collection string) (connection.ChangeSet, []map[string]interface{}, error) {
+	return buildRedisMongoChangesContext(context.Background(), config, keys, client, targetDB, collection)
+}
+
+func buildRedisMongoChangesContext(ctx context.Context, config SyncConfig, keys []string, client redisMigrationClient, targetDB db.Database, collection string) (connection.ChangeSet, []map[string]interface{}, error) {
 	changeSet := connection.ChangeSet{Inserts: []map[string]interface{}{}, Updates: []connection.UpdateRow{}, Deletes: []map[string]interface{}{}}
 	documents := make([]map[string]interface{}, 0, len(keys))
 	dbIndex := resolveRedisDBIndex(config.SourceConfig)
 	for _, key := range keys {
+		if err := ctx.Err(); err != nil {
+			return changeSet, nil, err
+		}
 		value, err := client.GetValue(key)
 		if err != nil {
 			return changeSet, nil, fmt.Errorf("读取 Redis Key 失败: key=%s err=%w", key, err)
@@ -264,12 +304,15 @@ func buildRedisMongoChanges(config SyncConfig, keys []string, client redisMigrat
 	for _, doc := range documents {
 		ids = append(ids, fmt.Sprintf("%v", doc["_id"]))
 	}
-	existing, err := loadExistingRedisMongoDocs(targetDB, collection, ids)
+	existing, err := loadExistingRedisMongoDocsContext(ctx, targetDB, collection, ids)
 	if err != nil {
 		return changeSet, nil, err
 	}
 	mode := normalizeSyncMode(config.Mode)
 	for _, doc := range documents {
+		if err := ctx.Err(); err != nil {
+			return changeSet, nil, err
+		}
 		id := fmt.Sprintf("%v", doc["_id"])
 		existingDoc, ok := existing[id]
 		if !ok {
@@ -409,28 +452,59 @@ func (s *SyncEngine) runRedisToMongoSync(config SyncConfig, result SyncResult) S
 }
 
 func (s *SyncEngine) analyzeRedisToMongo(config SyncConfig) SyncAnalyzeResult {
-	result := SyncAnalyzeResult{Success: true, Tables: []TableDiffSummary{}}
+	// Keyspace migration compares documents, never table structure. Pin the
+	// echoed content to "data" so the UI renders the row counts below instead of
+	// falling back to the task's compareMode and hiding them under a schema-only
+	// view that this analyzer never populates.
+	result := SyncAnalyzeResult{Success: true, Content: "data", Tables: []TableDiffSummary{}}
+	cancelledResult := func() SyncAnalyzeResult {
+		result.Success = false
+		result.Message = s.contextError().Error()
+		return result
+	}
 	sourceClient := newRedisSourceClient()
 	sourceConfig := withResolvedRedisDB(config.SourceConfig)
 	if err := sourceClient.Connect(sourceConfig); err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "源 Redis 连接失败: " + err.Error()}
 	}
 	defer sourceClient.Close()
+	if s.contextError() != nil {
+		return cancelledResult()
+	}
+	clearRedisContext := bindRedisMigrationContext(sourceClient, s.context())
+	defer clearRedisContext()
 	targetDB, err := newSyncDatabase(config.TargetConfig.Type)
 	if err != nil {
 		return SyncAnalyzeResult{Success: false, Message: "初始化目标数据库驱动失败: " + err.Error()}
 	}
 	if err := targetDB.Connect(config.TargetConfig); err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "目标数据库连接失败: " + err.Error()}
 	}
 	defer targetDB.Close()
-	keys, err := listRedisMigrationKeys(sourceClient, config.Tables)
+	if s.contextError() != nil {
+		return cancelledResult()
+	}
+	db.BindMetadataContext(targetDB, s.context())
+	defer db.ClearMetadataContext(targetDB)
+	keys, err := listRedisMigrationKeysContext(s.context(), sourceClient, config.Tables)
 	if err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "扫描 Redis Key 失败: " + err.Error()}
 	}
 	collection := deriveRedisMongoCollectionName(config)
-	changeSet, documents, err := buildRedisMongoChanges(config, keys, sourceClient, targetDB, collection)
+	changeSet, documents, err := buildRedisMongoChangesContext(s.context(), config, keys, sourceClient, targetDB, collection)
 	if err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "分析 Redis 迁移变更失败: " + err.Error()}
 	}
 	insertSet := make(map[string]struct{}, len(changeSet.Inserts))
@@ -442,6 +516,9 @@ func (s *SyncEngine) analyzeRedisToMongo(config SyncConfig) SyncAnalyzeResult {
 		updateSet[fmt.Sprintf("%v", row.Keys["_id"])] = struct{}{}
 	}
 	for _, doc := range documents {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		key := fmt.Sprintf("%v", doc["key"])
 		id := fmt.Sprintf("%v", doc["_id"])
 		summary := TableDiffSummary{
@@ -475,19 +552,35 @@ func (s *SyncEngine) previewRedisToMongo(config SyncConfig, keyName string, limi
 	sourceClient := newRedisSourceClient()
 	sourceConfig := withResolvedRedisDB(config.SourceConfig)
 	if err := sourceClient.Connect(sourceConfig); err != nil {
+		if contextErr := s.contextError(); contextErr != nil {
+			return TableDiffPreview{}, contextErr
+		}
 		return TableDiffPreview{}, fmt.Errorf("源 Redis 连接失败: %w", err)
 	}
 	defer sourceClient.Close()
+	if err := s.contextError(); err != nil {
+		return TableDiffPreview{}, err
+	}
+	clearRedisContext := bindRedisMigrationContext(sourceClient, s.context())
+	defer clearRedisContext()
 	targetDB, err := newSyncDatabase(config.TargetConfig.Type)
 	if err != nil {
 		return TableDiffPreview{}, fmt.Errorf("初始化目标数据库驱动失败: %w", err)
 	}
 	if err := targetDB.Connect(config.TargetConfig); err != nil {
+		if contextErr := s.contextError(); contextErr != nil {
+			return TableDiffPreview{}, contextErr
+		}
 		return TableDiffPreview{}, fmt.Errorf("目标数据库连接失败: %w", err)
 	}
 	defer targetDB.Close()
+	if err := s.contextError(); err != nil {
+		return TableDiffPreview{}, err
+	}
+	db.BindMetadataContext(targetDB, s.context())
+	defer db.ClearMetadataContext(targetDB)
 	collection := deriveRedisMongoCollectionName(config)
-	changeSet, documents, err := buildRedisMongoChanges(config, []string{keyName}, sourceClient, targetDB, collection)
+	changeSet, documents, err := buildRedisMongoChangesContext(s.context(), config, []string{keyName}, sourceClient, targetDB, collection)
 	if err != nil {
 		return TableDiffPreview{}, err
 	}
@@ -497,7 +590,7 @@ func (s *SyncEngine) previewRedisToMongo(config SyncConfig, keyName string, limi
 	}
 	doc := documents[0]
 	id := fmt.Sprintf("%v", doc["_id"])
-	existingDocs, err := loadExistingRedisMongoDocs(targetDB, collection, []string{id})
+	existingDocs, err := loadExistingRedisMongoDocsContext(s.context(), targetDB, collection, []string{id})
 	if err != nil {
 		return TableDiffPreview{}, err
 	}
@@ -554,10 +647,20 @@ func deriveDefaultMongoRedisCollection(config SyncConfig) string {
 }
 
 func listMongoRedisCollections(sourceDB db.Database, config SyncConfig) ([]string, error) {
+	return listMongoRedisCollectionsContext(context.Background(), sourceDB, config)
+}
+
+func listMongoRedisCollectionsContext(ctx context.Context, sourceDB db.Database, config SyncConfig) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(config.Tables) > 0 {
 		return dedupeStrings(config.Tables), nil
 	}
 	tables, err := sourceDB.GetTables(strings.TrimSpace(selectedSyncSourceDatabase(config)))
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, contextErr
+	}
 	if err == nil && len(tables) > 0 {
 		return dedupeStrings(tables), nil
 	}
@@ -580,11 +683,15 @@ func buildMongoRedisFindQuery(collection string, limit int) (string, error) {
 }
 
 func loadMongoRedisDocuments(sourceDB db.Database, collection string, limit int) ([]map[string]interface{}, error) {
+	return loadMongoRedisDocumentsContext(context.Background(), sourceDB, collection, limit)
+}
+
+func loadMongoRedisDocumentsContext(ctx context.Context, sourceDB db.Database, collection string, limit int) ([]map[string]interface{}, error) {
 	query, err := buildMongoRedisFindQuery(collection, limit)
 	if err != nil {
 		return nil, err
 	}
-	rows, _, err := sourceDB.Query(query)
+	rows, _, err := querySyncDatabaseContext(ctx, sourceDB, query)
 	if err != nil {
 		return nil, err
 	}
@@ -679,18 +786,25 @@ func parseMongoRedisDocument(row map[string]interface{}) (mongoRedisKeyDocument,
 }
 
 func buildMongoToRedisDiffs(sourceDB db.Database, targetClient redisMigrationClient, collection string, mode string) ([]mongoRedisKeyDiff, error) {
-	rows, err := loadMongoRedisDocuments(sourceDB, collection, 0)
+	return buildMongoToRedisDiffsContext(context.Background(), sourceDB, targetClient, collection, mode)
+}
+
+func buildMongoToRedisDiffsContext(ctx context.Context, sourceDB db.Database, targetClient redisMigrationClient, collection string, mode string) ([]mongoRedisKeyDiff, error) {
+	rows, err := loadMongoRedisDocumentsContext(ctx, sourceDB, collection, 0)
 	if err != nil {
 		return nil, err
 	}
 	diffs := make([]mongoRedisKeyDiff, 0, len(rows))
 	effectiveMode := normalizeSyncMode(mode)
 	for _, row := range rows {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		doc, err := parseMongoRedisDocument(row)
 		if err != nil {
 			return nil, err
 		}
-		current, exists, err := loadExistingRedisMigrationValue(targetClient, doc.Key)
+		current, exists, err := loadExistingRedisMigrationValueContext(ctx, targetClient, doc.Key)
 		if err != nil {
 			return nil, fmt.Errorf("读取目标 Redis Key 失败: key=%s err=%w", doc.Key, err)
 		}
@@ -722,6 +836,13 @@ func buildMongoToRedisDiffs(sourceDB db.Database, targetClient redisMigrationCli
 }
 
 func loadExistingRedisMigrationValue(client redisMigrationClient, key string) (*redispkg.RedisValue, bool, error) {
+	return loadExistingRedisMigrationValueContext(context.Background(), client, key)
+}
+
+func loadExistingRedisMigrationValueContext(ctx context.Context, client redisMigrationClient, key string) (*redispkg.RedisValue, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	keyType, err := client.GetKeyType(key)
 	if err != nil {
 		return nil, false, err
@@ -729,6 +850,9 @@ func loadExistingRedisMigrationValue(client redisMigrationClient, key string) (*
 	keyType = strings.ToLower(strings.TrimSpace(keyType))
 	if keyType == "" || keyType == "none" {
 		return nil, false, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
 	}
 	value, err := client.GetValue(key)
 	if err != nil {
@@ -1194,18 +1318,36 @@ func (s *SyncEngine) runMongoToRedisSync(config SyncConfig, result SyncResult) S
 }
 
 func (s *SyncEngine) analyzeMongoToRedis(config SyncConfig) SyncAnalyzeResult {
-	result := SyncAnalyzeResult{Success: true, Tables: []TableDiffSummary{}}
+	// See analyzeRedisToMongo: keyspace migration is data-only, so pin the
+	// echoed content rather than letting the UI fall back to compareMode.
+	result := SyncAnalyzeResult{Success: true, Content: "data", Tables: []TableDiffSummary{}}
+	cancelledResult := func() SyncAnalyzeResult {
+		result.Success = false
+		result.Message = s.contextError().Error()
+		return result
+	}
 	sourceDB, err := newSyncDatabase(config.SourceConfig.Type)
 	if err != nil {
 		return SyncAnalyzeResult{Success: false, Message: "初始化源数据库驱动失败: " + err.Error()}
 	}
 	if err := sourceDB.Connect(config.SourceConfig); err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "源 MongoDB 连接失败: " + err.Error()}
 	}
 	defer sourceDB.Close()
+	if s.contextError() != nil {
+		return cancelledResult()
+	}
+	db.BindMetadataContext(sourceDB, s.context())
+	defer db.ClearMetadataContext(sourceDB)
 
-	collections, err := listMongoRedisCollections(sourceDB, config)
+	collections, err := listMongoRedisCollectionsContext(s.context(), sourceDB, config)
 	if err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "获取 MongoDB 集合列表失败: " + err.Error()}
 	}
 
@@ -1219,11 +1361,22 @@ func (s *SyncEngine) analyzeMongoToRedis(config SyncConfig) SyncAnalyzeResult {
 	targetClient := newRedisSourceClient()
 	targetConfig := withResolvedRedisDB(config.TargetConfig)
 	if err := targetClient.Connect(targetConfig); err != nil {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		return SyncAnalyzeResult{Success: false, Message: "目标 Redis 连接失败: " + err.Error()}
 	}
 	defer targetClient.Close()
+	if s.contextError() != nil {
+		return cancelledResult()
+	}
+	clearRedisContext := bindRedisMigrationContext(targetClient, s.context())
+	defer clearRedisContext()
 
 	for _, collection := range collections {
+		if s.contextError() != nil {
+			return cancelledResult()
+		}
 		summary := TableDiffSummary{
 			Table:             collection,
 			PKColumn:          "key",
@@ -1238,8 +1391,11 @@ func (s *SyncEngine) analyzeMongoToRedis(config SyncConfig) SyncAnalyzeResult {
 		if modeWarning != "" {
 			summary.Warnings = append(summary.Warnings, modeWarning)
 		}
-		diffs, err := buildMongoToRedisDiffs(sourceDB, targetClient, collection, effectiveMode)
+		diffs, err := buildMongoToRedisDiffsContext(s.context(), sourceDB, targetClient, collection, effectiveMode)
 		if err != nil {
+			if s.contextError() != nil {
+				return cancelledResult()
+			}
 			summary.CanSync = false
 			summary.Message = err.Error()
 			result.Tables = append(result.Tables, summary)
@@ -1276,28 +1432,47 @@ func (s *SyncEngine) previewMongoToRedis(config SyncConfig, collection string, l
 		return TableDiffPreview{}, fmt.Errorf("初始化源数据库驱动失败: %w", err)
 	}
 	if err := sourceDB.Connect(config.SourceConfig); err != nil {
+		if contextErr := s.contextError(); contextErr != nil {
+			return TableDiffPreview{}, contextErr
+		}
 		return TableDiffPreview{}, fmt.Errorf("源 MongoDB 连接失败: %w", err)
 	}
 	defer sourceDB.Close()
+	if err := s.contextError(); err != nil {
+		return TableDiffPreview{}, err
+	}
+	db.BindMetadataContext(sourceDB, s.context())
+	defer db.ClearMetadataContext(sourceDB)
 
 	targetClient := newRedisSourceClient()
 	targetConfig := withResolvedRedisDB(config.TargetConfig)
 	if err := targetClient.Connect(targetConfig); err != nil {
+		if contextErr := s.contextError(); contextErr != nil {
+			return TableDiffPreview{}, contextErr
+		}
 		return TableDiffPreview{}, fmt.Errorf("目标 Redis 连接失败: %w", err)
 	}
 	defer targetClient.Close()
+	if err := s.contextError(); err != nil {
+		return TableDiffPreview{}, err
+	}
+	clearRedisContext := bindRedisMigrationContext(targetClient, s.context())
+	defer clearRedisContext()
 
 	effectiveMode := normalizeSyncMode(config.Mode)
 	if effectiveMode == "full_overwrite" {
 		effectiveMode = "insert_update"
 	}
 
-	diffs, err := buildMongoToRedisDiffs(sourceDB, targetClient, collection, effectiveMode)
+	diffs, err := buildMongoToRedisDiffsContext(s.context(), sourceDB, targetClient, collection, effectiveMode)
 	if err != nil {
 		return TableDiffPreview{}, err
 	}
 	preview := TableDiffPreview{Table: collection, PKColumn: "key", Inserts: []PreviewRow{}, Updates: []PreviewUpdateRow{}, Deletes: []PreviewRow{}}
 	for _, diff := range diffs {
+		if err := s.contextError(); err != nil {
+			return TableDiffPreview{}, err
+		}
 		switch diff.Action {
 		case "insert":
 			preview.TotalInserts++

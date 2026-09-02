@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  isV2SidebarObjectNode,
   isPostgresSchemaDialect,
   normalizeDriverType,
   normalizeMySQLViewDDLForEditing,
@@ -69,5 +70,11 @@ describe('sidebarCoreUtils', () => {
       title: 'PKG_PERSON',
       dataRef: { packageName: 'MYCIMLED.PKG_PERSON' },
     })).toBe('MYCIMLED.PKG_PERSON');
+    expect(resolveSidebarObjectDragText({
+      type: 'message-object',
+      title: 'display topic',
+      dataRef: { messageObjectName: 'devices/+/telemetry' },
+    })).toBe('devices/+/telemetry');
+    expect(isV2SidebarObjectNode({ type: 'message-object' })).toBe(true);
   });
 });

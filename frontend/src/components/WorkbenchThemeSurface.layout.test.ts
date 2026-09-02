@@ -110,4 +110,16 @@ describe('V2 workbench theme surfaces', () => {
     expect(dividerRule).toContain('grid-row: 1;');
     expect(dividerRule).not.toContain('grid-row: 1 / 3;');
   });
+
+  it('insets V2 query results from the workbench edges', () => {
+    const css = readWorkbenchCss();
+    const queryResultsRule = readRule(
+      css,
+      'body[data-ui-version="v2"] .gn-v2-query-results',
+    );
+
+    expect(queryResultsRule).toContain('box-sizing: border-box;');
+    expect(queryResultsRule).toContain('min-width: 0;');
+    expect(queryResultsRule).toContain('padding-inline: 8px;');
+  });
 });

@@ -13,7 +13,7 @@ func TestBridgeReassemblesFragmentedLargeSSEEventWithoutChangingPayload(t *testi
 	const chunkSize = 256 << 10
 	content := strings.Repeat(" value with spaces ", (5<<20)/19)
 	payload, err := json.Marshal(bridgeEvent{
-		Name: "ai:stream:session-1",
+		Name: "ai:run:event",
 		Args: []any{map[string]any{"content": content}},
 	})
 	if err != nil {
@@ -56,7 +56,7 @@ func TestBridgeReassemblesFragmentedLargeSSEEventWithoutChangingPayload(t *testi
 	bridge.mu.Lock()
 	bridge.ctx = context.Background()
 	bridge.emitToWails = func(_ context.Context, name string, args ...any) {
-		if name != "ai:stream:session-1" || len(args) != 1 {
+		if name != "ai:run:event" || len(args) != 1 {
 			t.Fatalf("unexpected event %q %#v", name, args)
 		}
 		chunk, ok := args[0].(map[string]any)

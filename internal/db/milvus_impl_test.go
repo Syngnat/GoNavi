@@ -387,6 +387,62 @@ func TestMilvusApplyChangesDeletesMergesUpdatesAndInserts(t *testing.T) {
 	}
 }
 
+func TestMilvusApplyChangesRejectsDeletesWithoutPrimaryKey(t *testing.T) {
+	description := map[string]interface{}{
+		"fields": []map[string]interface{}{{"name": "id", "type": "Int64", "primaryKey": true}},
+	}
+	deleteRequests := 0
+	insertRequests := 0
+	server := newMockMilvusServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case isMilvusCollectionListRequest(r):
+			writeMilvusJSON(w, []string{})
+		case r.Method == http.MethodPost && r.URL.Path == milvusCollectionsDescribePath:
+			writeMilvusJSON(w, description)
+		case r.Method == http.MethodPost && r.URL.Path == milvusEntitiesInsertPath:
+			insertRequests++
+			writeMilvusJSON(w, map[string]interface{}{"insertCount": 1})
+		case r.Method == http.MethodPost && r.URL.Path == milvusEntitiesDeletePath:
+			deleteRequests++
+			writeMilvusJSON(w, map[string]interface{}{})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	db := newTestMilvusDB(t, server.URL)
+	for _, test := range []struct {
+		name    string
+		deletes []map[string]interface{}
+	}{
+		{name: "empty id", deletes: []map[string]interface{}{{"id": ""}}},
+		{name: "nil id", deletes: []map[string]interface{}{{"id": nil}}},
+		{name: "missing id", deletes: []map[string]interface{}{{}}},
+		{name: "mixed ids", deletes: []map[string]interface{}{{"id": 1}, {"id": ""}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deleteRequests = 0
+			insertRequests = 0
+			err := db.ApplyChanges("products", connection.ChangeSet{
+				Deletes: test.deletes,
+				Inserts: []map[string]interface{}{{"id": 2}},
+			})
+			if err == nil {
+				t.Fatal("ApplyChanges unexpectedly succeeded")
+			}
+			if err.Error() != `Milvus delete is missing primary key field "id"` {
+				t.Fatalf("ApplyChanges error = %q", err)
+			}
+			if deleteRequests != 0 {
+				t.Fatalf("delete requests = %d, want 0", deleteRequests)
+			}
+			if insertRequests != 0 {
+				t.Fatalf("insert requests = %d, want 0", insertRequests)
+			}
+		})
+	}
+}
+
 func TestMilvusResponseCodeFailureIsReturned(t *testing.T) {
 	server := newMockMilvusServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if isMilvusCollectionListRequest(r) {

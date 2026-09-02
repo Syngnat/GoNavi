@@ -328,6 +328,13 @@ type QueryContexter interface {
 	QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error)
 }
 
+// ColumnDefinitionContexter is an optional same-session metadata extension.
+// It is used when opening a second database instance would change connection-
+// scoped semantics, such as an in-memory SQLite or DuckDB database.
+type ColumnDefinitionContexter interface {
+	GetColumnsContext(ctx context.Context, dbName, tableName string) ([]connection.ColumnDefinition, error)
+}
+
 // ExecContexter is the optional cancellation-capable write contract.
 // Callers must not assume Database.Exec can be interrupted without it.
 type ExecContexter interface {

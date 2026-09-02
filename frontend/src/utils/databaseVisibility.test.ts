@@ -5,6 +5,8 @@ import {
   hasDatabaseVisibilityRules,
   isDatabaseVisible,
   matchesDatabasePattern,
+  moveExactDatabaseVisibilityEntry,
+  removeExactDatabaseVisibilityEntry,
 } from './databaseVisibility';
 
 describe('database visibility patterns', () => {
@@ -124,5 +126,18 @@ describe('database visibility rules', () => {
       'team_b',
     ]);
     expect(names).toEqual(snapshot);
+  });
+
+  it('moves and removes exact database entries after database mutations', () => {
+    const source = { includeDatabases: ['app', 'audit', 'archive'] };
+
+    expect(moveExactDatabaseVisibilityEntry(source, 'audit', 'audit_v2')).toEqual([
+      'app',
+      'audit_v2',
+      'archive',
+    ]);
+    expect(removeExactDatabaseVisibilityEntry(source, 'audit')).toEqual(['app', 'archive']);
+    expect(removeExactDatabaseVisibilityEntry({ includeDatabases: ['app'] }, 'app')).toEqual([]);
+    expect(source.includeDatabases).toEqual(['app', 'audit', 'archive']);
   });
 });

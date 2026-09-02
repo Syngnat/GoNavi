@@ -4,7 +4,9 @@ import type { SavedConnection } from '../types';
 import {
   getSchemaVisibilityRule,
   isSchemaVisible,
+  moveSchemaVisibilityEntry,
   moveSchemaVisibilityRule,
+  removeSchemaVisibilityEntry,
   updateSchemaVisibilityRule,
 } from './schemaVisibility';
 
@@ -69,5 +71,59 @@ describe('schema visibility', () => {
     expect(moved.schemaVisibilityByDatabase).toEqual({
       ecology_prod: { mode: 'exclude', schemas: ['db_accessadmin'] },
     });
+  });
+
+  it('keeps case-distinct schemas independent for case-sensitive dialects', () => {
+    const rule = getSchemaVisibilityRule(connection({
+      analytics: { mode: 'include', schemas: ['foo', 'Foo'] },
+    }), 'analytics', { caseSensitive: true });
+
+    expect(rule).toEqual({ mode: 'include', schemas: ['foo', 'Foo'] });
+    expect(isSchemaVisible(rule, 'foo', { caseSensitive: true })).toBe(true);
+    expect(isSchemaVisible(rule, 'FOO', { caseSensitive: true })).toBe(false);
+  });
+
+  it('moves and removes schema names without changing the rest of the rule', () => {
+    const initial = connection({
+      analytics: { mode: 'include', schemas: ['public', 'reporting'] },
+    });
+    const moved = moveSchemaVisibilityEntry(
+      initial,
+      'analytics',
+      'reporting',
+      'Reporting',
+      { caseSensitive: true },
+    );
+
+    expect(moved.schemaVisibilityByDatabase?.analytics.schemas).toEqual(['public', 'Reporting']);
+    expect(removeSchemaVisibilityEntry(
+      moved,
+      'analytics',
+      'Reporting',
+      { caseSensitive: true },
+    ).schemaVisibilityByDatabase?.analytics.schemas).toEqual(['public']);
+    expect(removeSchemaVisibilityEntry(
+      connection({ analytics: { mode: 'include', schemas: ['reporting'] } }),
+      'analytics',
+      'reporting',
+      {},
+      ['public', 'audit'],
+    ).schemaVisibilityByDatabase?.analytics).toEqual({
+      mode: 'include',
+      schemas: ['public', 'audit'],
+    });
+    expect(removeSchemaVisibilityEntry(
+      connection({ analytics: { mode: 'include', schemas: ['reporting'] } }),
+      'analytics',
+      'reporting',
+    ).schemaVisibilityByDatabase?.analytics).toEqual({
+      mode: 'include',
+      schemas: ['reporting'],
+    });
+    expect(removeSchemaVisibilityEntry(
+      connection({ analytics: { mode: 'exclude', schemas: ['reporting'] } }),
+      'analytics',
+      'reporting',
+    ).schemaVisibilityByDatabase).toBeUndefined();
   });
 });

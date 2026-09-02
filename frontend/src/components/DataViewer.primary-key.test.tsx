@@ -38,6 +38,10 @@ const messageApi = vi.hoisted(() => ({
   info: vi.fn(),
 }));
 
+const modalApi = vi.hoisted(() => ({
+  confirm: vi.fn(),
+}));
+
 const dataGridState = vi.hoisted(() => ({
   latestProps: null as any,
   renderedProps: [] as any[],
@@ -55,6 +59,12 @@ vi.mock('../../wailsjs/go/app/App', () => backendApp);
 
 vi.mock('antd', () => ({
   message: messageApi,
+}));
+
+vi.mock('./common/ResizableDraggableModal', () => ({
+  default: {
+    confirm: modalApi.confirm,
+  },
 }));
 
 vi.mock('./DataGrid', () => ({
@@ -147,6 +157,175 @@ describe('DataViewer safe editing locator', () => {
     renderer!.unmount();
   });
 
+  it('asks before reading RabbitMQ queue messages and allows cancelling the preview', async () => {
+    storeState.connections = [{
+      id: 'conn-rabbitmq',
+      name: 'rabbitmq',
+      config: {
+        type: 'rabbitmq',
+        host: '127.0.0.1',
+        port: 15672,
+        user: 'guest',
+        password: '',
+        database: '/',
+      },
+    }];
+
+    let modalOptions: any;
+    modalApi.confirm.mockImplementation((options: any) => {
+      modalOptions = options;
+      return { destroy: vi.fn() };
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataViewer tab={createTab({
+        id: 'tab-rabbitmq-cancel',
+        connectionId: 'conn-rabbitmq',
+        dbName: '/',
+        tableName: 'orders.events',
+        title: 'orders.events',
+      })} />);
+      await Promise.resolve();
+    });
+    await flushPromises();
+
+    let reloadPromise!: Promise<unknown>;
+    await act(async () => {
+      reloadPromise = dataGridState.latestProps.onReload();
+      await Promise.resolve();
+    });
+    await flushPromises();
+
+    expect(modalApi.confirm).toHaveBeenCalledTimes(1);
+    expect(modalOptions.title).toBe('RabbitMQ 预览可能重新入队消息');
+    expect(modalOptions.content).toContain('ack_requeue_true');
+    expect(modalOptions.content).toContain('orders.events');
+    expect(modalOptions.okText).toBe('继续');
+    expect(modalOptions.cancelText).toBe('取消');
+    expect(backendApp.DBQuery).not.toHaveBeenCalled();
+
+    await act(async () => {
+      modalOptions.onCancel();
+      await reloadPromise;
+    });
+
+    expect(backendApp.DBQuery).not.toHaveBeenCalled();
+    renderer!.unmount();
+  });
+
+  it('continues RabbitMQ preview after confirmation without prompting on reload', async () => {
+    storeState.connections = [{
+      id: 'conn-rabbitmq',
+      name: 'rabbitmq',
+      config: {
+        type: 'rabbitmq',
+        host: '127.0.0.1',
+        port: 15672,
+        user: 'guest',
+        password: '',
+        database: '/',
+      },
+    }];
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      fields: ['payload'],
+      data: [{ payload: 'hello' }],
+    });
+
+    let modalOptions: any;
+    modalApi.confirm.mockImplementation((options: any) => {
+      modalOptions = options;
+      return { destroy: vi.fn() };
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataViewer tab={createTab({
+        id: 'tab-rabbitmq-confirm',
+        connectionId: 'conn-rabbitmq',
+        dbName: '/',
+        tableName: 'orders.events',
+        title: 'orders.events',
+      })} />);
+      await Promise.resolve();
+    });
+    await flushPromises();
+
+    let reloadPromise!: Promise<unknown>;
+    await act(async () => {
+      reloadPromise = dataGridState.latestProps.onReload();
+      await Promise.resolve();
+    });
+    await flushPromises();
+
+    expect(modalApi.confirm).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      modalOptions.onOk();
+      await reloadPromise;
+    });
+    await flushPromises();
+
+    expect(backendApp.DBQuery).toHaveBeenCalled();
+    expect(backendApp.DBQuery.mock.calls.some((call: any[]) => (
+      /select\s+\*\s+from\s+"orders\.events"/i.test(String(call[2] || ''))
+    ))).toBe(true);
+
+    const queryCountAfterConfirmation = backendApp.DBQuery.mock.calls.length;
+    await act(async () => {
+      await dataGridState.latestProps.onReload();
+    });
+    expect(backendApp.DBQuery.mock.calls.length).toBeGreaterThan(queryCountAfterConfirmation);
+    expect(modalApi.confirm).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
+  it('prevents RocketMQ TAG total-count and last-page requests before COUNT execution', async () => {
+    storeState.connections = [{
+      id: 'conn-rocketmq',
+      name: 'rocketmq',
+      config: {
+        type: 'rocketmq',
+        host: '127.0.0.1',
+        port: 9876,
+        user: '',
+        password: '',
+        database: 'orders.events',
+        connectionParams: 'tag=paid',
+      } as any,
+    }];
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      fields: ['tags', 'body'],
+      data: [{ tags: 'paid', body: 'hello' }],
+    });
+
+    const renderer = await renderAndReload(createTab({
+      id: 'tab-rocketmq-tag',
+      connectionId: 'conn-rocketmq',
+      dbName: 'topics',
+      tableName: 'orders.events',
+      title: 'orders.events',
+    }));
+    const props = dataGridState.latestProps;
+
+    expect(props.pagination).toMatchObject({
+      totalKnown: false,
+      totalCountUnavailableLabel: 'TAG 总量不可用',
+    });
+    expect(props.pagination.totalCountUnavailableReason).toContain('DESCRIBE TOPIC');
+
+    backendApp.DBQuery.mockClear();
+    await act(async () => {
+      await props.onRequestTotalCount();
+      await props.onLastPage(100);
+    });
+
+    expect(backendApp.DBQuery).not.toHaveBeenCalled();
+    expect(messageApi.warning).toHaveBeenCalledTimes(2);
+    renderer.unmount();
+  });
+
   it('defers the initial table query when the table opens in embedded object design', async () => {
     backendApp.DBGetColumns.mockResolvedValue({
       success: true,
@@ -167,6 +346,55 @@ describe('DataViewer safe editing locator', () => {
     await flushPromises();
 
     expect(backendApp.DBQuery).toHaveBeenCalled();
+    renderer!.unmount();
+  });
+
+  it('keeps the IoTDB root node bare in the initial device preview query', async () => {
+    storeState.connections = [{
+      id: 'conn-iotdb',
+      name: 'iotdb',
+      config: {
+        type: 'iotdb',
+        host: '127.0.0.1',
+        port: 6667,
+        user: 'root',
+        password: '',
+        database: 'root.gonavi_iotdb',
+      },
+    }];
+    backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
+      const normalizedSql = String(sql || '');
+      if (/count\s*\(/i.test(normalizedSql)) {
+        return { success: true, fields: ['total'], data: [{ total: 200 }] };
+      }
+      const limit = Number(normalizedSql.match(/\bLIMIT\s+(\d+)/i)?.[1] || 101);
+      return { success: true, fields: ['Time', 'temperature'], data: createRows(limit) };
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<DataViewer tab={createTab({
+        id: 'tab-iotdb-preview',
+        connectionId: 'conn-iotdb',
+        dbName: 'root.gonavi_iotdb',
+        tableName: 'root.gonavi_iotdb.smoke',
+        title: 'root.gonavi_iotdb.smoke',
+      })} />);
+    });
+    await flushPromises();
+
+    const executedSql = backendApp.DBQuery.mock.calls.map((call: any[]) => String(call[2] || ''));
+    expect(executedSql).toContain('SELECT * FROM root.`gonavi_iotdb`.`smoke` LIMIT 101 OFFSET 0');
+    expect(executedSql.some((sql) => sql.includes('FROM `root`'))).toBe(false);
+
+    await act(async () => {
+      await dataGridState.latestProps.onPageChange(2, 10);
+    });
+    await flushPromises();
+
+    const pagedSql = backendApp.DBQuery.mock.calls.map((call: any[]) => String(call[2] || ''));
+    expect(pagedSql).toContain('SELECT * FROM root.`gonavi_iotdb`.`smoke` LIMIT 11 OFFSET 10');
+    expect(pagedSql.some((sql) => sql.includes('FROM `root`'))).toBe(false);
     renderer!.unmount();
   });
 
@@ -385,6 +613,35 @@ describe('DataViewer safe editing locator', () => {
       sort: { _id: 1 },
       __gonaviIncludeObjectIDLocator: true,
     });
+    renderer.unmount();
+  });
+
+  it('opens an Elasticsearch index without implicitly sorting on _id', async () => {
+    storeState.connections[0].config.type = 'elasticsearch';
+    storeState.connections[0].config.database = 'my-index';
+    storeState.connections[0].config.port = 9200;
+    backendApp.DBGetColumns.mockResolvedValue({
+      success: true,
+      data: [{ name: '_id', key: 'PRI', type: 'keyword' }],
+    });
+    backendApp.DBGetIndexes.mockResolvedValue({
+      success: true,
+      data: [{ name: 'PRIMARY', columnName: '_id', nonUnique: 0, seqInIndex: 1, indexType: 'PRIMARY' }],
+    });
+
+    const renderer = await renderAndReload(createTab({
+      id: 'tab-elasticsearch-index',
+      dbName: 'my-index',
+      tableName: 'my-index',
+      title: 'my-index',
+    }));
+
+    const indexQueries = backendApp.DBQuery.mock.calls
+      .map((call: any[]) => String(call[2] || ''))
+      .filter((sql: string) => /FROM\s+"my-index"/i.test(sql));
+    expect(indexQueries.length).toBeGreaterThan(0);
+    expect(indexQueries.every((sql: string) => !/ORDER\s+BY\s+"?_id"?/i.test(sql))).toBe(true);
+    expect(indexQueries[indexQueries.length - 1]).toContain('LIMIT 101 OFFSET 0');
     renderer.unmount();
   });
 

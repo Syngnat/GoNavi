@@ -13,18 +13,24 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	sshbridge "GoNavi-Wails/internal/ssh"
 )
 
 type agentRequest struct {
-	ID                   int64                           `json:"id"`
-	Method               string                          `json:"method"`
-	SessionID            string                          `json:"sessionId,omitempty"`
-	Config               *connection.ConnectionConfig    `json:"config,omitempty"`
+	ID         int64                          `json:"id"`
+	Method     string                         `json:"method"`
+	SessionID  string                         `json:"sessionId,omitempty"`
+	Config     *connection.ConnectionConfig   `json:"config,omitempty"`
+	SSHRuntime *connection.SSHRuntimeSnapshot `json:"sshRuntime,omitempty"`
+	// StreamSSHProgress is an explicit opt-in because older app clients expect
+	// exactly one response frame for a connect request.
+	StreamSSHProgress    bool                            `json:"streamSSHProgress,omitempty"`
 	Query                string                          `json:"query,omitempty"`
 	TimeoutMs            int64                           `json:"timeoutMs,omitempty"`
 	DBName               string                          `json:"dbName,omitempty"`
@@ -34,14 +40,17 @@ type agentRequest struct {
 }
 
 type agentResponse struct {
-	ID           int64       `json:"id"`
-	Success      bool        `json:"success"`
-	Error        string      `json:"error,omitempty"`
-	Data         interface{} `json:"data,omitempty"`
-	Fields       []string    `json:"fields,omitempty"`
-	Messages     []string    `json:"messages,omitempty"`
-	ChunkType    string      `json:"chunkType,omitempty"`
-	RowsAffected int64       `json:"rowsAffected,omitempty"`
+	ID              int64                         `json:"id"`
+	Success         bool                          `json:"success"`
+	Error           string                        `json:"error,omitempty"`
+	OutcomeUnknown  bool                          `json:"outcomeUnknown,omitempty"`
+	SSHHostKeyTrust *sshbridge.HostKeyTrustStatus `json:"sshHostKeyTrust,omitempty"`
+	SSHProgress     *connection.SSHProgressEvent  `json:"sshProgress,omitempty"`
+	Data            interface{}                   `json:"data,omitempty"`
+	Fields          []string                      `json:"fields,omitempty"`
+	Messages        []string                      `json:"messages,omitempty"`
+	ChunkType       string                        `json:"chunkType,omitempty"`
+	RowsAffected    int64                         `json:"rowsAffected,omitempty"`
 }
 
 type agentConnectionInfo struct {
@@ -185,9 +194,24 @@ func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *age
 			continue
 		}
 
-		if strings.TrimSpace(req.Method) == agentMethodStreamQuery {
+		method := strings.TrimSpace(req.Method)
+		if method == agentMethodStreamQuery {
 			if err := handleStreamRequest(runtimeState, req, writer); err != nil {
 				fmt.Fprintf(os.Stderr, "写入流式响应失败：%v\n", err)
+				if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
+					_ = writeResponse(writer, agentResponse{
+						ID:      req.ID,
+						Success: false,
+						Error:   db.ErrOptionalDriverAgentJSONLineTooLarge.Error(),
+					})
+				}
+				return nil
+			}
+			continue
+		}
+		if method == agentMethodConnect && req.StreamSSHProgress {
+			if err := handleConnectRequest(runtimeState, req, writer); err != nil {
+				fmt.Fprintf(os.Stderr, "写入 SSH 连接进度失败：%v\n", err)
 				if errors.Is(err, db.ErrOptionalDriverAgentJSONLineTooLarge) {
 					_ = writeResponse(writer, agentResponse{
 						ID:      req.ID,
@@ -219,6 +243,19 @@ func serveAgentRequests(input io.Reader, writer *bufio.Writer, runtimeState *age
 }
 
 func handleRequest(runtimeState *agentRuntime, req agentRequest) agentResponse {
+	return handleRequestWithSSHProgressReporter(runtimeState, req, nil)
+}
+
+func handleConnectRequest(runtimeState *agentRuntime, req agentRequest, writer *bufio.Writer) error {
+	progressWriter := newSSHProgressResponseWriter(writer, req.ID)
+	resp := handleRequestWithSSHProgressReporter(runtimeState, req, progressWriter.report)
+	if err := progressWriter.close(); err != nil {
+		return err
+	}
+	return writeResponse(writer, resp)
+}
+
+func handleRequestWithSSHProgressReporter(runtimeState *agentRuntime, req agentRequest, progressReporter connection.SSHProgressReporter) agentResponse {
 	resp := agentResponse{ID: req.ID, Success: true}
 	method := strings.TrimSpace(req.Method)
 
@@ -227,13 +264,20 @@ func handleRequest(runtimeState *agentRuntime, req agentRequest) agentResponse {
 		if req.Config == nil {
 			return fail(resp, "连接配置为空")
 		}
+		config := *req.Config
+		if config.UseSSH {
+			config.SSH = config.SSH.WithRuntimeSnapshot(req.SSHRuntime)
+			if progressReporter != nil {
+				config.SSH = config.SSH.WithProgressReporter(progressReporter)
+			}
+		}
 		runtimeState.close()
 		next := agentDatabaseFactory()
 		if next == nil {
 			return fail(resp, "驱动代理初始化失败")
 		}
-		if err := next.Connect(*req.Config); err != nil {
-			return fail(resp, err.Error())
+		if err := next.Connect(config); err != nil {
+			return failWithSSHHostKeyTrust(resp, err)
 		}
 		runtimeState.inst = next
 		if versionProvider, ok := next.(db.ElasticsearchServerVersionProvider); ok {
@@ -481,13 +525,48 @@ func handleRequest(runtimeState *agentRuntime, req agentRequest) agentResponse {
 			return fail(resp, "当前驱动不支持 ApplyChanges")
 		}
 		if err := applier.ApplyChanges(req.TableName, *req.Changes); err != nil {
-			return fail(resp, err.Error())
+			resp = fail(resp, err.Error())
+			resp.OutcomeUnknown = db.IsWriteOutcomeUnknown(err)
+			return resp
 		}
 	default:
 		return fail(resp, "不支持的方法")
 	}
 
 	return resp
+}
+
+type sshProgressResponseWriter struct {
+	writer    *bufio.Writer
+	requestID int64
+	mu        sync.Mutex
+	err       error
+	closed    bool
+}
+
+func newSSHProgressResponseWriter(writer *bufio.Writer, requestID int64) *sshProgressResponseWriter {
+	return &sshProgressResponseWriter{writer: writer, requestID: requestID}
+}
+
+func (w *sshProgressResponseWriter) report(event connection.SSHProgressEvent) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed || w.err != nil {
+		return
+	}
+	eventCopy := event
+	w.err = writeResponse(w.writer, agentResponse{
+		ID:          w.requestID,
+		Success:     true,
+		SSHProgress: &eventCopy,
+	})
+}
+
+func (w *sshProgressResponseWriter) close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.closed = true
+	return w.err
 }
 
 type agentStreamResponseWriter struct {
@@ -689,6 +768,14 @@ func writeResponse(writer *bufio.Writer, resp agentResponse) error {
 func fail(resp agentResponse, errText string) agentResponse {
 	resp.Success = false
 	resp.Error = strings.TrimSpace(errText)
+	return resp
+}
+
+func failWithSSHHostKeyTrust(resp agentResponse, err error) agentResponse {
+	resp = fail(resp, err.Error())
+	if status, ok := sshbridge.HostKeyTrustStatusFromError(err); ok {
+		resp.SSHHostKeyTrust = &status
+	}
 	return resp
 }
 

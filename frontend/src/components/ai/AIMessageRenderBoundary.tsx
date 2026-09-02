@@ -10,7 +10,7 @@ interface AIMessageRenderBoundaryProps {
   msg: AIChatMessage;
   darkMode: boolean;
   overlayTheme: OverlayWorkbenchTheme;
-  onDeleteMessage: (id: string) => void;
+  onDeleteMessage?: (id: string) => void;
   onError?: (error: Error, errorInfo: React.ErrorInfo, msg: AIChatMessage) => void;
   copy?: (key: string) => string;
 }
@@ -86,20 +86,22 @@ export class AIMessageRenderBoundary extends React.Component<
               >
                 {copy('ai_chat.message.render_error.retry')}
               </button>
-              <button
-                type="button"
-                onClick={() => onDeleteMessage(msg.id)}
-                style={{
-                  border: '1px solid rgba(239,68,68,0.28)',
-                  background: darkMode ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.05)',
-                  color: '#ef4444',
-                  borderRadius: 8,
-                  padding: '6px 12px',
-                  cursor: 'pointer',
-                }}
-              >
-                {copy('ai_chat.message.render_error.delete')}
-              </button>
+              {onDeleteMessage ? (
+                <button
+                  type="button"
+                  onClick={() => onDeleteMessage(msg.id)}
+                  style={{
+                    border: '1px solid rgba(239,68,68,0.28)',
+                    background: darkMode ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.05)',
+                    color: '#ef4444',
+                    borderRadius: 8,
+                    padding: '6px 12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {copy('ai_chat.message.render_error.delete')}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

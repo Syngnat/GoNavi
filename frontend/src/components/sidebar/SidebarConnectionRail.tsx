@@ -48,8 +48,12 @@ export interface SidebarConnectionRailProps {
   canLocateActiveTab: boolean;
   /** General object actions are rendered in the title bar for the V2 layout. */
   showObjectActions?: boolean;
+  /** The current-table locator can move to the expanded sidebar title bar. */
+  showLocateAction?: boolean;
   /** Workbench actions can be moved to a wider host when the rail is compact. */
   showWorkbenchActions?: boolean;
+  /** Whether the docked AI assistant is currently visible. */
+  aiActive?: boolean;
   sidebarExpandAction?: {
     label: string;
     onClick: () => void;
@@ -63,7 +67,9 @@ const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
   handlers,
   canLocateActiveTab,
   showObjectActions = true,
+  showLocateAction = true,
   showWorkbenchActions = true,
+  aiActive = false,
   sidebarExpandAction,
   workbenchActions,
 }) => (
@@ -148,20 +154,22 @@ const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
             </Tooltip>
           </>
         )}
-        <Tooltip title={canLocateActiveTab ? labels.locateCurrentTable : labels.locateCurrentTableUnavailable} placement="right">
-          <span className="gn-v2-rail-action-wrap">
-            <button
-              type="button"
-              className="gn-v2-rail-tool gn-v2-rail-action"
-              onClick={handlers.locateActiveTab}
-              aria-label={labels.locateCurrentTable}
-              data-sidebar-locate-current-tab-action="true"
-              disabled={!canLocateActiveTab}
-            >
-              <AimOutlined />
-            </button>
-          </span>
-        </Tooltip>
+        {showLocateAction && (
+          <Tooltip title={canLocateActiveTab ? labels.locateCurrentTable : labels.locateCurrentTableUnavailable} placement="right">
+            <span className="gn-v2-rail-action-wrap">
+              <button
+                type="button"
+                className="gn-v2-rail-tool gn-v2-rail-action"
+                onClick={handlers.locateActiveTab}
+                aria-label={labels.locateCurrentTable}
+                data-sidebar-locate-current-tab-action="true"
+                disabled={!canLocateActiveTab}
+              >
+                <AimOutlined />
+              </button>
+            </span>
+          </Tooltip>
+        )}
       </div>
     </div>
     <div className="gn-v2-rail-secondary-actions" aria-label={labels.railSystemActions}>
@@ -174,9 +182,10 @@ const SidebarConnectionRail: React.FC<SidebarConnectionRailProps> = ({
         <Tooltip title={labels.aiAssistant} placement="right">
           <button
             type="button"
-            className="gn-v2-rail-tool"
+            className={`gn-v2-rail-tool${aiActive ? ' is-active' : ''}`}
             onClick={handlers.toggleAI}
             aria-label={labels.aiAssistant}
+            aria-pressed={aiActive}
             data-gonavi-ai-entry-action="true"
           >
             <RobotOutlined />

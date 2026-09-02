@@ -272,14 +272,29 @@ func (r *RabbitMQDB) ExecContext(ctx context.Context, query string) (int64, erro
 	}
 
 	vhost := rabbitmqResolveVHost(firstStringValue(cmd, "vhost", "database"), r.defaultVHost)
-	queue := rabbitmqResolveQueue(firstStringValue(cmd, "publish", "queue", "destination"), r.defaultQueue)
-	if queue == "" {
-		return 0, fmt.Errorf("RabbitMQ publish 命令缺少 queue")
-	}
-	exchange := rabbitmqNormalizeExchangeName(firstStringValue(cmd, "exchange"), r.defaultExchange)
-	routingKey := strings.TrimSpace(firstNonEmpty(firstStringValue(cmd, "routing_key", "routingKey", "route", "routing"), queue))
-	if routingKey == "" {
-		return 0, fmt.Errorf("RabbitMQ publish 命令缺少 routing_key")
+	rawDestination := firstStringValue(cmd, "publish", "queue", "destination")
+	rawExchange := firstStringValue(cmd, "exchange")
+	exchange := rabbitmqNormalizeExchangeName(rawExchange, r.defaultExchange)
+	directExchangePublish := strings.TrimSpace(rawDestination) == "" &&
+		strings.TrimSpace(rawExchange) != ""
+	var routingKey string
+	if directExchangePublish {
+		// A named Exchange does not imply a Queue. An empty routing key is valid
+		// for fanout exchanges, so preserve it instead of falling back to the
+		// connection's default Queue.
+		routingKey = strings.TrimSpace(firstStringValue(cmd, "routing_key", "routingKey", "route", "routing"))
+	} else {
+		queue := rabbitmqResolveQueue(rawDestination, r.defaultQueue)
+		if queue == "" {
+			return 0, fmt.Errorf("RabbitMQ publish 命令缺少 queue")
+		}
+		routingKey = strings.TrimSpace(firstNonEmpty(
+			firstStringValue(cmd, "routing_key", "routingKey", "route", "routing"),
+			queue,
+		))
+		if routingKey == "" {
+			return 0, fmt.Errorf("RabbitMQ publish 命令缺少 routing_key")
+		}
 	}
 	if !hasAnyKey(cmd, "payload", "value", "body", "message") {
 		return 0, fmt.Errorf("RabbitMQ publish 命令缺少 payload")
@@ -832,7 +847,7 @@ func (r *RabbitMQDB) publishMessage(ctx context.Context, vhost string, exchange 
 	}
 	path := fmt.Sprintf("/api/exchanges/%s/%s/publish", url.PathEscape(vhost), url.PathEscape(exchange))
 	var result map[string]interface{}
-	if err := r.doJSON(ctx, http.MethodPut, path, body, &result); err != nil {
+	if err := r.doJSON(ctx, http.MethodPost, path, body, &result); err != nil {
 		return 0, err
 	}
 	if !rabbitmqBoolAny(result["routed"]) {

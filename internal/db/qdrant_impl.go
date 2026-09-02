@@ -36,6 +36,8 @@ type QdrantDB struct {
 	forwarder   *ssh.LocalForwarder
 }
 
+var _ BatchApplierContext = (*QdrantDB)(nil)
+
 type qdrantCollectionInfo struct {
 	Name string `json:"name"`
 }
@@ -307,8 +309,19 @@ func (q *QdrantDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 }
 
 func (q *QdrantDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
-	ctx, cancel := context.WithTimeout(context.Background(), defaultQdrantQueryTimeout)
+	return q.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (q *QdrantDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
+	ctx, cancel := context.WithTimeout(ctx, defaultQdrantQueryTimeout)
 	defer cancel()
+	writeApplied := false
+	writeError := func(err error) error {
+		if writeApplied {
+			return MarkWriteOutcomeUnknown(err)
+		}
+		return err
+	}
 
 	if len(changes.Deletes) > 0 {
 		ids := make([]interface{}, 0, len(changes.Deletes))
@@ -317,10 +330,14 @@ func (q *QdrantDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 				ids = append(ids, id)
 			}
 		}
+		if len(ids) != len(changes.Deletes) {
+			return fmt.Errorf("Qdrant 删除行缺少 id")
+		}
 		if len(ids) > 0 {
 			if _, err := q.deleteCommand(ctx, tableName, map[string]interface{}{"points": ids}); err != nil {
-				return err
+				return writeError(err)
 			}
+			writeApplied = true
 		}
 	}
 
@@ -339,19 +356,23 @@ func (q *QdrantDB) ApplyChanges(tableName string, changes connection.ChangeSet) 
 				continue
 			}
 			if err := q.setPayloadFromRow(ctx, tableName, row); err != nil {
-				return err
+				return writeError(err)
+			}
+			if len(qdrantPayloadFromRow(row)) > 0 {
+				writeApplied = true
 			}
 		}
 		if len(upserts) > 0 {
 			if err := q.upsertRows(ctx, tableName, upserts); err != nil {
-				return err
+				return writeError(err)
 			}
+			writeApplied = true
 		}
 	}
 
 	if len(changes.Inserts) > 0 {
 		if err := q.upsertRows(ctx, tableName, changes.Inserts); err != nil {
-			return err
+			return writeError(err)
 		}
 	}
 	return nil

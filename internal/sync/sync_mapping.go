@@ -84,10 +84,14 @@ func validateSyncMappings(config SyncConfig) error {
 		return fmt.Errorf("当前映射执行底座仅支持表格式数据源和目标端")
 	}
 	content := strings.ToLower(strings.TrimSpace(config.Content))
-	if content == "schema" || content == "both" {
-		return fmt.Errorf("对象和字段映射当前仅支持数据同步，尚未接入结构同步")
+	if content == "both" {
+		return fmt.Errorf("对象和字段映射当前仅支持仅结构同步或仅数据同步")
 	}
-	if config.AutoAddColumns || config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only" {
+	if content == "schema" {
+		if config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only" {
+			return fmt.Errorf("仅结构对象映射要求目标表已存在，且不支持自动建表或创建索引")
+		}
+	} else if config.AutoAddColumns || config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only" {
 		return fmt.Errorf("对象和字段映射当前要求目标表已存在，且不支持自动补字段、建表或创建索引")
 	}
 
@@ -319,13 +323,20 @@ func syncKeyColumnsForTable(config SyncConfig, tableName string, sourceColumns [
 	} else if explicit {
 		return keys, nil
 	}
+	return physicalPrimaryKeyColumns(sourceColumns), nil
+}
+
+// physicalPrimaryKeyColumns returns only database-declared primary-key columns.
+// Explicit mapping keys are resolved by syncKeyColumnsForTable before this
+// legacy-table fallback is used.
+func physicalPrimaryKeyColumns(sourceColumns []connection.ColumnDefinition) []string {
 	keys := make([]string, 0, 2)
 	for _, column := range sourceColumns {
 		if strings.EqualFold(strings.TrimSpace(column.Key), "PRI") || strings.EqualFold(strings.TrimSpace(column.Key), "PK") {
 			keys = append(keys, strings.TrimSpace(column.Name))
 		}
 	}
-	return keys, nil
+	return keys
 }
 
 func buildMappedExistingTargetPlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
@@ -388,8 +399,49 @@ func buildMappedExistingTargetPlan(config SyncConfig, tableName string, sourceDB
 	}
 
 	missing := projection.MissingTargetColumns(targetCols, sourceCols)
-	if len(missing) > 0 {
+	if len(missing) == 0 {
+		plan.PlannedAction = "表结构已一致"
+		return plan, sourceCols, targetCols, nil
+	}
+	if !strings.EqualFold(strings.TrimSpace(config.Content), "schema") {
 		return plan, sourceCols, targetCols, fmt.Errorf("映射目标表缺少字段 %d 个：%s", len(missing), strings.Join(missing, ", "))
+	}
+	plan.Warnings = append(plan.Warnings, fmt.Sprintf("目标表缺失字段 %d 个：%s", len(missing), strings.Join(missing, ", ")))
+	if !config.AutoAddColumns {
+		plan.PlannedAction = fmt.Sprintf("目标表缺失字段(%d)，未开启自动补齐", len(missing))
+		return plan, sourceCols, targetCols, nil
+	}
+	if !supportsAutoAddColumnsForPair(sourceType, targetType) {
+		plan.PlannedAction = fmt.Sprintf("目标表缺失字段(%d)，当前库对暂不支持自动补齐", len(missing))
+		return plan, sourceCols, targetCols, nil
+	}
+
+	for _, missingTarget := range missing {
+		var sourceColumn *connection.ColumnDefinition
+		for index := range sourceCols {
+			targetColumn, mapped := projection.TargetColumn(sourceCols[index].Name)
+			if mapped && strings.EqualFold(strings.TrimSpace(targetColumn), strings.TrimSpace(missingTarget)) {
+				column := sourceCols[index]
+				column.Name = missingTarget
+				sourceColumn = &column
+				break
+			}
+		}
+		if sourceColumn == nil {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("字段 %s 没有可推断的源列类型，未生成自动补齐 SQL", missingTarget))
+			continue
+		}
+		addSQL, addErr := buildAddColumnSQLForPair(sourceType, targetType, plan.TargetQueryTable, *sourceColumn)
+		if addErr != nil {
+			plan.Warnings = append(plan.Warnings, fmt.Sprintf("字段 %s 自动补齐 SQL 生成失败：%v", missingTarget, addErr))
+			continue
+		}
+		plan.PreDataSQL = append(plan.PreDataSQL, addSQL)
+	}
+	if len(plan.PreDataSQL) > 0 {
+		plan.PlannedAction = fmt.Sprintf("补齐缺失字段(%d)", len(plan.PreDataSQL))
+	} else {
+		plan.PlannedAction = fmt.Sprintf("目标表缺失字段(%d)，但未生成可执行补齐 SQL", len(missing))
 	}
 	return plan, sourceCols, targetCols, nil
 }

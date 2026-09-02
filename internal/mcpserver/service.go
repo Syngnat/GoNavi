@@ -185,6 +185,7 @@ type executeSQLResult struct {
 	QueryID           string                `json:"queryId,omitempty"`
 	CancellationState string                `json:"cancellationState,omitempty"`
 	Message           string                `json:"message,omitempty"`
+	OutcomeUnknown    bool                  `json:"outcomeUnknown,omitempty"`
 	Truncated         bool                  `json:"truncated,omitempty"`
 	Statements        []sqlStatementSummary `json:"statements"`
 	Results           []sqlResultSet        `json:"results"`
@@ -271,14 +272,26 @@ func (s *Service) GetTables(ctx context.Context, req *mcp.CallToolRequest, args 
 	}
 
 	views := []string{}
+	partial := queryResult.Partial
+	warnings := objectMetadataWarnings(queryResult)
+	retryable := queryResult.Retryable
 	viewResult := s.backend.DBGetViews(ctx, view.Config, dbName)
 	if err := ctx.Err(); err != nil {
 		return toolError("获取表列表失败: %s", err), getTablesResult{}, nil
 	}
-	if viewResult.Success {
-		if decodedViews, decodeErr := decodeNamedStringSlice(viewResult.Data, "View", "view", "name"); decodeErr == nil {
+	viewMetadataFailed := !viewResult.Success
+	if !viewMetadataFailed {
+		decodedViews, decodeErr := decodeNamedStringSlice(viewResult.Data, "View", "view", "name")
+		if decodeErr != nil {
+			viewMetadataFailed = true
+		} else {
 			views = decodedViews
 		}
+	}
+	if viewMetadataFailed {
+		partial = true
+		retryable = retryable || viewResult.Retryable
+		warnings = append(warnings, "获取视图元数据失败，返回的对象集合不完整")
 	}
 
 	return successResult(), getTablesResult{
@@ -287,9 +300,9 @@ func (s *Service) GetTables(ctx context.Context, req *mcp.CallToolRequest, args 
 		Tables:       ensureNonNilStrings(tables),
 		Views:        ensureNonNilStrings(views),
 		Message:      strings.TrimSpace(queryResult.Message),
-		Partial:      queryResult.Partial,
-		Warnings:     objectMetadataWarnings(queryResult),
-		Retryable:    queryResult.Retryable,
+		Partial:      partial,
+		Warnings:     warnings,
+		Retryable:    retryable,
 		Truncated:    queryResult.Truncated,
 		ScannedCount: queryResult.ScannedCount,
 	}, nil
@@ -612,10 +625,22 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	dbName := effectiveDBName(args.DBName, view.Config)
 	queryResult := s.executeAuthorizedSQL(ctx, view, dbName, sqlText, args.AllowMutating)
 	if !queryResult.Success {
-		if queryResult.CancellationState != "" {
-			return toolError("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message)), executeSQLResult{}, nil
+		failure := executeSQLResult{
+			RequestID:         mcpRequestID(ctx),
+			ConnectionID:      view.ID,
+			DBName:            dbName,
+			StatementCount:    inspection.StatementCount,
+			ReadOnly:          inspection.ReadOnly,
+			QueryID:           strings.TrimSpace(queryResult.QueryID),
+			CancellationState: strings.TrimSpace(queryResult.CancellationState),
+			Message:           strings.TrimSpace(queryResult.Message),
+			OutcomeUnknown:    queryResult.OutcomeUnknown,
+			Statements:        toStatementSummaries(inspection.Statements),
 		}
-		return toolError("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message)), executeSQLResult{}, nil
+		if queryResult.CancellationState != "" {
+			return toolError("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message)), failure, nil
+		}
+		return toolError("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message)), failure, nil
 	}
 
 	resultSets, err := decodeResultSets(queryResult.Data)
@@ -633,6 +658,7 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 		QueryID:           strings.TrimSpace(queryResult.QueryID),
 		CancellationState: strings.TrimSpace(queryResult.CancellationState),
 		Message:           strings.TrimSpace(queryResult.Message),
+		OutcomeUnknown:    queryResult.OutcomeUnknown,
 		Truncated:         truncated,
 		Statements:        toStatementSummaries(inspection.Statements),
 		Results:           normalizedResults,

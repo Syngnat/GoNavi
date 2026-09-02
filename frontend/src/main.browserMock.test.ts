@@ -393,7 +393,7 @@ describe('main browser mock', () => {
     }));
   });
 
-  it('localizes browser mock provider test messages', async () => {
+  it('reports provider test previews as unavailable in browser mock mode', async () => {
     vi.stubGlobal('navigator', {
       languages: ['en-US'],
       language: 'en-US',
@@ -404,12 +404,10 @@ describe('main browser mock', () => {
     const service = (globalThis as any).window.go.aiservice.Service;
 
     await expect(service.AITestProvider({ apiKey: 'sk-demo' })).resolves.toEqual(expect.objectContaining({
-      success: true,
-      message: t('app.browser_mock.provider.test_success'),
-    }));
-    await expect(service.AITestProvider({ apiKey: '   ' })).resolves.toEqual(expect.objectContaining({
       success: false,
-      message: t('app.browser_mock.provider.test_failed_detail', { detail: 'missing api key' }),
+      checkKind: 'none',
+      modelVerified: false,
+      message: t('ai_settings.message.preview_check_unavailable'),
     }));
   });
 

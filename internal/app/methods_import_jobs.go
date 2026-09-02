@@ -53,11 +53,11 @@ func (a *App) ListImportJobs() connection.QueryResult {
 		var warning *importjob.CorruptJobFilesWarning
 		if errors.As(err, &warning) {
 			logger.Warnf("已跳过损坏的导入任务元数据文件：数量=%d", warning.Count)
-			return connection.QueryResult{Success: true, Message: warning.Error(), Data: jobs}
+			return connection.QueryResult{Success: true, Message: warning.Error(), Data: a.webImportJobViews(jobs)}
 		}
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	return connection.QueryResult{Success: true, Data: jobs}
+	return connection.QueryResult{Success: true, Data: a.webImportJobViews(jobs)}
 }
 
 func (a *App) GetImportJob(jobID string) connection.QueryResult {
@@ -69,7 +69,30 @@ func (a *App) GetImportJob(jobID string) connection.QueryResult {
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	return connection.QueryResult{Success: true, Data: job}
+	return connection.QueryResult{Success: true, Data: a.webImportJobView(job)}
+}
+
+func (a *App) webImportJobViews(jobs []importjob.Job) []importjob.Job {
+	if a == nil || !a.webRuntime {
+		return jobs
+	}
+	views := make([]importjob.Job, len(jobs))
+	for index := range jobs {
+		views[index] = a.webImportJobView(jobs[index])
+	}
+	return views
+}
+
+func (a *App) webImportJobView(job importjob.Job) importjob.Job {
+	if a == nil || !a.webRuntime {
+		return job
+	}
+	sourcePath := strings.TrimSpace(job.SourcePath)
+	job.SourcePath = ""
+	if sourcePath != "" && job.Message != "" {
+		job.Message = strings.ReplaceAll(job.Message, sourcePath, filepath.Base(sourcePath))
+	}
+	return job
 }
 
 // CancelImportJob requests cancellation for a table or SQL import task. The

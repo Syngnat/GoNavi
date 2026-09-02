@@ -735,6 +735,7 @@ describe('DataGrid layout', () => {
       'data_grid.toolbar.cancel_count_tooltip',
       'data_grid.toolbar.count_total',
       'data_grid.toolbar.count_total_tooltip',
+      'data_grid.pagination.selected_count',
       'data_grid.filter.mongodb_query_placeholder',
       'data_grid.filter.quick_where_placeholder',
       'data_grid.filter.apply_where',
@@ -943,6 +944,7 @@ describe('DataGrid layout', () => {
       '应用修改',
       '批量填充',
       '设置为 NULL',
+      '对已选中单元格设置为NULL',
       '输入要填充的值',
       '复制 DDL',
       '正在加载 DDL...',
@@ -1568,10 +1570,10 @@ describe('DataGrid layout', () => {
     );
     const commitInteractiveCss = css.slice(
       css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:hover,'),
-      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled,'),
     );
     const commitDisabledCss = css.slice(
-      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button:disabled,'),
       css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button .gn-v2-toolbar-kbd {'),
     );
     const viewTabSelectionCss = css.slice(
@@ -1585,11 +1587,19 @@ describe('DataGrid layout', () => {
     expect(iconActionCss).toContain('width: 28px !important;');
     expect(iconActionCss).toContain('min-width: 28px !important;');
     expect(iconActionCss).toContain('padding-inline: 0 !important;');
-    expect(commitBaseCss).toContain('background: var(--gn-accent) !important;');
-    expect(commitBaseCss).toContain('color: var(--gn-on-accent, #fff) !important;');
+    expect(commitBaseCss).toContain(
+      'background: var(--gn-client-result-toolbar-primary-bg, var(--gn-result-toolbar-primary-bg, var(--gn-accent))) !important;',
+    );
+    expect(commitBaseCss).toContain(
+      'color: var(--gn-client-result-toolbar-primary-fg, var(--gn-result-toolbar-primary-fg, var(--gn-on-accent, #fff))) !important;',
+    );
     expect(commitInteractiveCss).toContain('box-shadow:');
-    expect(commitDisabledCss).toContain('background: var(--gn-bg-active) !important;');
-    expect(commitDisabledCss).toContain('color: var(--gn-fg-5) !important;');
+    expect(commitDisabledCss).toContain(
+      'background: var(--gn-client-result-toolbar-primary-disabled-bg, var(--gn-result-toolbar-primary-disabled-bg, var(--gn-bg-active))) !important;',
+    );
+    expect(commitDisabledCss).toContain(
+      'color: var(--gn-client-result-toolbar-primary-disabled-fg, var(--gn-result-toolbar-primary-disabled-fg, var(--gn-fg-5))) !important;',
+    );
     expect(commitDisabledCss).not.toContain('var(--gn-accent-soft)');
     expect(viewTabSelectionCss).toContain('background: var(--gn-accent-strong, var(--gn-accent)) !important;');
     expect(viewTabSelectionCss).toContain('color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;');
@@ -1603,6 +1613,106 @@ describe('DataGrid layout', () => {
     expect(resultViewSelectionCss).toContain('color: var(--gn-ant-on-primary, var(--gn-on-accent, #fff)) !important;');
     expect(css).toContain(
       'body[data-ui-version="v2"] .gn-v2-data-grid-statusbar .gn-v2-data-grid-toolbar-action.ant-btn {',
+    );
+  });
+
+  it('maps result toolbar button states without leaking them into the statusbar', () => {
+    const css = readV2ThemeCss();
+    const baseTokensCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] {'),
+      css.indexOf('body[data-ui-version="v2"][data-platform="darwin"] {'),
+    );
+    const toolbarCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn {'),
+    );
+    const buttonStateCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not('),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-data-grid-toolbar-action {'),
+    );
+
+    for (const kind of ['button', 'primary']) {
+      for (const state of ['', '-hover', '-active', '-disabled']) {
+        for (const token of ['fg', 'bg', 'border']) {
+          const commonProperty = `--gn-toolbar-${kind}${state}-${token}`;
+          const scopedProperty = `--gn-result-toolbar-${kind}${state}-${token}`;
+          const clientProperty = `--gn-client-result-toolbar-${kind}${state}-${token}`;
+          const actionProperty = kind === 'button'
+            ? `--gn-toolbar-action${state}-${token}`
+            : `--gn-toolbar-action-primary${state}-${token}`;
+          expect(baseTokensCss).toContain(`${commonProperty}:`);
+          expect(toolbarCss).toContain(
+            `${actionProperty}: var(${clientProperty}, var(${scopedProperty}, var(${commonProperty})))`,
+          );
+        }
+      }
+    }
+
+    expect(buttonStateCss).toContain('color: var(--gn-toolbar-action-fg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-hover-bg) !important;');
+    expect(buttonStateCss).toContain('border-color: var(--gn-toolbar-action-active-border) !important;');
+    expect(buttonStateCss).toContain('.ant-btn-default:disabled,');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-disabled-bg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-primary-bg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-primary-hover-bg) !important;');
+    expect(buttonStateCss).toContain('background: var(--gn-toolbar-action-primary-active-bg) !important;');
+    expect(buttonStateCss).toContain('.ant-btn-primary:not(.gn-v2-commit-button):disabled,');
+    expect(buttonStateCss).toContain('color: var(--gn-toolbar-action-primary-disabled-fg) !important;');
+    expect(buttonStateCss).not.toContain('.gn-v2-data-grid-statusbar');
+  });
+
+  it('lets result-scoped tokens override semantic actions without losing danger, accent or info fallbacks', () => {
+    const css = readV2ThemeCss();
+    const buttonStateCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .data-grid-toolbar-scroll .ant-btn-default:not('),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-data-grid-toolbar-action {'),
+    );
+    const commitCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-commit-button .gn-v2-toolbar-kbd {'),
+    );
+    const insightCss = css.slice(
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button {'),
+      css.indexOf('body[data-ui-version="v2"] .gn-v2-data-grid .gn-v2-ai-insight-button .gn-v2-toolbar-kbd {'),
+    );
+
+    expect(buttonStateCss).toContain(
+      'color: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-danger))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-toolbar-action-bg))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'color: var(--gn-client-result-toolbar-button-hover-fg, var(--gn-result-toolbar-button-hover-fg, var(--gn-danger))) !important;',
+    );
+    expect(buttonStateCss).toContain(
+      'background: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, var(--gn-toolbar-action-active-bg))) !important;',
+    );
+
+    expect(commitCss).toContain(
+      'background: var(--gn-client-result-toolbar-primary-bg, var(--gn-result-toolbar-primary-bg, var(--gn-accent))) !important;',
+    );
+    expect(commitCss).toContain(
+      'background: var(--gn-client-result-toolbar-primary-hover-bg, var(--gn-result-toolbar-primary-hover-bg, var(--gn-accent-hover, var(--gn-accent-2)))) !important;',
+    );
+    expect(commitCss).toContain(
+      'background: var(--gn-client-result-toolbar-primary-active-bg, var(--gn-result-toolbar-primary-active-bg, var(--gn-accent-active, var(--gn-accent-2)))) !important;',
+    );
+    expect(commitCss).toContain(
+      'background: var(--gn-client-result-toolbar-primary-disabled-bg, var(--gn-result-toolbar-primary-disabled-bg, var(--gn-bg-active))) !important;',
+    );
+
+    expect(insightCss).toContain(
+      'background: var(--gn-client-result-toolbar-button-bg, var(--gn-result-toolbar-button-bg, var(--gn-info-soft))) !important;',
+    );
+    expect(insightCss).toContain(
+      'color: var(--gn-client-result-toolbar-button-fg, var(--gn-result-toolbar-button-fg, var(--gn-info))) !important;',
+    );
+    expect(insightCss).toContain(
+      'background: var(--gn-client-result-toolbar-button-hover-bg, var(--gn-result-toolbar-button-hover-bg, color-mix(in srgb, var(--gn-info-soft)',
+    );
+    expect(insightCss).toContain(
+      'background: var(--gn-client-result-toolbar-button-active-bg, var(--gn-result-toolbar-button-active-bg, color-mix(in srgb, var(--gn-info-soft)',
     );
   });
 

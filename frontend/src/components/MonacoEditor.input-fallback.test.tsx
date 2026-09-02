@@ -11,26 +11,52 @@ class FakeHTMLElement {
 }
 
 class FakeTextAreaElement extends FakeHTMLElement {
-  private listeners = new Map<string, Set<(event: InputEvent) => void>>();
+  private listeners = new Map<string, Set<(event: any) => void>>();
 
-  addEventListener(type: string, listener: (event: InputEvent) => void): void {
+  addEventListener(type: string, listener: (event: any) => void): void {
     const listeners = this.listeners.get(type) || new Set();
     listeners.add(listener);
     this.listeners.set(type, listeners);
   }
 
-  removeEventListener(type: string, listener: (event: InputEvent) => void): void {
+  removeEventListener(type: string, listener: (event: any) => void): void {
     this.listeners.get(type)?.delete(listener);
   }
 
-  dispatchPrintableBeforeInput(text: string, defaultPrevented = false): void {
+  dispatchKeyDown(key: string, modifiers: Partial<KeyboardEvent> = {}): void {
+    const event = {
+      type: 'keydown',
+      key,
+      code: `Key${key.toUpperCase()}`,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      ...modifiers,
+    } as KeyboardEvent;
+    this.listeners.get('keydown')?.forEach((listener) => listener(event));
+  }
+
+  dispatchPrintableBeforeInput(
+    text: string,
+    defaultPrevented = false,
+    modifiers: Partial<KeyboardEvent> = {},
+  ): void {
     const event = {
       data: text,
       inputType: 'insertText',
       isComposing: false,
       defaultPrevented,
-    } as InputEvent;
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      ...modifiers,
+    } as unknown as InputEvent;
     this.listeners.get('beforeinput')?.forEach((listener) => listener(event));
+  }
+
+  dispatchFocus(type: 'blur' | 'focus'): void {
+    this.listeners.get(type)?.forEach((listener) => listener({ type }));
   }
 }
 
@@ -367,6 +393,131 @@ describe('MonacoEditor printable input fallback', () => {
       endLineNumber: 1,
       endColumn: 3,
     });
+  });
+
+  it('ignores control characters emitted for Ctrl+H instead of replacing the selection', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+
+    input.dispatchPrintableBeforeInput('\b', true);
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select abc from table1');
+    expect(editor.trigger).not.toHaveBeenCalled();
+    expect(editor.executeEdits).not.toHaveBeenCalled();
+  });
+
+  it('ignores printable-looking input that follows a Ctrl shortcut keydown', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+
+    input.dispatchKeyDown('h', { ctrlKey: true });
+    input.dispatchPrintableBeforeInput('h', true);
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select abc from table1');
+    expect(editor.trigger).not.toHaveBeenCalled();
+    expect(editor.executeEdits).not.toHaveBeenCalled();
+  });
+
+  it('does not suppress a different printable character after a Ctrl shortcut', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+
+    input.dispatchKeyDown('h', { ctrlKey: true });
+    input.dispatchPrintableBeforeInput('x');
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select x from table1');
+  });
+
+  it('keeps AltGr input available while filtering ordinary Ctrl shortcuts', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+
+    input.dispatchKeyDown('q', { ctrlKey: true, altKey: true });
+    input.dispatchPrintableBeforeInput('@', true, { ctrlKey: true, altKey: true });
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select @ from table1');
+    expect(editor.trigger).not.toHaveBeenCalled();
+  });
+
+  it('allows normal input again after the shortcut guard expires', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+
+    input.dispatchKeyDown('h', { ctrlKey: true });
+    vi.advanceTimersByTime(251);
+    input.dispatchPrintableBeforeInput('x');
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select x from table1');
+  });
+
+  it('does not replay input while Monaco find or replace widget owns focus', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+    const findReplaceInput = {
+      className: 'input',
+      closest: vi.fn((selector: string) => (
+        selector.includes('.find-widget') || selector.includes('.monaco-inputbox')
+          ? { className: 'monaco-inputbox' }
+          : null
+      )),
+    };
+    editorDomNode.contains = () => true;
+    (document as any).activeElement = findReplaceInput;
+
+    input.dispatchPrintableBeforeInput('test');
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select abc from table1');
+    expect(editor.trigger).not.toHaveBeenCalled();
+    expect(editor.executeEdits).not.toHaveBeenCalled();
+  });
+
+  it('does not replay routed input after the SQL textarea has lost focus', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+    input.dispatchFocus('blur');
+    (document as any).activeElement = input;
+
+    input.dispatchPrintableBeforeInput('test');
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select abc from table1');
+    expect(editor.trigger).not.toHaveBeenCalled();
+    expect(editor.executeEdits).not.toHaveBeenCalled();
+  });
+
+  it('restores printable input recovery after the SQL textarea regains focus', () => {
+    installFallback();
+
+    value = 'select abc from table1';
+    setSingleLineSelection(8, 11);
+    input.dispatchFocus('blur');
+    input.dispatchFocus('focus');
+    (document as any).activeElement = input;
+
+    input.dispatchPrintableBeforeInput('x');
+    vi.advanceTimersByTime(80);
+
+    expect(value).toBe('select x from table1');
   });
 
   it('does not restore an old caret after a native replacement model event', () => {

@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -48,6 +49,39 @@ type ClickHouseDB struct {
 	pingTimeout time.Duration
 	forwarder   *ssh.LocalForwarder
 	database    string
+}
+
+var _ BatchApplierContext = (*ClickHouseDB)(nil)
+
+var errClickHouseWritePreflightStopped = errors.New("ClickHouse write stopped before dispatch")
+
+type clickHouseWriteCauseError struct {
+	message string
+	cause   error
+}
+
+func (err *clickHouseWriteCauseError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return err.message
+}
+
+func (err *clickHouseWriteCauseError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
+}
+
+func preserveClickHouseWriteCause(messageErr, cause error) error {
+	if messageErr == nil {
+		return cause
+	}
+	if cause == nil {
+		return messageErr
+	}
+	return &clickHouseWriteCauseError{message: messageErr.Error(), cause: cause}
 }
 
 func normalizeClickHouseConfig(config connection.ConnectionConfig) connection.ConnectionConfig {
@@ -1401,8 +1435,18 @@ func isClickHouseTruthy(value interface{}) bool {
 }
 
 func (c *ClickHouseDB) ApplyChanges(tableName string, changes connection.ChangeSet) error {
+	return c.ApplyChangesContext(context.Background(), tableName, changes)
+}
+
+func (c *ClickHouseDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) error {
 	if c.conn == nil && c.legacyHTTP == nil {
 		return fmt.Errorf("连接未打开")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	database, table, err := c.resolveDatabaseAndTable(c.database, tableName)
@@ -1410,6 +1454,22 @@ func (c *ClickHouseDB) ApplyChanges(tableName string, changes connection.ChangeS
 		return err
 	}
 	qualifiedTable := fmt.Sprintf("%s.%s", quoteClickHouseIdentifier(database), quoteClickHouseIdentifier(table))
+	return applyClickHouseChangesContext(ctx, qualifiedTable, changes, c.ExecContext)
+}
+
+func applyClickHouseChangesContext(
+	ctx context.Context,
+	qualifiedTable string,
+	changes connection.ChangeSet,
+	exec func(context.Context, string) (int64, error),
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if exec == nil {
+		return fmt.Errorf("连接未打开")
+	}
+	writeApplied := false
 
 	for _, pk := range changes.Deletes {
 		whereExpr := buildClickHouseWhereClause(pk)
@@ -1417,16 +1477,17 @@ func (c *ClickHouseDB) ApplyChanges(tableName string, changes connection.ChangeS
 			continue
 		}
 		query := fmt.Sprintf("ALTER TABLE %s DELETE WHERE %s", qualifiedTable, whereExpr)
-		if _, err := c.Exec(query); err != nil {
+		if err := clickHouseWritePreflightError(ctx, writeApplied); err != nil {
+			return err
+		}
+		if _, err := exec(ctx, query); err != nil {
 			resultErr := localizedDatabaseRuntimeError("db.backend.error.clickhouse_delete_failed_with_sql", map[string]any{
 				"detail": err.Error(),
 				"sql":    query,
 			})
-			if IsAmbiguousWriteResponse(err) {
-				return MarkWriteOutcomeUnknown(resultErr)
-			}
-			return resultErr
+			return classifyClickHouseWriteError(ctx, preserveClickHouseWriteCause(resultErr, err), writeApplied)
 		}
+		writeApplied = true
 	}
 
 	for _, update := range changes.Updates {
@@ -1436,19 +1497,20 @@ func (c *ClickHouseDB) ApplyChanges(tableName string, changes connection.ChangeS
 			continue
 		}
 		query := fmt.Sprintf("ALTER TABLE %s UPDATE %s WHERE %s", qualifiedTable, setExpr, whereExpr)
-		if _, err := c.Exec(query); err != nil {
+		if err := clickHouseWritePreflightError(ctx, writeApplied); err != nil {
+			return err
+		}
+		if _, err := exec(ctx, query); err != nil {
 			resultErr := localizedDatabaseRuntimeError("db.backend.error.clickhouse_update_failed_with_sql", map[string]any{
 				"detail": err.Error(),
 				"sql":    query,
 			})
-			if IsAmbiguousWriteResponse(err) {
-				return MarkWriteOutcomeUnknown(resultErr)
-			}
-			return resultErr
+			return classifyClickHouseWriteError(ctx, preserveClickHouseWriteCause(resultErr, err), writeApplied)
 		}
+		writeApplied = true
 	}
 
-	if err := execClickHouseInsertBatches(c.Exec, qualifiedTable, changes.Inserts); err != nil {
+	if err := execClickHouseInsertBatchesContext(ctx, exec, qualifiedTable, changes.Inserts, &writeApplied); err != nil {
 		return err
 	}
 	return nil
@@ -1458,16 +1520,83 @@ func execClickHouseInsertBatches(exec func(string) (int64, error), qualifiedTabl
 	if exec == nil {
 		return fmt.Errorf("连接未打开")
 	}
-	return execLiteralInsertBatches(literalInsertConfig{
+	writeApplied := false
+	return execClickHouseInsertBatchesContext(context.Background(), func(_ context.Context, query string) (int64, error) {
+		return exec(query)
+	}, qualifiedTable, rows, &writeApplied)
+}
+
+func execClickHouseInsertBatchesContext(
+	ctx context.Context,
+	exec func(context.Context, string) (int64, error),
+	qualifiedTable string,
+	rows []map[string]interface{},
+	writeApplied *bool,
+) error {
+	if exec == nil {
+		return fmt.Errorf("连接未打开")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if writeApplied == nil {
+		writeApplied = new(bool)
+	}
+
+	var preflightErr error
+	var execCause error
+	err := execLiteralInsertBatches(literalInsertConfig{
 		Table:       qualifiedTable,
 		Rows:        rows,
 		QuoteColumn: quoteClickHouseIdentifier,
 		Literal:     clickHouseLiteral,
 		Exec: func(query string) (sql.Result, error) {
-			affected, err := exec(query)
-			return driver.RowsAffected(affected), err
+			if err := clickHouseWritePreflightError(ctx, *writeApplied); err != nil {
+				preflightErr = err
+				return nil, errClickHouseWritePreflightStopped
+			}
+			affected, err := exec(ctx, query)
+			if err != nil {
+				execCause = err
+				return nil, err
+			}
+			*writeApplied = true
+			return driver.RowsAffected(affected), nil
 		},
 	})
+	if preflightErr != nil {
+		return preflightErr
+	}
+	if err == nil {
+		return nil
+	}
+	if execCause != nil {
+		err = preserveClickHouseWriteCause(err, execCause)
+	}
+	return classifyClickHouseWriteError(ctx, err, *writeApplied)
+}
+
+func clickHouseWritePreflightError(ctx context.Context, writeApplied bool) error {
+	if ctx == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		if writeApplied {
+			return MarkWriteOutcomeUnknown(err)
+		}
+		return err
+	}
+	return nil
+}
+
+func classifyClickHouseWriteError(ctx context.Context, err error, writeApplied bool) error {
+	if err == nil || IsWriteOutcomeUnknown(err) {
+		return err
+	}
+	if writeApplied || IsAmbiguousWriteResponse(err) || (ctx != nil && ctx.Err() != nil) {
+		return MarkWriteOutcomeUnknown(err)
+	}
+	return err
 }
 
 func buildClickHouseInsertSQL(qualifiedTable string, row map[string]interface{}) (string, error) {

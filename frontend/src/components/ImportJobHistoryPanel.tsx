@@ -21,6 +21,8 @@ import {
 } from '../../wailsjs/go/app/App';
 import { t as defaultTranslate } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
+import { downloadBrowserFileFromResult } from '../utils/browserFileTransfer';
+import { invokeAppWithSignal, isWebRPCAbortError } from '../utils/webRpc';
 import Modal from './common/ResizableDraggableModal';
 
 const { Text } = Typography;
@@ -54,6 +56,12 @@ type ImportJobRecord = {
   resumable?: boolean;
   checkpointSafe?: boolean;
   errorArtifactId?: string;
+  errorArtifactCount?: number;
+  errorArtifactOmittedCount?: number;
+  errorArtifactTruncated?: boolean;
+  errorArtifactRetryableCount?: number;
+  errorArtifactUnretryableCount?: number;
+  errorArtifactScopeKnown?: boolean;
   parentJobId?: string;
   recoveryAction?: string;
   message?: string;
@@ -112,6 +120,12 @@ const normalizeJobs = (value: unknown): ImportJobRecord[] => {
         && (candidate.checkpoint as Record<string, unknown>).safe === true,
       ),
       errorArtifactId: String(candidate.errorArtifactId || ''),
+      errorArtifactCount: Number(candidate.errorArtifactCount) || 0,
+      errorArtifactOmittedCount: Number(candidate.errorArtifactOmittedCount) || 0,
+      errorArtifactTruncated: candidate.errorArtifactTruncated === true,
+      errorArtifactRetryableCount: Number(candidate.errorArtifactRetryableCount) || 0,
+      errorArtifactUnretryableCount: Number(candidate.errorArtifactUnretryableCount) || 0,
+      errorArtifactScopeKnown: candidate.errorArtifactScopeKnown === true,
       parentJobId: String(candidate.parentJobId || ''),
       recoveryAction: String(candidate.recoveryAction || ''),
       message: String(candidate.message || ''),
@@ -140,6 +154,7 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
   const [error, setError] = useState('');
   const [pendingAction, setPendingAction] = useState('');
   const requestRef = useRef(0);
+  const recoveryRPCAbortRef = useRef<AbortController | null>(null);
 
   const loadJobs = useCallback(async () => {
     const requestID = requestRef.current + 1;
@@ -172,6 +187,11 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
       requestRef.current += 1;
     };
   }, [loadJobs, refreshToken]);
+
+  useEffect(() => () => {
+    recoveryRPCAbortRef.current?.abort();
+    recoveryRPCAbortRef.current = null;
+  }, []);
 
   useEffect(() => {
     const hasRunningJob = jobs.some((job) => pollingStatuses.has(job.status as ImportJobStatus));
@@ -212,6 +232,10 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
       const result = await ExportImportErrorRows(artifactID);
       if (!result?.success) {
         void message.error(result?.message || t('data_import.history.error.export_failed'));
+        return;
+      }
+      if (!downloadBrowserFileFromResult(result)) {
+        void message.error(t('data_import.history.error.export_failed'));
         return;
       }
       void message.success(t('data_import.history.message.exported'));
@@ -281,8 +305,16 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
       cancelText: t('common.cancel'),
       onOk: async () => {
         setPendingAction(`resume:${job.id}`);
+        recoveryRPCAbortRef.current?.abort();
+        const controller = new AbortController();
+        recoveryRPCAbortRef.current = controller;
         try {
-          const result = await ResumeImportJob(job.id);
+          const result = await invokeAppWithSignal(
+            'ResumeImportJob',
+            [job.id],
+            controller.signal,
+            () => ResumeImportJob(job.id),
+          );
           if (!result?.success) {
             throw new Error(result?.message || t('data_import.history.error.resume_failed'));
           }
@@ -290,11 +322,15 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
           await loadJobs();
           void message.success(t('data_import.history.message.resumed'));
         } catch (resumeError: any) {
+          if (isWebRPCAbortError(resumeError)) return;
           void message.error(t('data_import.history.error.resume_failed_detail', {
             detail: resumeError?.message || String(resumeError),
           }));
           throw resumeError;
         } finally {
+          if (recoveryRPCAbortRef.current === controller) {
+            recoveryRPCAbortRef.current = null;
+          }
           setPendingAction('');
         }
       },
@@ -309,8 +345,16 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
       cancelText: t('common.cancel'),
       onOk: async () => {
         setPendingAction(`retry:${job.id}`);
+        recoveryRPCAbortRef.current?.abort();
+        const controller = new AbortController();
+        recoveryRPCAbortRef.current = controller;
         try {
-          const result = await RetryImportJobFailedRows(job.id);
+          const result = await invokeAppWithSignal(
+            'RetryImportJobFailedRows',
+            [job.id],
+            controller.signal,
+            () => RetryImportJobFailedRows(job.id),
+          );
           if (!result?.success) {
             throw new Error(result?.message || t('data_import.history.error.retry_failed_rows_failed'));
           }
@@ -318,11 +362,15 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
           await loadJobs();
           void message.success(t('data_import.history.message.retry_failed_rows_started'));
         } catch (retryError: any) {
+          if (isWebRPCAbortError(retryError)) return;
           void message.error(t('data_import.history.error.retry_failed_rows_failed_detail', {
             detail: retryError?.message || String(retryError),
           }));
           throw retryError;
         } finally {
+          if (recoveryRPCAbortRef.current === controller) {
+            recoveryRPCAbortRef.current = null;
+          }
           setPendingAction('');
         }
       },
@@ -366,6 +414,16 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
           const canDelete = terminalStatuses.has(job.status as ImportJobStatus);
           const canCancel = job.status === 'preparing' || job.status === 'running';
           const hasArtifact = Boolean(String(job.errorArtifactId || '').trim());
+          const errorArtifactCount = Number(job.errorArtifactCount) || 0;
+          const errorArtifactOmittedCount = Number(job.errorArtifactOmittedCount) || 0;
+          const errorArtifactRetryableCount = Number(job.errorArtifactRetryableCount) || 0;
+          const errorArtifactUnretryableCount = Number(job.errorArtifactUnretryableCount) || 0;
+          const hasArtifactMetadata = job.errorArtifactScopeKnown === true
+            || errorArtifactCount > 0
+            || errorArtifactOmittedCount > 0
+            || errorArtifactRetryableCount > 0
+            || errorArtifactUnretryableCount > 0
+            || job.errorArtifactTruncated === true;
           const canExport = canDelete && hasArtifact;
           const canResume = job.kind === 'table'
             && job.status === 'interrupted'
@@ -375,7 +433,9 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
           const canRetryFailedRows = job.kind === 'table'
             && (job.status === 'failed' || job.status === 'partial')
             && hasArtifact
-            && Number(job.failed) > 0
+            && (job.errorArtifactScopeKnown === true
+              ? errorArtifactRetryableCount > 0
+              : Number(job.failed) > 0)
             && !job.outcomeUnknown;
           const hasRunningResume = jobs.some((candidate) => (
             candidate.parentJobId === job.id
@@ -413,6 +473,45 @@ const ImportJobHistoryPanel: React.FC<ImportJobHistoryPanelProps> = ({ refreshTo
                   skipped: Number(job.skipped) || 0,
                 })}
               </Text>
+              {hasArtifactMetadata ? (
+                <div
+                  data-import-history-error-artifact={job.id}
+                  style={{ display: 'grid', gap: 2 }}
+                >
+                  <Text
+                    data-import-history-error-artifact-count={job.id}
+                    type="secondary"
+                  >
+                    {t('data_import.error_artifact.count', { count: errorArtifactCount })}
+                  </Text>
+                  <Text
+                    data-import-history-error-artifact-omitted-count={job.id}
+                    type="secondary"
+                  >
+                    {t('data_import.error_artifact.omitted_count', { count: errorArtifactOmittedCount })}
+                  </Text>
+                  <Text
+                    data-import-history-error-artifact-retryable-count={job.id}
+                    type="secondary"
+                  >
+                    {t('data_import.error_artifact.retryable_count', { count: errorArtifactRetryableCount })}
+                  </Text>
+                  <Text
+                    data-import-history-error-artifact-unretryable-count={job.id}
+                    type="secondary"
+                  >
+                    {t('data_import.error_artifact.unretryable_count', { count: errorArtifactUnretryableCount })}
+                  </Text>
+                  {job.errorArtifactTruncated ? (
+                    <Text
+                      data-import-history-error-artifact-truncated={job.id}
+                      type="warning"
+                    >
+                      {t('data_import.error_artifact.truncated')}
+                    </Text>
+                  ) : null}
+                </div>
+              ) : null}
               {job.recoveryAction ? (
                 <Text data-import-history-recovery={job.id} type="secondary">
                   {t(`data_import.history.recovery.${job.recoveryAction}`)}

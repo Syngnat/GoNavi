@@ -4,7 +4,7 @@
   "frontend:install": "node scripts/wails-frontend-install.mjs",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
-  "frontend:dev:serverUrl": "http://127.0.0.1:5173",
+  "frontend:dev:serverUrl": "auto",
   "wailsjsdir": "./frontend",
   "version": "2",
   "author": {
@@ -14,9 +14,12 @@
   "info": {
     "companyName": "Syngnat",
     "productName": "GoNavi",
-    "productVersion": "0.9.4",
+    "productVersion": "0.9.5",
     "copyright": "Copyright 2026 Syngnat",
     "comments": "GoNavi is licensed under the Apache License, Version 2.0."
+  },
+  "postBuildHooks": {
+    "darwin/*": "bash ../../scripts/codesign-dev-app.sh ${bin}"
   },
   "debounceMS": 100,
   "appargs": ""

@@ -34,6 +34,9 @@ describe('TitleBarQuickActions', () => {
     expect(actionContainer).toContain('--wails-draggable: drag;');
     expect(actionButtons).toContain('-webkit-app-region: no-drag;');
     expect(actionButtons).toContain('--wails-draggable: no-drag;');
+    expect(appCss).toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-label');
+    expect(appCss).toContain('display: inline;');
+    expect(appCss).not.toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more span');
   });
 
   it('renders primary actions with visible labels and keeps secondary actions in More', () => {
@@ -87,8 +90,10 @@ describe('TitleBarQuickActions', () => {
 
     const toolbar = renderer.root.findByProps({ 'data-titlebar-quick-actions': 'true' });
     expect(toolbar.props['aria-label']).toBe('Object actions');
-    expect(toolbar.findAllByProps({ className: 'gn-v2-titlebar-quick-label' })).toHaveLength(0);
+    expect(toolbar.props['data-no-titlebar-toggle']).toBe('true');
+    expect(toolbar.findAllByProps({ className: 'gn-v2-titlebar-quick-label' })).toHaveLength(1);
     const batchMenuButton = toolbar.findByProps({ 'data-titlebar-quick-menu': 'batch-actions' });
+    expect(batchMenuButton.props['data-no-titlebar-toggle']).toBe('true');
     const dropdowns = renderer.root.findAll((node) => Array.isArray(node.props.menu?.items)) as ReactTestInstance[];
     expect(dropdowns).toHaveLength(4);
     const batchDropdown = dropdowns.find((dropdown) => dropdown.props.menu.items.some((item: { key: string }) => item.key === 'batch-tables'));
@@ -104,7 +109,10 @@ describe('TitleBarQuickActions', () => {
       .flatMap((span) => span.children.filter((child): child is string => typeof child === 'string'))
       .join(' ');
     expect(textOf(batchMenuButton)).toContain('Batch operations');
-    expect(textOf(toolbar.findByProps({ 'data-titlebar-quick-more': 'true' }))).toContain('More tools');
+    const moreButton = toolbar.findByProps({ 'data-titlebar-quick-more': 'true' });
+    expect(moreButton.findByProps({ 'data-icon': 'more' })).toBeDefined();
+    expect(moreButton.findByProps({ className: 'gn-v2-titlebar-quick-label' }).children).toContain('More tools');
+    expect(textOf(moreButton)).toContain('More tools');
 
     const batchMenuItems = batchDropdown?.props.menu.items as Array<{ key: string; onClick?: () => void }>;
     batchMenuItems.find((item) => item.key === 'batch-tables')?.onClick?.();

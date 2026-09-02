@@ -312,13 +312,24 @@ func (s *SQLiteDB) GetCreateStatement(dbName, tableName string) (string, error) 
 }
 
 func (s *SQLiteDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
+	return s.getColumnsContext(metadataContextFor(s), dbName, tableName)
+}
+
+func (s *SQLiteDB) GetColumnsContext(ctx context.Context, dbName, tableName string) ([]connection.ColumnDefinition, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return s.getColumnsContext(ctx, dbName, tableName)
+}
+
+func (s *SQLiteDB) getColumnsContext(ctx context.Context, dbName, tableName string) ([]connection.ColumnDefinition, error) {
 	table := strings.TrimSpace(tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
 	// cid, name, type, notnull, dflt_value, pk
-	data, _, err := s.Query(fmt.Sprintf("PRAGMA table_info('%s')", escapeSQLiteStringLiteral(table)))
+	data, _, err := s.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info('%s')", escapeSQLiteStringLiteral(table)))
 	if err != nil {
 		return nil, err
 	}

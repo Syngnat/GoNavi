@@ -1,6 +1,9 @@
 package syncjob
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 const CurrentDefinitionVersion = 1
 
@@ -97,10 +100,13 @@ type TableMapping struct {
 }
 
 type ExecutionOptions struct {
-	Content             string      `json:"content,omitempty"`
-	SyncMode            string      `json:"syncMode,omitempty"`
-	TargetTableStrategy string      `json:"targetTableStrategy,omitempty"`
-	AutoAddColumns      bool        `json:"autoAddColumns,omitempty"`
+	Content             string `json:"content,omitempty"`
+	SyncMode            string `json:"syncMode,omitempty"`
+	TargetTableStrategy string `json:"targetTableStrategy,omitempty"`
+	// AutoAddColumns 使用指针以区分"历史任务未写入该字段（nil）"与
+	// "用户显式关闭（&false）"。旧版 omitempty 把 false 抹成缺失，
+	// 导致结构型迁移任务的补列开关在存储层永远是关的（issue #1014）。
+	AutoAddColumns      *bool       `json:"autoAddColumns,omitempty"`
 	CreateIndexes       bool        `json:"createIndexes,omitempty"`
 	PropagateDeletes    bool        `json:"propagateDeletes,omitempty"`
 	BatchSize           int         `json:"batchSize,omitempty"`
@@ -108,6 +114,25 @@ type ExecutionOptions struct {
 	MaxRetries          int         `json:"maxRetries,omitempty"`
 	RetryBackoffMillis  int         `json:"retryBackoffMillis,omitempty"`
 	CaptureErrorPayload bool        `json:"captureErrorPayload,omitempty"`
+}
+
+func contentAllowsSchemaChanges(content string) bool {
+	switch strings.ToLower(strings.TrimSpace(content)) {
+	case "schema", "both":
+		return true
+	default:
+		return false
+	}
+}
+
+// AutoAddColumnsEnabled 返回补列开关的生效值。字段缺失时按任务类型兜底：
+// 结构型迁移（migration + schema/both）默认开启，其余关闭。读取路径
+// （GetJob 不做归一化）也必须经过这里，保证旧任务无需重新保存即可生效。
+func (d JobDefinition) AutoAddColumnsEnabled() bool {
+	if d.Options.AutoAddColumns != nil {
+		return *d.Options.AutoAddColumns
+	}
+	return d.Kind == JobKindMigration && contentAllowsSchemaChanges(d.Options.Content)
 }
 
 type ScheduleSpec struct {
@@ -206,6 +231,20 @@ type RunRecord struct {
 	TargetFingerprint  string          `json:"targetFingerprint,omitempty"`
 	CreatedAt          int64           `json:"createdAt"`
 	UpdatedAt          int64           `json:"updatedAt"`
+}
+
+// RunCursor is a stable keyset cursor for reverse-chronological run history.
+// The ID tie-breaker prevents duplicate or skipped entries when several runs
+// are created in the same millisecond.
+type RunCursor struct {
+	CreatedAt int64  `json:"createdAt"`
+	ID        string `json:"id"`
+}
+
+type RunPage struct {
+	Runs       []RunRecord `json:"runs"`
+	NextCursor *RunCursor  `json:"nextCursor,omitempty"`
+	Total      int         `json:"total"`
 }
 
 type Checkpoint struct {

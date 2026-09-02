@@ -320,6 +320,117 @@ func TestDeleteConnectionRollsBackSecretWhenMetadataWriteFails(t *testing.T) {
 	}
 }
 
+func TestDeleteManyConnectionsDeletesMetadataAndSecretsTogether(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	for _, id := range []string{"delete-many-a", "delete-many-b", "keep-many"} {
+		if _, err := repository.Save(connection.SavedConnectionInput{
+			ID:   id,
+			Name: id,
+			Config: connection.ConnectionConfig{
+				ID:       id,
+				Type:     "mysql",
+				Password: id + "-secret",
+			},
+		}); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	if err := repository.DeleteMany([]string{" delete-many-a ", "delete-many-b", "delete-many-a"}); err != nil {
+		t.Fatalf("DeleteMany: %v", err)
+	}
+	items, err := repository.List()
+	if err != nil {
+		t.Fatalf("List after DeleteMany: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "keep-many" {
+		t.Fatalf("metadata after DeleteMany = %#v, want only keep-many", items)
+	}
+	secrets, err := repository.dailySecrets().Load()
+	if err != nil {
+		t.Fatalf("load secrets after DeleteMany: %v", err)
+	}
+	if len(secrets.Connections) != 1 || secrets.Connections["keep-many"].Password != "keep-many-secret" {
+		t.Fatalf("secrets after DeleteMany = %#v, want only keep-many", secrets.Connections)
+	}
+}
+
+func TestDeleteManyConnectionsRollsBackWhenMetadataWriteFails(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	for _, id := range []string{"rollback-many-a", "rollback-many-b"} {
+		if _, err := repository.Save(connection.SavedConnectionInput{
+			ID:   id,
+			Name: id,
+			Config: connection.ConnectionConfig{
+				ID:       id,
+				Type:     "mysql",
+				Password: id + "-secret",
+			},
+		}); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	originalWriter := writeSavedConnectionsFileAtomicFunc
+	t.Cleanup(func() { writeSavedConnectionsFileAtomicFunc = originalWriter })
+	writeSavedConnectionsFileAtomicFunc = func(string, []byte) error {
+		return errors.New("injected DeleteMany metadata failure")
+	}
+	if err := repository.DeleteMany([]string{"rollback-many-a", "rollback-many-b"}); err == nil || !strings.Contains(err.Error(), "injected DeleteMany metadata failure") {
+		t.Fatalf("DeleteMany error = %v, want injected metadata failure", err)
+	}
+
+	items, err := repository.List()
+	if err != nil {
+		t.Fatalf("List after failed DeleteMany: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("failed DeleteMany changed metadata: %#v", items)
+	}
+	for _, id := range []string{"rollback-many-a", "rollback-many-b"} {
+		resolved, err := app.resolveConnectionSecrets(connection.ConnectionConfig{ID: id})
+		if err != nil {
+			t.Fatalf("resolve %s after failed DeleteMany: %v", id, err)
+		}
+		if resolved.Password != id+"-secret" {
+			t.Fatalf("failed DeleteMany removed %s secret: %q", id, resolved.Password)
+		}
+	}
+}
+
+func TestGetSavedConnectionsPersistsLegacyCreatedAt(t *testing.T) {
+	app := newSavedConnectionTestApp(t)
+	repository := app.savedConnectionRepository()
+	payload, err := json.Marshal(savedConnectionsFile{Connections: []connection.SavedConnectionView{{
+		ID:     "legacy-created-at",
+		Name:   "Legacy created time",
+		Config: connection.ConnectionConfig{ID: "legacy-created-at", Type: "mysql"},
+	}}})
+	if err != nil {
+		t.Fatalf("marshal legacy saved connection: %v", err)
+	}
+	if err := os.WriteFile(repository.connectionsPath(), payload, 0o644); err != nil {
+		t.Fatalf("write legacy connections: %v", err)
+	}
+
+	items, err := app.GetSavedConnections()
+	if err != nil {
+		t.Fatalf("GetSavedConnections: %v", err)
+	}
+	if len(items) != 1 || items[0].CreatedAt <= 0 {
+		t.Fatalf("migrated createdAt = %#v, want nonzero timestamp", items)
+	}
+	persisted, err := repository.List()
+	if err != nil {
+		t.Fatalf("List migrated connections: %v", err)
+	}
+	if len(persisted) != 1 || persisted[0].CreatedAt != items[0].CreatedAt {
+		t.Fatalf("persisted createdAt = %#v, want %#v", persisted, items)
+	}
+}
+
 func TestDuplicateConnectionRollsBackNewSecretWhenMetadataWriteFails(t *testing.T) {
 	app := newSavedConnectionTestApp(t)
 	repository := app.savedConnectionRepository()

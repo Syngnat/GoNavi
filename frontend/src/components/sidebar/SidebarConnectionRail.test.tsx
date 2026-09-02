@@ -156,6 +156,89 @@ describe('SidebarConnectionRail', () => {
     expect(locateActiveTab).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps expand, AI, and settings in order when collapsed-only actions hide the locator', () => {
+    const noop = vi.fn();
+    const renderer = create(
+      <SidebarConnectionRail
+        labels={{
+          railSystemActions: 'System actions',
+          railObjectActions: 'Object actions',
+          newGroup: 'New group',
+          batchTables: 'Batch tables',
+          batchDatabases: 'Batch databases',
+          dataImport: 'Data import',
+          openExternalSqlFile: 'Open SQL file',
+          locateCurrentTable: 'Locate table',
+          locateCurrentTableUnavailable: 'No table',
+          aiAssistant: 'AI assistant',
+          settings: 'Settings',
+        }}
+        handlers={{
+          openCreateTagModal: noop,
+          openBatchTableExport: noop,
+          openBatchDatabaseExport: noop,
+          openDataImport: noop,
+          openExternalSqlFile: noop,
+          locateActiveTab: noop,
+          toggleAI: noop,
+          openSettings: noop,
+        }}
+        canLocateActiveTab
+        showObjectActions={false}
+        showLocateAction={false}
+        sidebarExpandAction={{ label: 'Expand sidebar', onClick: noop }}
+      />,
+    );
+
+    const rail = renderer.root.findByProps({ 'data-sidebar-fixed-rail': 'true' });
+    const buttons = rail.findAllByType('button');
+
+    expect(rail.findAllByProps({ 'data-sidebar-locate-current-tab-action': 'true' })).toHaveLength(0);
+    expect(buttons.map((button) => button.props['aria-label'])).toEqual([
+      'Expand sidebar',
+      'AI assistant',
+      'Settings',
+    ]);
+  });
+
+  it('exposes the AI active state to styling and assistive technology', () => {
+    const noop = vi.fn();
+    const renderer = create(
+      <SidebarConnectionRail
+        labels={{
+          railSystemActions: 'System actions',
+          railObjectActions: 'Object actions',
+          newGroup: 'New group',
+          batchTables: 'Batch tables',
+          batchDatabases: 'Batch databases',
+          dataImport: 'Data import',
+          openExternalSqlFile: 'Open SQL file',
+          locateCurrentTable: 'Locate table',
+          locateCurrentTableUnavailable: 'No table',
+          aiAssistant: 'AI assistant',
+          settings: 'Settings',
+        }}
+        handlers={{
+          openCreateTagModal: noop,
+          openBatchTableExport: noop,
+          openBatchDatabaseExport: noop,
+          openDataImport: noop,
+          openExternalSqlFile: noop,
+          locateActiveTab: noop,
+          toggleAI: noop,
+          openSettings: noop,
+        }}
+        canLocateActiveTab={false}
+        aiActive
+      />,
+    );
+
+    const aiAction = renderer.root.findByProps({ 'data-gonavi-ai-entry-action': 'true' });
+
+    expect(aiAction.props['aria-pressed']).toBe(true);
+    expect(aiAction.props.className.split(' ')).toContain('is-active');
+  });
+
   it('keeps workbench actions in the fixed secondary rail above AI and settings', () => {
     const noop = vi.fn();
     const renderer = create(

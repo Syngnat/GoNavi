@@ -322,6 +322,52 @@ describe('QueryEditorToolbar Elasticsearch mode', () => {
     expect(onSchemaChange).toHaveBeenCalledWith('public');
   });
 
+  it('orders connection options by the sidebar group tree and connection sort mode', () => {
+    act(() => {
+      renderer = create(<QueryEditorToolbar {...buildProps({
+        currentConnectionId: 'prod-api',
+        queryCapableConnections: [
+          { id: 'dev-db', name: 'Dev DB', config: { type: 'mysql' } },
+          { id: 'prod-api', name: 'Prod API', config: { type: 'mysql' } },
+          { id: 'prod-db', name: 'Prod DB', config: { type: 'postgres' } },
+          { id: 'prod-warehouse', name: 'Prod Warehouse', config: { type: 'mysql' } },
+          { id: 'local', name: 'Local', config: { type: 'sqlite' } },
+        ] as any[],
+        connectionTags: [
+          {
+            id: 'prod',
+            name: 'Production',
+            connectionIds: ['prod-api', 'prod-warehouse'],
+            childOrder: ['connection:prod-warehouse', 'tag:prod-databases', 'connection:prod-api'],
+            connectionSortMode: 'createdAt',
+          },
+          {
+            id: 'prod-databases',
+            name: 'Databases',
+            parentTagId: 'prod',
+            connectionIds: ['prod-db'],
+            childOrder: ['connection:prod-db'],
+          },
+          {
+            id: 'dev',
+            name: 'Development',
+            connectionIds: ['dev-db'],
+            childOrder: ['connection:dev-db'],
+          },
+        ],
+        sidebarRootOrder: ['tag:prod', 'connection:local', 'tag:dev'],
+      } as any)} />);
+    });
+
+    expect(antdState.selectProps[0].options.map((option: any) => option.value)).toEqual([
+      'prod-api',
+      'prod-db',
+      'prod-warehouse',
+      'local',
+      'dev-db',
+    ]);
+  });
+
   it('disables SQL connection context selectors while the transaction context is locked', () => {
     act(() => {
       renderer = create(<QueryEditorToolbar {...buildProps({

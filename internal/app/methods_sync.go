@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -89,6 +90,13 @@ func (a *App) DataSyncCapability(sourceConfig connection.ConnectionConfig, targe
 
 // DataSync executes a data synchronization task
 func (a *App) DataSync(config sync.SyncConfig) (result sync.SyncResult) {
+	return a.dataSyncContext(context.Background(), config)
+}
+
+func (a *App) dataSyncContext(ctx context.Context, config sync.SyncConfig) (result sync.SyncResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	auditStartedAt := time.Now()
 	defer func() {
 		runConfig := normalizeRunConfig(config.TargetConfig, config.TargetDatabase)
@@ -158,7 +166,7 @@ func (a *App) DataSync(config sync.SyncConfig) (result sync.SyncResult) {
 	}
 
 	engine := sync.NewSyncEngine(reporter)
-	res := engine.RunSync(resolvedConfig)
+	res := engine.RunSyncContext(ctx, resolvedConfig)
 
 	uievents.Emit(a.ctx, sync.EventSyncDone, map[string]any{
 		"jobId":  jobID,
@@ -170,6 +178,13 @@ func (a *App) DataSync(config sync.SyncConfig) (result sync.SyncResult) {
 
 // DataSyncAnalyze analyzes differences between source and target for the given tables (dry-run).
 func (a *App) DataSyncAnalyze(config sync.SyncConfig) connection.QueryResult {
+	return a.dataSyncAnalyzeContext(context.Background(), config)
+}
+
+func (a *App) dataSyncAnalyzeContext(ctx context.Context, config sync.SyncConfig) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	jobID := strings.TrimSpace(config.JobID)
 	if jobID == "" {
 		jobID = fmt.Sprintf("analyze-%d", time.Now().UnixNano())
@@ -203,7 +218,7 @@ func (a *App) DataSyncAnalyze(config sync.SyncConfig) connection.QueryResult {
 	}
 
 	engine := sync.NewSyncEngine(reporter)
-	res := engine.Analyze(resolvedConfig)
+	res := engine.AnalyzeContext(ctx, resolvedConfig)
 
 	uievents.Emit(a.ctx, sync.EventSyncDone, map[string]any{
 		"jobId":  jobID,
@@ -219,6 +234,13 @@ func (a *App) DataSyncAnalyze(config sync.SyncConfig) connection.QueryResult {
 
 // DataSyncPreview returns a limited preview of diff rows for one table.
 func (a *App) DataSyncPreview(config sync.SyncConfig, tableName string, limit int) connection.QueryResult {
+	return a.dataSyncPreviewContext(context.Background(), config, tableName, limit)
+}
+
+func (a *App) dataSyncPreviewContext(ctx context.Context, config sync.SyncConfig, tableName string, limit int) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	jobID := strings.TrimSpace(config.JobID)
 	if jobID == "" {
 		jobID = fmt.Sprintf("preview-%d", time.Now().UnixNano())
@@ -231,7 +253,7 @@ func (a *App) DataSyncPreview(config sync.SyncConfig, tableName string, limit in
 	}
 
 	engine := sync.NewSyncEngine(sync.Reporter{})
-	preview, err := engine.Preview(resolvedConfig, tableName, limit)
+	preview, err := engine.PreviewContext(ctx, resolvedConfig, tableName, limit)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

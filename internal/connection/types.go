@@ -29,6 +29,16 @@ func (r sshRuntime) hasState() bool {
 		r.hostKeyIdentityPort != 0
 }
 
+// SSHRuntimeSnapshot contains the runtime-only SSH state that a local
+// driver-agent needs to perform host-key verification. It intentionally
+// excludes progress callbacks and is transported separately from saved
+// connection JSON.
+type SSHRuntimeSnapshot struct {
+	ManagedHostKeyTrustStorePath string `json:"managedHostKeyTrustStorePath,omitempty"`
+	HostKeyIdentityHost          string `json:"hostKeyIdentityHost,omitempty"`
+	HostKeyIdentityPort          int    `json:"hostKeyIdentityPort,omitempty"`
+}
+
 // SSHConfig 存储 SSH 隧道连接配置。
 type SSHConfig struct {
 	Host               string `json:"host"`
@@ -82,6 +92,56 @@ func (c SSHConfig) ManagedHostKeyTrustStorePath() string {
 		return ""
 	}
 	return c.runtime.managedHostKeyTrustStorePath
+}
+
+// RuntimeSnapshot returns the agent-safe subset of transient SSH state. The
+// returned value can cross the local driver-agent IPC boundary without changing
+// the persisted SSHConfig JSON contract.
+func (c SSHConfig) RuntimeSnapshot() *SSHRuntimeSnapshot {
+	if c.runtime == nil {
+		return nil
+	}
+
+	snapshot := &SSHRuntimeSnapshot{
+		ManagedHostKeyTrustStorePath: c.runtime.managedHostKeyTrustStorePath,
+		HostKeyIdentityHost:          c.runtime.hostKeyIdentityHost,
+		HostKeyIdentityPort:          c.runtime.hostKeyIdentityPort,
+	}
+	if snapshot.ManagedHostKeyTrustStorePath == "" && snapshot.HostKeyIdentityHost == "" {
+		return nil
+	}
+	if snapshot.HostKeyIdentityHost != "" && snapshot.HostKeyIdentityPort <= 0 {
+		snapshot.HostKeyIdentityPort = 22
+	}
+	return snapshot
+}
+
+// WithRuntimeSnapshot restores the agent-safe transient SSH state. A progress
+// reporter already attached in this process is retained, but snapshots never
+// carry callbacks from another process.
+func (c SSHConfig) WithRuntimeSnapshot(snapshot *SSHRuntimeSnapshot) SSHConfig {
+	if snapshot == nil {
+		return c
+	}
+
+	runtime := sshRuntime{}
+	if c.runtime != nil {
+		runtime.report = c.runtime.report
+	}
+	runtime.managedHostKeyTrustStorePath = strings.TrimSpace(snapshot.ManagedHostKeyTrustStorePath)
+	runtime.hostKeyIdentityHost = strings.TrimSpace(snapshot.HostKeyIdentityHost)
+	if runtime.hostKeyIdentityHost != "" {
+		runtime.hostKeyIdentityPort = snapshot.HostKeyIdentityPort
+		if runtime.hostKeyIdentityPort <= 0 {
+			runtime.hostKeyIdentityPort = 22
+		}
+	}
+	if !runtime.hasState() {
+		c.runtime = nil
+		return c
+	}
+	c.runtime = &runtime
+	return c
 }
 
 // WithHostKeyIdentity preserves the logical SSH server identity while a

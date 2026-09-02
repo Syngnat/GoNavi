@@ -39,6 +39,20 @@ type rocketmqRuntime interface {
 	DescribeTopic(ctx context.Context, request rocketmqDescribeRequest) (rocketmqTopicDescription, error)
 	FetchMessages(ctx context.Context, request rocketmqFetchRequest) ([]rocketmqMessageRecord, error)
 	Publish(ctx context.Context, command rocketmqPublishCommand) (int64, error)
+	InspectConsumerGroups(ctx context.Context, groupID string) ([]rocketmqConsumerGroupInfo, error)
+}
+
+type rocketmqConsumerGroupInfo struct {
+	GroupID       string
+	State         string
+	MemberID      string
+	ClientID      string
+	ClientHost    string
+	Topic         string
+	QueueID       int
+	CurrentOffset int64
+	LogEndOffset  int64
+	Lag           int64
 }
 
 type rocketmqDescribeRequest struct {
@@ -55,13 +69,13 @@ type rocketmqTopicInfo struct {
 }
 
 type rocketmqTopicDescription struct {
-	Name                 string
-	Namespace            string
-	ConsumerGroup        string
-	TagExpression        string
-	QueueCount           int
+	Name                  string
+	Namespace             string
+	ConsumerGroup         string
+	TagExpression         string
+	QueueCount            int
 	TotalApproximateCount int64
-	Queues               []rocketmqTopicQueueInfo
+	Queues                []rocketmqTopicQueueInfo
 }
 
 type rocketmqTopicQueueInfo struct {
@@ -214,7 +228,7 @@ func (r *RocketMQDB) QueryContext(ctx context.Context, query string) ([]map[stri
 
 	parsed, ok := parseRocketMQSQL(text, r.startLatest)
 	if !ok {
-		return nil, nil, fmt.Errorf("RocketMQ 查询仅支持 SHOW TOPICS、DESCRIBE TOPIC、SELECT * FROM topic 与 CONSUME FROM topic")
+		return nil, nil, fmt.Errorf("RocketMQ 查询仅支持 SHOW TOPICS、SHOW/DESCRIBE CONSUMER GROUP、DESCRIBE TOPIC、SELECT * FROM topic 与 CONSUME FROM topic")
 	}
 
 	switch parsed.Action {
@@ -227,6 +241,13 @@ func (r *RocketMQDB) QueryContext(ctx context.Context, query string) ([]map[stri
 		if parsed.Limit > 0 && len(rows) > parsed.Limit {
 			rows = rows[:parsed.Limit]
 		}
+		return rows, collectColumns(rows), nil
+	case "show_consumer_groups", "describe_consumer_group":
+		groups, err := r.runtime.InspectConsumerGroups(ctx, strings.TrimSpace(parsed.GroupID))
+		if err != nil {
+			return nil, nil, err
+		}
+		rows := rocketmqConsumerGroupRows(groups)
 		return rows, collectColumns(rows), nil
 	case "describe_topic":
 		topic := rocketmqResolveTopic(parsed.Topic, r.defaultTopic)
@@ -538,6 +559,10 @@ func (r *nativeRocketMQRuntime) ListTopics(ctx context.Context, includeSystem bo
 		return topics[i].Name < topics[j].Name
 	})
 	return topics, nil
+}
+
+func (r *nativeRocketMQRuntime) InspectConsumerGroups(ctx context.Context, groupID string) ([]rocketmqConsumerGroupInfo, error) {
+	return nil, fmt.Errorf("RocketMQ 消费组成员、队列进度和 Lag 查询不可用：当前客户端未公开 broker 路由及对应运维 API；请使用 RocketMQ 控制台或配置具备该管理能力的客户端")
 }
 
 func (r *nativeRocketMQRuntime) DescribeTopic(ctx context.Context, request rocketmqDescribeRequest) (rocketmqTopicDescription, error) {
@@ -1274,6 +1299,12 @@ func parseRocketMQSQL(sqlText string, defaultLatest bool) (rocketmqParsedSQL, bo
 		}
 		return parsed, true
 	}
+	if rocketmqShowGroupsRE.MatchString(text) {
+		return rocketmqParsedSQL{Action: "show_consumer_groups"}, true
+	}
+	if matches := rocketmqDescribeGroupRE.FindStringSubmatch(text); len(matches) > 0 {
+		return rocketmqParsedSQL{Action: "describe_consumer_group", GroupID: firstNonEmpty(matches[1], matches[2], matches[3])}, true
+	}
 	if matches := rocketmqDescribeTopicRE.FindStringSubmatch(text); len(matches) > 0 {
 		return rocketmqParsedSQL{
 			Action: "describe_topic",
@@ -1285,7 +1316,7 @@ func parseRocketMQSQL(sqlText string, defaultLatest bool) (rocketmqParsedSQL, bo
 			Action: "consume",
 			Topic:  firstNonEmpty(matches[1], matches[2], matches[3]),
 			Limit:  defaultRocketMQPreviewLimit,
-			Latest: true,
+			Latest: defaultLatest,
 		}
 		if limitMatch := rocketmqSQLLimitRE.FindStringSubmatch(text); len(limitMatch) > 1 {
 			parsed.Limit, _ = strconv.Atoi(limitMatch[1])
@@ -1319,12 +1350,13 @@ func parseRocketMQSQL(sqlText string, defaultLatest bool) (rocketmqParsedSQL, bo
 }
 
 type rocketmqParsedSQL struct {
-	Action string
-	Topic  string
-	Limit  int
-	Offset int
-	Count  bool
-	Latest bool
+	Action  string
+	Topic   string
+	GroupID string
+	Limit   int
+	Offset  int
+	Count   bool
+	Latest  bool
 }
 
 var (
@@ -1332,9 +1364,22 @@ var (
 	rocketmqSQLLimitRE      = regexp.MustCompile(`(?i)\bLIMIT\s+(\d+)`)
 	rocketmqSQLOffsetRE     = regexp.MustCompile(`(?i)\bOFFSET\s+(\d+)`)
 	rocketmqShowTopicsRE    = regexp.MustCompile(`(?i)^\s*SHOW\s+TOPICS(?:\s+LIMIT\s+(\d+))?\s*;?\s*$`)
+	rocketmqShowGroupsRE    = regexp.MustCompile(`(?i)^\s*SHOW\s+CONSUMER\s+GROUPS\s*;?\s*$`)
+	rocketmqDescribeGroupRE = regexp.MustCompile(`(?i)^\s*(?:DESCRIBE|SHOW)\s+CONSUMER\s+GROUP\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;]+))\s*;?\s*$`)
 	rocketmqDescribeTopicRE = regexp.MustCompile(`(?i)^\s*(?:SHOW|DESCRIBE)\s+TOPIC\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;]+))\s*;?\s*$`)
 	rocketmqConsumeTopicRE  = regexp.MustCompile(`(?i)^\s*CONSUME\s+FROM\s+(?:"([^"]+)"|` + "`" + `([^` + "`" + `]+)` + "`" + `|([^\s;]+))`)
 )
+
+func rocketmqConsumerGroupRows(groups []rocketmqConsumerGroupInfo) []map[string]interface{} {
+	rows := make([]map[string]interface{}, 0, len(groups))
+	for _, g := range groups {
+		rows = append(rows, map[string]interface{}{
+			"group": g.GroupID, "state": g.State, "member": g.MemberID, "client_id": g.ClientID, "client_host": g.ClientHost,
+			"topic": g.Topic, "queue_id": g.QueueID, "current_offset": g.CurrentOffset, "log_end_offset": g.LogEndOffset, "lag": g.Lag,
+		})
+	}
+	return rows
+}
 
 func rocketmqTopicRows(topics []rocketmqTopicInfo) []map[string]interface{} {
 	rows := make([]map[string]interface{}, 0, len(topics))
@@ -1352,17 +1397,17 @@ func rocketmqDescribeRows(description rocketmqTopicDescription) []map[string]int
 	rows := make([]map[string]interface{}, 0, len(description.Queues))
 	for _, queue := range description.Queues {
 		rows = append(rows, map[string]interface{}{
-			"topic":                    description.Name,
-			"namespace":                description.Namespace,
-			"consumer_group":           description.ConsumerGroup,
-			"tag_expression":           description.TagExpression,
-			"queue_count":              description.QueueCount,
-			"topic_approximate_count":  description.TotalApproximateCount,
-			"broker_name":              queue.BrokerName,
-			"queue_id":                 queue.QueueID,
-			"min_offset":               queue.MinOffset,
-			"max_offset":               queue.MaxOffset,
-			"approximate_count":        queue.ApproximateCount,
+			"topic":                   description.Name,
+			"namespace":               description.Namespace,
+			"consumer_group":          description.ConsumerGroup,
+			"tag_expression":          description.TagExpression,
+			"queue_count":             description.QueueCount,
+			"topic_approximate_count": description.TotalApproximateCount,
+			"broker_name":             queue.BrokerName,
+			"queue_id":                queue.QueueID,
+			"min_offset":              queue.MinOffset,
+			"max_offset":              queue.MaxOffset,
+			"approximate_count":       queue.ApproximateCount,
 		})
 	}
 	if len(rows) == 0 {

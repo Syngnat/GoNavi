@@ -107,6 +107,18 @@ func TestMQTTWSSProxySupportsPublishAndSubscribe(t *testing.T) {
 		t.Fatalf("newPahoMQTTRuntime through WSS proxy: %v", err)
 	}
 	defer runtime.Close()
+	pahoRuntime, ok := runtime.(*pahoMQTTRuntime)
+	if !ok {
+		t.Fatalf("newPahoMQTTRuntime returned %T, want *pahoMQTTRuntime", runtime)
+	}
+	client, err := pahoRuntime.activeClient()
+	if err != nil {
+		t.Fatalf("read MQTT client options: %v", err)
+	}
+	optionsReader := client.OptionsReader()
+	if !optionsReader.Order() {
+		t.Fatal("MQTT client must preserve callback delivery order for stream_offset")
+	}
 
 	if _, err := runtime.Publish(context.Background(), mqttPublishCommand{
 		Topic:   "devices/one",
@@ -139,6 +151,65 @@ func TestMQTTWSSProxySupportsPublishAndSubscribe(t *testing.T) {
 	}
 	if got, _ := serverName.Load().(string); got != "localhost" {
 		t.Fatalf("TLS SNI = %q, want localhost", got)
+	}
+}
+
+func TestMQTTConfiguredSubscriptionReportsBrokerRejection(t *testing.T) {
+	upgrader := websocket.Upgrader{
+		Subprotocols: []string{"mqtt"},
+		CheckOrigin:  func(*http.Request) bool { return true },
+	}
+	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade MQTT websocket: %v", err)
+			return
+		}
+		defer ws.Close()
+		for {
+			_, packet, readErr := ws.ReadMessage()
+			if readErr != nil {
+				return
+			}
+			switch packet[0] >> 4 {
+			case 1: // CONNECT
+				mustWriteMQTTWebSocketPacket(t, ws, []byte{0x20, 0x02, 0x00, 0x00})
+			case 8: // SUBSCRIBE
+				packetID := mqttTestPacketID(t, packet)
+				mustWriteMQTTWebSocketPacket(t, ws, []byte{0x90, 0x03, packetID[0], packetID[1], 0x80})
+			case 10: // cleanup UNSUBSCRIBE
+				packetID := mqttTestPacketID(t, packet)
+				mustWriteMQTTWebSocketPacket(t, ws, []byte{0xB0, 0x02, packetID[0], packetID[1]})
+			case 14: // DISCONNECT
+				return
+			}
+		}
+	}))
+	defer broker.Close()
+
+	brokerURL, err := url.Parse(strings.Replace(broker.URL, "http://", "ws://", 1))
+	if err != nil {
+		t.Fatalf("parse broker URL: %v", err)
+	}
+	_, portText, err := net.SplitHostPort(brokerURL.Host)
+	if err != nil {
+		t.Fatalf("split broker address: %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse broker port: %v", err)
+	}
+
+	_, err = newPahoMQTTRuntime(connection.ConnectionConfig{
+		Type:     "mqtt",
+		Host:     "127.0.0.1",
+		Port:     port,
+		URI:      brokerURL.String(),
+		Timeout:  2,
+		Database: "denied/topic",
+	})
+	if err == nil || !strings.Contains(err.Error(), "订阅被 Broker 拒绝") {
+		t.Fatalf("configured subscription error = %v", err)
 	}
 }
 

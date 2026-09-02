@@ -364,10 +364,11 @@ const ConnectionModal: React.FC<{
   open: boolean;
   onClose: () => void;
   initialValues?: SavedConnection | null;
+  modalZIndex?: number;
   onOpenDriverManager?: () => void;
   onSaved?: (savedConnection: SavedConnection) => void | Promise<void>;
   onOpenConnectionHealth?: (savedConnection: SavedConnection) => void;
-}> = ({ open, onClose, initialValues, onOpenDriverManager, onSaved, onOpenConnectionHealth }) => {
+}> = ({ open, onClose, initialValues, modalZIndex = APP_FOREGROUND_MODAL_Z_INDEX, onOpenDriverManager, onSaved, onOpenConnectionHealth }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -3503,7 +3504,7 @@ const ConnectionModal: React.FC<{
             : "connection-modal-wrap"
         }
         width={isFormStep ? CONNECTION_MODAL_WIDTH_STEP2 : CONNECTION_MODAL_WIDTH_STEP1}
-        zIndex={APP_FOREGROUND_MODAL_Z_INDEX}
+        zIndex={modalZIndex}
         destroyOnHidden
         maskClosable={false}
         styles={{

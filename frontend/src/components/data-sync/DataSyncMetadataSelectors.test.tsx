@@ -36,10 +36,15 @@ const flush = async () => {
 const stageButton = (renderer: TestRenderer.ReactTestRenderer, label: string) =>
   renderer.root
     .findAllByType('button')
-    .find((button) => button.children.includes(label))!;
+    .find(
+      (button) =>
+        String(button.props['aria-label'] || '').startsWith(`${label} ·`) ||
+        button.children.includes(label) ||
+        button.findAll((node) => node.children.includes(label)).length > 0,
+    )!;
 
 describe('data sync metadata selectors', () => {
-  it('keeps an empty controlled value without exposing prompt rows in the menu', async () => {
+  it('reveals database controls after selecting a connection without exposing prompt rows', async () => {
     const task = createDataSyncTaskDraft({
       id: 'empty-endpoint-options',
       kind: 'reconcile',
@@ -61,24 +66,43 @@ describe('data sync metadata selectors', () => {
     const connection = sourceEndpoint.findByProps({
       'data-endpoint-control': 'connection',
     });
-    const database = sourceEndpoint.findByProps({
+    expect(
+      sourceEndpoint.findAllByProps({ 'data-endpoint-control': 'database' }),
+    ).toHaveLength(0);
+    expect(connection.props.value).toBeUndefined();
+    expect(connection.props.placeholder).toBe('选择连接');
+    expect(connection.props.treeData.map((node: { value: string }) => node.value)).toEqual([
+      'connection:source',
+    ]);
+
+    await act(async () => {
+      connection.props.onChange('connection:source');
+    });
+    await flush();
+
+    const expandedSourceEndpoint = renderer.root.findByProps({
+      'data-endpoint-role': 'source',
+    });
+    const database = expandedSourceEndpoint.findByProps({
       'data-endpoint-control': 'database',
     });
-    const connectionPrompt = connection
-      .findAllByType('option')
-      .find((option) => option.props.value === '')!;
     const databasePrompt = database
       .findAllByType('option')
       .find((option) => option.props.value === '')!;
 
-    expect(connection.props.value).toBe('');
+    expect(connection.props.value).toBe('connection:source');
+    expect(connection.props.allowClear).toBe(true);
     expect(database.props.value).toBe('');
-    expect(connectionPrompt.props).toEqual(
-      expect.objectContaining({ disabled: true, hidden: true }),
-    );
     expect(databasePrompt.props).toEqual(
       expect.objectContaining({ disabled: true, hidden: true }),
     );
+
+    act(() => connection.props.onChange(undefined));
+    expect(
+      renderer.root
+        .findByProps({ 'data-endpoint-role': 'source' })
+        .findAllByProps({ 'data-endpoint-control': 'database' }),
+    ).toHaveLength(0);
   });
 
   it('does not expose empty prompt rows after a connection and database are selected', async () => {
@@ -123,15 +147,72 @@ describe('data sync metadata selectors', () => {
     });
     const connectionValues = sourceEndpoint
       .findByProps({ 'data-endpoint-control': 'connection' })
-      .findAllByType('option')
-      .map((option) => option.props.value);
+      .props.treeData.map((node: { value: string }) => node.value);
     const databaseValues = sourceEndpoint
       .findByProps({ 'data-endpoint-control': 'database' })
       .findAllByType('option')
       .map((option) => option.props.value);
 
     expect(connectionValues).not.toContain('');
+    expect(connectionValues).toContain('connection:source');
     expect(databaseValues).not.toContain('');
+  });
+
+  it('commits a schema edit once instead of clearing mappings on every keystroke', async () => {
+    const base = createDataSyncTaskDraft({ id: 'schema-edit-task', kind: 'reconcile' });
+    const task = reviseDataSyncTask(base, {
+      source: {
+        connectionId: 'source',
+        connectionName: 'Source',
+        type: 'mysql',
+        database: 'sales',
+        schema: 'sales',
+      },
+      target: {
+        connectionId: 'target',
+        connectionName: 'Target',
+        type: 'postgresql',
+        database: 'warehouse',
+        schema: 'public',
+      },
+      mappings: [
+        {
+          ...createDataSyncTableMapping('schema-edit-map', 'orders', 'orders'),
+          keyColumns: ['id'],
+        },
+      ],
+    });
+    const gateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      savedConnections: [
+        { id: 'source', name: 'Source', type: 'mysql', readable: true, writable: true },
+        { id: 'target', name: 'Target', type: 'postgresql', readable: true, writable: true },
+      ],
+      databasesByConnection: {
+        source: [{ name: 'sales' }],
+        target: [{ name: 'warehouse' }],
+      },
+    });
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="en-US" />,
+    );
+    await flush();
+
+    const schema = renderer.root
+      .findByProps({ 'data-endpoint-role': 'source' })
+      .findByProps({ 'data-endpoint-control': 'schema' });
+    act(() => schema.props.onChange({ target: { value: 'sales_v2' } }));
+
+    expect(schema.props.value).toBe('sales_v2');
+    expect(renderer.root.findByProps({ 'data-dirty': 'false' })).toBeTruthy();
+
+    act(() => schema.props.onBlur());
+    expect(renderer.root.findByProps({ 'data-dirty': 'true' })).toBeTruthy();
+    act(() => stageButton(renderer, 'Choose data').props.onClick());
+    expect(
+      renderer.root.findByProps({ 'data-mapping-id': 'schema-edit-map' })
+        .findByProps({ 'data-object-side': 'source' }).props.value,
+    ).toBe('');
   });
 
   it('ignores stale database responses and clears source-side descendants', async () => {
@@ -201,7 +282,7 @@ describe('data sync metadata selectors', () => {
       'data-endpoint-control': 'connection',
     });
     act(() => {
-      connectionSelect.props.onChange({ target: { value: 'source-b' } });
+      connectionSelect.props.onChange('connection:source-b');
     });
     await flush();
 
@@ -294,6 +375,15 @@ describe('data sync metadata selectors', () => {
     act(() => stageButton(renderer, 'Edit exception').props.onClick());
     act(() => stageButton(renderer, 'Automatic same-name fields').props.onClick());
     await flush();
+    const fieldMappingDialog = renderer.root.findByProps({
+      'data-data-sync-field-mapping': 'field-map',
+    });
+    expect(fieldMappingDialog.props).toEqual(
+      expect.objectContaining({ role: 'dialog', 'aria-modal': 'true' }),
+    );
+    expect(
+      renderer.root.findByProps({ 'data-data-sync-overlay': 'field-mapping' }),
+    ).toBeTruthy();
     act(() => stageButton(renderer, 'Match same names').props.onClick());
 
     expect(renderer.root.findAllByProps({ 'data-field-control': 'transform' })).toHaveLength(2);

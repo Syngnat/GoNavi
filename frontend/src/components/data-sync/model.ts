@@ -21,7 +21,18 @@ export type DataSyncTaskStage =
   | 'trigger'
   | 'preflight';
 
+export const DATA_SYNC_TASK_STAGES: readonly DataSyncTaskStage[] = [
+  'endpoints',
+  'mappings',
+  'delivery',
+  'trigger',
+  'preflight',
+];
+
 export type DataSyncCompareMode = 'schema' | 'data' | 'both';
+
+/** Content selected by a writable migration task. */
+export type DataSyncContent = 'data' | 'schema' | 'both';
 
 export type DataSyncEndpointRef = {
   connectionId: string;
@@ -42,6 +53,23 @@ export type DataSyncSavedConnectionView = {
   readable: boolean;
   writable: boolean;
 };
+
+/**
+ * Credential-free projection of the sidebar host tree. Connection details are
+ * resolved from DataSyncSavedConnectionView so no saved config reaches the
+ * workbench through this layout metadata.
+ */
+export type DataSyncConnectionTreeItem =
+  | {
+      kind: 'group';
+      id: string;
+      name: string;
+      children: DataSyncConnectionTreeItem[];
+    }
+  | {
+      kind: 'connection';
+      connectionId: string;
+    };
 
 export type DataSyncDatabaseMetadata = {
   name: string;
@@ -133,11 +161,15 @@ export type DataSyncIncrementalPolicy =
 export type DataSyncTaskDefinition = {
   schemaVersion: typeof DATA_SYNC_TASK_SCHEMA_VERSION;
   id: string;
+  /** Server-owned optimistic-lock value from the last successful save. */
   revision: number;
+  /** Local-only edit counter used to invalidate preflight evidence. */
+  editEpoch: number;
   name: string;
   kind: DataSyncTaskKind;
   lifecycle: DataSyncTaskLifecycle;
   compareMode?: DataSyncCompareMode;
+  content?: DataSyncContent;
   sourceMode: 'tables' | 'query';
   sourceQuery: string;
   source: DataSyncEndpointRef;
@@ -186,7 +218,13 @@ export type DataSyncValidationCode =
   | 'target_table_check_failed'
   | 'target_table_missing'
   | 'target_table_will_be_created'
+  | 'target_columns_missing_for_sync'
+  | 'target_columns_will_be_added'
   | 'key_columns_required'
+  | 'source_primary_key_required'
+  | 'structure_migration_primary_key_required'
+  | 'mapping_key_unmapped'
+  | 'mapping_key_target_missing'
   | 'batch_size_invalid'
   | 'commit_every_invalid'
   | 'write_mode_required'
@@ -204,15 +242,20 @@ export type DataSyncValidationCode =
   | 'watermark_delete_unsupported'
   | 'query_sink_single_mapping_required'
   | 'query_key_required'
+  | 'query_key_unmapped'
+  | 'query_key_target_missing'
+  | 'query_key_target_non_unique'
   | 'query_target_pk_mismatch'
-  | 'query_schema_runtime_validation'
+  | 'schema_unsupported_difference'
+  | 'query_schema_probe_failed'
+  | 'query_source_column_missing'
   | 'watermark_column_required'
   | 'cron_expression_required'
   | 'timezone_required'
   | 'interval_invalid'
   | 'cdc_incremental_required'
   | 'cdc_trigger_required'
-  | 'cdc_adapter_required'
+  | 'cdc_adapter_unavailable'
   | 'cdc_initial_snapshot_unsupported'
   | 'cdc_initial_snapshot_handoff_unsupported'
   | 'cdc_earliest_unsupported'
@@ -267,6 +310,8 @@ export type DataSyncPreflightStatus =
 export type DataSyncPreflightSnapshot = {
   taskId: string;
   taskRevision: number;
+  /** Local edit counter captured when this preflight was requested. */
+  taskEditEpoch: number;
   status: Exclude<DataSyncPreflightStatus, 'stale' | 'running'>;
   issues: DataSyncValidationIssue[];
   /** Backend-owned hash of the exact definition that was checked. */
@@ -297,6 +342,12 @@ export type DataSyncRouteCapability = {
   requiresExistingTarget?: boolean;
   supportsMutations?: boolean;
   supportsCdc: boolean;
+  /** Set after probing the selected CDC adapter against the current source. */
+  cdcProbeReady?: boolean;
+  /** Safe-to-display readiness explanation returned by the CDC adapter. */
+  cdcProbeReason?: string;
+  /** Adapter resolved by the backend from the source type. */
+  cdcAdapter?: string;
 };
 
 export type DataSyncRunStatus =
@@ -319,6 +370,8 @@ export type DataSyncRunRecord = {
   id: string;
   taskId: string;
   taskName: string;
+  /** Compare mode captured from the run's definition snapshot (compare tasks only). */
+  compareMode?: DataSyncCompareMode;
   status: DataSyncRunStatus;
   trigger: 'manual' | 'schedule' | 'resume' | 'retry' | 'once' | 'cron' | 'continuous';
   attempt: number;
@@ -331,6 +384,91 @@ export type DataSyncRunRecord = {
   rowsFailed: number;
   throughput: number;
   checkpoint: string;
+};
+
+export type DataSyncRunCursor = {
+  createdAt: number;
+  id: string;
+};
+
+export const DATA_SYNC_RUN_PAGE_SIZES = [10, 50, 100] as const;
+
+export type DataSyncRunPageSize = (typeof DATA_SYNC_RUN_PAGE_SIZES)[number];
+
+export type DataSyncRunPage = {
+  runs: DataSyncRunRecord[];
+  nextCursor: DataSyncRunCursor | null;
+  total: number;
+};
+
+export type DataSyncRunEvent = {
+  runId: string;
+  sequence: number;
+  type:
+    | 'queued'
+    | 'started'
+    | 'progress'
+    | 'checkpoint'
+    | 'error_row'
+    | 'log'
+    | 'cancelling'
+    | 'canceled'
+    | 'succeeded'
+    | 'partial'
+    | 'failed'
+    | 'interrupted';
+  message: string;
+  table?: string;
+  stage?: string;
+  payload?: unknown;
+  createdAt: string;
+};
+
+/** One column-level structural difference reported by the compare backend. */
+export type DataSyncColumnStructureDiff = {
+  column: string;
+  kind: 'missing_in_target' | 'extra_in_target' | 'type' | 'nullable';
+  source?: string;
+  target?: string;
+};
+
+/** One table's row in a read-only compare result (data or schema). */
+export type DataSyncTableDiffSummary = {
+  table: string;
+  sourceObject?: string;
+  targetObject?: string;
+  pkColumn?: string;
+  canSync: boolean;
+  inserts: number;
+  updates: number;
+  deletes: number;
+  same: number;
+  schemaDiffCount?: number;
+  missingColumns?: string[];
+  /**
+   * Every column-level structural difference, both directions, including
+   * type/nullability drift. Populated whenever the target table exists.
+   */
+  columnDiffs?: DataSyncColumnStructureDiff[];
+  /** True when the backend compared schema (schema/both content), not just data. */
+  hasSchema?: boolean;
+  message?: string;
+  targetTableExists?: boolean;
+  plannedAction?: string;
+  warnings?: string[];
+};
+
+/** Decoded read-only compare payload emitted by the backend Analyze path. */
+export type DataSyncCompareResult = {
+  success: boolean;
+  message: string;
+  /**
+   * The content mode the backend used. Narrowed at decode time, so an
+   * unrecognized backend value arrives as undefined rather than a mode that
+   * matches neither data nor schema.
+   */
+  content?: DataSyncCompareMode;
+  tables: DataSyncTableDiffSummary[];
 };
 
 export type DataSyncErrorRow = {
@@ -383,6 +521,7 @@ type CreateDataSyncTaskInput = {
   name?: string;
   now?: string;
   compareMode?: DataSyncCompareMode;
+  content?: DataSyncContent;
   sourceConnectionId?: string;
 };
 
@@ -564,15 +703,18 @@ export const createDataSyncTaskDraft = ({
   name = '',
   now = new Date().toISOString(),
   compareMode,
+  content,
   sourceConnectionId = '',
 }: CreateDataSyncTaskInput): DataSyncTaskDefinition => ({
   schemaVersion: DATA_SYNC_TASK_SCHEMA_VERSION,
   id,
   revision: 1,
+  editEpoch: 0,
   name,
   kind,
   lifecycle: 'draft',
   compareMode: kind === 'compare' ? compareMode || 'data' : undefined,
+  content: kind === 'migration' ? content || 'both' : undefined,
   sourceMode: kind === 'querySink' ? 'query' : 'tables',
   sourceQuery: '',
   source: emptyEndpoint(sourceConnectionId),
@@ -589,7 +731,9 @@ export const createDataSyncTaskDraft = ({
     retryLimit: kind === 'querySink' ? 0 : 3,
     retryBackoffMs: 500,
     propagateDeletes: false,
-    autoAddColumns: false,
+    // 迁移任务默认开启自动补字段（与一次性迁移弹窗一致），目标表缺列时
+    // 才能补齐并回填；不支持的库对由交付阶段根据能力探测自动关闭。
+    autoAddColumns: kind === 'migration',
     createIndexes: false,
     captureErrorPayload: false,
   },
@@ -606,19 +750,26 @@ export const createDataSyncTaskDraft = ({
         }
       : { mode: 'snapshot' },
   concurrencyPolicy: 'forbid',
-  resumePolicy: 'manual',
+  // Append cannot replay partially committed batches. Query sinks start in
+  // append mode, so their only safe default is no recovery.
+  resumePolicy: kind === 'querySink' ? 'never' : 'manual',
   createdAt: now,
   updatedAt: now,
 });
 
 export const reviseDataSyncTask = (
   task: DataSyncTaskDefinition,
-  patch: Partial<Omit<DataSyncTaskDefinition, 'id' | 'schemaVersion' | 'revision' | 'createdAt'>>,
+  patch: Partial<
+    Omit<
+      DataSyncTaskDefinition,
+      'id' | 'schemaVersion' | 'revision' | 'editEpoch' | 'createdAt'
+    >
+  >,
   now = new Date().toISOString(),
 ): DataSyncTaskDefinition => ({
   ...task,
   ...patch,
-  revision: task.revision + 1,
+  editEpoch: task.editEpoch + 1,
   updatedAt: now,
 });
 
@@ -760,7 +911,7 @@ export const validateDataSyncTask = (
       targetKeys.add(targetKey);
     }
     if (
-      (task.kind === 'reconcile' || task.kind === 'cdc') &&
+      (task.kind === 'cdc' || task.incremental.mode === 'cdc') &&
       mapping.keyColumns.map(normalize).filter(Boolean).length === 0
     ) {
       issues.push(
@@ -795,6 +946,9 @@ export const validateDataSyncTask = (
   }
   if (task.delivery.writeMode === 'append' && task.delivery.retryLimit !== 0) {
     issues.push(issue('append_retry_unsupported', 'blocker', 'delivery'));
+  }
+  if (task.delivery.writeMode === 'append' && task.resumePolicy !== 'never') {
+    issues.push(issue('append_resume_unsafe', 'blocker', 'delivery'));
   }
   if (
     task.incremental.mode === 'watermark' &&
@@ -831,9 +985,6 @@ export const validateDataSyncTask = (
       issues.push(issue('cdc_trigger_required', 'blocker', 'trigger'));
     }
     if (task.incremental.mode === 'cdc') {
-      if (!normalize(task.incremental.adapter)) {
-        issues.push(issue('cdc_adapter_required', 'blocker', 'trigger'));
-      }
       if (task.incremental.initialSnapshot) {
         issues.push(
           issue('cdc_initial_snapshot_unsupported', 'blocker', 'trigger'),
@@ -863,7 +1014,8 @@ export const isDataSyncPreflightCurrent = (
   Boolean(
     preflight &&
       preflight.taskId === task.id &&
-      preflight.taskRevision === task.revision,
+      preflight.taskRevision === task.revision &&
+      preflight.taskEditEpoch === task.editEpoch,
   );
 
 export const canStartDataSyncTask = (

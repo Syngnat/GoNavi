@@ -122,6 +122,22 @@ func redisBulkString(value string) string {
 	return fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)
 }
 
+func TestGetValueObservesBoundMetadataContext(t *testing.T) {
+	rawClient := goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:0", Protocol: 2})
+	client := &RedisClientImpl{client: rawClient, singleClient: rawClient}
+	t.Cleanup(func() { _ = client.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	BindMetadataContext(client, ctx)
+	t.Cleanup(func() { ClearMetadataContext(client) })
+
+	_, err := client.GetValue("session:1")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GetValue() error = %v, want context.Canceled", err)
+	}
+}
+
 func TestScanKeysKeepsEntireRedisScanBatch(t *testing.T) {
 	addr := startRedisProtocolTestServer(t, func(args []string) string {
 		switch strings.ToUpper(strings.TrimSpace(args[0])) {
@@ -163,6 +179,12 @@ func TestScanKeysKeepsEntireRedisScanBatch(t *testing.T) {
 		if result.Keys[index].Key != key {
 			t.Fatalf("expected key %q at index %d, got %#v", key, index, result.Keys)
 		}
+	}
+}
+
+func TestRedisKeyScanStepCountUsesOneHundred(t *testing.T) {
+	if got := normalizeRedisScanStepCount(100); got != 100 {
+		t.Fatalf("expected Redis key SCAN COUNT 100, got %d", got)
 	}
 }
 
@@ -1568,8 +1590,8 @@ func TestReadRedisHashEntriesWithFallbackUsesHScanWhenHGetAllForbidden(t *testin
 			if cursor != 0 {
 				t.Fatalf("expected first scan cursor to be 0, got %d", cursor)
 			}
-			if count <= 0 {
-				t.Fatalf("expected positive scan count, got %d", count)
+			if count != 200 {
+				t.Fatalf("expected HSCAN fallback count 200, got %d", count)
 			}
 			return []string{"field-a", "value-a", "field-b", "value-b"}, 0, nil
 		},

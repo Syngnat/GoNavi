@@ -38,10 +38,10 @@ func AtomicReplaceFile(source string, target string) error {
 	return atomicReplaceBootstrapFile(source, target)
 }
 
-// SharedStorageLockPath returns the lock shared by the saved connection and
-// daily-secret stores. Those files are updated as one logical operation by the
-// GUI and CLI, so per-file locks alone cannot prevent a cross-process
-// read-modify-write race.
+// SharedStorageLockPath returns the lock shared by saved connections, daily
+// secrets, and the connection-sidebar layout. Connection and cloud-restore
+// transactions update these files as one logical operation, so per-file locks
+// alone cannot prevent a cross-process read-modify-write race.
 func SharedStorageLockPath(root string) string {
 	trimmed := strings.TrimSpace(root)
 	if trimmed == "" {

@@ -456,12 +456,77 @@ type LocalForwarder struct {
 	closed     bool
 	closedMu   sync.RWMutex
 
+	// remoteDialFailure is the latest failed attempt made by the jump host to
+	// reach RemoteAddr. Callers compare OccurredAt with their verification
+	// start time, so concurrent leases do not clear or consume each other's
+	// diagnostics.
+	remoteDialFailure   *RemoteDialFailure
+	remoteDialFailureMu sync.RWMutex
+
 	// shared/cacheKey identify a lease returned by AcquireLocalForwarder.
 	// The cached forwarder itself keeps shared nil and owns the listener.
 	shared    *LocalForwarder
 	cacheKey  forwarderCacheKey
 	leaseOnce sync.Once
 	refCount  int // guarded by forwarderMu; meaningful only on the cached forwarder
+}
+
+// RemoteDialFailure describes a failed connection from the SSH jump host to
+// the configured remote endpoint. The local listener can only report a reset
+// to its client, so retaining this detail makes tunnel verification errors
+// actionable to database drivers.
+type RemoteDialFailure struct {
+	RemoteAddr string
+	Err        error
+	OccurredAt time.Time
+}
+
+func (f *LocalForwarder) diagnosticOwner() *LocalForwarder {
+	if f == nil {
+		return nil
+	}
+	if f.shared != nil {
+		return f.shared
+	}
+	return f
+}
+
+// LastRemoteDialFailure returns the latest failed remote dial in the current
+// diagnostic window, if one occurred.
+func (f *LocalForwarder) LastRemoteDialFailure() (RemoteDialFailure, bool) {
+	return f.RemoteDialFailureSince(time.Time{})
+}
+
+// RemoteDialFailureSince returns the latest remote dial failure after since.
+// A zero since value returns the latest retained failure.
+func (f *LocalForwarder) RemoteDialFailureSince(since time.Time) (RemoteDialFailure, bool) {
+	owner := f.diagnosticOwner()
+	if owner == nil {
+		return RemoteDialFailure{}, false
+	}
+	owner.remoteDialFailureMu.RLock()
+	failure := owner.remoteDialFailure
+	owner.remoteDialFailureMu.RUnlock()
+	if failure == nil || failure.Err == nil {
+		return RemoteDialFailure{}, false
+	}
+	if !since.IsZero() && !failure.OccurredAt.After(since) {
+		return RemoteDialFailure{}, false
+	}
+	return *failure, true
+}
+
+func (f *LocalForwarder) recordRemoteDialFailure(err error) {
+	if f == nil || err == nil {
+		return
+	}
+	owner := f.diagnosticOwner()
+	if owner == nil {
+		return
+	}
+	owner.remoteDialFailureMu.Lock()
+	owner.remoteDialFailure = &RemoteDialFailure{RemoteAddr: owner.RemoteAddr, Err: err, OccurredAt: time.Now()}
+	owner.remoteDialFailureMu.Unlock()
 }
 
 // NewLocalForwarder creates a new local port forwarder
@@ -526,6 +591,7 @@ func (f *LocalForwarder) handleConnection(localConn net.Conn) {
 	// Connect to remote through SSH with timeout
 	remoteConn, err := f.SSHClient.Dial("tcp", f.RemoteAddr)
 	if err != nil {
+		f.recordRemoteDialFailure(err)
 		logger.Warnf("通过 SSH 连接到远程 %s 失败：%v", f.RemoteAddr, err)
 		return
 	}
@@ -534,11 +600,18 @@ func (f *LocalForwarder) handleConnection(localConn net.Conn) {
 	// Bidirectional copy with error channel
 	errc := make(chan error, 2)
 
+	// Half-close each destination after its source reaches EOF. This propagates
+	// EOF promptly without truncating data that is still flowing in reverse.
 	// Copy from local to remote
 	go func() {
 		_, err := io.Copy(remoteConn, localConn)
 		if err != nil {
 			logger.Warnf("本地->远程数据复制错误：%v", err)
+		}
+		if closeWriter, ok := remoteConn.(interface{ CloseWrite() error }); ok {
+			if closeErr := closeWriter.CloseWrite(); closeErr != nil {
+				logger.Warnf("关闭远程连接写入方向失败：%v", closeErr)
+			}
 		}
 		errc <- err
 	}()
@@ -548,6 +621,11 @@ func (f *LocalForwarder) handleConnection(localConn net.Conn) {
 		_, err := io.Copy(localConn, remoteConn)
 		if err != nil {
 			logger.Warnf("远程->本地数据复制错误：%v", err)
+		}
+		if closeWriter, ok := localConn.(interface{ CloseWrite() error }); ok {
+			if closeErr := closeWriter.CloseWrite(); closeErr != nil {
+				logger.Warnf("关闭本地连接写入方向失败：%v", closeErr)
+			}
 		}
 		errc <- err
 	}()

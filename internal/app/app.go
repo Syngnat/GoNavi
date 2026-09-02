@@ -199,9 +199,16 @@ type App struct {
 	driverDownloadTaskRunner      func(string, string, string, string) connection.QueryResult
 	dataRootApplyMu               sync.Mutex
 	configDir                     string
+	downloadSourceMu              sync.RWMutex
+	downloadSource                DownloadSource
+	downloadSourceLoaded          bool
 	sqliteTableStatsMu            sync.Mutex
 	secretStore                   secretstore.SecretStore
 	runningQueries                map[string]queryContext // queryID -> cancelFunc and start time
+	connectionHealthRunsMu        sync.Mutex
+	connectionHealthRuns          map[string]*connectionHealthRun
+	connectionHealthRunsClosing   bool
+	connectionHealthRunInspect    func(context.Context, string) connection.ConnectionHealthReport // 测试钩子：用于确定性控制批量任务执行时序。
 	sqlTransactionMu              sync.Mutex
 	sqlTransactions               map[string]*managedSQLTransaction
 	sqlAuditMu                    sync.RWMutex
@@ -233,6 +240,13 @@ type App struct {
 	cloudBackupSyncMu             sync.Mutex
 	cloudBackupStateMu            sync.Mutex
 	cloudBackupSecretMu           sync.Mutex
+	cloudBackupLifecycleMu        sync.Mutex
+	cloudBackupLifecycleCtx       context.Context
+	cloudBackupLifecycleCancel    context.CancelFunc
+	cloudBackupBackgroundWG       sync.WaitGroup
+	cloudBackupShuttingDown       bool
+	cloudBackupImmediateSignal    chan struct{}
+	cloudBackupImmediateStarted   bool
 	cloudBackupSchedulerMu        sync.Mutex
 	cloudBackupSchedulerCancel    context.CancelFunc
 	cloudBackupDirtyMu            sync.Mutex
@@ -290,11 +304,13 @@ func NewAppWithSecretStore(store secretstore.SecretStore) *App {
 		connectFailures:               make(map[string]cachedConnectFailure),
 		dbConnectFlights:              make(map[uint64]*databaseConnectFlight),
 		runningQueries:                make(map[string]queryContext),
+		connectionHealthRuns:          make(map[string]*connectionHealthRun),
 		importTasks:                   make(map[string]importTaskRegistration),
 		driverDownloadTasks:           make(map[string]DriverDownloadTaskStatus),
 		sqlTransactions:               make(map[string]*managedSQLTransaction),
 		requestTraceStore:             requesttrace.NewStore(requesttrace.DefaultCapacity),
 		configDir:                     resolveAppConfigDir(),
+		downloadSource:                DownloadSourceCst,
 		secretStore:                   store,
 		localizer:                     newAppLocalizer(),
 		jvmPreviewTokens:              make(map[string]jvmPreviewConfirmationToken),
@@ -452,6 +468,7 @@ func InitializeHeadlessLifecycle(a *App, ctx context.Context, configDir string) 
 		return fmt.Errorf("initialize SQL-file job store: %w", err)
 	}
 	a.loadPersistedGlobalProxy()
+	a.loadPersistedDownloadSource()
 	a.activateSQLAudit()
 	logger.Infof("无头运行时启动完成")
 	return nil
@@ -487,6 +504,7 @@ func (a *App) startup(ctx context.Context) {
 		logger.Warnf("恢复导入任务状态失败：%v", err)
 	}
 	a.loadPersistedGlobalProxy()
+	a.loadPersistedDownloadSource()
 	if err := migrateLegacyWebKitStorageIfNeeded(a); err != nil {
 		logger.Warnf("迁移旧 WebKit 连接存储失败：%v", err)
 	}
@@ -567,6 +585,9 @@ func (a *App) LogWindowDiagnostic(stage string, payload string) {
 // Shutdown is called when the app terminates.
 func (a *App) Shutdown() {
 	logger.Infof("应用开始关闭，准备释放资源")
+	if !a.cancelAndWaitConnectionHealthRuns(5 * time.Second) {
+		logger.Warnf("连接健康检查任务未能在关闭超时内全部退出；将继续释放数据库资源")
+	}
 	a.shutdownCloudBackup()
 	a.shutdownDataSyncJobs()
 	if !a.cancelAndWaitImportTasks(5 * time.Second) {
@@ -1285,7 +1306,13 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 
 func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Database, error) {
 	if a != nil && a.metadataSession != nil {
-		instance, err := a.getDatabaseWithContext(a.metadataSession.ctx, config, true)
+		var instance db.Database
+		var err error
+		if a.metadataSession.synchronous {
+			instance, err = a.getDatabaseSynchronouslyWithContext(a.metadataSession.ctx, config, true)
+		} else {
+			instance, err = a.getDatabaseWithContext(a.metadataSession.ctx, config, true)
+		}
 		a.bindMetadataDatabase(instance)
 		return instance, err
 	}
@@ -1297,7 +1324,13 @@ func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Datab
 // Helper: Get or create a database connection
 func (a *App) getDatabase(config connection.ConnectionConfig) (db.Database, error) {
 	if a != nil && a.metadataSession != nil {
-		instance, err := a.getDatabaseWithContext(a.metadataSession.ctx, config, false)
+		var instance db.Database
+		var err error
+		if a.metadataSession.synchronous {
+			instance, err = a.getDatabaseSynchronouslyWithContext(a.metadataSession.ctx, config, false)
+		} else {
+			instance, err = a.getDatabaseWithContext(a.metadataSession.ctx, config, false)
+		}
 		a.bindMetadataDatabase(instance)
 		return instance, err
 	}
@@ -1346,7 +1379,34 @@ func (a *App) getDatabaseWithContext(ctx context.Context, config connection.Conn
 	}
 }
 
+// getDatabaseSynchronouslyWithContext keeps non-context-aware Connect work in
+// the current request goroutine. It cannot interrupt Connect, but it guarantees
+// that a canceled Web RPC does not return while a detached connection worker is
+// still running. The context is checked again before any SQL is dispatched.
+func (a *App) getDatabaseSynchronouslyWithContext(ctx context.Context, config connection.ConnectionConfig, forcePing bool) (db.Database, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	instance, err := a.getDatabaseWithPing(config, forcePing)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return instance, nil
+}
+
 func (a *App) openDatabaseIsolated(config connection.ConnectionConfig) (db.Database, error) {
+	a.mu.RLock()
+	shuttingDown := a.dbShuttingDown
+	a.mu.RUnlock()
+	if shuttingDown {
+		return nil, errDatabaseConnectionShutdown
+	}
 	effectiveConfig, err := a.resolveEffectiveConnectionConfig(config)
 	if err != nil {
 		return nil, err

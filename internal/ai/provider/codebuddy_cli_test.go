@@ -162,7 +162,28 @@ func TestCodeBuddyCLIProvider_ChatPreservesExecutionFailureDetails(t *testing.T)
 	}
 }
 
-func TestCodeBuddyCLIProviderChatWithState_StartsTrackedSession(t *testing.T) {
+func TestCodeBuddyCLIProviderChatOmitsDeprecatedSessionTrackingFlag(t *testing.T) {
+	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = \"--enable-session-tracking\" ]; then\n    echo \"error: unknown option '--enable-session-tracking'\" >&2\n    exit 2\n  fi\ndone\necho '[{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"connected\"}]'\n")
+	restore := overrideCodeBuddyCLIForTest(t, fakeCodeBuddy)
+	defer restore()
+
+	provider, err := NewCodeBuddyCLIProvider(ai.ProviderConfig{APIKey: "cb-test"})
+	if err != nil {
+		t.Fatalf("unexpected provider error: %v", err)
+	}
+
+	resp, err := provider.Chat(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	})
+	if err != nil {
+		t.Fatalf("expected current CodeBuddy CLI invocation to succeed, got %v", err)
+	}
+	if resp == nil || resp.Content != "connected" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
+func TestCodeBuddyCLIProviderChatWithState_StartsSession(t *testing.T) {
 	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\necho '[{\"type\":\"assistant\",\"session_id\":\"session-new\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello \"}]}},{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"hello world\",\"session_id\":\"session-new\"}]'\n")
 	var capturedArgs []string
 	restore := overrideCodeBuddyCLIForTestWithCapture(t, fakeCodeBuddy, func(args []string) {
@@ -195,8 +216,8 @@ func TestCodeBuddyCLIProviderChatWithState_StartsTrackedSession(t *testing.T) {
 	if string(nextState) != `{"sessionId":"session-new"}` {
 		t.Fatalf("expected new session state, got %s", string(nextState))
 	}
-	if !hasArg(capturedArgs, "--enable-session-tracking") {
-		t.Fatalf("expected session tracking flag, got args %#v", capturedArgs)
+	if hasArg(capturedArgs, "--enable-session-tracking") {
+		t.Fatalf("did not expect deprecated session tracking flag, got args %#v", capturedArgs)
 	}
 	if hasArg(capturedArgs, "--no-session-persistence") {
 		t.Fatalf("did not expect no-session-persistence flag, got args %#v", capturedArgs)
@@ -244,12 +265,12 @@ func TestCodeBuddyCLIProviderChatWithState_ResumesExistingSession(t *testing.T) 
 	if !hasArgSequence(capturedArgs, "--resume", "session-existing") {
 		t.Fatalf("expected resume args, got %#v", capturedArgs)
 	}
-	if !hasArg(capturedArgs, "--enable-session-tracking") {
-		t.Fatalf("expected session tracking flag, got args %#v", capturedArgs)
+	if hasArg(capturedArgs, "--enable-session-tracking") {
+		t.Fatalf("did not expect deprecated session tracking flag, got args %#v", capturedArgs)
 	}
 }
 
-func TestCodeBuddyCLIProviderChatStreamWithState_StartsTrackedSession(t *testing.T) {
+func TestCodeBuddyCLIProviderChatStreamWithState_StartsSession(t *testing.T) {
 	fakeCodeBuddy := writeFakeCodeBuddyScript(t, "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"system\",\"session_id\":\"session-new\"}' '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"hello from codebuddy\"}]}}' '{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"hello from codebuddy\",\"session_id\":\"session-new\"}'\n")
 	var capturedArgs []string
 	restore := overrideCodeBuddyCLIForTestWithCapture(t, fakeCodeBuddy, func(args []string) {
@@ -286,8 +307,8 @@ func TestCodeBuddyCLIProviderChatStreamWithState_StartsTrackedSession(t *testing
 	if len(chunks) < 2 || chunks[0].Content != "hello from codebuddy" || !chunks[len(chunks)-1].Done {
 		t.Fatalf("unexpected stream chunks: %#v", chunks)
 	}
-	if !hasArg(capturedArgs, "--enable-session-tracking") {
-		t.Fatalf("expected session tracking flag, got args %#v", capturedArgs)
+	if hasArg(capturedArgs, "--enable-session-tracking") {
+		t.Fatalf("did not expect deprecated session tracking flag, got args %#v", capturedArgs)
 	}
 	if hasArg(capturedArgs, "--no-session-persistence") {
 		t.Fatalf("did not expect no-session-persistence flag, got args %#v", capturedArgs)
@@ -339,8 +360,8 @@ func TestCodeBuddyCLIProviderChatStreamWithState_ResumesExistingSessionWithoutDr
 	if !hasArgSequence(capturedArgs, "--resume", "session-existing") {
 		t.Fatalf("expected resume args, got %#v", capturedArgs)
 	}
-	if !hasArg(capturedArgs, "--enable-session-tracking") {
-		t.Fatalf("expected session tracking flag, got args %#v", capturedArgs)
+	if hasArg(capturedArgs, "--enable-session-tracking") {
+		t.Fatalf("did not expect deprecated session tracking flag, got args %#v", capturedArgs)
 	}
 	if hasArg(capturedArgs, "--no-session-persistence") {
 		t.Fatalf("did not expect no-session-persistence flag, got args %#v", capturedArgs)
@@ -393,7 +414,7 @@ func overrideCodeBuddyCLIForTest(t *testing.T, fakeCodeBuddyPath string) func() 
 		return originalLookPath(name)
 	}
 	codebuddyCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		if name == "codebuddy" || name == "cbc" {
+		if name == fakeCodeBuddyPath || name == "codebuddy" || name == "cbc" {
 			return exec.CommandContext(ctx, fakeCodeBuddyPath, args...)
 		}
 		return originalCommandContext(ctx, name, args...)
@@ -423,7 +444,7 @@ func overrideCodeBuddyCLIForTestWithCapture(t *testing.T, fakeCodeBuddyPath stri
 		return originalLookPath(name)
 	}
 	codebuddyCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		if name == "codebuddy" || name == "cbc" {
+		if name == fakeCodeBuddyPath || name == "codebuddy" || name == "cbc" {
 			if capture != nil {
 				capture(args)
 			}

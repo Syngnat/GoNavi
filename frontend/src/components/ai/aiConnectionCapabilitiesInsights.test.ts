@@ -81,6 +81,33 @@ describe('aiConnectionCapabilitiesInsights', () => {
     expect(snapshot.restrictions).toContain('drop_database_hidden');
   });
 
+  it('does not advertise Elasticsearch index creation as generic database creation', () => {
+    const connections: SavedConnection[] = [{
+      id: 'conn-es',
+      name: 'Elasticsearch dev',
+      config: {
+        type: 'elasticsearch',
+        host: '127.0.0.1',
+        port: 9200,
+        user: '',
+      },
+    }];
+
+    const snapshot = buildConnectionCapabilitiesSnapshot({
+      connectionId: 'conn-es',
+      connections,
+    });
+
+    if (!snapshot.hasConnection || !snapshot.capabilities) {
+      throw new Error('expected Elasticsearch connection snapshot');
+    }
+
+    expect(snapshot.capabilities.supportsCreateIndex).toBe(true);
+    expect(snapshot.capabilities.supportsCreateDatabase).toBe(false);
+    expect(snapshot.supportedActions).not.toContain('create_database');
+    expect(snapshot.restrictions).toContain('create_database_hidden');
+  });
+
   it('includes publish_message when the datasource exposes message publish capability', () => {
     const connections: SavedConnection[] = [{
       id: 'conn-kafka',

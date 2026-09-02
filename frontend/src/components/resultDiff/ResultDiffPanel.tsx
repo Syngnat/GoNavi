@@ -110,6 +110,7 @@ const ResultDiffPanel: React.FC<ResultDiffPanelProps> = ({
   const [selected, setSelected] = useState<ResultDiffRow | null>(null);
   /** 预览模式：切换即刷新预览；导出按当前模式落盘 */
   const [previewMode, setPreviewMode] = useState<ResultDiffPreviewMode>('side_by_side');
+  const loadPageRequestRef = useRef(0);
   /** 差异对比默认独立窗口，避免挡主工作区且便于操作下拉 */
   const [detached, setDetached] = useState(true);
   const [bounds, setBounds] = useState<FloatingBounds>(() => initialFloatingBounds());
@@ -195,6 +196,7 @@ const ResultDiffPanel: React.FC<ResultDiffPanelProps> = ({
 
   const loadPage = useCallback(async () => {
     if (!jobId || !open) return;
+    const requestId = ++loadPageRequestRef.current;
     setLoading(true);
     try {
       const result = await fetchResultDiffPage({
@@ -204,6 +206,7 @@ const ResultDiffPanel: React.FC<ResultDiffPanelProps> = ({
         offset: (page - 1) * pageSize,
         limit: pageSize,
       });
+      if (requestId !== loadPageRequestRef.current) return;
       setRows(result.rows);
       setTotal(result.total);
       setSelected((prev) => {
@@ -214,15 +217,22 @@ const ResultDiffPanel: React.FC<ResultDiffPanelProps> = ({
         return still || null;
       });
     } catch (error: any) {
+      if (requestId !== loadPageRequestRef.current) return;
       message.error(error?.message || String(error));
     } finally {
-      setLoading(false);
+      if (requestId === loadPageRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [jobId, open, page, pageSize, changedColumn, resolveKinds]);
 
   useEffect(() => {
+    if (!open) {
+      loadPageRequestRef.current += 1;
+      return;
+    }
     void loadPage();
-  }, [loadPage]);
+  }, [loadPage, open]);
 
   useEffect(() => {
     setPage(1);

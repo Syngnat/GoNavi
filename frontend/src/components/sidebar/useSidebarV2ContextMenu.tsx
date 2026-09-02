@@ -17,7 +17,7 @@ import {
 import type { SavedConnection } from '../../types';
 import { t } from '../../i18n';
 import { DBQuery } from '../../../wailsjs/go/app/App';
-import { getCaseInsensitiveRawValue, getCaseInsensitiveValue, getMetadataDialect, splitQualifiedName, escapeSQLLiteral, parseSidebarTableRowCount, shouldHideSchemaPrefix } from './sidebarMetadataLoaders';
+import { getCaseInsensitiveRawValue, getCaseInsensitiveValue, getMetadataDialect, splitQualifiedName, escapeSQLLiteral, parseSidebarTableRowCount } from './sidebarMetadataLoaders';
 import { getDataSourceCapabilities } from '../../utils/dataSourceCapabilities';
 import { resolveConnectionHostSummary } from '../../utils/tabDisplay';
 import { resolveConnectionIconType } from '../../utils/connectionVisual';
@@ -76,6 +76,7 @@ type SidebarV2ContextMenuOptions = {
   handleDeleteSchema: (node: any) => void;
   openRenameSchemaModal: (node: any) => void;
   openSchemaVisibilitySettings: (node: any) => void;
+  supportsConnectionVisibility: (connection: SavedConnection) => boolean;
   resolveMessagePublishTarget: (node: any) => unknown;
   addSqlLog: (log: any) => void;
   handleV2TableContextMenuAction: (node: any, action: V2TableContextMenuActionKey) => void;
@@ -224,6 +225,7 @@ export const useSidebarV2ContextMenu = ({
   handleDeleteSchema,
   openRenameSchemaModal,
   openSchemaVisibilitySettings,
+  supportsConnectionVisibility,
   resolveMessagePublishTarget,
   addSqlLog,
   handleV2TableContextMenuAction,
@@ -240,7 +242,9 @@ export const useSidebarV2ContextMenu = ({
       const invalidateDatabaseStats = (event: Event) => {
           const request = normalizeSidebarDatabaseRefreshRequest((event as CustomEvent).detail);
           if (!request) return;
-          const keyPrefix = `${request.connectionId}::${request.dbName}::`;
+          const keyPrefix = request.dbName
+              ? `${request.connectionId}::${request.dbName}::`
+              : `${request.connectionId}::`;
           setV2TableContextMenuStats((current) => {
               const staleKeys = Object.keys(current).filter((key) => key.startsWith(keyPrefix));
               if (staleKeys.length === 0) return current;
@@ -396,7 +400,7 @@ export const useSidebarV2ContextMenu = ({
               shortcutPlatform={activeShortcutPlatform}
               dialect={dialect}
               supportsSchemaActions={isPostgresSchemaDialect(dialect)}
-              supportsSchemaVisibility={shouldHideSchemaPrefix(node.dataRef as SavedConnection)}
+              supportsSchemaVisibility={capabilities.supportsSecondarySchemaVisibility}
               supportsStarRocksActions={dialect === 'starrocks'}
               supportsRenameDatabase={capabilities.supportsRenameDatabase}
               supportsDropDatabase={capabilities.supportsDropDatabase}
@@ -454,6 +458,7 @@ export const useSidebarV2ContextMenu = ({
   const renderV2ConnectionContextMenu = (node: any) => {
       const conn = node.dataRef as SavedConnection;
       const capabilities = getDataSourceCapabilities(conn?.config);
+      const isMessageQueue = ['mqtt', 'kafka', 'rocketmq', 'rabbitmq'].includes(capabilities.type);
       const currentTagId = connectionTags.find((tag) => tag.connectionIds.includes(String(conn.id || node.key)))?.id || '';
       return (
           <V2ConnectionContextMenuView
@@ -462,8 +467,15 @@ export const useSidebarV2ContextMenu = ({
               hostSummary={resolveConnectionHostSummary(conn?.config)}
               driverLabel={resolveConnectionIconType(conn)}
               isRedis={conn?.config?.type === 'redis'}
+              supportsCreateIndex={capabilities.supportsCreateIndex}
+              createIndexLabel={capabilities.supportsCreateIndex
+                  ? t('query_editor.elasticsearch.templates.create_index')
+                  : undefined}
               supportsCreateDatabase={capabilities.supportsCreateDatabase}
+              supportsVisibility={supportsConnectionVisibility(conn)}
               supportsQueryEditor={capabilities.supportsQueryEditor}
+              isMessageQueue={isMessageQueue}
+              supportsMessagePublish={capabilities.supportsMessagePublish}
               tags={connectionTags.map((tag) => ({
                   id: tag.id,
                   name: tag.name,

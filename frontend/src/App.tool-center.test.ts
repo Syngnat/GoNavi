@@ -10,8 +10,67 @@ const appCss = readFileSync(
   fileURLToPath(new globalThis.URL('./App.css', import.meta.url)),
   'utf8',
 );
+const sidebarSource = readFileSync(
+  fileURLToPath(new globalThis.URL('./components/Sidebar.tsx', import.meta.url)),
+  'utf8',
+);
 
 describe('settings center tool entries', () => {
+
+  it('keeps the connection/database/object summary in the V2 explorer actions without the Host address', () => {
+    const titlebarStart = appSource.indexOf('{/* Custom Title Bar */}');
+    const titlebarEnd = appSource.indexOf('{showLinuxCJKFontBanner && (', titlebarStart);
+    const titlebarSource = appSource.slice(titlebarStart, titlebarEnd);
+
+    expect(titlebarStart).toBeGreaterThanOrEqual(0);
+    expect(titlebarEnd).toBeGreaterThan(titlebarStart);
+    expect(titlebarSource).not.toContain('className="gn-v2-titlebar-center"');
+    expect(titlebarSource).not.toContain('data-titlebar-active-context');
+    expect(appSource).toContain('const v2ExplorerContext = useMemo(() => ({');
+    expect(appSource).toContain('v2ExplorerContext={v2ExplorerContext}');
+    expect(sidebarSource).toContain('className="gn-v2-explorer-context"');
+    expect(sidebarSource).toContain('{context.databaseName}');
+    expect(sidebarSource).toContain('{context.objectName}');
+    expect(appSource).toContain('onTitlebarSnapshotChange={setSidebarTitlebarSnapshot}');
+
+    const explorerContextStart = appSource.indexOf('const explorerContextConnectionName');
+    const explorerContextEnd = appSource.indexOf('const primaryActionIsMessageQueue', explorerContextStart);
+    const explorerContextSource = appSource.slice(explorerContextStart, explorerContextEnd);
+    expect(explorerContextStart).toBeGreaterThanOrEqual(0);
+    expect(explorerContextEnd).toBeGreaterThan(explorerContextStart);
+    expect(explorerContextSource).toContain('databaseName: titlebarContext.databaseName');
+    expect(explorerContextSource).toContain('objectName: titlebarContext.tableName');
+    expect(explorerContextSource).not.toContain('titlebarContext.hostSummary');
+    expect(explorerContextSource).not.toContain('detailText');
+  });
+
+  it('applies the V2 document scope before the first titlebar paint', () => {
+    const appearanceEffectStart = appSource.indexOf('// Apply the document theme before the first paint.');
+    const appearanceEffectEnd = appSource.indexOf('  }, [', appearanceEffectStart);
+
+    expect(appearanceEffectStart).toBeGreaterThanOrEqual(0);
+    expect(appearanceEffectEnd).toBeGreaterThan(appearanceEffectStart);
+
+    const appearanceEffectSource = appSource.slice(appearanceEffectStart, appearanceEffectEnd);
+    expect(appearanceEffectSource).toContain('useLayoutEffect(() => {');
+    expect(appearanceEffectSource).toContain("document.body.setAttribute('data-ui-version', appearance.uiVersion);");
+  });
+
+  it('exposes toolbar button overrides from both V2 and legacy theme settings', () => {
+    expect(appSource.match(/<ToolbarButtonAppearanceSettings \/>/g)).toHaveLength(2);
+
+    const legacySettingsStart = appSource.indexOf('const renderThemeSettingsContentLegacy = () =>');
+    const legacySettingsEnd = appSource.indexOf(
+      'const renderThemeSettingsContent = () =>',
+      legacySettingsStart,
+    );
+    const legacySettingsSource = appSource.slice(legacySettingsStart, legacySettingsEnd);
+
+    expect(legacySettingsStart).toBeGreaterThanOrEqual(0);
+    expect(legacySettingsEnd).toBeGreaterThan(legacySettingsStart);
+    expect(legacySettingsSource).toContain("t('app.theme.toolbar_buttons.legacy_hint')");
+    expect(legacySettingsSource).toContain('<ToolbarButtonAppearanceSettings />');
+  });
 
   it('captures native window bounds before maximising and before the final quit flush', () => {
     const startupRestoreStart = appSource.indexOf('const restoreWindowState = async');

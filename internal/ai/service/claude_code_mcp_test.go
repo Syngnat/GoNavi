@@ -31,6 +31,7 @@ func disableLocalCLICommandShellFallback(t *testing.T) {
 	t.Helper()
 	original := localCLICommandShellCandidatesFunc
 	localCLICommandShellCandidatesFunc = func() []string { return nil }
+	t.Setenv("NVM_DIR", filepath.Join(t.TempDir(), "empty-nvm"))
 	t.Cleanup(func() { localCLICommandShellCandidatesFunc = original })
 }
 
@@ -169,6 +170,7 @@ func TestDetectLocalCLICommandFallsBackToLoginShellPath(t *testing.T) {
 
 	const command = "claude"
 	const shellPath = "/Users/mock/.local/bin/claude"
+	t.Setenv("NVM_DIR", filepath.Join(t.TempDir(), "empty-nvm"))
 	localCLICommandPathFunc = func(value string) (string, error) {
 		if value == command {
 			return "", exec.ErrNotFound
@@ -298,6 +300,7 @@ func TestDetectLocalCLICommandShellLookupHonorsTimeout(t *testing.T) {
 		localCLICommandShellLookupTimeout = originalTimeout
 	})
 
+	t.Setenv("NVM_DIR", filepath.Join(t.TempDir(), "empty-nvm"))
 	localCLICommandPathFunc = func(string) (string, error) { return "", exec.ErrNotFound }
 	localCLICommandShellCandidatesFunc = func() []string { return []string{"/bin/zsh", "/bin/bash"} }
 	var shellCalls int

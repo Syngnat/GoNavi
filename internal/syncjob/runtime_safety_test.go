@@ -60,6 +60,36 @@ func TestStoreClaimRunRequiresRunnableJobLifecycle(t *testing.T) {
 	}
 }
 
+func TestStorePurgeJobRemovesJobAndDependentRows(t *testing.T) {
+	store := openTestStore(t)
+
+	definition := putTestJob(t, store, "forbid")
+	run := createStoredRun(t, store, definition, RunStatusSucceeded)
+	if _, err := store.AppendRunEvent(context.Background(), RunEvent{
+		RunID: run.ID, JobID: definition.ID, Type: RunEventSucceeded,
+	}); err != nil {
+		t.Fatalf("append run event: %v", err)
+	}
+
+	if err := store.PurgeJob(context.Background(), definition.ID); err != nil {
+		t.Fatalf("purge job: %v", err)
+	}
+	if _, err := store.GetJob(context.Background(), definition.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected job to be gone, got %v", err)
+	}
+	if _, err := store.GetRun(context.Background(), run.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected run to be cascade-deleted, got %v", err)
+	}
+
+	// 重复删除与删除不存在的任务都返回 ErrNotFound。
+	if err := store.PurgeJob(context.Background(), definition.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound on second purge, got %v", err)
+	}
+	if err := store.PurgeJob(context.Background(), "missing-job"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for missing job, got %v", err)
+	}
+}
+
 func TestManagerArchiveCancelsQueuedAndRunningRuns(t *testing.T) {
 	store := openTestStore(t)
 	definition := putTestJob(t, store, "queue")

@@ -95,6 +95,13 @@ describe('aiSettingsModalConfig', () => {
     expect(preset.key).toBe('cursor');
   });
 
+  it('offers Cursor CLI as a separate local-login preset with optional model selection', () => {
+    expect(findPreset('cursor-cli')).toMatchObject({
+      backendType: 'custom', fixedApiFormat: 'cursor-cli', authMode: 'local-cli', defaultBaseUrl: '', defaultModel: '', models: [],
+    });
+    expect(matchProviderPreset({ type: 'custom', apiFormat: 'cursor-cli', authMode: 'local-cli', baseUrl: '' }).key).toBe('cursor-cli');
+  });
+
   it('exposes and recognizes the Atlas Cloud preset', () => {
     const preset = findPreset('atlascloud');
 
@@ -214,7 +221,7 @@ describe('aiSettingsModalConfig', () => {
 
     expect(qwen).toMatchObject({
       label: 'Qwen (Bailian General)',
-      desc: 'Bailian Anthropic-compatible endpoint / remote model list',
+      desc: 'Bailian Chat / Anthropic-compatible endpoints',
     });
     expect(custom).toMatchObject({
       label: 'Custom',
@@ -227,6 +234,9 @@ describe('aiSettingsModalConfig', () => {
     expect(localized.find((item) => item.key === 'cursor')).toMatchObject({
       label: 'Cursor',
       desc: 'Cloud Agents API / official API Key',
+    });
+    expect(localized.find((item) => item.key === 'cursor-cli')).toMatchObject({
+      label: 'Cursor CLI', desc: 'Local Cursor CLI / existing sign-in', authMode: 'local-cli',
     });
     expect(localized.find((item) => item.key === 'codex')).toMatchObject({
       label: 'Codex Subscription',

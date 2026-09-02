@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CUSTOM_THEME_MAX_BYTES,
+  CUSTOM_THEME_TEMPLATE,
   ensureCustomThemeMonacoSurfaceVars,
   extractComputedCustomThemeAntTokens,
   extractCustomThemeAntTokens,
@@ -10,6 +11,42 @@ import {
 } from './customTheme';
 
 describe('custom theme CSS validation', () => {
+  it('publishes toolbar foreground, background and border tokens in the downloadable template', () => {
+    expect(validateCustomThemeCss(CUSTOM_THEME_TEMPLATE)).toEqual(expect.objectContaining({ ok: true }));
+    const states = ['', '-hover', '-active', '-disabled'];
+
+    for (const kind of ['button', 'primary']) {
+      for (const state of states) {
+        for (const token of ['fg', 'bg', 'border']) {
+          expect(CUSTOM_THEME_TEMPLATE).toContain(
+            `--gn-toolbar-${kind}${state}-${token}:`,
+          );
+        }
+      }
+    }
+
+    for (const toolbar of ['query', 'result']) {
+      for (const kind of ['button', 'primary']) {
+        for (const state of states) {
+          for (const token of ['fg', 'bg', 'border']) {
+            expect(CUSTOM_THEME_TEMPLATE).toContain(
+              `--gn-${toolbar}-toolbar-${kind}${state}-${token}:`,
+            );
+          }
+        }
+      }
+    }
+
+    const scopedToolbarTokens = CUSTOM_THEME_TEMPLATE.match(
+      /--gn-(?:query|result)-toolbar-(?:button|primary)(?:-(?:hover|active|disabled))?-(?:fg|bg|border)\s*:/g,
+    ) ?? [];
+    expect(scopedToolbarTokens).toHaveLength(48);
+    expect(new Set(scopedToolbarTokens).size).toBe(48);
+    expect(CUSTOM_THEME_TEMPLATE).not.toMatch(
+      /--gn-client-(?:query|result)-toolbar-/,
+    );
+  });
+
   it('accepts local CSS and normalizes line endings', () => {
     const result = validateCustomThemeCss(
       'body[data-custom-theme] {\r\n  --gn-accent: #8b5cf6;\r\n}',

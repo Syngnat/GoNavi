@@ -12,6 +12,7 @@ import type {
   DataSyncObjectMetadata,
   DataSyncSavedConnectionView,
 } from './model';
+import type { WebRPCRequestOptions } from '../../utils/webRpc';
 
 export type DataSyncMetadataState<T> = {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -36,7 +37,7 @@ const useMetadataCollection = <T,>(
   gateway: DataSyncWorkbenchGateway,
   requestKey: string,
   enabled: boolean,
-  load: () => Promise<T[]>,
+  load: (options: WebRPCRequestOptions) => Promise<T[]>,
 ): DataSyncMetadataResult<T> => {
   const [state, setState] = useState<DataSyncMetadataState<T>>(idleState);
   const [reloadRevision, setReloadRevision] = useState(0);
@@ -52,9 +53,10 @@ const useMetadataCollection = <T,>(
     }
 
     let active = true;
+    const controller = new AbortController();
     setState({ status: 'loading', items: [], error: '' });
     void Promise.resolve()
-      .then(() => loadRef.current())
+      .then(() => loadRef.current({ signal: controller.signal }))
       .then(
         (items) => {
           if (!active || requestSequence.current !== requestId) return;
@@ -68,6 +70,7 @@ const useMetadataCollection = <T,>(
 
     return () => {
       active = false;
+      controller.abort();
     };
   }, [enabled, gateway, reloadRevision, requestKey]);
 
@@ -94,7 +97,7 @@ export const useDataSyncDatabases = (
     gateway,
     normalizedConnectionId,
     Boolean(normalizedConnectionId),
-    () => gateway.listDatabases(normalizedConnectionId),
+    (options) => gateway.listDatabases(normalizedConnectionId, options),
   );
 };
 
@@ -104,8 +107,8 @@ export const useDataSyncObjects = (
 ): DataSyncMetadataResult<DataSyncObjectMetadata> => {
   const requestKey = dataSyncEndpointMetadataKey(endpoint);
   const enabled = Boolean(endpoint.connectionId.trim());
-  return useMetadataCollection(gateway, requestKey, enabled, () =>
-    gateway.listObjects({ ...endpoint }),
+  return useMetadataCollection(gateway, requestKey, enabled, (options) =>
+    gateway.listObjects({ ...endpoint }, options),
   );
 };
 
@@ -116,7 +119,7 @@ export const useDataSyncFields = (
 ): DataSyncMetadataResult<DataSyncFieldMetadata> => {
   const requestKey = dataSyncObjectMetadataKey(endpoint, objectName);
   const enabled = Boolean(endpoint.connectionId.trim() && objectName.trim());
-  return useMetadataCollection(gateway, requestKey, enabled, () =>
-    gateway.listFields({ ...endpoint }, objectName),
+  return useMetadataCollection(gateway, requestKey, enabled, (options) =>
+    gateway.listFields({ ...endpoint }, objectName, options),
   );
 };

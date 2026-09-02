@@ -13,10 +13,16 @@ import { hasIndexFormChanged, normalizeIndexFormFromRow, resolveIndexMetadataRes
 import { buildIndexCreateSqlPreview } from './tableDesignerIndexSql';
 import { buildAlterTablePreviewSql, buildCreateTablePreviewSql, hasAlterTableDraftChanges, type StarRocksCreateTableOptions, type StarRocksDistributionType, type StarRocksKeyModel, type StarRocksTableKind, type TDengineCreateTableOptions, type TDengineTableKind, type TDengineTagDefinition } from './tableDesignerSchemaSql';
 import { summarizeDuckDbPrimaryKeyChange } from './tableDesignerDuckDbPrimaryKey';
-import { normalizeSchemaStatementForExecution, parseTableCommentFromDDL, splitSchemaExecutionStatements } from './tableDesignerExecutionSql';
+import {
+    executeTableDesignerSchemaStatements,
+    parseTableCommentFromDDL,
+    splitSchemaExecutionStatements,
+    type TableDesignerSchemaExecutionResult,
+} from './tableDesignerExecutionSql';
 import TableDesignerSqlPreview from './TableDesignerSqlPreview';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
 import { noAutoCapInputProps } from '../utils/inputAutoCap';
+import { dispatchSidebarDatabaseRefresh } from '../utils/sidebarDatabaseRefresh';
 import { getCurrentLanguage, t } from '../i18n';
 import { useOptionalI18n } from '../i18n/provider';
 import {
@@ -24,6 +30,11 @@ import {
     normalizeColumnDefinition,
 } from '../utils/columnDefinition';
 import { buildEditableTriggerSql } from '../utils/triggerEditSql';
+import {
+    buildTableDesignerTriggerDropSql,
+    buildTableDesignerTriggerRestoreSql,
+    shouldDropTableDesignerTriggerBeforeReplace,
+} from '../utils/tableDesignerTriggerSql';
 import { confirmProductionRisk } from '../utils/productionRiskConfirm';
 import { findPotentiallyMutatingConnectionStatements } from '../utils/connectionReadOnly';
 import {
@@ -97,16 +108,14 @@ interface ForeignKeyFormState {
     refColumnNames: string[];
 }
 
-interface SchemaExecutionResult {
-    ok: boolean;
+interface SchemaExecutionResult extends TableDesignerSchemaExecutionResult {
     cancelled?: boolean;
-    message?: string;
-    failedStatementIndex?: number;
-    statementCount: number;
+    rawMessage?: string;
 }
 
 interface SchemaExecutionOptions {
     skipProductionRiskConfirm?: boolean;
+    splitStatements?: boolean;
 }
 
 // 通用兜底类型列表
@@ -1397,31 +1406,7 @@ END;`;
         ? resolveTableInfo().qualifiedName
         : (tab.tableName || '');
 
-    switch (dbType) {
-      case 'mysql':
-      case 'mariadb':
-      case 'oceanbase':
-      case 'diros':
-      case 'starrocks':
-        return `DROP TRIGGER IF EXISTS \`${triggerName}\``;
-      case 'postgres':
-      case 'kingbase':
-      case 'highgo':
-      case 'vastbase':
-      case 'opengauss':
-      case 'gaussdb':
-        return `DROP TRIGGER IF EXISTS ${quoteIdentifierPartByDialect(triggerName, dbType)} ON ${quoteIdentifierPathByDialect(tblName, dbType)}`;
-      case 'sqlserver':
-        return `DROP TRIGGER IF EXISTS [${triggerName}]`;
-      case 'oracle':
-      case 'dameng':
-      case 'dm':
-        return `DROP TRIGGER "${triggerName}"`;
-      case 'sqlite':
-        return `DROP TRIGGER IF EXISTS "${triggerName}"`;
-      default:
-        return `DROP TRIGGER ${triggerName}`;
-    }
+    return buildTableDesignerTriggerDropSql(triggerName, tblName, dbType);
   };
 
   const handleCreateTrigger = () => {
@@ -1438,26 +1423,34 @@ END;`;
         : (tab.tableName || '');
     let createSql = '';
 
-    if (dbType === 'mysql') {
-      createSql = `CREATE TRIGGER \`${selectedTrigger.name}\`
-${selectedTrigger.timing} ${selectedTrigger.event} ON \`${tblName}\`
-FOR EACH ROW
-${selectedTrigger.statement}`;
-    } else {
-      createSql = selectedTrigger.statement || '-- Trigger definition unavailable';
-    }
+    const triggerRollbackSql = buildTableDesignerTriggerRestoreSql(selectedTrigger, tblName, dbType);
+    createSql = triggerRollbackSql
+      || selectedTrigger.statement
+      || '-- Trigger definition unavailable';
+    const triggerDropSql = shouldDropTableDesignerTriggerBeforeReplace(triggerRollbackSql, dbType)
+      ? buildDropTriggerSql(selectedTrigger.name)
+      : '';
 
     const dbName = String(tab.dbName || '').trim();
-    setActiveContext({ connectionId: tab.connectionId, dbName });
+    const schemaName = String(selectedSchema || tab.schemaName || '').trim();
+    setActiveContext({
+      connectionId: tab.connectionId,
+      dbName,
+      schemaName: schemaName || undefined,
+    });
     addTab({
       id: `query-edit-trigger-${tab.connectionId}-${dbName}-${tab.tableName || ''}-${selectedTrigger.name}-${Date.now()}`,
       title: t('table_designer.tab.edit_trigger_title', { name: selectedTrigger.name }, i18nLanguage),
       type: 'query',
       connectionId: tab.connectionId,
       dbName,
+      schemaName: schemaName || undefined,
       query: buildEditableTriggerSql(selectedTrigger.name, createSql, {
-        dropSql: buildDropTriggerSql(selectedTrigger.name),
+        dropSql: triggerDropSql,
       }),
+      triggerName: selectedTrigger.name,
+      triggerTableName: tblName,
+      triggerRollbackSql: triggerRollbackSql || undefined,
       queryMode: 'object-edit',
     });
   };
@@ -1479,15 +1472,6 @@ ${selectedTrigger.statement}`;
           return;
         }
 
-        const config = {
-          ...conn.config,
-          port: Number(conn.config.port),
-          password: conn.config.password || "",
-          database: conn.config.database || "",
-          useSSH: conn.config.useSSH || false,
-          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
-        };
-
         const approved = await confirmProductionRisk({
           connection: conn,
           action: t('connection.production_risk.action.execute_sql'),
@@ -1499,13 +1483,18 @@ ${selectedTrigger.statement}`;
         const dropSql = buildDropTriggerSql(selectedTrigger.name);
 
         try {
-          const res = await DBQueryAudited(buildRpcConnectionConfig(config) as any, tab.dbName || '', dropSql, 'table_designer');
-          if (res.success) {
+          const result = await executeSchemaStatements(dropSql, {
+            skipProductionRiskConfirm: true,
+          });
+          if (result.ok) {
             setSelectedTrigger(null);
             await fetchData();
             message.success(t('table_designer.message.trigger_deleted', undefined, i18nLanguage));
           } else {
-            message.error(t('table_designer.message.delete_failed', { detail: res.message }, i18nLanguage));
+            if (result.schemaMayHaveChanged) await fetchData();
+            message.error(t('table_designer.message.delete_failed', {
+              detail: result.rawMessage || result.message,
+            }, i18nLanguage));
           }
         } catch (e: any) {
           message.error(t('table_designer.message.delete_failed', { detail: e?.message || String(e) }, i18nLanguage));
@@ -1521,14 +1510,10 @@ ${selectedTrigger.statement}`;
       return;
     }
 
-    const config = {
-      ...conn.config,
-      port: Number(conn.config.port),
-      password: conn.config.password || "",
-      database: conn.config.database || "",
-      useSSH: conn.config.useSSH || false,
-      ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
-    };
+    if (!String(triggerEditSql || '').trim()) {
+      message.error(t('table_designer.message.no_sql_statement', undefined, i18nLanguage));
+      return;
+    }
 
     const approved = await confirmProductionRisk({
       connection: conn,
@@ -1541,20 +1526,56 @@ ${selectedTrigger.statement}`;
     setTriggerExecuting(true);
 
     try {
+      let triggerSchemaMayHaveChanged = false;
+      const dbType = getDbType();
+      const restoreTableName = supportsRequestedTableDesignerSchemaSelection(dbType)
+        ? resolveTableInfo().qualifiedName
+        : (tab.tableName || '');
+      const restoreSql = triggerEditMode === 'edit' && selectedTrigger
+        ? buildTableDesignerTriggerRestoreSql(selectedTrigger, restoreTableName, dbType)
+        : '';
+      const shouldDropExistingTrigger = triggerEditMode === 'edit'
+        && Boolean(selectedTrigger)
+        && shouldDropTableDesignerTriggerBeforeReplace(restoreSql, dbType);
       // 如果是编辑模式，先删除旧触发器
-      if (triggerEditMode === 'edit' && selectedTrigger) {
+      if (shouldDropExistingTrigger && selectedTrigger) {
         const dropSql = buildDropTriggerSql(selectedTrigger.name);
-        const dropRes = await DBQueryAudited(buildRpcConnectionConfig(config) as any, tab.dbName || '', dropSql, 'table_designer');
-        if (!dropRes.success) {
-          message.error(t('table_designer.message.drop_old_trigger_failed', { detail: dropRes.message }, i18nLanguage));
-          setTriggerExecuting(false);
+        const dropResult = await executeSchemaStatements(dropSql, {
+          skipProductionRiskConfirm: true,
+        });
+        if (!dropResult.ok) {
+          const failureDetail = dropResult.rawMessage || dropResult.message;
+          if (dropResult.schemaMayHaveChanged && restoreSql) {
+            const restoreResult = await executeSchemaStatements(restoreSql, {
+              skipProductionRiskConfirm: true,
+              splitStatements: false,
+            });
+            await fetchData();
+            message.error(restoreResult.ok
+              ? t('table_designer.message.trigger_restored_after_failure', {
+                detail: failureDetail,
+              }, i18nLanguage)
+              : t('table_designer.message.trigger_restore_failed', {
+                detail: failureDetail,
+                restoreDetail: restoreResult.rawMessage || restoreResult.message,
+              }, i18nLanguage));
+          } else {
+            if (dropResult.schemaMayHaveChanged) await fetchData();
+            message.error(t('table_designer.message.drop_old_trigger_failed', {
+              detail: failureDetail,
+            }, i18nLanguage));
+          }
           return;
         }
+        triggerSchemaMayHaveChanged = true;
       }
 
       // 执行创建语句
-      const res = await DBQueryAudited(buildRpcConnectionConfig(config) as any, tab.dbName || '', triggerEditSql, 'table_designer');
-      if (res.success) {
+      const result = await executeSchemaStatements(triggerEditSql, {
+        skipProductionRiskConfirm: true,
+        splitStatements: false,
+      });
+      if (result.ok) {
         setIsTriggerEditModalOpen(false);
         setSelectedTrigger(null);
         await fetchData();
@@ -1562,7 +1583,34 @@ ${selectedTrigger.statement}`;
             ? t('table_designer.message.trigger_created', undefined, i18nLanguage)
             : t('table_designer.message.trigger_updated', undefined, i18nLanguage));
       } else {
-        message.error(t('table_designer.message.execution_failed', { detail: res.message }, i18nLanguage));
+        if (triggerSchemaMayHaveChanged || result.schemaMayHaveChanged) await fetchData();
+        const failureDetail = result.rawMessage || result.message;
+        if (triggerSchemaMayHaveChanged && restoreSql) {
+          const restoreResult = await executeSchemaStatements(restoreSql, {
+            skipProductionRiskConfirm: true,
+            splitStatements: false,
+          });
+          if (restoreResult.ok) {
+            await fetchData();
+            message.error(t('table_designer.message.trigger_restored_after_failure', {
+              detail: failureDetail,
+            }, i18nLanguage));
+          } else {
+            await fetchData();
+            message.error(t('table_designer.message.trigger_restore_failed', {
+              detail: failureDetail,
+              restoreDetail: restoreResult.rawMessage || restoreResult.message,
+            }, i18nLanguage));
+          }
+        } else if (triggerSchemaMayHaveChanged) {
+          message.error(t('table_designer.message.trigger_restore_unavailable', {
+            detail: failureDetail,
+          }, i18nLanguage));
+        } else {
+          message.error(t('table_designer.message.execution_failed', {
+            detail: failureDetail,
+          }, i18nLanguage));
+        }
       }
     } catch (e: any) {
       message.error(t('table_designer.message.execution_failed', { detail: e?.message || String(e) }, i18nLanguage));
@@ -2218,14 +2266,6 @@ ${selectedTrigger.statement}`;
           message.error(t('table_designer.message.connection_not_found', undefined, i18nLanguage));
           return;
       }
-      const config = {
-          ...conn.config,
-          port: Number(conn.config.port),
-          password: conn.config.password || "",
-          database: conn.config.database || "",
-          useSSH: conn.config.useSSH || false,
-          ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
-      };
       const approved = await confirmProductionRisk({
           connection: conn,
           action: t('connection.production_risk.action.execute_sql'),
@@ -2240,12 +2280,16 @@ ${selectedTrigger.statement}`;
       const sql = buildCreateTableSql(copyTableName.trim(), selectedColumns, copyCharset, copyCollation);
       setCopyExecuting(true);
       try {
-          const res = await DBQueryAudited(buildRpcConnectionConfig(config) as any, tab.dbName || '', sql, 'table_designer');
-          if (res.success) {
+          const result = await executeSchemaStatements(sql, {
+              skipProductionRiskConfirm: true,
+          });
+          if (result.ok) {
               message.success(t('table_designer.message.columns_copied_to_new_table', { count: selectedColumns.length, table: copyTableName.trim() }, i18nLanguage));
               setIsCopyColumnsModalOpen(false);
           } else {
-              message.error(t('table_designer.message.execution_failed', { detail: res.message }, i18nLanguage));
+              message.error(t('table_designer.message.execution_failed', {
+                  detail: result.rawMessage || result.message,
+              }, i18nLanguage));
           }
       } finally {
           setCopyExecuting(false);
@@ -2269,7 +2313,15 @@ ${selectedTrigger.statement}`;
           ssh: conn.config.ssh || { host: "", port: 22, user: "", password: "", keyPath: "" }
       };
       const dbType = resolveTableInfo().dbType;
-      const statements = splitSchemaExecutionStatements(sqlText);
+      const statements = options.splitStatements === false
+          ? (String(sqlText || '').trim() ? [sqlText] : [])
+          : splitSchemaExecutionStatements(sqlText);
+      const refreshSchemaConsumers = () => {
+          dispatchSidebarDatabaseRefresh({
+              connectionId: tab.connectionId,
+              dbName: tab.dbName || '',
+          });
+      };
       if (
           !options.skipProductionRiskConfirm
           && findPotentiallyMutatingConnectionStatements(conn.config, sqlText).length > 0
@@ -2284,22 +2336,33 @@ ${selectedTrigger.statement}`;
               return { ok: false, cancelled: true, statementCount: statements.length };
           }
       }
-      for (let i = 0; i < statements.length; i++) {
-          const stmt = normalizeSchemaStatementForExecution(statements[i], dbType);
-          const res = await DBQueryAudited(buildRpcConnectionConfig(config) as any, tab.dbName || '', stmt, 'table_designer');
-          if (!res.success) {
-              const prefix = statements.length > 1
-                  ? t('table_designer.message.statement_execution_failed_prefix', { current: i + 1, total: statements.length }, i18nLanguage)
-                  : t('table_designer.message.execution_failed_prefix', undefined, i18nLanguage);
-              return {
-                  ok: false,
-                  message: prefix + res.message,
-                  failedStatementIndex: i,
-                  statementCount: statements.length,
-              };
-          }
-      }
-      return { ok: true, statementCount: statements.length };
+      const result = await executeTableDesignerSchemaStatements({
+          sqlText,
+          dbType,
+      execute: (statement) => DBQueryAudited(
+          buildRpcConnectionConfig(config) as any,
+          tab.dbName || '',
+          statement,
+          'table_designer',
+      ),
+      refreshSchemaConsumers,
+      emptySqlMessage: t('table_designer.message.no_sql_statement', undefined, i18nLanguage),
+      splitStatements: options.splitStatements,
+    });
+      if (result.ok) return result;
+
+      const failedStatementIndex = result.failedStatementIndex ?? 0;
+      const prefix = statements.length > 1
+          ? t('table_designer.message.statement_execution_failed_prefix', {
+              current: failedStatementIndex + 1,
+              total: statements.length,
+          }, i18nLanguage)
+          : t('table_designer.message.execution_failed_prefix', undefined, i18nLanguage);
+      return {
+          ...result,
+          rawMessage: result.message,
+          message: prefix + String(result.message || ''),
+      };
   };
 
   const buildIndexFormFromRow = (row: IndexDisplayRow): IndexFormState => {
@@ -2327,6 +2390,7 @@ ${selectedTrigger.statement}`;
 
       if (!shouldRestoreOriginalIndex(result)) {
           message.error(result.message || t('table_designer.message.execution_failed_plain', undefined, i18nLanguage));
+          if (result.schemaMayHaveChanged) await fetchData();
           return false;
       }
 
@@ -2351,7 +2415,7 @@ ${selectedTrigger.statement}`;
           if (!result.ok) {
               if (result.cancelled) return false;
               message.error(result.message || t('table_designer.message.execution_failed_plain', undefined, i18nLanguage));
-              if ((result.failedStatementIndex ?? 0) > 0) await fetchData();
+              if (result.schemaMayHaveChanged) await fetchData();
               return false;
           }
           await fetchData();
@@ -2913,15 +2977,18 @@ END;`;
       });
   };
 
-	  const handleExecuteSave = async () => {
-	      const result = await executeSchemaStatements(previewSql);
-	      if (!result.ok) {
-	          if (result.cancelled) return;
-	          message.error(result.message || t('table_designer.message.execution_failed_plain', undefined, i18nLanguage));
-	          return;
-	      }
-	      setIsPreviewOpen(false);
-	      if (!isNewTable) {
+  const handleExecuteSave = async () => {
+      const result = await executeSchemaStatements(previewSql);
+      if (!result.ok) {
+          if (result.cancelled) return;
+          message.error(result.message || t('table_designer.message.execution_failed_plain', undefined, i18nLanguage));
+          if (result.schemaMayHaveChanged && !isNewTable) {
+              await fetchData();
+          }
+          return;
+      }
+      setIsPreviewOpen(false);
+      if (!isNewTable) {
               await fetchData();
           } else {
               const connectionId = String(tab.connectionId || '').trim();
@@ -2941,10 +3008,10 @@ END;`;
                   }));
               }
           }
-	      message.success(isNewTable
+      message.success(isNewTable
               ? t('table_designer.message.schema_saved_create', undefined, i18nLanguage)
               : t('table_designer.message.schema_saved_alter', undefined, i18nLanguage));
-	  };
+  };
 
   // Merge columns with resize handler
   const resizableColumns = useMemo(() => tableColumns.map((col, index) => ({

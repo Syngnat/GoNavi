@@ -15,7 +15,7 @@ import (
 	"GoNavi-Wails/internal/logger"
 )
 
-var codebuddyLookPath = exec.LookPath
+var codebuddyLookPath = lookupLocalCLICommand
 var codebuddyCommandContext = exec.CommandContext
 var codebuddyCLIRequestTimeout = 90 * time.Second
 
@@ -68,7 +68,7 @@ func (p *CodeBuddyCLIProvider) ChatWithState(ctx context.Context, state json.Raw
 		return nil, nil, err
 	}
 	prompt := buildPrompt(req.Messages)
-	args := []string{"-p", prompt, "--output-format", "json", "--enable-session-tracking"}
+	args := []string{"-p", prompt, "--output-format", "json"}
 	if strings.TrimSpace(p.config.Model) != "" {
 		args = append(args, "--model", strings.TrimSpace(p.config.Model))
 	}
@@ -167,7 +167,7 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 	}
 
 	prompt := buildPrompt(req.Messages)
-	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--enable-session-tracking"}
+	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages"}
 	if strings.TrimSpace(p.config.Model) != "" {
 		args = append(args, "--model", strings.TrimSpace(p.config.Model))
 	}
@@ -339,11 +339,11 @@ func marshalCodeBuddySessionState(sessionID string) (json.RawMessage, error) {
 
 func resolveCodeBuddyCLICommand(lookPath func(string) (string, error)) (string, error) {
 	for _, command := range []string{"codebuddy", "cbc"} {
-		if _, err := lookPath(command); err == nil {
-			return command, nil
+		if resolved, err := lookPath(command); err == nil {
+			return resolved, nil
 		}
 	}
-	return "", fmt.Errorf("CodeBuddy CLI command not found. Install it first: npm install -g @tencent/codebuddy")
+	return "", fmt.Errorf("CodeBuddy CLI command not found. Install it first: npm install -g @tencent-ai/codebuddy-code")
 }
 
 func codebuddyCLIEndpointForLog(config ai.ProviderConfig) string {
@@ -424,7 +424,7 @@ func (p *CodeBuddyCLIProvider) setEnv(cmd *exec.Cmd) error {
 	if err != nil {
 		return err
 	}
-	cmd.Env = env
+	cmd.Env = EnrichCLICommandPATH(env, cmd.Path)
 	return nil
 }
 

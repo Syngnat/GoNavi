@@ -787,61 +787,55 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
         </div>
         {keepAliveSQLSupported ? (
           <>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 650,
-                color: "var(--gn-fg-3)",
-                marginBottom: 4,
-              }}
-            >
-              {t("connection.modal.network.keepAliveSQL.label")}
-            </div>
-            <Form.Item
-              name="keepAliveSQL"
-              rules={[
-                {
-                  max: MAX_CONNECTION_KEEPALIVE_SQL_LENGTH,
-                  message: t("connection.modal.network.keepAliveSQL.maxLength"),
-                },
-                {
-                  validator: (_, value) => {
-                    const sql = String(value || "").trim();
-                    if (
-                      !sql ||
-                      !keepAliveEnabled ||
-                      isSingleReadOnlyConnectionQuery(
-                        {
-                          type: dbType,
-                          driver: connectionDriver,
-                          oceanBaseProtocol: oceanBaseProtocol,
-                        },
-                        sql,
-                      )
-                    ) {
-                      return Promise.resolve();
-                    }
-                    return Promise.reject(
-                      new Error(
-                        t("connection.modal.network.keepAliveSQL.readOnly"),
-                      ),
-                    );
+            <div className="gn-conn-multiline-field">
+              <div className="gn-conn-el">
+                {t("connection.modal.network.keepAliveSQL.label")}
+              </div>
+              <Form.Item
+                name="keepAliveSQL"
+                noStyle
+                rules={[
+                  {
+                    max: MAX_CONNECTION_KEEPALIVE_SQL_LENGTH,
+                    message: t("connection.modal.network.keepAliveSQL.maxLength"),
                   },
-                },
-              ]}
-              style={{ marginBottom: 22 }}
-            >
-              <Input.TextArea
-                {...noAutoCapInputProps}
-                autoSize={{ minRows: 2, maxRows: 4 }}
-                disabled={!keepAliveEnabled}
-                maxLength={MAX_CONNECTION_KEEPALIVE_SQL_LENGTH}
-                placeholder="SELECT 1"
-                showCount
-              />
-            </Form.Item>
-            <div className="gn-conn-field-hint">
-              {t("connection.modal.network.keepAliveSQL.help")}
+                  {
+                    validator: (_, value) => {
+                      const sql = String(value || "").trim();
+                      if (
+                        !sql ||
+                        !keepAliveEnabled ||
+                        isSingleReadOnlyConnectionQuery(
+                          {
+                            type: dbType,
+                            driver: connectionDriver,
+                            oceanBaseProtocol: oceanBaseProtocol,
+                          },
+                          sql,
+                        )
+                      ) {
+                        return Promise.resolve();
+                      }
+                      return Promise.reject(
+                        new Error(
+                          t("connection.modal.network.keepAliveSQL.readOnly"),
+                        ),
+                      );
+                    },
+                  },
+                ]}
+              >
+                <Input.TextArea
+                  {...noAutoCapInputProps}
+                  autoSize={{ minRows: 2, maxRows: 4 }}
+                  disabled={!keepAliveEnabled}
+                  maxLength={MAX_CONNECTION_KEEPALIVE_SQL_LENGTH}
+                  placeholder="SELECT 1"
+                />
+              </Form.Item>
+              <div className="gn-conn-field-hint">
+                {t("connection.modal.network.keepAliveSQL.help")}
+              </div>
             </div>
           </>
         ) : null}

@@ -33,13 +33,26 @@ const deferred = <T,>() => {
   return { promise, resolve };
 };
 
-const buttonWithText = (
+const buttonsWithText = (
   renderer: TestRenderer.ReactTestRenderer,
   text: string,
 ) =>
   renderer.root
     .findAllByType('button')
-    .find((button) => button.children.includes(text))!;
+    .filter(
+      (button) =>
+        button.children.includes(text) ||
+        button.findAll((node) => node.children.includes(text)).length > 0,
+    );
+
+const buttonWithText = (
+  renderer: TestRenderer.ReactTestRenderer,
+  text: string,
+) => buttonsWithText(renderer, text)[0]!;
+
+const sourceObjectAction = (renderer: TestRenderer.ReactTestRenderer) =>
+  buttonsWithText(renderer, '选择源对象')[0] ??
+  buttonsWithText(renderer, '添加源对象')[0]!;
 
 describe('data sync multi-object selection', () => {
   it('adds all current source tables, matches targets, and detects keys in one action', async () => {
@@ -170,15 +183,15 @@ describe('data sync multi-object selection', () => {
     act(() => buttonWithText(renderer, '选择同步数据').props.onClick());
     await flush();
 
-    expect(buttonWithText(renderer, '选择源对象').props.disabled).toBe(true);
+    expect(buttonsWithText(renderer, '选择源对象')).toHaveLength(0);
     await act(async () => {
       targetObjects.resolve([{ name: 'orders', kind: 'table' }]);
       await targetObjects.promise;
     });
-    expect(buttonWithText(renderer, '选择源对象').props.disabled).toBe(false);
+    expect(buttonWithText(renderer, '选择源对象').props.disabled).toBeUndefined();
   });
 
-  it('preserves edits made while asynchronous key detection is running', async () => {
+  it('preserves edits and deletions made while background key detection is running', async () => {
     const draft = createDataSyncTaskDraft({
       id: 'merge-late-metadata-task',
       kind: 'reconcile',
@@ -234,7 +247,7 @@ describe('data sync multi-object selection', () => {
     await flush();
     act(() => buttonWithText(renderer, '选择同步数据').props.onClick());
     await flush();
-    act(() => buttonWithText(renderer, '选择源对象').props.onClick());
+    act(() => buttonWithText(renderer, '添加源对象').props.onClick());
     act(() =>
       renderer.root
         .findByProps({ 'data-object-name': 'orders' })
@@ -242,12 +255,31 @@ describe('data sync multi-object selection', () => {
         .props.onChange({ target: { checked: true } }),
     );
     act(() => buttonWithText(renderer, '添加 1 个对象').props.onClick());
+    await flush();
 
-    const existingTarget = renderer.root.findAllByProps({
-      'data-object-side': 'target',
-    })[0];
+    expect(
+      renderer.root.findAllByProps({ 'data-data-sync-object-picker': 'true' }),
+    ).toHaveLength(0);
+    expect(renderer.root.findByProps({ 'data-mapping-probe': 'running' })).toBeTruthy();
+
+    const existingTarget = renderer.root
+      .findByProps({ 'data-mapping-id': 'existing-map' })
+      .findByProps({ 'data-object-side': 'target' });
     act(() =>
       existingTarget.props.onChange({ target: { value: 'customers_archive' } }),
+    );
+    const orderRow = renderer.root
+      .findAll((node) => typeof node.props['data-mapping-id'] === 'string')
+      .find((row) =>
+        row
+          .findAllByProps({ 'data-object-side': 'source' })
+          .some((input) => input.props.value === 'orders'),
+      )!;
+    act(() =>
+      orderRow
+        .findAllByType('button')
+        .find((button) => button.children.includes('删除'))!
+        .props.onClick(),
     );
     await act(async () => {
       orderFields.resolve([
@@ -261,7 +293,12 @@ describe('data sync multi-object selection', () => {
       renderer.root
         .findAllByProps({ 'data-object-side': 'target' })
         .map((input) => input.props.value),
-    ).toEqual(['customers_archive', 'orders']);
+    ).toEqual(['customers_archive']);
+    expect(
+      renderer.root
+        .findAllByProps({ 'data-object-side': 'source' })
+        .some((input) => input.props.value === 'orders'),
+    ).toBe(false);
     expect(
       renderer.root.findByProps({ 'data-mapping-id': 'existing-map' }).props[
         'data-ready'
@@ -323,6 +360,109 @@ describe('data sync multi-object selection', () => {
     await flush();
 
     expect(renderer.root.findAllByProps({ 'data-ready': 'true' })).toHaveLength(0);
+    const editExceptions = buttonWithText(renderer, '编辑例外');
+    expect(editExceptions.props['aria-expanded']).toBe(false);
+    act(() => editExceptions.props.onClick());
     expect(buttonWithText(renderer, '需要确认同步字段')).toBeTruthy();
+  });
+
+  it('keeps a second selection disabled until the active field probe finishes', async () => {
+    const draft = createDataSyncTaskDraft({
+      id: 'overlapping-probe-task',
+      kind: 'reconcile',
+    });
+    const source = {
+      connectionId: 'source',
+      connectionName: 'Source',
+      type: 'mysql',
+      database: 'sales',
+      schema: '',
+    };
+    const target = {
+      connectionId: 'target',
+      connectionName: 'Target',
+      type: 'postgresql',
+      database: 'warehouse',
+      schema: '',
+    };
+    const task = reviseDataSyncTask(draft, { source, target });
+    const alphaFields = deferred<DataSyncFieldMetadata[]>();
+    const betaFields = deferred<DataSyncFieldMetadata[]>();
+    const names = ['alpha', 'beta'];
+    const baseGateway = createStaticDataSyncWorkbenchGateway({
+      tasks: [task],
+      objectsByEndpoint: {
+        [dataSyncEndpointMetadataKey(source)]: names.map((name) => ({
+          name,
+          kind: 'table' as const,
+        })),
+        [dataSyncEndpointMetadataKey(target)]: names.map((name) => ({
+          name,
+          kind: 'table' as const,
+        })),
+      },
+      capabilities: {
+        [task.id]: {
+          level: 'full',
+          canExecute: true,
+          supportsAutoCreate: true,
+          supportsCdc: false,
+        },
+      },
+    });
+    const gateway: DataSyncWorkbenchGateway = {
+      ...baseGateway,
+      listFields: (endpoint, objectName) => {
+        if (endpoint.connectionId !== 'source') {
+          return baseGateway.listFields(endpoint, objectName);
+        }
+        return objectName === 'alpha' ? alphaFields.promise : betaFields.promise;
+      },
+    };
+    const renderer = TestRenderer.create(
+      <DataSyncWorkbenchShell initialTasks={[task]} gateway={gateway} locale="zh-CN" />,
+    );
+    await flush();
+    act(() => buttonWithText(renderer, '选择同步数据').props.onClick());
+    await flush();
+
+    const selectObject = async (name: string) => {
+      act(() => sourceObjectAction(renderer).props.onClick());
+      act(() =>
+        renderer.root
+          .findByProps({ 'data-object-name': name })
+          .findByType('input')
+          .props.onChange({ target: { checked: true } }),
+      );
+      act(() => buttonWithText(renderer, '添加 1 个对象').props.onClick());
+      await flush();
+    };
+    await selectObject('alpha');
+    expect(buttonWithText(renderer, '添加源对象').props.disabled).toBe(true);
+
+    const detectedFields: DataSyncFieldMetadata[] = [
+      { name: 'id', type: 'bigint', nullable: false, ordinal: 1, key: true },
+    ];
+    await act(async () => {
+      alphaFields.resolve(detectedFields);
+      await alphaFields.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(buttonWithText(renderer, '添加源对象').props.disabled).toBe(false);
+
+    await selectObject('beta');
+    await act(async () => {
+      betaFields.resolve(detectedFields);
+      await betaFields.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const rows = renderer.root.findAll(
+      (node) => typeof node.props['data-mapping-id'] === 'string',
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.props['data-ready'] === 'true')).toBe(true);
   });
 });

@@ -36,6 +36,58 @@ var _ QueryMessageExecer = (*KingbaseDB)(nil)
 var _ StatementQueryMessageExecer = (*kingbaseSessionExecer)(nil)
 var _ DatabaseForeignKeyProvider = (*KingbaseDB)(nil)
 
+var openKingbaseDB = sql.Open
+
+// resolveKingbaseConnectDatabases returns databases that can be used to establish
+// a connection. Kingbase follows PostgreSQL's default of using the login user as
+// the database when no database is supplied, which is surprising for the UI's
+// optional database field. Use known maintenance databases instead.
+func resolveKingbaseConnectDatabases(config connection.ConnectionConfig) []string {
+	params := url.Values{}
+	mergeConnectionParamValuesWithAllowlist(params, connectionParamsFromURI(config.URI, "kingbase", "postgres", "postgresql"), kingbaseConnectionParamNames)
+	mergeConnectionParamValuesWithAllowlist(params, connectionParamsFromText(config.ConnectionParams), kingbaseConnectionParamNames)
+
+	explicit := strings.TrimSpace(config.Database)
+	if explicit == "" {
+		explicit = kingbaseDatabaseFromURI(config.URI)
+	}
+	if paramDatabase := strings.TrimSpace(firstConnectionParamValue(params, "dbname", "database")); paramDatabase != "" {
+		explicit = paramDatabase
+	}
+	if explicit != "" {
+		return []string{explicit}
+	}
+
+	return []string{"test", "template1"}
+}
+
+// kingbaseDatabaseFromURI extracts the PostgreSQL-compatible database path
+// from a Kingbase URI. Explicit config.Database and query parameters have
+// higher priority and are applied by the caller.
+func kingbaseDatabaseFromURI(raw string) string {
+	parsed, ok := parseConnectionURI(raw, "kingbase", "postgres", "postgresql")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(parsed.Path, "/"))
+}
+
+func firstConnectionParamValue(params url.Values, keys ...string) string {
+	for _, key := range keys {
+		if values := params[key]; len(values) > 0 {
+			return values[len(values)-1]
+		}
+	}
+	return ""
+}
+
+func kingbaseConfigHasExplicitSearchPath(config connection.ConnectionConfig) bool {
+	params := url.Values{}
+	mergeConnectionParamValuesWithAllowlist(params, connectionParamsFromURI(config.URI, "kingbase", "postgres", "postgresql"), kingbaseConnectionParamNames)
+	mergeConnectionParamValuesWithAllowlist(params, connectionParamsFromText(config.ConnectionParams), kingbaseConnectionParamNames)
+	return strings.TrimSpace(params.Get("search_path")) != ""
+}
+
 func quoteConnValue(v string) string {
 	if v == "" {
 		return "''"
@@ -77,11 +129,21 @@ func (k *KingbaseDB) getDSN(config connection.ConnectionConfig) string {
 	params.Set("port", strconv.Itoa(config.Port))
 	params.Set("user", config.User)
 	params.Set("password", config.Password)
-	params.Set("dbname", config.Database)
+	dbname := strings.TrimSpace(config.Database)
+	if dbname == "" {
+		dbname = kingbaseDatabaseFromURI(config.URI)
+	}
+	if dbname == "" {
+		dbname = "test"
+	}
+	params.Set("dbname", dbname)
 	params.Set("sslmode", resolvePostgresSSLMode(config))
 	applyPostgresSSLPathParams(params, config)
 	params.Set("connect_timeout", strconv.Itoa(getConnectTimeoutSeconds(config)))
-	mergeConnectionParamsFromConfigWithAllowlist(params, config, kingbaseConnectionParamNames, "kingbase")
+	mergeConnectionParamsFromConfigWithAllowlist(params, config, kingbaseConnectionParamNames, "kingbase", "postgres", "postgresql")
+	if strings.TrimSpace(params.Get("dbname")) == "" {
+		params.Set("dbname", dbname)
+	}
 
 	preferred := []string{"host", "port", "user", "password", "dbname", "sslmode", "sslrootcert", "sslcert", "sslkey", "connect_timeout"}
 	seen := make(map[string]struct{}, len(params))
@@ -158,73 +220,92 @@ func (k *KingbaseDB) Connect(config connection.ConnectionConfig) (err error) {
 	}
 
 	var failures []string
-	for idx, attempt := range attempts {
-		dsn := k.getDSN(attempt)
-		db, err := sql.Open("kingbase", dsn)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("第%d次连接打开失败: %v", idx+1, err))
-			continue
-		}
-		configureSQLConnectionPool(db, "kingbase")
-		k.conn = db
-		k.pingTimeout = getConnectTimeout(attempt)
-		if err := k.Ping(); err != nil {
-			_ = db.Close()
-			k.conn = nil
-			failures = append(failures, fmt.Sprintf("第%d次连接验证失败: %v", idx+1, err))
-			continue
-		}
-		if idx > 0 {
-			logger.Warnf("人大金仓 SSL 优先连接失败，已回退至明文连接")
+	for sslIndex, sslConfig := range attempts {
+		sslLabel := "SSL"
+		if sslIndex > 0 {
+			sslLabel = "明文回退"
 		}
 
-		// 获取 schema 列表以重构带有 search_path 的连接池
-		searchPathStr := k.getSearchPathStr()
-		if searchPathStr != "" {
-			// 将 search_path 参数拼入 DSN
-			finalDSN := dsn + " search_path=" + quoteConnValue(searchPathStr)
-			if finalDB, err := sql.Open("kingbase", finalDSN); err == nil {
-				configureSQLConnectionPool(finalDB, "kingbase")
-				finalDB.SetConnMaxLifetime(5 * time.Minute)
-				k.pingTimeout = getConnectTimeout(attempt)
+		for _, dbName := range resolveKingbaseConnectDatabases(sslConfig) {
+			attempt := sslConfig
+			attempt.Database = dbName
+			dsn := k.getDSN(attempt)
+			db, err := openKingbaseDB("kingbase", dsn)
+			if err != nil {
+				failures = append(failures, fmt.Sprintf("%s 数据库=%s 打开连接失败: %v", sslLabel, dbName, err))
+				continue
+			}
+			configureSQLConnectionPool(db, "kingbase")
+			k.conn = db
+			k.pingTimeout = getConnectTimeout(attempt)
+			if err := k.Ping(); err != nil {
+				_ = db.Close()
+				k.conn = nil
+				failures = append(failures, fmt.Sprintf("%s 数据库=%s 验证失败: %v", sslLabel, dbName, err))
+				continue
+			}
+			if sslIndex > 0 {
+				logger.Warnf("人大金仓 SSL 优先连接失败，已回退至明文连接")
+			}
+			if strings.TrimSpace(config.Database) == "" {
+				logger.Infof("人大金仓自动选择连接数据库：%s", dbName)
+			}
 
-				// 临时将 k.conn 指向 finalDB 来做 ping 测试
-				oldConn := k.conn
-				k.conn = finalDB
-				if err := k.Ping(); err == nil {
-					// 成功使用带 search_path 的连接池
-					_ = oldConn.Close()
-					logger.Infof("人大金仓已配置连接级 search_path：%s", searchPathStr)
-				} else {
-					_ = finalDB.Close()
-					k.conn = oldConn
+			if err := k.ensureSearchPath(dsn, kingbaseConfigHasExplicitSearchPath(attempt)); err != nil {
+				failures = append(failures, fmt.Sprintf("%s 数据库=%s 配置 search_path 失败: %v", sslLabel, dbName, err))
+				if k.conn != nil {
+					_ = k.conn.Close()
+					k.conn = nil
 				}
+				continue
 			}
-		}
-		if searchPathStr != "" {
-			timeout := k.pingTimeout
-			if timeout <= 0 {
-				timeout = 5 * time.Second
-			}
-			ctx, cancel := utils.ContextWithTimeout(timeout)
-			defer cancel()
-			if _, err := k.conn.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", searchPathStr)); err != nil {
-				logger.Warnf("人大金仓显式设置 search_path 失败：%v", err)
-			} else {
-				logger.Infof("人大金仓已设置默认 search_path：%s", searchPathStr)
-			}
-		}
 
-		return nil
+			return nil
+		}
 	}
 	return fmt.Errorf("连接建立后验证失败：%s", strings.Join(failures, "；"))
 }
 
+func (k *KingbaseDB) ensureSearchPath(baseDSN string, hasExplicitSearchPath bool) error {
+	if k.conn == nil {
+		return fmt.Errorf("连接未打开")
+	}
+	if hasExplicitSearchPath {
+		return nil
+	}
+
+	searchPath, err := k.getSearchPathStr()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(searchPath) == "" {
+		return nil
+	}
+
+	newDB, err := openKingbaseDB("kingbase", baseDSN+" search_path="+quoteConnValue(searchPath))
+	if err != nil {
+		return fmt.Errorf("打开带 search_path 的连接失败: %w", err)
+	}
+	configureSQLConnectionPool(newDB, "kingbase")
+	newDB.SetConnMaxLifetime(5 * time.Minute)
+	oldConn := k.conn
+	k.conn = newDB
+	if err := k.Ping(); err != nil {
+		_ = newDB.Close()
+		k.conn = oldConn
+		return fmt.Errorf("验证带 search_path 的连接失败: %w", err)
+	}
+
+	_ = oldConn.Close()
+	logger.Infof("人大金仓已配置连接级 search_path：%s", searchPath)
+	return nil
+}
+
 // getSearchPathStr 查询当前数据库中所有用户 schema，配置 DSN 的 search_path。
 // KingBase 默认 search_path 为 "$user", public，对于自定义 schema 下的表不可见。
-func (k *KingbaseDB) getSearchPathStr() string {
+func (k *KingbaseDB) getSearchPathStr() (string, error) {
 	if k.conn == nil {
-		return ""
+		return "", nil
 	}
 
 	query := `SELECT nspname FROM pg_namespace
@@ -234,8 +315,7 @@ func (k *KingbaseDB) getSearchPathStr() string {
 
 	rows, err := k.conn.QueryContext(metadataContextFor(k), query)
 	if err != nil {
-		logger.Warnf("人大金仓查询用户 schema 失败，跳过 search_path 设置：%v", err)
-		return ""
+		return "", fmt.Errorf("查询用户 schema：%w", err)
 	}
 	defer rows.Close()
 
@@ -243,16 +323,19 @@ func (k *KingbaseDB) getSearchPathStr() string {
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			continue
+			return "", fmt.Errorf("扫描用户 schema：%w", err)
 		}
 		name = strings.TrimSpace(name)
 		if name != "" {
 			rawSchemas = append(rawSchemas, name)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("遍历用户 schema：%w", err)
+	}
 
 	searchPath, _ := buildKingbaseSearchPathCommon(rawSchemas)
-	return searchPath
+	return searchPath, nil
 }
 
 func (k *KingbaseDB) Close() error {
@@ -468,7 +551,7 @@ func getKingbaseNameFromRow(row map[string]interface{}, keys ...string) string {
 func (k *KingbaseDB) GetTables(dbName string) ([]string, error) {
 	// Kingbase: tables are scoped by the current DB connection; include schema to avoid search_path issues.
 	query := `
-		SELECT table_schema AS schemaname, table_name AS tablename
+		SELECT DISTINCT table_schema AS schemaname, table_name AS tablename
 		FROM information_schema.tables
 		WHERE table_type = 'BASE TABLE'
 		  AND table_schema NOT IN ('pg_catalog', 'information_schema')
@@ -480,19 +563,7 @@ func (k *KingbaseDB) GetTables(dbName string) ([]string, error) {
 		return nil, err
 	}
 
-	var tables []string
-	for _, row := range data {
-		schema, okSchema := row["schemaname"]
-		name, okName := row["tablename"]
-		if okSchema && okName {
-			tables = append(tables, fmt.Sprintf("%v.%v", schema, name))
-			continue
-		}
-		if val, ok := row["table_name"]; ok {
-			tables = append(tables, fmt.Sprintf("%v", val))
-		}
-	}
-	return tables, nil
+	return parsePostgresTableNames(data), nil
 }
 
 func (k *KingbaseDB) GetCreateStatement(dbName, tableName string) (string, error) {

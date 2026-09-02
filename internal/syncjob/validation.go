@@ -94,6 +94,14 @@ func NormalizeDefinition(input JobDefinition) JobDefinition {
 	if definition.Options.Content == "" {
 		definition.Options.Content = "data"
 	}
+	// 结构型迁移的补列缺省值落盘为显式 true：历史任务因旧版 omitempty 丢失
+	// 该字段，归一化后写回可让存储自描述；读取端另有 AutoAddColumnsEnabled
+	// 兜底，未经归一化的旧记录同样生效。
+	if definition.Kind == JobKindMigration && definition.Options.AutoAddColumns == nil &&
+		contentAllowsSchemaChanges(definition.Options.Content) {
+		enabled := true
+		definition.Options.AutoAddColumns = &enabled
+	}
 	if definition.Options.SyncMode == "" {
 		definition.Options.SyncMode = "insert_update"
 	}
@@ -209,8 +217,8 @@ func ValidateDefinition(input JobDefinition) error {
 		return errors.New("at least one table mapping must be enabled")
 	}
 	if definition.IncrementalMode == IncrementalCDC {
-		if definition.CDC == nil || strings.TrimSpace(definition.CDC.Adapter) == "" {
-			return errors.New("CDC jobs require an explicit adapter")
+		if definition.CDC == nil {
+			return errors.New("CDC jobs require CDC configuration")
 		}
 		switch definition.CDC.StartPosition {
 		case "", "checkpoint", "latest", "earliest":

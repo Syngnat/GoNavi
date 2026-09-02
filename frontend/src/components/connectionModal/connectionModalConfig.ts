@@ -217,6 +217,7 @@ export const buildSavedConnectionInput = ({
   return {
     id: connectionId,
     name: nextName,
+    createdAt: initialValues?.createdAt,
     environmentType: normalizeConnectionEnvironmentType(values.environmentType),
     config: {
       ...config,

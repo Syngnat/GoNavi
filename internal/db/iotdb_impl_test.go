@@ -4,6 +4,8 @@ package db
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"reflect"
 	"strconv"
@@ -237,6 +239,37 @@ func TestIoTDBQueryContextOnlySendsExplicitDeadlineToServer(t *testing.T) {
 	}
 	if session.queryTimeouts[1] <= 0 || session.queryTimeouts[1] > 2000 {
 		t.Fatalf("explicit context deadline was not propagated: %dms", session.queryTimeouts[1])
+	}
+}
+
+func TestIoTDBConnectExplainsRPCHandshakeEOF(t *testing.T) {
+	originalFactory := newIoTDBSessionRunner
+	t.Cleanup(func() { newIoTDBSessionRunner = originalFactory })
+	newIoTDBSessionRunner = func(connection.ConnectionConfig) (iotdbSessionRunner, error) {
+		return nil, io.EOF
+	}
+
+	client := &IoTDBDB{}
+	err := client.Connect(connection.ConnectionConfig{
+		Type: "iotdb",
+		Host: "iotdb.local",
+		Port: 6667,
+	})
+	if err == nil {
+		t.Fatal("expected RPC handshake failure")
+	}
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("Connect error lost EOF cause: %v", err)
+	}
+	for _, fragment := range []string{
+		"IoTDB RPC 握手未收到有效响应",
+		"iotdb.local:6667",
+		"dn_rpc_address",
+		"rpcCompression",
+	} {
+		if !strings.Contains(err.Error(), fragment) {
+			t.Fatalf("Connect error %q missing diagnostic %q", err, fragment)
+		}
 	}
 }
 

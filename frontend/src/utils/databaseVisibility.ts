@@ -133,3 +133,37 @@ export const filterVisibleDatabaseNames = (
   return databaseNames.filter((databaseName) =>
     isDatabaseVisibleWithPreparedRules(rules, databaseName));
 };
+
+export const moveExactDatabaseVisibilityEntry = (
+  source: DatabaseVisibilitySource,
+  fromDatabase: unknown,
+  toDatabase: unknown,
+): string[] | undefined => {
+  const from = String(fromDatabase || '').trim();
+  const to = String(toDatabase || '').trim();
+  if (!from || !to || !Array.isArray(source.includeDatabases)) {
+    return source.includeDatabases ? [...source.includeDatabases] : undefined;
+  }
+  const seen = new Set<string>();
+  const next = source.includeDatabases.reduce<string[]>((result, item) => {
+    const name = String(item || '').trim();
+    if (!name) return result;
+    const moved = name === from ? to : name;
+    if (seen.has(moved)) return result;
+    seen.add(moved);
+    result.push(moved);
+    return result;
+  }, []);
+  return next.length > 0 ? next : undefined;
+};
+
+export const removeExactDatabaseVisibilityEntry = (
+  source: DatabaseVisibilitySource,
+  database: unknown,
+): string[] | undefined => {
+  const target = String(database || '').trim();
+  if (!target || !Array.isArray(source.includeDatabases)) {
+    return source.includeDatabases ? [...source.includeDatabases] : undefined;
+  }
+  return source.includeDatabases.filter((name) => name !== target);
+};

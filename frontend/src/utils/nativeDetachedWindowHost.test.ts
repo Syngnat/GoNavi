@@ -10,6 +10,7 @@ import {
   forwardNativeDetachedHostEvent,
   shouldApplyNativeDetachedHideRevision,
   syncNativeAIChatHostState,
+  syncNativeDetachedAppearance,
   syncNativeDetachedShortcutOptions,
   syncNativeDetachedThemeContext,
   toggleOrFocusNativeAIChatFromMainWindow,
@@ -549,6 +550,28 @@ describe('nativeDetachedWindowHost', () => {
       expect(request.storeState).toEqual(request.id === 'ai-chat'
         ? expect.objectContaining({ shortcutOptions })
         : { shortcutOptions });
+    }
+  });
+
+  it('pushes changed appearance settings to every detached window kind', async () => {
+    const appearance = {
+      ...useStore.getState().appearance,
+      toolbarButtonColorOverrides: {
+        query: {
+          'button-bg': 'rgba(18, 52, 86, 0.8)',
+        },
+      },
+    };
+
+    await expect(syncNativeDetachedAppearance([
+      'workbench:query-1',
+      'query-result:query-1:r1',
+      'ai-chat',
+    ], appearance, manager)).resolves.toBe(true);
+
+    expect(manager.SyncHostState).toHaveBeenCalledTimes(3);
+    for (const [request] of vi.mocked(manager.SyncHostState!).mock.calls) {
+      expect(request.storeState).toEqual({ appearance });
     }
   });
 

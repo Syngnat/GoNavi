@@ -101,3 +101,76 @@ func TestStartDriverPackageDownloadRecordsFailureWithoutProgressEvent(t *testing
 	}
 	t.Fatalf("background failure was not recorded: %#v", app.ListDriverDownloadTasks())
 }
+
+func TestStartDriverPackageDownloadPreservesProgressOnEmittedFailure(t *testing.T) {
+	app := NewApp()
+	app.driverDownloadTaskRunner = func(driverType string, _ string, _ string, _ string) connection.QueryResult {
+		app.emitDriverDownloadProgress(driverType, "downloading", 92, 100, "building local fallback")
+		app.emitDriverDownloadProgress(driverType, "error", 0, 0, "driver download failed")
+		return connection.QueryResult{Success: false, Message: "driver download failed"}
+	}
+
+	started := app.StartDriverPackageDownload("sqlserver", "1.9.6", "builtin://activate/sqlserver", t.TempDir())
+	if !started.Success {
+		t.Fatalf("start background driver download failed: %#v", started)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		listed := app.ListDriverDownloadTasks()
+		tasks, ok := listed.Data.([]DriverDownloadTaskStatus)
+		if listed.Success && ok && len(tasks) == 1 && !tasks[0].Running {
+			task := tasks[0]
+			if task.Status != "error" || task.Percent != 92 {
+				t.Fatalf("terminal task = %#v, want status=error running=false percent=92", task)
+			}
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("background failure was not recorded: %#v", app.ListDriverDownloadTasks())
+}
+
+func TestStartDriverPackageDownloadKeepsEmittedFailureTerminal(t *testing.T) {
+	app := NewApp()
+	staleProgressEmitted := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	app.driverDownloadTaskRunner = func(driverType string, _ string, _ string, _ string) connection.QueryResult {
+		app.emitDriverDownloadProgress(driverType, "downloading", 92, 100, "building local fallback")
+		app.emitDriverDownloadProgress(driverType, "error", 0, 0, "driver download failed")
+		app.emitDriverDownloadProgress(driverType, "downloading", 95, 100, "stale download progress")
+		close(staleProgressEmitted)
+		<-release
+		return connection.QueryResult{Success: false, Message: "driver download failed"}
+	}
+
+	started := app.StartDriverPackageDownload("sqlserver", "1.9.6", "builtin://activate/sqlserver", t.TempDir())
+	if !started.Success {
+		t.Fatalf("start background driver download failed: %#v", started)
+	}
+
+	select {
+	case <-staleProgressEmitted:
+	case <-time.After(time.Second):
+		t.Fatal("background driver download did not emit stale progress")
+	}
+
+	listed := app.ListDriverDownloadTasks()
+	tasks, ok := listed.Data.([]DriverDownloadTaskStatus)
+	if !listed.Success || !ok || len(tasks) != 1 {
+		t.Fatalf("unexpected running task list: %#v", listed.Data)
+	}
+	task := tasks[0]
+	if !task.Running || task.Status != "error" || task.Percent != 92 {
+		t.Fatalf("task after stale progress = %#v, want status=error running=true percent=92", task)
+	}
+
+	close(release)
+}

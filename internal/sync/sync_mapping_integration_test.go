@@ -3,8 +3,10 @@ package sync
 import (
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/db"
+	redispkg "GoNavi-Wails/internal/redis"
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -17,6 +19,7 @@ type mappingSyncDatabase struct {
 	columnsByTable map[string][]connection.ColumnDefinition
 	queryRows      []map[string]interface{}
 	queries        []string
+	execs          []string
 	appliedTable   string
 	applied        connection.ChangeSet
 	appliedBatches []connection.ChangeSet
@@ -32,7 +35,10 @@ func (d *mappingSyncDatabase) Query(query string) ([]map[string]interface{}, []s
 	}
 	return rows, nil, nil
 }
-func (d *mappingSyncDatabase) Exec(string) (int64, error) { return 0, nil }
+func (d *mappingSyncDatabase) Exec(query string) (int64, error) {
+	d.execs = append(d.execs, query)
+	return 0, nil
+}
 func (d *mappingSyncDatabase) GetColumns(schema, table string) ([]connection.ColumnDefinition, error) {
 	return append([]connection.ColumnDefinition(nil), d.columnsByTable[schema+"."+table]...), nil
 }
@@ -111,6 +117,61 @@ func TestRunSyncExplicitMappingUsesMappedTargetAndProjectedRows(t *testing.T) {
 	}
 }
 
+func TestRunSyncSchemaOnlyExplicitMappingAddsMissingColumnsWithoutRows(t *testing.T) {
+	source := &mappingSyncDatabase{
+		columnsByTable: map[string][]connection.ColumnDefinition{
+			"local.orders": {
+				{Name: "id", Type: "bigint", Key: "PRI"},
+				{Name: "name", Type: "varchar(64)"},
+				{Name: "status", Type: "varchar(16)"},
+			},
+		},
+		queryRows: []map[string]interface{}{{"id": int64(1), "name": "alice", "status": "active"}},
+	}
+	target := &mappingSyncDatabase{
+		columnsByTable: map[string][]connection.ColumnDefinition{
+			"online.orders_archive": {
+				{Name: "id", Type: "bigint", Key: "PRI"},
+				{Name: "name", Type: "varchar(64)"},
+			},
+		},
+	}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: source},
+		syncDatabaseFactoryStep{db: target},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:        connection.ConnectionConfig{Type: "mysql"},
+		TargetConfig:        connection.ConnectionConfig{Type: "mysql"},
+		SourceDatabase:      "local",
+		TargetDatabase:      "online",
+		TargetTableStrategy: "existing_only",
+		Tables:              []string{"orders"},
+		Content:             "schema",
+		Mode:                "insert_update",
+		AutoAddColumns:      true,
+		Mappings: []SyncObjectMapping{{
+			ID:     "orders-to-archive",
+			Source: SyncObjectRef{Schema: "local", Name: "orders"},
+			Target: SyncObjectRef{Schema: "online", Name: "orders_archive"},
+		}},
+	})
+
+	if !result.Success || result.TablesSynced != 1 {
+		t.Fatalf("RunSync() = %+v, want one schema-synced table", result)
+	}
+	if len(target.execs) != 1 || !strings.Contains(target.execs[0], "ADD COLUMN `status` varchar(16) NULL") {
+		t.Fatalf("target schema execs = %#v, want one status ADD COLUMN", target.execs)
+	}
+	if len(source.queries) != 0 || len(target.queries) != 0 {
+		t.Fatalf("schema-only sync queried rows: source=%#v target=%#v", source.queries, target.queries)
+	}
+	if len(target.appliedBatches) != 0 {
+		t.Fatalf("schema-only sync applied row changes: %#v", target.appliedBatches)
+	}
+}
+
 func TestRunSyncExplicitMappingUsesConfiguredKeyWithoutPhysicalPK(t *testing.T) {
 	source := &mappingSyncDatabase{
 		columnsByTable: map[string][]connection.ColumnDefinition{
@@ -154,11 +215,74 @@ func TestRunSyncExplicitMappingUsesConfiguredKeyWithoutPhysicalPK(t *testing.T) 
 			},
 		}},
 	})
-	if !result.Success || result.RowsUpdated != 1 || result.RowsInserted != 0 {
-		t.Fatalf("RunSync() = %+v, want explicit-key update without physical PK", result)
+	if !result.Success || result.TablesSynced != 1 || result.RowsUpdated != 1 {
+		t.Fatalf("RunSync() = %+v, want configured-key update", result)
 	}
-	if len(target.applied.Updates) != 1 || !reflect.DeepEqual(target.applied.Updates[0].Keys, map[string]interface{}{"user_id": int64(7)}) {
-		t.Fatalf("explicit-key update = %#v", target.applied.Updates)
+	if len(target.applied.Updates) != 1 || len(target.applied.Inserts) != 0 || len(target.applied.Deletes) != 0 {
+		t.Fatalf("configured key must drive the update diff: %#v", target.applied)
+	}
+	if got := target.applied.Updates[0].Keys; !reflect.DeepEqual(got, map[string]interface{}{"user_id": int64(7)}) {
+		t.Fatalf("update keys = %#v, want mapped configured key", got)
+	}
+}
+
+func TestRunSyncExplicitMappingUsesConfiguredKeyOverPhysicalPrimaryKey(t *testing.T) {
+	source := &mappingSyncDatabase{
+		columnsByTable: map[string][]connection.ColumnDefinition{
+			"APP.users": {
+				{Name: "id", Type: "NUMBER", Key: "PK"},
+				{Name: "email", Type: "VARCHAR2(100)"},
+				{Name: "name", Type: "VARCHAR2(100)"},
+			},
+		},
+		queryRows: []map[string]interface{}{{"id": int64(8), "email": "old@example.com", "name": "new"}},
+	}
+	target := &mappingSyncDatabase{
+		columnsByTable: map[string][]connection.ColumnDefinition{
+			"dbo.people": {
+				{Name: "user_id", Type: "BIGINT", Key: "PK"},
+				{Name: "email", Type: "NVARCHAR(100)"},
+				{Name: "display_name", Type: "NVARCHAR(100)"},
+			},
+		},
+		queryRows: []map[string]interface{}{{"user_id": int64(7), "email": "old@example.com", "display_name": "old"}},
+	}
+	useSyncDatabaseFactorySequence(t,
+		syncDatabaseFactoryStep{db: source},
+		syncDatabaseFactoryStep{db: target},
+	)
+
+	result := NewSyncEngine(Reporter{}).RunSync(SyncConfig{
+		SourceConfig:   connection.ConnectionConfig{Type: "oracle"},
+		TargetConfig:   connection.ConnectionConfig{Type: "sqlserver"},
+		SourceDatabase: "APP",
+		TargetDatabase: "warehouse",
+		Tables:         []string{"users"},
+		Content:        "data",
+		Mode:           "insert_update",
+		TableOptions: map[string]TableOptions{
+			"users": {Update: true},
+		},
+		Mappings: []SyncObjectMapping{{
+			ID:         "users-to-people",
+			Source:     SyncObjectRef{Schema: "APP", Name: "users"},
+			Target:     SyncObjectRef{Schema: "dbo", Name: "people"},
+			KeyColumns: []string{"email"},
+			Columns: []SyncColumnMapping{
+				{Source: "id", Target: "user_id"},
+				{Source: "email", Target: "email"},
+				{Source: "name", Target: "display_name"},
+			},
+		}},
+	})
+	if !result.Success || result.RowsUpdated != 1 || result.RowsInserted != 0 || result.RowsDeleted != 0 {
+		t.Fatalf("RunSync() = %+v, want one configured-key update", result)
+	}
+	if len(target.applied.Updates) != 1 || len(target.applied.Inserts) != 0 || len(target.applied.Deletes) != 0 {
+		t.Fatalf("configured key must control diffing: %#v", target.applied)
+	}
+	if got := target.applied.Updates[0].Keys; !reflect.DeepEqual(got, map[string]interface{}{"email": "old@example.com"}) {
+		t.Fatalf("update keys = %#v, want mapped configured key", got)
 	}
 }
 
@@ -296,6 +420,282 @@ func TestRunSyncContextCancelsContextAwareQuery(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("RunSyncContext() did not return after cancellation")
+	}
+}
+
+func TestAnalyzeContextCancelsContextAwareQuery(t *testing.T) {
+	source := &contextAwareSyncDatabase{
+		queryStarted: make(chan struct{}),
+		columns:      []connection.ColumnDefinition{{Name: "id", Type: "NUMBER", Key: "PK"}},
+	}
+	target := &contextTargetSyncDatabase{
+		columns: []connection.ColumnDefinition{{Name: "id", Type: "BIGINT", Key: "PK"}},
+	}
+	originalFactory := newSyncDatabase
+	t.Cleanup(func() { newSyncDatabase = originalFactory })
+	newSyncDatabase = func(databaseType string) (db.Database, error) {
+		if databaseType == "oracle" {
+			return source, nil
+		}
+		return target, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	resultCh := make(chan SyncAnalyzeResult, 1)
+	go func() {
+		resultCh <- NewSyncEngine(Reporter{}).AnalyzeContext(ctx, SyncConfig{
+			SourceConfig:        connection.ConnectionConfig{Type: "oracle"},
+			TargetConfig:        connection.ConnectionConfig{Type: "sqlserver"},
+			SourceDatabase:      "APP",
+			TargetDatabase:      "warehouse",
+			TargetSchema:        "dbo",
+			Tables:              []string{"users"},
+			Content:             "data",
+			Mode:                "insert_only",
+			TargetTableStrategy: "existing_only",
+		})
+	}()
+
+	select {
+	case <-source.queryStarted:
+		cancel()
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for context-aware analyze query")
+	}
+
+	select {
+	case result := <-resultCh:
+		if result.Success || result.Message != context.Canceled.Error() {
+			t.Fatalf("AnalyzeContext() result = %+v, want context-cancelled failure", result)
+		}
+		if len(result.Tables) != 1 || !strings.Contains(result.Tables[0].Message, context.Canceled.Error()) {
+			t.Fatalf("AnalyzeContext() tables = %+v, want cancelled table summary", result.Tables)
+		}
+		if source.legacyCalls != 0 {
+			t.Fatalf("legacy Query calls = %d, want 0", source.legacyCalls)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("AnalyzeContext() did not return after cancellation")
+	}
+}
+
+func TestPreviewContextCancelsContextAwareQuery(t *testing.T) {
+	source := &contextAwareSyncDatabase{
+		queryStarted: make(chan struct{}),
+		columns:      []connection.ColumnDefinition{{Name: "id", Type: "NUMBER", Key: "PK"}},
+	}
+	target := &contextTargetSyncDatabase{
+		columns: []connection.ColumnDefinition{{Name: "id", Type: "BIGINT", Key: "PK"}},
+	}
+	originalFactory := newSyncDatabase
+	t.Cleanup(func() { newSyncDatabase = originalFactory })
+	newSyncDatabase = func(databaseType string) (db.Database, error) {
+		if databaseType == "oracle" {
+			return source, nil
+		}
+		return target, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := NewSyncEngine(Reporter{}).PreviewContext(ctx, SyncConfig{
+			SourceConfig:        connection.ConnectionConfig{Type: "oracle"},
+			TargetConfig:        connection.ConnectionConfig{Type: "sqlserver"},
+			SourceDatabase:      "APP",
+			TargetDatabase:      "warehouse",
+			TargetSchema:        "dbo",
+			Tables:              []string{"users"},
+			Content:             "data",
+			Mode:                "insert_only",
+			TargetTableStrategy: "existing_only",
+		}, "users", 25)
+		errCh <- err
+	}()
+
+	select {
+	case <-source.queryStarted:
+		cancel()
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for context-aware preview query")
+	}
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("PreviewContext() error = %v, want context.Canceled", err)
+		}
+		if source.legacyCalls != 0 {
+			t.Fatalf("legacy Query calls = %d, want 0", source.legacyCalls)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("PreviewContext() did not return after cancellation")
+	}
+}
+
+func TestSourceQueryAnalyzeAndPreviewObserveRequestContext(t *testing.T) {
+	operations := []struct {
+		name string
+		run  func(context.Context, SyncConfig) error
+	}{
+		{
+			name: "analyze",
+			run: func(ctx context.Context, config SyncConfig) error {
+				result := NewSyncEngine(Reporter{}).AnalyzeContext(ctx, config)
+				if result.Success || result.Message != context.Canceled.Error() {
+					return fmt.Errorf("AnalyzeContext() = %+v, want cancelled failure", result)
+				}
+				return context.Canceled
+			},
+		},
+		{
+			name: "preview",
+			run: func(ctx context.Context, config SyncConfig) error {
+				_, err := NewSyncEngine(Reporter{}).PreviewContext(ctx, config, "users", 25)
+				return err
+			},
+		},
+	}
+
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			source := &contextAwareSyncDatabase{
+				queryStarted: make(chan struct{}),
+				columns:      []connection.ColumnDefinition{{Name: "id", Type: "NUMBER", Key: "PK"}},
+			}
+			target := &contextTargetSyncDatabase{
+				columns: []connection.ColumnDefinition{{Name: "id", Type: "BIGINT", Key: "PK"}},
+			}
+			originalFactory := newSyncDatabase
+			t.Cleanup(func() { newSyncDatabase = originalFactory })
+			newSyncDatabase = func(databaseType string) (db.Database, error) {
+				if databaseType == "oracle" {
+					return source, nil
+				}
+				return target, nil
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- operation.run(ctx, SyncConfig{
+					SourceConfig:   connection.ConnectionConfig{Type: "oracle"},
+					TargetConfig:   connection.ConnectionConfig{Type: "sqlserver"},
+					SourceDatabase: "APP",
+					TargetDatabase: "warehouse",
+					TargetSchema:   "dbo",
+					Tables:         []string{"users"},
+					SourceQuery:    "SELECT id FROM active_users",
+					Content:        "data",
+					Mode:           "insert_only",
+				})
+			}()
+
+			select {
+			case <-source.queryStarted:
+				cancel()
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for source-query execution")
+			}
+
+			select {
+			case err := <-errCh:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("%s error = %v, want context.Canceled", operation.name, err)
+				}
+				if source.legacyCalls != 0 {
+					t.Fatalf("legacy Query calls = %d, want 0", source.legacyCalls)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s did not return after cancellation", operation.name)
+			}
+		})
+	}
+}
+
+func TestRedisMongoAnalyzeAndPreviewObserveRequestContext(t *testing.T) {
+	operations := []struct {
+		name           string
+		config         SyncConfig
+		blockingDBType string
+		run            func(context.Context, SyncConfig) error
+	}{
+		{
+			name: "redis_to_mongo_analyze",
+			config: SyncConfig{
+				SourceConfig: connection.ConnectionConfig{Type: "redis"},
+				TargetConfig: connection.ConnectionConfig{Type: "mongodb", Database: "app"},
+				Tables:       []string{"session:1"},
+				Content:      "data",
+				Mode:         "insert_update",
+			},
+			blockingDBType: "mongodb",
+			run: func(ctx context.Context, config SyncConfig) error {
+				result := NewSyncEngine(Reporter{}).AnalyzeContext(ctx, config)
+				if result.Success || result.Message != context.Canceled.Error() {
+					return fmt.Errorf("AnalyzeContext() = %+v, want cancelled failure", result)
+				}
+				return context.Canceled
+			},
+		},
+		{
+			name: "mongo_to_redis_preview",
+			config: SyncConfig{
+				SourceConfig: connection.ConnectionConfig{Type: "mongodb", Database: "app"},
+				TargetConfig: connection.ConnectionConfig{Type: "redis"},
+				Tables:       []string{"redis_db_0_keys"},
+				Content:      "data",
+				Mode:         "insert_update",
+			},
+			blockingDBType: "mongodb",
+			run: func(ctx context.Context, config SyncConfig) error {
+				_, err := NewSyncEngine(Reporter{}).PreviewContext(ctx, config, "redis_db_0_keys", 25)
+				return err
+			},
+		},
+	}
+
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			blockingDB := &contextAwareSyncDatabase{queryStarted: make(chan struct{})}
+			redisClient := &fakeRedisMigrationClient{values: map[string]*redispkg.RedisValue{
+				"session:1": {Type: "string", TTL: -1, Value: "token"},
+			}}
+			originalFactory := newSyncDatabase
+			originalRedisFactory := newRedisSourceClient
+			t.Cleanup(func() {
+				newSyncDatabase = originalFactory
+				newRedisSourceClient = originalRedisFactory
+			})
+			newSyncDatabase = func(databaseType string) (db.Database, error) {
+				if databaseType != operation.blockingDBType {
+					return nil, fmt.Errorf("unexpected database type %s", databaseType)
+				}
+				return blockingDB, nil
+			}
+			newRedisSourceClient = func() redisMigrationClient { return redisClient }
+
+			ctx, cancel := context.WithCancel(context.Background())
+			errCh := make(chan error, 1)
+			go func() { errCh <- operation.run(ctx, operation.config) }()
+			select {
+			case <-blockingDB.queryStarted:
+				cancel()
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out waiting for Redis/Mongo query")
+			}
+			select {
+			case err := <-errCh:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("%s error = %v, want context.Canceled", operation.name, err)
+				}
+				if blockingDB.legacyCalls != 0 {
+					t.Fatalf("legacy Query calls = %d, want 0", blockingDB.legacyCalls)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s did not return after cancellation", operation.name)
+			}
+		})
 	}
 }
 

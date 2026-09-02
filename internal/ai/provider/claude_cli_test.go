@@ -1061,3 +1061,36 @@ func gitBashTestPath(path string) string {
 	}
 	return slashed
 }
+
+// Claude Code 2.1.241 起，订阅登录的 authMethod 改报 "claude.ai" 而不再是 "oauth"，
+// 同时新增权威字段 subscriptionType。只按旧词表判定会把真实 Max 订阅误判为未连接。
+// 本用例用实测到的真实载荷锁住这一行为。
+func TestValidateClaudeCLISubscriptionAcceptsClaudeAIMaxPayload(t *testing.T) {
+	realPayload := claudeCLIAuthStatus{
+		LoggedIn:         true,
+		AuthMethod:       "claude.ai",
+		APIProvider:      "firstParty",
+		SubscriptionType: "max",
+	}
+	if err := validateClaudeCLISubscriptionStatus(realPayload); err != nil {
+		t.Fatalf("真实 Max 订阅载荷应通过校验：%v", err)
+	}
+
+	// 旧版没有 subscriptionType 时仍要接受 oauth。
+	legacy := claudeCLIAuthStatus{LoggedIn: true, AuthMethod: "oauth", APIProvider: "firstParty"}
+	if err := validateClaudeCLISubscriptionStatus(legacy); err != nil {
+		t.Fatalf("旧版 oauth 载荷应继续通过：%v", err)
+	}
+
+	// 明确的非订阅套餐仍要拒绝。
+	free := claudeCLIAuthStatus{LoggedIn: true, AuthMethod: "claude.ai", APIProvider: "firstParty", SubscriptionType: "free"}
+	if err := validateClaudeCLISubscriptionStatus(free); err == nil {
+		t.Fatal("free 套餐不应被当作付费订阅")
+	}
+
+	// API key 覆盖仍要优先拒绝，即便订阅字段看起来正常。
+	overridden := claudeCLIAuthStatus{LoggedIn: true, AuthMethod: "claude.ai", APIProvider: "firstParty", SubscriptionType: "max", APIKeySource: "ANTHROPIC_API_KEY"}
+	if err := validateClaudeCLISubscriptionStatus(overridden); err == nil {
+		t.Fatal("存在 API key 覆盖时不应放行")
+	}
+}

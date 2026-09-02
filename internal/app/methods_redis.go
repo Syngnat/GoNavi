@@ -1580,7 +1580,7 @@ func (a *App) RedisFlushDB(config connection.ConnectionConfig) connection.QueryR
 	return connection.QueryResult{Success: true, Message: a.appText("redis.backend.message.flush_success", nil)}
 }
 
-func (a *App) RedisExportKeys(config connection.ConnectionConfig, options RedisExportKeysOptions) connection.QueryResult {
+func (a *App) RedisExportKeys(config connection.ConnectionConfig, options RedisExportKeysOptions) (result connection.QueryResult) {
 	config.Type = "redis"
 	scope := normalizeRedisExportScope(options.Scope)
 	if scope == "selected" && len(normalizeRedisTransferKeys(options.Keys)) == 0 {
@@ -1591,18 +1591,30 @@ func (a *App) RedisExportKeys(config connection.ConnectionConfig, options RedisE
 	if scope == "selected" {
 		defaultName = fmt.Sprintf("redis-db%d-selected-keys.json", config.RedisDB)
 	}
-	filename, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           a.appText("file.backend.dialog.export_data", nil),
-		DefaultFilename: defaultName,
-		Filters: []runtime.FileFilter{
-			{
-				DisplayName: a.appText("file.backend.filter.json_files", nil),
-				Pattern:     "*.json",
+	filename := ""
+	var err error
+	var webTarget *webDownloadTarget
+	if a.webRuntime {
+		webTarget, err = a.newWebDownloadTarget(defaultName, webDownloadMIMEForFormat("json"))
+		if err != nil {
+			return connection.QueryResult{Success: false, Message: err.Error()}
+		}
+		filename = webTarget.path
+		defer func() { result = webTarget.finish(result) }()
+	} else {
+		filename, err = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+			Title:           a.appText("file.backend.dialog.export_data", nil),
+			DefaultFilename: defaultName,
+			Filters: []runtime.FileFilter{
+				{
+					DisplayName: a.appText("file.backend.filter.json_files", nil),
+					Pattern:     "*.json",
+				},
 			},
-		},
-	})
-	if err != nil || strings.TrimSpace(filename) == "" {
-		return connection.QueryResult{Success: false, Message: "已取消"}
+		})
+		if err != nil || strings.TrimSpace(filename) == "" {
+			return connection.QueryResult{Success: false, Message: "已取消"}
+		}
 	}
 	filename = normalizeRedisTransferFilename(filename)
 
@@ -1623,7 +1635,20 @@ func (a *App) RedisExportKeys(config connection.ConnectionConfig, options RedisE
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})}
 	}
-	if err := os.WriteFile(filename, content, 0o644); err != nil {
+	if webTarget != nil {
+		file, openErr := webTarget.openFile()
+		if openErr != nil {
+			return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.write_failed", map[string]any{"detail": openErr.Error()})}
+		}
+		_, writeErr := file.Write(content)
+		closeErr := file.Close()
+		if writeErr == nil {
+			writeErr = closeErr
+		}
+		if writeErr != nil {
+			return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.write_failed", map[string]any{"detail": writeErr.Error()})}
+		}
+	} else if err := os.WriteFile(filename, content, 0o644); err != nil {
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.write_failed", map[string]any{"detail": err.Error()})}
 	}
 

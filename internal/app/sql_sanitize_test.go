@@ -129,6 +129,15 @@ func TestIsReadOnlySQLQuery_TreatsKafkaConsumeAsReadOnly(t *testing.T) {
 	}
 }
 
+func TestShouldTryQueryResultFirstRoutesMQTTUnsubscribeThroughQuery(t *testing.T) {
+	if !shouldTryQueryResultFirst("mqtt", `UNSUBSCRIBE FROM "devices/+/telemetry"`) {
+		t.Fatal("MQTT UNSUBSCRIBE should use the query command path")
+	}
+	if shouldTryQueryResultFirst("kafka", `UNSUBSCRIBE FROM "devices/+/telemetry"`) {
+		t.Fatal("UNSUBSCRIBE query routing must remain scoped to MQTT")
+	}
+}
+
 func TestIsReadOnlySQLQuery_TreatsMongoFindAsReadOnly(t *testing.T) {
 	if !isReadOnlySQLQuery("mongodb", `{"find":"users","filter":{"active":true}}`) {
 		t.Fatal("MongoDB find command should be treated as read-only")

@@ -31,6 +31,8 @@ import {
 } from '../utils/columnDefinition';
 import { splitQualifiedNameLast, splitQualifiedNameSegments } from '../utils/qualifiedName';
 import { requestTableMetadata } from '../utils/tableMetadataRequestCache';
+import { confirmRabbitMQPreview } from '../utils/rabbitmqPreview';
+import { isRocketMQTagFilteredConnection } from '../utils/rocketmqTagFilter';
 
 type ViewerPaginationState = {
   current: number;
@@ -409,6 +411,8 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
   const initialLoadRef = useRef(false);
   const skipNextAutoFetchRef = useRef(false);
   const deferredInitialFetchRef = useRef(shouldDeferInitialDataViewerFetch(tab.initialViewMode));
+  const rabbitMQPreviewConfirmedRef = useRef(false);
+  const rabbitMQPreviewConfirmationRef = useRef<Promise<boolean> | null>(null);
 
   const [pagination, setPagination] = useState<ViewerPaginationState>({
       current: initialViewerSnapshot.currentPage,
@@ -434,6 +438,13 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
   const preferManualTotalCount = currentConnCaps.preferManualTotalCount;
   const supportsApproximateTableCount = currentConnCaps.supportsApproximateTableCount;
   const supportsApproximateTotalPages = currentConnCaps.supportsApproximateTotalPages;
+  const rocketMQTagTotalCountUnavailable = isRocketMQTagFilteredConnection(currentConnConfig);
+  const totalCountUnavailableLabel = rocketMQTagTotalCountUnavailable
+    ? tr('data_grid.toolbar.tag_total_unavailable')
+    : undefined;
+  const totalCountUnavailableReason = rocketMQTagTotalCountUnavailable
+    ? tr('data_grid.toolbar.tag_total_unavailable_tooltip')
+    : undefined;
   const persistViewerSnapshot = useCallback((tabId: string, overrides?: Partial<ViewerFilterSnapshot>) => {
     const normalizedTabId = String(tabId || '').trim();
     if (!normalizedTabId) return;
@@ -497,6 +508,8 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
     latestCountKeyRef.current = '';
     scrollSnapshotRef.current = { top: snapshot.scrollTop, left: snapshot.scrollLeft };
     initialLoadRef.current = false;
+    rabbitMQPreviewConfirmedRef.current = false;
+    rabbitMQPreviewConfirmationRef.current = null;
     deferredInitialFetchRef.current = shouldDeferInitialDataViewerFetch(tab.initialViewMode);
     skipNextAutoFetchRef.current = true;
     setPagination(prev => ({
@@ -529,6 +542,11 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
   }, [tab.id, persistViewerSnapshot]);
 
   const handleManualTotalCount = useCallback(async () => {
+    if (rocketMQTagTotalCountUnavailable) {
+      message.warning(tr('data_grid.toolbar.tag_total_unavailable_tooltip'));
+      return;
+    }
+
     const config = latestConfigRef.current;
     const dbName = latestDbNameRef.current;
     const countSql = latestCountSqlRef.current;
@@ -593,12 +611,28 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
       setPagination(prev => ({ ...prev, totalCountLoading: false }));
       message.error(tr('data_viewer.message.total_count_failed_detail', { detail: String(e?.message || e) }));
     }
-  }, [addSqlLog, tr]);
+  }, [addSqlLog, rocketMQTagTotalCountUnavailable, tr]);
 
   const handleCancelManualTotalCount = useCallback(() => {
     manualCountSeqRef.current++;
     setPagination(prev => ({ ...prev, totalCountLoading: false, totalCountCancelled: true }));
   }, []);
+
+  const ensureRabbitMQPreviewConfirmed = useCallback(async (queue: string): Promise<boolean> => {
+    if (rabbitMQPreviewConfirmedRef.current) return true;
+
+    const pendingConfirmation = rabbitMQPreviewConfirmationRef.current || (() => {
+      const nextConfirmation = confirmRabbitMQPreview({ queue, translate: tr });
+      rabbitMQPreviewConfirmationRef.current = nextConfirmation;
+      return nextConfirmation;
+    })();
+    const approved = await pendingConfirmation;
+    if (rabbitMQPreviewConfirmationRef.current === pendingConfirmation) {
+      rabbitMQPreviewConfirmationRef.current = null;
+    }
+    if (approved) rabbitMQPreviewConfirmedRef.current = true;
+    return approved;
+  }, [tr]);
 
   const fetchData = useCallback(async (page = pagination.current, size = pagination.pageSize, options?: DataViewerFetchOptions) => {
     const navigateToLastPage = options?.navigateToLastPage === true;
@@ -636,6 +670,13 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
 
     const dbName = tab.dbName || '';
     const tableName = tab.tableName || '';
+    if (dbTypeLower === 'rabbitmq' && tableName && !rabbitMQPreviewConfirmedRef.current) {
+        const approved = await ensureRabbitMQPreviewConfirmed(tableName);
+        if (!approved || fetchSeqRef.current !== seq) {
+            if (fetchSeqRef.current === seq) setLoading(false);
+            return;
+        }
+    }
     const isMongoDB = dbTypeLower === 'mongodb';
     let mongoFilter: Record<string, unknown> | undefined;
     if (isMongoDB) {
@@ -1249,7 +1290,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
         });
     }
     if (fetchSeqRef.current === seq) setLoading(false);
-  }, [connections, tab, sortInfo, filterConditions, quickWhereCondition, pkColumns, editLocator, forceReadOnly, pagination.total, pagination.totalKnown, pagination.totalApprox, pagination.approximateTotal, preferManualTotalCount, supportsApproximateTableCount, supportsApproximateTotalPages, tr]);
+  }, [connections, ensureRabbitMQPreviewConfirmed, tab, sortInfo, filterConditions, quickWhereCondition, pkColumns, editLocator, forceReadOnly, pagination.total, pagination.totalKnown, pagination.totalApprox, pagination.approximateTotal, preferManualTotalCount, supportsApproximateTableCount, supportsApproximateTotalPages, tr]);
   // 依赖定位列：在无手动排序时可回退到安全定位列稳定排序。
   // 定位信息只会在表上下文变化后重新加载，避免循环查询。
 
@@ -1298,9 +1339,13 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
     setSortInfo([{ columnKey: normalizedField, order: normalizedOrder, enabled: true }]);
   }, []);
   const handlePageChange = useCallback((page: number, size: number) => fetchData(page, size), [fetchData]);
-  const handleLastPage = useCallback((pageSize: number) => (
-    fetchData(1, pageSize, { navigateToLastPage: true })
-  ), [fetchData]);
+  const handleLastPage = useCallback((pageSize: number) => {
+    if (rocketMQTagTotalCountUnavailable) {
+      message.warning(tr('data_grid.toolbar.tag_total_unavailable_tooltip'));
+      return;
+    }
+    fetchData(1, pageSize, { navigateToLastPage: true });
+  }, [fetchData, rocketMQTagTotalCountUnavailable, tr]);
   const handleToggleFilter = useCallback(() => setShowFilter(prev => !prev), []);
   const handleApplyFilter = useCallback((conditions: FilterCondition[]) => {
     skipNextAutoFetchRef.current = false;
@@ -1388,7 +1433,14 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
           onSort={handleSort}
           onPageChange={handlePageChange}
           onLastPage={handleLastPage}
-          pagination={pagination}
+          pagination={{
+            ...pagination,
+            totalKnown: rocketMQTagTotalCountUnavailable ? false : pagination.totalKnown,
+            totalApprox: rocketMQTagTotalCountUnavailable ? false : pagination.totalApprox,
+            approximateTotal: rocketMQTagTotalCountUnavailable ? undefined : pagination.approximateTotal,
+            totalCountUnavailableLabel,
+            totalCountUnavailableReason,
+          }}
           onRequestTotalCount={preferManualTotalCount ? handleManualTotalCount : undefined}
           onCancelTotalCount={preferManualTotalCount ? handleCancelManualTotalCount : undefined}
           showFilter={showFilter}
@@ -1407,6 +1459,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
           initialViewMode={tab.initialViewMode}
           initialViewModeRequestId={tab.initialViewModeRequestId}
           onDataViewActivate={handleDataViewActivate}
+          workbenchTabId={tab.id}
       />
     </div>
   );

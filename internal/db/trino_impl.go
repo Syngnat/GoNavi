@@ -321,6 +321,15 @@ func (t *TrinoDB) Close() error {
 	return firstErr
 }
 
+func openTrinoSQLConnection(driverName, dsn string) (*sql.DB, error) {
+	conn, err := sql.Open(driverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+	configureSQLConnectionPool(conn, "trino")
+	return conn, nil
+}
+
 func (t *TrinoDB) Connect(config connection.ConnectionConfig) error {
 	_ = t.Close()
 
@@ -362,7 +371,7 @@ func (t *TrinoDB) Connect(config connection.ConnectionConfig) error {
 		_ = t.Close()
 		return err
 	}
-	conn, err := sql.Open("trino", dsn)
+	conn, err := openTrinoSQLConnection("trino", dsn)
 	if err != nil {
 		_ = t.Close()
 		return err
@@ -444,9 +453,13 @@ func (t *TrinoDB) ExecContext(ctx context.Context, query string) (int64, error) 
 	if err != nil {
 		return 0, err
 	}
+	return trinoRowsAffected(res)
+}
+
+func trinoRowsAffected(res sql.Result) (int64, error) {
 	affected, err := res.RowsAffected()
 	if err != nil {
-		return 0, nil
+		return 0, MarkWriteOutcomeUnknown(err)
 	}
 	return affected, nil
 }
@@ -481,12 +494,15 @@ func (t *TrinoDB) GetDatabases() ([]string, error) {
 
 	namespaces := make([]string, 0, len(catalogs)*2)
 	seen := make(map[string]struct{}, len(catalogs)*4)
-	var lastErr error
+	failedCatalogs := make([]MetadataObjectFailure, 0)
 	for _, catalog := range catalogs {
 		query := fmt.Sprintf("SHOW SCHEMAS FROM %s", quoteTrinoIdentifier(catalog))
 		schemas, schemaErr := t.queryTrinoSingleColumnStrings(query)
 		if schemaErr != nil {
-			lastErr = schemaErr
+			failedCatalogs = append(failedCatalogs, MetadataObjectFailure{
+				ObjectName: catalog,
+				Err:        schemaErr,
+			})
 			continue
 		}
 		for _, schema := range schemas {
@@ -503,15 +519,13 @@ func (t *TrinoDB) GetDatabases() ([]string, error) {
 		}
 	}
 
-	if len(namespaces) == 0 {
-		if strings.TrimSpace(t.namespace) != "" {
-			return []string{t.namespace}, nil
-		}
-		if lastErr != nil {
-			return nil, lastErr
-		}
+	if len(namespaces) == 0 && strings.TrimSpace(t.namespace) != "" {
+		namespaces = append(namespaces, t.namespace)
 	}
 	sort.Strings(namespaces)
+	if partialErr := NewPartialMetadataError(failedCatalogs); partialErr != nil {
+		return namespaces, partialErr
+	}
 	return namespaces, nil
 }
 

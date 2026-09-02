@@ -358,10 +358,19 @@ describe('nativeDetachedWindowClient', () => {
   });
 
   it('keeps main-window AI context sync separate from child-owned conversation state', () => {
+    const appearance = {
+      uiVersion: 'v2',
+      toolbarButtonColorOverrides: {
+        query: {
+          'button-bg': '#13579b',
+          'primary-hover-border': 'rgba(18, 52, 86, 0.5)',
+        },
+      },
+    };
     const state = {
       theme: 'light',
       themePreference: 'light',
-      appearance: { uiVersion: 'v2' },
+      appearance,
       fontSize: 16,
       uiScale: 1.15,
       activeContext: { connectionId: 'connection-2', dbName: 'analytics' },
@@ -376,7 +385,7 @@ describe('nativeDetachedWindowClient', () => {
     expect(snapshot).toEqual({
       theme: 'light',
       themePreference: 'light',
-      appearance: { uiVersion: 'v2' },
+      appearance,
       fontSize: 16,
       uiScale: 1.15,
       activeContext: state.activeContext,
@@ -405,7 +414,7 @@ describe('nativeDetachedWindowClient', () => {
     expect(next.closeTab).toBe(current.closeTab);
     expect(next.theme).toBe('light');
     expect(next.themePreference).toBe('light');
-    expect(next.appearance).toEqual({ uiVersion: 'v2' });
+    expect(next.appearance).toEqual(appearance);
     expect(next.fontSize).toBe(16);
     expect(next.uiScale).toBe(1.15);
 
@@ -423,6 +432,7 @@ describe('nativeDetachedWindowClient', () => {
     });
     expect(revision).toBe(5);
     expect(childState.activeTabId).toBe('query-2');
+    expect(childState.appearance).toEqual(appearance);
     expect(getQueryTabDraft('query-2')).toBe('select 1');
     expect(applyNativeDetachedHostStateCommand(childStore, 'ai-chat', revision, {
       id: 'ai-chat',

@@ -231,12 +231,20 @@ func (a *App) validateDatabaseSQLImportAccess(config connection.ConnectionConfig
 	return nil
 }
 
-func (a *App) PreflightDatabaseSQLImport(config connection.ConnectionConfig, dbName string, filePath string) connection.QueryResult {
+func (a *App) PreflightDatabaseSQLImport(config connection.ConnectionConfig, dbName string, filePath string) (result connection.QueryResult) {
 	if err := a.validateDatabaseSQLImportAccess(config); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	if strings.TrimSpace(filePath) == "" {
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.file_path_empty", nil)}
+	}
+	resolvedPath, err := a.resolveWebUploadReference(filePath, webUploadPurposeSQLExecution)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	filePath = resolvedPath
+	if a.webRuntime {
+		defer func() { result = sanitizeWebManagedResult(result, filePath) }()
 	}
 	if !isMySQLGTIDImportConfig(config) {
 		return connection.QueryResult{Success: true, Data: buildMySQLGTIDPreflightPayload(false, mysqlGTIDTargetState{})}

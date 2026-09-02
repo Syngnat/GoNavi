@@ -92,6 +92,13 @@ func (s *SyncEngine) tryApplyDiffInPages(config SyncConfig, res *SyncResult, tab
 	return handled, applied, nil
 }
 
+// scanTableDiffInPages compares a table page by page.
+//
+// Both the source and the target SELECT are restricted to columns that exist on
+// both sides. A column present on only one side is a *structural* difference and
+// is reported as such (see diffColumnStructures); counting the rows that carry
+// it as data updates would report the same single problem once per row and
+// duplicate what the structure section already states.
 func scanTableDiffInPages(sourceDB db.Database, targetDB db.Database, sourceType, targetType string, plan SchemaMigrationPlan, sourceCols, targetCols []connection.ColumnDefinition, pkCol string, targetColSet map[string]struct{}, includeDeletes bool, consume func(page pagedDiffPage) error) (bool, pagedDiffCounts, error) {
 	return scanTableDiffInPagesContext(context.Background(), sourceDB, targetDB, sourceType, targetType, plan, sourceCols, targetCols, pkCol, targetColSet, includeDeletes, consume)
 }
@@ -467,8 +474,12 @@ func buildKeysetPagedTableQuery(dbType, queryTable string, cols []connection.Col
 }
 
 func countTableRowsForSync(database db.Database, dbType, queryTable string) (int, bool, error) {
+	return countTableRowsForSyncContext(context.Background(), database, dbType, queryTable)
+}
+
+func countTableRowsForSyncContext(ctx context.Context, database db.Database, dbType, queryTable string) (int, bool, error) {
 	query := fmt.Sprintf("SELECT COUNT(*) AS __gonavi_count__ FROM %s", quoteQualifiedIdentByType(dbType, queryTable))
-	rows, _, err := database.Query(query)
+	rows, _, err := querySyncDatabaseContext(ctx, database, query)
 	if err != nil {
 		return 0, true, err
 	}

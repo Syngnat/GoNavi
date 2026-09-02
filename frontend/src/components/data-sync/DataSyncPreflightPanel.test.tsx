@@ -10,11 +10,9 @@ vi.mock('../../../wailsjs/runtime/runtime', () => runtimeApi);
 
 import { DataSyncPreflightPanel } from './DataSyncPreflightPanel';
 
-Object.assign(globalThis, {
-  navigator: {
-    clipboard: {
-      writeText: vi.fn(() => Promise.resolve()),
-    },
+vi.stubGlobal('navigator', {
+  clipboard: {
+    writeText: vi.fn(() => Promise.resolve()),
   },
 });
 import {
@@ -25,6 +23,7 @@ import {
 const unmigratedIndexSnapshot = () => ({
   taskId: 'task-1',
   taskRevision: 3,
+  taskEditEpoch: 0,
   status: 'warning' as const,
   issues: [
     {
@@ -77,6 +76,39 @@ describe('DataSyncPreflightPanel production approval', () => {
     ).toBe('当前源端与目标端组合不支持执行此同步任务。');
     expect(
       dataSyncValidationIssueText(
+        { code: 'query_key_unmapped', message: 'query sink stable key external_id is not mapped to a target column' },
+        t,
+      ),
+    ).toBe('SQL 结果的稳定键必须映射到目标字段。');
+    expect(
+      dataSyncValidationIssueText(
+        { code: 'query_key_target_missing', message: 'query sink stable key external_id maps to missing target column external_code' },
+        t,
+      ),
+    ).toBe('SQL 结果的稳定键映射到了不存在的目标字段。');
+    expect(
+      dataSyncValidationIssueText(
+        { code: 'mapping_key_unmapped', message: 'stable key external_id is not mapped to a target column' },
+        t,
+      ),
+    ).toBe('稳定键必须映射到目标字段。');
+    expect(
+      dataSyncValidationIssueText(
+        { code: 'structure_migration_primary_key_required', message: 'source physical primary key required' },
+        t,
+      ),
+    ).toBe('当前结构迁移路径只能使用源端物理主键；配置的业务稳定键不会参与更新。');
+    expect(
+      dataSyncValidationIssueText(
+        {
+          code: 'cdc_adapter_not_ready',
+          message: 'MongoDB 必须运行在副本集或分片集群模式。',
+        },
+        t,
+      ),
+    ).toBe('所选 CDC 适配器当前未就绪。 MongoDB 必须运行在副本集或分片集群模式。');
+    expect(
+      dataSyncValidationIssueText(
         { code: 'driver_specific_failure', message: 'driver unavailable' },
         t,
       ),
@@ -89,6 +121,7 @@ describe('DataSyncPreflightPanel production approval', () => {
         snapshot={{
           taskId: 'task-1',
           taskRevision: 5,
+          taskEditEpoch: 0,
           status: 'blocked',
           issues: [
             {
@@ -190,6 +223,7 @@ describe('DataSyncPreflightPanel production approval', () => {
     const snapshot = {
       taskId: 'task-1',
       taskRevision: 4,
+      taskEditEpoch: 0,
       status: 'passed' as const,
       issues: [],
       definitionHash: 'hash-1',

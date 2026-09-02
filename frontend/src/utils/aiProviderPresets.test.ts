@@ -13,6 +13,7 @@ import {
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_MODELS,
   isLocalCLISubscriptionProvider,
+  getSingletonCLIIdentity,
   matchQwenPresetKey,
   matchDeepSeekPresetKey,
   resolvePresetBaseURL,
@@ -20,6 +21,22 @@ import {
   resolvePresetTransport,
   resolveProviderPresetKey,
 } from './aiProviderPresets';
+
+describe('singleton CLI integrations', () => {
+  it.each([
+    ['codex-cli', 'local-cli', 'codex-cli'],
+    ['claude-cli', 'local-cli', 'claude-cli'],
+    ['grok-cli', 'local-cli', 'grok-cli'],
+    ['cursor-cli', 'local-cli', 'cursor-cli'],
+    ['codebuddy-cli', 'api-key', 'codebuddy-cli'],
+    ['claude-cli', 'api-key', ''],
+    ['cursor-agent', 'api-key', ''],
+    ['openai', 'api-key', ''],
+    [' CODEX-CLI ', ' LOCAL-CLI ', 'codex-cli'],
+  ])('classifies %s with %s authentication independently of aliases and models', (apiFormat, authMode, expected) => {
+    expect(getSingletonCLIIdentity({ type: 'custom', apiFormat, authMode: authMode as AIProviderAuthMode })).toBe(expected);
+  });
+});
 
 type PresetMatcher = {
   key: string;
@@ -47,6 +64,7 @@ const PRESETS: PresetMatcher[] = [
   { key: 'codex', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'codex-cli', authMode: 'local-cli' },
   { key: 'claude-subscription', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'claude-cli', authMode: 'local-cli' },
   { key: 'cursor', backendType: 'custom', defaultBaseUrl: 'https://api.cursor.com/v1', fixedApiFormat: 'cursor-agent' },
+  { key: 'cursor-cli', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'cursor-cli', authMode: 'local-cli' },
   { key: 'custom', backendType: 'custom', defaultBaseUrl: '' },
 ];
 
@@ -188,9 +206,9 @@ describe('ai provider preset helpers', () => {
     });
   });
 
-  it('keeps local CLI model empty so the signed-in CLI can choose automatically', () => {
+  it.each(['codex', 'cursor-cli'])('keeps %s model empty so the signed-in CLI can choose automatically', (presetKey) => {
     expect(resolvePresetModelSelection({
-      presetKey: 'codex',
+      presetKey,
       presetDefaultModel: '',
       presetModels: [],
       valuesModel: '',
@@ -199,6 +217,13 @@ describe('ai provider preset helpers', () => {
       model: '',
       models: ['gpt-5.4'],
     });
+  });
+
+  it('recognizes local Cursor independently of the existing Cursor cloud API', () => {
+    const local = { type: 'custom' as const, apiFormat: 'cursor-cli', authMode: 'local-cli' as const, baseUrl: '' };
+    expect(isLocalCLISubscriptionProvider(local)).toBe(true);
+    expect(resolveProviderPresetKey(local, PRESETS, 'custom')).toBe('cursor-cli');
+    expect(resolveProviderPresetKey({ type: 'custom', apiFormat: 'cursor-agent', authMode: 'api-key', baseUrl: 'https://api.cursor.com/v1' }, PRESETS, 'custom')).toBe('cursor');
   });
 
   it('forces built-in presets back to their standard base URL when saving or testing', () => {

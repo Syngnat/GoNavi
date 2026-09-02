@@ -19,6 +19,19 @@ export type ConnectionHealthReport = {
   checks: ConnectionHealthCheck[];
 };
 
+export type ConnectionHealthRunStatus = 'running' | 'cancelling' | 'completed' | 'cancelled' | 'rejected';
+
+export type ConnectionHealthRun = {
+  runId: string;
+  status: ConnectionHealthRunStatus;
+  total: number;
+  completed: number;
+  reports: ConnectionHealthReport[];
+  currentConnectionId?: string;
+  remainingConnectionIds: string[];
+  cancelRequested: boolean;
+};
+
 export type ConnectionHealthGroup = {
   id: string;
   name: string;
@@ -112,6 +125,45 @@ export const normalizeConnectionHealthReports = (value: unknown): ConnectionHeal
     ? value.map(normalizeConnectionHealthReport).filter((report): report is ConnectionHealthReport => report !== null)
     : []
 );
+
+const normalizeRunStatus = (value: unknown): ConnectionHealthRunStatus | null => {
+  switch (value) {
+    case 'running':
+    case 'cancelling':
+    case 'completed':
+    case 'cancelled':
+    case 'rejected':
+      return value;
+    default:
+      return null;
+  }
+};
+
+const normalizeConnectionIDs = (value: unknown): string[] => (
+  Array.isArray(value)
+    ? Array.from(new Set(value.map(asTrimmedString).filter(Boolean)))
+    : []
+);
+
+export const normalizeConnectionHealthRun = (value: unknown): ConnectionHealthRun | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const runId = asTrimmedString(raw.runId);
+  const status = normalizeRunStatus(raw.status);
+  const total = normalizeDuration(raw.total);
+  const completed = normalizeDuration(raw.completed);
+  if (!status || completed > total || (!runId && status !== 'rejected')) return null;
+  return {
+    runId,
+    status,
+    total,
+    completed,
+    reports: normalizeConnectionHealthReports(raw.reports),
+    ...(asTrimmedString(raw.currentConnectionId) ? { currentConnectionId: asTrimmedString(raw.currentConnectionId) } : {}),
+    remainingConnectionIds: normalizeConnectionIDs(raw.remainingConnectionIds),
+    cancelRequested: raw.cancelRequested === true,
+  };
+};
 
 /**
  * Resolves direct and nested sidebar tags to a deduplicated connection list.

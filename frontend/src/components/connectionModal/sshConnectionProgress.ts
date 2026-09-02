@@ -97,20 +97,6 @@ const setStepStatus = (
     step.id === target ? { ...step, status } : step,
   );
 
-const markPriorStepsSuccessful = (
-  steps: SSHConnectionProgressStep[],
-  target: SSHConnectionProgressStepID,
-): SSHConnectionProgressStep[] => {
-  const targetIndex = STEP_IDS.indexOf(target);
-  return steps.map((step) => {
-    const index = STEP_IDS.indexOf(step.id);
-    if (index >= 0 && index < targetIndex && step.status !== "error") {
-      return { ...step, status: "success" as const };
-    }
-    return step;
-  });
-};
-
 const inferFailureStep = (
   progress: SSHConnectionProgress,
   reason: unknown,
@@ -173,13 +159,7 @@ export const applySSHConnectionProgressEvent = (
   const status = normalizeStatus(event?.status);
   const target = STAGE_TO_STEP[stage];
   const steps = target
-    ? setStepStatus(
-        status === "success"
-          ? markPriorStepsSuccessful(progress.steps, target)
-          : progress.steps,
-        target,
-        status,
-      )
+    ? setStepStatus(progress.steps, target, status)
     : progress.steps;
   return {
     ...progress,
@@ -197,7 +177,6 @@ export const finishSSHConnectionProgress = (
     return {
       ...progress,
       status: "success",
-      steps: progress.steps.map((step) => ({ ...step, status: "success" })),
       logs: appendLog(progress.logs, { stage: "completed", status: "success" }),
     };
   }

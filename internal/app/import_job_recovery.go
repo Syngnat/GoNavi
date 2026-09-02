@@ -1,10 +1,13 @@
 package app
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"sort"
 	"strings"
 
@@ -34,6 +37,16 @@ type tableImportRecoveryPlan struct {
 // task's latest safe source-row checkpoint. The effective connection is loaded
 // server-side by saved ID so task metadata never needs to persist credentials.
 func (a *App) ResumeImportJob(jobID string) connection.QueryResult {
+	return a.resumeImportJobContext(context.Background(), jobID)
+}
+
+func (a *App) resumeImportJobContext(ctx context.Context, jobID string) connection.QueryResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	store, err := a.ensureImportJobStore()
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -45,6 +58,9 @@ func (a *App) ResumeImportJob(jobID string) connection.QueryResult {
 	if job.Kind != importjob.KindTable || job.TableImportOptions == nil {
 		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, errImportJobRecoveryUnavailable)}
 	}
+	if err := a.validateWebManagedUploadPath(job.SourcePath, webUploadPurposeDataImport); err != nil {
+		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, errImportJobRecoveryUnavailable)}
+	}
 	config, err := a.resolveImportJobSavedConnection(job)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, err)}
@@ -53,7 +69,11 @@ func (a *App) ResumeImportJob(jobID string) connection.QueryResult {
 	options.JobID = newImportJobRecoveryID("resume")
 	options.ResumeJobID = job.ID
 	options.SourceIdentityToken = job.SourceIdentityToken
-	return a.importDataWithProgressOptions(
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return a.importDataWithProgressOptionsContext(
+		ctx,
 		config,
 		job.DatabaseName,
 		job.TableName,
@@ -264,6 +284,16 @@ func (c *importResumeSkippingConsumer) SetImportSourceProgress(bytesRead int64, 
 // never reparses the original source and therefore cannot resubmit a row that
 // was already successful in the parent task.
 func (a *App) RetryImportJobFailedRows(jobID string) (result connection.QueryResult) {
+	return a.retryImportJobFailedRowsContext(context.Background(), jobID)
+}
+
+func (a *App) retryImportJobFailedRowsContext(ctx context.Context, jobID string) (result connection.QueryResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	store, err := a.ensureImportJobStore()
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -288,72 +318,181 @@ func (a *App) RetryImportJobFailedRows(jobID string) (result connection.QueryRes
 	if optionsHash := buildImportFileOptionsHash(options); optionsHash != job.OptionsHash {
 		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, errImportJobRecoveryOptionsChanged)}
 	}
-	rows, err := a.loadRetryableImportErrorRows(job.ErrorArtifactID)
+	scope, err := a.inspectRetryableImportErrorArtifactContext(ctx, job.ErrorArtifactID)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, err)}
 	}
-	if len(rows) == 0 {
+	if scope.retryableCount == 0 {
 		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, errImportJobRetryUnavailable)}
 	}
-	return a.retryImportJobFailedRows(job, config, options, rows)
+	if err := ctx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
+	return a.retryImportJobFailedRowsContextRun(ctx, job, config, options, scope)
 }
 
-func (a *App) loadRetryableImportErrorRows(artifactID string) ([]ImportRowError, error) {
+type retryImportArtifactScope struct {
+	columns          []string
+	retryableCount   int64
+	unretryableCount int64
+}
+
+type retryImportArtifactReader struct {
+	scanner *bufio.Scanner
+}
+
+func (reader *retryImportArtifactReader) next() (ImportRowError, error) {
+	if reader == nil || reader.scanner == nil {
+		return ImportRowError{}, errImportJobRetryUnavailable
+	}
+	for reader.scanner.Scan() {
+		line := bytes.TrimSpace(reader.scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var row ImportRowError
+		if err := json.Unmarshal(line, &row); err != nil {
+			return ImportRowError{}, errImportJobRetryUnavailable
+		}
+		return row, nil
+	}
+	if err := reader.scanner.Err(); err != nil {
+		return ImportRowError{}, errImportJobRetryUnavailable
+	}
+	return ImportRowError{}, io.EOF
+}
+
+func streamImportErrorArtifactRows(file *os.File, consume func(ImportRowError) error) error {
+	return streamImportErrorArtifactRowsContext(context.Background(), file, consume)
+}
+
+func streamImportErrorArtifactRowsContext(ctx context.Context, file *os.File, consume func(ImportRowError) error) error {
+	if file == nil {
+		return errImportJobRetryUnavailable
+	}
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() > maxImportErrorArtifactBytes {
+		return errImportJobRetryUnavailable
+	}
+	reader := &retryImportArtifactReader{scanner: bufio.NewScanner(file)}
+	reader.scanner.Buffer(make([]byte, 64*1024), int(maxImportErrorArtifactBytes)+1)
+	var count int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		row, err := reader.next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		count++
+		if count > maxImportErrorArtifactRows {
+			return errImportJobRetryUnavailable
+		}
+		if consume != nil {
+			if err := consume(row); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (a *App) inspectRetryableImportErrorArtifact(artifactID string) (retryImportArtifactScope, error) {
+	return a.inspectRetryableImportErrorArtifactContext(context.Background(), artifactID)
+}
+
+func (a *App) inspectRetryableImportErrorArtifactContext(ctx context.Context, artifactID string) (retryImportArtifactScope, error) {
 	store, err := a.ensureImportErrorArtifactStore()
 	if err != nil {
-		return nil, err
+		return retryImportArtifactScope{}, err
 	}
 	file, err := store.Open(artifactID)
 	if err != nil {
-		return nil, errImportJobRetryUnavailable
+		return retryImportArtifactScope{}, errImportJobRetryUnavailable
 	}
 	defer file.Close()
 
-	decoder := json.NewDecoder(file)
-	rows := make([]ImportRowError, 0)
-	for {
-		var row ImportRowError
-		if err := decoder.Decode(&row); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, errImportJobRetryUnavailable
-		}
-		if !strings.EqualFold(strings.TrimSpace(row.Category), "database") || len(row.Values) == 0 {
-			continue
-		}
-		rows = append(rows, ImportRowError{
-			SourceRow: row.SourceRow,
-			Values:    cloneImportRow(row.Values),
-		})
-	}
-	return rows, nil
-}
-
-func retryImportColumns(rows []ImportRowError) []string {
 	columns := make(map[string]struct{})
-	for _, row := range rows {
+	var scope retryImportArtifactScope
+	err = streamImportErrorArtifactRowsContext(ctx, file, func(row ImportRowError) error {
+		if !isRetryableImportErrorRow(row) {
+			scope.unretryableCount++
+			return nil
+		}
+		scope.retryableCount++
 		for column := range row.Values {
 			trimmed := strings.TrimSpace(column)
 			if trimmed != "" {
+				if _, exists := columns[trimmed]; !exists && len(columns) >= maxImportRetryColumns {
+					return errImportJobRetryUnavailable
+				}
 				columns[trimmed] = struct{}{}
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return retryImportArtifactScope{}, err
 	}
-	result := make([]string, 0, len(columns))
+	scope.columns = make([]string, 0, len(columns))
 	for column := range columns {
-		result = append(result, column)
+		scope.columns = append(scope.columns, column)
 	}
-	sort.Strings(result)
-	return result
+	sort.Strings(scope.columns)
+	return scope, nil
+}
+
+func (a *App) streamRetryableImportErrorArtifact(artifactID string, consume func(ImportRowError) error) error {
+	return a.streamRetryableImportErrorArtifactContext(context.Background(), artifactID, consume)
+}
+
+func (a *App) streamRetryableImportErrorArtifactContext(ctx context.Context, artifactID string, consume func(ImportRowError) error) error {
+	store, err := a.ensureImportErrorArtifactStore()
+	if err != nil {
+		return err
+	}
+	file, err := store.Open(artifactID)
+	if err != nil {
+		return errImportJobRetryUnavailable
+	}
+	defer file.Close()
+
+	return streamImportErrorArtifactRowsContext(ctx, file, func(row ImportRowError) error {
+		if !isRetryableImportErrorRow(row) {
+			return nil
+		}
+		if consume == nil {
+			return nil
+		}
+		return consume(row)
+	})
 }
 
 func (a *App) retryImportJobFailedRows(
 	parent importjob.Job,
 	config connection.ConnectionConfig,
 	options ImportFileOptions,
-	rows []ImportRowError,
+	scope retryImportArtifactScope,
 ) (result connection.QueryResult) {
+	return a.retryImportJobFailedRowsContextRun(context.Background(), parent, config, options, scope)
+}
+
+func (a *App) retryImportJobFailedRowsContextRun(
+	requestCtx context.Context,
+	parent importjob.Job,
+	config connection.ConnectionConfig,
+	options ImportFileOptions,
+	scope retryImportArtifactScope,
+) (result connection.QueryResult) {
+	if requestCtx == nil {
+		requestCtx = context.Background()
+	}
+	if err := requestCtx.Err(); err != nil {
+		return connection.QueryResult{Success: false, Message: err.Error()}
+	}
 	dbType := resolveDDLDBType(config)
 	if err := ensureConnectionAllowsDataImport(config, "connection.backend.action.import_data"); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
@@ -364,7 +503,7 @@ func (a *App) retryImportJobFailedRows(
 	if err := validateImportConflictPolicyForDB(dbType, options); err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
-	columns := retryImportColumns(rows)
+	columns := scope.columns
 	if len(columns) == 0 {
 		return connection.QueryResult{Success: false, Message: importJobRecoveryErrorMessage(a, errImportJobRetryUnavailable)}
 	}
@@ -375,7 +514,7 @@ func (a *App) retryImportJobFailedRows(
 		SafeError: &auditSafeError,
 	})()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(requestCtx)
 	defer cancel()
 	jobID := newImportJobRecoveryID("retry")
 	cleanupRegistration, registered := a.registerImportTask(jobID, cancel, importjob.KindTable)
@@ -417,7 +556,7 @@ func (a *App) retryImportJobFailedRows(
 	defer managedArtifact.abort()
 
 	runConfig := normalizeRunConfig(config, parent.DatabaseName)
-	dbInst, err := a.getDatabase(runConfig)
+	dbInst, err := a.getDatabaseSynchronouslyWithContext(ctx, runConfig, false)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return a.cancelledImportResult(importExecutionResult{})
@@ -436,14 +575,13 @@ func (a *App) retryImportJobFailedRows(
 		return connection.QueryResult{Success: false, Message: a.appText("data_import.capability.reason."+reason, nil)}
 	}
 
-	metadataSchemaName, metadataTableName := normalizeMetadataSchemaAndTable(config, parent.DatabaseName, parent.TableName)
-	targetColumns, colErr := getColumnsWithMetadataFallback(dbInst, config, metadataSchemaName, metadataTableName, a.appText)
+	targetColumns, colErr := a.importTargetColumnsContext(ctx, dbInst, config, parent.DatabaseName, parent.TableName)
 	if colErr != nil && options.ColumnMappings != nil {
 		return connection.QueryResult{Success: false, Message: colErr.Error()}
 	}
 	writer := newImportDatabaseRowWriterWithOptions(dbInst, dbType, parent.TableName, newImportColumnTypeLookup(targetColumns), options)
 	var jobPersistErr error
-	batchConsumer := newImportBatchConsumer(writer, defaultImportApplyBatchSize, len(rows), true, true, func(state importProgressState) {
+	batchConsumer := newImportBatchConsumer(writer, defaultImportApplyBatchSize, int(scope.retryableCount), true, true, func(state importProgressState) {
 		uievents.Emit(a.ctx, "import:progress", state)
 		if jobPersistErr != nil {
 			return
@@ -473,10 +611,10 @@ func (a *App) retryImportJobFailedRows(
 	finishArtifact := func(resultData *importExecutionResult) error {
 		return managedArtifact.finish(resultData)
 	}
-	for _, row := range rows {
-		if err := batchConsumer.ConsumeRow(row.Values); err != nil {
-			return a.finishImportErrorArtifactRecovery(resultDataFromConsumer(batchConsumer), err, jobPersistErr, finishArtifact)
-		}
+	if err := a.streamRetryableImportErrorArtifactContext(ctx, parent.ErrorArtifactID, func(row ImportRowError) error {
+		return batchConsumer.ConsumeRow(row.Values)
+	}); err != nil {
+		return a.finishImportErrorArtifactRecovery(resultDataFromConsumer(batchConsumer), err, jobPersistErr, finishArtifact)
 	}
 	if err := batchConsumer.Flush(); err != nil {
 		return a.finishImportErrorArtifactRecovery(resultDataFromConsumer(batchConsumer), err, jobPersistErr, finishArtifact)

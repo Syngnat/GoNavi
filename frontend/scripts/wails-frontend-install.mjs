@@ -15,10 +15,16 @@ const nodeModulesPath = path.join(frontendDir, 'node_modules');
 const npmHiddenLockPath = path.join(nodeModulesPath, '.package-lock.json');
 const installStatePath = path.join(nodeModulesPath, '.gonavi-install-state.json');
 const npmCommand = 'npm';
+// Wails invokes the frontend build through npm scripts. A hidden npm lockfile
+// can survive an interrupted install without the corresponding .bin links,
+// so those links are part of the install health check rather than proof of a
+// complete dependency tree.
+const requiredBuildBinaries = ['tsc', 'vite'];
 const commonArgs = [
   '--prefer-offline',
   '--no-audit',
   '--fund=false',
+  '--include=dev',
   '--fetch-retries=5',
   '--fetch-retry-mintimeout=20000',
   '--fetch-retry-maxtimeout=120000',
@@ -76,6 +82,25 @@ const writeInstalledState = (state) => {
   writeFileSync(installStatePath, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
 };
 
+const hasExecutableBin = (name) => {
+  const binPath = path.join(nodeModulesPath, '.bin', name);
+  // Wails runs npm scripts through cmd.exe on Windows, so a PowerShell-only
+  // or extensionless shim cannot make `npm run build` usable there.
+  const candidates = process.platform === 'win32' ? [`${binPath}.cmd`] : [binPath];
+  return candidates.some((candidate) => {
+    try {
+      const stats = statSync(candidate);
+      return stats.isFile() && stats.size > 0;
+    } catch {
+      return false;
+    }
+  });
+};
+
+const missingBuildBinaries = () => requiredBuildBinaries.filter((name) => !hasExecutableBin(name));
+
+const hasUsableFrontendBuild = () => missingBuildBinaries().length === 0;
+
 const packageInputsAreOlderThanNpmLock = () => {
   if (!existsSync(npmHiddenLockPath)) return false;
   const markerTime = statSync(npmHiddenLockPath).mtimeMs;
@@ -122,19 +147,20 @@ if (!forceInstall && existsSync(nodeModulesPath)) {
   if (
     installedState?.packageJson === state.packageJson &&
     installedState?.packageLock === state.packageLock &&
-    installedState?.patches === state.patches
+    installedState?.patches === state.patches &&
+    hasUsableFrontendBuild()
   ) {
     console.log('Frontend dependencies are up to date; skipping npm install.');
     process.exit(0);
   }
 
-  if (!installedState && isCI && existsSync(npmHiddenLockPath)) {
+  if (!installedState && isCI && existsSync(npmHiddenLockPath) && hasUsableFrontendBuild()) {
     writeInstalledState(state);
     console.log('Frontend dependencies are up to date from CI cache; recorded install state.');
     process.exit(0);
   }
 
-  if (!installedState && packageInputsAreOlderThanNpmLock()) {
+  if (!installedState && packageInputsAreOlderThanNpmLock() && hasUsableFrontendBuild()) {
     writeInstalledState(state);
     console.log('Frontend dependencies are up to date; recorded install state.');
     process.exit(0);
@@ -142,4 +168,8 @@ if (!forceInstall && existsSync(nodeModulesPath)) {
 }
 
 runNpm(isCI ? 'ci' : 'install');
+const missingAfterInstall = missingBuildBinaries();
+if (missingAfterInstall.length > 0) {
+  fail(`frontend dependencies installed without required build binaries: ${missingAfterInstall.join(', ')}`);
+}
 writeInstalledState(state);

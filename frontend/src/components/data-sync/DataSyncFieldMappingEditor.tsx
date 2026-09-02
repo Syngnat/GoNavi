@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   autoMatchDataSyncFields,
@@ -26,6 +27,8 @@ const SUPPORTED_TRANSFORMS = [
   'timestamp',
   'json',
 ] as const;
+const FOCUSABLE_SELECTOR =
+  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 const nextFieldMappingId = (mapping: DataSyncTableMapping): string => {
   let sequence = mapping.fields.length + 1;
@@ -82,6 +85,15 @@ export const DataSyncFieldMappingEditor: React.FC<{
 }> = ({ gateway, source, target, mapping, t, onChange, onClose }) => {
   const sourceFields = useDataSyncFields(gateway, source, mapping.sourceObject);
   const targetFields = useDataSyncFields(gateway, target, mapping.targetObject);
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const returnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panelRef.current?.focus();
+    return () => returnFocus?.focus();
+  }, []);
 
   const patchField = (field: DataSyncFieldMapping) => {
     onChange({
@@ -116,11 +128,49 @@ export const DataSyncFieldMappingEditor: React.FC<{
     });
   };
 
-  return (
-    <section
-      className="gn-data-sync-field-mapper"
-      data-data-sync-field-mapping={mapping.id}
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key !== 'Tab' || !panelRef.current) return;
+    const focusable = Array.from(
+      panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    );
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (
+      event.shiftKey &&
+      (document.activeElement === first || document.activeElement === panelRef.current)
+    ) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const editor = (
+    <div
+      className="gn-data-sync-overlay gn-data-sync-overlay--drawer"
+      data-data-sync-overlay="field-mapping"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
+      <section
+        ref={panelRef}
+        className="gn-data-sync-field-mapper"
+        data-data-sync-field-mapping={mapping.id}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('field_mapping.title')}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+      >
       <header className="gn-data-sync-section__header">
         <div>
           <h3>{t('field_mapping.title')}</h3>
@@ -299,6 +349,9 @@ export const DataSyncFieldMappingEditor: React.FC<{
           </table>
         </div>
       )}
-    </section>
+      </section>
+    </div>
   );
+
+  return typeof document === 'undefined' ? editor : createPortal(editor, document.body);
 };

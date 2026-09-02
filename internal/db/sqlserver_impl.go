@@ -192,10 +192,14 @@ func (s *SqlServerDB) Connect(config connection.ConnectionConfig) (err error) {
 	s.conn = db
 	s.pingTimeout = getConnectTimeout(config)
 
+	verificationStartedAt := time.Now()
 	if err := s.Ping(); err != nil {
 		_ = db.Close()
 		s.conn = nil
-		return wrapDatabaseConnectionVerifyError(err)
+		if s.forwarder == nil {
+			return wrapDatabaseConnectionVerifyError(err)
+		}
+		return wrapDatabaseConnectionVerifyErrorWithForwarder(err, s.forwarder, verificationStartedAt)
 	}
 	return nil
 }
