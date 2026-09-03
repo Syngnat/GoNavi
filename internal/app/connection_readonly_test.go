@@ -34,6 +34,9 @@ func TestEnsureReadOnlyConnectionAllowsQuery(t *testing.T) {
 	if err := ensureConnectionAllowsQuery(sqlConfig, "UPDATE users SET name = 'next'"); err == nil {
 		t.Fatal("read-only postgres connection should block update")
 	}
+	if err := ensureConnectionAllowsQuery(sqlConfig, "SELECT ARRAY[[1,2],[3,4]]; DELETE FROM users"); err == nil {
+		t.Fatal("read-only postgres connection should block a write after an array expression")
+	}
 
 	mongoConfig := connection.ConnectionConfig{Type: "mongodb", ReadOnly: true}
 	if err := ensureConnectionAllowsQuery(mongoConfig, `{"find":"users","filter":{"active":true}}`); err != nil {

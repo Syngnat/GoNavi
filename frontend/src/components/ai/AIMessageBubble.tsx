@@ -24,9 +24,11 @@ import {
   resolveJVMDiagnosticPlanTargetTabId,
 } from '../../utils/jvmDiagnosticPlan';
 import { AIMessageMarkdown } from './messageBubble/AIMessageMarkdown';
+import { AIActivityTimeline } from './messageBubble/AIActivityTimeline';
 import { AIThinkingBlock, AIToolCallingBlock } from './messageBubble/AIMessageStatusBlocks';
 import { formatAIChatAttachmentSize } from './aiChatAttachments';
 import type { AIToolResultIndex } from './aiToolResultIndex';
+import { useAIChatTypewriter } from './useAIChatTypewriter';
 
 interface AIMessageBubbleProps {
   msg: AIChatMessage;
@@ -212,11 +214,14 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
     i18n?.t ?? ((catalogKey, catalogParams) => catalogTranslate('en-US', catalogKey, catalogParams))
   )(key, params);
   const isUser = msg.role === 'user';
+  const typewriter = useAIChatTypewriter(msg.content || '', !isUser && Boolean(msg.loading));
+  const streamedContent = typewriter.content;
 
   const { displayContent, parsedThinking } = React.useMemo(() => {
-    const content = msg.content || '';
-    if (msg.thinking) {
-      return { displayContent: content, parsedThinking: msg.thinking };
+    const content = streamedContent;
+    const reasoning = msg.thinking || msg.reasoning_content;
+    if (reasoning) {
+      return { displayContent: content, parsedThinking: reasoning };
     }
     const thinkRegex = /<think>([\s\S]*?)(?:<\/think>|$)/g;
     const thinkParts: string[] = [];
@@ -231,7 +236,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
       };
     }
     return { displayContent: content, parsedThinking: '' };
-  }, [msg.content, msg.thinking]);
+  }, [msg.reasoning_content, msg.thinking, streamedContent]);
 
   const jvmPlan = React.useMemo(() => {
     if (isUser) {
@@ -253,8 +258,18 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
     return null;
   }
 
-  const isWaitState = msg.phase === 'connecting'
-    || (msg.loading && !msg.content && (msg.phase === 'thinking' || msg.phase === 'tool_calling'));
+  // A model can stream only tool-call fragments before it has any displayable
+  // text. Keep every empty assistant message visibly pending while its run is
+  // active instead of rendering a normal, empty chat bubble.
+  const isWaitState = !isUser && Boolean(msg.loading) && !displayContent.trim();
+  const hasActivityTimeline = !isUser && Boolean(msg.runActivities?.length);
+  const waitStatus = msg.phase === 'queued' || msg.phase === 'connecting'
+    ? copy('ai_chat.message.wait.connecting')
+    : msg.phase === 'thinking'
+      ? copy('ai_chat.message.thinking.active')
+      : msg.phase === 'tool_calling'
+        ? copy('ai_chat.message.tool_call.running')
+        : copy('ai_chat.message.wait.generating');
 
   if (isWaitState) {
     return (
@@ -264,14 +279,22 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
           borderRadius: 12,
           padding: '14px 16px',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: overlayTheme.mutedText }}>
-            <div className="ai-wave-pulse">
-              <span /> <span /> <span />
+          {hasActivityTimeline ? (
+            <AIActivityTimeline
+              activities={msg.runActivities || []}
+              darkMode={darkMode}
+              overlayTheme={overlayTheme}
+            />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: overlayTheme.mutedText }}>
+              <div className="ai-wave-pulse">
+                <span /> <span /> <span />
+              </div>
+              <span style={{ fontSize: 13, opacity: 0.8 }}>{msg.content || waitStatus}</span>
             </div>
-            <span style={{ fontSize: 13, opacity: 0.8 }}>{msg.content || copy('ai_chat.message.wait.connecting')}...</span>
-          </div>
+          )}
 
-          <div style={{ marginTop: parsedThinking || (msg.tool_calls && msg.tool_calls.length > 0) ? 12 : 0 }}>
+          <div style={{ marginTop: hasActivityTimeline || parsedThinking || (msg.tool_calls && msg.tool_calls.length > 0) ? 12 : 0 }}>
             {!isUser && parsedThinking && (
               <AIThinkingBlock
                 displayThinking={parsedThinking}
@@ -345,6 +368,14 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
             </div>
           )}
           <AIMessageAttachmentSummary msg={msg} overlayTheme={overlayTheme} />
+
+          {!isUser && hasActivityTimeline && (
+            <AIActivityTimeline
+              activities={msg.runActivities || []}
+              darkMode={darkMode}
+              overlayTheme={overlayTheme}
+            />
+          )}
 
           {!isUser && parsedThinking && (
             <AIThinkingBlock
@@ -464,7 +495,7 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
             />
           )}
 
-          {msg.loading && msg.phase !== 'tool_calling' && msg.content && (
+          {(msg.loading || typewriter.isAnimating) && msg.phase !== 'tool_calling' && msg.content && (
             <span className="ai-blinking-cursor" style={{ background: overlayTheme.iconColor }} />
           )}
         </div>

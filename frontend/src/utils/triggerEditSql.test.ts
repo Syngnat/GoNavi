@@ -44,4 +44,67 @@ describe('triggerEditSql', () => {
     expect(sql).not.toContain('修改触发器');
     expect(sql).not.toContain('请补全 CREATE TRIGGER 语句');
   });
+
+  it('uses PostgreSQL-compatible CREATE TRIGGER for fragments', () => {
+    const sql = buildEditableTriggerSql(
+      'users_bi',
+      'BEFORE INSERT ON public.users FOR EACH ROW EXECUTE FUNCTION users_bi_fn()',
+      { dbType: 'postgres', dropSql: 'DROP TRIGGER IF EXISTS users_bi ON public.users' },
+    );
+    expect(sql).toContain('CREATE TRIGGER users_bi');
+    expect(sql).not.toContain('CREATE OR REPLACE TRIGGER');
+  });
+
+  it('retains Oracle OR REPLACE semantics for trigger fragments', () => {
+    const sql = buildEditableTriggerSql(
+      'USERS_BI',
+      'BEFORE INSERT ON USERS FOR EACH ROW BEGIN NULL; END;',
+      { dbType: 'oracle' },
+    );
+    expect(sql).toContain('CREATE OR REPLACE TRIGGER USERS_BI');
+  });
+
+  it('preserves complete CREATE OR ALTER trigger definitions', () => {
+    const sql = buildEditableTriggerSql(
+      'users_bi',
+      'CREATE OR ALTER TRIGGER users_bi ON dbo.users AFTER INSERT AS BEGIN SELECT 1; END',
+      { dbType: 'sqlserver' },
+    );
+
+    expect(sql).toContain('CREATE OR ALTER TRIGGER users_bi');
+    expect(sql).not.toContain('Only a trigger definition fragment was returned');
+  });
+
+  it('preserves complete Oracle editionable trigger definitions', () => {
+    const sql = buildEditableTriggerSql(
+      'USERS_BI',
+      'CREATE OR REPLACE EDITIONABLE TRIGGER USERS_BI BEFORE INSERT ON USERS BEGIN NULL; END;',
+      { dbType: 'oracle' },
+    );
+
+    expect(sql).toContain('CREATE OR REPLACE EDITIONABLE TRIGGER USERS_BI');
+    expect(sql).not.toContain('Only a trigger definition fragment was returned');
+  });
+
+  it('normalizes a legacy PostgreSQL replace header after leading comments', () => {
+    const sql = buildEditableTriggerSql(
+      'users_bi',
+      '-- captured definition\nCREATE OR REPLACE TRIGGER users_bi BEFORE INSERT ON users EXECUTE FUNCTION users_bi_fn();',
+      { dbType: 'postgres' },
+    );
+
+    expect(sql).toContain('-- captured definition\nCREATE TRIGGER users_bi');
+    expect(sql).not.toContain('CREATE OR REPLACE TRIGGER');
+  });
+
+  it('normalizes a legacy PostgreSQL constraint-trigger replace header', () => {
+    const sql = buildEditableTriggerSql(
+      'users_constraint',
+      'CREATE OR REPLACE CONSTRAINT TRIGGER users_constraint AFTER INSERT ON users EXECUTE FUNCTION users_constraint_fn();',
+      { dbType: 'postgres' },
+    );
+
+    expect(sql).toContain('CREATE CONSTRAINT TRIGGER users_constraint');
+    expect(sql).not.toContain('CREATE OR REPLACE CONSTRAINT TRIGGER');
+  });
 });

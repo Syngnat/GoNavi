@@ -438,7 +438,7 @@ func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, ch
 		return `"` + n + `"`
 	}
 
-	schema, table := SplitSQLQualifiedName(tableName)
+	schema, table := SplitSQLQualifiedNameForDialect(tableName, "dameng")
 
 	qualifiedTable := ""
 	if schema != "" {

@@ -360,8 +360,8 @@ func mongoAggregateHasWriteStage(doc map[string]interface{}) bool {
 func isReadOnlyMilvusCommand(query string) bool {
 	trimmed := strings.TrimSpace(query)
 	if !strings.HasPrefix(trimmed, "{") {
-		keyword, withHasWrite := sqlDataOperationInfo(trimmed)
-		return !withHasWrite && keyword == "select" && !isSQLSelectIntoStatement(trimmed)
+		keyword, withHasWrite := sqlDataOperationInfo(trimmed, "milvus")
+		return !withHasWrite && keyword == "select" && !isSQLSelectIntoStatement(trimmed, "milvus")
 	}
 	var doc map[string]interface{}
 	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {

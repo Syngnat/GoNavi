@@ -99,6 +99,51 @@ describe("sidebar object identities", () => {
   });
 });
 
+describe("sidebar trigger metadata identifiers", () => {
+  it("keeps dotted trigger and table names as single identifiers", async () => {
+    mockedDBQuery.mockResolvedValue({
+      success: true,
+      message: "",
+      data: [{
+        trigger_name: "a.b",
+        table_name: "order.items",
+        schema_name: "audit",
+      }],
+    });
+
+    await expect(loadDatabaseTriggers({ config: { type: "mysql" } }, "app")).resolves.toEqual({
+      supported: true,
+      triggers: [{
+        displayName: "a.b (audit.\`order.items\`)",
+        triggerName: "a.b",
+        tableName: "audit.\`order.items\`",
+        schemaName: "audit",
+      }],
+    });
+  });
+
+  it("keeps legacy qualified trigger metadata working when schema metadata is absent", async () => {
+    mockedDBQuery.mockResolvedValue({
+      success: true,
+      message: "",
+      data: [{
+        trigger_name: "audit.users_bi",
+        table_name: "audit.users",
+      }],
+    });
+
+    await expect(loadDatabaseTriggers({ config: { type: "mysql" } }, "app")).resolves.toEqual({
+      supported: true,
+      triggers: [{
+        displayName: "users_bi (audit.users)",
+        triggerName: "audit.users_bi",
+        tableName: "audit.users",
+        schemaName: "audit",
+      }],
+    });
+  });
+});
+
 describe("buildSchemasMetadataQuerySpecs", () => {
   it("returns schema queries for independent-schema targets", () => {
     expect(
@@ -204,6 +249,25 @@ describe("buildSchemasMetadataQuerySpecs", () => {
       failureMessage: "view metadata permission denied",
     });
   });
+
+  it("keeps PostgreSQL case-distinct views instead of collapsing them", async () => {
+    mockedDBQuery.mockResolvedValue({
+      success: true,
+      message: "",
+      data: [
+        { schema_name: "public", view_name: "users", table_type: "VIEW" },
+        { schema_name: "public", view_name: "Users", table_type: "VIEW" },
+        { schema_name: "public", view_name: "users", table_type: "VIEW" },
+      ],
+    });
+
+    const result = await loadViews({ config: { type: "postgres" } }, "app");
+
+    expect(result.views).toEqual([
+      { schemaName: "public", viewName: "public.users" },
+      { schemaName: "public", viewName: "public.Users" },
+    ]);
+  });
 });
 
 describe("PostgreSQL sequence metadata", () => {
@@ -280,6 +344,7 @@ describe("Oracle object metadata loaders", () => {
         displayName: "TRG_AUDIT (SBDEV.ORDERS)",
         triggerName: "TRG_AUDIT",
         tableName: "SBDEV.ORDERS",
+        schemaName: "SBDEV",
         objectStatus: "INVALID",
       }],
     });
@@ -419,7 +484,7 @@ describe("Kingbase/PG routine metadata loaders", () => {
             { schema_name: "ldf_server", routine_name: "pk_zero_fn", routine_type: "FUNCTION" },
             // overload rows with same name/type must collapse
             { schema_name: "ldf_server", routine_name: "p1", routine_type: "FUNCTION" },
-            { schema_name: "LDF_SERVER", routine_name: "p1", routine_type: "FUNCTION" },
+            { schema_name: "ldf_server", routine_name: "p1", routine_type: "FUNCTION" },
           ],
         };
       }

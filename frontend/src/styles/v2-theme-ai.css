@@ -362,7 +362,8 @@ body[data-ui-version="v2"] .gn-v2-ai-insight-card p {
 }
 
 body[data-ui-version="v2"] .gn-v2-ai-history-card {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   padding: 9px 10px;
   display: flex;
   flex-direction: column;
@@ -373,6 +374,36 @@ body[data-ui-version="v2"] .gn-v2-ai-history-card {
   background: transparent;
   color: var(--gn-fg-2);
   text-align: left;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-history-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-history-delete {
+  width: 30px;
+  min-width: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-fg-5);
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-history-delete:not(:disabled):hover {
+  background: color-mix(in srgb, var(--gn-danger) 12%, transparent);
+  color: var(--gn-danger);
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-history-delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 body[data-ui-version="v2"] .gn-v2-ai-history-card.is-active {

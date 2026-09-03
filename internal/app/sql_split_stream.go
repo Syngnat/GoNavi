@@ -105,6 +105,7 @@ type sqlStreamSplitter struct {
 	inSingle               bool
 	inDouble               bool
 	inBacktick             bool
+	inBracket              bool
 	escaped                bool
 	inLineComment          bool
 	inBlockComment         bool
@@ -168,6 +169,8 @@ func (s *sqlStreamSplitter) Feed(chunk []byte) []string {
 	s.inputBytes += int64(len(chunk))
 	text := s.pending + string(chunk)
 	s.pending = ""
+	bracketIdentifiers := supportsSQLBracketIdentifier(s.dbType)
+	escapedBracketIdentifiers := supportsSQLEscapedBracketIdentifier(s.dbType)
 
 	for i := 0; i < len(text); i++ {
 		if s.cur.limitErr != nil {
@@ -201,6 +204,27 @@ func (s *sqlStreamSplitter) Feed(chunk []byte) []string {
 				i++
 				s.inBlockComment = false
 			}
+			continue
+		}
+
+		// SQL Server and SQLite delimited identifiers use [name]. SQL Server
+		// escapes a closing bracket as ]], while SQLite closes at the first ].
+		// Keep their contents opaque to the statement delimiter.
+		if bracketIdentifiers && s.inBracket {
+			if ch == ']' {
+				if escapedBracketIdentifiers && next == ']' {
+					s.cur.WriteByte(ch)
+					s.cur.WriteByte(next)
+					i++
+					continue
+				}
+				if escapedBracketIdentifiers && i+1 >= len(text) {
+					s.pending = text[i:]
+					break
+				}
+				s.inBracket = false
+			}
+			s.cur.WriteByte(ch)
 			continue
 		}
 
@@ -250,6 +274,11 @@ func (s *sqlStreamSplitter) Feed(chunk []byte) []string {
 		}
 		if !s.inSingle && !s.inBacktick && ch == '"' {
 			s.inDouble = !s.inDouble
+			s.cur.WriteByte(ch)
+			continue
+		}
+		if bracketIdentifiers && !s.inSingle && !s.inDouble && !s.inBacktick && ch == '[' {
+			s.inBracket = true
 			s.cur.WriteByte(ch)
 			continue
 		}

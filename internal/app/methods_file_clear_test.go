@@ -33,6 +33,19 @@ func TestBuildTableDataClearSQL_ClearUsesDeleteForCustomMySQLDriver(t *testing.T
 	}
 }
 
+func TestBuildTableDataClearSQL_MySQLKeepsBracketCharactersLiteral(t *testing.T) {
+	t.Parallel()
+
+	sql, err := buildTableDataClearSQL(connection.ConnectionConfig{Type: "mysql"}, "[weird]]name]", tableDataClearModeDeleteAll)
+	if err != nil {
+		t.Fatalf("buildTableDataClearSQL() unexpected error: %v", err)
+	}
+
+	if sql != "DELETE FROM `[weird]]name]`" {
+		t.Fatalf("unexpected MySQL bracket-literal delete sql: %s", sql)
+	}
+}
+
 func TestBuildTableDataClearSQL_ClearUsesMongoDeleteCommand(t *testing.T) {
 	t.Parallel()
 

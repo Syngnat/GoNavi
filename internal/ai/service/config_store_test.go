@@ -199,6 +199,50 @@ func TestProviderConfigStoreSaveKeepsExistingSecretRef(t *testing.T) {
 	}
 }
 
+func TestProviderConfigStoreLoadDropsLegacyKeychainReferenceOnDarwinWithoutAccess(t *testing.T) {
+	withTestAIGOOS(t, "darwin")
+	configStore := newProviderConfigStore(t.TempDir(), failOnUseSecretStore{})
+
+	legacy := aiConfig{
+		Providers: []ai.ProviderConfig{{
+			ID:        "openai-main",
+			Type:      "openai",
+			Name:      "OpenAI",
+			HasSecret: true,
+			SecretRef: "oskeyring://gonavi/ai-provider/openai-main",
+			BaseURL:   "https://api.openai.com/v1",
+		}},
+		ActiveProvider: "openai-main",
+	}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("MarshalIndent returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configStore.configDir, aiConfigFileName), data, 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	snapshot, err := configStore.Load()
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(snapshot.Providers) != 1 {
+		t.Fatalf("expected 1 provider, got %d", len(snapshot.Providers))
+	}
+	provider := snapshot.Providers[0]
+	if provider.HasSecret || provider.SecretRef != "" || provider.APIKey != "" {
+		t.Fatalf("legacy Keychain provider was not cleared without Keychain access: %#v", provider)
+	}
+
+	rewritten, err := os.ReadFile(filepath.Join(configStore.configDir, aiConfigFileName))
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if strings.Contains(string(rewritten), "oskeyring://") {
+		t.Fatalf("rewritten config still contains legacy Keychain reference: %s", rewritten)
+	}
+}
+
 func TestProviderConfigStoreSaveAndLoadUserPromptSettings(t *testing.T) {
 	configStore := newProviderConfigStore(t.TempDir(), failOnUseSecretStore{})
 

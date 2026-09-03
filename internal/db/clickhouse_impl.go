@@ -1341,13 +1341,15 @@ func (c *ClickHouseDB) resolveDatabaseAndTable(dbName, tableName string) (string
 
 	resolvedDB := strings.TrimSpace(dbName)
 	resolvedTable := rawTable
-	if parts := strings.SplitN(rawTable, ".", 2); len(parts) == 2 {
-		if dbPart := normalizeClickHouseIdentifierPart(parts[0]); dbPart != "" {
+	segments := SplitSQLIdentifierPathForDialect(rawTable, "clickhouse")
+	if len(segments) >= 2 {
+		if dbPart := normalizeClickHouseIdentifierPart(segments[0].Raw); dbPart != "" {
 			resolvedDB = dbPart
 		}
-		resolvedTable = normalizeClickHouseIdentifierPart(parts[1])
-	} else {
-		resolvedTable = normalizeClickHouseIdentifierPart(rawTable)
+		last := segments[len(segments)-1]
+		resolvedTable = normalizeClickHouseIdentifierPart(last.Raw)
+	} else if len(segments) == 1 {
+		resolvedTable = normalizeClickHouseIdentifierPart(segments[0].Raw)
 	}
 
 	if resolvedDB == "" {
@@ -1363,15 +1365,11 @@ func (c *ClickHouseDB) resolveDatabaseAndTable(dbName, tableName string) (string
 }
 
 func normalizeClickHouseIdentifierPart(raw string) string {
-	text := strings.TrimSpace(raw)
-	if len(text) >= 2 {
-		first := text[0]
-		last := text[len(text)-1]
-		if (first == '`' && last == '`') || (first == '"' && last == '"') {
-			text = text[1 : len(text)-1]
-		}
+	segments := SplitSQLIdentifierPathForDialect(raw, "clickhouse")
+	if len(segments) == 1 {
+		return strings.TrimSpace(segments[0].Value)
 	}
-	return strings.TrimSpace(text)
+	return strings.TrimSpace(raw)
 }
 
 func quoteClickHouseIdentifier(raw string) string {

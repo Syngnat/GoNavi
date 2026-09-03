@@ -32,6 +32,7 @@ import { buildJVMMonitoringActionDescriptors } from '../../utils/jvmSidebarActio
 import { getSchemaVisibilityRule, isSchemaVisible } from '../../utils/schemaVisibility';
 import { type SidebarViewMetadataEntry } from '../../utils/sidebarMetadata';
 import { resolveNacosConnectionScope } from '../../utils/nacosConnectionScope';
+import { buildMetadataIdentityKey } from '../../utils/metadataIdentity';
 import {
   buildQualifiedName,
   buildSidebarObjectKeyName,
@@ -76,6 +77,7 @@ import { DBGetDatabases, DBGetObjects, DBGetTables, DBQuery, DBRefreshTableStats
 import type { SidebarTableMetadataSnapshot } from '../../utils/sidebarTableMetadata';
 import { collectNacosServiceGroupsByPage } from '../nacosServiceName';
 import { isPostgresSchemaDialect } from '../sidebarCoreUtils';
+import { splitMetadataQualifiedName } from '../../utils/qualifiedName';
 
 type DriverStatusSnapshot = {
   type: string;
@@ -1577,24 +1579,53 @@ export const useSidebarTreeLoaders = ({
                 const metadataDialect = getMetadataDialect(conn as SavedConnection);
 
                 triggerRows.forEach((trigger: any) => {
-                    const triggerParsed = splitQualifiedName(trigger.triggerName);
-                    const tableParsed = splitQualifiedName(trigger.tableName);
-                    const schemaName = tableParsed.schemaName || triggerParsed.schemaName || String(conn.dbName || '').trim();
-                    const triggerObjectName = (triggerParsed.objectName || trigger.triggerName).trim();
-                    const tableObjectName = (tableParsed.objectName || trigger.tableName).trim();
+                    // Trigger metadata carries schema and object names as
+                    // separate fields. Treat a bare dotted value as a literal
+                    // identifier unless it explicitly matches that schema;
+                    // otherwise `a.b` gets silently reduced to `b`.
+                    const rawTriggerName = String(trigger.triggerName || '').trim();
+                    const rawTableName = String(trigger.tableName || '').trim();
+                    const metadataSchemaName = String(trigger.schemaName || '').trim();
+                    const splitTriggerMetadataName = (rawName: string) => {
+                        if (metadataSchemaName) {
+                            return splitMetadataQualifiedName(rawName, metadataSchemaName);
+                        }
+                        const parsed = splitQualifiedName(rawName);
+                        return { parentPath: parsed.schemaName, objectName: parsed.objectName };
+                    };
+                    const triggerParsed = splitTriggerMetadataName(rawTriggerName);
+                    const tableParsed = splitTriggerMetadataName(rawTableName);
+                    const schemaName = metadataSchemaName || tableParsed.parentPath || triggerParsed.parentPath || String(conn.dbName || '').trim();
+                    const triggerObjectName = String(triggerParsed.objectName || rawTriggerName).trim();
+                    const tableObjectName = String(tableParsed.objectName || rawTableName).trim();
+                    // The loader may have quoted a dotted object name (for
+                    // example `audit.`order.items``). Preserve that exact
+                    // identity instead of rebuilding it from an ambiguous
+                    // bare string and losing the delimiter.
+                    const triggerName = rawTriggerName || triggerObjectName;
+                    const tableName = rawTableName || buildQualifiedName(schemaName, tableObjectName) || tableObjectName;
                     const displayName = tableObjectName ? `${triggerObjectName} (${tableObjectName})` : triggerObjectName;
                     const objectStatus = String(trigger.objectStatus || '').trim();
                     const dedupeKey = metadataDialect === 'mysql'
-                        ? `${schemaName.toLowerCase()}@@${triggerObjectName.toLowerCase()}`
-                        : `${schemaName.toLowerCase()}@@${triggerObjectName.toLowerCase()}@@${tableObjectName.toLowerCase()}`;
+                        ? buildMetadataIdentityKey(
+                            metadataDialect,
+                            schemaName,
+                            triggerObjectName,
+                        )
+                        : buildMetadataIdentityKey(
+                            metadataDialect,
+                            schemaName,
+                            triggerObjectName,
+                            tableObjectName,
+                        );
 
                     if (triggerSeen.has(dedupeKey)) return;
                     triggerSeen.add(dedupeKey);
                     deduped.push({
                         ...trigger,
                         schemaName,
-                        triggerName: triggerObjectName,
-                        tableName: buildQualifiedName(schemaName, tableObjectName) || tableObjectName,
+                        triggerName,
+                        tableName,
                         displayName,
                         ...(objectStatus ? { objectStatus } : {}),
                     });
@@ -1606,6 +1637,7 @@ export const useSidebarTreeLoaders = ({
             const routineEntries = (() => {
                 const deduped: Array<{ routineName: string; routineType: string; schemaName: string; displayName: string; objectStatus?: string }> = [];
                 const routineSeen = new Set<string>();
+                const metadataDialect = getMetadataDialect(conn as SavedConnection);
                 routineRows.forEach((routine: any) => {
                     const parsed = splitQualifiedName(routine.routineName);
                     const routineType = String(routine.routineType || 'FUNCTION').toUpperCase().includes('PROC')
@@ -1617,7 +1649,12 @@ export const useSidebarTreeLoaders = ({
                     const routineName = String(routine.routineName || objectName).trim();
                     const typeLabel = routineType === 'PROCEDURE' ? 'P' : 'F';
                     const objectStatus = String(routine.objectStatus || '').trim();
-                    const dedupeKey = `${schemaName.toLowerCase()}@@${objectName.toLowerCase()}@@${routineType}`;
+                    const dedupeKey = buildMetadataIdentityKey(
+                        metadataDialect,
+                        schemaName,
+                        objectName,
+                        routineType,
+                    );
                     if (routineSeen.has(dedupeKey)) return;
                     routineSeen.add(dedupeKey);
                     deduped.push({

@@ -1,4 +1,5 @@
 import { resolveOceanBaseProtocolForDialect } from './oceanBaseProtocol';
+import { splitQualifiedNameSegments, splitQualifiedNameSegmentsDetailed } from './qualifiedName';
 import { t as translate } from '../i18n';
 
 export type ColumnTypeOption = { value: string };
@@ -245,14 +246,13 @@ export const isBacktickIdentifierDialect = (dbType: string): boolean => (
   isMysqlFamilyDialect(dbType) || ['clickhouse', 'tdengine', 'iotdb'].includes(resolveSqlDialect(dbType))
 );
 
-const stripIdentifierQuotes = (part: string): string => {
+const stripIdentifierQuotes = (part: string, dbType = ''): string => {
   const text = String(part || '').trim();
   if (!text) return '';
-  if ((text.startsWith('`') && text.endsWith('`')) || (text.startsWith('"') && text.endsWith('"'))) {
-    return text.slice(1, -1).trim();
-  }
-  if (text.startsWith('[') && text.endsWith(']')) {
-    return text.slice(1, -1).replace(/]]/g, ']').trim();
+  const dialect = dbType ? resolveSqlDialect(dbType) : '';
+  const segments = splitQualifiedNameSegmentsDetailed(text, dialect);
+  if (segments.length === 1 && segments[0].quoted) {
+    return segments[0].value;
   }
   return text;
 };
@@ -265,19 +265,14 @@ const needsPgLikeQuote = (ident: string): boolean => !/^[a-z_][a-z0-9_]*$/.test(
 
 export const unquoteSqlIdentifierPart = stripIdentifierQuotes;
 
-export const unquoteSqlIdentifierPath = (path: string): string => (
-  String(path || '')
-    .trim()
-    .split('.')
-    .map((part) => stripIdentifierQuotes(part))
-    .filter(Boolean)
-    .join('.')
+export const unquoteSqlIdentifierPath = (path: string, dbType = ''): string => (
+  splitQualifiedNameSegments(path, dbType).filter(Boolean).join('.')
 );
 
 export const quoteSqlIdentifierPart = (dbType: string, part: string): string => {
-  const ident = stripIdentifierQuotes(part);
-  if (!ident) return '';
   const dialect = resolveSqlDialect(dbType);
+  const ident = stripIdentifierQuotes(part, dialect);
+  if (!ident) return '';
 
   if (isBacktickIdentifierDialect(dialect)) {
     return `\`${escapeBacktickIdentifier(ident)}\``;
@@ -291,15 +286,13 @@ export const quoteSqlIdentifierPart = (dbType: string, part: string): string => 
   return `"${escapeDoubleQuoteIdentifier(ident)}"`;
 };
 
-export const quoteSqlIdentifierPath = (dbType: string, path: string): string => (
-  String(path || '')
-    .trim()
-    .split('.')
-    .map((part) => stripIdentifierQuotes(part))
-    .filter(Boolean)
-    .map((part) => quoteSqlIdentifierPart(dbType, part))
-    .join('.')
-);
+export const quoteSqlIdentifierPath = (dbType: string, path: string): string => {
+  const dialect = resolveSqlDialect(dbType);
+  return splitQualifiedNameSegmentsDetailed(path, dialect)
+    .filter((segment) => Boolean(segment.value))
+    .map((segment) => quoteSqlIdentifierPart(dialect, segment.raw))
+    .join('.');
+};
 
 const MYSQL_TYPES = optionValues([
   'tinyint',

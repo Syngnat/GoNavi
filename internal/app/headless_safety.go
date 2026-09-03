@@ -116,7 +116,7 @@ func classifyHeadlessSQLOperation(dbType, statement string, inspection SQLStatem
 	if isBatchableWriteSQLStatement(dbType, statement) {
 		return ai.SQLOpDML
 	}
-	keyword, _ := sqlDataOperationInfo(statement)
+	keyword, _ := sqlDataOperationInfo(statement, dbType)
 	switch keyword {
 	case "create", "alter", "drop", "truncate", "rename":
 		return ai.SQLOpDDL

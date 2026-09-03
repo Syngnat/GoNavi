@@ -264,36 +264,22 @@ func (s *Service) cacheOrPersistWorkspaceSnapshot(ctx context.Context, snapshot 
 	}, nil
 }
 
-// flushPendingWorkspaceSnapshots transfers startup snapshots to the durable
-// ledger after the Harness has been initialized. A failed transfer is put back
-// in the cache so a later heartbeat can retry with the same revision.
-func (s *Service) flushPendingWorkspaceSnapshots(ctx context.Context) error {
-	s.agentMu.Lock()
-	harness := s.agentHarness
-	if harness == nil || len(s.agentPendingWorkspaceSnapshots) == 0 {
-		s.agentMu.Unlock()
-		return nil
-	}
-	pending := make([]runharness.WorkspaceSnapshot, 0, len(s.agentPendingWorkspaceSnapshots))
-	for _, snapshot := range s.agentPendingWorkspaceSnapshots {
-		pending = append(pending, snapshot)
-	}
-	s.agentPendingWorkspaceSnapshots = nil
-	s.agentMu.Unlock()
-
-	for _, snapshot := range pending {
+// flushPendingWorkspaceSnapshotsLocked transfers startup snapshots before the
+// Harness is exposed through Service. agentMu must be held by the caller: that
+// keeps a new desktop heartbeat from overtaking an older cached revision and
+// turning startup into a Ledger revision conflict.
+func (s *Service) flushPendingWorkspaceSnapshotsLocked(ctx context.Context, harness runharness.Harness) error {
+	for key, snapshot := range s.agentPendingWorkspaceSnapshots {
 		if _, err := harness.PutWorkspaceSnapshot(ctx, snapshot); err != nil {
-			s.agentMu.Lock()
-			if s.agentPendingWorkspaceSnapshots == nil {
-				s.agentPendingWorkspaceSnapshots = make(map[string]runharness.WorkspaceSnapshot)
-			}
-			key := workspaceSnapshotCacheKey(snapshot)
-			if previous, ok := s.agentPendingWorkspaceSnapshots[key]; !ok || snapshot.Revision > previous.Revision {
-				s.agentPendingWorkspaceSnapshots[key] = snapshot
-			}
-			s.agentMu.Unlock()
+			// Keep this and all not-yet-attempted snapshots cached for diagnosis or
+			// a future lifecycle retry. Successfully stored snapshots are deleted
+			// immediately, so they cannot be replayed after a partial flush.
 			return fmt.Errorf("flush workspace snapshot: %w", err)
 		}
+		delete(s.agentPendingWorkspaceSnapshots, key)
+	}
+	if len(s.agentPendingWorkspaceSnapshots) == 0 {
+		s.agentPendingWorkspaceSnapshots = nil
 	}
 	return nil
 }
@@ -482,13 +468,17 @@ func (s *Service) initializeAgentHarness(ctx context.Context) error {
 		s.agentHarnessInitialization = fmt.Errorf("load agent run policy: %w", err)
 		return s.agentHarnessInitialization
 	}
-	keyRef, err := agentLedgerKeyRef(configDir)
+	keyPath, err := AgentLedgerKeyFilePath(configDir)
 	if err != nil {
-		s.agentHarnessInitialization = fmt.Errorf("resolve agent ledger key: %w", err)
+		s.agentHarnessInitialization = fmt.Errorf("resolve local agent ledger key: %w", err)
 		return s.agentHarnessInitialization
 	}
-	ledgerPath := filepath.Join(configDir, "agent_runs.sqlite")
-	ledger, err := runharness.Open(ledgerPath, runharness.WithKeyring(keyRef, s.secretStore))
+	ledgerPath := filepath.Join(filepath.Dir(keyPath), agentLedgerFileName)
+	if err := archiveLegacyAgentLedgerWithoutLocalKey(ledgerPath, keyPath); err != nil {
+		s.agentHarnessInitialization = err
+		return err
+	}
+	ledger, err := runharness.Open(ledgerPath, runharness.WithKeyFile(keyPath))
 	if err != nil {
 		s.agentHarnessInitialization = err
 		return err
@@ -517,6 +507,12 @@ func (s *Service) initializeAgentHarness(ctx context.Context) error {
 	}
 	if err == nil {
 		err = harness.SetRuntimeConfig(policySnapshot.Runtime)
+	}
+	if err == nil {
+		// Pending startup snapshots must be durable before s.agentHarness is
+		// assigned. Otherwise AIUpdateWorkspaceSnapshot can persist a newer
+		// revision in the small window before the older cache is flushed.
+		err = s.flushPendingWorkspaceSnapshotsLocked(ctx, harness)
 	}
 	if err == nil {
 		err = harness.Start(ctx)
@@ -569,9 +565,6 @@ func (s *Service) agentHarnessForCall() (runharness.Harness, context.Context, er
 	}
 	if harness == nil {
 		return nil, nil, errors.New("agent harness is unavailable")
-	}
-	if err := s.flushPendingWorkspaceSnapshots(ctx); err != nil {
-		return nil, nil, err
 	}
 	return harness, ctx, nil
 }
@@ -725,16 +718,78 @@ func (s *Service) resolveAgentImagePrompts(ctx context.Context, _ runharness.Mod
 }
 
 func agentLedgerKeyRef(configDir string) (string, error) {
-	abs, err := filepath.Abs(strings.TrimSpace(configDir))
+	clean, err := resolveAgentLedgerDataRoot(configDir)
 	if err != nil {
 		return "", err
 	}
-	if resolved, evalErr := filepath.EvalSymlinks(abs); evalErr == nil {
-		abs = resolved
-	}
-	clean := filepath.Clean(abs)
 	digest := sha256.Sum256([]byte(clean))
 	return secretstore.BuildRef("ai-ledger", hex.EncodeToString(digest[:]))
+}
+
+// archiveLegacyAgentLedgerWithoutLocalKey moves the old Keychain-encrypted
+// SQLite files out of the active location before a local key is created. The
+// original key cannot be read without prompting macOS, so preserving the
+// ciphertext in a reversible backup is the only way to eliminate Keychain
+// access while keeping the old data intact.
+func archiveLegacyAgentLedgerWithoutLocalKey(ledgerPath, keyPath string) error {
+	if _, err := os.Lstat(keyPath); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect local agent ledger key: %w", err)
+	}
+
+	type fileMove struct {
+		source string
+		target string
+	}
+	files := make([]fileMove, 0, 3)
+	for _, name := range []string{agentLedgerFileName, agentLedgerFileName + "-wal", agentLedgerFileName + "-shm"} {
+		source := filepath.Join(filepath.Dir(ledgerPath), name)
+		info, err := os.Lstat(source)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect legacy agent ledger %s: %w", source, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("refuse to archive legacy agent ledger %s: not a regular file", source)
+		}
+		files = append(files, fileMove{source: source})
+	}
+	if len(files) == 0 {
+		return nil
+	}
+
+	backupDir, err := os.MkdirTemp(filepath.Dir(ledgerPath), ".agent_runs.keyring-backup-")
+	if err != nil {
+		return fmt.Errorf("create legacy agent ledger backup: %w", err)
+	}
+	if err := os.Chmod(backupDir, 0o700); err != nil {
+		_ = os.Remove(backupDir)
+		return fmt.Errorf("secure legacy agent ledger backup: %w", err)
+	}
+	for index := range files {
+		files[index].target = filepath.Join(backupDir, filepath.Base(files[index].source))
+	}
+
+	moved := make([]fileMove, 0, len(files))
+	for _, file := range files {
+		if err := os.Rename(file.source, file.target); err != nil {
+			rollbackErrs := make([]error, 0, len(moved))
+			for index := len(moved) - 1; index >= 0; index-- {
+				if rollbackErr := os.Rename(moved[index].target, moved[index].source); rollbackErr != nil {
+					rollbackErrs = append(rollbackErrs, fmt.Errorf("restore %s: %w", moved[index].source, rollbackErr))
+				}
+			}
+			if len(rollbackErrs) == 0 {
+				_ = os.Remove(backupDir)
+			}
+			return errors.Join(fmt.Errorf("archive legacy agent ledger %s: %w", file.source, err), errors.Join(rollbackErrs...))
+		}
+		moved = append(moved, file)
+	}
+	return nil
 }
 
 func (s *Service) agentPolicyPath() string {

@@ -3,8 +3,11 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useStore } from '../../store';
-import { resetAIChatRunEventProjection } from './useAIChatRunEventSubscription';
-import { useAIChatRunEventSubscription } from './useAIChatRunEventSubscription';
+import {
+  AI_RUN_EVENT_RECOVERY_RETRY_BASE_MS,
+  resetAIChatRunEventProjection,
+  useAIChatRunEventSubscription,
+} from './useAIChatRunEventSubscription';
 
 const runtimeMock = vi.hoisted(() => {
   const handlers = new Map<string, (value: unknown) => void>();
@@ -72,6 +75,7 @@ const Harness = ({
   onRecoveryChange,
   onRunStateChange,
   deleteAIChatMessage,
+  trackedRunIds,
 }: {
   isRunTracked?: (runId: string, sessionId: string) => boolean;
   onSendingChange?: (sending: boolean) => void;
@@ -79,6 +83,7 @@ const Harness = ({
   onRecoveryChange?: (runId: string, recovery: unknown) => void;
   onRunStateChange?: (runId: string, state: string, revision: number) => void;
   deleteAIChatMessage?: (sid: string, messageId: string) => void;
+  trackedRunIds?: string[];
 } = {}) => {
   const [, setSending] = useState(true);
   useAIChatRunEventSubscription({
@@ -92,6 +97,7 @@ const Harness = ({
     deleteAIChatMessage,
     nextMessageId: () => 'unused',
     isRunTracked,
+    trackedRunIds,
     onApprovalChange,
     onRecoveryChange,
     onRunStateChange,
@@ -132,6 +138,7 @@ describe('useAIChatRunEventSubscription', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     resetAIChatRunEventProjection();
     vi.unstubAllGlobals();
     useStore.setState({ aiChatHistory: {}, aiChatSessions: [], aiActiveSessionId: null });
@@ -153,6 +160,253 @@ describe('useAIChatRunEventSubscription', () => {
         loading: true,
       }),
     ]));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('retains a visible activity timeline across model and tool turns', async () => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness />);
+    });
+
+    await emit(makeEvent(1, {
+      kind: 'input',
+      resultingState: 'running_model',
+      payload: { requestId: 'timeline-input' },
+    }));
+    await emit(makeEvent(2, {
+      kind: 'model_completed',
+      resultingState: 'running_model',
+      payload: {
+        toolCalls: [{
+          callId: 'timeline-tool-1',
+          toolName: 'get_tables',
+          effect: 'read_only',
+        }],
+      },
+    }));
+    await emit(makeEvent(3, {
+      kind: 'tool',
+      resultingState: 'running_tool',
+      payload: {
+        callId: 'timeline-tool-1',
+        toolName: 'get_tables',
+        effect: 'read_only',
+        status: 'started',
+      },
+    }));
+    await emit(makeEvent(4, {
+      kind: 'tool',
+      resultingState: 'running_model',
+      payload: {
+        callId: 'timeline-tool-1',
+        toolName: 'get_tables',
+        effect: 'read_only',
+        status: 'completed',
+      },
+    }));
+    await emit(makeEvent(5, {
+      kind: 'model_completed',
+      resultingState: 'running_model',
+      payload: { text: 'Found 3 tables.' },
+    }));
+    await emit(makeEvent(6, {
+      kind: 'terminal',
+      resultingState: 'completed',
+      payload: { reason: 'completed' },
+    }));
+
+    const assistant = useStore.getState().aiChatHistory[SESSION_ID][0] as unknown as {
+      content: string;
+      runActivities?: Array<{ kind: string; status: string; toolName?: string }>;
+    };
+    expect(assistant.content).toBe('Found 3 tables.');
+    expect(assistant.runActivities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'model', status: 'completed' }),
+      expect.objectContaining({ kind: 'tool', status: 'completed', toolName: 'get_tables' }),
+      expect.objectContaining({ kind: 'run', status: 'completed' }),
+    ]));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('routes concurrent run deltas to their receipt-bound placeholders', async () => {
+    useStore.setState({
+      aiChatHistory: {
+        [SESSION_ID]: [
+          {
+            id: 'agent-run-run-event-1-pending',
+            runId: 'run-event-1',
+            role: 'assistant',
+            content: '',
+            phase: 'connecting',
+            loading: true,
+            timestamp: 1,
+          },
+          {
+            id: 'agent-run-run-event-2-pending',
+            runId: 'run-event-2',
+            role: 'assistant',
+            content: '',
+            phase: 'connecting',
+            loading: true,
+            timestamp: 2,
+          },
+        ],
+      },
+    });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness />);
+    });
+
+    await emit(makeEvent(1, { payload: { text: 'run one output' } }));
+
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual([
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-pending',
+        runId: 'run-event-1',
+        content: 'run one output',
+        phase: 'generating',
+      }),
+      expect.objectContaining({
+        id: 'agent-run-run-event-2-pending',
+        runId: 'run-event-2',
+        content: '',
+        phase: 'connecting',
+        loading: true,
+      }),
+    ]);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('removes only the failed run empty placeholder and keeps its error anchored', async () => {
+    const deleteAIChatMessage = vi.fn((sid: string, messageId: string) => {
+      useStore.setState((state) => ({
+        aiChatHistory: {
+          ...state.aiChatHistory,
+          [sid]: (state.aiChatHistory[sid] || []).filter((message) => message.id !== messageId),
+        },
+      }));
+    });
+    useStore.setState({
+      aiChatHistory: {
+        [SESSION_ID]: [
+          {
+            id: 'agent-run-run-event-1-pending',
+            runId: 'run-event-1',
+            role: 'assistant',
+            content: '',
+            phase: 'connecting',
+            loading: true,
+            timestamp: 1,
+          },
+          {
+            id: 'agent-run-run-event-2-pending',
+            runId: 'run-event-2',
+            role: 'assistant',
+            content: '',
+            phase: 'connecting',
+            loading: true,
+            timestamp: 2,
+          },
+        ],
+      },
+    });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness deleteAIChatMessage={deleteAIChatMessage} />);
+    });
+
+    await emit(makeEvent(1, { payload: { text: '' } }));
+    await emit(makeEvent(2, {
+      kind: 'terminal',
+      resultingState: 'failed',
+      payload: { reason: 'stream payload failed', errorCode: 'provider' },
+    }));
+
+    expect(deleteAIChatMessage).toHaveBeenCalledWith(SESSION_ID, 'agent-run-run-event-1-pending');
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual([
+      expect.objectContaining({
+        id: 'agent-run-run-event-2-pending',
+        runId: 'run-event-2',
+        content: '',
+        phase: 'connecting',
+        loading: true,
+      }),
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        runId: 'run-event-1',
+        rawError: 'stream payload failed',
+      }),
+    ]);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('removes a legacy connecting placeholder alongside its failed receipt-bound run', async () => {
+    const deleteAIChatMessage = vi.fn((sid: string, messageId: string) => {
+      useStore.setState((state) => ({
+        aiChatHistory: {
+          ...state.aiChatHistory,
+          [sid]: (state.aiChatHistory[sid] || []).filter((message) => message.id !== messageId),
+        },
+      }));
+    });
+    useStore.setState({
+      aiChatHistory: {
+        [SESSION_ID]: [
+          {
+            id: 'connecting',
+            role: 'assistant',
+            content: '',
+            phase: 'connecting',
+            loading: true,
+            timestamp: 1,
+          },
+          {
+            id: 'agent-run-run-event-1-pending',
+            runId: 'run-event-1',
+            role: 'assistant',
+            content: '',
+            phase: 'queued',
+            loading: true,
+            timestamp: 2,
+          },
+          {
+            id: 'agent-run-run-event-2-pending',
+            runId: 'run-event-2',
+            role: 'assistant',
+            content: '',
+            phase: 'queued',
+            loading: true,
+            timestamp: 3,
+          },
+        ],
+      },
+    });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness deleteAIChatMessage={deleteAIChatMessage} />);
+    });
+
+    await emit(makeEvent(1, {
+      kind: 'terminal',
+      resultingState: 'failed',
+      payload: { reason: 'request rejected', errorCode: 'invalid_request' },
+    }));
+
+    expect(deleteAIChatMessage).toHaveBeenCalledWith(SESSION_ID, 'connecting');
+    expect(deleteAIChatMessage).toHaveBeenCalledWith(SESSION_ID, 'agent-run-run-event-1-pending');
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual([
+      expect.objectContaining({
+        id: 'agent-run-run-event-2-pending',
+        runId: 'run-event-2',
+        loading: true,
+      }),
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        rawError: 'request rejected',
+      }),
+    ]);
     await act(async () => renderer?.unmount());
   });
 
@@ -203,6 +457,267 @@ describe('useAIChatRunEventSubscription', () => {
     await act(async () => renderer?.unmount());
   });
 
+  it('removes an unclaimed connecting placeholder when the first model request fails', async () => {
+    const onSendingChange = vi.fn();
+    const deleteAIChatMessage = vi.fn((sid: string, messageId: string) => {
+      useStore.setState((state) => ({
+        aiChatHistory: {
+          ...state.aiChatHistory,
+          [sid]: (state.aiChatHistory[sid] || []).filter((message) => message.id !== messageId),
+        },
+      }));
+    });
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(
+        <Harness
+          onSendingChange={onSendingChange}
+          deleteAIChatMessage={deleteAIChatMessage}
+        />,
+      );
+    });
+    await emit(makeEvent(1, {
+      kind: 'input',
+      resultingState: 'running_model',
+      payload: { requestId: 'input-1' },
+    }));
+    await emit(makeEvent(2, {
+      kind: 'run_error',
+      resultingState: 'running_model',
+      payload: { code: 'invalid_request', message: 'reasoning effort is invalid', retryable: false },
+    }));
+    await emit(makeEvent(3, {
+      kind: 'terminal',
+      resultingState: 'failed',
+      payload: { reason: 'invalid_request', errorCode: 'invalid_request' },
+    }));
+
+    expect(deleteAIChatMessage).toHaveBeenCalledWith(SESSION_ID, 'connecting');
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual([
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        content: 'Error: reasoning effort is invalid',
+        rawError: 'reasoning effort is invalid',
+        loading: false,
+      }),
+    ]);
+    expect(onSendingChange).toHaveBeenLastCalledWith(false);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('recovers a missing terminal event after a non-terminal run error', async () => {
+    vi.useFakeTimers();
+    const onSendingChange = vi.fn();
+    const AIReadAgentRun = vi.fn().mockResolvedValue({
+      events: [makeEvent(5, {
+        kind: 'terminal',
+        resultingState: 'failed',
+        payload: { reason: 'model request failed', errorCode: 'provider' },
+      })],
+      hasMore: false,
+    });
+    vi.stubGlobal('window', { go: { aiservice: { Service: { AIReadAgentRun } } } });
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness onSendingChange={onSendingChange} />);
+    });
+    await emit(makeEvent(1, {
+      kind: 'input',
+      resultingState: 'running_model',
+      payload: { requestId: 'input-1' },
+    }));
+    await emit(makeEvent(2, { payload: { text: 'Looking up connections.' } }));
+    await emit(makeEvent(3, {
+      kind: 'model_completed',
+      resultingState: 'running_model',
+      payload: { text: 'Looking up connections.' },
+    }));
+    await emit(makeEvent(4, {
+      kind: 'run_error',
+      resultingState: 'running_model',
+      payload: { code: 'provider', message: 'model request failed', retryable: false },
+    }));
+
+    expect(onSendingChange).toHaveBeenLastCalledWith(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AI_RUN_EVENT_RECOVERY_RETRY_BASE_MS);
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledWith({ runId: 'run-event-1', afterSequence: 4, limit: 500 });
+    expect(onSendingChange).toHaveBeenLastCalledWith(false);
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'connecting',
+        loading: false,
+        phase: 'idle',
+        rawError: 'model request failed',
+      }),
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        content: 'Error: model request failed',
+        rawError: 'model request failed',
+        excludeFromAIContext: true,
+      }),
+    ]));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('settles a run from a terminal Ledger snapshot when runtime events are lost', async () => {
+    vi.useFakeTimers();
+    const onSendingChange = vi.fn();
+    const providerDetail = 'OpenAI Responses API returned error (HTTP 400): tools are unavailable for this model';
+    const AIReadAgentRun = vi.fn().mockResolvedValue({
+      run: {
+        runId: 'run-event-1',
+        sessionId: SESSION_ID,
+        state: 'failed',
+        revision: 2,
+        nextSequence: 3,
+        terminalReason: providerDetail,
+        updatedAt: '2026-09-01T00:00:02Z',
+      },
+      events: [],
+      hasMore: false,
+    });
+    vi.stubGlobal('window', { go: { aiservice: { Service: { AIReadAgentRun } } } });
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness onSendingChange={onSendingChange} />);
+    });
+    await emit(makeEvent(1, {
+      kind: 'input',
+      resultingState: 'running_model',
+      payload: { requestId: 'input-1' },
+    }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AI_RUN_EVENT_RECOVERY_RETRY_BASE_MS);
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledWith({ runId: 'run-event-1', afterSequence: 1, limit: 500 });
+    expect(onSendingChange).toHaveBeenLastCalledWith(false);
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'connecting',
+        loading: false,
+        phase: 'idle',
+      }),
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        content: `Error: ${providerDetail}`,
+        rawError: providerDetail,
+        excludeFromAIContext: true,
+      }),
+    ]));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('keeps reconciling an active Ledger snapshot until it reaches a terminal state', async () => {
+    vi.useFakeTimers();
+    const onSendingChange = vi.fn();
+    const AIReadAgentRun = vi.fn()
+      .mockResolvedValueOnce({
+        run: {
+          runId: 'run-event-1',
+          sessionId: SESSION_ID,
+          state: 'running_model',
+          revision: 1,
+        },
+        events: [],
+        hasMore: false,
+      })
+      .mockResolvedValueOnce({
+        run: {
+          runId: 'run-event-1',
+          sessionId: SESSION_ID,
+          state: 'failed',
+          revision: 2,
+          terminalReason: 'provider request failed',
+        },
+        events: [],
+        hasMore: false,
+      });
+    vi.stubGlobal('window', { go: { aiservice: { Service: { AIReadAgentRun } } } });
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness onSendingChange={onSendingChange} />);
+    });
+    await emit(makeEvent(1, {
+      kind: 'input',
+      resultingState: 'running_model',
+      payload: { requestId: 'input-1' },
+    }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AI_RUN_EVENT_RECOVERY_RETRY_BASE_MS);
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledTimes(1);
+    expect(onSendingChange).toHaveBeenLastCalledWith(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AI_RUN_EVENT_RECOVERY_RETRY_BASE_MS * 2);
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledTimes(2);
+    expect(onSendingChange).toHaveBeenLastCalledWith(false);
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        rawError: 'provider request failed',
+      }),
+    ]));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('starts Ledger reconciliation when SubmitInput tracks a run before any runtime event arrives', async () => {
+    let includeRun = false;
+    const onSendingChange = vi.fn();
+    const AIReadAgentSession = vi.fn().mockImplementation(async () => ({
+      runs: includeRun ? [{ runId: 'run-event-1', state: 'queued', revision: 1 }] : [],
+      messages: [],
+    }));
+    const AIReadAgentRun = vi.fn().mockResolvedValue({
+      run: {
+        runId: 'run-event-1',
+        sessionId: SESSION_ID,
+        state: 'failed',
+        revision: 2,
+        terminalReason: 'provider request failed',
+      },
+      events: [],
+      hasMore: false,
+    });
+    vi.stubGlobal('window', {
+      go: { aiservice: { Service: { AIReadAgentSession, AIReadAgentRun } } },
+    });
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness onSendingChange={onSendingChange} />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    includeRun = true;
+    await act(async () => {
+      renderer?.update(<Harness onSendingChange={onSendingChange} trackedRunIds={['run-event-1']} />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledWith({ runId: 'run-event-1', afterSequence: 0, limit: 500 });
+    expect(onSendingChange).toHaveBeenLastCalledWith(false);
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        rawError: 'provider request failed',
+      }),
+    ]));
+    await act(async () => renderer?.unmount());
+  });
+
   it('keeps an interrupted checkpoint resumable and leaves the selected session sending', async () => {
     const onSendingChange = vi.fn();
     const onRunStateChange = vi.fn();
@@ -228,7 +743,7 @@ describe('useAIChatRunEventSubscription', () => {
     expect(useStore.getState().aiChatHistory[SESSION_ID][0]).toMatchObject({
       id: 'connecting',
       loading: true,
-      phase: 'connecting',
+      phase: 'thinking',
     });
     await act(async () => renderer?.unmount());
   });
@@ -296,6 +811,58 @@ describe('useAIChatRunEventSubscription', () => {
 
     expect(AIReadAgentSession).toHaveBeenCalledWith({ sessionId: SESSION_ID, limit: 10_000 });
     expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual([]);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('replays a historical failed run so its durable tool turn keeps an error', async () => {
+    const AIReadAgentRun = vi.fn().mockResolvedValue({
+      events: [
+        makeEvent(1, {
+          kind: 'run_error',
+          resultingState: 'running_model',
+          payload: { code: 'provider', message: 'model request failed', retryable: false },
+        }),
+        makeEvent(2, {
+          kind: 'terminal',
+          resultingState: 'failed',
+          payload: { reason: 'provider', errorCode: 'provider' },
+        }),
+      ],
+      hasMore: false,
+    });
+    const AIReadAgentSession = vi.fn().mockResolvedValue({
+      runs: [{ runId: 'run-event-1', state: 'failed', revision: 2 }],
+      messages: [{
+        id: 'durable-tool-turn',
+        runId: 'run-event-1',
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ callId: 'call-connections', toolName: 'get_connections', arguments: {} }],
+        createdAt: 1,
+      }],
+    });
+    vi.stubGlobal('window', {
+      go: { aiservice: { Service: { AIReadAgentRun, AIReadAgentSession } } },
+    });
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(AIReadAgentRun).toHaveBeenCalledWith({ runId: 'run-event-1', afterSequence: 0, limit: 500 });
+    expect(useStore.getState().aiChatHistory[SESSION_ID]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'durable-tool-turn', tool_calls: expect.any(Array) }),
+      expect.objectContaining({
+        id: 'agent-run-run-event-1-0-error',
+        content: 'Error: model request failed',
+        rawError: 'model request failed',
+        excludeFromAIContext: true,
+      }),
+    ]));
     await act(async () => renderer?.unmount());
   });
 
@@ -453,8 +1020,9 @@ describe('useAIChatRunEventSubscription', () => {
 
     const assistants = useStore.getState().aiChatHistory[SESSION_ID]
       .filter((message) => message.role === 'assistant');
-    expect(assistants.some((message) => message.content === 'second')).toBe(true);
-    expect(assistants.filter((message) => message.content === 'first')).toHaveLength(1);
+    expect(assistants).toEqual([
+      expect.objectContaining({ content: 'first\n\nsecond' }),
+    ]);
     await act(async () => secondRenderer?.unmount());
   });
 

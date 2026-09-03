@@ -1873,7 +1873,7 @@ func sqlFileSQLServerIdentifierAt(stmt string, start int) (string, bool) {
 		}
 		return stmt[start:end], true
 	}
-	end, ok := skipSQLIdentifierToken(stmt, start)
+	end, ok := skipSQLIdentifierToken(stmt, start, "sqlserver")
 	if !ok {
 		return "", false
 	}
@@ -2145,7 +2145,7 @@ func isSQLFileSingleTransactionControlStatement(dbType, stmt string) bool {
 	case "set":
 		// Session and transaction settings can alter the outer transaction's
 		// semantics. Other SET statements are rejected below as unknown too.
-		return sqlContainsKeyword(stmt, "autocommit") || sqlContainsKeyword(stmt, "transaction") || sqlContainsKeyword(stmt, "isolation")
+		return sqlContainsKeyword(stmt, "autocommit", dbType) || sqlContainsKeyword(stmt, "transaction", dbType) || sqlContainsKeyword(stmt, "isolation", dbType)
 	}
 	return false
 }
@@ -4611,7 +4611,7 @@ func (a *App) importDataWithProgressOptionsContext(
 		return connection.QueryResult{Success: false, Message: a.appText("file.backend.error.import_file_empty", nil)}
 	}
 	dbType := resolveDDLDBType(config)
-	schemaName, pureTableName := normalizeSchemaAndTable(config, dbName, tableName)
+	schemaName, pureTableName := normalizeSchemaAndTableByType(dbType, dbName, tableName)
 	auditTarget := strings.TrimSpace(tableName)
 	if pureTableName != "" {
 		auditTarget = quoteTableIdentByType(dbType, schemaName, pureTableName)
@@ -4993,7 +4993,7 @@ func resolveChangeTargetTableName(config connection.ConnectionConfig, dbName, ta
 		return targetTableName
 	}
 
-	schemaName, pureTableName := normalizeSchemaAndTable(config, dbName, targetTableName)
+	schemaName, pureTableName := normalizeSchemaAndTableByType(dbType, dbName, targetTableName)
 	if strings.TrimSpace(schemaName) == "" || strings.TrimSpace(pureTableName) == "" {
 		return targetTableName
 	}
@@ -5013,13 +5013,13 @@ func splitDamengChangeTarget(dbName, tableName string) (string, string) {
 		strings.EqualFold(targetTableName[:len(schemaName)], schemaName) &&
 		targetTableName[len(schemaName)] == '.' {
 		pureTableName := strings.TrimSpace(targetTableName[len(schemaName)+1:])
-		if parsedSchema, parsedTable := db.SplitSQLQualifiedName(pureTableName); parsedSchema == "" && parsedTable != "" {
+		if parsedSchema, parsedTable := db.SplitSQLQualifiedNameForDialect(pureTableName, "dameng"); parsedSchema == "" && parsedTable != "" {
 			pureTableName = parsedTable
 		}
 		return schemaName, pureTableName
 	}
 
-	parsedSchema, parsedTable := db.SplitSQLQualifiedName(targetTableName)
+	parsedSchema, parsedTable := db.SplitSQLQualifiedNameForDialect(targetTableName, "dameng")
 	if parsedTable == "" {
 		return schemaName, targetTableName
 	}
@@ -6129,11 +6129,15 @@ func (a *App) ClearTables(config connection.ConnectionConfig, dbName string, tab
 }
 
 func quoteIdentByType(dbType string, ident string) string {
-	if ident == "" {
-		return ident
+	if strings.TrimSpace(ident) == "" {
+		return ""
 	}
 
 	dbType = resolveDDLDBType(connection.ConnectionConfig{Type: dbType})
+	if segments := db.SplitSQLIdentifierPathForDialect(ident, dbType); len(segments) == 1 && segments[0].Quoted {
+		ident = segments[0].Value
+	}
+
 	switch dbType {
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "tdengine", "clickhouse":
 		return "`" + strings.ReplaceAll(ident, "`", "``") + "`"
@@ -6155,7 +6159,11 @@ func quoteQualifiedIdentByType(dbType string, ident string) string {
 
 	dbType = resolveDDLDBType(connection.ConnectionConfig{Type: dbType})
 	if dbType == "trino" {
-		parts := strings.Split(raw, ".")
+		segments := db.SplitSQLIdentifierPathForDialect(raw, dbType)
+		parts := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			parts = append(parts, segment.Value)
+		}
 		switch {
 		case len(parts) >= 3:
 			catalog := strings.TrimSpace(parts[0])
@@ -6179,7 +6187,7 @@ func quoteQualifiedIdentByType(dbType string, ident string) string {
 		return quoteIdentByType(dbType, schema) + "." + quoteIdentByType(dbType, table)
 	}
 	if dbType == "dameng" {
-		schema, table := db.SplitSQLQualifiedName(raw)
+		schema, table := db.SplitSQLQualifiedNameForDialect(raw, dbType)
 		if table == "" {
 			return quoteIdentByType(dbType, raw)
 		}
@@ -6189,14 +6197,14 @@ func quoteQualifiedIdentByType(dbType string, ident string) string {
 		return quoteIdentByType(dbType, schema) + "." + quoteIdentByType(dbType, table)
 	}
 
-	parts := strings.Split(raw, ".")
-	if len(parts) <= 1 {
+	segments := db.SplitSQLIdentifierPathForDialect(raw, dbType)
+	if len(segments) <= 1 {
 		return quoteIdentByType(dbType, raw)
 	}
 
-	quotedParts := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
+	quotedParts := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		part := strings.TrimSpace(segment.Value)
 		if part == "" {
 			continue
 		}
@@ -6324,23 +6332,22 @@ func buildSQLDropIfExistsStatementWithDatabaseContext(
 	isView bool,
 	includeDatabaseContext bool,
 ) string {
-	schemaName, pureObjectName := normalizeSchemaAndTable(config, dbName, objectName)
+	dbType := resolveDDLDBType(config)
+	schemaName, pureObjectName := normalizeSchemaAndTableByType(dbType, dbName, objectName)
 	if strings.TrimSpace(pureObjectName) == "" {
 		return ""
 	}
 
-	dbType := resolveDDLDBType(config)
 	objectType := "TABLE"
 	// ClickHouse exposes views (including materialized views) through the table
 	// namespace and removes them with DROP TABLE.
 	if isView && dbType != "clickhouse" {
 		objectType = "VIEW"
 	}
-	outputObjectName := qualifyTable(schemaName, pureObjectName)
+	qualifiedObject := quoteTableIdentByType(dbType, schemaName, pureObjectName)
 	if supportsMySQLDatabaseContext(config) && !includeDatabaseContext {
-		outputObjectName = pureObjectName
+		qualifiedObject = quoteIdentByType(dbType, pureObjectName)
 	}
-	qualifiedObject := quoteQualifiedIdentByType(dbType, outputObjectName)
 	if strings.TrimSpace(qualifiedObject) == "" {
 		return ""
 	}
@@ -7150,18 +7157,20 @@ func dumpTableSQLWithDatabaseContext(
 	viewLookup map[string]string,
 	includeDatabaseContext bool,
 ) error {
-	schemaName, pureTableName := normalizeSchemaAndTable(config, dbName, tableName)
-	objectKey := normalizeExportObjectKeyByParts(schemaName, pureTableName)
+	dbType := resolveDDLDBType(config)
+	metadataSchemaName, metadataTableName := normalizeMetadataSchemaAndTable(config, dbName, tableName)
+	ddlSchemaName, ddlTableName := normalizeSchemaAndTableByType(dbType, dbName, tableName)
+	objectKey := normalizeExportObjectKey(config, dbName, tableName)
 	_, isView := viewLookup[objectKey]
 	var createSQL string
 
 	if includeSchema {
 		if isView {
-			viewDDL, ok := tryGetViewCreateStatement(dbInst, config, dbName, schemaName, pureTableName)
+			viewDDL, ok := tryGetViewCreateStatement(dbInst, config, dbName, metadataSchemaName, metadataTableName)
 			if ok {
 				createSQL = viewDDL
 			} else {
-				ddl, err := dbInst.GetCreateStatement(schemaName, pureTableName)
+				ddl, err := dbInst.GetCreateStatement(metadataSchemaName, metadataTableName)
 				if err != nil {
 					return err
 				}
@@ -7170,7 +7179,7 @@ func dumpTableSQLWithDatabaseContext(
 		} else {
 			ddl, err := resolveCreateStatementWithFallback(dbInst, config, dbName, tableName)
 			if err != nil {
-				if viewDDL, ok := tryGetViewCreateStatement(dbInst, config, dbName, schemaName, pureTableName); ok {
+				if viewDDL, ok := tryGetViewCreateStatement(dbInst, config, dbName, metadataSchemaName, metadataTableName); ok {
 					createSQL = viewDDL
 					isView = true
 				} else {
@@ -7183,7 +7192,7 @@ func dumpTableSQLWithDatabaseContext(
 	}
 
 	if includeData && !includeSchema && !isView {
-		if _, ok := tryGetViewCreateStatement(dbInst, config, dbName, schemaName, pureTableName); ok {
+		if _, ok := tryGetViewCreateStatement(dbInst, config, dbName, metadataSchemaName, metadataTableName); ok {
 			isView = true
 		}
 	}
@@ -7196,7 +7205,7 @@ func dumpTableSQLWithDatabaseContext(
 	if _, err := w.WriteString("\n-- ----------------------------\n"); err != nil {
 		return err
 	}
-	if _, err := w.WriteString(fmt.Sprintf("-- %s: %s\n", objectLabel, qualifyTable(schemaName, pureTableName))); err != nil {
+	if _, err := w.WriteString(fmt.Sprintf("-- %s: %s\n", objectLabel, qualifyTable(ddlSchemaName, ddlTableName))); err != nil {
 		return err
 	}
 	if _, err := w.WriteString("-- ----------------------------\n\n"); err != nil {
@@ -7223,21 +7232,19 @@ func dumpTableSQLWithDatabaseContext(
 		return nil
 	}
 
-	qualified := qualifyTable(schemaName, pureTableName)
-	dbType := resolveDDLDBType(config)
-	selectSQL := fmt.Sprintf("SELECT * FROM %s", quoteQualifiedIdentByType(dbType, qualified))
-	outputTableName := qualified
+	selectSQL := fmt.Sprintf("SELECT * FROM %s", quoteTableIdentByType(dbType, ddlSchemaName, ddlTableName))
+	outputTableName := quoteTableIdentByType(dbType, ddlSchemaName, ddlTableName)
 	if supportsMySQLDatabaseContext(config) && !includeDatabaseContext {
-		outputTableName = pureTableName
+		outputTableName = quoteIdentByType(dbType, ddlTableName)
 	}
 	columnTypeMap := map[string]string{}
-	if defs, colErr := dbInst.GetColumns(schemaName, pureTableName); colErr == nil {
+	if defs, colErr := dbInst.GetColumns(metadataSchemaName, metadataTableName); colErr == nil {
 		columnTypeMap = buildImportColumnTypeMap(defs)
 	}
 	insertConsumer := &sqlInsertExportConsumer{
 		w:             w,
 		dbType:        dbType,
-		quotedTable:   quoteQualifiedIdentByType(dbType, outputTableName),
+		quotedTable:   outputTableName,
 		columnTypeMap: columnTypeMap,
 	}
 	if err := streamQueryDataForExport(dbInst, config, selectSQL, insertConsumer); err != nil {

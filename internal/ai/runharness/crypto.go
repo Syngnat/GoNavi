@@ -47,6 +47,22 @@ func (p *StaticKeyProvider) LoadOrCreate() ([]byte, error) {
 	return append([]byte(nil), p.key...), nil
 }
 
+func (p *StaticKeyProvider) LoadOrCreateDetailed() (LoadedKey, error) {
+	key, err := p.LoadOrCreate()
+	if err != nil {
+		return LoadedKey{}, err
+	}
+	return LoadedKey{Key: key}, nil
+}
+
+func (p *StaticKeyProvider) LoadExisting() (LoadedKey, bool, error) {
+	loaded, err := p.LoadOrCreateDetailed()
+	if err != nil {
+		return LoadedKey{}, false, err
+	}
+	return loaded, true, nil
+}
+
 // KeyringKeyProvider stores the DEK in the OS keyring through GoNavi's shared
 // secret-store abstraction. It never falls back to plaintext on keyring
 // errors.
@@ -93,28 +109,77 @@ func NewKeyringKeyProvider(ref string, store secretstore.SecretStore) (*KeyringK
 	return &KeyringKeyProvider{store: store, ref: ref}, nil
 }
 
-func (p *KeyringKeyProvider) LoadOrCreate() ([]byte, error) {
+// LoadedKey carries the loaded DEK plus whether this call generated it. A
+// fresh key in front of an existing encrypted ledger means the original key
+// is gone — for example macOS surfaces a denied Keychain ACL prompt as
+// "item not found", which must never be mistaken for a first-time setup.
+type LoadedKey struct {
+	Key   []byte
+	Fresh bool
+}
+
+// DetailedKeyProvider is an optional KeyProvider extension that reports key
+// freshness so ledger open paths can refuse to re-key existing data.
+type DetailedKeyProvider interface {
+	LoadOrCreateDetailed() (LoadedKey, error)
+}
+
+// KeyLoader is an optional KeyProvider extension that reads the stored key
+// without generating one. Opening an existing ledger must use it: minting a
+// key for a missing keyring entry would overwrite the entry the moment access
+// is granted again (macOS reports a denied Keychain ACL prompt as "item not
+// found"), permanently destroying the original key.
+type KeyLoader interface {
+	LoadExisting() (LoadedKey, bool, error)
+}
+
+func (p *KeyringKeyProvider) LoadExisting() (LoadedKey, bool, error) {
 	if p == nil || p.store == nil {
-		return nil, ErrKeyUnavailable
+		return LoadedKey{}, false, ErrKeyUnavailable
 	}
 	key, err := p.store.Get(p.ref)
 	if err == nil {
 		if len(key) != 32 {
-			return nil, fmt.Errorf("%w: keyring item has length %d", ErrInvalidKey, len(key))
+			return LoadedKey{}, false, fmt.Errorf("%w: keyring item has length %d", ErrInvalidKey, len(key))
 		}
-		return append([]byte(nil), key...), nil
+		return LoadedKey{Key: append([]byte(nil), key...)}, true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return LoadedKey{}, false, nil
+	}
+	return LoadedKey{}, false, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
+}
+
+func (p *KeyringKeyProvider) LoadOrCreateDetailed() (LoadedKey, error) {
+	if p == nil || p.store == nil {
+		return LoadedKey{}, ErrKeyUnavailable
+	}
+	key, err := p.store.Get(p.ref)
+	if err == nil {
+		if len(key) != 32 {
+			return LoadedKey{}, fmt.Errorf("%w: keyring item has length %d", ErrInvalidKey, len(key))
+		}
+		return LoadedKey{Key: append([]byte(nil), key...)}, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
+		return LoadedKey{}, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
 	}
 	key = make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return nil, fmt.Errorf("generate ledger key: %w", err)
+		return LoadedKey{}, fmt.Errorf("generate ledger key: %w", err)
 	}
 	if err := p.store.Put(p.ref, key); err != nil {
-		return nil, fmt.Errorf("%w: store generated key: %v", ErrKeyUnavailable, err)
+		return LoadedKey{}, fmt.Errorf("%w: store generated key: %v", ErrKeyUnavailable, err)
 	}
-	return key, nil
+	return LoadedKey{Key: append([]byte(nil), key...), Fresh: true}, nil
+}
+
+func (p *KeyringKeyProvider) LoadOrCreate() ([]byte, error) {
+	loaded, err := p.LoadOrCreateDetailed()
+	if err != nil {
+		return nil, err
+	}
+	return loaded.Key, nil
 }
 
 // KeyFileProvider stores exactly 32 random bytes in a dedicated 0600 file.
@@ -134,23 +199,45 @@ func NewKeyFileProvider(path string) (*KeyFileProvider, error) {
 }
 
 func (p *KeyFileProvider) LoadOrCreate() ([]byte, error) {
+	loaded, err := p.LoadOrCreateDetailed()
+	if err != nil {
+		return nil, err
+	}
+	return loaded.Key, nil
+}
+
+func (p *KeyFileProvider) LoadExisting() (LoadedKey, bool, error) {
 	if p == nil || strings.TrimSpace(p.Path) == "" {
-		return nil, errors.New("key file path is empty")
+		return LoadedKey{}, false, errors.New("key file path is empty")
+	}
+	if _, err := os.Lstat(p.Path); errors.Is(err, os.ErrNotExist) {
+		return LoadedKey{}, false, nil
+	}
+	loaded, err := p.LoadOrCreateDetailed()
+	if err != nil {
+		return LoadedKey{}, false, err
+	}
+	return loaded, true, nil
+}
+
+func (p *KeyFileProvider) LoadOrCreateDetailed() (LoadedKey, error) {
+	if p == nil || strings.TrimSpace(p.Path) == "" {
+		return LoadedKey{}, errors.New("key file path is empty")
 	}
 	path := p.Path
 	if info, err := os.Lstat(path); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("%w: key file is a symlink", ErrKeyUnavailable)
+			return LoadedKey{}, fmt.Errorf("%w: key file is a symlink", ErrKeyUnavailable)
 		}
 		if !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("%w: key file is not regular", ErrKeyUnavailable)
+			return LoadedKey{}, fmt.Errorf("%w: key file is not regular", ErrKeyUnavailable)
 		}
 		if info.Mode().Perm() != 0o600 {
-			return nil, fmt.Errorf("%w: key file permissions are %04o, want 0600", ErrKeyUnavailable, info.Mode().Perm())
+			return LoadedKey{}, fmt.Errorf("%w: key file permissions are %04o, want 0600", ErrKeyUnavailable, info.Mode().Perm())
 		}
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
-			return nil, fmt.Errorf("%w: read key file: %v", ErrKeyUnavailable, readErr)
+			return LoadedKey{}, fmt.Errorf("%w: read key file: %v", ErrKeyUnavailable, readErr)
 		}
 		if len(data) != 32 {
 			// Accept a textual 64-character hex or 44-character base64 key for
@@ -161,25 +248,25 @@ func (p *KeyFileProvider) LoadOrCreate() ([]byte, error) {
 			}
 		}
 		if len(data) != 32 {
-			return nil, fmt.Errorf("%w: key file has length %d", ErrInvalidKey, len(data))
+			return LoadedKey{}, fmt.Errorf("%w: key file has length %d", ErrInvalidKey, len(data))
 		}
-		return append([]byte(nil), data...), nil
+		return LoadedKey{Key: append([]byte(nil), data...)}, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("%w: inspect key file: %v", ErrKeyUnavailable, err)
+		return LoadedKey{}, fmt.Errorf("%w: inspect key file: %v", ErrKeyUnavailable, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("%w: create key directory: %v", ErrKeyUnavailable, err)
+		return LoadedKey{}, fmt.Errorf("%w: create key directory: %v", ErrKeyUnavailable, err)
 	}
 	key := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
-		return nil, fmt.Errorf("generate ledger key: %w", err)
+		return LoadedKey{}, fmt.Errorf("generate ledger key: %w", err)
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return p.LoadOrCreate()
+			return p.LoadOrCreateDetailed()
 		}
-		return nil, fmt.Errorf("%w: create key file: %v", ErrKeyUnavailable, err)
+		return LoadedKey{}, fmt.Errorf("%w: create key file: %v", ErrKeyUnavailable, err)
 	}
 	if _, err = file.Write(key); err == nil {
 		err = file.Sync()
@@ -187,9 +274,9 @@ func (p *KeyFileProvider) LoadOrCreate() ([]byte, error) {
 	closeErr := file.Close()
 	if err != nil || closeErr != nil {
 		_ = os.Remove(path)
-		return nil, fmt.Errorf("%w: write key file: %v", ErrKeyUnavailable, errors.Join(err, closeErr))
+		return LoadedKey{}, fmt.Errorf("%w: write key file: %v", ErrKeyUnavailable, errors.Join(err, closeErr))
 	}
-	return key, nil
+	return LoadedKey{Key: key, Fresh: true}, nil
 }
 
 func decodeTextKey(data []byte) ([]byte, error) {

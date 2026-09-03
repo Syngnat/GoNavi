@@ -426,19 +426,18 @@ func defaultAgentHarnessFactory(ctx context.Context, options AgentHarnessOptions
 	return &ledgerHarnessRuntime{harness: harness, ledger: ledger, backend: backend, mcp: mcpService, providerResolver: providerResolver, lifecycle: ctx}, nil
 }
 
-// agentLedgerOptions keeps standalone CLI invocations on the exact same
-// data-root-scoped keyring entry as the desktop Service. A supplied key file is
-// an explicit portable-key override and therefore intentionally bypasses the
-// OS keyring.
+// agentLedgerOptions keeps standalone CLI invocations on the exact same local
+// data-root-scoped key file as the desktop Service. A supplied key file is an
+// explicit portable-key override.
 func agentLedgerOptions(dataRoot, keyFile string, store agentLedgerKeyringStore) ([]runharness.LedgerOption, error) {
 	if keyFile = strings.TrimSpace(keyFile); keyFile != "" {
 		return []runharness.LedgerOption{runharness.WithKeyFile(keyFile)}, nil
 	}
-	keyRef, err := aiservice.AgentLedgerKeyRef(dataRoot)
+	keyPath, err := aiservice.AgentLedgerKeyFilePath(dataRoot)
 	if err != nil {
 		return nil, fmt.Errorf("resolve agent ledger key: %w", err)
 	}
-	return []runharness.LedgerOption{runharness.WithKeyring(keyRef, store)}, nil
+	return []runharness.LedgerOption{runharness.WithKeyFile(keyPath)}, nil
 }
 
 type agentOutputMode uint8

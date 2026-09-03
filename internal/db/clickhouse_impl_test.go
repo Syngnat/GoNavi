@@ -384,6 +384,27 @@ func TestClickHouseTableNameRequiredUsesCurrentLanguage(t *testing.T) {
 	}
 }
 
+func TestClickHouseResolveDatabaseAndTablePreservesQuotedDottedTable(t *testing.T) {
+	t.Parallel()
+
+	db := &ClickHouseDB{database: "analytics"}
+	gotDB, gotTable, err := db.resolveDatabaseAndTable("analytics", "`order.items`")
+	if err != nil {
+		t.Fatalf("resolveDatabaseAndTable returned error: %v", err)
+	}
+	if gotDB != "analytics" || gotTable != "order.items" {
+		t.Fatalf("resolved target = %q.%q, want analytics.order.items", gotDB, gotTable)
+	}
+
+	gotDB, gotTable, err = db.resolveDatabaseAndTable("analytics", "archive.`order.items`")
+	if err != nil {
+		t.Fatalf("resolveDatabaseAndTable qualified returned error: %v", err)
+	}
+	if gotDB != "archive" || gotTable != "order.items" {
+		t.Fatalf("resolved qualified target = %q.%q, want archive.order.items", gotDB, gotTable)
+	}
+}
+
 func TestClickHouseApplyChangesCatalogKeysExist(t *testing.T) {
 	catalogs, err := i18n.LoadCatalogs()
 	if err != nil {

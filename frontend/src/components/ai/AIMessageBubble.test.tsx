@@ -17,6 +17,12 @@ const REQUIRED_MESSAGE_BUBBLE_KEYS = [
   'ai_chat.message.role.user',
   'ai_chat.message.image_alt',
   'ai_chat.message.wait.connecting',
+  'ai_chat.message.wait.generating',
+  'ai_chat.message.activity.title',
+  'ai_chat.message.activity.kind.model',
+  'ai_chat.message.activity.kind.tool',
+  'ai_chat.message.activity.status.active',
+  'ai_chat.message.activity.summary.completed',
   'ai_chat.message.jvm.apply_preview',
   'ai_chat.message.jvm.apply_diagnostic',
   'ai_chat.message.jvm.missing_plan_context',
@@ -48,14 +54,14 @@ describe('AIMessageBubble', () => {
     />,
   );
 
-  it('renders thinking, tool progress and raw error actions after extracting status blocks', () => {
+  it('renders Harness reasoning, tool progress and raw error actions after extracting status blocks', () => {
     const markup = renderToStaticMarkup(
       <AIMessageBubble
         msg={{
           id: 'assistant-1',
           role: 'assistant',
           content: '这里是诊断结论。',
-          thinking: '先看连接，再看表结构。',
+          reasoning_content: '先看连接，再看表结构。',
           rawError: 'driver timeout',
           timestamp: Date.now(),
           tool_calls: [
@@ -94,6 +100,129 @@ describe('AIMessageBubble', () => {
     expect(markup).toContain('Map foreign key relationships');
     expect(markup).toContain('Copy raw error');
     expect(markup).toContain('Data probes completed');
+  });
+
+  it('keeps an empty streaming generation visibly pending instead of rendering an empty bubble', () => {
+    const markup = renderToStaticMarkup(
+      <AIMessageBubble
+        msg={{
+          id: 'assistant-generating',
+          role: 'assistant',
+          content: '',
+          phase: 'generating',
+          loading: true,
+          timestamp: Date.now(),
+        }}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+
+    expect(markup).toContain('Generating response');
+    expect(markup).toContain('ai-wave-pulse');
+    expect(markup).not.toContain('GoNavi AI');
+  });
+
+  it('renders a redacted Harness activity timeline while a tool is running', () => {
+    const markup = renderToStaticMarkup(
+      <AIMessageBubble
+        msg={{
+          id: 'assistant-activity',
+          role: 'assistant',
+          content: '正在检查数据库结构。',
+          phase: 'tool_calling',
+          loading: true,
+          timestamp: Date.now(),
+          runActivities: [
+            { id: 'model:1', kind: 'model', status: 'completed', timestamp: 1 },
+            {
+              id: 'tool:1',
+              kind: 'tool',
+              status: 'active',
+              timestamp: 2,
+              toolName: 'get_tables',
+              errorCode: 'provider-secret-should-not-render',
+            },
+          ],
+        }}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+
+    expect(markup).toContain('Run activity');
+    expect(markup).toContain('Tool: Analyze table structure info · in progress');
+    expect(markup).toContain('data-activity-kind="tool"');
+    expect(markup).not.toContain('provider-secret-should-not-render');
+  });
+
+  it('hides the internal run node when a concrete active activity is available', () => {
+    const markup = renderToStaticMarkup(
+      <AIMessageBubble
+        msg={{
+          id: 'assistant-active-model',
+          role: 'assistant',
+          content: '正在处理请求。',
+          loading: true,
+          timestamp: Date.now(),
+          runActivities: [
+            { id: 'run', kind: 'run', status: 'active', timestamp: 1 },
+            { id: 'model:1', kind: 'model', status: 'active', timestamp: 2 },
+          ],
+        }}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        onDelete={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+
+    expect(markup).toContain('Run activity');
+    expect(markup).toContain('in progress');
+    expect(markup).not.toContain('data-activity-kind="run"');
+    expect((markup.match(/Model · in progress/g) || [])).toHaveLength(1);
+  });
+
+  it('keeps completed activity history available as a collapsed summary', () => {
+    const markup = renderToStaticMarkup(
+      <AIMessageBubble
+        msg={{
+          id: 'assistant-completed-activity',
+          role: 'assistant',
+          content: '已完成。',
+          timestamp: Date.now(),
+          runActivities: [
+            { id: 'model:1', kind: 'model', status: 'completed', timestamp: 1 },
+            { id: 'tool:1', kind: 'tool', status: 'completed', timestamp: 2, toolName: 'get_tables' },
+            { id: 'run', kind: 'run', status: 'completed', timestamp: 3 },
+          ],
+        }}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+
+    expect(markup).toContain('2 steps completed');
+    expect(markup).toContain('aria-expanded="false"');
   });
 
   it('uses catalog fallback keys for message bubble UI chrome', () => {

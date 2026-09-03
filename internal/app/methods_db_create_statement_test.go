@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
+	"GoNavi-Wails/internal/db"
+	"GoNavi-Wails/internal/secretstore"
 )
 
 type fakeCreateStatementDB struct {
@@ -64,6 +66,76 @@ func (f *fakeCreateStatementDB) GetForeignKeys(dbName, tableName string) ([]conn
 }
 func (f *fakeCreateStatementDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
 	return nil, nil
+}
+
+func TestDBShowCreateTableSQLiteNormalizesBracketedDottedTable(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	database := &fakeCreateStatementDB{createSQL: `CREATE TABLE "order.items" (id INTEGER)`}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		if dbType != "sqlite" {
+			t.Fatalf("newDatabaseFunc type = %q, want sqlite", dbType)
+		}
+		return database, nil
+	}
+	resolveDialConfigWithProxyFunc = func(config connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return config, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	for _, tableName := range []string{"[order.items]", "order.[order.items]"} {
+		result := app.DBShowCreateTable(
+			connection.ConnectionConfig{Type: "sqlite", Host: "sqlite-bracketed-ddl-test.db"},
+			"main",
+			tableName,
+		)
+		if !result.Success {
+			t.Fatalf("DBShowCreateTable(%q) returned failure: %#v", tableName, result)
+		}
+		if database.createSchema != "main" || database.createTable != "order.items" {
+			t.Fatalf("SQLite metadata target for %q = %q.%q, want main.order.items", tableName, database.createSchema, database.createTable)
+		}
+	}
+}
+
+func TestDBShowCreateTableMySQLPreservesQuotedDottedTable(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	database := &fakeCreateStatementDB{createSQL: "CREATE TABLE `order.items` (id INT)"}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		if dbType != "mysql" {
+			t.Fatalf("newDatabaseFunc type = %q, want mysql", dbType)
+		}
+		return database, nil
+	}
+	resolveDialConfigWithProxyFunc = func(config connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return config, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	result := app.DBShowCreateTable(
+		connection.ConnectionConfig{Type: "mysql", Host: "mysql-quoted-ddl-test"},
+		"app",
+		"`order.items`",
+	)
+	if !result.Success {
+		t.Fatalf("DBShowCreateTable returned failure: %#v", result)
+	}
+	if database.createSchema != "app" || database.createTable != "`order.items`" {
+		t.Fatalf("MySQL metadata target = %q.%q, want app.`order.items`", database.createSchema, database.createTable)
+	}
 }
 
 func TestResolveDDLDBType_CustomDriverAlias(t *testing.T) {
@@ -151,6 +223,8 @@ func TestNormalizeSchemaAndTableByType_PGLikeQuotedQualifiedName(t *testing.T) {
 		{name: "kingbase escaped lowercase", dbType: "kingbase", tableName: `\"ldf_server\".\"andon_events\"`, wantSchema: "ldf_server", wantTable: "andon_events"},
 		{name: "highgo escaped quoted", dbType: "highgo", tableName: `\"sales\".\"orders\"`, wantSchema: "sales", wantTable: "orders"},
 		{name: "vastbase quoted table only", dbType: "vastbase", tableName: `"order.items"`, wantSchema: "public", wantTable: "order.items"},
+		{name: "mysql quoted dotted table only", dbType: "mysql", tableName: "`order.items`", wantSchema: "", wantTable: "`order.items`"},
+		{name: "mysql qualified quoted dotted table", dbType: "mysql", tableName: "main.`order.items`", wantSchema: "main", wantTable: "`order.items`"},
 	}
 
 	for _, tt := range tests {
@@ -162,6 +236,29 @@ func TestNormalizeSchemaAndTableByType_PGLikeQuotedQualifiedName(t *testing.T) {
 				t.Fatalf("normalizeSchemaAndTableByType(%q,%q)=(%q,%q),want=(%q,%q)", tt.dbType, tt.tableName, gotSchema, gotTable, tt.wantSchema, tt.wantTable)
 			}
 		})
+	}
+}
+
+func TestNormalizeSchemaAndTableByType_SQLitePreservesPlainDottedTable(t *testing.T) {
+	t.Parallel()
+
+	schema, table := normalizeSchemaAndTableByType("sqlite", "main", "order.items")
+	if schema != "main" || table != "order.items" {
+		t.Fatalf("expected plain dotted SQLite table to stay intact, got %q.%q", schema, table)
+	}
+
+	schema, table = normalizeSchemaAndTableByType("sqlite", "main", "main.`order.items`")
+	if schema != "main" || table != "order.items" {
+		t.Fatalf("expected explicit SQLite database prefix to normalize, got %q.%q", schema, table)
+	}
+}
+
+func TestNormalizeSchemaAndTableByType_SQLiteKeepsUnquotedDottedTableAfterKnownDatabase(t *testing.T) {
+	t.Parallel()
+
+	schema, table := normalizeSchemaAndTableByType("sqlite", "main", "main.order.items")
+	if schema != "main" || table != "order.items" {
+		t.Fatalf("expected known SQLite database prefix to preserve dotted table, got %q.%q", schema, table)
 	}
 }
 
@@ -403,10 +500,10 @@ func TestResolveCreateStatementWithFallback_PGLikeQuotedQualifiedName(t *testing
 	if err != nil {
 		t.Fatalf("resolveCreateStatementWithFallback() unexpected error: %v", err)
 	}
-	if dbInst.createSchema != "sales.schema" || dbInst.createTable != "order.items" {
+	if dbInst.createSchema != "sales.schema" || dbInst.createTable != `"order.items"` {
 		t.Fatalf("expected create target sales.schema.order.items, got %q.%q", dbInst.createSchema, dbInst.createTable)
 	}
-	if dbInst.colsSchema != "sales.schema" || dbInst.colsTable != "order.items" {
+	if dbInst.colsSchema != "sales.schema" || dbInst.colsTable != `"order.items"` {
 		t.Fatalf("expected column target sales.schema.order.items, got %q.%q", dbInst.colsSchema, dbInst.colsTable)
 	}
 	if !strings.Contains(ddl, `CREATE TABLE "sales.schema"."order.items"`) {

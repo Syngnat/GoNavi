@@ -2,8 +2,9 @@ import { useEffect, useRef } from 'react';
 
 import { EventsOn } from '../../../wailsjs/runtime';
 import { useStore } from '../../store';
-import type { AIChatMessage, AIToolCall } from '../../types';
+import type { AIChatMessage, AIChatRunActivity, AIToolCall } from '../../types';
 import {
+  createRunPendingMessageId,
   getAIRunHarnessService,
   mergeAIChatSessionMessages,
   readAgentRun,
@@ -31,6 +32,7 @@ import {
   type AIRunToolPayload,
   type AIRunTerminalPayload,
 } from './aiRunEventProjection';
+import { projectAIRunActivities } from './aiRunActivityTimeline';
 
 export interface UseAIChatRunEventSubscriptionOptions {
   sid: string;
@@ -48,15 +50,27 @@ export interface UseAIChatRunEventSubscriptionOptions {
   onRecoveryChange?: (runId: string, recovery: AIRunRecoveryState | null) => void;
   /** Accept a run whose canonical session ID has not reached React yet. */
   isRunTracked?: (runId: string, sessionId: string) => boolean;
+  /** Re-run the durable bootstrap when SubmitInput acknowledges a new run. */
+  trackedRunIds?: string[];
   onRunTerminal?: (runId: string, sessionId: string) => void;
   translate?: (key: string, params?: Record<string, string | number | boolean | null | undefined>) => string;
 }
 
 interface ProjectedRun {
   assistantMessageId: string;
-  turn: number;
-  nextModelStartsNewMessage: boolean;
+  /** Text from model turns that have already crossed their completion boundary. */
+  completedModelText: string;
+  /** Reasoning from model turns that have already crossed their completion boundary. */
+  completedModelReasoning: string;
+  /** Text streamed during the currently executing model turn. */
+  modelText: string;
+  /** Reasoning streamed during the currently executing model turn. */
+  modelReasoning: string;
+  /** A completed model turn already contributes to this run's single UI row. */
+  hasCompletedModelTurn: boolean;
   toolIntents: Map<string, AIRunToolIntent>;
+  /** Redacted process steps, kept even when the transient assistant row moves. */
+  runActivities: AIChatRunActivity[];
   lastNotifiedRevision: number;
   lastError?: AIRunErrorPayload;
   terminal?: AIRunState;
@@ -82,11 +96,22 @@ const claimedAssistantMessages = new Map<string, string>();
 export const AI_RUN_EVENT_RECOVERY_RETRY_BASE_MS = 100;
 export const AI_RUN_EVENT_RECOVERY_RETRY_MAX_MS = 5_000;
 
+const isAIRunReconciliationState = (state: AIRunState): boolean => (
+  state === 'queued'
+  || state === 'running_model'
+  || state === 'running_tool'
+  || state === 'canceling'
+);
+
 const createProjectedRun = (): ProjectedRun => ({
   assistantMessageId: '',
-  turn: 0,
-  nextModelStartsNewMessage: false,
+  completedModelText: '',
+  completedModelReasoning: '',
+  modelText: '',
+  modelReasoning: '',
+  hasCompletedModelTurn: false,
   toolIntents: new Map(),
+  runActivities: [],
   lastNotifiedRevision: -1,
 });
 
@@ -162,13 +187,69 @@ const fallbackCopy = (
 const findMessage = (sid: string, id: string): AIChatMessage | undefined =>
   (useStore.getState().aiChatHistory[sid] || []).find((message) => message.id === id);
 
-const createRunMessageId = (runId: string, turn: number): string =>
-  `agent-run-${runId}-${turn}`;
+const isPendingAssistantMessage = (message: AIChatMessage): boolean => (
+  message.role === 'assistant'
+  && message.loading === true
+  && (message.phase === 'queued' || message.phase === 'connecting')
+  && !claimedAssistantMessages.has(message.id)
+);
+
+const findRunPendingMessage = (sid: string, runId: string): AIChatMessage | undefined =>
+  [...(useStore.getState().aiChatHistory[sid] || [])]
+    .reverse()
+    .find((message) => (
+      message.role === 'assistant'
+      && message.loading === true
+      && (message.phase === 'queued' || message.phase === 'connecting')
+      && (message.runId === runId || message.id === createRunPendingMessageId(runId))
+    ));
+
+// Sessions created before SubmitInput began returning a run-scoped receipt can
+// contain one legacy pending row. It is safe to adopt only when it is the
+// sole candidate; picking the most recent one can cross-wire concurrent runs.
+const findUnclaimedPendingMessage = (sid: string): AIChatMessage | undefined => {
+  const candidates = (useStore.getState().aiChatHistory[sid] || [])
+    .filter((message) => isPendingAssistantMessage(message) && !String(message.runId || '').trim());
+  return candidates.length === 1 ? candidates[0] : undefined;
+};
+
+// A receipt-bound row and an older local `connecting` row can briefly coexist
+// while React applies the SubmitInput receipt. A failed run must settle both
+// empty rows, but only adopt the legacy row when it is unambiguous so another
+// concurrently submitted legacy run is never removed.
+const findFailedRunPendingMessages = (sid: string, runId: string): AIChatMessage[] => {
+  const messages = useStore.getState().aiChatHistory[sid] || [];
+  const pending = messages.filter((message) => (
+    message.role === 'assistant'
+    && message.loading === true
+    && !hasVisibleAssistantContent(message)
+    && (
+      message.phase === 'queued'
+      || message.phase === 'connecting'
+      || message.runId === runId
+      || message.id === createRunPendingMessageId(runId)
+    )
+  ));
+  const messageIds = new Set(
+    pending
+      .filter((message) => (
+        message.runId === runId || message.id === createRunPendingMessageId(runId)
+      ))
+      .map((message) => message.id),
+  );
+  const legacy = pending.filter((message) => !String(message.runId || '').trim());
+  if (legacy.length === 1) messageIds.add(legacy[0].id);
+  return pending.filter((message) => messageIds.has(message.id));
+};
+
+// Keep the existing suffix stable for transient rows created by earlier builds.
+// A run maps to exactly one assistant bubble even when it invokes tools across
+// several model turns.
+const createRunMessageId = (runId: string): string => `agent-run-${runId}-0`;
 
 const ensureAssistantMessage = (
   event: AIRunEvent,
   options: UseAIChatRunEventSubscriptionOptions,
-  startNewTurn = false,
 ): { run: ProjectedRun; messageId: string } => {
   let run = projectedRuns.get(event.runId);
   if (!run) {
@@ -178,32 +259,41 @@ const ensureAssistantMessage = (
     projectedRuns.set(event.runId, run);
   }
 
-  if (startNewTurn || run.nextModelStartsNewMessage) {
-    run.turn += 1;
-    run.assistantMessageId = '';
-    run.nextModelStartsNewMessage = false;
-  }
-
   if (run.assistantMessageId && findMessage(event.sessionId, run.assistantMessageId)) {
     return { run, messageId: run.assistantMessageId };
   }
 
-  const history = useStore.getState().aiChatHistory[event.sessionId] || [];
-  const connecting = [...history]
+  const existingRunMessage = [...(useStore.getState().aiChatHistory[event.sessionId] || [])]
     .reverse()
     .find((message) => (
       message.role === 'assistant'
-      && message.loading === true
-      && message.phase === 'connecting'
-      && !claimedAssistantMessages.has(message.id)
+      && message.runId === event.runId
+      && !message.excludeFromAIContext
     ));
-  const messageId = connecting?.id || createRunMessageId(event.runId, run.turn);
+  const pending = existingRunMessage
+    || findRunPendingMessage(event.sessionId, event.runId)
+    || findUnclaimedPendingMessage(event.sessionId);
+  const messageId = pending?.id || createRunMessageId(event.runId);
   run.assistantMessageId = messageId;
   claimedAssistantMessages.set(messageId, event.runId);
 
-  if (!connecting) {
+  if (pending) {
+    options.updateAIChatMessage(event.sessionId, messageId, { runId: event.runId });
+    if (pending.runActivities?.length) run.runActivities = pending.runActivities;
+    if (hasVisibleAssistantContent(pending)) {
+      if (pending.loading) {
+        run.modelText = String(pending.content || '');
+        run.modelReasoning = String(pending.reasoning_content || pending.thinking || '');
+      } else {
+        run.completedModelText = String(pending.content || '');
+        run.completedModelReasoning = String(pending.reasoning_content || pending.thinking || '');
+        run.hasCompletedModelTurn = true;
+      }
+    }
+  } else {
     options.addAIChatMessage(event.sessionId, {
       id: messageId,
+      runId: event.runId,
       role: 'assistant',
       phase: 'generating',
       content: '',
@@ -212,6 +302,40 @@ const ensureAssistantMessage = (
     });
   }
   return { run, messageId };
+};
+
+const activityMessageIdFor = (
+  event: AIRunEvent,
+  run: ProjectedRun,
+  preferredMessageId?: string,
+): string | undefined => {
+  if (preferredMessageId && findMessage(event.sessionId, preferredMessageId)) return preferredMessageId;
+  if (run.assistantMessageId && findMessage(event.sessionId, run.assistantMessageId)) {
+    return run.assistantMessageId;
+  }
+  const durableMessage = [...(useStore.getState().aiChatHistory[event.sessionId] || [])]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.runId === event.runId);
+  if (!durableMessage) return undefined;
+  run.assistantMessageId = durableMessage.id;
+  if (durableMessage.runActivities?.length) run.runActivities = durableMessage.runActivities;
+  return durableMessage.id;
+};
+
+/**
+ * Persist only redacted event metadata. The transcript and raw error paths
+ * remain separate so event replay cannot duplicate model text or leak tool IO.
+ */
+const recordRunActivity = (
+  event: AIRunEvent,
+  run: ProjectedRun,
+  options: UseAIChatRunEventSubscriptionOptions,
+  preferredMessageId?: string,
+): void => {
+  run.runActivities = projectAIRunActivities(run.runActivities, event);
+  const messageId = activityMessageIdFor(event, run, preferredMessageId);
+  if (!messageId) return;
+  options.updateAIChatMessage(event.sessionId, messageId, { runActivities: run.runActivities });
 };
 
 const normalizeToolCalls = (payload: AIRunModelCompletedPayload): AIToolCall[] =>
@@ -303,6 +427,29 @@ const completedValue = (current: string | undefined, completed: unknown): string
   return final;
 };
 
+const appendModelTurn = (completed: string, currentTurn: string): string => {
+  if (!currentTurn) return completed;
+  if (!completed) return currentTurn;
+  if (completed === currentTurn || completed.endsWith(currentTurn)) return completed;
+  if (currentTurn.startsWith(completed)) return currentTurn;
+  return `${completed.trimEnd()}\n\n${currentTurn.trimStart()}`;
+};
+
+const mergeToolCalls = (
+  existing: AIToolCall[] | undefined,
+  incoming: AIToolCall[],
+): AIToolCall[] | undefined => {
+  if (incoming.length === 0) return existing;
+  const calls = [...(existing || [])];
+  const existingIds = new Set(calls.map((call) => call.id));
+  for (const call of incoming) {
+    if (existingIds.has(call.id)) continue;
+    calls.push(call);
+    existingIds.add(call.id);
+  }
+  return calls;
+};
+
 const applyTerminal = (
   event: AIRunEvent,
   run: ProjectedRun,
@@ -311,9 +458,11 @@ const applyTerminal = (
   if (run.terminalHandled) return;
   run.terminalHandled = true;
   run.terminal = event.resultingState;
-  const message = run.assistantMessageId
+  recordRunActivity(event, run, options);
+  const message = (run.assistantMessageId
     ? findMessage(event.sessionId, run.assistantMessageId)
-    : undefined;
+    : undefined)
+    || findRunPendingMessage(event.sessionId, event.runId);
   const terminalPayload = payloadObject<AIRunTerminalPayload>(event);
   const errorText = run.lastError?.message || terminalPayload.reason || terminalPayload.errorCode || '';
   const state = event.resultingState;
@@ -357,6 +506,7 @@ const applyTerminal = (
       });
     }
   } else {
+    const stalePendingMessages = findFailedRunPendingMessages(event.sessionId, event.runId);
     if (message && hasVisibleAssistantContent(message)) {
       options.updateAIChatMessage(event.sessionId, message.id, {
         loading: false,
@@ -364,9 +514,22 @@ const applyTerminal = (
         rawError: errorText || undefined,
       });
     }
+    for (const pending of stalePendingMessages) {
+      claimedAssistantMessages.delete(pending.id);
+      if (options.deleteAIChatMessage) {
+        options.deleteAIChatMessage(event.sessionId, pending.id);
+      } else {
+        options.updateAIChatMessage(event.sessionId, pending.id, {
+          loading: false,
+          phase: 'idle',
+          excludeFromAIContext: true,
+        });
+      }
+    }
     if (errorText) {
-      options.addAIChatMessage(event.sessionId, {
-        id: `${createRunMessageId(event.runId, run.turn)}-error`,
+      const errorMessageId = `${createRunMessageId(event.runId)}-error`;
+      const errorMessage = {
+        runId: event.runId,
         role: 'assistant',
         content: fallbackCopy(
           options.translate,
@@ -375,11 +538,20 @@ const applyTerminal = (
           { detail: errorText },
         ),
         rawError: errorText,
+        runActivities: run.runActivities,
         timestamp: toAIRunEventTimestamp(event.timestamp),
         loading: false,
         phase: 'idle',
         excludeFromAIContext: true,
-      });
+      } satisfies Omit<AIChatMessage, 'id'>;
+      if (findMessage(event.sessionId, errorMessageId)) {
+        options.updateAIChatMessage(event.sessionId, errorMessageId, errorMessage);
+      } else {
+        options.addAIChatMessage(event.sessionId, {
+          id: errorMessageId,
+          ...errorMessage,
+        });
+      }
     }
   }
 
@@ -407,6 +579,7 @@ const applyAIRunControlProjection = (
     run = createProjectedRun();
     projectedRuns.set(event.runId, run);
   }
+  recordRunActivity(event, run, options);
 
   switch (event.kind) {
     case 'model_delta':
@@ -554,11 +727,9 @@ const applyAIRunReplayEvent = (
       }
       rememberToolIntents(run, payload);
       const toolCalls = normalizeToolCalls(payload);
-      // Do not reset the shared assistant message ID here. A detached panel
-      // may be rebuilding history while the docked panel is still receiving
-      // live deltas for the next turn. Only carry forward the turn boundary
-      // when the event explicitly contains tool intents.
-      if (toolCalls.length > 0) run.nextModelStartsNewMessage = true;
+      // Tool intents are needed for approval cards, but all model turns in a
+      // run belong to the same assistant UI row.
+      if (toolCalls.length > 0) rememberToolIntents(run, payload);
       applyAIRunControlProjection(event, options);
     } else {
       for (const pending of replay.pendingModelEvents) {
@@ -581,7 +752,15 @@ const applyAIRunReplayEvent = (
     return;
   }
 
-  // Input/tool/approval/error/checkpoint events carry no assistant text that
+  if (event.kind === 'run_error') {
+    // Preserve the detailed non-terminal error for the terminal event that
+    // follows it. The latter carries only a stable reason/error code, while
+    // the former contains the provider's actionable failure message.
+    applyAIRunEvent(event, options);
+    return;
+  }
+
+  // Input/tool/approval/checkpoint events carry no assistant text that
   // needs replaying. Rebuild their state and control cards only.
   applyAIRunControlProjection(event, options);
 };
@@ -598,21 +777,32 @@ const applyAIRunEvent = (
 
   switch (event.kind) {
     case 'input':
+      // Receipt creation only proves that the Ledger accepted the request.
+      // The input event means the worker has actually entered the model step.
+      const { messageId } = ensureAssistantMessage(event, options);
+      recordRunActivity(event, run, options, messageId);
+      options.updateAIChatMessage(event.sessionId, messageId, {
+        phase: 'thinking',
+        loading: true,
+      });
       if (event.sessionId === options.sid && !isAIRunTerminalState(event.resultingState)) {
         options.setSending(true);
       }
       notifyRunState(event, options, run);
       return;
     case 'model_delta': {
-      const { messageId } = ensureAssistantMessage(event, options, run.nextModelStartsNewMessage);
+      const { messageId } = ensureAssistantMessage(event, options);
+      recordRunActivity(event, run, options, messageId);
       const payload = payloadObject<AIRunModelDeltaPayload>(event);
       rememberToolIntents(run, payload);
       const current = findMessage(event.sessionId, messageId);
       if (!current) return;
+      run.modelText += String(payload.text || '');
+      run.modelReasoning += String(payload.reasoning || '');
       options.updateAIChatMessage(event.sessionId, messageId, {
-        content: `${current.content || ''}${String(payload.text || '')}`,
-        ...(payload.reasoning
-          ? { reasoning_content: `${current.reasoning_content || ''}${payload.reasoning}` }
+        content: appendModelTurn(run.completedModelText, run.modelText),
+        ...(run.modelReasoning
+          ? { reasoning_content: appendModelTurn(run.completedModelReasoning, run.modelReasoning) }
           : {}),
         phase: payload.reasoning && !payload.text ? 'thinking' : 'generating',
         loading: true,
@@ -620,20 +810,27 @@ const applyAIRunEvent = (
       return;
     }
     case 'model_completed': {
-      const { messageId } = ensureAssistantMessage(event, options, run.nextModelStartsNewMessage);
+      const { messageId } = ensureAssistantMessage(event, options);
+      recordRunActivity(event, run, options, messageId);
       const payload = payloadObject<AIRunModelCompletedPayload>(event);
       rememberToolIntents(run, payload);
       const current = findMessage(event.sessionId, messageId);
       const patch: Partial<AIChatMessage> = {};
-      if (payload.text !== undefined) patch.content = completedValue(current?.content, payload.text);
+      run.modelText = completedValue(run.modelText, payload.text);
       if (payload.reasoning !== undefined) {
-        patch.reasoning_content = completedValue(current?.reasoning_content, payload.reasoning);
+        run.modelReasoning = completedValue(run.modelReasoning, payload.reasoning);
       }
+      run.completedModelText = appendModelTurn(run.completedModelText, run.modelText);
+      run.completedModelReasoning = appendModelTurn(run.completedModelReasoning, run.modelReasoning);
+      run.modelText = '';
+      run.modelReasoning = '';
+      run.hasCompletedModelTurn = true;
+      patch.content = run.completedModelText || current?.content || '';
+      if (run.completedModelReasoning) patch.reasoning_content = run.completedModelReasoning;
       const toolCalls = normalizeToolCalls(payload);
       if (toolCalls.length > 0) {
-        patch.tool_calls = toolCalls;
+        patch.tool_calls = mergeToolCalls(current?.tool_calls, toolCalls);
         patch.phase = 'tool_calling';
-        run.nextModelStartsNewMessage = true;
       } else {
         patch.phase = 'generating';
       }
@@ -644,6 +841,7 @@ const applyAIRunEvent = (
       return;
     }
     case 'tool': {
+      recordRunActivity(event, run, options);
       const messageId = run.assistantMessageId;
       if (messageId) {
         options.updateAIChatMessage(event.sessionId, messageId, {
@@ -661,6 +859,7 @@ const applyAIRunEvent = (
       return;
     }
     case 'approval': {
+      recordRunActivity(event, run, options);
       const messageId = run.assistantMessageId;
       if (messageId) {
         options.updateAIChatMessage(event.sessionId, messageId, {
@@ -680,6 +879,7 @@ const applyAIRunEvent = (
     }
     case 'run_error': {
       run.lastError = payloadObject<AIRunErrorPayload>(event);
+      if (!isAIRunTerminalState(event.resultingState)) recordRunActivity(event, run, options);
       const current = run.assistantMessageId ? findMessage(event.sessionId, run.assistantMessageId) : undefined;
       if (current && run.lastError.message) {
         options.updateAIChatMessage(event.sessionId, current.id, { rawError: run.lastError.message });
@@ -697,7 +897,10 @@ const applyAIRunEvent = (
       applyTerminal(event, run, options);
       return;
     case 'usage':
+      notifyRunState(event, options, run);
+      return;
     case 'checkpoint':
+      recordRunActivity(event, run, options);
       notifyRunState(event, options, run);
       return;
     default:
@@ -708,19 +911,25 @@ const applyAIRunEvent = (
 export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscriptionOptions): void => {
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const subscribedSessionRef = useRef<string | null>(null);
+  const trackedRunKey = [...(options.trackedRunIds || [])].sort().join('|');
 
   useEffect(() => {
     let disposed = false;
     // `sending` is a projection of the selected session, not a global harness
     // lock. Session bootstrap below turns it back on when that session owns a
     // non-terminal run.
-    optionsRef.current.setSending(false);
+    if (subscribedSessionRef.current !== options.sid) {
+      subscribedSessionRef.current = options.sid;
+      optionsRef.current.setSending(false);
+    }
     const tracker = sharedAIRunEventSequenceTracker;
     const pendingByRun = new Map<string, Map<number, AIRunEvent>>();
     const recoveryByRun = new Map<string, Promise<void>>();
     const recoveryRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
     const recoveryRetryAttempts = new Map<string, number>();
     const replayByRun = new Map<string, ReplayRunProjection>();
+    const sessionByRun = new Map<string, string>();
 
     let recover: (runId: string, replay?: ReplayRunProjection) => void;
 
@@ -758,6 +967,7 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
     const accept = (event: AIRunEvent, replay?: ReplayRunProjection) => {
       const decision = tracker.observe(event);
       if (decision.disposition === 'accepted') {
+        sessionByRun.set(event.runId, event.sessionId);
         if (replay) {
           applyAIRunReplayEvent(event, replay, optionsRef.current);
         } else {
@@ -770,6 +980,11 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
         if (isAIRunTerminalState(event.resultingState)) {
           clearRecoveryRetry(event.runId);
           pendingByRun.delete(event.runId);
+        } else if (isAIRunReconciliationState(event.resultingState)) {
+          // Wails runtime events are best-effort. While a run is active, keep
+          // checking the durable snapshot at a bounded backoff so a dropped
+          // terminal event cannot leave the chat permanently sending.
+          scheduleRecoveryRetry(event.runId);
         }
       } else if (decision.disposition === 'gap') {
         bufferEvent(event);
@@ -809,6 +1024,7 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
         let hasMore = true;
         let readSucceeded = false;
         let replayAfter = replay ? 0 : tracker.lastSequence(runId);
+        let latestSnapshotState: AIRunState | undefined;
         while (!disposed && hasMore && page < 20) {
           page += 1;
           const before = replay ? replayAfter : tracker.lastSequence(runId);
@@ -829,17 +1045,59 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
             .filter((event): event is AIRunEvent => Boolean(event))
             .sort((left, right) => left.sequence - right.sequence);
           for (const event of parsed) accept(event, replay);
+          const snapshot = result?.run;
+          const snapshotState = String(snapshot?.state || '').trim() as AIRunState;
+          if (snapshotState) latestSnapshotState = snapshotState;
+          if (isAIRunTerminalState(snapshotState)) {
+            const sessionId = String(
+              snapshot?.sessionId || sessionByRun.get(runId) || optionsRef.current.sid,
+            ).trim();
+            const run = projectedRuns.get(runId);
+            if (sessionId && !run?.terminalHandled) {
+              const revision = Number(snapshot?.revision);
+              const attempt = Number(snapshot?.attempt);
+              const sessionGeneration = Number(snapshot?.sessionGeneration);
+              const terminalEvent: AIRunEvent = {
+                schemaVersion: 1,
+                runId,
+                sessionId,
+                sessionGeneration: Number.isSafeInteger(sessionGeneration) && sessionGeneration >= 0
+                  ? sessionGeneration
+                  : 0,
+                // A snapshot is authoritative but has no durable event payload
+                // to consume. Advance the local cursor by one so delayed
+                // runtime callbacks remain late after the terminal projection.
+                sequence: tracker.lastSequence(runId) + 1,
+                runRevision: Number.isSafeInteger(revision) && revision >= 0
+                  ? revision
+                  : tracker.lastSequence(runId),
+                attempt: Number.isSafeInteger(attempt) && attempt >= 0 ? attempt : 0,
+                timestamp: typeof snapshot?.updatedAt === 'string' || typeof snapshot?.updatedAt === 'number'
+                  ? snapshot.updatedAt
+                  : Date.now(),
+                kind: 'terminal',
+                resultingState: snapshotState,
+                payload: {
+                  reason: String(snapshot?.terminalReason || snapshotState),
+                },
+              };
+              accept(terminalEvent, replay);
+            }
+          }
           const lastReadSequence = parsed.length > 0
             ? parsed[parsed.length - 1].sequence
             : before;
           if (replay) replayAfter = lastReadSequence;
           hasMore = result?.hasMore === true && lastReadSequence > before;
+          if (isAIRunTerminalState(snapshotState)) hasMore = false;
           if (lastReadSequence === before) break;
         }
         if (!disposed && replay) flushAIRunReplayDeltas(replay, optionsRef.current, runId);
         if (!disposed) {
           drainPending(runId, replay);
-          if (readSucceeded && !pendingByRun.has(runId)) {
+          if (readSucceeded && latestSnapshotState && isAIRunReconciliationState(latestSnapshotState)) {
+            scheduleRecoveryRetry(runId, replay);
+          } else if (readSucceeded && !pendingByRun.has(runId)) {
             clearRecoveryRetry(runId);
           } else if (pendingByRun.has(runId)) {
             scheduleRecoveryRetry(runId, replay);
@@ -892,9 +1150,14 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
           notifyRunSnapshot(runId, state, revision, optionsRef.current);
           if (!isAIRunTerminalState(state)) {
             optionsRef.current.setSending(true);
+          }
+          if (!isAIRunTerminalState(state) || state === 'failed' || state === 'exhausted') {
             // The shared event cursor may already have been consumed by the
             // docked view. Replay control events from sequence zero so a newly
-            // mounted view can still render approval/recovery cards.
+            // mounted view can still render approval/recovery cards. Failed
+            // runs are replayed too: a terminal event may have been lost while
+            // the panel was open, and its detailed error is not a durable chat
+            // message that session hydration can reconstruct by itself.
             const replay = createReplayRunProjection(
               durableAssistantTurnsByRun.get(runId) || 0,
             );
@@ -931,5 +1194,5 @@ export const useAIChatRunEventSubscription = (options: UseAIChatRunEventSubscrip
         unsubscribe();
       }
     };
-  }, [options.sid]);
+  }, [options.sid, trackedRunKey]);
 };

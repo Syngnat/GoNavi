@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"syscall"
 	"testing"
 
@@ -112,6 +113,58 @@ func TestNewKeyringStoreReturnsUnavailableStoreWhenOpenFails(t *testing.T) {
 	}
 }
 
+func TestKeyringStorePutWritesIdentifyingMetadata(t *testing.T) {
+	ref := "oskeyring://gonavi/agent-ledger/test"
+	payload := []byte("secret")
+	var stored keyring.Item
+	store := &keyringStore{ring: fakeKeyringClient{set: func(item keyring.Item) error {
+		stored = item
+		return nil
+	}}}
+
+	if err := store.Put(ref, payload); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if stored.Key != ref || string(stored.Data) != string(payload) {
+		t.Fatalf("stored keyring item = %+v, want original key and payload", stored)
+	}
+	if stored.Label == "" || stored.Description == "" {
+		t.Fatalf("stored keyring item metadata is blank: %+v", stored)
+	}
+}
+
+func TestKeyringStoreGetMigratesBlankMacOSMetadataAfterSuccessfulRead(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Keychain label migration is only used on macOS")
+	}
+	ref := "oskeyring://gonavi/agent-ledger/test"
+	payload := []byte("existing-secret")
+	var migrations []keyring.Item
+	store := &keyringStore{
+		ring: fakeKeyringClient{
+			item: keyring.Item{Key: ref, Data: payload},
+			set: func(item keyring.Item) error {
+				migrations = append(migrations, item)
+				return nil
+			},
+		},
+	}
+
+	got, err := store.Get(ref)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("Get payload = %q, want %q", got, payload)
+	}
+	if len(migrations) != 1 {
+		t.Fatalf("metadata migrations = %d, want 1", len(migrations))
+	}
+	if migrations[0].Key != ref || string(migrations[0].Data) != string(payload) || migrations[0].Label == "" || migrations[0].Description == "" {
+		t.Fatalf("metadata migration item = %+v, want populated metadata and original payload", migrations[0])
+	}
+}
+
 func TestWrapKeyringErrorNormalizesWinCredNotFoundMessage(t *testing.T) {
 	t.Parallel()
 
@@ -177,6 +230,7 @@ type fakeKeyringClient struct {
 	getErr    error
 	item      keyring.Item
 	removeErr error
+	set       func(keyring.Item) error
 }
 
 func (f fakeKeyringClient) Get(string) (keyring.Item, error) {
@@ -187,7 +241,9 @@ func (f fakeKeyringClient) Get(string) (keyring.Item, error) {
 }
 
 func (f fakeKeyringClient) Set(item keyring.Item) error {
-	_ = item
+	if f.set != nil {
+		return f.set(item)
+	}
 	return nil
 }
 

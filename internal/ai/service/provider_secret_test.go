@@ -55,6 +55,14 @@ func TestSplitProviderSecretsStripsAPIKeyAndSensitiveHeaders(t *testing.T) {
 	}
 }
 
+func TestNewDefaultAISecretStoreSkipsKeychainOnDarwin(t *testing.T) {
+	withTestAIGOOS(t, "darwin")
+
+	if _, err := newDefaultAISecretStore().Get("must-not-reach-keychain"); !secretstore.IsUnavailable(err) {
+		t.Fatal("macOS AI service must not open the Keychain backend")
+	}
+}
+
 func TestResolveProviderConfigSecretsRestoresStoredSecretBundle(t *testing.T) {
 	service := NewServiceWithSecretStore(failOnUseSecretStore{})
 	service.configDir = t.TempDir()

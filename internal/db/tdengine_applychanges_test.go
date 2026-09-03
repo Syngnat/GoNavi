@@ -510,6 +510,17 @@ func TestTDengineGetCreateStatementFallsBackToLegacySyntax(t *testing.T) {
 	}
 }
 
+func TestQuoteTDengineTablePreservesQuotedDottedTable(t *testing.T) {
+	t.Parallel()
+
+	if got := quoteTDengineTable("metrics", "`order.items`"); got != "`metrics`.`order.items`" {
+		t.Fatalf("quoted dotted table = %q, want %q", got, "`metrics`.`order.items`")
+	}
+	if got := quoteTDengineTable("metrics", "metrics.`order.items`"); got != "`metrics`.`order.items`" {
+		t.Fatalf("qualified quoted dotted table = %q, want %q", got, "`metrics`.`order.items`")
+	}
+}
+
 func TestTDengineGetCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)
 	t.Cleanup(func() {
@@ -533,4 +544,3 @@ func TestTDengineGetCreateStatementNotFoundUsesCurrentLanguage(t *testing.T) {
 		t.Fatalf("expected no raw Chinese CREATE TABLE not found text, got %q", err.Error())
 	}
 }
-

@@ -71,25 +71,42 @@ func TestHarnessDoesNotRetryPermanentProviderError(t *testing.T) {
 	if read.Run.State != RunStateFailed {
 		t.Fatalf("run state = %s, want failed", read.Run.State)
 	}
+	const providerDetail = "OpenAI Responses API returned error (HTTP 401): invalid api key"
+	if read.Run.TerminalReason != providerDetail {
+		t.Fatalf("terminal reason = %q, want provider detail", read.Run.TerminalReason)
+	}
 	if got := model.callCount(); got != 1 {
 		t.Fatalf("model calls = %d, want no retry", got)
 	}
 	var foundError bool
+	var foundTerminal bool
 	for _, event := range read.Events {
-		if event.Kind != EventRunError {
-			continue
-		}
-		var payload RunErrorEvent
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		foundError = true
-		if payload.Code != ModelErrorProvider || payload.Retryable {
-			t.Fatalf("provider error payload = %+v", payload)
+		switch event.Kind {
+		case EventRunError:
+			var payload RunErrorEvent
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			foundError = true
+			if payload.Code != ModelErrorProvider || payload.Retryable {
+				t.Fatalf("provider error payload = %+v", payload)
+			}
+		case EventTerminal:
+			var payload TerminalEvent
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			foundTerminal = true
+			if payload.Reason != providerDetail || payload.ErrorCode != ModelErrorProvider {
+				t.Fatalf("terminal payload = %+v", payload)
+			}
 		}
 	}
 	if !foundError {
 		t.Fatal("missing run error event")
+	}
+	if !foundTerminal {
+		t.Fatal("missing terminal event")
 	}
 }
 

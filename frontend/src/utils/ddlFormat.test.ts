@@ -20,6 +20,13 @@ describe('formatDdlForDisplay', () => {
     expect(formatDdlForDisplay(raw, 'duckdb')).toBe(raw);
   });
 
+  it.each(['diros', 'starrocks', 'oceanbase'])('formats MySQL-family DDL for the %s dialect', (dialect) => {
+    const raw = 'CREATE TABLE users(id BIGINT, name VARCHAR(32));';
+    const formatted = formatDdlForDisplay(raw, dialect);
+    expect(formatted).toContain('CREATE TABLE users');
+    expect(formatted).toContain('id BIGINT');
+  });
+
   it('keeps Oracle comment statements separated from create table DDL', () => {
     const raw = `CREATE TABLE "H2"."S_BUSI" (
   "ID" NUMBER
@@ -38,5 +45,17 @@ COMMENT ON COLUMN "H2"."S_BUSI"."ID" IS '主键';`;
     const raw = `CREATE OR REPLACE FORCE EDITIONABLE VIEW "APP"."V_RISK" ("ID", "ORG_NAME", "PARENT_NAME", "LEVEL_NO") DEFAULT COLLATION "USING_NLS_COMP" AS SELECT a.id,NVL(b.org_name,'-') org_name,DECODE(a.parent_id,NULL,'ROOT',c.org_name) parent_name,LEVEL level_no FROM org a,org_info b,org_info c WHERE a.id=b.org_id(+) AND a.parent_id=c.org_id(+) START WITH a.parent_id IS NULL CONNECT BY PRIOR a.id=a.parent_id WITH READ ONLY;`;
 
     expect(formatDdlForDisplay(raw, 'oracle')).toBe(raw);
+  });
+
+  it('uses the Oracle formatter for OceanBase Oracle mode', () => {
+    const raw = 'CREATE OR REPLACE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW BEGIN NULL; END;';
+
+    expect(formatDdlForDisplay(raw, 'oceanbase', { oceanBaseProtocol: 'oracle' }))
+      .toBe(formatDdlForDisplay(raw, 'oracle'));
+    expect(formatDdlForDisplay(
+      'CREATE OR REPLACE VIEW "APP"."V_RISK" AS SELECT 1 AS "ID" FROM DUAL;',
+      'oceanbase',
+      { oceanBaseProtocol: 'oracle' },
+    )).toBe('CREATE OR REPLACE VIEW "APP"."V_RISK" AS SELECT 1 AS "ID" FROM DUAL;');
   });
 });

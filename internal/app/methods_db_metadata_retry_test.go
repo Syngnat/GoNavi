@@ -1098,7 +1098,7 @@ func TestDBTableExistsNormalizesQualifiedMySQLTableMetadata(t *testing.T) {
 		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
 	})
 
-	dbInst := &fakeMetadataRetryDB{tables: []string{"users"}}
+	dbInst := &fakeMetadataRetryDB{tables: []string{"users", "order.items"}}
 	newDatabaseFunc = func(dbType string) (db.Database, error) {
 		return dbInst, nil
 	}
@@ -1107,22 +1107,118 @@ func TestDBTableExistsNormalizesQualifiedMySQLTableMetadata(t *testing.T) {
 	}
 
 	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
-	result := app.DBTableExists(connection.ConnectionConfig{
-		Type: "mysql",
-		Host: "127.0.0.1",
-		Port: 3306,
-		User: "root",
-	}, "demo_db", "demo_db.users")
+	for _, tableName := range []string{"demo_db.users", "`order.items`"} {
+		result := app.DBTableExists(connection.ConnectionConfig{
+			Type: "mysql",
+			Host: "127.0.0.1",
+			Port: 3306,
+			User: "root",
+		}, "demo_db", tableName)
 
-	if !result.Success {
-		t.Fatalf("expected DBTableExists success, got failure: %s", result.Message)
+		if !result.Success {
+			t.Fatalf("DBTableExists(%q) returned failure: %s", tableName, result.Message)
+		}
+		exists, ok := result.Data.(map[string]bool)
+		if !ok || !exists["exists"] {
+			t.Fatalf("expected MySQL table %q to exist, got %#v", tableName, result.Data)
+		}
+		if dbInst.tableSchema != "demo_db" {
+			t.Fatalf("expected MySQL table lookup database demo_db, got %q", dbInst.tableSchema)
+		}
 	}
-	exists, ok := result.Data.(map[string]bool)
-	if !ok || !exists["exists"] {
-		t.Fatalf("expected qualified MySQL table to exist, got %#v", result.Data)
+}
+
+func TestDBTableExistsNormalizesQuotedDottedBareCatalogNames(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	dbInst := &fakeMetadataRetryDB{tables: []string{"order.items"}}
+	newDatabaseFunc = func(string) (db.Database, error) {
+		return dbInst, nil
 	}
-	if dbInst.tableSchema != "demo_db" {
-		t.Fatalf("expected MySQL table lookup database demo_db, got %q", dbInst.tableSchema)
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	for _, test := range []struct {
+		name      string
+		dbType    string
+		dbName    string
+		tableName string
+	}{
+		{name: "mysql", dbType: "mysql", dbName: "app", tableName: "`order.items`"},
+		{name: "mariadb", dbType: "mariadb", dbName: "app", tableName: "`order.items`"},
+		{name: "oceanbase mysql", dbType: "oceanbase", dbName: "app", tableName: "`order.items`"},
+		{name: "doris", dbType: "diros", dbName: "app", tableName: "`order.items`"},
+		{name: "starrocks", dbType: "starrocks", dbName: "app", tableName: "`order.items`"},
+		{name: "sphinx", dbType: "sphinx", dbName: "app", tableName: "`order.items`"},
+		{name: "tidb", dbType: "tidb", dbName: "app", tableName: "`order.items`"},
+		{name: "sqlite", dbType: "sqlite", dbName: "main", tableName: "[order.items]"},
+		{name: "clickhouse", dbType: "clickhouse", dbName: "app", tableName: "`order.items`"},
+		{name: "tdengine", dbType: "tdengine", dbName: "app", tableName: "`order.items`"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result := app.DBTableExists(connection.ConnectionConfig{
+				Type: test.dbType,
+				Host: "127.0.0.1",
+				Port: 1,
+				User: "test",
+			}, test.dbName, test.tableName)
+			if !result.Success {
+				t.Fatalf("DBTableExists(%q) returned failure: %s", test.tableName, result.Message)
+			}
+			exists, ok := result.Data.(map[string]bool)
+			if !ok || !exists["exists"] {
+				t.Fatalf("expected %s table %q to exist, got %#v", test.dbType, test.tableName, result.Data)
+			}
+			if dbInst.tableSchema != test.dbName || dbInst.tableCalls == 0 {
+				t.Fatalf("catalog lookup for %s = %q, calls=%d, want database %q", test.dbType, dbInst.tableSchema, dbInst.tableCalls, test.dbName)
+			}
+		})
+	}
+}
+
+func TestDBTableExistsNormalizesSQLServerQuotedDottedTableMetadata(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	originalResolveDialConfigWithProxyFunc := resolveDialConfigWithProxyFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+		resolveDialConfigWithProxyFunc = originalResolveDialConfigWithProxyFunc
+	})
+
+	dbInst := &fakeMetadataRetryDB{tables: []string{"[dbo].[order.items]", "[sales].[order.items]"}}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return dbInst, nil
+	}
+	resolveDialConfigWithProxyFunc = func(raw connection.ConnectionConfig) (connection.ConnectionConfig, error) {
+		return raw, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	for _, tableName := range []string{"[order.items]", "sales.[order.items]"} {
+		result := app.DBTableExists(connection.ConnectionConfig{
+			Type: "sqlserver",
+			Host: "127.0.0.1",
+			Port: 1433,
+			User: "sa",
+		}, "app", tableName)
+		if !result.Success {
+			t.Fatalf("DBTableExists(%q) returned failure: %s", tableName, result.Message)
+		}
+		exists, ok := result.Data.(map[string]bool)
+		if !ok || !exists["exists"] {
+			t.Fatalf("expected SQL Server quoted dotted table %q to exist, got %#v", tableName, result.Data)
+		}
+		if dbInst.tableSchema != "app" {
+			t.Fatalf("expected SQL Server table lookup database app, got %q", dbInst.tableSchema)
+		}
 	}
 }
 

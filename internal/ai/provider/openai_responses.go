@@ -360,6 +360,49 @@ func cloneOpenAIResponsesRawItems(items []json.RawMessage) []json.RawMessage {
 	return result
 }
 
+// canonicalizeOpenAIResponsesFunctionCallsForInput removes response-only
+// fields before a function call is sent back as a later Responses input item.
+// Several OpenAI-compatible endpoints emit an `id` and `status` in response
+// output but reject those fields for the corresponding input variant.
+func canonicalizeOpenAIResponsesFunctionCallsForInput(items []json.RawMessage) []json.RawMessage {
+	if len(items) == 0 {
+		return nil
+	}
+
+	result := make([]json.RawMessage, 0, len(items))
+	for _, rawItem := range items {
+		var item struct {
+			Type      string `json:"type"`
+			CallID    string `json:"call_id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		}
+		if err := json.Unmarshal(rawItem, &item); err != nil || item.Type != "function_call" {
+			result = append(result, append(json.RawMessage(nil), rawItem...))
+			continue
+		}
+
+		arguments, validArguments := normalizeOpenAIToolCallArguments(item.Arguments)
+		if strings.TrimSpace(item.CallID) == "" || strings.TrimSpace(item.Name) == "" || !validArguments {
+			// A malformed function call cannot be paired with a safe tool result.
+			// Drop it rather than preserving a request that compatible endpoints
+			// will reject as invalid input.
+			continue
+		}
+		encoded, err := json.Marshal(openAIResponsesInputItem{
+			Type:      "function_call",
+			CallID:    item.CallID,
+			Name:      item.Name,
+			Arguments: arguments,
+		})
+		if err != nil {
+			continue
+		}
+		result = append(result, json.RawMessage(encoded))
+	}
+	return result
+}
+
 func decodeOpenAIResponsesSessionState(state json.RawMessage) (openAIResponsesSessionState, bool) {
 	if len(state) == 0 {
 		return openAIResponsesSessionState{}, false
@@ -393,6 +436,7 @@ func encodeOpenAIResponsesSessionState(input []json.RawMessage, output []json.Ra
 	combined := make([]json.RawMessage, 0, len(input)+len(output))
 	combined = append(combined, cloneOpenAIResponsesRawItems(input)...)
 	combined = append(combined, cloneOpenAIResponsesRawItems(output)...)
+	combined = canonicalizeOpenAIResponsesFunctionCallsForInput(combined)
 	encoded, err := json.Marshal(openAIResponsesSessionState{Input: combined})
 	if err != nil {
 		return nil, fmt.Errorf("serialize OpenAI Responses session state failed: %w", err)
@@ -688,9 +732,10 @@ func (p *OpenAIResponsesProvider) ChatWithState(
 			req.ImageFallbackPrompt,
 			req.ImageOmittedNotice,
 		)
+		previousInput := canonicalizeOpenAIResponsesFunctionCallsForInput(previous.Input)
 		body.Input = append(
-			cloneOpenAIResponsesRawItems(previous.Input),
-			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previous.Input)))...,
+			previousInput,
+			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previousInput)))...,
 		)
 	}
 	respBody, err := p.doRequest(ctx, body)
@@ -753,9 +798,10 @@ func (p *OpenAIResponsesProvider) ChatStreamWithState(
 			req.ImageFallbackPrompt,
 			req.ImageOmittedNotice,
 		)
+		previousInput := canonicalizeOpenAIResponsesFunctionCallsForInput(previous.Input)
 		body.Input = append(
-			cloneOpenAIResponsesRawItems(previous.Input),
-			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previous.Input)))...,
+			previousInput,
+			marshalOpenAIResponsesInput(buildOpenAIResponsesInputWithToolCallIDs(requestMessages, p.baseURL, responsesSessionToolCallIDs(previousInput)))...,
 		)
 	}
 	respBody, err := p.doRequest(ctx, body)

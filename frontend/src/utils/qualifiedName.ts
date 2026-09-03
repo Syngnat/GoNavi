@@ -21,36 +21,59 @@ const normalizeIdentifierEscapes = (raw: string): string => {
   return String(value || '').trim();
 };
 
-export const stripIdentifierQuotes = (part: string): string => {
+const supportsBracketIdentifier = (dbType = ''): boolean => {
+  const dialect = String(dbType || '').trim().toLowerCase();
+  // Preserve the historical generic parser behavior when no dialect is known.
+  // SQL Server and SQLite both accept [] as identifier quotes.
+  if (!dialect) return true;
+  return [
+    'sqlserver', 'mssql', 'sql_server', 'sql-server', 'sql server',
+    'sqlite', 'sqlite3',
+  ].includes(dialect);
+};
+
+const supportsEscapedBracketIdentifier = (dbType = ''): boolean => {
+  const dialect = String(dbType || '').trim().toLowerCase();
+  // Keep the historical generic behavior when no dialect is known.
+  if (!dialect) return true;
+  return ['sqlserver', 'mssql', 'sql_server', 'sql-server', 'sql server'].includes(dialect);
+};
+
+export const stripIdentifierQuotes = (part: string, dbType = ''): string => {
   const text = normalizeIdentifierEscapes(part);
   if (!text) return '';
   if (text.length >= 2) {
     const first = text[0];
     const last = text[text.length - 1];
     if (first === '"' && last === '"') {
-      return text.slice(1, -1).replace(/""/g, '"').trim();
+      return text.slice(1, -1).replace(/""/g, '"');
     }
     if (first === '`' && last === '`') {
-      return text.slice(1, -1).replace(/``/g, '`').trim();
+      return text.slice(1, -1).replace(/``/g, '`');
     }
-    if (first === '[' && last === ']') {
-      return text.slice(1, -1).replace(/]]/g, ']').trim();
+    if (supportsBracketIdentifier(dbType) && first === '[' && last === ']') {
+      const value = text.slice(1, -1);
+      return supportsEscapedBracketIdentifier(dbType) ? value.replace(/]]/g, ']') : value;
     }
   }
   return text;
 };
 
-const isQuotedIdentifier = (part: string): boolean => {
+const isQuotedIdentifier = (part: string, dbType = ''): boolean => {
   const text = normalizeIdentifierEscapes(part);
   if (text.length < 2) return false;
   return (text.startsWith('"') && text.endsWith('"'))
     || (text.startsWith('`') && text.endsWith('`'))
-    || (text.startsWith('[') && text.endsWith(']'));
+    || (supportsBracketIdentifier(dbType) && text.startsWith('[') && text.endsWith(']'));
 };
 
-export const splitQualifiedNameSegmentsDetailed = (qualifiedName: string): QualifiedNameSegment[] => {
+export const splitQualifiedNameSegmentsDetailed = (
+  qualifiedName: string,
+  dbType = '',
+): QualifiedNameSegment[] => {
   const text = normalizeIdentifierEscapes(qualifiedName);
   if (!text) return [];
+  const bracketIdentifiers = supportsBracketIdentifier(dbType);
 
   const segments: QualifiedNameSegment[] = [];
   let current = '';
@@ -64,8 +87,8 @@ export const splitQualifiedNameSegmentsDetailed = (qualifiedName: string): Quali
     if (!value) return;
     segments.push({
       raw: value,
-      value: stripIdentifierQuotes(value),
-      quoted: isQuotedIdentifier(value),
+      value: stripIdentifierQuotes(value, dbType),
+      quoted: isQuotedIdentifier(value, dbType),
     });
   };
 
@@ -94,9 +117,9 @@ export const splitQualifiedNameSegmentsDetailed = (qualifiedName: string): Quali
       continue;
     }
 
-    if (inBracket) {
+    if (bracketIdentifiers && inBracket) {
       current += ch;
-      if (ch === ']' && text[i + 1] === ']') {
+      if (supportsEscapedBracketIdentifier(dbType) && ch === ']' && text[i + 1] === ']') {
         current += text[i + 1];
         i += 1;
         continue;
@@ -115,7 +138,7 @@ export const splitQualifiedNameSegmentsDetailed = (qualifiedName: string): Quali
       current += ch;
       continue;
     }
-    if (ch === '[') {
+    if (bracketIdentifiers && ch === '[') {
       inBracket = true;
       current += ch;
       continue;
@@ -131,12 +154,12 @@ export const splitQualifiedNameSegmentsDetailed = (qualifiedName: string): Quali
   return segments;
 };
 
-export const splitQualifiedNameSegments = (qualifiedName: string): string[] => (
-  splitQualifiedNameSegmentsDetailed(qualifiedName).map((segment) => segment.value)
+export const splitQualifiedNameSegments = (qualifiedName: string, dbType = ''): string[] => (
+  splitQualifiedNameSegmentsDetailed(qualifiedName, dbType).map((segment) => segment.value)
 );
 
-export const splitQualifiedName = (qualifiedName: string): QualifiedNameParts => {
-  const segments = splitQualifiedNameSegments(qualifiedName);
+export const splitQualifiedName = (qualifiedName: string, dbType = ''): QualifiedNameParts => {
+  const segments = splitQualifiedNameSegments(qualifiedName, dbType);
   if (segments.length === 0) return { parentPath: '', objectName: '' };
   if (segments.length === 1) return { parentPath: '', objectName: segments[0] };
   return {
@@ -146,3 +169,31 @@ export const splitQualifiedName = (qualifiedName: string): QualifiedNameParts =>
 };
 
 export const splitQualifiedNameLast = splitQualifiedName;
+
+/**
+ * Parses an identifier returned by metadata APIs without guessing that every
+ * dot means a qualification separator. Metadata usually returns object names
+ * without delimiters, so a literal name such as `audit.log` must remain one
+ * object unless the caller explicitly supplied delimited path segments.
+ */
+export const splitMetadataQualifiedName = (
+  qualifiedName: string,
+  expectedParent = '',
+): QualifiedNameParts => {
+  const raw = String(qualifiedName || '').trim();
+  if (!raw) return { parentPath: '', objectName: '' };
+
+  const segments = splitQualifiedNameSegmentsDetailed(raw);
+  const normalizedExpectedParent = String(expectedParent || '').trim();
+  const hasExpectedParent = normalizedExpectedParent !== ''
+    && segments.length > 1
+    && segments[0].value.localeCompare(normalizedExpectedParent, undefined, { sensitivity: 'accent' }) === 0;
+  const hasExplicitPath = segments.length > 1 && (segments.some((segment) => segment.quoted) || hasExpectedParent);
+  if (!hasExplicitPath) {
+    return { parentPath: '', objectName: raw };
+  }
+  return {
+    parentPath: segments.slice(0, -1).map((segment) => segment.value).join('.'),
+    objectName: segments[segments.length - 1]?.value || raw,
+  };
+};

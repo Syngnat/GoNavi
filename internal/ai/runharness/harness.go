@@ -391,6 +391,17 @@ func (h *AgentRunHarness) SubmitInput(ctx context.Context, request AgentInputReq
 		// new queued run is created. The active-run guard for a steer is evaluated
 		// atomically with command insertion below.
 		projection, projectionErr := h.ledger.GetSession(ctx, sessionID, false)
+		if errors.Is(projectionErr, ErrNotFound) {
+			// The caller binds the input to a conversation this ledger no longer
+			// contains — UI state can outlive the ledger when the data root or
+			// the ledger file is replaced. Failing the send would strand the
+			// panel on an unfixable error, so fall back to a fresh implicit
+			// conversation; the receipt's SessionID lets the adapter rebuild its
+			// projection, mirroring the implicit path above.
+			sessionID = deterministicInputSessionID(request.RequestID)
+			expectedSessionRevision = 0
+			goto revisionGuardDone
+		}
 		if projectionErr != nil {
 			return AgentInputReceipt{}, projectionErr
 		}
@@ -2469,6 +2480,25 @@ func (h *AgentRunHarness) listTools(ctx context.Context) ([]ToolDescriptor, erro
 	return items, nil
 }
 
+// projectModelDeltaToolIntents keeps intermediate provider fragments out of
+// the durable event envelope. A streaming provider may emit `{"query":`
+// before completing a tool call; json.RawMessage rejects that fragment during
+// event serialization. The original intent remains untouched so final-turn
+// validation still returns malformed_tool_call rather than treating it as {}.
+func projectModelDeltaToolIntents(intents []ToolIntent) []ToolIntent {
+	if len(intents) == 0 {
+		return nil
+	}
+	projected := make([]ToolIntent, len(intents))
+	copy(projected, intents)
+	for index := range projected {
+		if len(projected[index].Arguments) > 0 && !json.Valid(projected[index].Arguments) {
+			projected[index].Arguments = nil
+		}
+	}
+	return projected
+}
+
 func (h *AgentRunHarness) executeModel(ctx context.Context, request ModelTurnRequest, run RunSnapshot, execution *runExecution) (ModelTurnResult, error) {
 	if h.model == nil {
 		return ModelTurnResult{}, errors.New("model adapter is unavailable")
@@ -2547,7 +2577,7 @@ func (h *AgentRunHarness) executeModel(ctx context.Context, request ModelTurnReq
 		if !force && textBuffer.Len() < maxEventDeltaBytes && reasoningBuffer.Len() < maxEventDeltaBytes && time.Since(lastFlush) < maxEventDeltaAge {
 			return nil
 		}
-		payload := ModelDeltaEvent{Text: textBuffer.String(), Reasoning: reasoningBuffer.String(), ToolCalls: append([]ToolIntent(nil), pendingCalls...)}
+		payload := ModelDeltaEvent{Text: textBuffer.String(), Reasoning: reasoningBuffer.String(), ToolCalls: projectModelDeltaToolIntents(pendingCalls)}
 		if len(payload.ToolCalls) > 0 {
 			payload.CallID = payload.ToolCalls[0].CallID
 		}
@@ -2740,7 +2770,9 @@ func (h *AgentRunHarness) failRun(ctx context.Context, run RunSnapshot, code str
 		message = cause.Error()
 	}
 	h.emitError(ctx, run, code, message, execution)
-	_, _ = h.finishTerminal(ctx, run.ID, RunStateFailed, code, code, execution)
+	// Persist the provider's full error in the terminal snapshot so a client
+	// that missed the separate run_error event can still render the cause.
+	_, _ = h.finishTerminal(ctx, run.ID, RunStateFailed, message, code, execution)
 }
 
 func (h *AgentRunHarness) finishExhausted(ctx context.Context, run RunSnapshot, execution *runExecution, reason string) {

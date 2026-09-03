@@ -48,6 +48,19 @@ describe('sqlEditorTransaction', () => {
     expect(isSqlEditorSchemaChangingStatement('CREATE OR REPLACE VIEW active_users AS SELECT * FROM users')).toBe(true);
     expect(isSqlEditorSchemaChangingStatement('TRUNCATE TABLE users')).toBe(false);
     expect(isSqlEditorSchemaChangingStatement("SELECT 'DROP TABLE users' AS note")).toBe(false);
+    expect(isSqlEditorSchemaChangingStatement('BEGIN\n  ALTER TABLE users ADD COLUMN archived BOOLEAN;\nEND;')).toBe(true);
+    expect(isSqlEditorSchemaChangingStatement('BEGIN\n  INSERT INTO audit_log(id) VALUES (1);\nEND;')).toBe(false);
+    expect(isSqlEditorSchemaChangingStatement("BEGIN\n  EXECUTE IMMEDIATE 'CREATE TABLE audit_log(id bigint)';\nEND;")).toBe(true);
+    expect(isSqlEditorSchemaChangingStatement('DO $$ BEGIN CREATE TABLE audit_log(id bigint); END $$;')).toBe(true);
+    expect(isSqlEditorSchemaChangingStatement('SELECT [create;table] FROM [audit]];log]')).toBe(false);
+  });
+
+  it('uses SQLite first-bracket closure while preserving SQL Server escaped brackets', () => {
+    const sqliteSql = 'BEGIN\n  SELECT [value]]; CREATE TABLE created(id INTEGER);\nEND';
+    expect(isSqlEditorSchemaChangingStatement(sqliteSql, 'sqlite')).toBe(true);
+
+    const sqlServerSql = 'BEGIN\n  SELECT [value]]; CREATE TABLE created(id INT);\nEND';
+    expect(isSqlEditorSchemaChangingStatement(sqlServerSql, 'sqlserver')).toBe(false);
   });
 
   it('detects only top-level SELECT FOR UPDATE clauses', () => {
@@ -58,6 +71,13 @@ describe('sqlEditorTransaction', () => {
     expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM (SELECT * FROM users FOR UPDATE) source')).toBe(false);
     expect(hasTopLevelSqlEditorForUpdate('SELECT * FROM users -- FOR UPDATE')).toBe(false);
     expect(hasTopLevelSqlEditorForUpdate('UPDATE users SET locked = 1')).toBe(false);
+    expect(hasTopLevelSqlEditorForUpdate('SELECT a[b[1]] FROM t FOR UPDATE', 'postgres')).toBe(true);
+    expect(hasTopLevelSqlEditorForUpdate('SELECT [[1,2],[3]] FROM t FOR UPDATE', 'clickhouse')).toBe(true);
+  });
+
+  it('does not treat a column named comment as schema-changing inside a block', () => {
+    expect(isSqlEditorSchemaChangingStatement('BEGIN INSERT INTO t(comment) VALUES (1); END', 'postgres')).toBe(false);
+    expect(isSqlEditorSchemaChangingStatement('BEGIN SELECT comment FROM t; END', 'postgres')).toBe(false);
   });
 
   it('uses managed transactions for WITH DML but not WITH SELECT', () => {

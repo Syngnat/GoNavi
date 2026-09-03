@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -36,11 +37,114 @@ func TestBuildPGLikeMetadataQueriesUseVisibleRelationForPureTable(t *testing.T) 
 	}
 
 	triggerQuery := buildPGLikeTriggersMetadataQuery("", "users")
+	if !strings.Contains(triggerQuery, "t.action_orientation") {
+		t.Fatalf("trigger metadata should expose firing orientation for safe restoration, got %s", triggerQuery)
+	}
 	if !strings.Contains(triggerQuery, "pg_catalog.pg_table_is_visible(c.oid)") {
 		t.Fatalf("expected visible relation predicate for trigger metadata, got %s", triggerQuery)
 	}
 	if strings.Contains(triggerQuery, "n.nspname = 'public'") || strings.Contains(triggerQuery, "current_schema()") {
 		t.Fatalf("pure table trigger metadata should not force public/current_schema, got %s", triggerQuery)
+	}
+}
+
+func TestGetPGLikeTriggerOrientationHandlesDriverKeyShapes(t *testing.T) {
+	t.Parallel()
+
+	if got := getPGLikeTriggerOrientation(map[string]interface{}{"ACTION_ORIENTATION": "ROW"}); got != "ROW" {
+		t.Fatalf("uppercase orientation = %q, want ROW", got)
+	}
+	if got := getPGLikeTriggerOrientation(map[string]interface{}{"action_orientation": nil}); got != "" {
+		t.Fatalf("nil orientation = %q, want empty", got)
+	}
+	if got := getPGLikeTriggerOrientation(map[string]interface{}{"action_orientation": []byte("STATEMENT")}); got != "STATEMENT" {
+		t.Fatalf("byte orientation = %q, want STATEMENT", got)
+	}
+}
+
+type triggerMetadataQueryStub struct {
+	calls int
+}
+
+func (s *triggerMetadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
+	s.calls++
+	if s.calls == 1 {
+		return nil, nil, fmt.Errorf("column action_orientation does not exist")
+	}
+	if s.calls == 3 {
+		return []map[string]interface{}{{"trigger_name": "users_bi", "action_orientation": "ROW"}}, nil, nil
+	}
+	return []map[string]interface{}{{"trigger_name": "users_bi"}}, nil, nil
+}
+
+func TestQueryPGLikeTriggersMetadataFallsBackWithoutOrientation(t *testing.T) {
+	t.Parallel()
+
+	stub := &triggerMetadataQueryStub{}
+	data, err := queryPGLikeTriggersMetadata(stub, "public", "users")
+	if err != nil {
+		t.Fatalf("queryPGLikeTriggersMetadata returned error: %v", err)
+	}
+	if len(data) != 1 || stub.calls != 3 {
+		t.Fatalf("fallback calls/data = %d/%#v, want 3/one row", stub.calls, data)
+	}
+	if got := getPGLikeTriggerOrientation(data[0]); got != "ROW" {
+		t.Fatalf("fallback orientation = %q, want ROW", got)
+	}
+}
+
+type localizedTriggerMetadataQueryStub struct {
+	calls int
+}
+
+func (s *localizedTriggerMetadataQueryStub) Query(query string) ([]map[string]interface{}, []string, error) {
+	s.calls++
+	switch s.calls {
+	case 1:
+		return nil, nil, fmt.Errorf("查询失败：列不可用")
+	case 2:
+		return []map[string]interface{}{{"trigger_name": "Users"}, {"trigger_name": "users"}}, nil, nil
+	default:
+		return []map[string]interface{}{
+			{"trigger_name": "Users", "action_orientation": "ROW"},
+			{"trigger_name": "users", "action_orientation": "STATEMENT"},
+		}, nil, nil
+	}
+}
+
+func TestQueryPGLikeTriggersMetadataFallsBackForLocalizedErrorsAndKeepsCaseDistinctNames(t *testing.T) {
+	t.Parallel()
+
+	stub := &localizedTriggerMetadataQueryStub{}
+	data, err := queryPGLikeTriggersMetadata(stub, "public", "users")
+	if err != nil {
+		t.Fatalf("queryPGLikeTriggersMetadata returned error: %v", err)
+	}
+	if stub.calls != 3 || len(data) != 2 {
+		t.Fatalf("fallback calls/data = %d/%#v, want 3/two rows", stub.calls, data)
+	}
+	if got := getPGLikeTriggerOrientation(data[0]); got != "ROW" {
+		t.Fatalf("uppercase trigger orientation = %q, want ROW", got)
+	}
+	if got := getPGLikeTriggerOrientation(data[1]); got != "STATEMENT" {
+		t.Fatalf("lowercase trigger orientation = %q, want STATEMENT", got)
+	}
+}
+
+func TestBuildPGLikeTriggerOrientationMetadataQueryUsesCatalogBits(t *testing.T) {
+	t.Parallel()
+
+	query := buildPGLikeTriggerOrientationMetadataQuery("audit", "users")
+	for _, want := range []string{
+		"pg_catalog.pg_trigger",
+		"(pt.tgtype & 1)",
+		"pt.tgisinternal",
+		"n.nspname = 'audit'",
+		"c.relname = 'users'",
+	} {
+		if !strings.Contains(query, want) {
+			t.Fatalf("orientation query missing %q: %s", want, query)
+		}
 	}
 }
 
@@ -69,6 +173,87 @@ func TestBuildPGLikeMetadataQueriesKeepExplicitSchema(t *testing.T) {
 	}
 	if strings.Contains(triggerQuery, "pg_catalog.pg_table_is_visible") {
 		t.Fatalf("explicit schema trigger metadata should not use visibility predicate, got %s", triggerQuery)
+	}
+}
+
+func TestNormalizePGLikeMetadataTablePreservesQuotedDottedSegments(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		schemaName string
+		tableName  string
+		wantSchema string
+		wantTable  string
+	}{
+		{
+			name:       "quoted table passed with explicit schema",
+			schemaName: "audit.schema",
+			tableName:  `"order.items"`,
+			wantSchema: "audit.schema",
+			wantTable:  "order.items",
+		},
+		{
+			name:       "fully qualified quoted path",
+			tableName:  `"audit.schema"."order.items"`,
+			wantSchema: "audit.schema",
+			wantTable:  "order.items",
+		},
+		{
+			name:       "ordinary qualified path",
+			tableName:  "audit.users",
+			wantSchema: "audit",
+			wantTable:  "users",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			gotSchema, gotTable := normalizePGLikeMetadataTable(test.schemaName, test.tableName)
+			if gotSchema != test.wantSchema || gotTable != test.wantTable {
+				t.Fatalf("normalizePGLikeMetadataTable(%q,%q)=(%q,%q), want=(%q,%q)", test.schemaName, test.tableName, gotSchema, gotTable, test.wantSchema, test.wantTable)
+			}
+		})
+	}
+}
+
+func TestNormalizePGLikeMetadataPartsPreservesLogicalDottedNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		schemaName string
+		tableName  string
+		wantSchema string
+		wantTable  string
+	}{
+		{
+			name:       "logical dotted parts",
+			schemaName: "Sales.Schema",
+			tableName:  "Order.Items",
+			wantSchema: "Sales.Schema",
+			wantTable:  "Order.Items",
+		},
+		{
+			name:       "delimited dotted parts",
+			schemaName: `"Sales.Schema"`,
+			tableName:  `"Order.Items"`,
+			wantSchema: "Sales.Schema",
+			wantTable:  "Order.Items",
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			gotSchema, gotTable := normalizePGLikeMetadataParts(test.schemaName, test.tableName)
+			if gotSchema != test.wantSchema || gotTable != test.wantTable {
+				t.Fatalf("normalizePGLikeMetadataParts(%q,%q)=(%q,%q), want=(%q,%q)", test.schemaName, test.tableName, gotSchema, gotTable, test.wantSchema, test.wantTable)
+			}
+		})
 	}
 }
 

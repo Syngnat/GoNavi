@@ -9,6 +9,10 @@ import {
   resolveSqlFunctions,
   resolveSqlKeywords,
   resolveTableAliasSyntax,
+  quoteSqlIdentifierPart,
+  quoteSqlIdentifierPath,
+  unquoteSqlIdentifierPart,
+  unquoteSqlIdentifierPath,
 } from './sqlDialect';
 
 const values = (options: Array<{ value: string }>) => options.map((item) => item.value);
@@ -77,6 +81,35 @@ describe('sqlDialect', () => {
     expect(appendTableAlias('system_user', 'su', 'oracle')).toBe('system_user su');
     expect(appendTableAlias('system_user', 'su', 'unknown')).toBe('system_user');
     expect(appendTableAlias('', 'su', 'mysql')).toBe('AS su');
+  });
+
+  it('preserves dots inside quoted identifier path segments', () => {
+    const path = '"PEM2.4_V1_1"."COM_APPROVE_INFO"';
+    expect(unquoteSqlIdentifierPath(path)).toBe('PEM2.4_V1_1.COM_APPROVE_INFO');
+    expect(quoteSqlIdentifierPath('postgres', path)).toBe(path);
+  });
+
+  it('unescapes delimited identifier escapes before quoting again', () => {
+    expect(quoteSqlIdentifierPath('mysql', '`audit``log`.`order``items`'))
+      .toBe('`audit``log`.`order``items`');
+    expect(quoteSqlIdentifierPath('postgres', '"Audit""Schema"."Order""Items"'))
+      .toBe('"Audit""Schema"."Order""Items"');
+    expect(quoteSqlIdentifierPath('sqlserver', '[audit]]schema].[order]]items]'))
+      .toBe('[audit]]schema].[order]]items]');
+  });
+
+  it('preserves delimited whitespace and applies bracket quoting only to supporting dialects', () => {
+    expect(quoteSqlIdentifierPath('postgres', '" id "')).toBe('" id "');
+    expect(quoteSqlIdentifierPath('mysql', '[weird]]name]')).toBe('`[weird]]name]`');
+    expect(quoteSqlIdentifierPath('sqlserver', '[weird]]name]')).toBe('[weird]]name]');
+    expect(quoteSqlIdentifierPart('sqlite', '[order.items]')).toBe('"order.items"');
+    expect(unquoteSqlIdentifierPart('[order.items]', 'sqlite')).toBe('order.items');
+    expect(quoteSqlIdentifierPart('sqlite', ' [order.items] ')).toBe('"order.items"');
+  });
+
+  it('trims unquoted identifier parts before quoting', () => {
+    expect(quoteSqlIdentifierPart('mysql', ' users ')).toBe('`users`');
+    expect(quoteSqlIdentifierPart('postgres', ' Users ')).toBe('"Users"');
   });
 
   it('resolves field type options per datasource family', () => {

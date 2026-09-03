@@ -14,6 +14,7 @@ import { buildIndexCreateSqlPreview } from './tableDesignerIndexSql';
 import { buildAlterTablePreviewSql, buildCreateTablePreviewSql, hasAlterTableDraftChanges, type StarRocksCreateTableOptions, type StarRocksDistributionType, type StarRocksKeyModel, type StarRocksTableKind, type TDengineCreateTableOptions, type TDengineTableKind, type TDengineTagDefinition } from './tableDesignerSchemaSql';
 import { summarizeDuckDbPrimaryKeyChange } from './tableDesignerDuckDbPrimaryKey';
 import {
+    containsTableDesignerTriggerCreateStatement,
     executeTableDesignerSchemaStatements,
     parseTableCommentFromDDL,
     splitSchemaExecutionStatements,
@@ -1334,9 +1335,12 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
 
   const generateTriggerTemplate = (): string => {
     const dbType = getDbType();
-    const tblName = supportsRequestedTableDesignerSchemaSelection(dbType)
-        ? resolveTableInfo().qualifiedName
-        : (tab.tableName || 'table_name');
+    const tableInfo = resolveTableInfo();
+    const tblName = tableInfo.tableRef || (
+        supportsRequestedTableDesignerSchemaSelection(dbType)
+          ? tableInfo.qualifiedName
+          : (tab.tableName || 'table_name')
+    );
 
     switch (dbType) {
       case 'mysql':
@@ -1344,12 +1348,15 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
       case 'oceanbase':
       case 'diros':
       case 'starrocks':
-        return `CREATE TRIGGER trigger_name
-BEFORE INSERT ON \`${tblName}\`
+        {
+          const tableRef = quoteIdentifierPathByDialect(tblName, dbType);
+          return `CREATE TRIGGER trigger_name
+BEFORE INSERT ON ${tableRef}
 FOR EACH ROW
 BEGIN
     -- Trigger logic
 END;`;
+        }
       case 'postgres':
       case 'kingbase':
       case 'highgo':
@@ -1371,30 +1378,39 @@ FOR EACH ROW
 EXECUTE FUNCTION trigger_function_name();`;
       }
       case 'sqlserver':
-        return `CREATE TRIGGER trigger_name
-ON [${tblName}]
+        {
+          const tableRef = quoteIdentifierPathByDialect(tblName, dbType);
+          return `CREATE TRIGGER trigger_name
+ON ${tableRef}
 AFTER INSERT
 AS
 BEGIN
     SET NOCOUNT ON;
     -- Trigger logic
 END;`;
+        }
       case 'oracle':
       case 'dameng':
       case 'dm':
-        return `CREATE OR REPLACE TRIGGER trigger_name
-BEFORE INSERT ON "${tblName}"
+        {
+          const tableRef = quoteIdentifierPathByDialect(tblName, dbType);
+          return `CREATE OR REPLACE TRIGGER trigger_name
+BEFORE INSERT ON ${tableRef}
 FOR EACH ROW
 BEGIN
     -- Trigger logic
     NULL;
 END;`;
+        }
       case 'sqlite':
-        return `CREATE TRIGGER trigger_name
-AFTER INSERT ON "${tblName}"
+        {
+          const tableRef = quoteIdentifierPathByDialect(tblName, dbType);
+          return `CREATE TRIGGER trigger_name
+AFTER INSERT ON ${tableRef}
 BEGIN
     -- Trigger logic
 END;`;
+        }
       default:
         return `-- Enter a CREATE TRIGGER statement`;
     }
@@ -1402,11 +1418,14 @@ END;`;
 
   const buildDropTriggerSql = (triggerName: string): string => {
     const dbType = getDbType();
-    const tblName = supportsRequestedTableDesignerSchemaSelection(dbType)
-        ? resolveTableInfo().qualifiedName
-        : (tab.tableName || '');
+    const tableInfo = resolveTableInfo();
+    const tblName = tableInfo.tableRef || (
+        supportsRequestedTableDesignerSchemaSelection(dbType)
+          ? tableInfo.qualifiedName
+          : (tab.tableName || '')
+    );
 
-    return buildTableDesignerTriggerDropSql(triggerName, tblName, dbType);
+    return buildTableDesignerTriggerDropSql(triggerName, tblName, dbType, tableInfo.schema);
   };
 
   const handleCreateTrigger = () => {
@@ -1418,12 +1437,15 @@ END;`;
   const handleEditTrigger = () => {
     if (!selectedTrigger) return;
     const dbType = getDbType();
-    const tblName = supportsRequestedTableDesignerSchemaSelection(dbType)
-        ? resolveTableInfo().qualifiedName
-        : (tab.tableName || '');
+    const tableInfo = resolveTableInfo();
+    const tblName = tableInfo.tableRef || (
+        supportsRequestedTableDesignerSchemaSelection(dbType)
+          ? tableInfo.qualifiedName
+          : (tab.tableName || '')
+    );
     let createSql = '';
 
-    const triggerRollbackSql = buildTableDesignerTriggerRestoreSql(selectedTrigger, tblName, dbType);
+    const triggerRollbackSql = buildTableDesignerTriggerRestoreSql(selectedTrigger, tblName, dbType, tableInfo.schema);
     createSql = triggerRollbackSql
       || selectedTrigger.statement
       || '-- Trigger definition unavailable';
@@ -1447,6 +1469,7 @@ END;`;
       schemaName: schemaName || undefined,
       query: buildEditableTriggerSql(selectedTrigger.name, createSql, {
         dropSql: triggerDropSql,
+        dbType,
       }),
       triggerName: selectedTrigger.name,
       triggerTableName: tblName,
@@ -1510,8 +1533,16 @@ END;`;
       return;
     }
 
-    if (!String(triggerEditSql || '').trim()) {
+    const dbType = getDbType();
+    if (
+      !String(triggerEditSql || '').trim()
+      || splitSchemaExecutionStatements(triggerEditSql, dbType).length === 0
+    ) {
       message.error(t('table_designer.message.no_sql_statement', undefined, i18nLanguage));
+      return;
+    }
+    if (!containsTableDesignerTriggerCreateStatement(triggerEditSql, dbType)) {
+      message.error(t('trigger_viewer.edit_sql.empty_definition', undefined, i18nLanguage));
       return;
     }
 
@@ -1527,12 +1558,14 @@ END;`;
 
     try {
       let triggerSchemaMayHaveChanged = false;
-      const dbType = getDbType();
-      const restoreTableName = supportsRequestedTableDesignerSchemaSelection(dbType)
-        ? resolveTableInfo().qualifiedName
-        : (tab.tableName || '');
+      const tableInfo = resolveTableInfo();
+      const restoreTableName = tableInfo.tableRef || (
+        supportsRequestedTableDesignerSchemaSelection(dbType)
+          ? tableInfo.qualifiedName
+          : (tab.tableName || '')
+      );
       const restoreSql = triggerEditMode === 'edit' && selectedTrigger
-        ? buildTableDesignerTriggerRestoreSql(selectedTrigger, restoreTableName, dbType)
+        ? buildTableDesignerTriggerRestoreSql(selectedTrigger, restoreTableName, dbType, tableInfo.schema)
         : '';
       const shouldDropExistingTrigger = triggerEditMode === 'edit'
         && Boolean(selectedTrigger)
@@ -1545,7 +1578,12 @@ END;`;
         });
         if (!dropResult.ok) {
           const failureDetail = dropResult.rawMessage || dropResult.message;
-          if (dropResult.schemaMayHaveChanged && restoreSql) {
+          if (dropResult.outcomeUnknown) {
+            await fetchData();
+            message.error(t('table_designer.message.trigger_outcome_unknown', {
+              detail: failureDetail,
+            }, i18nLanguage));
+          } else if (dropResult.schemaMayHaveChanged && restoreSql) {
             const restoreResult = await executeSchemaStatements(restoreSql, {
               skipProductionRiskConfirm: true,
               splitStatements: false,
@@ -1585,7 +1623,11 @@ END;`;
       } else {
         if (triggerSchemaMayHaveChanged || result.schemaMayHaveChanged) await fetchData();
         const failureDetail = result.rawMessage || result.message;
-        if (triggerSchemaMayHaveChanged && restoreSql) {
+        if (result.outcomeUnknown) {
+          message.error(t('table_designer.message.trigger_outcome_unknown', {
+            detail: failureDetail,
+          }, i18nLanguage));
+        } else if (triggerSchemaMayHaveChanged && restoreSql) {
           const restoreResult = await executeSchemaStatements(restoreSql, {
             skipProductionRiskConfirm: true,
             splitStatements: false,
@@ -2314,8 +2356,8 @@ END;`;
       };
       const dbType = resolveTableInfo().dbType;
       const statements = options.splitStatements === false
-          ? (String(sqlText || '').trim() ? [sqlText] : [])
-          : splitSchemaExecutionStatements(sqlText);
+          ? (String(sqlText || '').trim() && splitSchemaExecutionStatements(sqlText, dbType).length > 0 ? [sqlText] : [])
+          : splitSchemaExecutionStatements(sqlText, dbType);
       const refreshSchemaConsumers = () => {
           dispatchSidebarDatabaseRefresh({
               connectionId: tab.connectionId,
@@ -2339,16 +2381,16 @@ END;`;
       const result = await executeTableDesignerSchemaStatements({
           sqlText,
           dbType,
-      execute: (statement) => DBQueryAudited(
-          buildRpcConnectionConfig(config) as any,
-          tab.dbName || '',
-          statement,
-          'table_designer',
-      ),
-      refreshSchemaConsumers,
-      emptySqlMessage: t('table_designer.message.no_sql_statement', undefined, i18nLanguage),
-      splitStatements: options.splitStatements,
-    });
+          execute: (statement) => DBQueryAudited(
+              buildRpcConnectionConfig(config) as any,
+              tab.dbName || '',
+              statement,
+              'table_designer',
+          ),
+          refreshSchemaConsumers,
+          emptySqlMessage: t('table_designer.message.no_sql_statement', undefined, i18nLanguage),
+          splitStatements: options.splitStatements,
+      });
       if (result.ok) return result;
 
       const failedStatementIndex = result.failedStatementIndex ?? 0;

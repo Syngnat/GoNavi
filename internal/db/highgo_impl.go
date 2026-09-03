@@ -377,7 +377,7 @@ func (h *HighGoDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := h.Query(buildPGLikeTriggersMetadataQuery(schema, table))
+	data, err := queryPGLikeTriggersMetadata(h, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -385,10 +385,11 @@ func (h *HighGoDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDe
 	var triggers []connection.TriggerDefinition
 	for _, row := range data {
 		trig := connection.TriggerDefinition{
-			Name:      fmt.Sprintf("%v", row["trigger_name"]),
-			Timing:    fmt.Sprintf("%v", row["action_timing"]),
-			Event:     fmt.Sprintf("%v", row["event_manipulation"]),
-			Statement: fmt.Sprintf("%v", row["action_statement"]),
+			Name:        fmt.Sprintf("%v", row["trigger_name"]),
+			Timing:      fmt.Sprintf("%v", row["action_timing"]),
+			Event:       fmt.Sprintf("%v", row["event_manipulation"]),
+			Statement:   fmt.Sprintf("%v", row["action_statement"]),
+			Orientation: getPGLikeTriggerOrientation(row),
 		}
 		triggers = append(triggers, trig)
 	}

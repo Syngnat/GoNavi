@@ -144,4 +144,31 @@ describe('tableDesignerSchemaContext', () => {
       qualifiedName: 'app_database.users',
     });
   });
+
+  it('preserves a quoted dotted SQL Server table when resolving the edit target', () => {
+    expect(resolveTableDesignerTableInfo({
+      dbType: 'sqlserver',
+      dbName: 'BizDB',
+      tableName: '[audit].[order.items]',
+      selectedSchema: '',
+    })).toEqual({
+      schema: 'audit',
+      table: 'order.items',
+      qualifiedName: '[audit].[order.items]',
+    });
+  });
+
+  it('keeps the quoted table segment when switching PostgreSQL schemas', () => {
+    expect(resolveTableDesignerEditTarget({
+      dbType: 'postgres',
+      dbName: 'app_database',
+      tableName: '"archive"."Order.Items"',
+      selectedSchema: 'sales',
+      schemaSelectionOverride: true,
+    })).toEqual({
+      schema: 'sales',
+      table: 'Order.Items',
+      qualifiedName: 'sales."Order.Items"',
+    });
+  });
 });

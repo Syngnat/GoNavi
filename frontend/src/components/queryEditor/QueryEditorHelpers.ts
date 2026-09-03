@@ -2,7 +2,13 @@ import type { SqlLanguage } from 'sql-formatter';
 import type { TabData, ColumnDefinition, IndexDefinition } from '../../types';
 import { DBGetColumns, DBGetIndexes, DBQuery } from '../../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../../utils/connectionRpcConfig';
-import { isMysqlFamilyDialect, isOracleLikeDialect, resolveSqlDialect } from '../../utils/sqlDialect';
+import {
+    isMysqlFamilyDialect,
+    isOracleLikeDialect,
+    isPgLikeDialect,
+    quoteSqlIdentifierPart,
+    resolveSqlDialect,
+} from '../../utils/sqlDialect';
 import { extractQueryResultTableRef, type QueryResultTableRef } from '../../utils/queryResultTable';
 import { quoteIdentPart } from '../../utils/sql';
 import { splitSidebarQualifiedName } from '../../utils/sidebarLocate';
@@ -17,7 +23,16 @@ import {
 import { getQueryTabDraft, hasQueryTabDraft } from '../../utils/sqlFileTabDrafts';
 import { hasTopLevelSqlEditorForUpdate, resolveSqlEditorOperationKeyword } from '../../utils/sqlEditorTransaction';
 import { getColumnDefinitionKey, getColumnDefinitionName } from '../../utils/columnDefinition';
-import { splitQualifiedNameSegments } from '../../utils/qualifiedName';
+import {
+    buildMetadataIdentityKey,
+    getMetadataIdentityMode,
+    type MetadataIdentityMode,
+} from '../../utils/metadataIdentity';
+import {
+    splitMetadataQualifiedName,
+    splitQualifiedNameSegments,
+    splitQualifiedNameSegmentsDetailed,
+} from '../../utils/qualifiedName';
 import { resolveUniqueKeyGroupsFromIndexes } from '../dataGridCopyInsert';
 import { t as translate } from '../../i18n';
 
@@ -32,17 +47,27 @@ export type CompletionPackageMeta = {dbName: string, packageName: string, schema
 
 // Metadata refreshes replace the source array, so identity-keyed partitions stay correct and let
 // repeated completion requests avoid allocating/scanning another full-database filter result.
-const completionTablesByDatabaseCache = new WeakMap<CompletionTableMeta[], Map<string, CompletionTableMeta[]>>();
+const completionTablesByDatabaseCache = new WeakMap<
+    CompletionTableMeta[],
+    Map<MetadataIdentityMode, Map<string, CompletionTableMeta[]>>
+>();
 
 export const findCompletionTablesByDatabase = (
     tables: CompletionTableMeta[],
     dbName: string,
+    metadataDialect = '',
 ): CompletionTableMeta[] => {
-    let index = completionTablesByDatabaseCache.get(tables);
+    const identityMode = getMetadataIdentityMode(metadataDialect);
+    let indexes = completionTablesByDatabaseCache.get(tables);
+    if (!indexes) {
+        indexes = new Map<MetadataIdentityMode, Map<string, CompletionTableMeta[]>>();
+        completionTablesByDatabaseCache.set(tables, indexes);
+    }
+    let index = indexes.get(identityMode);
     if (!index) {
         index = new Map<string, CompletionTableMeta[]>();
         tables.forEach((table) => {
-            const key = String(table.dbName || '').trim().toLowerCase();
+            const key = buildMetadataIdentityKey(metadataDialect, table.dbName);
             const matches = index!.get(key);
             if (matches) {
                 matches.push(table);
@@ -50,9 +75,9 @@ export const findCompletionTablesByDatabase = (
                 index!.set(key, [table]);
             }
         });
-        completionTablesByDatabaseCache.set(tables, index);
+        indexes.set(identityMode, index);
     }
-    return index.get(String(dbName || '').trim().toLowerCase()) || [];
+    return index.get(buildMetadataIdentityKey(metadataDialect, dbName)) || [];
 };
 
 export const QUERY_EDITOR_COMPLETION_SUGGESTION_LIMIT = 200;
@@ -469,11 +494,14 @@ export const readSidebarSqlDropText = (
 export const stripQueryIdentifierQuotes = (part: string): string => {
     const text = String(part || '').trim();
     if (!text) return '';
-    if ((text.startsWith('`') && text.endsWith('`')) || (text.startsWith('"') && text.endsWith('"'))) {
-        return text.slice(1, -1).trim();
+    if (text.startsWith('`') && text.endsWith('`')) {
+        return text.slice(1, -1).replace(/``/g, '`').trim();
+    }
+    if (text.startsWith('"') && text.endsWith('"')) {
+        return text.slice(1, -1).replace(/""/g, '"').trim();
     }
     if (text.startsWith('[') && text.endsWith(']')) {
-        return text.slice(1, -1).trim();
+        return text.slice(1, -1).replace(/\]\]/g, ']').trim();
     }
     return text;
 };
@@ -547,10 +575,29 @@ export const splitTopLevelComma = (text: string): string[] => {
     let inSingle = false;
     let inDouble = false;
     let inBacktick = false;
+    let inBracket = false;
+    let inLineComment = false;
+    let inBlockComment = false;
     let escaped = false;
 
     for (let index = 0; index < text.length; index++) {
         const ch = text[index];
+        const next = text[index + 1] || '';
+        const previous = text[index - 1] || '';
+        if (inLineComment) {
+            current += ch;
+            if (ch === '\n' || ch === '\r') inLineComment = false;
+            continue;
+        }
+        if (inBlockComment) {
+            current += ch;
+            if (ch === '*' && next === '/') {
+                current += next;
+                index += 1;
+                inBlockComment = false;
+            }
+            continue;
+        }
         if (escaped) {
             current += ch;
             escaped = false;
@@ -576,7 +623,37 @@ export const splitTopLevelComma = (text: string): string[] => {
             current += ch;
             continue;
         }
+        if (!inSingle && !inDouble && !inBacktick && ch === '[') {
+            inBracket = true;
+            current += ch;
+            continue;
+        }
+        if (inBracket) {
+            current += ch;
+            if (ch === ']' && next === ']') {
+                current += next;
+                index += 1;
+            } else if (ch === ']') {
+                inBracket = false;
+            }
+            continue;
+        }
         if (!inSingle && !inDouble && !inBacktick) {
+            if (ch === '/' && next === '*') {
+                current += ch;
+                inBlockComment = true;
+                continue;
+            }
+            if (ch === '-' && next === '-' && (index === 0 || /\s/.test(previous))) {
+                current += ch;
+                inLineComment = true;
+                continue;
+            }
+            if (ch === '#' && next !== '>' && next !== '-') {
+                current += ch;
+                inLineComment = true;
+                continue;
+            }
             if (ch === '(') parenDepth++;
             if (ch === ')' && parenDepth > 0) parenDepth--;
             if (ch === ',' && parenDepth === 0) {
@@ -644,7 +721,12 @@ export const resolveSimpleSelectItemColumn = (item: string): { resultName: strin
 };
 
 export const parseSimpleSelectInfo = (sql: string): SimpleSelectInfo | undefined => {
-    const match = String(sql || '').match(/^\s*SELECT\s+([\s\S]+?)\s+FROM\s+/i);
+    const text = String(sql || '');
+    // Keep offsets identical to the original SQL while hiding comments and
+    // string literals from the SELECT/FROM structure matcher. A comment before
+    // SELECT must not make an otherwise writable result look read-only.
+    const structuralText = maskQueryEditorSqlLiteralsAndComments(text);
+    const match = structuralText.match(/^\s*SELECT\s+([\s\S]+?)\s+FROM\s+/i);
     if (!match) return undefined;
     const selectList = match[1].trim();
     if (!selectList || /^DISTINCT\b/i.test(selectList)) return undefined;
@@ -670,10 +752,19 @@ export const parseSimpleSelectInfo = (sql: string): SimpleSelectInfo | undefined
 
 export const appendQuerySelectExpressions = (sql: string, expressions: string[]): string => {
     if (expressions.length === 0) return sql;
-    return String(sql || '').replace(
-        /^(\s*SELECT\s+)([\s\S]+?)(\s+FROM\s+[\s\S]*)$/i,
-        (_match, prefix, selectList, rest) => `${prefix}${String(selectList).trimEnd()}, ${expressions.join(', ')}${rest}`,
-    );
+    const text = String(sql || '');
+    const structuralText = maskQueryEditorSqlLiteralsAndComments(text);
+    const match = structuralText.match(/^(\s*SELECT\s+)([\s\S]+?)(\s+FROM\s+[\s\S]*)$/i);
+    if (!match) return text;
+    const prefixLength = match[1].length;
+    const selectListLength = match[2].length;
+    const selectListStructure = structuralText.slice(prefixLength, prefixLength + selectListLength);
+    let insertionOffset = selectListStructure.length;
+    while (insertionOffset > 0 && /\s/.test(selectListStructure[insertionOffset - 1] || '')) {
+        insertionOffset -= 1;
+    }
+    const insertionPoint = prefixLength + insertionOffset;
+    return `${text.slice(0, insertionPoint)}, ${expressions.join(', ')}${text.slice(insertionPoint)}`;
 };
 
 export const QUERY_LOCATOR_SOURCE_ALIAS = 'gonavi_query_source';
@@ -681,31 +772,36 @@ export const QUERY_LOCATOR_SOURCE_ALIAS = 'gonavi_query_source';
 export const rewriteOracleSelectAllWithExpressions = (sql: string, expressions: string[]): string | undefined => {
     if (expressions.length === 0) return undefined;
 
-    const match = String(sql || '').match(/^(\s*SELECT\s+)([\s\S]+?)(\s+FROM\s+)([\s\S]*)$/i);
+    const text = String(sql || '');
+    const structuralText = maskQueryEditorSqlLiteralsAndComments(text);
+    const match = structuralText.match(/^(\s*SELECT\s+)([\s\S]+?)(\s+FROM\s+)([\s\S]*)$/i);
     if (!match) return undefined;
 
     const prefix = match[1];
-    const selectList = match[2].trim();
-    const fromKeyword = match[3];
-    const fromTail = match[4];
+    const selectList = text.slice(prefix.length, prefix.length + match[2].length).trim();
+    const fromSeparatorStart = prefix.length + match[2].length;
+    const fromSeparator = text.slice(fromSeparatorStart, fromSeparatorStart + match[3].length);
+    const fromTailStart = fromSeparatorStart + match[3].length;
     const selectItems = splitTopLevelComma(selectList);
     if (selectItems.length === 0) return undefined;
 
     let selectAllFound = false;
     for (const item of selectItems) {
-        if (String(item || '').trim() === '*') {
+        if (maskQueryEditorSqlLiteralsAndComments(item).trim() === '*') {
             selectAllFound = true;
             break;
         }
     }
     if (!selectAllFound) return undefined;
 
-    const fromTrimmed = fromTail.trimStart();
-    const tableMatch = fromTrimmed.match(QUERY_EDITOR_SQL_LEADING_IDENTIFIER_PATH_REGEX);
+    const structuralFromTail = structuralText.slice(fromTailStart);
+    const tableMatch = structuralFromTail.match(new RegExp(`^(\\s*)(${QUERY_EDITOR_SQL_IDENTIFIER_PATH_PATTERN})([\\s\\S]*)$`));
     if (!tableMatch) return undefined;
 
-    const tableText = tableMatch[1];
-    const afterTable = tableMatch[2] || '';
+    const tableStart = fromTailStart + (tableMatch[1] || '').length;
+    const tableEnd = tableStart + tableMatch[2].length;
+    const tableText = text.slice(tableStart, tableEnd);
+    const afterTable = text.slice(tableEnd);
 
     const parseAlias = (tail: string): { alias: string; remainder: string } => {
         const trimmedTail = String(tail || '').trimStart();
@@ -747,16 +843,18 @@ export const rewriteOracleSelectAllWithExpressions = (sql: string, expressions: 
     if (qualifiedExpressions.length === 0) return undefined;
 
     const rewrittenSelectItems = selectItems.map((item) => {
-        const trimmed = String(item || '').trim();
-        if (trimmed === '*') {
-            return `${sourceAlias}.*`;
+        const rawItem = String(item || '');
+        const structuralItem = maskQueryEditorSqlLiteralsAndComments(rawItem);
+        if (structuralItem.trim() === '*') {
+            const wildcardOffset = structuralItem.indexOf('*');
+            return `${rawItem.slice(0, wildcardOffset)}${sourceAlias}.*${rawItem.slice(wildcardOffset + 1)}`;
         }
-        return item.trimEnd();
+        return rawItem.trimEnd();
     });
 
     const aliasClause = parsedAlias.alias ? ` ${parsedAlias.alias}` : ` ${sourceAlias}`;
     const finalSelectItems = [...rewrittenSelectItems, ...qualifiedExpressions];
-    return `${prefix}${finalSelectItems.join(', ')}${fromKeyword}${tableText}${aliasClause}${parsedAlias.remainder}`;
+    return `${text.slice(0, prefix.length)}${finalSelectItems.join(', ')}${fromSeparator}${text.slice(fromTailStart, tableStart)}${tableText}${aliasClause}${parsedAlias.remainder}`;
 };
 
 export const rewriteOracleDuplicateSelectColumns = (sql: string, tableColumnNames: string[]): string | undefined => {
@@ -767,12 +865,14 @@ export const rewriteOracleDuplicateSelectColumns = (sql: string, tableColumnName
     );
     if (metadataNames.size === 0) return undefined;
 
-    const match = String(sql || '').match(/^(\s*SELECT\s+)([\s\S]+?)(\s+FROM\s+[\s\S]*)$/i);
+    const text = String(sql || '');
+    const structuralText = maskQueryEditorSqlLiteralsAndComments(text);
+    const match = structuralText.match(/^(\s*SELECT\s+)([\s\S]+?)(\s+FROM\s+[\s\S]*)$/i);
     if (!match) return undefined;
 
     const prefix = match[1];
-    const selectList = match[2].trim();
-    const rest = match[3];
+    const selectList = text.slice(prefix.length, prefix.length + match[2].length).trim();
+    const rest = text.slice(prefix.length + match[2].length);
     const selectItems = splitTopLevelComma(selectList);
     if (selectItems.length === 0) return undefined;
 
@@ -807,7 +907,7 @@ export const rewriteOracleDuplicateSelectColumns = (sql: string, tableColumnName
         return `${info.expression} AS ${alias}`;
     });
 
-    return changed ? `${prefix}${rewrittenItems.join(', ')}${rest}` : undefined;
+    return changed ? `${text.slice(0, prefix.length)}${rewrittenItems.join(', ')}${rest}` : undefined;
 };
 
 export const findWritableResultColumnForSource = (writableColumns: Record<string, string>, target: string): string | undefined => {
@@ -1063,22 +1163,35 @@ export const splitCompletionSchemaAndTable = (
 
 // The caller passes the cached current-database partition. Schema duplicate detection therefore
 // reads only that partition once instead of walking every visible database on each keystroke.
-const completionTableSchemaCountCache = new WeakMap<CompletionTableMeta[], Map<string, number>>();
+const completionTableSchemaCountCache = new WeakMap<
+    CompletionTableMeta[],
+    Map<MetadataIdentityMode, Map<string, number>>
+>();
 
 export const getCompletionTableSchemaCounts = (
     currentDatabaseTables: CompletionTableMeta[],
+    metadataDialect = '',
 ): Map<string, number> => {
-    const cached = completionTableSchemaCountCache.get(currentDatabaseTables);
+    const identityMode = getMetadataIdentityMode(metadataDialect);
+    let indexes = completionTableSchemaCountCache.get(currentDatabaseTables);
+    if (!indexes) {
+        indexes = new Map<MetadataIdentityMode, Map<string, number>>();
+        completionTableSchemaCountCache.set(currentDatabaseTables, indexes);
+    }
+    const cached = indexes.get(identityMode);
     if (cached) return cached;
 
     const counts = new Map<string, number>();
     currentDatabaseTables.forEach((table) => {
         const parsed = splitCompletionSchemaAndTable(table.tableName || '', table.dbName);
-        const pureTable = String(parsed.table || table.tableName || '').toLowerCase();
+        const pureTable = buildMetadataIdentityKey(
+            metadataDialect,
+            parsed.table || table.tableName,
+        );
         if (!pureTable) return;
         counts.set(pureTable, (counts.get(pureTable) || 0) + 1);
     });
-    completionTableSchemaCountCache.set(currentDatabaseTables, counts);
+    indexes.set(identityMode, counts);
     return counts;
 };
 
@@ -1221,15 +1334,33 @@ export const normalizeMetadataQuerySpecs = (specs: MetadataQuerySpec[]): Metadat
     return normalized;
 };
 
-export const buildQualifiedCompletionName = (schemaName: string, objectName: string): string => {
+export const buildQualifiedCompletionName = (
+    schemaName: string,
+    objectName: string,
+    rawDialect = '',
+): string => {
     const schema = String(schemaName || '').trim();
     const object = String(objectName || '').trim();
     if (!object) return '';
-    if (!schema || object.includes('.')) return object;
+    // A dot inside a delimited identifier (for example `"order.items"`) is
+    // part of the object name, not a qualification separator.
+    if (!schema) return object;
+    const dialect = String(rawDialect || '').trim();
+    const segments = splitQualifiedNameSegmentsDetailed(object, dialect);
+    if (segments.length > 1 && segments.some((segment) => segment.quoted)) return object;
+    if (segments.length > 1) {
+        return dialect
+            ? `${schema}.${quoteSqlIdentifierPart(resolveSqlDialect(dialect), object)}`
+            : object;
+    }
     return `${schema}.${object}`;
 };
 
-export const buildCompletionViewsMetadataQuerySpecs = (dialect: string, dbName: string): MetadataQuerySpec[] => {
+export const buildCompletionViewsMetadataQuerySpecs = (
+    dialect: string,
+    dbName: string,
+    options?: { includeCurrentOwnerFallback?: boolean },
+): MetadataQuerySpec[] => {
     const safeDbName = escapeMetadataSqlLiteral(dbName);
     switch (dialect) {
         case 'mysql':
@@ -1250,6 +1381,12 @@ export const buildCompletionViewsMetadataQuerySpecs = (dialect: string, dbName: 
             return [{ sql: `SELECT s.name AS schema_name, v.name AS view_name FROM ${safeDb}.sys.views v JOIN ${safeDb}.sys.schemas s ON v.schema_id = s.schema_id ORDER BY s.name, v.name` }];
         }
         case 'oracle': {
+            const includeCurrentOwnerFallback = options?.includeCurrentOwnerFallback !== false;
+            if (!includeCurrentOwnerFallback && safeDbName) {
+                return [{
+                    sql: `SELECT OWNER AS schema_name, VIEW_NAME AS view_name FROM ALL_VIEWS WHERE OWNER = '${safeDbName.toUpperCase()}' ORDER BY VIEW_NAME`,
+                }];
+            }
             return normalizeMetadataQuerySpecs([
                 { sql: 'SELECT VIEW_NAME AS view_name FROM USER_VIEWS ORDER BY VIEW_NAME' },
                 { sql: 'SELECT OWNER AS schema_name, VIEW_NAME AS view_name FROM ALL_VIEWS WHERE OWNER = USER ORDER BY VIEW_NAME' },
@@ -1339,7 +1476,11 @@ export const buildCompletionTriggersMetadataQuerySpecs = (dialect: string, dbNam
     }
 };
 
-export const buildCompletionFunctionsMetadataQuerySpecs = (dialect: string, dbName: string): MetadataQuerySpec[] => {
+export const buildCompletionFunctionsMetadataQuerySpecs = (
+    dialect: string,
+    dbName: string,
+    options?: { includeCurrentOwnerFallback?: boolean },
+): MetadataQuerySpec[] => {
     const safeDbName = escapeMetadataSqlLiteral(dbName);
     switch (dialect) {
         case 'mysql':
@@ -1381,6 +1522,11 @@ export const buildCompletionFunctionsMetadataQuerySpecs = (dialect: string, dbNa
             return [{ sql: `SELECT s.name AS schema_name, o.name AS routine_name, CASE o.type WHEN 'P' THEN 'PROCEDURE' WHEN 'FN' THEN 'FUNCTION' WHEN 'IF' THEN 'FUNCTION' WHEN 'TF' THEN 'FUNCTION' END AS routine_type FROM ${safeDb}.sys.objects o JOIN ${safeDb}.sys.schemas s ON o.schema_id = s.schema_id WHERE o.type IN ('P','FN','IF','TF') ORDER BY o.type, s.name, o.name` }];
         }
         case 'oracle':
+            if (options?.includeCurrentOwnerFallback === false && safeDbName) {
+                return [{
+                    sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM ALL_OBJECTS WHERE OWNER = '${safeDbName.toUpperCase()}' AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME`,
+                }];
+            }
             return normalizeMetadataQuerySpecs([
                 { sql: `SELECT OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM USER_OBJECTS WHERE OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME` },
                 { sql: `SELECT OWNER AS schema_name, OBJECT_NAME AS routine_name, OBJECT_TYPE AS routine_type FROM ALL_OBJECTS WHERE OWNER = USER AND OBJECT_TYPE IN ('FUNCTION','PROCEDURE') ORDER BY OBJECT_TYPE, OBJECT_NAME` },
@@ -1445,19 +1591,23 @@ export const queryCompletionMetadataRowsBySpecs = async (
     if (normalizedSpecs.length === 0) {
         return [];
     }
+    // Compatibility specs can be complementary (Oracle owners) as well as
+    // fallbacks. The same SSH tunnel/driver connection is often the shared
+    // bottleneck, so serialise requests to avoid queueing and contention while
+    // retaining every successful result in declaration order.
+    const rpcConfig = buildRpcConnectionConfig(config) as any;
     const results: MetadataQueryResult[] = [];
     for (const spec of normalizedSpecs) {
         try {
-            const result = await DBQuery(buildRpcConnectionConfig(config) as any, dbName, spec.sql);
-            if (!result.success || !Array.isArray(result.data)) {
-                continue;
+            const result = await DBQuery(rpcConfig, dbName, spec.sql);
+            if (result.success && Array.isArray(result.data)) {
+                results.push({
+                    rows: result.data as Record<string, any>[],
+                    inferredType: spec.inferredType,
+                });
             }
-            results.push({
-                rows: result.data as Record<string, any>[],
-                inferredType: spec.inferredType,
-            });
         } catch {
-            // 忽略单条元数据查询失败，继续走兼容查询。
+            // 忽略单条元数据查询失败，继续使用其它兼容查询结果。
         }
     }
     return results;
@@ -1465,7 +1615,7 @@ export const queryCompletionMetadataRowsBySpecs = async (
 
 export type QueryEditorNavigationTarget =
     | { type: 'database'; dbName: string }
-    | { type: 'table'; dbName: string; tableName: string; schemaName?: string }
+    | { type: 'table'; dbName: string; tableName: string; schemaName?: string; lookupTableName?: string }
     | { type: 'view'; dbName: string; viewName: string; schemaName?: string }
     | { type: 'materialized-view'; dbName: string; viewName: string; schemaName?: string }
     | { type: 'trigger'; dbName: string; triggerName: string; tableName: string; schemaName?: string }
@@ -1477,7 +1627,7 @@ export type QueryEditorTableCtrlClickAction = 'open-design' | 'locate';
 
 export type QueryEditorHoverTarget =
     | { kind: 'database'; dbName: string; range: { startColumn: number; endColumn: number } }
-    | { kind: 'table'; dbName: string; tableName: string; schemaName?: string; comment?: string; range: { startColumn: number; endColumn: number } }
+    | { kind: 'table'; dbName: string; tableName: string; schemaName?: string; comment?: string; lookupTableName?: string; range: { startColumn: number; endColumn: number } }
     | { kind: 'view'; dbName: string; viewName: string; schemaName?: string; range: { startColumn: number; endColumn: number } }
     | { kind: 'materialized-view'; dbName: string; viewName: string; schemaName?: string; range: { startColumn: number; endColumn: number } }
     | { kind: 'trigger'; dbName: string; triggerName: string; tableName: string; schemaName?: string; range: { startColumn: number; endColumn: number } }
@@ -1488,7 +1638,7 @@ export type QueryEditorHoverTarget =
 
 export const QUERY_EDITOR_IDENTIFIER_CHAR_REGEX = /[A-Za-z0-9_$`"\[\].]/;
 export const QUERY_EDITOR_SQL_UNQUOTED_IDENTIFIER_PATTERN = '[A-Za-z_][A-Za-z0-9_$]*';
-export const QUERY_EDITOR_SQL_QUOTED_IDENTIFIER_PATTERN = '(?:`[^`]+`|"[^"]+"|\\[[^\\]]+\\])';
+export const QUERY_EDITOR_SQL_QUOTED_IDENTIFIER_PATTERN = '(?:`(?:``|[^`])*`|"(?:""|[^"])*"|\\[(?:\\]\\]|[^\\]])*\\])';
 export const QUERY_EDITOR_SQL_IDENTIFIER_PATTERN = `(?:${QUERY_EDITOR_SQL_QUOTED_IDENTIFIER_PATTERN}|${QUERY_EDITOR_SQL_UNQUOTED_IDENTIFIER_PATTERN})`;
 export const QUERY_EDITOR_SQL_IDENTIFIER_PATH_PATTERN = `${QUERY_EDITOR_SQL_IDENTIFIER_PATTERN}(?:\\s*\\.\\s*${QUERY_EDITOR_SQL_IDENTIFIER_PATTERN}){0,2}`;
 export const QUERY_EDITOR_SQL_THREE_PART_COMPLETION_REGEX = new RegExp(
@@ -1541,7 +1691,46 @@ export const isQuotedQueryIdentifierPart = (part: string): boolean => {
         || (text.startsWith('[') && text.endsWith(']'));
 };
 
-export const splitQueryIdentifierPathSegments = (qualifiedName: string): QueryIdentifierPathSegment[] => {
+const supportsQueryEditorBracketIdentifier = (dbType = ''): boolean => {
+    const normalized = String(resolveSqlDialect(dbType) || '').trim().toLowerCase();
+    // Keep the historical generic behavior when no dialect is available: the
+    // editor can be attached before connection metadata has loaded. SQL Server
+    // and SQLite both accept [] identifier quoting.
+    return !String(dbType || '').trim() || normalized === 'sqlserver' || normalized === 'sqlite';
+};
+
+const supportsQueryEditorEscapedBracketIdentifier = (dbType = ''): boolean => {
+    const normalized = String(resolveSqlDialect(dbType) || '').trim().toLowerCase();
+    return !String(dbType || '').trim() || normalized === 'sqlserver';
+};
+
+const isQueryEditorIdentifierCharAt = (char: string | undefined, dbType = ''): boolean => {
+    if (!char) return false;
+    if (/[A-Za-z0-9_$`".]/.test(char)) return true;
+    return supportsQueryEditorBracketIdentifier(dbType) && /[\[\]]/.test(char);
+};
+
+export const isQuotedQueryIdentifierPartForDialect = (part: string, dbType = ''): boolean => {
+    const text = String(part || '').trim();
+    if (!text) return false;
+    return (text.startsWith('`') && text.endsWith('`'))
+        || (text.startsWith('"') && text.endsWith('"'))
+        || (supportsQueryEditorBracketIdentifier(dbType) && text.startsWith('[') && text.endsWith(']'));
+};
+
+const stripQueryIdentifierQuotesForDialect = (part: string, dbType = ''): string => {
+    const text = String(part || '').trim();
+    if (!supportsQueryEditorBracketIdentifier(dbType) && text.startsWith('[') && text.endsWith(']')) {
+        return text;
+    }
+    if (supportsQueryEditorBracketIdentifier(dbType) && text.startsWith('[') && text.endsWith(']')) {
+        const value = text.slice(1, -1);
+        return supportsQueryEditorEscapedBracketIdentifier(dbType) ? value.replace(/]]/g, ']') : value;
+    }
+    return stripQueryIdentifierQuotes(text);
+};
+
+export const splitQueryIdentifierPathSegments = (qualifiedName: string, dbType = ''): QueryIdentifierPathSegment[] => {
     const text = String(qualifiedName || '').trim();
     if (!text) return [];
 
@@ -1550,6 +1739,7 @@ export const splitQueryIdentifierPathSegments = (qualifiedName: string): QueryId
     let inDouble = false;
     let inBacktick = false;
     let inBracket = false;
+    const bracketIdentifiers = supportsQueryEditorBracketIdentifier(dbType);
 
     const flush = () => {
         const raw = current.trim();
@@ -1557,8 +1747,8 @@ export const splitQueryIdentifierPathSegments = (qualifiedName: string): QueryId
         if (!raw) return;
         segments.push({
             raw,
-            value: stripQueryIdentifierQuotes(raw),
-            quoted: isQuotedQueryIdentifierPart(raw),
+            value: stripQueryIdentifierQuotesForDialect(raw, dbType),
+            quoted: isQuotedQueryIdentifierPartForDialect(raw, dbType),
         });
     };
 
@@ -1588,9 +1778,9 @@ export const splitQueryIdentifierPathSegments = (qualifiedName: string): QueryId
             continue;
         }
 
-        if (inBracket) {
+        if (bracketIdentifiers && inBracket) {
             current += ch;
-            if (ch === ']' && next === ']') {
+            if (supportsQueryEditorEscapedBracketIdentifier(dbType) && ch === ']' && next === ']') {
                 current += next;
                 index += 1;
                 continue;
@@ -1609,7 +1799,7 @@ export const splitQueryIdentifierPathSegments = (qualifiedName: string): QueryId
             current += ch;
             continue;
         }
-        if (ch === '[') {
+        if (bracketIdentifiers && ch === '[') {
             inBracket = true;
             current += ch;
             continue;
@@ -1626,12 +1816,16 @@ export const splitQueryIdentifierPathSegments = (qualifiedName: string): QueryId
 };
 
 export const matchLeadingSelectTableReference = (sql: string): { prefix: string; tableText: string; suffix: string } | null => {
-    const match = String(sql || '').match(new RegExp(`^(\\s*SELECT\\s+[\\s\\S]+?\\s+FROM\\s+)(${QUERY_EDITOR_SQL_IDENTIFIER_PATH_PATTERN})([\\s\\S]*)$`, 'i'));
+    const text = String(sql || '');
+    const structuralText = maskQueryEditorSqlLiteralsAndComments(text);
+    const match = structuralText.match(new RegExp(`^(\\s*SELECT\\s+[\\s\\S]+?\\s+FROM\\s+)(${QUERY_EDITOR_SQL_IDENTIFIER_PATH_PATTERN})([\\s\\S]*)$`, 'i'));
     if (!match) return null;
+    const tableStart = match[1].length;
+    const tableEnd = tableStart + match[2].length;
     return {
-        prefix: match[1],
-        tableText: match[2],
-        suffix: match[3] || '',
+        prefix: text.slice(0, tableStart),
+        tableText: text.slice(tableStart, tableEnd),
+        suffix: text.slice(tableEnd),
     };
 };
 
@@ -1796,15 +1990,23 @@ export const getQueryEditorDecorationModelTextIfLightweight = (
     return lines.join('\n');
 };
 
-export const maskQueryEditorSqlLiteralsAndComments = (source: string): string => {
-    const text = String(source || '').replace(/\r\n/g, '\n');
+export const maskQueryEditorSqlLiteralsAndComments = (source: string, dbType = ''): string => {
+    // Keep the original string length so offsets reported by Monaco remain
+    // valid while callers inspect the masked copy. CR/LF are both whitespace
+    // to the scanners and must not be collapsed here.
+    const text = String(source || '');
     if (!text) return '';
 
     const chars = text.split('');
     let inSingle = false;
+    let inDouble = false;
+    let inBacktick = false;
+    let inBracket = false;
     let inLineComment = false;
     let inBlockComment = false;
+    let dollarTag = '';
     let escaped = false;
+    const bracketIdentifiers = supportsQueryEditorBracketIdentifier(dbType);
 
     const maskAt = (index: number) => {
         if (chars[index] !== '\n') {
@@ -1816,6 +2018,19 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string): string =>
         const ch = text[i];
         const next = i + 1 < text.length ? text[i + 1] : '';
         const prev = i > 0 ? text[i - 1] : '';
+
+        if (dollarTag) {
+            if (text.startsWith(dollarTag, i)) {
+                for (let tagOffset = 0; tagOffset < dollarTag.length; tagOffset += 1) {
+                    maskAt(i + tagOffset);
+                }
+                i += dollarTag.length - 1;
+                dollarTag = '';
+            } else {
+                maskAt(i);
+            }
+            continue;
+        }
 
         if (inLineComment) {
             if (ch === '\n') {
@@ -1857,12 +2072,65 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string): string =>
             continue;
         }
 
+        // Preserve delimited identifiers while scanning for comments. Their
+        // contents may legally contain `#`, `--`, spaces, or dots.
+        if (inDouble) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (ch === '\\') {
+                escaped = true;
+                continue;
+            }
+            if (ch === '"' && next === '"') {
+                i += 1;
+                continue;
+            }
+            if (ch === '"') inDouble = false;
+            continue;
+        }
+        if (inBacktick) {
+            if (ch === '`' && next === '`') {
+                i += 1;
+                continue;
+            }
+            if (ch === '`') inBacktick = false;
+            continue;
+        }
+        if (bracketIdentifiers && inBracket) {
+            if (supportsQueryEditorEscapedBracketIdentifier(dbType) && ch === ']' && next === ']') {
+                i += 1;
+                continue;
+            }
+            if (ch === ']') inBracket = false;
+            continue;
+        }
+
         if (ch === '/' && next === '*') {
             maskAt(i);
             maskAt(i + 1);
             i += 1;
             inBlockComment = true;
             continue;
+        }
+
+        // PostgreSQL dollar-quoted strings can contain arbitrary SQL-looking
+        // text, including semicolons and FROM/JOIN clauses. Mask the complete
+        // body while preserving offsets and newlines for Monaco callers.
+        if (ch === '$') {
+            const dollarMatch = text.slice(i).match(/^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/);
+            if (
+                dollarMatch?.[0]
+                && text.indexOf(dollarMatch[0], i + dollarMatch[0].length) >= 0
+            ) {
+                dollarTag = dollarMatch[0];
+                for (let tagOffset = 0; tagOffset < dollarTag.length; tagOffset += 1) {
+                    maskAt(i + tagOffset);
+                }
+                i += dollarTag.length - 1;
+                continue;
+            }
         }
 
         // MySQL-style # comments must not consume PostgreSQL JSONB operators
@@ -1873,7 +2141,14 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string): string =>
             continue;
         }
 
-        if (ch === '-' && next === '-' && (i === 0 || /\s/.test(prev))) {
+        if (
+            ch === '-'
+            && next === '-'
+            // A line comment may follow a statement/parenthesis delimiter
+            // without a separating space (`;-- comment`). Keep arithmetic
+            // forms such as `value--1` out of the comment path.
+            && (i === 0 || /\s/.test(prev) || /[;,.()[\]{}]/.test(prev))
+        ) {
             maskAt(i);
             maskAt(i + 1);
             i += 1;
@@ -1884,6 +2159,18 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string): string =>
         if (ch === '\'') {
             maskAt(i);
             inSingle = true;
+            continue;
+        }
+        if (ch === '"') {
+            inDouble = true;
+            continue;
+        }
+        if (ch === '`') {
+            inBacktick = true;
+            continue;
+        }
+        if (bracketIdentifiers && ch === '[') {
+            inBracket = true;
         }
     }
 
@@ -1893,15 +2180,19 @@ export const maskQueryEditorSqlLiteralsAndComments = (source: string): string =>
 export const collectQueryEditorObjectDecorationCandidates = (
     source: string,
     maxIdentifiers = QUERY_EDITOR_OBJECT_DECORATION_MAX_IDENTIFIERS,
+    dbType = '',
 ): Array<{ lineNumber: number; lineContent: string; positionColumn: number }> => {
     const text = String(source || '').replace(/\r\n/g, '\n');
     if (!text) return [];
 
-    const maskedText = maskQueryEditorSqlLiteralsAndComments(text);
+    const maskedText = maskQueryEditorSqlLiteralsAndComments(text, dbType);
     const lines = text.split('\n');
     const maskedLines = maskedText.split('\n');
     const candidates: Array<{ lineNumber: number; lineContent: string; positionColumn: number }> = [];
-    const identifierRegex = /[`"\[]?[A-Za-z_][A-Za-z0-9_$]*(?:[`"\]]?\s*\.\s*[`"\[]?[A-Za-z_][A-Za-z0-9_$]*){0,2}[`"\]]?/g;
+    const identifierRegex = new RegExp(
+        `${QUERY_EDITOR_SQL_IDENTIFIER_PATH_PATTERN}`,
+        'g',
+    );
 
     for (const [lineIndex, maskedLine] of maskedLines.entries()) {
         let match: RegExpExecArray | null;
@@ -1925,35 +2216,97 @@ export const findIdentifierWindowAtOffset = (
     lineContent: string,
     rawOffset: number,
     preferRight = false,
+    dbType = '',
 ): { start: number; end: number } | null => {
     const text = String(lineContent || '');
     if (!text) return null;
-    const searchableText = maskQueryEditorSqlLiteralsAndComments(text);
+    const searchableText = maskQueryEditorSqlLiteralsAndComments(text, dbType);
+    const bracketIdentifiers = supportsQueryEditorBracketIdentifier(dbType);
     const maxIndex = text.length - 1;
     if (maxIndex < 0) return null;
     let offset = Math.max(0, Math.min(maxIndex, Number.isFinite(rawOffset) ? rawOffset : 0));
 
-    if (!QUERY_EDITOR_IDENTIFIER_CHAR_REGEX.test(searchableText[offset] || '')) {
+    if (!isQueryEditorIdentifierCharAt(searchableText[offset], dbType)) {
         // At the separating space between a keyword and its operand, Monaco
         // may report the first operand column. Context-sensitive callers can
         // prefer the right token; normal identifier lookup keeps its legacy
         // left-token behavior.
-        if (preferRight && offset < maxIndex && QUERY_EDITOR_IDENTIFIER_CHAR_REGEX.test(searchableText[offset + 1] || '')) {
-            offset += 1;
-        } else if (offset > 0 && QUERY_EDITOR_IDENTIFIER_CHAR_REGEX.test(searchableText[offset - 1] || '')) {
+        let rightOffset = offset + 1;
+        if (preferRight) {
+            while (rightOffset <= maxIndex && /[ \t\r\f]/.test(searchableText[rightOffset] || '')) {
+                rightOffset += 1;
+            }
+        }
+        if (preferRight && rightOffset <= maxIndex && isQueryEditorIdentifierCharAt(searchableText[rightOffset], dbType)) {
+            offset = rightOffset;
+        } else if (offset > 0 && isQueryEditorIdentifierCharAt(searchableText[offset - 1], dbType)) {
             offset -= 1;
         } else {
             return null;
         }
     }
 
+    // Quoted identifiers may contain spaces and dots. The old character-wise
+    // scan stopped at the first space, turning `"Sales Data"` into a partial
+    // token and making metadata fallback impossible. Locate the complete
+    // delimited segment before expanding the ordinary identifier window.
+    const quotedIdentifierWindow = (anchor: number): { start: number; end: number } | null => {
+        let quoteStart = -1;
+        let quoteKind = '';
+        let active = false;
+        for (let index = 0; index <= anchor; index += 1) {
+            const ch = text[index];
+            if (!active) {
+                if (
+                    searchableText[index] === ch
+                    && (ch === '"' || ch === '`' || (bracketIdentifiers && ch === '['))
+                ) {
+                    active = true;
+                    quoteStart = index;
+                    quoteKind = ch === '[' ? ']' : ch;
+                }
+                continue;
+            }
+            if (searchableText[index] === quoteKind) {
+                if (searchableText[index + 1] === quoteKind) {
+                    index += 1;
+                    continue;
+                }
+                if (index >= anchor) {
+                    return { start: quoteStart, end: index + 1 };
+                }
+                active = false;
+                quoteStart = -1;
+                quoteKind = '';
+            }
+        }
+        if (!active || quoteStart < 0) return null;
+
+        let end = text.length;
+        for (let index = Math.max(anchor + 1, quoteStart + 1); index < text.length; index += 1) {
+            if (searchableText[index] !== quoteKind) continue;
+            if (searchableText[index + 1] === quoteKind) {
+                index += 1;
+                continue;
+            }
+            end = index + 1;
+            break;
+        }
+        return { start: quoteStart, end };
+    };
+
+    const quotedWindow = quotedIdentifierWindow(offset);
+    if (quotedWindow) {
+        return quotedWindow;
+    }
+
     let start = offset;
-    while (start > 0 && QUERY_EDITOR_IDENTIFIER_CHAR_REGEX.test(searchableText[start - 1] || '')) {
+    while (start > 0 && isQueryEditorIdentifierCharAt(searchableText[start - 1], dbType)) {
         start -= 1;
     }
 
     let end = offset + 1;
-    while (end < text.length && QUERY_EDITOR_IDENTIFIER_CHAR_REGEX.test(searchableText[end] || '')) {
+    while (end < text.length && isQueryEditorIdentifierCharAt(searchableText[end], dbType)) {
         end += 1;
     }
 
@@ -1979,10 +2332,11 @@ export const findQualifiedIdentifierWindowAtOffset = (
     text: string,
     rawOffset: number,
     preferRight = false,
+    dbType = '',
 ): { start: number; end: number } | null => {
     const source = String(text || '');
     if (!source) return null;
-    const base = findIdentifierWindowAtOffset(source, rawOffset, preferRight);
+    const base = findIdentifierWindowAtOffset(source, rawOffset, preferRight, dbType);
     if (!base) return null;
     let start = base.start;
     let end = base.end;
@@ -1993,7 +2347,7 @@ export const findQualifiedIdentifierWindowAtOffset = (
         let segmentEnd = cursor - 1;
         while (segmentEnd > 0 && /\s/.test(source[segmentEnd - 1])) segmentEnd -= 1;
         if (segmentEnd <= 0) break;
-        const segmentWindow = findIdentifierWindowAtOffset(source, segmentEnd - 1, preferRight);
+        const segmentWindow = findIdentifierWindowAtOffset(source, segmentEnd - 1, preferRight, dbType);
         // 窗口只需覆盖段尾字符；点号本身属于标识符字符，窗口可能越过后继点号，不能要求精确对齐
         if (!segmentWindow || segmentWindow.start > segmentEnd - 1 || segmentWindow.end <= segmentEnd - 1) break;
         start = segmentWindow.start;
@@ -2005,29 +2359,42 @@ export const findQualifiedIdentifierWindowAtOffset = (
         let segmentStart = cursor + 1;
         while (segmentStart < source.length && /\s/.test(source[segmentStart])) segmentStart += 1;
         if (segmentStart >= source.length) break;
-        const segmentWindow = findIdentifierWindowAtOffset(source, segmentStart, preferRight);
+        const segmentWindow = findIdentifierWindowAtOffset(source, segmentStart, preferRight, dbType);
         if (!segmentWindow || segmentWindow.start > segmentStart || segmentWindow.end <= segmentStart) break;
         end = segmentWindow.end;
     }
     return { start, end };
 };
 
-const isQueryEditorTableSourcePrefix = (prefix: string): boolean => (
-    /\b(?:from|join|update|into)\s+(?:(?:only|lateral)\s+)?$/i.test(prefix)
-    || /\bdelete\s+from\s+(?:(?:only|lateral)\s+)?$/i.test(prefix)
-);
+const isQueryEditorTableSourcePrefix = (prefix: string, dbType = ''): boolean => {
+    if (
+        /\b(?:from|join|update|into)\s+(?:(?:only|lateral)\s+)?$/i.test(prefix)
+        || /\bdelete\s+from\s+(?:(?:only|lateral)\s+)?$/i.test(prefix)
+    ) {
+        return true;
+    }
+
+    // A comma starts another physical source in the same FROM list and a dot
+    // starts a qualified source segment. Restrict the analyzer fallback to
+    // those unfinished delimiters; otherwise `FROM users alias` would make
+    // the alias look like another table source.
+    const trimmedPrefix = String(prefix || '').replace(/\s+$/, '');
+    return /[,.]$/.test(trimmedPrefix)
+        && analyzeQueryEditorTableReferences(trimmedPrefix, dbType).expectsTableSource;
+};
 
 export const isQueryEditorTableSourceAtPosition = (
     fullText: string,
     lineNumber: number,
     column: number,
+    dbType = '',
 ): boolean => {
     const text = String(fullText || '').replace(/\r\n?/g, '\n');
     const lines = text.split('\n');
     const safeLineNumber = Math.max(1, Math.min(lines.length, Math.floor(Number(lineNumber) || 1)));
     const lineContent = lines[safeLineNumber - 1] || '';
     const rawOffset = Math.max(0, Number(column || 1) - 2);
-    let identifierWindow = findIdentifierWindowAtOffset(lineContent, rawOffset, true);
+    let identifierWindow = findIdentifierWindowAtOffset(lineContent, rawOffset, true, dbType);
     // Monaco positions at the first character of a table name point one
     // column after the separating space. When both neighbors are identifier
     // characters (the `M` in FROM on the left and the table on the right),
@@ -2035,23 +2402,78 @@ export const isQueryEditorTableSourceAtPosition = (
     if (
         rawOffset < lineContent.length
         && /\s/.test(lineContent[rawOffset] || '')
-        && /[A-Za-z0-9_$`"\[\].]/.test(lineContent[rawOffset + 1] || '')
+        && isQueryEditorIdentifierCharAt(lineContent[rawOffset + 1], dbType)
     ) {
-        identifierWindow = findIdentifierWindowAtOffset(lineContent, rawOffset + 1, true);
+        identifierWindow = findIdentifierWindowAtOffset(lineContent, rawOffset + 1, true, dbType);
     }
     if (!identifierWindow) return false;
 
     const lineStart = lines
         .slice(0, safeLineNumber - 1)
         .reduce((offset, line) => offset + line.length + 1, 0);
-    return isQueryEditorTableSourcePrefix(
-        maskQueryEditorSqlLiteralsAndComments(text.slice(0, lineStart + identifierWindow.start)),
+    const maskedPrefix = maskQueryEditorSqlLiteralsAndComments(
+        text.slice(0, lineStart + identifierWindow.start),
+        dbType,
     );
+    if (
+        /\.\s*$/s.test(maskedPrefix)
+        && /\n/.test(maskedPrefix.slice(maskedPrefix.lastIndexOf('.') + 1))
+        && /\b(?:from|join|update|into|delete\s+from)\b[\s\S]*\.\s*$/i.test(maskedPrefix)
+    ) {
+        // A formatter may put the qualifier dot on its own line. In that
+        // shape the final identifier is still a table source, even though the
+        // generic analyzer treats a trailing dot as column context.
+        return true;
+    }
+    return isQueryEditorTableSourcePrefix(maskedPrefix, dbType);
 };
 
-export const normalizeNavigationIdentifierParts = (text: string): string[] => (
-    splitQualifiedNameSegments(text).map((part) => part.trim()).filter(Boolean)
+export const normalizeNavigationIdentifierParts = (text: string, dbType = ''): string[] => (
+    splitQueryIdentifierPathSegments(text, dbType).map((part) => part.value.trim()).filter(Boolean)
 );
+
+// PostgreSQL folds unquoted identifiers to lower case, while a quoted
+// identifier keeps its exact spelling. Comparing both sides with toLowerCase
+// loses the distinction between `Users` and `users`, so keep this rule in one
+// place for navigation and hover metadata matching.
+const matchesQueryEditorIdentifierSegment = (
+    querySegment: QueryIdentifierPathSegment,
+    metadataValue: string,
+    dialect: string,
+): boolean => {
+    const queryValue = String(querySegment?.value || '').trim();
+    const metadataText = String(metadataValue || '').trim();
+    if (!queryValue || !metadataText) return false;
+    if (isPgLikeDialect(dialect)) {
+        return querySegment.quoted
+            ? metadataText === queryValue
+            : metadataText === queryValue.toLowerCase();
+    }
+    return metadataText.toLowerCase() === queryValue.toLowerCase();
+};
+
+type QueryEditorMetadataIdentifierSegment = {
+    value: string;
+    quoted: boolean;
+};
+
+const matchesQueryEditorMetadataTablePath = (
+    queryObjectSegment: QueryIdentifierPathSegment,
+    querySchemaSegments: QueryIdentifierPathSegment[] | undefined,
+    metadataSegments: QueryEditorMetadataIdentifierSegment[],
+    dialect: string,
+): boolean => {
+    const metadataObjectSegment = metadataSegments[metadataSegments.length - 1];
+    if (!metadataObjectSegment || !matchesQueryEditorIdentifierSegment(queryObjectSegment, metadataObjectSegment.value, dialect)) {
+        return false;
+    }
+    if (!querySchemaSegments) return true;
+    const metadataSchemaSegments = metadataSegments.slice(0, -1);
+    return metadataSchemaSegments.length === querySchemaSegments.length
+        && querySchemaSegments.every((segment, index) => (
+            matchesQueryEditorIdentifierSegment(segment, metadataSchemaSegments[index]?.value || '', dialect)
+        ));
+};
 
 const normalizeQueryEditorHoverIdentifier = (value: string): string => {
     const raw = String(value || '').trim();
@@ -2068,11 +2490,11 @@ const normalizeQueryEditorHoverIdentifier = (value: string): string => {
     return qualified;
 };
 
-const isQualifiedQueryEditorHoverIdentifier = (value: string): boolean => {
+const isQualifiedQueryEditorHoverIdentifier = (value: string, dbType = ''): boolean => {
     const compact = String(value || '').replace(/\s*\.\s*/g, '.').trim();
-    const parts = splitQualifiedNameSegments(compact);
+    const parts = splitQueryIdentifierPathSegments(compact, dbType);
     if (parts.length < 2) return false;
-    return parts.every((part) => /[`"\[]/.test(part) || !/\s/.test(part));
+    return parts.every((part) => part.quoted || !/\s/.test(part.value));
 };
 
 export const buildQueryEditorHoverMarkdown = (target: QueryEditorHoverTarget): string => {
@@ -2113,6 +2535,73 @@ export type QueryEditorTableReference = {
     tableIdent: string;
     parts: string[];
     alias?: string;
+    segments?: QueryIdentifierPathSegment[];
+    aliasSegment?: QueryIdentifierPathSegment;
+};
+
+const createQueryEditorIdentitySegment = (value: string): QueryIdentifierPathSegment => ({
+    raw: value,
+    value,
+    quoted: false,
+});
+
+const normalizeQueryEditorIdentitySegmentValue = (
+    segment: QueryIdentifierPathSegment,
+    dbType = '',
+): string => {
+    const value = String(segment?.value || '').trim();
+    if (!value) return '';
+    return isPgLikeDialect(dbType)
+        ? (segment.quoted ? value : value.toLowerCase())
+        : value.toLowerCase();
+};
+
+export const buildQueryEditorIdentifierIdentityKey = (
+    segments: ReadonlyArray<QueryIdentifierPathSegment>,
+    dbType = '',
+): string => segments
+    .map((segment) => normalizeQueryEditorIdentitySegmentValue(segment, dbType))
+    .filter(Boolean)
+    .join('\u0000');
+
+export const buildQueryEditorReferenceIdentityKeys = (
+    reference: {
+        dbName?: string;
+        parts?: ReadonlyArray<string>;
+        segments?: QueryIdentifierPathSegment[];
+    },
+    dbType = '',
+): string[] => {
+    const referenceParts = reference.parts || [];
+    const pathSegments = reference.segments && reference.segments.length > 0
+        ? reference.segments
+        : referenceParts.map((part) => ({
+            raw: part,
+            value: part,
+            quoted: false,
+        }));
+    const normalizedPathSegments = pathSegments.filter((segment) => String(segment?.value || '').trim());
+    if (normalizedPathSegments.length === 0) {
+        return [];
+    }
+
+    const baseSegments = referenceParts.length === 1 && String(reference.dbName || '').trim()
+        ? [
+            createQueryEditorIdentitySegment(String(reference.dbName || '').trim()),
+            ...normalizedPathSegments,
+        ]
+        : normalizedPathSegments;
+    const keys = new Set<string>();
+    // A qualified reference carries enough scope to be matched exactly. Do
+    // not add its unqualified suffix: `public.Users` must never pull columns
+    // from `sales.Users`. Unqualified references retain suffix keys because
+    // catalog table names commonly include an implicit schema prefix.
+    const startIndexes = normalizedPathSegments.length > 1 ? [0] : baseSegments.map((_, index) => index);
+    for (const start of startIndexes) {
+        const key = buildQueryEditorIdentifierIdentityKey(baseSegments.slice(start), dbType);
+        if (key) keys.add(key);
+    }
+    return [...keys];
 };
 
 type QueryEditorSqlReferenceToken = {
@@ -2147,16 +2636,28 @@ const QUERY_EDITOR_SQL_TABLE_ALIAS_RESERVED_WORDS = new Set([
 ]);
 const QUERY_EDITOR_SQL_TABLE_SOURCE_MODIFIERS = new Set(['only', 'lateral']);
 
-const tokenizeQueryEditorSqlReferences = (source: string): QueryEditorSqlReferenceToken[] => {
-    const masked = maskQueryEditorSqlLiteralsAndComments(source);
-    const tokenRegex = new RegExp(`${QUERY_EDITOR_SQL_IDENTIFIER_PATTERN}|[().,;]`, 'g');
+const buildQueryEditorSqlIdentifierPattern = (dbType = ''): string => {
+    if (supportsQueryEditorBracketIdentifier(dbType)) {
+        const quotedWithoutBrackets = '(?:`(?:``|[^`])*`|"(?:""|[^"])*")';
+        const bracketIdentifier = supportsQueryEditorEscapedBracketIdentifier(dbType)
+            ? '\\[(?:\\]\\]|[^\\]])*\\]'
+            : '\\[[^\\]]*\\]';
+        return `(?:${quotedWithoutBrackets}|${bracketIdentifier}|${QUERY_EDITOR_SQL_UNQUOTED_IDENTIFIER_PATTERN})`;
+    }
+    const quotedWithoutBrackets = '(?:`(?:``|[^`])*`|"(?:""|[^"])*")';
+    return `(?:${quotedWithoutBrackets}|${QUERY_EDITOR_SQL_UNQUOTED_IDENTIFIER_PATTERN})`;
+};
+
+const tokenizeQueryEditorSqlReferences = (source: string, dbType = ''): QueryEditorSqlReferenceToken[] => {
+    const masked = maskQueryEditorSqlLiteralsAndComments(source, dbType);
+    const tokenRegex = new RegExp(`${buildQueryEditorSqlIdentifierPattern(dbType)}|[().,;]`, 'g');
     const tokens: QueryEditorSqlReferenceToken[] = [];
     let match: RegExpExecArray | null;
     while ((match = tokenRegex.exec(masked)) !== null) {
         const raw = match[0] || '';
         tokens.push({
             raw,
-            quoted: !QUERY_EDITOR_SQL_REFERENCE_PUNCTUATION.has(raw) && isQuotedQueryIdentifierPart(raw),
+            quoted: !QUERY_EDITOR_SQL_REFERENCE_PUNCTUATION.has(raw) && isQuotedQueryIdentifierPartForDialect(raw, dbType),
         });
     }
     return tokens;
@@ -2172,12 +2673,12 @@ const isQueryEditorSqlIdentifierToken = (token: QueryEditorSqlReferenceToken | u
  * a FROM list, so SELECT expressions and function arguments are not mistaken
  * for tables.
  */
-const analyzeQueryEditorTableReferences = (source: string): {
+const analyzeQueryEditorTableReferences = (source: string, dbType = ''): {
     references: QueryEditorTableReference[];
     expectsTableSource: boolean;
     allowsTableAlias: boolean;
 } => {
-    const tokens = tokenizeQueryEditorSqlReferences(String(source || ''));
+    const tokens = tokenizeQueryEditorSqlReferences(String(source || ''), dbType);
     const references: QueryEditorTableReference[] = [];
     const states: QueryEditorSqlReferenceDepthState[] = [{
         fromListActive: false,
@@ -2279,7 +2780,8 @@ const analyzeQueryEditorTableReferences = (source: string): {
             }
 
             const tableText = pathTokens.join('.');
-            const parts = splitQueryIdentifierPathSegments(tableText)
+            const pathSegments = splitQueryIdentifierPathSegments(tableText, dbType);
+            const parts = pathSegments
                 .map((part) => part.value.trim())
                 .filter(Boolean);
             if (parts.length === 0) {
@@ -2316,6 +2818,17 @@ const analyzeQueryEditorTableReferences = (source: string): {
                 parts,
                 ...(alias ? { alias } : {}),
             });
+            defineHiddenReferenceProperty(references[references.length - 1], 'segments', pathSegments);
+            if (alias) {
+                const aliasToken = nextKeyword === 'as' ? tokens[pathEnd + 2] : nextToken;
+                if (isQueryEditorSqlIdentifierToken(aliasToken)) {
+                    defineHiddenReferenceProperty(references[references.length - 1], 'aliasSegment', {
+                        raw: aliasToken.raw,
+                        value: stripCompletionIdentifierQuotes(aliasToken.raw).trim(),
+                        quoted: Boolean(aliasToken.quoted),
+                    });
+                }
+            }
             state.sourceContextActive = !alias;
             state.sourceContextKind = sourceKind;
             index = consumedEnd;
@@ -2387,25 +2900,48 @@ const analyzeQueryEditorTableReferences = (source: string): {
     }
 
     const state = getState();
+    let expectsTableSource = state.sourceContextActive;
+    // Once a physical source has been parsed, a trailing dot is normally the
+    // start of a column qualification (`FROM users.`), not another table
+    // source. Qualified table completion has its own dot-aware path below;
+    // keeping this flag false prevents hover/DDL inference from targeting the
+    // column token as a table.
+    if (expectsTableSource && String(source || '').replace(/\s+$/, '').endsWith('.')) {
+        expectsTableSource = false;
+    }
     return {
         references,
-        expectsTableSource: state.sourceContextActive,
+        expectsTableSource,
         allowsTableAlias: state.sourceContextActive
             && state.statementKind === 'select'
             && (state.sourceContextKind === 'from' || state.sourceContextKind === 'join' || state.sourceContextKind === 'comma'),
     };
 };
 
-export const collectQueryEditorTableReferences = (source: string): QueryEditorTableReference[] => (
-    analyzeQueryEditorTableReferences(source).references
+const defineHiddenReferenceProperty = <T extends object, K extends PropertyKey, V>(
+    target: T,
+    key: K,
+    value: V,
+): T & Record<K, V> => {
+    Object.defineProperty(target, key, {
+        value,
+        configurable: true,
+        enumerable: false,
+        writable: true,
+    });
+    return target as T & Record<K, V>;
+};
+
+export const collectQueryEditorTableReferences = (source: string, dbType = ''): QueryEditorTableReference[] => (
+    analyzeQueryEditorTableReferences(source, dbType).references
 );
 
-export const isQueryEditorTableSourceCompletionContext = (source: string): boolean => (
-    analyzeQueryEditorTableReferences(source).expectsTableSource
+export const isQueryEditorTableSourceCompletionContext = (source: string, dbType = ''): boolean => (
+    analyzeQueryEditorTableReferences(source, dbType).expectsTableSource
 );
 
-export const isQueryEditorTableAliasCompletionContext = (source: string): boolean => (
-    analyzeQueryEditorTableReferences(source).allowsTableAlias
+export const isQueryEditorTableAliasCompletionContext = (source: string, dbType = ''): boolean => (
+    analyzeQueryEditorTableReferences(source, dbType).allowsTableAlias
 );
 
 export type QueryEditorAliasMap = Record<
@@ -2416,9 +2952,10 @@ export type QueryEditorAliasMap = Record<
 export const buildQueryEditorAliasMap = (
     fullText: string,
     currentDb: string,
+    dbType = '',
 ): QueryEditorAliasMap => {
     const aliasMap: QueryEditorAliasMap = {};
-    for (const reference of collectQueryEditorTableReferences(fullText)) {
+    for (const reference of collectQueryEditorTableReferences(fullText, dbType)) {
         const tableIdent = reference.tableIdent;
         if (!tableIdent) continue;
         const parts = reference.parts;
@@ -2433,15 +2970,20 @@ export const buildQueryEditorAliasMap = (
             dbName = parts[0];
             tableName = parts.slice(1).join('.');
         }
-        const shortTable = parts[parts.length - 1] || '';
+        const shortTable = reference.segments?.[reference.segments.length - 1]
+            || splitQueryIdentifierPathSegments(parts[parts.length - 1] || '', dbType)[0];
         const aliasTarget = explicitOwnerName
             ? { dbName, tableName, explicitOwnerName }
             : { dbName, tableName };
-        if (shortTable) aliasMap[shortTable.toLowerCase()] = aliasTarget;
+        const shortTableKey = shortTable ? buildQueryEditorIdentifierIdentityKey([shortTable], dbType) : '';
+        if (shortTableKey) aliasMap[shortTableKey] = aliasTarget;
 
-        const alias = reference.alias || '';
-        if (!alias) continue;
-        aliasMap[alias.toLowerCase()] = aliasTarget;
+        const aliasSegment = reference.aliasSegment;
+        if (!aliasSegment && !reference.alias) continue;
+        const aliasKey = aliasSegment
+            ? buildQueryEditorIdentifierIdentityKey([aliasSegment], dbType)
+            : buildQueryEditorIdentifierIdentityKey(splitQueryIdentifierPathSegments(reference.alias || '', dbType), dbType);
+        if (aliasKey) aliasMap[aliasKey] = aliasTarget;
     }
     return aliasMap;
 };
@@ -2450,7 +2992,7 @@ export const buildQueryEditorAliasMap = (
  * 为 SQL 表源生成简短别名。仅使用表名本身的单词首字母，避免将数据库或 schema
  * 混入别名；同一语句中已使用的别名会依次追加数字。
  */
-export const buildQueryEditorTableSourceAlias = (tableName: string, statementText: string): string => {
+export const buildQueryEditorTableSourceAlias = (tableName: string, statementText: string, dbType = ''): string => {
     const table = getCompletionQualifiedNameLastPart(tableName);
     const baseAlias = table
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -2461,7 +3003,7 @@ export const buildQueryEditorTableSourceAlias = (tableName: string, statementTex
     if (!baseAlias) return '';
 
     const usedAliases = new Set(
-        collectQueryEditorTableReferences(statementText)
+        collectQueryEditorTableReferences(statementText, dbType)
             .map((reference) => String(reference.alias || '').trim().toLowerCase())
             .filter(Boolean),
     );
@@ -2491,10 +3033,28 @@ export const QUERY_EDITOR_COMMON_SCHEMA_NAME_SET = new Set([
     'guest',
 ]);
 
+const QUERY_EDITOR_SCHEMA_QUALIFIED_TWO_PART_DIALECTS = new Set([
+    'postgres', 'kingbase', 'highgo', 'vastbase', 'opengauss', 'gaussdb',
+    'sqlserver', 'sqlite', 'duckdb', 'iris', 'trino',
+]);
+
+const usesQueryEditorSchemaQualifiedTwoPartNames = (dialect: string): boolean => (
+    QUERY_EDITOR_SCHEMA_QUALIFIED_TWO_PART_DIALECTS.has(String(resolveSqlDialect(dialect) || '').toLowerCase())
+);
+
+const usesQueryEditorDatabaseQualifiedTwoPartNames = (dialect: string): boolean => {
+    const normalizedDialect = String(resolveSqlDialect(dialect) || '').toLowerCase();
+    return isMysqlFamilyDialect(normalizedDialect)
+        || isOracleLikeDialect(normalizedDialect)
+        || normalizedDialect === 'clickhouse'
+        || normalizedDialect === 'tdengine';
+};
+
 export const collectQueryEditorReferencedDatabaseNames = (
     fullText: string,
     currentDb: string,
     visibleDbs: string[],
+    dialect = '',
 ): string[] => {
     const result: string[] = [];
     const seen = new Set<string>();
@@ -2516,7 +3076,11 @@ export const collectQueryEditorReferencedDatabaseNames = (
             .map((db) => [db.toLowerCase(), db] as const),
     );
     const currentDbKey = String(currentDb || '').trim().toLowerCase();
-    for (const reference of collectQueryEditorTableReferences(fullText)) {
+    const normalizedDialect = String(resolveSqlDialect(dialect) || dialect || '').trim().toLowerCase();
+    const ownerScopedDialect = new Set(['oracle', 'dameng', 'dm']).has(normalizedDialect);
+    const schemaScopedDialect = ownerScopedDialect
+        || usesQueryEditorSchemaQualifiedTwoPartNames(normalizedDialect);
+    for (const reference of collectQueryEditorTableReferences(fullText, normalizedDialect)) {
         const tableIdent = reference.tableIdent;
         if (!tableIdent) continue;
         const parts = reference.parts.map((part) => String(part || '').trim()).filter(Boolean);
@@ -2525,6 +3089,27 @@ export const collectQueryEditorReferencedDatabaseNames = (
         const firstPart = parts[0];
         const firstKey = firstPart.toLowerCase();
         const asVisibleDb = visibleDbByLower.get(firstKey);
+        if (schemaScopedDialect) {
+            // Oracle/DM expose schema owners through the UI's database picker.
+            // Every qualified reference therefore identifies an owner that may
+            // need its own metadata load, including schema.package.member.
+            if (ownerScopedDialect) {
+                if (firstKey && firstKey !== currentDbKey) {
+                    addDb(asVisibleDb || firstPart);
+                }
+                continue;
+            }
+            // PostgreSQL/SQL Server/DuckDB use schema.table for two-part
+            // references. Only their three-part form can carry an explicit
+            // database; two-part references stay in the current database.
+            if (parts.length < 3) {
+                continue;
+            }
+            if (firstKey && firstKey !== currentDbKey && !QUERY_EDITOR_COMMON_SCHEMA_NAME_SET.has(firstKey)) {
+                addDb(asVisibleDb || firstPart);
+            }
+            continue;
+        }
         if (asVisibleDb) {
             // MySQL: db.table；PG 三段 db.schema.table 的首段也是库
             addDb(asVisibleDb);
@@ -2569,16 +3154,17 @@ export const resolveQueryEditorNavigationTarget = (
     tableSourceContext = false,
     documentContext?: { text: string; offset: number },
     currentSchema = '',
+    dialect = '',
 ): QueryEditorNavigationTarget | null => {
     const text = String(lineContent || '');
     const offset = Math.max(0, Number(column || 1) - 2);
-    const windowRange = findIdentifierWindowAtOffset(text, offset, true);
+    const windowRange = findIdentifierWindowAtOffset(text, offset, true, dialect);
 
     // 默认按单行解析；提供全文上下文时改用全文窗口，限定名拆行后仍能取到库名/Schema 前缀
     const documentText = String(documentContext?.text || '');
     const documentOffset = Number(documentContext?.offset);
     const documentWindow = documentText && Number.isFinite(documentOffset)
-        ? findQualifiedIdentifierWindowAtOffset(documentText, documentOffset, true)
+        ? findQualifiedIdentifierWindowAtOffset(documentText, documentOffset, true, dialect)
         : null;
     if (!windowRange && !documentWindow) return null;
     const prefixSliceStart = documentWindow ? documentWindow.start : windowRange!.start;
@@ -2587,45 +3173,170 @@ export const resolveQueryEditorNavigationTarget = (
         : text.slice(windowRange!.start, windowRange!.end).trim());
     if (!rawIdentifier) return null;
 
-    const parts = normalizeNavigationIdentifierParts(rawIdentifier);
+    const parts = normalizeNavigationIdentifierParts(rawIdentifier, dialect);
     if (parts.length === 0) return null;
 
     const currentDbName = String(currentDb || '').trim();
     const currentSchemaName = String(currentSchema || '').trim();
-    const visibleDbSet = new Set(visibleDbs.map((db) => String(db || '').trim().toLowerCase()).filter(Boolean));
+    const connectionScopedDialect = resolveSqlDialect(dialect) === 'sqlite';
+    const schemaQualifiedTwoPartDialect = usesQueryEditorSchemaQualifiedTwoPartNames(dialect);
+    const pgLikeIdentifierResolution = isPgLikeDialect(dialect);
+    const visibleDbSet = new Set(
+        visibleDbs
+            .map((db) => buildMetadataIdentityKey(dialect, db))
+            .filter(Boolean),
+    );
     const tableMetas = tables.map((table) => {
         const dbName = String(table.dbName || '').trim();
         const rawTableName = String(table.tableName || '').trim();
-        const parsed = splitSidebarQualifiedName(rawTableName);
+        // sqlite_master reports literal table names without quoting. A dot in
+        // that catalog value is legal object data, not a schema separator.
+        const parsed = connectionScopedDialect
+            ? { schemaName: '', objectName: rawTableName }
+            : splitSidebarQualifiedName(rawTableName);
         return {
             dbName,
             rawTableName,
+            metadataDbKey: buildMetadataIdentityKey(dialect, dbName),
             normalizedDbName: dbName.toLowerCase(),
             normalizedRawTableName: rawTableName.toLowerCase(),
             normalizedObjectName: String(parsed.objectName || rawTableName).trim().toLowerCase(),
             schemaName: String(parsed.schemaName || '').trim(),
             normalizedSchemaName: String(parsed.schemaName || '').trim().toLowerCase(),
+            identifierSegments: splitQualifiedNameSegmentsDetailed(rawTableName, dialect),
         };
     });
 
-    const normalizedIdentifier = parts.join('.').toLowerCase();
-    const directTable = parts.length >= 2
-        ? tableMetas.find((meta) => (
-            normalizedIdentifier === `${meta.normalizedDbName}.${meta.normalizedObjectName}`
-            || normalizedIdentifier === `${meta.normalizedDbName}.${meta.normalizedRawTableName}`
-            || (
-                meta.normalizedDbName === currentDbName.toLowerCase()
-                && normalizedIdentifier === meta.normalizedRawTableName
-            )
-        ))
-        : undefined;
-    if (directTable) {
+    const rawIdentifierSegments = splitQueryIdentifierPathSegments(rawIdentifier, dialect);
+    // A single delimited segment such as `order.items` or [order.items] is
+    // one literal object name. Catalog metadata often returns that name
+    // without delimiters, where a generic sidebar parser would incorrectly
+    // reclassify its first word as a schema.
+    const singleQuotedDottedTableIdentifier = rawIdentifierSegments.length === 1
+        && rawIdentifierSegments[0].quoted
+        && String(rawIdentifierSegments[0].value || '').includes('.');
+    const matchesSingleQuotedDottedTableIdentifier = (meta: typeof tableMetas[number]): boolean => {
+        if (!singleQuotedDottedTableIdentifier) return false;
+        const querySegment = rawIdentifierSegments[0];
+        const rawMetadataName = String(meta.rawTableName || '').trim();
+        if (matchesQueryEditorIdentifierSegment(querySegment, rawMetadataName, dialect)) {
+            return true;
+        }
+        const metadataSegments = splitQualifiedNameSegmentsDetailed(rawMetadataName, dialect);
+        if (metadataSegments.length === 1) {
+            return matchesQueryEditorIdentifierSegment(querySegment, metadataSegments[0].value, dialect);
+        }
+        // SQL Server resolves an unqualified table against dbo. Its metadata
+        // formatter preserves the schema when a table name contains a dot.
+        return resolveSqlDialect(dialect) === 'sqlserver'
+            && metadataSegments.length === 2
+            && String(metadataSegments[0].value || '').trim().toLowerCase() === 'dbo'
+            && matchesQueryEditorIdentifierSegment(
+                querySegment,
+                metadataSegments[1].value,
+                dialect,
+            );
+    };
+    const buildTableNavigationTarget = (meta: typeof tableMetas[number]): QueryEditorNavigationTarget => {
+        const literalDottedName = matchesSingleQuotedDottedTableIdentifier(meta);
         return {
             type: 'table',
-            dbName: directTable.dbName,
-            tableName: directTable.rawTableName,
-            schemaName: directTable.schemaName || undefined,
+            dbName: meta.dbName,
+            tableName: meta.rawTableName,
+            schemaName: literalDottedName ? undefined : meta.schemaName || undefined,
+            ...(literalDottedName ? { lookupTableName: rawIdentifierSegments[0].raw } : {}),
         };
+    };
+    const isLegacySQLiteDottedTableReference = connectionScopedDialect
+        && rawIdentifierSegments.length === 2
+        && rawIdentifierSegments[1].quoted
+        && String(rawIdentifierSegments[1].value || '').includes('.')
+        && String(rawIdentifierSegments[0].value || '').trim().toLowerCase()
+            === String(rawIdentifierSegments[1].value || '').trim().split('.', 1)[0].toLowerCase()
+        && !visibleDbs.some((dbName) => buildMetadataIdentityKey(dialect, dbName)
+            === buildMetadataIdentityKey(dialect, rawIdentifierSegments[0].value));
+    if (isLegacySQLiteDottedTableReference) {
+        return {
+            type: 'table',
+            dbName: currentDbName,
+            tableName: rawIdentifierSegments[1].value,
+            schemaName: undefined,
+        };
+    }
+    const findExactPostgresTable = (): typeof tableMetas[number] | undefined => {
+        if (!pgLikeIdentifierResolution || rawIdentifierSegments.length === 0) return undefined;
+        const queryObjectSegment = rawIdentifierSegments[rawIdentifierSegments.length - 1];
+        const currentSchemaSegments = currentSchemaName
+            ? splitQueryIdentifierPathSegments(currentSchemaName, dialect)
+            : [];
+        const candidates: Array<{
+            dbName: string;
+            schemaSegments?: QueryIdentifierPathSegment[];
+        }> = [];
+
+        if (parts.length === 1) {
+            candidates.push({
+                dbName: currentDbName,
+                schemaSegments: currentSchemaSegments.length > 0 ? currentSchemaSegments : undefined,
+            });
+        } else if (parts.length === 2) {
+            const firstSegment = rawIdentifierSegments[0];
+            if (schemaQualifiedTwoPartDialect) {
+                candidates.push({ dbName: currentDbName, schemaSegments: [firstSegment] });
+            } else if (visibleDbSet.has(buildMetadataIdentityKey(dialect, firstSegment.value))) {
+                candidates.push({ dbName: firstSegment.value });
+            } else {
+                candidates.push({ dbName: currentDbName, schemaSegments: [firstSegment] });
+                candidates.push({ dbName: firstSegment.value });
+            }
+        } else if (parts.length === 3) {
+            candidates.push({
+                dbName: rawIdentifierSegments[0].value,
+                schemaSegments: [rawIdentifierSegments[1]],
+            });
+        }
+
+        for (const candidate of candidates) {
+            const candidateDbKey = buildMetadataIdentityKey(dialect, candidate.dbName);
+            const matched = tableMetas.find((meta) => (
+                meta.metadataDbKey === candidateDbKey
+                && matchesQueryEditorMetadataTablePath(
+                    queryObjectSegment,
+                    candidate.schemaSegments,
+                    meta.identifierSegments,
+                    dialect,
+                )
+            ));
+            if (matched) return matched;
+        }
+        return undefined;
+    };
+
+    const exactPostgresTable = findExactPostgresTable();
+    if (exactPostgresTable) {
+        return {
+            type: 'table',
+            dbName: exactPostgresTable.dbName,
+            tableName: exactPostgresTable.rawTableName,
+            schemaName: exactPostgresTable.schemaName || undefined,
+        };
+    }
+
+    const normalizedIdentifier = parts.join('.').toLowerCase();
+    const directTable = !pgLikeIdentifierResolution && parts.length >= 2
+        ? tableMetas.find((meta) => {
+            const matchesCurrentQualifiedName = meta.normalizedDbName === currentDbName.toLowerCase()
+                && normalizedIdentifier === meta.normalizedRawTableName;
+            if (parts.length === 2 && schemaQualifiedTwoPartDialect) {
+                return matchesCurrentQualifiedName;
+            }
+            return normalizedIdentifier === `${meta.normalizedDbName}.${meta.normalizedObjectName}`
+                || normalizedIdentifier === `${meta.normalizedDbName}.${meta.normalizedRawTableName}`
+                || matchesCurrentQualifiedName;
+        })
+        : undefined;
+    if (directTable) {
+        return buildTableNavigationTarget(directTable);
     }
     if (parts.length > 3) return null;
 
@@ -2634,18 +3345,36 @@ export const resolveQueryEditorNavigationTarget = (
         rawObjectName: string,
         explicitSchemaName = '',
     ) => {
-        const parsed = splitSidebarQualifiedName(rawObjectName);
-        const schemaName = String(explicitSchemaName || parsed.schemaName || '').trim();
-        const objectName = String(parsed.objectName || rawObjectName).trim();
+        const normalizedExplicitSchema = String(explicitSchemaName || '').trim();
+        const parsedMetadata = normalizedExplicitSchema
+            ? splitMetadataQualifiedName(rawObjectName, normalizedExplicitSchema)
+            : null;
+        const parsedLegacy = parsedMetadata ? null : splitSidebarQualifiedName(rawObjectName);
+        const schemaName = String(
+            normalizedExplicitSchema
+            || parsedMetadata?.parentPath
+            || parsedLegacy?.schemaName
+            || '',
+        ).trim();
+        const objectName = String(
+            parsedMetadata?.objectName
+            || parsedLegacy?.objectName
+            || rawObjectName,
+        ).trim();
         return {
             dbName: String(dbName || '').trim(),
             rawObjectName: String(rawObjectName || '').trim(),
             objectName,
             schemaName,
+            metadataDbKey: buildMetadataIdentityKey(dialect, dbName),
             normalizedDbName: String(dbName || '').trim().toLowerCase(),
             normalizedRawObjectName: String(rawObjectName || '').trim().toLowerCase(),
             normalizedObjectName: objectName.toLowerCase(),
             normalizedSchemaName: schemaName.toLowerCase(),
+            identifierSegments: splitQualifiedNameSegmentsDetailed(
+                schemaName ? `${schemaName}.${objectName}` : rawObjectName,
+                dialect,
+            ),
         };
     };
 
@@ -2666,14 +3395,31 @@ export const resolveQueryEditorNavigationTarget = (
         const normalizedDbName = String(candidateDbName || '').trim().toLowerCase();
         const normalizedTableName = String(candidateTableName || '').trim().toLowerCase();
         const normalizedSchemaName = String(schemaName || '').trim().toLowerCase();
-        if (!normalizedDbName || !normalizedTableName) return null;
+        // Connection-scoped sources (for example SQLite) legitimately use an
+        // empty database name. Keep the table-name guard independent from the
+        // database scope so their metadata can still resolve.
+        if (!normalizedTableName) return null;
 
-        const exactQualifiedName = normalizedSchemaName ? `${normalizedSchemaName}.${normalizedTableName}` : normalizedTableName;
-        const exact = tableMetas.find((meta) =>
-            meta.normalizedDbName === normalizedDbName
-            && meta.normalizedRawTableName === exactQualifiedName
-        );
-        if (exact) {
+        if (pgLikeIdentifierResolution && rawIdentifierSegments.length > 0) {
+            const queryObjectSegment = rawIdentifierSegments[rawIdentifierSegments.length - 1];
+            const querySchemaSegments = rawIdentifierSegments.length > 1
+                ? rawIdentifierSegments.slice(
+                    rawIdentifierSegments.length === 3 ? 1 : 0,
+                    -1,
+                )
+                : schemaName
+                    ? splitQueryIdentifierPathSegments(schemaName, dialect)
+                    : undefined;
+            const exact = tableMetas.find((meta) => (
+                meta.metadataDbKey === buildMetadataIdentityKey(dialect, candidateDbName)
+                && matchesQueryEditorMetadataTablePath(
+                    queryObjectSegment,
+                    querySchemaSegments && querySchemaSegments.length > 0 ? querySchemaSegments : undefined,
+                    meta.identifierSegments,
+                    dialect,
+                )
+            ));
+            if (!exact) return null;
             return {
                 type: 'table',
                 dbName: exact.dbName,
@@ -2682,18 +3428,22 @@ export const resolveQueryEditorNavigationTarget = (
             };
         }
 
+        const exactQualifiedName = normalizedSchemaName ? `${normalizedSchemaName}.${normalizedTableName}` : normalizedTableName;
+        const exact = tableMetas.find((meta) =>
+            meta.normalizedDbName === normalizedDbName
+            && meta.normalizedRawTableName === exactQualifiedName
+        );
+        if (exact) {
+            return buildTableNavigationTarget(exact);
+        }
+
         const matched = tableMetas.find((meta) =>
             meta.normalizedDbName === normalizedDbName
             && meta.normalizedObjectName === normalizedTableName
             && (!normalizedSchemaName || meta.normalizedSchemaName === normalizedSchemaName)
         );
         if (!matched) return null;
-        return {
-            type: 'table',
-            dbName: matched.dbName,
-            tableName: matched.rawTableName,
-            schemaName: matched.schemaName || undefined,
-        };
+        return buildTableNavigationTarget(matched);
     };
 
     const findNamedObject = <TMeta extends {
@@ -2705,6 +3455,8 @@ export const resolveQueryEditorNavigationTarget = (
         normalizedObjectName: string;
         normalizedSchemaName: string;
         schemaName: string;
+        metadataDbKey: string;
+        identifierSegments: ReturnType<typeof splitQualifiedNameSegmentsDetailed>;
     }>(
         metas: TMeta[],
         candidateDbName: string,
@@ -2714,7 +3466,30 @@ export const resolveQueryEditorNavigationTarget = (
         const normalizedDbName = String(candidateDbName || '').trim().toLowerCase();
         const normalizedObjectName = String(candidateObjectName || '').trim().toLowerCase();
         const normalizedSchemaName = String(schemaName || '').trim().toLowerCase();
-        if (!normalizedDbName || !normalizedObjectName) return null;
+        if (!normalizedObjectName) return null;
+
+        if (pgLikeIdentifierResolution && rawIdentifierSegments.length > 0) {
+            const queryObjectSegment = rawIdentifierSegments[rawIdentifierSegments.length - 1];
+            const querySchemaSegments = rawIdentifierSegments.length > 1
+                ? rawIdentifierSegments.slice(
+                    rawIdentifierSegments.length === 3 ? 1 : 0,
+                    -1,
+                )
+                : schemaName
+                    ? splitQueryIdentifierPathSegments(schemaName, dialect)
+                    : undefined;
+            return metas.find((meta) => (
+                meta.metadataDbKey === buildMetadataIdentityKey(dialect, candidateDbName)
+                && matchesQueryEditorMetadataTablePath(
+                    queryObjectSegment,
+                    querySchemaSegments && querySchemaSegments.length > 0
+                        ? querySchemaSegments
+                        : undefined,
+                    meta.identifierSegments,
+                    dialect,
+                )
+            )) || null;
+        }
 
         const exactQualifiedName = normalizedSchemaName ? `${normalizedSchemaName}.${normalizedObjectName}` : normalizedObjectName;
         const exact = metas.find((meta) =>
@@ -2823,26 +3598,35 @@ export const resolveQueryEditorNavigationTarget = (
     const isTableSourceIdentifier = (identifierStart: number): boolean => {
         const prefix = maskQueryEditorSqlLiteralsAndComments(
             (documentWindow ? documentText : text).slice(0, Math.max(0, identifierStart)),
+            dialect,
         );
         // A selected database gives an unqualified table reference its local
         // meaning, even when another visible database has the same name.
-        return tableSourceContext || isQueryEditorTableSourcePrefix(prefix);
+        return tableSourceContext || isQueryEditorTableSourcePrefix(prefix, dialect);
     };
 
     if (parts.length === 1) {
         const [singlePart] = parts;
-        const normalizedSingle = singlePart.toLowerCase();
+        const singlePartDbKey = buildMetadataIdentityKey(dialect, singlePart);
+        const literalDottedTable = singleQuotedDottedTableIdentifier
+            ? tableMetas.find((meta) => (
+                meta.metadataDbKey === buildMetadataIdentityKey(dialect, currentDbName)
+                && matchesSingleQuotedDottedTableIdentifier(meta)
+            ))
+            : undefined;
         // PostgreSQL 等支持 schema 的方言中，未限定对象与当前 search_path 同义。
         // 有明确选择时先匹配该 schema，避免 metadata 返回顺序把 public.users 盖过 sales.users。
-        const currentDatabaseObject = (
-            currentSchemaName
-                ? findObjectInPriorityOrder(currentDbName, singlePart, currentSchemaName)
-                : null
-        ) || findObjectInPriorityOrder(currentDbName, singlePart);
+        const currentDatabaseObject = singleQuotedDottedTableIdentifier
+            ? (literalDottedTable ? buildTableNavigationTarget(literalDottedTable) : null)
+            : (
+                currentSchemaName
+                    ? findObjectInPriorityOrder(currentDbName, singlePart, currentSchemaName)
+                    : null
+            ) || findObjectInPriorityOrder(currentDbName, singlePart);
         if (isTableSourceIdentifier(prefixSliceStart)) {
             return currentDatabaseObject;
         }
-        if (visibleDbSet.has(normalizedSingle)) {
+        if (visibleDbSet.has(singlePartDbKey)) {
             return { type: 'database', dbName: singlePart };
         }
         return currentDatabaseObject;
@@ -2851,11 +3635,30 @@ export const resolveQueryEditorNavigationTarget = (
     if (parts.length === 2) {
         const [firstPart, secondPart] = parts;
         const firstKey = firstPart.toLowerCase();
-        const firstIsVisibleDb = visibleDbSet.has(firstKey);
+        const firstIsVisibleDb = visibleDbSet.has(buildMetadataIdentityKey(dialect, firstPart));
         const firstLooksLikeSchema = QUERY_EDITOR_COMMON_SCHEMA_NAME_SET.has(firstKey);
 
+        // SQLite exposes `main.table`/`temp.table` as connection-local
+        // qualifiers. They are not separate database contexts, so resolve
+        // them against the same empty-db metadata partition used by an
+        // unqualified table reference.
+        if (
+            connectionScopedDialect
+            && (firstKey === 'main' || firstKey === 'temp')
+        ) {
+            const connectionScopedObject = Array.from(new Set([currentDbName, firstPart, '']))
+                .map((scope) => (
+                    findObjectInPriorityOrder(scope, secondPart)
+                    || findObjectInPriorityOrder(scope, `${firstPart}.${secondPart}`)
+                ))
+                .find(Boolean);
+            if (connectionScopedObject) {
+                return connectionScopedObject;
+            }
+        }
+
         // 1) 首段是可见库 → MySQL/ClickHouse 风格 db.table（或跨库）
-        if (firstIsVisibleDb) {
+        if (!schemaQualifiedTwoPartDialect && firstIsVisibleDb) {
             const asDatabaseObject = findObjectInPriorityOrder(firstPart, secondPart);
             if (asDatabaseObject) {
                 return asDatabaseObject;
@@ -2878,7 +3681,7 @@ export const resolveQueryEditorNavigationTarget = (
 
         // 3) 首段不在可见库列表，但元数据里已有该库（或拉取中的跨库结果）
         //    跳过明显 schema 名，避免 public.xxx 误当成库
-        if (!firstIsVisibleDb && !firstLooksLikeSchema) {
+        if (!schemaQualifiedTwoPartDialect && !firstIsVisibleDb && !firstLooksLikeSchema) {
             const asInferredDatabaseObject = findObjectInPriorityOrder(firstPart, secondPart);
             if (asInferredDatabaseObject) {
                 return asInferredDatabaseObject;
@@ -2890,11 +3693,11 @@ export const resolveQueryEditorNavigationTarget = (
 
     // 三段：database.schema.object（PG/SQL Server 跨库限定）
     const [dbName, schemaName, tableName] = parts;
-    const dbKey = dbName.toLowerCase();
+    const dbKey = buildMetadataIdentityKey(dialect, dbName);
     const dbIsKnown = visibleDbSet.has(dbKey)
-        || tableMetas.some((meta) => meta.normalizedDbName === dbKey)
-        || viewMetas.some((meta) => meta.normalizedDbName === dbKey)
-        || materializedViewMetas.some((meta) => meta.normalizedDbName === dbKey);
+        || tableMetas.some((meta) => meta.metadataDbKey === dbKey)
+        || viewMetas.some((meta) => meta.metadataDbKey === dbKey)
+        || materializedViewMetas.some((meta) => meta.metadataDbKey === dbKey);
 
     if (!dbIsKnown) {
         // Oracle 风格：schema.package.member / schema.sequence.nextval（库仍是 currentDb）
@@ -2933,16 +3736,17 @@ export const resolveQueryEditorHoverTarget = (
     currentSchema = '',
     aliasMap?: QueryEditorAliasMap,
     allowTableSourceInference = false,
+    dialect = '',
 ): QueryEditorHoverTarget | null => {
     const text = String(lineContent || '');
     const offset = Math.max(0, Number(column || 1) - 2);
-    const windowRange = findIdentifierWindowAtOffset(text, offset, true);
+    const windowRange = findIdentifierWindowAtOffset(text, offset, true, dialect);
 
     // 默认按单行解析；提供全文上下文时改用全文窗口，限定名拆行后仍能取到库名/Schema 前缀
     const documentText = String(documentContext?.text || '');
     const documentOffset = Number(documentContext?.offset);
     const documentWindow = documentText && Number.isFinite(documentOffset)
-        ? findQualifiedIdentifierWindowAtOffset(documentText, documentOffset, true)
+        ? findQualifiedIdentifierWindowAtOffset(documentText, documentOffset, true, dialect)
         : null;
     if (!windowRange && !documentWindow) return null;
     const lineIdentifier = windowRange
@@ -2951,12 +3755,27 @@ export const resolveQueryEditorHoverTarget = (
     const documentIdentifier = documentWindow
         ? normalizeQueryEditorHoverIdentifier(documentText.slice(documentWindow.start, documentWindow.end).trim())
         : '';
-    // A stale document offset can point at the tail of a nearby keyword while
-    // the current line still contains the exact operand under the cursor. Use
-    // the full-document window only when it contributes a real qualification
-    // (db/schema.table); otherwise the line token is the authoritative value.
+    const normalizedLineSegments = splitQueryIdentifierPathSegments(lineIdentifier, dialect)
+        .map((segment) => buildQueryEditorIdentifierIdentityKey([segment], dialect));
+    const normalizedDocumentSegments = splitQueryIdentifierPathSegments(documentIdentifier, dialect)
+        .map((segment) => buildQueryEditorIdentifierIdentityKey([segment], dialect));
+    const documentContainsLineSegments = normalizedLineSegments.length > 0
+        && normalizedLineSegments.length <= normalizedDocumentSegments.length
+        && normalizedDocumentSegments.some((_, startIndex) => (
+            startIndex + normalizedLineSegments.length <= normalizedDocumentSegments.length
+            && normalizedLineSegments.every((segment, offset) => (
+                normalizedDocumentSegments[startIndex + offset] === segment
+            ))
+        ));
+    // A stale document offset can point at a different token. A qualified
+    // document window is useful for cross-line names only when the token on
+    // the current line is a contiguous part of that qualified path; otherwise
+    // use the line token as the authoritative value.
+    const documentTokenMatchesLine = !lineIdentifier
+        || documentContainsLineSegments;
     const useDocumentIdentifier = Boolean(documentIdentifier)
-        && (!lineIdentifier || isQualifiedQueryEditorHoverIdentifier(documentIdentifier));
+        && documentTokenMatchesLine
+        && (!lineIdentifier || isQualifiedQueryEditorHoverIdentifier(documentIdentifier, dialect));
     const resolutionText = useDocumentIdentifier ? documentText : text;
     const rawIdentifier = useDocumentIdentifier ? documentIdentifier : lineIdentifier;
     if (!rawIdentifier) return null;
@@ -2971,24 +3790,175 @@ export const resolveQueryEditorHoverTarget = (
             startColumn: Math.max(1, Math.floor(Number(column) || 1)),
             endColumn: Math.max(2, Math.floor(Number(column) || 1) + 1),
         };
-    const sourceContextPosition = useDocumentIdentifier && documentWindow
+    const useDocumentSourceContext = Boolean(documentWindow && (useDocumentIdentifier || documentTokenMatchesLine));
+    const sourceContextPosition = useDocumentSourceContext && documentWindow
         ? getNormalizedPositionAtOffset(documentText, documentWindow.start)
         : { lineNumber: 1, column };
-    const inferredTableSourceContext = isQueryEditorTableSourceAtPosition(
-        useDocumentIdentifier ? documentText : text,
+    // Even when the document window contributes no extra qualification (an
+    // unqualified table on a later line), it still carries the `FROM`/`JOIN`
+    // context needed for metadata-missing fallback. Only trust that context
+    // when the document token agrees with the token under the cursor; this
+    // prevents a stale Monaco offset from classifying an unrelated source.
+    const documentTableSourceContext = useDocumentSourceContext
+        && isQueryEditorTableSourceAtPosition(
+            documentText,
+            sourceContextPosition.lineNumber,
+            sourceContextPosition.column,
+            dialect,
+        );
+    const inferredTableSourceContext = documentTableSourceContext || isQueryEditorTableSourceAtPosition(
+        useDocumentSourceContext ? documentText : text,
         sourceContextPosition.lineNumber,
         sourceContextPosition.column,
+        dialect,
     );
-    const parts = normalizeNavigationIdentifierParts(rawIdentifier);
+    const parts = normalizeNavigationIdentifierParts(rawIdentifier, dialect);
     if (parts.length === 0 || parts.length > 3) return null;
+    const currentDbName = String(currentDb || '').trim();
     const currentSchemaName = String(currentSchema || '').trim();
+    const connectionScopedDialect = resolveSqlDialect(dialect) === 'sqlite';
+    const schemaQualifiedTwoPartDialect = usesQueryEditorSchemaQualifiedTwoPartNames(dialect);
+    const rawIdentifierSegments = splitQueryIdentifierPathSegments(rawIdentifier, dialect);
+    const pgLikeIdentifierResolution = isPgLikeDialect(dialect);
+    const singleQuotedDottedTableIdentifier = rawIdentifierSegments.length === 1
+        && rawIdentifierSegments[0].quoted
+        && String(rawIdentifierSegments[0].value || '').includes('.');
+    const buildTableLookupName = (targetDbName: string, targetSchemaName = ''): string => {
+        const rawParts = rawIdentifierSegments.map((segment) => String(segment.raw || '').trim()).filter(Boolean);
+        if (rawParts.length === 0) return '';
+        if (rawParts.length === 1) {
+            if (singleQuotedDottedTableIdentifier) {
+                return rawParts[0];
+            }
+            return targetSchemaName ? `${targetSchemaName}.${rawParts[0]}` : rawParts[0];
+        }
+        const normalizedTargetDb = String(targetDbName || '').trim().toLowerCase();
+        const normalizedFirst = String(parts[0] || '').trim().toLowerCase();
+        if (rawParts.length === 2 && normalizedFirst === normalizedTargetDb && !targetSchemaName) {
+            return rawParts[1];
+        }
+        if (rawParts.length === 3 && normalizedFirst === normalizedTargetDb) {
+            return rawParts.slice(1).join('.');
+        }
+        return rawParts.join('.');
+    };
+
+    const findColumnTarget = (
+        dbName: string,
+        tableName: string,
+        columnName: string,
+        queryColumnSegment?: QueryIdentifierPathSegment,
+        queryTableSegments?: QueryIdentifierPathSegment[],
+    ): QueryEditorHoverTarget | null => {
+        const metadataDbKey = buildMetadataIdentityKey(dialect, dbName);
+        const columnSegment = queryColumnSegment || {
+            raw: columnName,
+            value: columnName,
+            quoted: false,
+        };
+        const tableSegments = queryTableSegments && queryTableSegments.length > 0
+            ? queryTableSegments
+            : splitQueryIdentifierPathSegments(tableName, dialect);
+        const column = allColumns.find((item) => {
+            if (buildMetadataIdentityKey(dialect, item.dbName) !== metadataDbKey) return false;
+            if (!matchesQueryEditorIdentifierSegment(columnSegment, String(item.name || ''), dialect)) return false;
+            const metadataSegments = splitQualifiedNameSegmentsDetailed(
+                String(item.tableName || '').trim(),
+                dialect,
+            );
+            if (tableSegments.length === 0 || metadataSegments.length === 0) return false;
+            if (tableSegments.length === 1) {
+                return matchesQueryEditorIdentifierSegment(
+                    tableSegments[0],
+                    metadataSegments[metadataSegments.length - 1]?.value || '',
+                    dialect,
+                );
+            }
+            return matchesQueryEditorMetadataTablePath(
+                tableSegments[tableSegments.length - 1],
+                tableSegments.slice(0, -1),
+                metadataSegments,
+                dialect,
+            );
+        });
+        if (!column) return null;
+        const parsedTable = splitCompletionSchemaAndTable(column.tableName || '', column.dbName);
+        return {
+            kind: 'column',
+            dbName: column.dbName,
+            tableName: column.tableName,
+            columnName: column.name,
+            type: column.type,
+            comment: column.comment,
+            schemaName: parsedTable.schema || undefined,
+            range,
+        };
+    };
+
+    // Three-part references are ambiguous across SQL dialects: they can be a
+    // database/schema/table source or a schema/table/column expression. When
+    // the cursor is not in a table-source position, prefer an exact column
+    // metadata match; source positions retain table navigation semantics.
+    if (parts.length === 3 && !tableSourceContext && !inferredTableSourceContext) {
+        const [firstPart, secondPart, columnPart] = parts;
+        const queryColumnSegment = rawIdentifierSegments[rawIdentifierSegments.length - 1];
+        const qualifiedColumnCandidates = [
+            {
+                dbName: currentDb,
+                tableName: `${firstPart}.${secondPart}`,
+                tableSegments: rawIdentifierSegments.slice(0, 2),
+            },
+            {
+                dbName: firstPart,
+                tableName: secondPart,
+                tableSegments: rawIdentifierSegments.slice(1, 2),
+            },
+        ];
+        for (const candidate of qualifiedColumnCandidates) {
+            const qualifiedColumn = findColumnTarget(
+                candidate.dbName,
+                candidate.tableName,
+                columnPart,
+                queryColumnSegment,
+                candidate.tableSegments,
+            );
+            if (qualifiedColumn) return qualifiedColumn;
+        }
+    }
 
     const findMatchingTable = (dbName: string, rawTableName: string, schemaName = ''): CompletionTableMeta | null => {
         const normalizedDbName = String(dbName || '').trim().toLowerCase();
         const normalizedRawTableName = String(rawTableName || '').trim().toLowerCase();
         const normalizedSchemaName = String(schemaName || '').trim().toLowerCase();
+
+        // Keep PostgreSQL's quoted/unquoted spelling when finding the metadata
+        // row used for comments. Falling back to a lower-case comparison here
+        // would select the wrong row when `"Users"` and `users` coexist.
+        const queryObjectSegment = rawIdentifierSegments[rawIdentifierSegments.length - 1];
+        if (pgLikeIdentifierResolution && queryObjectSegment) {
+            const querySchemaSegments = rawIdentifierSegments.length === 1
+                ? undefined
+                : rawIdentifierSegments.length === 2
+                    ? [rawIdentifierSegments[0]]
+                    : rawIdentifierSegments.slice(1, -1);
+            const exact = tables.find((item) => {
+                if (buildMetadataIdentityKey(dialect, item.dbName) !== buildMetadataIdentityKey(dialect, dbName)) return false;
+                const metadataSegments = splitQualifiedNameSegmentsDetailed(
+                    String(item.tableName || '').trim(),
+                    dialect,
+                );
+                return matchesQueryEditorMetadataTablePath(
+                    queryObjectSegment,
+                    querySchemaSegments,
+                    metadataSegments,
+                    dialect,
+                );
+            });
+            return exact || null;
+        }
+
         return tables.find((item) => {
-            if (String(item.dbName || '').trim().toLowerCase() !== normalizedDbName) return false;
+            if (buildMetadataIdentityKey(dialect, item.dbName) !== buildMetadataIdentityKey(dialect, dbName)) return false;
             const itemRawName = String(item.tableName || '').trim();
             const parsed = splitSidebarQualifiedName(itemRawName);
             const itemObjectName = String(parsed.objectName || itemRawName).trim().toLowerCase();
@@ -3021,6 +3991,7 @@ export const resolveQueryEditorHoverTarget = (
         tableSourceContext,
         useDocumentIdentifier ? { text: documentText, offset: documentOffset } : undefined,
         currentSchema,
+        dialect,
     );
     if (navigationTarget) {
         if (navigationTarget.type === 'database') {
@@ -3038,6 +4009,7 @@ export const resolveQueryEditorHoverTarget = (
                 tableName: sourceTableName || navigationTarget.tableName,
                 schemaName: navigationTarget.schemaName,
                 comment: meta?.comment,
+                lookupTableName: buildTableLookupName(navigationTarget.dbName, navigationTarget.schemaName),
                 range,
             };
         }
@@ -3059,68 +4031,146 @@ export const resolveQueryEditorHoverTarget = (
         return { kind: 'package', dbName: navigationTarget.dbName, packageName: navigationTarget.packageName, schemaName: navigationTarget.schemaName, range };
     }
 
-    if (allowTableSourceInference && (tableSourceContext || inferredTableSourceContext) && currentDb) {
+    if (allowTableSourceInference && (tableSourceContext || inferredTableSourceContext)) {
         if (parts.length === 1) {
             return {
                 kind: 'table',
                 dbName: currentDb,
                 tableName: parts[0],
                 schemaName: currentSchemaName || undefined,
+                lookupTableName: buildTableLookupName(currentDb, currentSchemaName),
                 range,
             };
         }
         if (parts.length === 2) {
             const [firstPart, secondPart] = parts;
             const firstKey = firstPart.toLowerCase();
-            if (visibleDbs.some((dbName) => String(dbName || '').trim().toLowerCase() === firstKey)) {
-                return { kind: 'table', dbName: firstPart, tableName: secondPart, range };
+            if (
+                connectionScopedDialect
+                && (firstKey === 'main' || firstKey === 'temp')
+            ) {
+                return {
+                    kind: 'table',
+                    dbName: currentDb,
+                    tableName: secondPart,
+                    lookupTableName: buildTableLookupName(currentDb),
+                    range,
+                };
+            }
+            if (
+                usesQueryEditorDatabaseQualifiedTwoPartNames(dialect)
+                || (
+                    !schemaQualifiedTwoPartDialect
+                    && visibleDbs.some((dbName) => String(dbName || '').trim().toLowerCase() === firstKey)
+                )
+            ) {
+                return {
+                    kind: 'table',
+                    dbName: firstPart,
+                    tableName: secondPart,
+                    lookupTableName: buildTableLookupName(firstPart),
+                    range,
+                };
             }
             if (currentSchemaName && firstKey === currentSchemaName.toLowerCase()) {
-                return { kind: 'table', dbName: currentDb, tableName: secondPart, schemaName: firstPart, range };
+                return {
+                    kind: 'table',
+                    dbName: currentDb,
+                    tableName: secondPart,
+                    schemaName: firstPart,
+                    lookupTableName: buildTableLookupName(currentDb, firstPart),
+                    range,
+                };
             }
             if (QUERY_EDITOR_COMMON_SCHEMA_NAME_SET.has(firstKey)) {
-                return { kind: 'table', dbName: currentDb, tableName: secondPart, schemaName: firstPart, range };
+                return {
+                    kind: 'table',
+                    dbName: currentDb,
+                    tableName: secondPart,
+                    schemaName: firstPart,
+                    lookupTableName: buildTableLookupName(currentDb, firstPart),
+                    range,
+                };
             }
+            // Metadata can be incomplete while a user is working in a
+            // non-standard schema. Preserve the qualifier and still provide
+            // the selected database as the safe fallback context.
+            return {
+                kind: 'table',
+                dbName: currentDb,
+                tableName: secondPart,
+                schemaName: firstPart,
+                lookupTableName: buildTableLookupName(currentDb, firstPart),
+                range,
+            };
         }
         if (parts.length === 3) {
             const [dbName, schemaName, tableName] = parts;
-            if (visibleDbs.some((knownDbName) => String(knownDbName || '').trim().toLowerCase() === dbName.toLowerCase())) {
-                return { kind: 'table', dbName, tableName, schemaName, range };
-            }
+            // A three-part reference is unambiguously database.schema.table for
+            // the dialects that support it. Preserve the explicit database even
+            // while the database list is still loading; falling back to the
+            // current database would make the next metadata/DDL lookup parse
+            // the catalog name as a schema and target the wrong object.
+            return {
+                kind: 'table',
+                dbName,
+                tableName,
+                schemaName,
+                lookupTableName: buildTableLookupName(dbName, schemaName),
+                range,
+            };
         }
     }
 
-    const findColumnTarget = (dbName: string, tableName: string, columnName: string): QueryEditorHoverTarget | null => {
-        const normalizedDbName = String(dbName || '').trim().toLowerCase();
-        const normalizedTableName = String(tableName || '').trim().toLowerCase();
-        const normalizedColumnName = String(columnName || '').trim().toLowerCase();
-        const column = allColumns.find((item) => {
-            if (String(item.dbName || '').trim().toLowerCase() !== normalizedDbName) return false;
-            if (String(item.name || '').trim().toLowerCase() !== normalizedColumnName) return false;
-            const rawTable = String(item.tableName || '').trim().toLowerCase();
-            const parsed = splitCompletionSchemaAndTable(item.tableName || '', item.dbName);
-            return rawTable === normalizedTableName || String(parsed.table || '').trim().toLowerCase() === normalizedTableName;
-        });
-        if (!column) return null;
-        const parsedTable = splitCompletionSchemaAndTable(column.tableName || '', column.dbName);
-        return {
-            kind: 'column',
-            dbName: column.dbName,
-            tableName: column.tableName,
-            columnName: column.name,
-            type: column.type,
-            comment: column.comment,
-            schemaName: parsedTable.schema || undefined,
-            range,
-        };
-    };
-
     if (parts.length === 2) {
         const [firstPart, secondPart] = parts;
-        const resolvedAliasMap = aliasMap || buildQueryEditorAliasMap(fullText, currentDb);
-        const aliasInfo = resolvedAliasMap[firstPart.toLowerCase()];
+        const resolvedAliasMap = aliasMap || buildQueryEditorAliasMap(fullText, currentDb, dialect);
+        const aliasKey = buildQueryEditorIdentifierIdentityKey(
+            [rawIdentifierSegments[0] || { raw: firstPart, value: firstPart, quoted: false }],
+            dialect,
+        );
+        const aliasInfo = resolvedAliasMap[aliasKey] || resolvedAliasMap[firstPart.toLowerCase()];
         if (aliasInfo) {
-            const aliasedColumn = findColumnTarget(aliasInfo.dbName, aliasInfo.tableName, secondPart);
+            // The alias scanner intentionally keeps the first segment of a
+            // two-part source as an explicit owner so MySQL/Oracle cross-db
+            // references remain resolvable. PostgreSQL/SQL Server use the same
+            // spelling for schema.table, however, and their column metadata is
+            // keyed by the current database plus the qualified table name.
+            // Prefer the explicit database interpretation, then fall back to
+            // the current database/schema interpretation when that catalog is
+            // unavailable.
+            const explicitOwner = String(aliasInfo.explicitOwnerName || '').trim();
+            const aliasReference = collectQueryEditorTableReferences(fullText, dialect).find((reference) => {
+                const referenceAlias = reference.aliasSegment
+                    || (reference.alias
+                        ? splitQueryIdentifierPathSegments(reference.alias, dialect)[0]
+                        : undefined);
+                return referenceAlias
+                    && buildQueryEditorIdentifierIdentityKey([referenceAlias], dialect) === aliasKey;
+            });
+            const sourceSegments = aliasReference?.segments
+                || splitQueryIdentifierPathSegments(aliasInfo.tableName, dialect);
+            const currentSchemaColumn = explicitOwner
+                ? findColumnTarget(
+                    currentDb,
+                    `${explicitOwner}.${aliasInfo.tableName}`,
+                    secondPart,
+                    rawIdentifierSegments[1],
+                    sourceSegments,
+                )
+                : null;
+            let aliasedColumn = schemaQualifiedTwoPartDialect
+                ? currentSchemaColumn
+                : findColumnTarget(
+                    aliasInfo.dbName,
+                    aliasInfo.tableName,
+                    secondPart,
+                    rawIdentifierSegments[1],
+                    sourceSegments,
+                );
+            if (!schemaQualifiedTwoPartDialect && !aliasedColumn && currentSchemaColumn) {
+                aliasedColumn = currentSchemaColumn;
+            }
             if (aliasedColumn) return aliasedColumn;
         }
         const qualifiedTable = findMatchingTable(currentDb, secondPart, firstPart);
@@ -3138,10 +4188,15 @@ export const resolveQueryEditorHoverTarget = (
 
     if (parts.length === 1) {
         const [columnName] = parts;
-        const normalizedCurrentDb = String(currentDb || '').trim().toLowerCase();
+        const normalizedCurrentDb = buildMetadataIdentityKey(dialect, currentDb);
+        const queryColumnSegment = rawIdentifierSegments[0] || {
+            raw: columnName,
+            value: columnName,
+            quoted: false,
+        };
         const directColumns = allColumns.filter((item) =>
-            String(item.dbName || '').trim().toLowerCase() === normalizedCurrentDb
-            && String(item.name || '').trim().toLowerCase() === columnName.toLowerCase()
+            buildMetadataIdentityKey(dialect, item.dbName) === normalizedCurrentDb
+            && matchesQueryEditorIdentifierSegment(queryColumnSegment, String(item.name || ''), dialect)
         );
         if (directColumns.length === 1) {
             const column = directColumns[0];
@@ -3178,12 +4233,29 @@ export const resolveQueryEditorNavigationDecorations = (
     tableSourceContext = false,
     documentContext?: { text: string; offset: number },
     currentSchema = '',
-    tableCtrlClickAction: QueryEditorTableCtrlClickAction = 'open-design',
+    tableCtrlClickActionOrDialect: QueryEditorTableCtrlClickAction | string = 'open-design',
+    dialectOrTableCtrlClickAction: QueryEditorTableCtrlClickAction | string = '',
 ): Array<{ startColumn: number; endColumn: number; hoverMessage: string }> => {
+    const isTableCtrlClickAction = (value: string): value is QueryEditorTableCtrlClickAction => (
+        value === 'open-design' || value === 'locate'
+    );
+    const firstOptionalArgument = String(tableCtrlClickActionOrDialect || '').trim();
+    const secondOptionalArgument = String(dialectOrTableCtrlClickAction || '').trim();
+    // Keep both pre-merge call shapes working: this PR previously passed the
+    // dialect immediately after currentSchema, while dev added the click action
+    // in that position.
+    const tableCtrlClickAction = isTableCtrlClickAction(firstOptionalArgument)
+        ? firstOptionalArgument
+        : isTableCtrlClickAction(secondOptionalArgument)
+            ? secondOptionalArgument
+            : 'open-design';
+    const dialect = isTableCtrlClickAction(firstOptionalArgument)
+        ? secondOptionalArgument
+        : firstOptionalArgument;
     const text = String(lineContent || '');
     if (!text) return [];
     const offset = Math.max(0, Number(column || 1) - 2);
-    const windowRange = findIdentifierWindowAtOffset(text, offset, true);
+    const windowRange = findIdentifierWindowAtOffset(text, offset, true, dialect);
     if (!windowRange) return [];
 
     const navigationTarget = resolveQueryEditorNavigationTarget(
@@ -3201,6 +4273,7 @@ export const resolveQueryEditorNavigationDecorations = (
         tableSourceContext,
         documentContext,
         currentSchema,
+        dialect,
     );
     if (!navigationTarget) return [];
 
@@ -3352,7 +4425,7 @@ export const resolveQueryLocatorPlan = async ({
         executedSql: statement,
         pkColumns: [],
     };
-    if (resolveSqlEditorOperationKeyword(statement) !== 'select') {
+    if (resolveSqlEditorOperationKeyword(statement, dbType) !== 'select') {
         return plan;
     }
     const defaultSchema = isOracleLikeDialect(dbType)
@@ -3416,7 +4489,7 @@ export const resolveQueryLocatorPlan = async ({
         if (tableColumnNames.length === 0) {
             plan.editLocator = isOracleLikeDialect(dbType)
                 && selectInfo.selectsAll
-                && hasTopLevelSqlEditorForUpdate(statement)
+                && hasTopLevelSqlEditorForUpdate(statement, dbType)
                 ? buildAllColumnsLocator([], { translate })
                 : buildQueryReadOnlyLocator(translate('query_editor.message.read_only_system_metadata'));
             return plan;

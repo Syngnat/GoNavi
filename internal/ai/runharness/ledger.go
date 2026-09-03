@@ -177,19 +177,47 @@ func Open(path string, options ...LedgerOption) (*Ledger, error) {
 	if workspaceSnapshotLeaseTTL <= 0 {
 		workspaceSnapshotLeaseTTL = DefaultWorkspaceSnapshotLeaseDuration
 	}
-	key, err := cfg.keyProvider.LoadOrCreate()
+	dsn, absPath, err := ledgerDSN(path)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrLedgerLocked, err)
+		return nil, err
 	}
+
+	var loaded LoadedKey
+	var keyErr error
+	if loader, canLoad := cfg.keyProvider.(KeyLoader); canLoad && ledgerFileHasContent(absPath) {
+		// An existing ledger must never trigger key generation. Minting a key
+		// writes it straight into the key store, overwriting the original entry
+		// right when access is granted again (macOS reports a denied Keychain
+		// ACL prompt as "item not found"). Load passively and refuse when the
+		// key is gone so a denied prompt stays fully recoverable.
+		var found bool
+		loaded, found, keyErr = loader.LoadExisting()
+		if keyErr == nil && !found {
+			return nil, fmt.Errorf("%w: existing agent ledger %s has no matching encryption key in the key store; refusing to generate a new key because it would overwrite the original. Restore the original key or archive the ledger file to start a new one", ErrLedgerLocked, absPath)
+		}
+	} else if detailed, ok := cfg.keyProvider.(DetailedKeyProvider); ok {
+		loaded, keyErr = detailed.LoadOrCreateDetailed()
+	} else {
+		var classicKey []byte
+		classicKey, keyErr = cfg.keyProvider.LoadOrCreate()
+		loaded = LoadedKey{Key: classicKey}
+	}
+	if keyErr != nil {
+		return nil, fmt.Errorf("%w: %v", ErrLedgerLocked, keyErr)
+	}
+	// Providers that cannot load passively (test fakes and legacy hosts) still
+	// get the post-hoc guard: a freshly minted key in front of an existing
+	// ledger means the original was lost — proceeding would silently re-key
+	// the ledger and permanently lock out every existing row.
+	if loaded.Fresh && ledgerFileHasContent(absPath) {
+		return nil, fmt.Errorf("%w: existing agent ledger %s does not match the available encryption key; refusing to re-key existing data. Restore the original keyring entry or archive the ledger file to start a new one", ErrLedgerLocked, absPath)
+	}
+	key := loaded.Key
 	cipherImpl, err := NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrLedgerLocked, err)
 	}
 
-	dsn, absPath, err := ledgerDSN(path)
-	if err != nil {
-		return nil, err
-	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open agent ledger: %w", err)
@@ -205,6 +233,10 @@ func Open(path string, options ...LedgerOption) (*Ledger, error) {
 	}
 	l := &Ledger{db: db, path: absPath, cipher: cipherImpl, workspaceSnapshotLeaseTTL: workspaceSnapshotLeaseTTL}
 	if err := l.initialize(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := l.reconcileKeyFingerprint(context.Background(), loaded); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -232,6 +264,99 @@ func legacySessionsDirForLedger(absPath string) (string, bool) {
 		return "", false
 	}
 	return filepath.Join(filepath.Dir(absPath), "sessions"), true
+}
+
+const ledgerMetaKeyFingerprint = "key_fingerprint"
+
+// ledgerFileHasContent reports whether a file-backed ledger already holds
+// data. In-memory and URI DSNs are caller-owned and never count as existing
+// content.
+func ledgerFileHasContent(absPath string) bool {
+	if absPath == "" || absPath == ":memory:" || strings.HasPrefix(absPath, "file:") {
+		return false
+	}
+	info, err := os.Stat(absPath)
+	return err == nil && info.Size() > 0
+}
+
+func keyFingerprint(key []byte) string {
+	sum := sha256.Sum256(key)
+	return hex.EncodeToString(sum[:])
+}
+
+// reconcileKeyFingerprint detects key/ledger mismatches at open time instead
+// of letting AES-GCM authentication failures surface mid-conversation. A
+// missing fingerprint on an existing ledger is only adopted after a sample
+// payload decrypts, so a silently re-keyed ledger fails fast with an
+// actionable error rather than staying undiagnosable.
+func (l *Ledger) reconcileKeyFingerprint(ctx context.Context, loaded LoadedKey) error {
+	fingerprint := keyFingerprint(loaded.Key)
+	var stored string
+	err := l.db.QueryRowContext(ctx, `SELECT value FROM ledger_meta WHERE key = ?`, ledgerMetaKeyFingerprint).Scan(&stored)
+	switch {
+	case err == nil:
+		if stored != fingerprint {
+			return fmt.Errorf("%w: agent ledger was encrypted with a different key; the keyring entry no longer matches this ledger. Restore the original key or archive the ledger file to start a new one", ErrLedgerLocked)
+		}
+		return nil
+	case errors.Is(err, sql.ErrNoRows):
+		// Adopt the fingerprint below, after verifying the key against
+		// pre-existing data when there is any.
+	default:
+		return fmt.Errorf("read agent ledger key fingerprint: %w", err)
+	}
+	if !loaded.Fresh {
+		if err := l.verifySamplePayloadDecryptable(ctx); err != nil {
+			return err
+		}
+	}
+	if _, err := l.db.ExecContext(ctx, `INSERT INTO ledger_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, ledgerMetaKeyFingerprint, fingerprint); err != nil {
+		return fmt.Errorf("store agent ledger key fingerprint: %w", err)
+	}
+	return nil
+}
+
+// verifySamplePayloadDecryptable proves the loaded key matches data already
+// stored in this ledger by decrypting one sealed value from the newest rows.
+func (l *Ledger) verifySamplePayloadDecryptable(ctx context.Context) error {
+	var runID string
+	var sequence int64
+	var payload []byte
+	err := l.db.QueryRowContext(ctx, `SELECT run_id, sequence, payload FROM events ORDER BY timestamp DESC LIMIT 1`).Scan(&runID, &sequence, &payload)
+	if err == nil {
+		if _, err := l.openRaw("events", runID, fmt.Sprintf("payload/%d", sequence), payload); err != nil {
+			return fmt.Errorf("%w: sample event decrypt failed: %v", ErrLedgerLocked, err)
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("sample agent ledger event: %w", err)
+	}
+	var messageID string
+	var content []byte
+	err = l.db.QueryRowContext(ctx, `SELECT id, content FROM messages ORDER BY created_at DESC LIMIT 1`).Scan(&messageID, &content)
+	if err == nil {
+		if _, err := l.openRaw("messages", messageID, "content", content); err != nil {
+			return fmt.Errorf("%w: sample message decrypt failed: %v", ErrLedgerLocked, err)
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("sample agent ledger message: %w", err)
+	}
+	var snapshotKey string
+	var snapshotPayload []byte
+	err = l.db.QueryRowContext(ctx, `SELECT source_id || '/' || source_instance_id || '/' || revision, payload FROM workspace_snapshots ORDER BY captured_at DESC LIMIT 1`).Scan(&snapshotKey, &snapshotPayload)
+	if err == nil {
+		if _, err := l.openRaw("workspace_snapshots", snapshotKey, "payload", snapshotPayload); err != nil {
+			return fmt.Errorf("%w: sample workspace snapshot decrypt failed: %v", ErrLedgerLocked, err)
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("sample agent ledger workspace snapshot: %w", err)
+	}
+	return nil
 }
 
 // OpenWithKey is a convenience for callers with a securely obtained DEK.

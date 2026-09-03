@@ -111,6 +111,8 @@ func clampThinkingIntensityToProfile(raw string, profile ThinkingProfile) ai.Thi
 	}
 	// 跨体系兜底：尽量落到最接近的可用档位
 	switch normalized {
+	case "medium":
+		return ai.ThinkingIntensityMedium
 	case "xhigh", "max":
 		if profile == ThinkingProfileOpenAI {
 			return ai.ThinkingIntensity("xhigh")

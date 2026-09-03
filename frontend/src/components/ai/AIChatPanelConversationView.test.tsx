@@ -78,6 +78,7 @@ describe('AIChatPanelConversationView', () => {
         onScrollMessages={() => {}}
         onQuickAction={() => {}}
         onSelectSession={() => {}}
+        onArchiveSession={() => {}}
         onEditMessage={() => {}}
         onRetryMessage={() => {}}
         onDeleteMessage={() => {}}
@@ -89,6 +90,8 @@ describe('AIChatPanelConversationView', () => {
     expect(markup).toContain('gn-v2-ai-history-card is-active');
     expect(markup).toContain('当前会话');
     expect(markup).toContain('旧会话');
+    expect(markup).toContain('gn-v2-ai-history-delete');
+    expect(markup).toContain('aria-label="删除"');
     expect(markup).toContain('down');
   });
 

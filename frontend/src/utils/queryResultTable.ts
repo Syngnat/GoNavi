@@ -68,13 +68,47 @@ const QUERY_RESULT_TABLE_REFERENCE_REGEX = new RegExp(
   'i',
 );
 
-const maskNestedAndQuotedSql = (raw: string): string => {
+const HASH_COMMENT_DIALECTS = new Set([
+  'mysql', 'mariadb', 'oceanbase', 'starrocks', 'tidb', 'diros', 'goldendb', 'sphinx', 'clickhouse',
+]);
+
+const skipSqlTrivia = (text: string, position: number, dialect: string): number => {
+  const normalizedDialect = String(dialect || '').trim().toLowerCase();
+  let index = Math.max(0, position);
+  while (index < text.length) {
+    if (/\s/.test(text[index] || '')) {
+      index += 1;
+      continue;
+    }
+    if (text.startsWith('--', index)) {
+      const lineEnd = text.indexOf('\n', index + 2);
+      index = lineEnd < 0 ? text.length : lineEnd + 1;
+      continue;
+    }
+    if (HASH_COMMENT_DIALECTS.has(normalizedDialect) && text[index] === '#') {
+      const lineEnd = text.indexOf('\n', index + 1);
+      index = lineEnd < 0 ? text.length : lineEnd + 1;
+      continue;
+    }
+    if (text.startsWith('/*', index)) {
+      const blockEnd = text.indexOf('*/', index + 2);
+      index = blockEnd < 0 ? text.length : blockEnd + 2;
+      continue;
+    }
+    break;
+  }
+  return index;
+};
+
+const maskNestedAndQuotedSql = (raw: string, dialect = ''): string => {
   const text = String(raw || '');
   const output: string[] = [];
   let depth = 0;
   let quote = '';
   let lineComment = false;
   let blockComment = false;
+  const normalizedDialect = String(dialect || '').trim().toLowerCase();
+  const supportsHashComment = !normalizedDialect || HASH_COMMENT_DIALECTS.has(normalizedDialect);
 
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
@@ -131,6 +165,11 @@ const maskNestedAndQuotedSql = (raw: string): string => {
       blockComment = true;
       output.push(' ', ' ');
       index += 1;
+      continue;
+    }
+    if (supportsHashComment && char === '#') {
+      lineComment = true;
+      output.push(' ');
       continue;
     }
     if (char === '\'' || char === '"' || char === '`' || char === '[') {
@@ -240,11 +279,11 @@ export const extractQueryResultTableRef = (
 ): QueryResultTableRef | undefined => {
   const text = String(sql || '').trim();
   if (!text) return undefined;
-  if (/\b(JOIN|UNION|INTERSECT|EXCEPT|MINUS)\b/i.test(text)) return undefined;
-  if (/^\s*SELECT\s+DISTINCT\b/i.test(text)) return undefined;
-  if (/\bGROUP\s+BY\b|\bHAVING\b/i.test(text)) return undefined;
 
-  const topLevelSql = maskNestedAndQuotedSql(text);
+  const topLevelSql = maskNestedAndQuotedSql(text, dialect);
+  if (/\b(JOIN|UNION|INTERSECT|EXCEPT|MINUS)\b/i.test(topLevelSql)) return undefined;
+  if (/^\s*SELECT\s+DISTINCT\b/i.test(topLevelSql)) return undefined;
+  if (/\bGROUP\s+BY\b|\bHAVING\b/i.test(topLevelSql)) return undefined;
   const topLevelFromMatch = /\bFROM\b/i.exec(topLevelSql);
   if (topLevelFromMatch?.index === undefined) return undefined;
   const sourceOffset = topLevelFromMatch.index + topLevelFromMatch[0].length;
@@ -253,7 +292,8 @@ export const extractQueryResultTableRef = (
   )?.[1] || '';
   if (topLevelFromClause.includes(',') || /\bAPPLY\b/i.test(topLevelFromClause)) return undefined;
 
-  const tableMatch = text.slice(sourceOffset).match(QUERY_RESULT_TABLE_REFERENCE_REGEX);
+  const tableStart = skipSqlTrivia(text, sourceOffset, dialect);
+  const tableMatch = text.slice(tableStart).match(QUERY_RESULT_TABLE_REFERENCE_REGEX);
   if (!tableMatch) return undefined;
 
   const parts = normalizeQualifiedNameParts(tableMatch[1], dialect);

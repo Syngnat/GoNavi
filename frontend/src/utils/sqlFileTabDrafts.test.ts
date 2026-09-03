@@ -3,10 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearQueryTabDraft,
   clearSQLFileTabDraft,
+  flushQueryTabDraftSnapshots,
   getQueryTabDraft,
   getSQLFileTabDraft,
   hasQueryTabDraft,
   hasSQLFileTabDraft,
+  persistQueryTabDraftSnapshot,
   setQueryTabDraft,
   setSQLFileTabDraft,
   subscribeQueryTabDraftChanges,
@@ -379,5 +381,22 @@ describe('sqlFileTabDrafts', () => {
         query: 'select * from large_table;',
       }),
     );
+  });
+
+  it('preserves an explicitly cleared database override in crash recovery snapshots', () => {
+    persistQueryTabDraftSnapshot({
+      id: 'query-empty-db-override',
+      title: 'Connection scoped query',
+      connectionId: 'conn-1',
+      dbName: 'stale-db',
+    }, 'select * from users;', {
+      connectionId: 'conn-1',
+      dbName: '',
+    });
+
+    expect(getQueryTabDraft('query-empty-db-override')).toBe('select * from users;');
+    flushQueryTabDraftSnapshots();
+    const payload = JSON.parse(localStorage.getItem('gonavi-query-tab-drafts-v1') || '[]');
+    expect(payload.find((entry: { tabId: string }) => entry.tabId === 'query-empty-db-override')?.dbName).toBe('');
   });
 });

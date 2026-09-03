@@ -101,6 +101,7 @@ describe('TriggerViewer object edit entry', () => {
     storeState.addTab.mockReset();
     storeState.setActiveContext.mockReset();
     storeState.connections[0].config.type = 'postgres';
+    delete (storeState.connections[0].config as any).driver;
     backendApp.DBGetTriggers.mockReset();
     backendApp.DBGetTriggers.mockResolvedValue({ success: true, data: [] });
     backendApp.DBQuery.mockReset();
@@ -128,6 +129,8 @@ describe('TriggerViewer object edit entry', () => {
       dbName: 'main',
       schemaName: 'audit',
     });
+    expect(String(backendApp.DBQuery.mock.calls[0]?.[2] || '')).toContain("n.nspname = 'audit'");
+    expect(String(backendApp.DBQuery.mock.calls[0]?.[2] || '')).toContain("c.relname = 'users'");
     expect(storeState.addTab).toHaveBeenCalledWith(expect.objectContaining({
       title: 'Edit trigger: audit.users_bi',
       type: 'query',
@@ -137,6 +140,77 @@ describe('TriggerViewer object edit entry', () => {
       queryMode: 'object-edit',
       query: expect.stringContaining('CREATE TRIGGER users_bi BEFORE INSERT'),
     }));
+  });
+
+  it('uses the shared dialect resolver for custom PostgreSQL drivers', async () => {
+    storeState.connections[0].config.type = 'custom';
+    (storeState.connections[0].config as any).driver = 'postgresql';
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(tab));
+      await flushPromises();
+    });
+
+    const editorText = String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''));
+    expect(editorText).toContain('CREATE TRIGGER users_bi');
+    expect(String(backendApp.DBQuery.mock.calls[0]?.[2] || '')).toContain('pg_get_triggerdef');
+    renderer.unmount();
+  });
+
+  it('uses an explicitly qualified MySQL trigger schema for definition lookup', async () => {
+    storeState.connections[0].config.type = 'mysql';
+    backendApp.DBQuery.mockImplementation(async (_config: unknown, _dbName: string, sql: string) => {
+      if (sql.startsWith('SHOW CREATE TRIGGER')) {
+        return { success: true, data: [{ Trigger: 'audit.users_bi', 'SQL Original Statement': 'CREATE TRIGGER `audit`.`users_bi` BEFORE INSERT ON `audit`.`users` FOR EACH ROW SET NEW.id = 1' }] };
+      }
+      return { success: true, data: [] };
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n({
+        ...tab,
+        triggerName: 'audit.users_bi',
+        triggerTableName: 'audit.users',
+      }));
+      await flushPromises();
+    });
+
+    expect(String(backendApp.DBQuery.mock.calls[0]?.[2] || '')).toContain('SHOW CREATE TRIGGER `audit`.`users_bi`');
+    renderer.unmount();
+  });
+
+  it('keeps dotted metadata trigger names as one identifier when a schema hint is present', async () => {
+    storeState.connections[0].config.type = 'mysql';
+    backendApp.DBQuery.mockImplementation(async (_config: unknown, _dbName: string, sql: string) => {
+      if (sql.startsWith('SHOW CREATE TRIGGER')) {
+        return {
+          success: true,
+          data: [{
+            Trigger: 'a.b',
+            'SQL Original Statement': 'CREATE TRIGGER `audit`.`a.b` BEFORE INSERT ON `audit`.`order.items` FOR EACH ROW SET NEW.id = 1',
+          }],
+        };
+      }
+      return { success: true, data: [] };
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n({
+        ...tab,
+        triggerName: 'a.b',
+        triggerTableName: 'audit.`order.items`',
+        schemaName: 'audit',
+      }));
+      await flushPromises();
+    });
+
+    const sql = String(backendApp.DBQuery.mock.calls[0]?.[2] || '');
+    expect(sql).toContain('SHOW CREATE TRIGGER `audit`.`a.b`');
+    expect(sql).not.toContain('`a`.`b`');
+    renderer.unmount();
   });
 
   it('loads the complete Oracle trigger definition through metadata instead of the bounded query preview', async () => {
@@ -215,6 +289,35 @@ END;`;
     expect(editorText).not.toContain('[CLOB preview:');
   });
 
+  it('does not emit an invalid PostgreSQL DROP when a restored tab lacks the trigger table', async () => {
+    const restoredTab: TabData = {
+      ...tab,
+      triggerTableName: undefined,
+    };
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [{
+        trigger_definition: 'CREATE TRIGGER users_bi BEFORE INSERT ON audit.users EXECUTE FUNCTION audit.audit_users();',
+      }],
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n(restoredTab));
+      await flushPromises();
+    });
+
+    const button = renderer.root.findAll((node: any) => node.type === 'button' && findButtonText(node).includes('Edit object'))[0];
+    await act(async () => {
+      await button.props.onClick();
+      await flushPromises();
+    });
+
+    const query = String(storeState.addTab.mock.calls[0]?.[0]?.query || '');
+    expect(query).not.toMatch(/DROP\s+TRIGGER[\s\S]*ON\s*;/i);
+    expect(query).toContain('CREATE TRIGGER users_bi BEFORE INSERT ON audit.users');
+  });
+
   it('uses SQL Server catalog metadata when loading trigger definitions', async () => {
     storeState.connections[0].config.type = 'sqlserver';
     backendApp.DBQuery.mockResolvedValue({
@@ -235,6 +338,28 @@ END;`;
     expect(sql).toContain("o.type IN ('TR', 'TA')");
     expect(sql).not.toContain('OBJECT_DEFINITION');
     expect(String(renderer.root.findAll((node: any) => node.props['data-editor'] === 'true')[0].children.join(''))).toContain('CREATE TRIGGER [audit].[users_bi]');
+  });
+
+  it('derives the SQL Server trigger schema from its qualified table when metadata returns a bare name', async () => {
+    storeState.connections[0].config.type = 'sqlserver';
+    backendApp.DBQuery.mockResolvedValue({
+      success: true,
+      data: [{ trigger_definition: 'CREATE TRIGGER [audit].[users_bi] ON [audit].[users] AFTER INSERT AS SELECT 1;' }],
+    });
+
+    let renderer: any;
+    await act(async () => {
+      renderer = create(renderWithI18n({
+        ...tab,
+        triggerName: 'users_bi',
+        triggerTableName: 'audit.users',
+      }));
+      await flushPromises();
+    });
+
+    const sql = String(backendApp.DBQuery.mock.calls[0]?.[2] || '');
+    expect(sql).toContain("AND s.name = N'audit'");
+    renderer.unmount();
   });
 
   it('adds CREATE OR REPLACE for trigger source snippets returned without ddl prefix', async () => {
