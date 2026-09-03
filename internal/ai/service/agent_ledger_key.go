@@ -13,8 +13,8 @@ const (
 
 // AgentLedgerKeyFilePath returns the data-root-scoped local encryption-key
 // path shared by the desktop and CLI harnesses. The key file is created by the
-// harness with 0600 permissions, so opening an Agent ledger never needs an OS
-// keychain prompt.
+// harness with private platform-appropriate permissions, so opening an Agent
+// ledger never needs an OS keychain prompt.
 func AgentLedgerKeyFilePath(dataRoot string) (string, error) {
 	root, err := resolveAgentLedgerDataRoot(dataRoot)
 	if err != nil {

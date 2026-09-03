@@ -182,8 +182,9 @@ func (p *KeyringKeyProvider) LoadOrCreate() ([]byte, error) {
 	return loaded.Key, nil
 }
 
-// KeyFileProvider stores exactly 32 random bytes in a dedicated 0600 file.
-// Symlink key files are rejected to prevent redirecting secret material.
+// KeyFileProvider stores exactly 32 random bytes in a dedicated private file
+// (0600 on POSIX, a protected owner/SYSTEM/admin ACL on Windows). Symlink key
+// files are rejected to prevent redirecting secret material.
 type KeyFileProvider struct{ Path string }
 
 func NewKeyFileProvider(path string) (*KeyFileProvider, error) {
@@ -232,10 +233,27 @@ func (p *KeyFileProvider) LoadOrCreateDetailed() (LoadedKey, error) {
 		if !info.Mode().IsRegular() {
 			return LoadedKey{}, fmt.Errorf("%w: key file is not regular", ErrKeyUnavailable)
 		}
-		if info.Mode().Perm() != 0o600 {
-			return LoadedKey{}, fmt.Errorf("%w: key file permissions are %04o, want 0600", ErrKeyUnavailable, info.Mode().Perm())
+		file, openErr := openExistingKeyFile(path)
+		if openErr != nil {
+			return LoadedKey{}, fmt.Errorf("%w: open key file: %v", ErrKeyUnavailable, openErr)
 		}
-		data, readErr := os.ReadFile(path)
+		defer file.Close()
+		opened, statErr := file.Stat()
+		if statErr != nil {
+			return LoadedKey{}, fmt.Errorf("%w: stat key file: %v", ErrKeyUnavailable, statErr)
+		}
+		if !os.SameFile(info, opened) {
+			return LoadedKey{}, fmt.Errorf("%w: key file changed while opening", ErrKeyUnavailable)
+		}
+		if err := validateKeyFilePermissions(file, opened.Mode()); err != nil {
+			return LoadedKey{}, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
+		}
+		// POSIX mode bits are not meaningful on Windows. The Windows helper
+		// replaces inherited grants with a protected owner/SYSTEM/admin DACL.
+		if err := secureKeyFileACL(file); err != nil {
+			return LoadedKey{}, fmt.Errorf("%w: secure key file ACL: %v", ErrKeyUnavailable, err)
+		}
+		data, readErr := io.ReadAll(file)
 		if readErr != nil {
 			return LoadedKey{}, fmt.Errorf("%w: read key file: %v", ErrKeyUnavailable, readErr)
 		}
@@ -261,7 +279,7 @@ func (p *KeyFileProvider) LoadOrCreateDetailed() (LoadedKey, error) {
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		return LoadedKey{}, fmt.Errorf("generate ledger key: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := createKeyFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return p.LoadOrCreateDetailed()
@@ -270,6 +288,9 @@ func (p *KeyFileProvider) LoadOrCreateDetailed() (LoadedKey, error) {
 	}
 	if _, err = file.Write(key); err == nil {
 		err = file.Sync()
+	}
+	if err == nil {
+		err = secureKeyFileACL(file)
 	}
 	closeErr := file.Close()
 	if err != nil || closeErr != nil {

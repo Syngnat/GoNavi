@@ -541,7 +541,7 @@ type agentCommonFlags struct {
 }
 
 func bindAgentCommonFlags(fs *flag.FlagSet, common *agentCommonFlags) {
-	fs.StringVar(&common.keyFile, "ledger-key-file", "", "0600 file containing the ledger encryption key")
+	fs.StringVar(&common.keyFile, "ledger-key-file", "", "private file containing the ledger encryption key")
 	fs.StringVar(&common.keyFile, "key-file", "", "alias for --ledger-key-file")
 	fs.StringVar(&common.ledger, "ledger", "", "agent ledger SQLite path")
 	fs.BoolVar(&common.jsonFlag, "json", false, "emit one JSON result")

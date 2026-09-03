@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -406,7 +407,7 @@ func TestServiceAgentHarnessUsesLocalKeyFileWithoutSecretStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat local ledger key: %v", err)
 	}
-	if keyInfo.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && keyInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("local ledger key permissions = %o, want 0600", keyInfo.Mode().Perm())
 	}
 }

@@ -430,7 +430,7 @@ func (s *Service) startup(ctx context.Context) {
 		logger.Warnf("未提供应用生命周期上下文，AI Agent Run Harness 未启动")
 	}
 	// Agent ledger initialization is deferred until an Agent API is used. Its
-	// encryption key is a local 0600 file, so this startup path never accesses
+	// encryption key is a local private file, so this startup path never accesses
 	// the system keychain or prompts during Wails development rebuilds.
 	s.restoreMCPHTTPServer()
 	logger.Infof("AI Service 启动完成，已加载 %d 个 Provider", len(s.providers))

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,7 +69,7 @@ func TestKeyFileProviderPermissionsAndSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("permissions = %o", info.Mode().Perm())
 	}
 	key2, err := provider.LoadOrCreate()
@@ -84,6 +86,27 @@ func TestKeyFileProviderPermissionsAndSymlink(t *testing.T) {
 	linked, _ := NewKeyFileProvider(link)
 	if _, err := linked.LoadOrCreate(); !errors.Is(err, ErrKeyUnavailable) {
 		t.Fatalf("symlink error = %v", err)
+	}
+}
+
+func TestKeyFileProviderRejectsInsecurePermissionsOnUnix(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACLs are not represented by os.FileMode")
+	}
+	path := filepath.Join(t.TempDir(), "ledger.key")
+	key := testKey(t, 42)
+	if err := os.WriteFile(path, key, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	provider, err := NewKeyFileProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.LoadOrCreate(); err == nil || !strings.Contains(err.Error(), "permissions") {
+		t.Fatalf("insecure key file error = %v, want permission rejection", err)
 	}
 }
 

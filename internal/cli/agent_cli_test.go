@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -271,7 +272,7 @@ func TestAgentLedgerOptionsUseDesktopDataRootKeyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("desktop key file path: %v", err)
 	}
-	if info, err := os.Stat(want); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(want); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("local key file = %v, %v; want 0600 file", info, err)
 	}
 	if len(store.getRefs) != 0 || len(store.putRefs) != 0 {
