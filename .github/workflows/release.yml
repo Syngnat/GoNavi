@@ -1834,11 +1834,31 @@ jobs:
           set -euo pipefail
           cd repo-for-changelog
           CHANGELOG_FILE="$RUNNER_TEMP/changelog.md"
+          NOTES_RANGE_ARGS=()
+          NOTES_RANGE_FILE=".github/release-notes-ranges.json"
+          if [[ -f "$NOTES_RANGE_FILE" ]]; then
+            jq -e '
+              type == "object"
+              and all(
+                to_entries[];
+                (.key | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+                and (.value | type == "object")
+                and (.value.previousTag | type == "string" and test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+              )
+            ' "$NOTES_RANGE_FILE" >/dev/null
+            PREVIOUS_TAG="$(jq -r --arg tag "$RELEASE_TAG" '.[$tag].previousTag // empty' "$NOTES_RANGE_FILE")"
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              git rev-parse --verify --quiet "refs/tags/${PREVIOUS_TAG}^{commit}" >/dev/null
+              NOTES_RANGE_ARGS=(--previous-tag "$PREVIOUS_TAG")
+              echo "🧭 使用更新日志基线 ${PREVIOUS_TAG}，以保留被补发版本的完整变更"
+            fi
+          fi
           python3 tools/generate-release-notes.py \
             --repo "${{ github.repository }}" \
             --tag "$RELEASE_TAG" \
             --repository-url "${{ github.server_url }}/${{ github.repository }}" \
-            --output "$CHANGELOG_FILE"
+            --output "$CHANGELOG_FILE" \
+            "${NOTES_RANGE_ARGS[@]}"
           echo "changelog_file=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Annotate macOS signing status
