@@ -214,6 +214,35 @@ stage_node() (
   printf -v remote_command 'sudo -- %q %q' "/usr/local/libexec/gonavi-edge-transaction" abort
   for argument in "${transaction_args[@]}"; do printf -v remote_command '%s %q' "${remote_command}" "${argument}"; done
   run_ssh "${PUB_SSH_TRANSACTION_COMMAND_TIMEOUT_SECONDS}" "${remote_command}"
+  # A failed upload can leave a large incoming payload behind.  Remove only
+  # old transactions for this channel so retention can make progress without
+  # touching another active publication or any immutable release directory.
+  echo "[${node}] clearing stale staging generations"
+  stale_generations="$(run_ssh "${PUB_SSH_QUICK_COMMAND_TIMEOUT_SECONDS}" \
+    "find '${root}/.incoming' -mindepth 1 -maxdepth 1 -type d -name '${PUB_CHANNEL}-*' -mmin +5 -printf '%f\\n' | sort")"
+  while IFS= read -r stale_generation; do
+    [[ -n "${stale_generation}" ]] || continue
+    [[ "${stale_generation}" != "${PUB_GENERATION}" ]] || continue
+    [[ "${stale_generation}" =~ ^${PUB_CHANNEL}-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || {
+      echo "${node} returned an invalid stale staging generation" >&2
+      exit 1
+    }
+    stale_transaction_args=(
+      --root "${root}" --staging-dir "${root}/.incoming/${stale_generation}"
+      --channel "${PUB_CHANNEL}" --app-tag "${PUB_APP_TAG}"
+      --generation "${stale_generation}" --node-id "${node}"
+    )
+    if [[ -n "${effective_driver_tag}" ]]; then
+      stale_transaction_args+=(--driver-tag "${effective_driver_tag}")
+    fi
+    printf -v stale_remote_command 'sudo -- %q %q' \
+      "/usr/local/libexec/gonavi-edge-transaction" abort
+    for argument in "${stale_transaction_args[@]}"; do
+      printf -v stale_remote_command '%s %q' "${stale_remote_command}" "${argument}"
+    done
+    echo "[${node}] aborting stale staging ${stale_generation}"
+    run_ssh "${PUB_SSH_TRANSACTION_COMMAND_TIMEOUT_SECONDS}" "${stale_remote_command}"
+  done <<< "${stale_generations}"
   # A release that is no longer referenced by either channel is superseded.
   # Prune before staging so a small edge cannot deadlock before it reaches the
   # post-publish cleanup below.
