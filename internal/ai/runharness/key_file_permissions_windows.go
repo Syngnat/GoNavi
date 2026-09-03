@@ -10,6 +10,37 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+func openExistingKeyFile(path string) (*os.File, error) {
+	return openKeyFile(path, windows.OPEN_EXISTING)
+}
+
+func createKeyFile(path string) (*os.File, error) {
+	return openKeyFile(path, windows.CREATE_NEW)
+}
+
+func openKeyFile(path string, creationDisposition uint32) (*os.File, error) {
+	pathPointer, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := windows.CreateFile(
+		pathPointer,
+		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.WRITE_DAC,
+		windows.FILE_SHARE_READ,
+		nil,
+		creationDisposition,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
+	if err != nil {
+		if creationDisposition == windows.CREATE_NEW && err == windows.ERROR_FILE_EXISTS {
+			return nil, os.ErrExist
+		}
+		return nil, err
+	}
+	return os.NewFile(uintptr(handle), path), nil
+}
+
 // Windows reports POSIX mode bits as 0666 regardless of the effective ACL.
 // Validate ownership through the security descriptor instead of rejecting a
 // valid key solely because os.FileMode cannot represent the DACL.

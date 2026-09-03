@@ -233,7 +233,7 @@ func (p *KeyFileProvider) LoadOrCreateDetailed() (LoadedKey, error) {
 		if !info.Mode().IsRegular() {
 			return LoadedKey{}, fmt.Errorf("%w: key file is not regular", ErrKeyUnavailable)
 		}
-		file, openErr := os.OpenFile(path, os.O_RDWR, 0)
+		file, openErr := openExistingKeyFile(path)
 		if openErr != nil {
 			return LoadedKey{}, fmt.Errorf("%w: open key file: %v", ErrKeyUnavailable, openErr)
 		}
@@ -279,7 +279,7 @@ func (p *KeyFileProvider) LoadOrCreateDetailed() (LoadedKey, error) {
 	if _, err := io.ReadFull(rand.Reader, key); err != nil {
 		return LoadedKey{}, fmt.Errorf("generate ledger key: %w", err)
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := createKeyFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return p.LoadOrCreateDetailed()
