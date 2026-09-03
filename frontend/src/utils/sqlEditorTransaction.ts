@@ -1,4 +1,8 @@
 import { getDataSourceCapabilityContract } from './dataSourceCapabilities';
+import {
+    supportsSqlBracketIdentifier,
+    supportsSqlEscapedBracketIdentifier,
+} from './sqlStatementSelection';
 
 const SQL_EDITOR_DML_KEYWORDS = new Set(['insert', 'update', 'delete', 'replace', 'merge', 'upsert']);
 const SQL_EDITOR_READ_KEYWORDS = new Set(['select', 'with', 'show', 'describe', 'desc', 'explain', 'pragma', 'values']);
@@ -75,6 +79,21 @@ const skipSqlEditorDelimited = (text: string, start: number, delimiter: string):
     return text.length;
 };
 
+const skipSqlEditorBracketIdentifier = (text: string, start: number, dbType = ''): number => {
+    let pos = start + 1;
+    while (pos < text.length) {
+        if (text[pos] === ']') {
+            if (supportsSqlEscapedBracketIdentifier(dbType) && text[pos + 1] === ']') {
+                pos += 2;
+                continue;
+            }
+            return pos + 1;
+        }
+        pos++;
+    }
+    return text.length;
+};
+
 const resolveSqlEditorDollarQuoteTag = (text: string, start: number): string => {
     if (text[start] !== '$') return '';
     let end = start + 1;
@@ -84,7 +103,7 @@ const resolveSqlEditorDollarQuoteTag = (text: string, start: number): string => 
     return text[end] === '$' ? text.slice(start, end + 1) : '';
 };
 
-const skipSqlEditorQuotedOrComment = (text: string, start: number): number | null => {
+const skipSqlEditorQuotedOrComment = (text: string, start: number, dbType = ''): number | null => {
     if (text.startsWith('--', start) || text.startsWith('#', start)) {
         const nextLine = text.indexOf('\n', start);
         return nextLine < 0 ? text.length : nextLine + 1;
@@ -97,9 +116,8 @@ const skipSqlEditorQuotedOrComment = (text: string, start: number): number | nul
     if (char === '\'' || char === '"' || char === '`') {
         return skipSqlEditorDelimited(text, start, char);
     }
-    if (char === '[') {
-        const bracketEnd = text.indexOf(']', start + 1);
-        return bracketEnd < 0 ? text.length : bracketEnd + 1;
+    if (char === '[' && supportsSqlBracketIdentifier(dbType)) {
+        return skipSqlEditorBracketIdentifier(text, start, dbType);
     }
     const dollarTag = resolveSqlEditorDollarQuoteTag(text, start);
     if (dollarTag) {
@@ -109,12 +127,12 @@ const skipSqlEditorQuotedOrComment = (text: string, start: number): number | nul
     return null;
 };
 
-const skipBalancedSqlEditorParens = (text: string, start: number): number => {
+const skipBalancedSqlEditorParens = (text: string, start: number, dbType = ''): number => {
     if (text[start] !== '(') return -1;
     let depth = 0;
     let pos = start;
     while (pos < text.length) {
-        const skipped = skipSqlEditorQuotedOrComment(text, pos);
+        const skipped = skipSqlEditorQuotedOrComment(text, pos, dbType);
         if (skipped !== null) {
             pos = skipped;
             continue;
@@ -135,13 +153,12 @@ const skipBalancedSqlEditorParens = (text: string, start: number): number => {
     return -1;
 };
 
-const skipSqlEditorIdentifierToken = (text: string, start: number): number => {
+const skipSqlEditorIdentifierToken = (text: string, start: number, dbType = ''): number => {
     if (start >= text.length) return -1;
     const char = text[start];
     if (char === '"' || char === '`') return skipSqlEditorDelimited(text, start, char);
-    if (char === '[') {
-        const bracketEnd = text.indexOf(']', start + 1);
-        return bracketEnd < 0 ? text.length : bracketEnd + 1;
+    if (char === '[' && supportsSqlBracketIdentifier(dbType)) {
+        return skipSqlEditorBracketIdentifier(text, start, dbType);
     }
     if (!isSqlEditorKeywordChar(char)) return -1;
     let end = start + 1;
@@ -151,11 +168,11 @@ const skipSqlEditorIdentifierToken = (text: string, start: number): number => {
     return end;
 };
 
-const findTopLevelSqlEditorKeyword = (text: string, start: number, keyword: string): number => {
+const findTopLevelSqlEditorKeyword = (text: string, start: number, keyword: string, dbType = ''): number => {
     let depth = 0;
     let pos = start;
     while (pos < text.length) {
-        const skipped = skipSqlEditorQuotedOrComment(text, pos);
+        const skipped = skipSqlEditorQuotedOrComment(text, pos, dbType);
         if (skipped !== null) {
             pos = skipped;
             continue;
@@ -186,7 +203,7 @@ const findTopLevelSqlEditorKeyword = (text: string, start: number, keyword: stri
     return -1;
 };
 
-const resolveSqlEditorWithAnalysis = (text: string, start: number): SqlEditorWithAnalysis => {
+const resolveSqlEditorWithAnalysis = (text: string, start: number, dbType = ''): SqlEditorWithAnalysis => {
     let pos = skipSqlEditorTrivia(text, start);
     let cteHasManagedWrite = false;
     const recursive = readSqlEditorKeyword(text, pos);
@@ -196,16 +213,16 @@ const resolveSqlEditorWithAnalysis = (text: string, start: number): SqlEditorWit
 
     while (pos < text.length) {
         pos = skipSqlEditorTrivia(text, pos);
-        const identifierEnd = skipSqlEditorIdentifierToken(text, pos);
+        const identifierEnd = skipSqlEditorIdentifierToken(text, pos, dbType);
         if (identifierEnd < 0) return { keyword: '', cteHasManagedWrite };
         pos = skipSqlEditorTrivia(text, identifierEnd);
         if (text[pos] === '(') {
-            const columnsEnd = skipBalancedSqlEditorParens(text, pos);
+            const columnsEnd = skipBalancedSqlEditorParens(text, pos, dbType);
             if (columnsEnd < 0) return { keyword: '', cteHasManagedWrite };
             pos = skipSqlEditorTrivia(text, columnsEnd);
         }
 
-        const asEnd = findTopLevelSqlEditorKeyword(text, pos, 'as');
+        const asEnd = findTopLevelSqlEditorKeyword(text, pos, 'as', dbType);
         if (asEnd < 0) return { keyword: '', cteHasManagedWrite };
         pos = skipSqlEditorTrivia(text, asEnd);
         const materialized = readSqlEditorKeyword(text, pos);
@@ -221,10 +238,10 @@ const resolveSqlEditorWithAnalysis = (text: string, start: number): SqlEditorWit
         pos = skipSqlEditorTrivia(text, pos);
         if (text[pos] !== '(') return { keyword: '', cteHasManagedWrite };
         const cteBodyStart = pos + 1;
-        const cteEnd = skipBalancedSqlEditorParens(text, pos);
+        const cteEnd = skipBalancedSqlEditorParens(text, pos, dbType);
         if (cteEnd < 0) return { keyword: '', cteHasManagedWrite };
         const cteBody = text.slice(cteBodyStart, Math.max(cteBodyStart, cteEnd - 1));
-        if (sqlEditorStatementHasManagedWrite(cteBody)) {
+        if (sqlEditorStatementHasManagedWrite(cteBody, dbType)) {
             cteHasManagedWrite = true;
         }
         pos = skipSqlEditorTrivia(text, cteEnd);
@@ -238,25 +255,41 @@ const resolveSqlEditorWithAnalysis = (text: string, start: number): SqlEditorWit
     return { keyword: '', cteHasManagedWrite };
 };
 
-export const resolveSqlEditorOperationKeyword = (statement: string): string => {
+export const resolveSqlEditorOperationKeyword = (statement: string, dbType = ''): string => {
     const text = String(statement || '');
     const leading = readSqlEditorKeyword(text, 0);
     if (leading.keyword !== 'with') {
         return leading.keyword;
     }
-    return resolveSqlEditorWithAnalysis(text, leading.end).keyword || leading.keyword;
+    return resolveSqlEditorWithAnalysis(text, leading.end, dbType).keyword || leading.keyword;
 };
 
-export const isSqlEditorSchemaChangingStatement = (statement: string): boolean => (
-    SQL_EDITOR_SCHEMA_CHANGE_KEYWORDS.has(resolveSqlEditorOperationKeyword(statement))
+export const isSqlEditorSchemaChangingStatement = (statement: string, dbType = ''): boolean => (
+    (() => {
+        const text = String(statement || '');
+        const keyword = resolveSqlEditorOperationKeyword(text, dbType);
+        if (SQL_EDITOR_SCHEMA_CHANGE_KEYWORDS.has(keyword)) return true;
+        // Anonymous PL/SQL/T-SQL blocks can contain DDL after a non-DDL
+        // wrapper keyword. Scan only those block forms; ordinary SELECT/DML
+        // statements remain on the cheap keyword path.
+        // PostgreSQL `DO $$...$$` bodies are executable code. The lexical
+        // scanner intentionally skips dollar-quoted text, so looking for a
+        // literal CREATE token there would miss dynamic/static DDL. Treat the
+        // block as schema-changing conservatively; stale metadata is worse
+        // than one extra refresh.
+        if (keyword === 'do') return true;
+        if (!['begin', 'declare'].includes(keyword)) return false;
+        if (sqlEditorStatementContainsDynamicSql(text, dbType)) return true;
+        return sqlEditorStatementContainsSchemaChangeKeyword(text, dbType);
+    })()
 );
 
-export const hasTopLevelSqlEditorForUpdate = (statement: string): boolean => {
+export const hasTopLevelSqlEditorForUpdate = (statement: string, dbType = ''): boolean => {
     const text = String(statement || '');
-    if (resolveSqlEditorOperationKeyword(text) !== 'select') return false;
+    if (resolveSqlEditorOperationKeyword(text, dbType) !== 'select') return false;
     let searchFrom = 0;
     while (searchFrom < text.length) {
-        const forEnd = findTopLevelSqlEditorKeyword(text, searchFrom, 'for');
+        const forEnd = findTopLevelSqlEditorKeyword(text, searchFrom, 'for', dbType);
         if (forEnd < 0) return false;
         if (readSqlEditorKeyword(text, forEnd).keyword === 'update') return true;
         searchFrom = forEnd;
@@ -264,20 +297,20 @@ export const hasTopLevelSqlEditorForUpdate = (statement: string): boolean => {
     return false;
 };
 
-const sqlEditorStatementHasManagedWrite = (statement: string): boolean => {
+const sqlEditorStatementHasManagedWrite = (statement: string, dbType = ''): boolean => {
     const text = String(statement || '');
     const leading = readSqlEditorKeyword(text, 0);
     if (leading.keyword === 'with') {
-        const analysis = resolveSqlEditorWithAnalysis(text, leading.end);
+        const analysis = resolveSqlEditorWithAnalysis(text, leading.end, dbType);
         return analysis.cteHasManagedWrite || SQL_EDITOR_DML_KEYWORDS.has(analysis.keyword);
     }
     return SQL_EDITOR_DML_KEYWORDS.has(leading.keyword);
 };
 
-const sqlEditorStatementContainsKeyword = (statement: string, wantedKeyword: string): boolean => {
+const sqlEditorStatementContainsKeyword = (statement: string, wantedKeyword: string, dbType = ''): boolean => {
     const text = String(statement || '');
     for (let pos = 0; pos < text.length;) {
-        const skipped = skipSqlEditorQuotedOrComment(text, pos);
+        const skipped = skipSqlEditorQuotedOrComment(text, pos, dbType);
         if (skipped !== null) {
             pos = skipped;
             continue;
@@ -298,6 +331,101 @@ const sqlEditorStatementContainsKeyword = (statement: string, wantedKeyword: str
     return false;
 };
 
+const isSqlEditorSchemaKeywordAtStatementStart = (
+    text: string,
+    tokenEnd: number,
+    keyword: string,
+): boolean => {
+    const next = skipSqlEditorTrivia(text, tokenEnd);
+    if (next >= text.length) {
+        return keyword !== 'comment';
+    }
+    // A variable/column assignment such as `comment := ...` is not a schema
+    // statement. COMMENT has an especially common collision with column names,
+    // so require its SQL DDL continuation explicitly.
+    if (text[next] === '=' || (text[next] === ':' && text[next + 1] === '=')) {
+        return false;
+    }
+    if (keyword === 'comment') {
+        return readSqlEditorKeyword(text, next).keyword === 'on';
+    }
+    return text[next] !== '.';
+};
+
+const sqlEditorStatementContainsSchemaChangeKeyword = (statement: string, dbType = ''): boolean => {
+    const text = String(statement || '');
+    let statementStart = true;
+    for (let pos = 0; pos < text.length;) {
+        const skipped = skipSqlEditorQuotedOrComment(text, pos, dbType);
+        if (skipped !== null) {
+            pos = skipped;
+            continue;
+        }
+        if (text[pos] === ';') {
+            statementStart = true;
+            pos++;
+            continue;
+        }
+        if (!isSqlEditorKeywordChar(text[pos])) {
+            pos++;
+            continue;
+        }
+
+        let end = pos + 1;
+        while (isSqlEditorKeywordChar(text[end])) end++;
+        const keyword = text.slice(pos, end).toLowerCase();
+        if (
+            statementStart
+            && SQL_EDITOR_SCHEMA_CHANGE_KEYWORDS.has(keyword)
+            && isSqlEditorSchemaKeywordAtStatementStart(text, end, keyword)
+        ) {
+            return true;
+        }
+
+        // PL/SQL/T-SQL branches can start a nested statement without a
+        // semicolon immediately before it (`IF ... THEN ALTER ...`).
+        statementStart = ['begin', 'then', 'else', 'loop', 'case'].includes(keyword);
+        pos = end;
+    }
+    return false;
+};
+
+const sqlEditorStatementContainsKeywordSequence = (
+    statement: string,
+    firstKeyword: string,
+    secondKeyword: string,
+    dbType = '',
+): boolean => {
+    const text = String(statement || '');
+    let previousKeyword = '';
+    for (let pos = 0; pos < text.length;) {
+        const skipped = skipSqlEditorQuotedOrComment(text, pos, dbType);
+        if (skipped !== null) {
+            pos = skipped;
+            continue;
+        }
+        if (!isSqlEditorKeywordChar(text[pos])) {
+            pos++;
+            continue;
+        }
+        let end = pos + 1;
+        while (isSqlEditorKeywordChar(text[end])) end++;
+        const keyword = text.slice(pos, end).toLowerCase();
+        if (previousKeyword === firstKeyword && keyword === secondKeyword) {
+            return true;
+        }
+        previousKeyword = keyword;
+        pos = end;
+    }
+    return false;
+};
+
+const sqlEditorStatementContainsDynamicSql = (statement: string, dbType = ''): boolean => (
+    sqlEditorStatementContainsKeywordSequence(statement, 'execute', 'immediate', dbType)
+    || sqlEditorStatementContainsKeyword(statement, 'sp_executesql', dbType)
+    || sqlEditorStatementContainsKeywordSequence(statement, 'execute', 'dynamic', dbType)
+);
+
 const isSqlEditorBeginTransactionControlStatement = (statement: string, keywordEnd: number): boolean => {
     const text = String(statement || '');
     const next = skipSqlEditorTrivia(text, keywordEnd);
@@ -305,7 +433,7 @@ const isSqlEditorBeginTransactionControlStatement = (statement: string, keywordE
     return SQL_EDITOR_BEGIN_TRANSACTION_CONTROL_KEYWORDS.has(readSqlEditorKeyword(text, keywordEnd).keyword);
 };
 
-export const isSqlEditorTransactionControlStatement = (statement: string): boolean => {
+export const isSqlEditorTransactionControlStatement = (statement: string, _dbType = ''): boolean => {
     const text = String(statement || '');
     const leading = readSqlEditorKeyword(text, 0);
     if (leading.keyword === 'begin') {
@@ -330,7 +458,7 @@ const isSqlEditorManagedBlockWrite = (type: string, statement: string): boolean 
         return false;
     }
 
-    return [...SQL_EDITOR_DML_KEYWORDS].some((keyword) => sqlEditorStatementContainsKeyword(text, keyword));
+    return [...SQL_EDITOR_DML_KEYWORDS].some((keyword) => sqlEditorStatementContainsKeyword(text, keyword, normalizedType));
 };
 
 type DataSourceCapabilityInput = Parameters<typeof getDataSourceCapabilityContract>[0];
@@ -355,20 +483,21 @@ export const shouldUseSqlEditorManagedTransactionForType = (
     if (!supportsSqlEditorManagedTransaction(type, connectionConfig)) {
         return false;
     }
+    const normalizedType = String(type || '').trim().toLowerCase();
     let hasManagedWrite = false;
     for (const statement of statements) {
         const trimmed = String(statement || '').trim();
         if (!trimmed) continue;
-        if (isSqlEditorTransactionControlStatement(trimmed)) return false;
+        if (isSqlEditorTransactionControlStatement(trimmed, normalizedType)) return false;
         if (isSqlEditorManagedBlockWrite(type, trimmed)) {
             hasManagedWrite = true;
             continue;
         }
-        if (sqlEditorStatementHasManagedWrite(trimmed)) {
+        if (sqlEditorStatementHasManagedWrite(trimmed, normalizedType)) {
             hasManagedWrite = true;
             continue;
         }
-        const keyword = resolveSqlEditorOperationKeyword(trimmed);
+        const keyword = resolveSqlEditorOperationKeyword(trimmed, normalizedType);
         if (SQL_EDITOR_READ_KEYWORDS.has(keyword)) continue;
         return false;
     }
@@ -386,14 +515,15 @@ export const canReusePendingSqlEditorTransactionForType = (
     if (!supportsSqlEditorManagedTransaction(type, connectionConfig)) {
         return false;
     }
+    const normalizedType = String(type || '').trim().toLowerCase();
     let hasReadStatement = false;
     for (const statement of statements) {
         const trimmed = String(statement || '').trim();
         if (!trimmed) continue;
-        if (isSqlEditorTransactionControlStatement(trimmed)) return false;
+        if (isSqlEditorTransactionControlStatement(trimmed, normalizedType)) return false;
         if (isSqlEditorManagedBlockWrite(type, trimmed)) return false;
-        if (sqlEditorStatementHasManagedWrite(trimmed)) return false;
-        const keyword = resolveSqlEditorOperationKeyword(trimmed);
+        if (sqlEditorStatementHasManagedWrite(trimmed, normalizedType)) return false;
+        const keyword = resolveSqlEditorOperationKeyword(trimmed, normalizedType);
         if (!SQL_EDITOR_READ_KEYWORDS.has(keyword)) return false;
         hasReadStatement = true;
     }

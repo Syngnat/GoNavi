@@ -23,6 +23,8 @@ type keyringStore struct {
 
 type keyringOpener func(cfg keyring.Config) (keyring.Keyring, error)
 
+const keyringItemLabel = "GoNavi"
+
 func NewKeyringStore() SecretStore {
 	return newKeyringStoreWithOpener(runtime.GOOS, keyring.Open)
 }
@@ -42,13 +44,32 @@ func newKeyringStoreWithOpener(goos string, open keyringOpener) SecretStore {
 }
 
 func (s *keyringStore) Put(ref string, payload []byte) error {
-	return wrapKeyringError(s.ring.Set(keyring.Item{Key: ref, Data: payload}))
+	// Label and Description surface in macOS Keychain ACL prompts; without a
+	// label the prompt names the item as "" and users cannot tell which app
+	// or secret is asking for permission.
+	return wrapKeyringError(s.ring.Set(keyringItem(ref, payload)))
+}
+
+func keyringItem(ref string, payload []byte) keyring.Item {
+	return keyring.Item{
+		Key:         ref,
+		Data:        payload,
+		Label:       keyringItemLabel,
+		Description: ref,
+	}
 }
 
 func (s *keyringStore) Get(ref string) ([]byte, error) {
 	item, err := s.ring.Get(ref)
 	if err != nil {
 		return nil, wrapKeyringError(err)
+	}
+	if runtime.GOOS == "darwin" && strings.TrimSpace(item.Label) == "" {
+		// Existing versions stored items without a Keychain label. Only migrate
+		// after the original payload has been read successfully, so a denied ACL
+		// prompt can never overwrite an encryption key. The upstream Keychain
+		// backend updates this metadata without replacing the item's ACL.
+		_ = s.ring.Set(keyringItem(ref, item.Data))
 	}
 	return item.Data, nil
 }

@@ -261,6 +261,33 @@ func TestOpenAIProviderChatUsesRequestMaxTokens(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderGLM53UsesResponsesCompatibleReasoningEffort(t *testing.T) {
+	var received openAIChatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Fatalf("decode request body failed: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"pong"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	providerInstance, err := NewOpenAIProvider(ai.ProviderConfig{
+		Type: "openai", APIKey: "sk-test", BaseURL: server.URL,
+		Model: "z-ai/glm-5.3-free", ThinkingIntensity: "medium",
+	})
+	if err != nil {
+		t.Fatalf("create provider failed: %v", err)
+	}
+	if _, err := providerInstance.Chat(context.Background(), ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}}); err != nil {
+		t.Fatalf("chat failed: %v", err)
+	}
+	if received.ReasoningEffort != "medium" {
+		t.Fatalf("GLM-5.3 medium reasoning_effort = %q, want medium", received.ReasoningEffort)
+	}
+}
+
 func TestOpenAIProviderChatMovesSystemMessagesToRequestPrefix(t *testing.T) {
 	var received openAIChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

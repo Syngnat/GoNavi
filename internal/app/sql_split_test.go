@@ -2,6 +2,7 @@ package app
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -64,6 +65,47 @@ func TestSplitSQLStatements_QuotedSemicolon(t *testing.T) {
 	want := []string{`SELECT 'hello;world'`, "SELECT 2"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("splitSQLStatements(%q) = %v, want %v", input, got, want)
+	}
+}
+
+func TestSplitSQLStatements_SQLServerBracketIdentifierSemicolon(t *testing.T) {
+	input := "SELECT * FROM [audit]];events]; SELECT 2"
+	got := splitSQLStatementsForDialect("sqlserver", input)
+	want := []string{"SELECT * FROM [audit]];events]", "SELECT 2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("splitSQLStatementsForDialect(sqlserver, %q) = %#v, want %#v", input, got, want)
+	}
+}
+
+func TestSplitSQLStatements_SQLiteBracketIdentifierSemicolon(t *testing.T) {
+	input := "SELECT * FROM [a;b]; SELECT 2"
+	got := splitSQLStatementsForDialect("sqlite", input)
+	want := []string{"SELECT * FROM [a;b]", "SELECT 2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("splitSQLStatementsForDialect(sqlite, %q) = %#v, want %#v", input, got, want)
+	}
+}
+
+func TestSplitSQLStatements_ArrayBracketsRemainSyntaxOutsideSQLServer(t *testing.T) {
+	tests := []struct {
+		dbType string
+		query  string
+	}{
+		{dbType: "postgres", query: "SELECT ARRAY[[1,2],[3,4]]; DELETE FROM users"},
+		{dbType: "clickhouse", query: "SELECT [[1],[2]]; DROP TABLE users"},
+		{dbType: "duckdb", query: "SELECT [[1],[2]]; UPDATE users SET active = false"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.dbType, func(t *testing.T) {
+			got := splitSQLStatementsForDialect(test.dbType, test.query)
+			if len(got) != 2 {
+				t.Fatalf("splitSQLStatementsForDialect(%q, %q) = %#v, want two statements", test.dbType, test.query, got)
+			}
+			if got[1] == "" || !strings.Contains(strings.ToLower(got[1]), strings.ToLower(strings.Fields(test.query[strings.Index(test.query, ";")+1:])[0])) {
+				t.Fatalf("splitSQLStatementsForDialect(%q, %q) lost the statement after the array: %#v", test.dbType, test.query, got)
+			}
+		})
 	}
 }
 

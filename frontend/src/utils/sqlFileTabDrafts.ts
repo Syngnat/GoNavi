@@ -285,12 +285,24 @@ const upsertPersistedDraftEntry = (
     schedulePersistedDraftFlush();
     return;
   }
+  // An override is allowed to intentionally clear a context value (for
+  // example a connection-scoped SQLite tab has no database name). Only fall
+  // back to the tab snapshot when the property was not supplied at all.
+  const hasOverride = (key: 'connectionId' | 'dbName'): boolean => (
+    !!overrides && Object.prototype.hasOwnProperty.call(overrides, key)
+  );
+  const resolvedConnectionId = hasOverride('connectionId')
+    ? String(overrides?.connectionId ?? '').trim()
+    : toTrimmedString(tab.connectionId);
+  const resolvedDbName = hasOverride('dbName')
+    ? String(overrides?.dbName ?? '').trim()
+    : toTrimmedString(tab.dbName);
   persistedDrafts.set(tabId, {
     tabId,
     title: toTrimmedString(tab.title, 'SQL Query'),
     query,
-    connectionId: toTrimmedString(overrides?.connectionId, toTrimmedString(tab.connectionId)),
-    dbName: toTrimmedString(overrides?.dbName, toTrimmedString(tab.dbName)),
+    connectionId: resolvedConnectionId,
+    dbName: resolvedDbName,
     filePath: filePath || undefined,
     savedQueryId: savedQueryId || undefined,
     readOnly: tab.readOnly === true,

@@ -291,11 +291,63 @@ func TestServiceWorkspaceSnapshotDefersLedgerUntilAgentUse(t *testing.T) {
 		t.Fatalf("first Agent API error = %v, want ErrNotFound", err)
 	}
 	gets, puts, _ = store.accessCounts()
-	if gets != 1 || puts != 1 {
-		t.Fatalf("first Agent API keyring access = gets=%d puts=%d, want one read and one create", gets, puts)
+	if gets != 0 || puts != 0 {
+		t.Fatalf("first Agent API accessed SecretStore: gets=%d puts=%d", gets, puts)
+	}
+	if _, statErr := os.Stat(filepath.Join(service.configDir, agentLedgerKeyFileName)); statErr != nil {
+		t.Fatalf("first Agent API did not create local ledger key: %v", statErr)
 	}
 	if status := service.AIGetAgentLedgerStatus(); status.State != runharness.LedgerStatusReady {
 		t.Fatalf("ledger status after Agent API = %+v, want ready", status)
+	}
+}
+
+func TestServiceInitializationFlushesPendingWorkspaceSnapshotsBeforeExposure(t *testing.T) {
+	service := NewServiceWithSecretStore(newAgentHarnessTestSecretStore())
+	service.configDir = t.TempDir()
+	service.agentContext = context.Background()
+	t.Cleanup(service.Shutdown)
+
+	pending := runharness.WorkspaceSnapshot{
+		SourceKind:       runharness.WorkspaceDesktop,
+		SourceID:         "desktop",
+		SourceInstanceID: "startup-instance",
+		Revision:         6,
+		CapturedAt:       time.Now(),
+	}
+	if _, err := service.AIUpdateWorkspaceSnapshot(pending); err != nil {
+		t.Fatalf("cache startup workspace snapshot: %v", err)
+	}
+	if err := service.initializeAgentHarness(service.agentContext); err != nil {
+		t.Fatalf("initializeAgentHarness: %v", err)
+	}
+
+	newer := pending
+	newer.Revision = 7
+	newer.CapturedAt = time.Now()
+	if _, err := service.AIUpdateWorkspaceSnapshot(newer); err != nil {
+		t.Fatalf("persist snapshot after initialization: %v", err)
+	}
+	if _, err := service.AIReadAgentSession(runharness.SessionReadRequest{SessionID: "not-created"}); !errors.Is(err, runharness.ErrNotFound) {
+		t.Fatalf("Agent API after workspace update = %v, want ErrNotFound without a snapshot conflict", err)
+	}
+
+	service.agentMu.RLock()
+	ledger := service.agentLedger
+	pendingCount := len(service.agentPendingWorkspaceSnapshots)
+	service.agentMu.RUnlock()
+	if ledger == nil {
+		t.Fatal("expected initialized ledger")
+	}
+	if pendingCount != 0 {
+		t.Fatalf("pending snapshots after initialization = %d, want 0", pendingCount)
+	}
+	stored, err := ledger.LatestWorkspaceSnapshot(context.Background(), newer.SourceID, newer.SourceInstanceID)
+	if err != nil {
+		t.Fatalf("read persisted workspace snapshot: %v", err)
+	}
+	if stored.Revision != newer.Revision {
+		t.Fatalf("workspace snapshot revision = %d, want %d", stored.Revision, newer.Revision)
 	}
 }
 
@@ -333,6 +385,86 @@ func TestServiceAgentAPIsInitializeLedgerLazily(t *testing.T) {
 	}
 	if !service.agentHarnessInitialized || service.agentHarness == nil || service.agentLedger == nil {
 		t.Fatal("Agent API call did not initialize the ledger")
+	}
+}
+
+func TestServiceAgentHarnessUsesLocalKeyFileWithoutSecretStore(t *testing.T) {
+	store := newAgentHarnessTestSecretStore()
+	service := NewServiceWithSecretStore(store)
+	service.configDir = t.TempDir()
+	service.agentContext = context.Background()
+	t.Cleanup(service.Shutdown)
+
+	if err := service.initializeAgentHarness(service.agentContext); err != nil {
+		t.Fatalf("initialize agent harness: %v", err)
+	}
+	gets, puts, healthChecks := store.accessCounts()
+	if gets != 0 || puts != 0 || healthChecks != 0 {
+		t.Fatalf("agent harness accessed SecretStore: gets=%d puts=%d healthChecks=%d", gets, puts, healthChecks)
+	}
+	keyInfo, err := os.Stat(filepath.Join(service.configDir, "agent_runs.key"))
+	if err != nil {
+		t.Fatalf("stat local ledger key: %v", err)
+	}
+	if keyInfo.Mode().Perm() != 0o600 {
+		t.Fatalf("local ledger key permissions = %o, want 0600", keyInfo.Mode().Perm())
+	}
+}
+
+func TestServiceAgentHarnessArchivesLegacyKeyringLedgerWithoutAccessingSecretStore(t *testing.T) {
+	configDir := t.TempDir()
+	ledgerPath := filepath.Join(configDir, "agent_runs.sqlite")
+	legacyKey := make([]byte, 32)
+	for index := range legacyKey {
+		legacyKey[index] = byte(index + 1)
+	}
+	legacyLedger, err := runharness.Open(ledgerPath, runharness.WithKey(legacyKey))
+	if err != nil {
+		t.Fatalf("create legacy ledger: %v", err)
+	}
+	if err := legacyLedger.Close(); err != nil {
+		t.Fatalf("close legacy ledger: %v", err)
+	}
+
+	store := newAgentHarnessTestSecretStore()
+	keyRef, err := agentLedgerKeyRef(configDir)
+	if err != nil {
+		t.Fatalf("resolve legacy key ref: %v", err)
+	}
+	store.items[keyRef] = append([]byte(nil), legacyKey...)
+	service := NewServiceWithSecretStore(store)
+	service.configDir = configDir
+	service.agentContext = context.Background()
+	t.Cleanup(service.Shutdown)
+
+	if err := service.initializeAgentHarness(service.agentContext); err != nil {
+		t.Fatalf("initialize agent harness after keyring removal: %v", err)
+	}
+	gets, puts, healthChecks := store.accessCounts()
+	if gets != 0 || puts != 0 || healthChecks != 0 {
+		t.Fatalf("legacy archive accessed SecretStore: gets=%d puts=%d healthChecks=%d", gets, puts, healthChecks)
+	}
+
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		t.Fatalf("read config directory: %v", err)
+	}
+	var archivedLedgerPath string
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".agent_runs.keyring-backup-") {
+			archivedLedgerPath = filepath.Join(configDir, entry.Name(), "agent_runs.sqlite")
+			break
+		}
+	}
+	if archivedLedgerPath == "" {
+		t.Fatal("legacy keyring ledger was not archived")
+	}
+	archivedLedger, err := runharness.Open(archivedLedgerPath, runharness.WithKey(legacyKey))
+	if err != nil {
+		t.Fatalf("archived legacy ledger is not recoverable with its original key: %v", err)
+	}
+	if err := archivedLedger.Close(); err != nil {
+		t.Fatalf("close archived legacy ledger: %v", err)
 	}
 }
 
@@ -457,14 +589,15 @@ func TestServiceAgentLedgerStatusIsNonSensitive(t *testing.T) {
 		t.Fatalf("ready ledger status = %+v", status)
 	}
 
-	lockedService := NewServiceWithSecretStore(secretstore.NewUnavailableStore("test keyring unavailable"))
-	lockedService.configDir = t.TempDir()
-	lockedService.agentContext = context.Background()
-	if err := lockedService.initializeAgentHarness(lockedService.agentContext); err == nil {
-		t.Fatal("initializeAgentHarness unexpectedly succeeded with an unavailable keyring")
+	localOnlyService := NewServiceWithSecretStore(secretstore.NewUnavailableStore("test keyring unavailable"))
+	localOnlyService.configDir = t.TempDir()
+	localOnlyService.agentContext = context.Background()
+	if err := localOnlyService.initializeAgentHarness(localOnlyService.agentContext); err != nil {
+		t.Fatalf("initializeAgentHarness should not require an unavailable keyring: %v", err)
 	}
-	if status := lockedService.AIGetAgentLedgerStatus(); status.State != runharness.LedgerStatusLocked || status.Message != "" {
-		t.Fatalf("locked ledger status = %+v", status)
+	t.Cleanup(localOnlyService.Shutdown)
+	if status := localOnlyService.AIGetAgentLedgerStatus(); status.State != runharness.LedgerStatusReady || status.Message != "" {
+		t.Fatalf("local-only ledger status = %+v", status)
 	}
 
 	unavailableService := NewServiceWithSecretStore(newAgentHarnessTestSecretStore())

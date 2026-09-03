@@ -718,7 +718,7 @@ func (k *KingbaseDB) GetTriggers(dbName, tableName string) ([]connection.Trigger
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
 
-	data, _, err := k.Query(buildPGLikeTriggersMetadataQuery(schema, table))
+	data, err := queryPGLikeTriggersMetadata(k, schema, table)
 	if err != nil {
 		return nil, err
 	}
@@ -726,10 +726,11 @@ func (k *KingbaseDB) GetTriggers(dbName, tableName string) ([]connection.Trigger
 	var triggers []connection.TriggerDefinition
 	for _, row := range data {
 		trig := connection.TriggerDefinition{
-			Name:      fmt.Sprintf("%v", row["trigger_name"]),
-			Timing:    fmt.Sprintf("%v", row["action_timing"]),
-			Event:     fmt.Sprintf("%v", row["event_manipulation"]),
-			Statement: "SOURCE HIDDEN",
+			Name:        fmt.Sprintf("%v", row["trigger_name"]),
+			Timing:      fmt.Sprintf("%v", row["action_timing"]),
+			Event:       fmt.Sprintf("%v", row["event_manipulation"]),
+			Statement:   "SOURCE HIDDEN",
+			Orientation: getPGLikeTriggerOrientation(row),
 		}
 		triggers = append(triggers, trig)
 	}

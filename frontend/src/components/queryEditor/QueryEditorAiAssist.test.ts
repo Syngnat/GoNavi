@@ -672,6 +672,44 @@ describe('QueryEditorAiAssist', () => {
         expect(focused.columns).toEqual([{ dbName: 'shop', tableName: 'videos', name: 'code', type: 'varchar' }]);
     });
 
+    it('keeps PostgreSQL quoted table references separate from folded unquoted names', () => {
+        const context = {
+            sourceType: 'postgres',
+            currentDb: 'appdb',
+            visibleDbs: ['appdb'],
+            tables: [
+                { dbName: 'appdb', tableName: 'public.Users' },
+                { dbName: 'appdb', tableName: 'public.users' },
+            ],
+            columns: [
+                { dbName: 'appdb', tableName: 'public.Users', name: 'QuotedId', type: 'bigint' },
+                { dbName: 'appdb', tableName: 'public.users', name: 'id', type: 'bigint' },
+            ],
+        };
+
+        const quoted = buildQueryEditorInlineCompletionContext(context, {
+            prefix: 'select * from public."Users" u where u.',
+            suffix: '',
+            currentLineBeforeCursor: 'select * from public."Users" u where u.',
+            currentLineAfterCursor: '',
+        });
+        expect(quoted.tables).toEqual([{ dbName: 'appdb', tableName: 'public.Users' }]);
+        expect(quoted.columns).toEqual([
+            { dbName: 'appdb', tableName: 'public.Users', name: 'QuotedId', type: 'bigint' },
+        ]);
+
+        const unquoted = buildQueryEditorInlineCompletionContext(context, {
+            prefix: 'select * from public.users u where u.',
+            suffix: '',
+            currentLineBeforeCursor: 'select * from public.users u where u.',
+            currentLineAfterCursor: '',
+        });
+        expect(unquoted.tables).toEqual([{ dbName: 'appdb', tableName: 'public.users' }]);
+        expect(unquoted.columns).toEqual([
+            { dbName: 'appdb', tableName: 'public.users', name: 'id', type: 'bigint' },
+        ]);
+    });
+
     it('matches schema-qualified table metadata columns by table name last part', () => {
         const focused = buildQueryEditorInlineCompletionContext({
             connectionName: 'Local Oracle',

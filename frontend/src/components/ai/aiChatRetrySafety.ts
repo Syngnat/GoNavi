@@ -4,6 +4,7 @@ const isSettledAssistantMessage = (message: AIChatMessage): boolean => (
   message.role === 'assistant'
   && message.excludeFromAIContext !== true
   && message.loading !== true
+  && message.phase !== 'queued'
   && message.phase !== 'connecting'
   && message.phase !== 'thinking'
   && message.phase !== 'generating'

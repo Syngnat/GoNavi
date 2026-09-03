@@ -307,6 +307,7 @@ const editorState = vi.hoisted(() => {
     providerLanguages: [] as string[],
     hoverProviders: [] as any[],
     hoverProviderLanguages: [] as string[],
+    hoverProviderRegistrationKinds: [] as string[],
     contentChangeListeners: [] as Array<() => void>,
     cursorPositionListeners: [] as Array<(event: any) => void>,
     modelContentListeners: [] as Array<(event: any) => void>,
@@ -508,7 +509,15 @@ vi.mock('@monaco-editor/react', () => ({
           }),
           registerHoverProvider: vi.fn((language: string, provider: any) => {
             editorState.hoverProviderLanguages.push(language);
+            editorState.hoverProviderRegistrationKinds.push(String(provider?.__gonaviHoverProviderKind || 'unknown'));
             editorState.hoverProviders.push(provider);
+            // Keep the legacy test accessors ([0] = metadata, [2] = DDL)
+            // stable while separately recording the real registration order.
+            editorState.hoverProviders.sort((left, right) => {
+              const leftRank = left?.__gonaviHoverProviderKind === 'metadata' ? 0 : 1;
+              const rightRank = right?.__gonaviHoverProviderKind === 'metadata' ? 0 : 1;
+              return leftRank - rightRank;
+            });
             return { dispose: vi.fn() };
           }),
         },
@@ -1080,6 +1089,7 @@ describe('QueryEditor external SQL save', () => {
     dataGridState.latestProps = null;
     tabsState.activeKey = undefined;
     editorState.value = '';
+    delete (editorState.editor.getModel() as any).uri;
     editorState.position = { lineNumber: 1, column: 1 };
     editorState.selection = null;
     editorState.scrollLeft = 0;
@@ -1089,6 +1099,7 @@ describe('QueryEditor external SQL save', () => {
     editorState.providerLanguages = [];
     editorState.hoverProviders = [];
     editorState.hoverProviderLanguages = [];
+    editorState.hoverProviderRegistrationKinds = [];
     editorState.contentChangeListeners = [];
     editorState.cursorPositionListeners = [];
     editorState.modelContentListeners = [];
@@ -1358,7 +1369,7 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    const ddlHover = await editorState.hoverProviders[0]?.provideHover(
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: 'SELECT * FROM users'.length },
       { isCancellationRequested: false },
@@ -3443,6 +3454,7 @@ describe('QueryEditor external SQL save', () => {
     const completionState = (globalThis as any).__gonaviSqlCompletionState;
 
     expect(editorState.hoverProviderLanguages).toEqual(['sql', 'mysql', 'sql', 'mysql']);
+    expect(editorState.hoverProviderRegistrationKinds).toEqual(['ddl', 'ddl', 'metadata', 'metadata']);
     expect(editorState.providerLanguages).toEqual(['sql', 'mysql', 'sql', 'mysql', 'sql', 'mysql']);
     expect(editorState.hoverProviders).toHaveLength(4);
     expect(editorState.providers).toHaveLength(6);
@@ -3667,8 +3679,8 @@ describe('QueryEditor external SQL save', () => {
     backendApp.DBGetTables.mockResolvedValueOnce({ success: true, data: [] });
     backendApp.DBGetAllColumns.mockResolvedValueOnce({ success: true, data: [] });
     backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
-      if (String(sql || '').includes('USER_VIEWS')) {
-        return { success: true, data: [{ view_name: 'PERSON_VIEW' }] };
+      if (String(sql || '').includes('USER_VIEWS') || String(sql || '').includes('ALL_VIEWS')) {
+        return { success: true, data: [{ view_name: 'PERSON_VIEW', schema_name: 'APP' }] };
       }
       return { success: true, data: [] };
     });
@@ -3765,6 +3777,46 @@ describe('QueryEditor external SQL save', () => {
     expect(columnItems.suggestions.filter((item: any) => item.label === 'ID')).toHaveLength(1);
     expect(columnItems.suggestions.filter((item: any) => item.label === 'NAME')).toHaveLength(1);
 
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('does not attribute Oracle USER metadata to a different selected owner', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = true;
+    storeState.connections[0].config.type = 'oracle';
+    storeState.connections[0].config.user = 'B';
+    storeState.connections[0].config.database = 'B';
+    backendApp.DBGetDatabases.mockResolvedValueOnce({ success: true, data: [{ Database: 'B' }, { Database: 'A' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
+      if (/USER_VIEWS/i.test(sql)) {
+        return { success: true, data: [{ view_name: 'B_ONLY_VIEW' }] };
+      }
+      if (/ALL_VIEWS/i.test(sql) && /OWNER = 'A'/i.test(sql)) {
+        return { success: true, data: [{ schema_name: 'A', view_name: 'A_VIEW' }] };
+      }
+      return { success: true, data: [] };
+    });
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'SELECT * FROM A.A_VIEW', dbName: 'B' })} />);
+      for (let i = 0; i < 56; i += 1) await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    expect(sqlProvider).toBeTruthy();
+    editorState.value = 'SELECT * FROM A.';
+    editorState.latestOnChange?.(editorState.value);
+    const result = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+
+    expect(result.suggestions.map((item: any) => item.label)).toContain('A_VIEW');
+    expect(result.suggestions.map((item: any) => item.label)).not.toContain('B_ONLY_VIEW');
     await act(async () => {
       renderer.unmount();
     });
@@ -3879,6 +3931,90 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBGetColumns).toHaveBeenCalledWith(expect.anything(), 'IMP_BASICINFO', 'PERSON');
     expect(ownerColumnItems.suggestions.map((item: any) => item.label)).toEqual(expect.arrayContaining(['AC01', 'AC02']));
 
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('loads PostgreSQL alias columns from the current database schema instead of a same-name database', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = true;
+    storeState.connections[0].config.type = 'postgres';
+    storeState.connections[0].config.database = 'appdb';
+    backendApp.DBGetDatabases.mockResolvedValueOnce({
+      success: true,
+      data: [{ Database: 'appdb' }, { Database: 'billing' }],
+    });
+    backendApp.DBGetTables.mockResolvedValue({
+      success: true,
+      data: [{ Table: 'billing.orders' }],
+    });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetColumns.mockImplementation(async (_config: any, dbName: string, tableName: string) => {
+      if (dbName === 'appdb' && tableName === 'billing.orders') {
+        return { success: true, data: [{ name: 'current_schema_id', type: 'bigint' }] };
+      }
+      if (dbName === 'billing' && tableName === 'orders') {
+        return { success: true, data: [{ name: 'wrong_database_id', type: 'bigint' }] };
+      }
+      return { success: true, data: [] };
+    });
+    editorState.value = 'SELECT o. FROM billing.orders o';
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'appdb' })} />);
+      for (let i = 0; i < 16; i += 1) await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    const completion = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: 'SELECT o.'.length + 1 },
+    );
+
+    expect(backendApp.DBGetColumns).toHaveBeenCalledWith(expect.anything(), 'appdb', 'billing.orders');
+    expect(backendApp.DBGetColumns).not.toHaveBeenCalledWith(expect.anything(), 'billing', 'orders');
+    expect(completion.suggestions.map((item: any) => item.label)).toContain('current_schema_id');
+    expect(completion.suggestions.map((item: any) => item.label)).not.toContain('wrong_database_id');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('loads SQLite main.table alias columns through the empty connection scope', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = true;
+    storeState.connections[0].config.type = 'sqlite';
+    storeState.connections[0].config.database = '';
+    backendApp.DBGetDatabases.mockResolvedValueOnce({
+      success: true,
+      data: [{ Database: 'main' }],
+    });
+    backendApp.DBGetTables.mockResolvedValue({
+      success: true,
+      data: [{ Table: 'users' }],
+    });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetColumns.mockImplementation(async (_config: any, dbName: string, tableName: string) => (
+      dbName === '' && tableName === 'main.users'
+        ? { success: true, data: [{ name: 'id', type: 'integer' }] }
+        : { success: true, data: [] }
+    ));
+    editorState.value = 'SELECT u. FROM main.users u';
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: '' })} />);
+      for (let i = 0; i < 16; i += 1) await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    const completion = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: 'SELECT u.'.length + 1 },
+    );
+
+    expect(backendApp.DBGetColumns).toHaveBeenCalledWith(expect.anything(), '', 'main.users');
+    expect(completion.suggestions.map((item: any) => item.label)).toContain('id');
     await act(async () => {
       renderer.unmount();
     });
@@ -4401,6 +4537,242 @@ describe('QueryEditor external SQL save', () => {
     expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'front_end_sys');
     expect(labels).toContain('fs_org_auth_application');
     expect(tableSuggestion?.detail).toBe('表 - 认证申请表');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('retries lazy table metadata after a transient failure instead of caching an empty catalog', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = false;
+    backendApp.DBGetTables
+      .mockResolvedValueOnce({ success: false, message: 'temporary metadata failure' })
+      .mockResolvedValueOnce({ success: true, data: [{ Table: 'recovered_table' }] });
+    backendApp.DBQuery.mockResolvedValue({ success: true, data: [] });
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: '', dbName: 'front_end_sys' })} />);
+    });
+    const sqlProvider = editorState.providers.find((provider) => (
+      Array.isArray(provider.triggerCharacters) && provider.triggerCharacters.includes('.')
+    ));
+    expect(sqlProvider).toBeTruthy();
+
+    editorState.value = 'SELECT * FROM recovered_';
+    editorState.latestOnChange?.(editorState.value);
+    await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('does not mark the main metadata snapshot complete when a referenced database fails', async () => {
+    let referencedDatabaseAttempts = 0;
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({
+      success: true,
+      data: [{ Database: 'main' }, { Database: 'other' }],
+    });
+    backendApp.DBGetTables.mockImplementation(async (_config: unknown, dbName: string) => {
+      if (dbName === 'main') {
+        return { success: true, data: [{ Tables_in_main: 'users' }] };
+      }
+      referencedDatabaseAttempts += 1;
+      return referencedDatabaseAttempts === 1
+        ? { success: false, message: 'temporary referenced metadata failure' }
+        : { success: true, data: [{ Tables_in_other: 'orders' }] };
+    });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBQuery.mockResolvedValue({ success: true, data: [] });
+
+    const tab = createTab({
+      query: 'SELECT * FROM main.users JOIN other.orders ON main.users.id = other.orders.id',
+      dbName: 'main',
+    });
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={tab} isActive />);
+      for (let i = 0; i < 12; i += 1) await Promise.resolve();
+    });
+    expect(referencedDatabaseAttempts).toBe(1);
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
+
+    // Re-running the effect after the transient failure must retry the
+    // referenced database instead of being short-circuited by the main DB's
+    // still-present table metadata. Replacing the connections array with the
+    // same connection objects mirrors an unrelated store update and reruns the
+    // metadata effect without changing the requested database set.
+    await act(async () => {
+      storeState.connections = [...storeState.connections];
+      notifyStoreSubscribers();
+      for (let i = 0; i < 12; i += 1) await Promise.resolve();
+    });
+
+    expect(referencedDatabaseAttempts).toBe(2);
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('keeps hover fallback alive when metadata APIs return malformed responses', async () => {
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValueOnce(null);
+    backendApp.DBGetAllColumns.mockResolvedValueOnce(null);
+    backendApp.DBQuery.mockResolvedValue({ success: true, data: [] });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'SELECT * FROM missing_table', dbName: 'main' })} />);
+      for (let i = 0; i < 16; i += 1) await Promise.resolve();
+    });
+
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: 'SELECT * FROM missing_table'.length },
+    );
+    expect(metadataHover?.contents?.[0]?.value).toContain('**表** `missing_table`');
+    await act(async () => {
+      renderer.unmount();
+    });
+  });
+
+  it('retries failed object metadata after editing the same reference set', async () => {
+    vi.useFakeTimers();
+    Object.assign(window, {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    });
+    let viewAttempts = 0;
+    autoFetchState.visible = true;
+    storeState.connections[0].config.type = 'postgres';
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Tables_in_main: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
+      if (/pg_catalog\.pg_views/i.test(sql)) {
+        viewAttempts += 1;
+        return viewAttempts === 1
+          ? { success: false, message: 'temporary view metadata failure' }
+          : { success: true, data: [{ view_name: 'recovered_view' }] };
+      }
+      return { success: true, data: [] };
+    });
+
+    let renderer!: ReactTestRenderer;
+    try {
+      await act(async () => {
+        renderer = create(<QueryEditor tab={createTab({ query: 'SELECT * FROM users', dbName: 'main' })} />);
+        for (let i = 0; i < 24; i += 1) await Promise.resolve();
+      });
+      expect(viewAttempts).toBe(1);
+
+      await act(async () => {
+        editorState.value = 'SELECT * FROM users ';
+        editorState.latestOnChange?.(editorState.value);
+        editorState.modelContentListeners.forEach((listener) => listener({
+          changes: [{ text: ' ' }],
+        }));
+        vi.advanceTimersByTime(449);
+        await Promise.resolve();
+      });
+      expect(viewAttempts).toBe(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        for (let i = 0; i < 24; i += 1) await Promise.resolve();
+      });
+      expect(viewAttempts).toBe(2);
+    } finally {
+      await act(async () => {
+        renderer?.unmount();
+      });
+      vi.useRealTimers();
+      Object.assign(window, {
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      });
+    }
+  });
+
+  it('drops stale in-flight lazy table metadata after a schema refresh event', async () => {
+    let renderer!: ReactTestRenderer;
+    autoFetchState.visible = false;
+    let resolveOldTables!: (value: any) => void;
+    const oldTables = new Promise((resolve) => {
+      resolveOldTables = resolve;
+    });
+    backendApp.DBGetTables
+      .mockImplementationOnce(() => oldTables)
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ Table: 'fresh_table' }],
+      });
+    backendApp.DBQuery.mockResolvedValue({ success: true, data: [] });
+
+    const baseWindow: any = window;
+    const refreshListeners: Array<(event: Event) => void> = [];
+    vi.stubGlobal('window', {
+      ...baseWindow,
+      addEventListener: vi.fn((type: string, listener: (event: Event) => void) => {
+        if (type === 'gonavi:sidebar-database-refresh') refreshListeners.push(listener);
+      }),
+      removeEventListener: vi.fn((type: string, listener: (event: Event) => void) => {
+        if (type !== 'gonavi:sidebar-database-refresh') return;
+        const index = refreshListeners.indexOf(listener);
+        if (index >= 0) refreshListeners.splice(index, 1);
+      }),
+      dispatchEvent: vi.fn(),
+    });
+
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: '', dbName: 'main' })} isActive />);
+    });
+    const sqlProvider = editorState.providers.find((provider) => (
+      Array.isArray(provider.triggerCharacters) && provider.triggerCharacters.includes('.')
+    ));
+    expect(sqlProvider).toBeTruthy();
+
+    editorState.value = 'SELECT * FROM old_';
+    editorState.latestOnChange?.(editorState.value);
+    const pendingCompletion = sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+    await Promise.resolve();
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(1);
+
+    refreshListeners.forEach((listener) => listener({
+      type: 'gonavi:sidebar-database-refresh',
+      detail: { connectionId: 'conn-1', dbName: 'main' },
+    } as any));
+    resolveOldTables({
+      success: true,
+      data: [{ Table: 'stale_table' }],
+    });
+    await pendingCompletion;
+
+    editorState.value = 'SELECT * FROM fresh_';
+    editorState.latestOnChange?.(editorState.value);
+    const refreshedCompletion = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+
+    expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
+    expect(refreshedCompletion.suggestions.map((item: any) => item.label)).toContain('fresh_table');
+    expect(refreshedCompletion.suggestions.map((item: any) => item.label)).not.toContain('stale_table');
+
     await act(async () => {
       renderer.unmount();
     });
@@ -5275,6 +5647,50 @@ describe('QueryEditor external SQL save', () => {
     }));
     expect(preventDefault).toHaveBeenCalled();
     expect(stopPropagation).toHaveBeenCalled();
+  });
+
+  it('keeps a MySQL quoted dotted table literal intact during ctrl-click validation', async () => {
+    editorState.value = 'select * from `order.items`';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValueOnce({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValueOnce({ success: true, data: [{ Tables_in_main: 'order.items' }] });
+    backendApp.DBGetAllColumns.mockResolvedValueOnce({ success: true, data: [] });
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+    });
+    await act(async () => {
+      for (let index = 0; index < 8; index += 1) {
+        await Promise.resolve();
+      }
+    });
+
+    await act(async () => {
+      editorState.mouseDownListeners[0]?.({
+        target: { position: { lineNumber: 1, column: editorState.value.length } },
+        event: {
+          leftButton: true,
+          ctrlKey: true,
+          metaKey: false,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        },
+      });
+      for (let index = 0; index < 6; index += 1) {
+        await Promise.resolve();
+      }
+    });
+
+    expect(backendApp.DBTableExists).toHaveBeenCalledWith(
+      expect.anything(),
+      'main',
+      '`order.items`',
+    );
+    expect(storeState.addTab).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'table',
+      dbName: 'main',
+      tableName: 'order.items',
+    }));
   });
 
   it('opens a table data tab with the embedded object designer on macOS cmd click when Monaco omits leftButton', async () => {
@@ -6263,7 +6679,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(editorState.hoverProviders).toHaveLength(4);
-    const ddlHover = await editorState.hoverProviders[0]?.provideHover(
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6276,7 +6692,14 @@ describe('QueryEditor external SQL save', () => {
     );
     expect(ddlHover?.contents?.[0]?.value).toContain('```sql');
     expect(ddlHover?.contents?.[0]?.value).toContain('CREATE TABLE users');
-    const metadataHover = editorState.hoverProviders[2]?.provideHover(
+    const repeatedDdlHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+    expect(repeatedDdlHover?.contents?.[0]?.value).toContain('CREATE TABLE users');
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledTimes(1);
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
     );
@@ -6291,7 +6714,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     editorState.value = 'SELECT * FROM users';
-    const refreshedDdlHover = await editorState.hoverProviders[0]?.provideHover(
+    const refreshedDdlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6313,13 +6736,102 @@ describe('QueryEditor external SQL save', () => {
     });
 
     editorState.value = 'SELECT * FROM users';
-    const partialBatchDdlHover = await editorState.hoverProviders[0]?.provideHover(
+    const partialBatchDdlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
     );
     expect(backendApp.DBShowCreateTable).toHaveBeenCalledTimes(3);
     expect(partialBatchDdlHover?.contents?.[0]?.value).toContain('status TINYINT');
+  });
+
+  it('reuses a completed DDL hover cache after the database context makes a round trip', async () => {
+    editorState.value = 'SELECT * FROM users';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({
+      success: true,
+      data: [{ Database: 'main' }, { Database: 'other' }],
+    });
+    backendApp.DBGetTables.mockImplementation(async (_config: unknown, dbName: string) => ({
+      success: true,
+      data: dbName === 'main' ? [{ Tables_in_main: 'users' }] : [],
+    }));
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: 'CREATE TABLE users (id BIGINT PRIMARY KEY)',
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    const firstDdlHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+    expect(firstDdlHover?.contents?.[0]?.value).toContain('CREATE TABLE users');
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      renderer.update(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'other' })} />);
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+    await act(async () => {
+      renderer.update(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+
+    const repeatedDdlHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+    expect(repeatedDdlHover?.contents?.[0]?.value).toContain('CREATE TABLE users');
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledTimes(1);
+    renderer.unmount();
+  });
+
+  it('does not use the active tab metadata for a non-active Monaco model', async () => {
+    editorState.value = 'SELECT * FROM users';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Tables_in_main: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: 'CREATE TABLE users (id BIGINT PRIMARY KEY)',
+    });
+
+    const activeModel = editorState.editor.getModel();
+    activeModel.uri = { toString: () => 'gonavi://active-model' };
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    const foreignModel = {
+      ...activeModel,
+      uri: { toString: () => 'gonavi://foreign-model' },
+    };
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
+      foreignModel,
+      { lineNumber: 1, column: editorState.value.length },
+    );
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
+      foreignModel,
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+
+    expect(metadataHover).toBeNull();
+    expect(ddlHover).toBeNull();
+    expect(backendApp.DBShowCreateTable).not.toHaveBeenCalled();
+    renderer.unmount();
   });
 
   it('renders table metadata when a formatted query places FROM and the table on separate lines', async () => {
@@ -6338,7 +6850,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     const lineContent = editorState.editor.getModel().getLineContent(3);
-    const metadataHover = editorState.hoverProviders[2]?.provideHover(
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 3, column: lineContent.length + 1 },
     );
@@ -6361,12 +6873,36 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    const metadataHover = editorState.hoverProviders[2]?.provideHover(
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 4, column: 10 },
     );
 
     expect(metadataHover?.contents?.[0]?.value).toContain('**表** `test_users`');
+  });
+
+  it('renders metadata for a table in a later cross-line statement', async () => {
+    editorState.value = 'SELECT * FROM test_users;\n\nSELECT *\nFROM\n  test_users;';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'db1' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Tables_in_db1: 'test_users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'db1' })} />);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    const lineContent = editorState.editor.getModel().getLineContent(5);
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 5, column: lineContent.length + 1 },
+    );
+
+    expect(metadataHover?.contents?.[0]?.value).toContain('**表** `test_users`');
+    expect(metadataHover?.contents?.[0]?.value).toContain('库：`db1`');
+    renderer.unmount();
   });
 
   it('renders a table source when the loaded table list does not contain the hovered name', async () => {
@@ -6384,12 +6920,30 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    const metadataHover = editorState.hoverProviders[2]?.provideHover(
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 2, column: 15 },
     );
 
     expect(metadataHover?.contents?.[0]?.value).toContain('**表** `test_users`');
+  });
+
+  it('renders fallback table metadata when automatic metadata loading is disabled', async () => {
+    editorState.value = 'SELECT * FROM test_users;';
+    autoFetchState.visible = false;
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+    );
+
+    expect(metadataHover?.contents?.[0]?.value).toContain('**表** `test_users`');
+    expect(metadataHover?.contents?.[0]?.value).toContain('库：`main`');
   });
 
   it('renders fallback table metadata for a cross-line source missing from the current database', async () => {
@@ -6407,7 +6961,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     const lineContent = editorState.editor.getModel().getLineContent(3);
-    const metadataHover = editorState.hoverProviders[2]?.provideHover(
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 3, column: lineContent.length + 1 },
     );
@@ -6434,7 +6988,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     const lineContent = editorState.editor.getModel().getLineContent(3);
-    const metadataHover = editorState.hoverProviders[2]?.provideHover(
+    const metadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 3, column: lineContent.length + 1 },
     );
@@ -6468,7 +7022,7 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    const ddlHover = await editorState.hoverProviders[0]?.provideHover(
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 2, column: 15 },
       { isCancellationRequested: false },
@@ -6480,6 +7034,204 @@ describe('QueryEditor external SQL save', () => {
       'test_users',
     );
     expect(ddlHover?.contents?.[0]?.value).toContain('CREATE TABLE test_users');
+  });
+
+  it('preserves a quoted dot inside an inferred table name for DDL lookup', async () => {
+    editorState.value = 'SELECT * FROM `Sales.Data`';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: 'CREATE TABLE `Sales.Data` (id BIGINT PRIMARY KEY)',
+    });
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledWith(
+      expect.anything(),
+      'main',
+      '`Sales.Data`',
+    );
+  });
+
+  it('keeps PostgreSQL quoted table names case-sensitive in the DDL hover cache', async () => {
+    storeState.connections[0].config.type = 'postgres';
+    editorState.value = 'SELECT * FROM "Users"';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockImplementation(async (_config: unknown, _dbName: string, tableName: string) => ({
+      success: true,
+      data: tableName === '"Users"'
+        ? 'CREATE TABLE "Users" (upper_id BIGINT PRIMARY KEY)'
+        : 'CREATE TABLE "users" (lower_id BIGINT PRIMARY KEY)',
+    }));
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    const upperCaseHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+    expect(upperCaseHover?.contents?.[0]?.value).toContain('upper_id');
+
+    editorState.value = 'SELECT * FROM "users"';
+    const lowerCaseHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+
+    expect(lowerCaseHover?.contents?.[0]?.value).toContain('lower_id');
+    expect(backendApp.DBShowCreateTable).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ type: 'postgres' }),
+      'main',
+      '"Users"',
+    );
+    expect(backendApp.DBShowCreateTable).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ type: 'postgres' }),
+      'main',
+      '"users"',
+    );
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledTimes(2);
+  });
+
+  it('loads hover metadata for a connection-scoped SQLite tab with no database name', async () => {
+    storeState.connections[0].config.type = 'sqlite';
+    storeState.connections[0].config.database = '';
+    editorState.value = 'SELECT * FROM users';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Table: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: 'CREATE TABLE users (id INTEGER PRIMARY KEY)',
+    });
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: '' })} />);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.anything(), '');
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledWith(expect.anything(), '', 'users');
+    expect(ddlHover?.contents?.[0]?.value).toContain('CREATE TABLE users');
+  });
+
+  it('keeps SQLite main.table hover metadata in the empty database context', async () => {
+    storeState.connections[0].config.type = 'sqlite';
+    storeState.connections[0].config.database = '';
+    editorState.value = 'SELECT * FROM main.users';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Table: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: 'CREATE TABLE users (id INTEGER PRIMARY KEY)',
+    });
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: '' })} />);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.anything(), '');
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+    expect(backendApp.DBShowCreateTable).toHaveBeenCalledWith(expect.anything(), '', 'main.users');
+    expect(ddlHover?.contents?.[0]?.value).toContain('CREATE TABLE users');
+  });
+
+  it('keeps an explicitly cleared SQLite context when the tab snapshot still has an old database', async () => {
+    storeState.connections[0].config.type = 'sqlite';
+    storeState.connections[0].config.database = '';
+    editorState.value = 'SELECT * FROM users';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Table: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBShowCreateTable.mockResolvedValue({
+      success: true,
+      data: 'CREATE TABLE users (id INTEGER PRIMARY KEY)',
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'stale-db' })} />);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    const toolbar = renderer.root.findByType(QueryEditorToolbar);
+    await act(async () => {
+      toolbar.props.onDatabaseChange('');
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    await editorState.hoverProviders[2]?.provideHover(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length },
+      { isCancellationRequested: false },
+    );
+
+    expect(backendApp.DBShowCreateTable).toHaveBeenLastCalledWith(expect.anything(), '', 'users');
+    renderer.unmount();
+  });
+
+  it('lazy-loads SQLite table completion when the connection has no database name', async () => {
+    storeState.connections[0].config.type = 'sqlite';
+    storeState.connections[0].config.database = '';
+    editorState.value = 'SELECT * FROM us';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBGetTables
+      .mockResolvedValueOnce({ success: true, data: [] })
+      .mockResolvedValueOnce({ success: true, data: [{ Table: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: '' })} />);
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    const sqlProvider = findSqlCompletionProvider();
+    expect(sqlProvider).toBeTruthy();
+    const completion = await sqlProvider.provideCompletionItems(
+      editorState.editor.getModel(),
+      { lineNumber: 1, column: editorState.value.length + 1 },
+    );
+
+    expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.anything(), '');
+    expect(completion.suggestions.map((item: any) => item.label)).toContain('users');
+    renderer.unmount();
   });
 
   it('preserves the selected PostgreSQL schema when inferred DDL loads without table metadata', async () => {
@@ -6505,7 +7257,7 @@ describe('QueryEditor external SQL save', () => {
       for (let i = 0; i < 8; i += 1) await Promise.resolve();
     });
 
-    const ddlHover = await editorState.hoverProviders[0]?.provideHover(
+    const ddlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 2, column: 10 },
       { isCancellationRequested: false },
@@ -6563,7 +7315,7 @@ describe('QueryEditor external SQL save', () => {
       String(props.className || '').includes('gn-v2-query-toolbar-schema-select')
       || props['aria-label'] === catalogs['zh-CN']['query_editor.object_info.label.schema']
     ));
-    const pendingDdlHover = editorState.hoverProviders[0]?.provideHover(
+    const pendingDdlHover = editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6585,7 +7337,7 @@ describe('QueryEditor external SQL save', () => {
     resolveOldDdl({ success: true, data: 'CREATE TABLE public.users (id BIGINT PRIMARY KEY)' });
     await expect(pendingDdlHover).resolves.toBeNull();
 
-    const refreshedDdlHover = await editorState.hoverProviders[0]?.provideHover(
+    const refreshedDdlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6622,7 +7374,7 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    const pendingDdlHover = editorState.hoverProviders[0]?.provideHover(
+    const pendingDdlHover = editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6676,7 +7428,7 @@ describe('QueryEditor external SQL save', () => {
       for (let i = 0; i < 8; i += 1) await Promise.resolve();
     });
 
-    const pendingDdlHover = editorState.hoverProviders[0]?.provideHover(
+    const pendingDdlHover = editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6698,7 +7450,7 @@ describe('QueryEditor external SQL save', () => {
     resolveOldDdl({ success: true, data: 'CREATE TABLE users (id BIGINT PRIMARY KEY, stale_flag BOOLEAN)' });
     await expect(pendingDdlHover).resolves.toBeNull();
 
-    const freshDdlHover = await editorState.hoverProviders[0]?.provideHover(
+    const freshDdlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6736,7 +7488,7 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    await editorState.hoverProviders[0]?.provideHover(
+    await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6750,7 +7502,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     editorState.value = 'SELECT * FROM users';
-    const refreshedDdlHover = await editorState.hoverProviders[0]?.provideHover(
+    const refreshedDdlHover = await editorState.hoverProviders[2]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
       { isCancellationRequested: false },
@@ -6758,6 +7510,40 @@ describe('QueryEditor external SQL save', () => {
 
     expect(backendApp.DBShowCreateTable).toHaveBeenCalledTimes(2);
     expect(refreshedDdlHover?.contents?.[0]?.value).toContain('email VARCHAR(128)');
+  });
+
+  it('treats a rejected schema execution transport as unknown and refreshes metadata', async () => {
+    editorState.value = 'ALTER TABLE users ADD COLUMN transport_flag TINYINT';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Tables_in_main: 'users' }] });
+    backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
+    backendApp.DBQueryMulti.mockRejectedValueOnce(new Error('connection closed after execution'));
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 6; i += 1) await Promise.resolve();
+    });
+    editorState.selection = {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 1,
+      endColumn: editorState.value.length + 1,
+      positionLineNumber: 1,
+      positionColumn: editorState.value.length + 1,
+    };
+
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+      for (let i = 0; i < 4; i += 1) await Promise.resolve();
+    });
+
+    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'gonavi:sidebar-database-refresh',
+    }));
+    expect(textContent(renderer.toJSON())).toContain('connection closed after execution');
+    renderer.unmount();
   });
 
   it('reloads query editor metadata after a schema refresh event', async () => {
@@ -6803,7 +7589,7 @@ describe('QueryEditor external SQL save', () => {
       await Promise.resolve();
     });
 
-    const initialMetadataHover = editorState.hoverProviders[2]?.provideHover(
+    const initialMetadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
     );
@@ -6816,7 +7602,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     // 结构变更一旦被确认，旧 metadata 不能继续被 hover 使用；新请求尚在飞行中时只允许基础兜底信息。
-    const pendingMetadataHover = editorState.hoverProviders[2]?.provideHover(
+    const pendingMetadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
     );
@@ -6831,7 +7617,7 @@ describe('QueryEditor external SQL save', () => {
       expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
     });
 
-    const refreshedMetadataHover = editorState.hoverProviders[2]?.provideHover(
+    const refreshedMetadataHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
     );
@@ -6912,7 +7698,7 @@ describe('QueryEditor external SQL save', () => {
         detail: { connectionId: 'conn-1', dbName: 'main' },
       }));
     });
-    const activeConnectionHover = editorState.hoverProviders[2]?.provideHover(
+    const activeConnectionHover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: editorState.value.length },
     );
@@ -6980,6 +7766,173 @@ describe('QueryEditor external SQL save', () => {
     expect(refreshEvents).toHaveLength(2);
   });
 
+  it('blocks a trigger object edit that drops the original without a replacement CREATE', async () => {
+    editorState.value = [
+      '-- trigger replacement',
+      'DROP TRIGGER IF EXISTS `users_bi`;',
+      'SELECT 1;',
+    ].join('\n');
+    editorState.selection = {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 3,
+      endColumn: editorState.value.split('\n')[2]!.length + 1,
+    };
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        query: editorState.value,
+        queryMode: 'object-edit',
+        triggerName: 'users_bi',
+        triggerRollbackSql: 'CREATE TRIGGER `users_bi` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.id = 1;',
+      })} isActive />);
+    });
+
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+    });
+
+    expect(backendApp.DBQueryMulti).not.toHaveBeenCalled();
+    expect(messageApi.error).toHaveBeenCalledWith(expect.stringContaining('CREATE TRIGGER'));
+    renderer.unmount();
+  });
+
+  it('restores an edited trigger when a setup statement fails before the replacement CREATE', async () => {
+    storeState.connections[0].config.type = 'postgres';
+    const triggerRollbackSql = 'CREATE TRIGGER users_bi BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION users_bi_fn();';
+    editorState.value = [
+      '-- trigger replacement',
+      'DROP TRIGGER IF EXISTS users_bi ON users;',
+      'CREATE FUNCTION users_bi_fn() RETURNS trigger AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql;',
+      'CREATE TRIGGER users_bi BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION users_bi_fn();',
+    ].join('\n');
+    editorState.selection = {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 4,
+      endColumn: editorState.value.split('\n')[3]!.length + 1,
+    };
+    autoFetchState.visible = true;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: false,
+      message: 'function replacement failed',
+      executedCount: 1,
+      failedIndex: 3,
+      data: [],
+    });
+    backendApp.DBQueryAudited.mockResolvedValueOnce({ success: true, data: [] });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        query: editorState.value,
+        queryMode: 'object-edit',
+        triggerRollbackSql,
+      })} isActive />);
+    });
+
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+    });
+
+    expect(backendApp.DBQueryAudited).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'postgres' }),
+      'main',
+      triggerRollbackSql,
+      'table_designer',
+    );
+    renderer.unmount();
+  });
+
+  it('does not restore an edited trigger when the replacement outcome is unknown', async () => {
+    const triggerRollbackSql = 'CREATE TRIGGER `users_bi` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.updated_at = NOW();';
+    editorState.value = [
+      '-- trigger replacement',
+      'DROP TRIGGER IF EXISTS `users_bi`;',
+      'CREATE TRIGGER `users_bi` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.updated_at = CURRENT_TIMESTAMP;',
+    ].join('\n');
+    editorState.selection = {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 3,
+      endColumn: editorState.value.split('\n')[2]!.length + 1,
+    };
+    autoFetchState.visible = true;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: false,
+      message: 'connection lost after dispatch',
+      executedCount: 1,
+      failedIndex: 2,
+      outcomeUnknown: true,
+      data: [],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        query: editorState.value,
+        queryMode: 'object-edit',
+        triggerRollbackSql,
+      })} isActive />);
+    });
+
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+    });
+
+    expect(backendApp.DBQueryAudited).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'main',
+      triggerRollbackSql,
+      'table_designer',
+    );
+  });
+
+  it('does not restore a trigger when a later statement fails after replacement', async () => {
+    const triggerRollbackSql = 'CREATE TRIGGER `users_bi` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.updated_at = NOW();';
+    editorState.value = [
+      '-- trigger replacement',
+      'DROP TRIGGER IF EXISTS `users_bi`;',
+      'CREATE TRIGGER `users_bi` BEFORE INSERT ON `users` FOR EACH ROW SET NEW.updated_at = CURRENT_TIMESTAMP;',
+      'SELECT * FROM missing_table;',
+    ].join('\n');
+    editorState.selection = {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: 4,
+      endColumn: editorState.value.split('\n')[3]!.length + 1,
+    };
+    autoFetchState.visible = true;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: false,
+      message: 'table does not exist',
+      executedCount: 2,
+      failedIndex: 3,
+      data: [],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({
+        query: editorState.value,
+        queryMode: 'object-edit',
+        triggerRollbackSql,
+      })} isActive />);
+    });
+
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+    });
+
+    expect(backendApp.DBQueryAudited).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'main',
+      triggerRollbackSql,
+      'table_designer',
+    );
+  });
+
   it('keeps multiline table-source resolution after the hover document limit', async () => {
     const padding = '-- padding for a large SQL document\n'.repeat(6_000);
     editorState.value = `${padding}SELECT *\nFROM\n  test`;
@@ -7001,7 +7954,7 @@ describe('QueryEditor external SQL save', () => {
       expect(backendApp.DBGetTables).toHaveBeenCalledWith(expect.any(Object), 'main');
     });
 
-    const hover = editorState.hoverProviders[2]?.provideHover(
+    const hover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 6_003, column: 7 },
     );
@@ -7044,7 +7997,7 @@ describe('QueryEditor external SQL save', () => {
     expect(lastDecorationCall?.[1]?.[0]?.options?.inlineClassName).toBe('gonavi-query-editor-link-hint');
     expect(lastDecorationCall?.[1]?.[0]?.options?.hoverMessage).toBeUndefined();
 
-    const hover = editorState.hoverProviders[2]?.provideHover(
+    const hover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: 27 },
     );
@@ -9085,7 +10038,7 @@ describe('QueryEditor external SQL save', () => {
         await Promise.resolve();
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9133,7 +10086,7 @@ describe('QueryEditor external SQL save', () => {
         backendApp.DBQuery.mock.calls.some((call: any[]) => /table_comment|information_schema\.tables/i.test(String(call[2]))),
       ).toBe(true);
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       const hover = hoverProvider?.provideHover(
         editorState.editor.getModel(),
         { lineNumber: 1, column: 27 },
@@ -9168,7 +10121,7 @@ describe('QueryEditor external SQL save', () => {
         await Promise.resolve();
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9207,7 +10160,7 @@ describe('QueryEditor external SQL save', () => {
         await Promise.resolve();
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9249,7 +10202,7 @@ describe('QueryEditor external SQL save', () => {
         }
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9290,7 +10243,7 @@ describe('QueryEditor external SQL save', () => {
         }
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9330,7 +10283,7 @@ describe('QueryEditor external SQL save', () => {
         }
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9372,7 +10325,7 @@ describe('QueryEditor external SQL save', () => {
         }
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9413,7 +10366,7 @@ describe('QueryEditor external SQL save', () => {
         }
       });
 
-      const hoverProvider = editorState.hoverProviders[2];
+      const hoverProvider = editorState.hoverProviders[0];
       expect(hoverProvider).toBeTruthy();
 
       const hover = hoverProvider.provideHover(
@@ -9943,7 +10896,7 @@ describe('QueryEditor external SQL save', () => {
     });
 
     expect(editorState.hoverProviders).toHaveLength(4);
-    const hover = editorState.hoverProviders[2].provideHover(
+    const hover = editorState.hoverProviders[0].provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: 18 },
     );
@@ -10401,6 +11354,62 @@ END;`;
     }));
     expect((window as any).dispatchEvent).not.toHaveBeenCalledWith(expect.objectContaining({
       type: 'gonavi:locate-sidebar-object',
+    }));
+  });
+
+  it('keeps dotted trigger metadata names intact when opening object edit from the editor', async () => {
+    editorState.value = 'call audit.`a.b`();';
+    autoFetchState.visible = true;
+    backendApp.DBGetDatabases.mockResolvedValueOnce({ success: true, data: [{ Database: 'main' }] });
+    backendApp.DBGetTables.mockResolvedValueOnce({ success: true, data: [] });
+    backendApp.DBGetAllColumns.mockResolvedValueOnce({ success: true, data: [] });
+    backendApp.DBQuery.mockImplementation(async (_config: any, _dbName: string, sql: string) => {
+      if (sql.includes('SHOW CREATE TRIGGER')) {
+        return {
+          success: true,
+          data: [{
+            'SQL Original Statement': 'CREATE TRIGGER `audit`.`a.b` BEFORE INSERT ON `audit`.`order.items` FOR EACH ROW SET @a = 1',
+          }],
+        };
+      }
+      if (sql.includes('information_schema.triggers') || sql.includes('SHOW TRIGGERS')) {
+        return {
+          success: true,
+          data: [{ trigger_name: 'a.b', table_name: 'order.items', schema_name: 'audit' }],
+        };
+      }
+      return { success: true, data: [] };
+    });
+
+    await act(async () => {
+      create(<QueryEditor tab={createTab({ query: editorState.value, dbName: 'main' })} />);
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+
+    await act(async () => {
+      editorState.mouseDownListeners[0]?.({
+        target: { position: { lineNumber: 1, column: editorState.value.indexOf('a.b') + 2 } },
+        event: {
+          leftButton: true,
+          ctrlKey: true,
+          metaKey: false,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        },
+      });
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+
+    const triggerLookup = backendApp.DBQuery.mock.calls
+      .map((call: any[]) => String(call[2] || ''))
+      .find((sql: string) => sql.startsWith('SHOW CREATE TRIGGER'));
+    expect(triggerLookup).toContain('SHOW CREATE TRIGGER `audit`.`a.b`');
+    expect(triggerLookup).not.toContain('`a`.`b`');
+    expect(storeState.addTab).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'query',
+      queryMode: 'object-edit',
+      triggerName: 'audit.`a.b`',
+      triggerTableName: 'audit.`order.items`',
     }));
   });
 
@@ -11612,7 +12621,7 @@ END;`;
       await Promise.resolve();
     });
 
-    const hoverProvider = editorState.hoverProviders[2];
+    const hoverProvider = editorState.hoverProviders[0];
     expect(hoverProvider).toBeTruthy();
     const literalColumn = editorState.value.indexOf('users.id should') + 3;
     const hover = hoverProvider.provideHover(
@@ -16269,7 +17278,7 @@ WHERE GRANTEE = 'APPUSER';`;
       }));
     });
 
-    const hover = editorState.hoverProviders[2]?.provideHover(
+    const hover = editorState.hoverProviders[0]?.provideHover(
       editorState.editor.getModel(),
       { lineNumber: 1, column: 'SELECT * FROM fs_mkefu_regist_record'.length },
     );

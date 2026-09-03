@@ -337,6 +337,12 @@ func TestBuildMySQLShowCreateTableQueryNormalizesQuotedIdentifiers(t *testing.T)
 			want:      "SHOW CREATE TABLE `app`.`activate.record`",
 		},
 		{
+			name:      "qualified quoted table containing dot is not split",
+			dbName:    "ignored",
+			tableName: "app.`activate.record`",
+			want:      "SHOW CREATE TABLE `app`.`activate.record`",
+		},
+		{
 			name:      "mixed quote artifact from UI row value",
 			dbName:    "app",
 			tableName: `'activate_record"`,
@@ -490,5 +496,16 @@ func assertMySQLCompatibleMetadataQueryCapture(t *testing.T, capture *mysqlMetad
 	}
 	if !reflect.DeepEqual(capture.args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", capture.args, wantArgs)
+	}
+}
+
+func TestMySQLMetadataKeepsSQLServerBracketCharactersLiteral(t *testing.T) {
+	schema, table := mysqlMetadataTableParts("app", "[weird]]name]")
+	if schema != "app" || table != "[weird]]name]" {
+		t.Fatalf("mysqlMetadataTableParts()=(%q,%q), want literal bracket name", schema, table)
+	}
+
+	if got := buildMySQLShowCreateTableQuery("app", "[weird]]name]"); got != "SHOW CREATE TABLE `app`.`[weird]]name]`" {
+		t.Fatalf("buildMySQLShowCreateTableQuery()=%q, want literal bracket name", got)
 	}
 }

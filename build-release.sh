@@ -184,9 +184,17 @@ package_macos_release() {
     fi
 
     echo -e "${YELLOW}   ⚠️  macOS ${platform} 改为无交互 ZIP 打包，不再生成 DMG。${NC}"
-    echo "   🔏 正在对 .app 进行 ad-hoc 签名 (${platform})..."
     clear_macos_bundle_xattrs "$DIST_DIR/$app_dest_name"
-    codesign --force --deep --sign - "$DIST_DIR/$app_dest_name"
+    if [ -n "${GONAVI_MACOS_RELEASE_SIGNING_IDENTITY:-}" ]; then
+        echo "   🔏 正在使用稳定身份签名 .app (${platform}): ${GONAVI_MACOS_RELEASE_SIGNING_IDENTITY}"
+        codesign --force --deep --sign "$GONAVI_MACOS_RELEASE_SIGNING_IDENTITY" "$DIST_DIR/$app_dest_name"
+    else
+        # ad-hoc 签名的身份随每个版本变化，用户升级后 macOS 钥匙串会对既有
+        # 密钥条目重新弹一次授权；设置 GONAVI_MACOS_RELEASE_SIGNING_IDENTITY
+        # （如 Developer ID Application 证书）可让签名跨版本稳定。
+        echo "   🔏 正在对 .app 进行 ad-hoc 签名 (${platform})..."
+        codesign --force --deep --sign - "$DIST_DIR/$app_dest_name"
+    fi
 
     echo "   📦 正在打包 macOS 应用归档 (${platform})..."
     package_macos_bundle_zip "$DIST_DIR/$app_dest_name" "$DIST_DIR/$zip_name"

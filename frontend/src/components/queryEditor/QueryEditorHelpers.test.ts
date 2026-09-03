@@ -4,13 +4,19 @@ import { getCurrentLanguage, setCurrentLanguage } from '../../i18n';
 
 import {
     buildBoundedQueryEditorCompletionSuggestions,
+    appendQuerySelectExpressions,
     buildQueryEditorAliasMap,
     buildQueryEditorTableSourceAlias,
+    buildQualifiedCompletionName,
+    buildCompletionFunctionsMetadataQuerySpecs,
+    buildCompletionViewsMetadataQuerySpecs,
     buildQueryEditorResultSetMergeKey,
     collectQueryEditorReferencedDatabaseNames,
+    collectQueryEditorObjectDecorationCandidates,
     collectQueryEditorTableReferences,
     createBoundedQueryEditorCompletionCandidateBatch,
     findCompletionTablesByDatabase,
+    findIdentifierWindowAtOffset,
     getCompletionTableSchemaCounts,
     getQueryEditorDocumentOffsetAtPosition,
     isSystemMetadataQueryResult,
@@ -29,10 +35,39 @@ import {
     resolveQueryEditorMonacoLanguage,
     resolveQueryEditorNavigationTarget,
     resolveQueryEditorNavigationDecorations,
+    rewriteOracleSelectAllWithExpressions,
     selectUnqualifiedCompletionSynonyms,
+    maskQueryEditorSqlLiteralsAndComments,
     shouldHandleQueryEditorRunShortcutFallback,
     splitCompletionSchemaAndTable,
+    splitQueryIdentifierPathSegments,
+    splitTopLevelComma,
 } from './QueryEditorHelpers';
+
+describe('QueryEditor SELECT structure parsing', () => {
+    it.each([
+        ['leading line comment', '-- exported row\nSELECT * FROM users'],
+        ['leading block comment', '/* exported row */\nSELECT * FROM users'],
+        ['comment in select list', 'SELECT * -- keep all columns\nFROM users'],
+        ['comment before FROM table', 'SELECT * FROM /* source table */ users'],
+    ])('recognizes a writable SELECT with %s', (_label, sql) => {
+        const appended = appendQuerySelectExpressions(sql, ['id AS __gonavi_locator_1_id']);
+        expect(appended).toContain('id AS __gonavi_locator_1_id');
+        expect(appended).toMatch(/SELECT[\s\S]+FROM[\s\S]+users/i);
+        expect(appended).not.toMatch(/--[^\n]*id AS __gonavi_locator_1_id/i);
+    });
+
+    it('does not split select items on commas inside comments or bracket identifiers', () => {
+        expect(splitTopLevelComma('id /* historical, retained */, [name, legacy], code -- source, legacy\n'))
+            .toEqual(['id /* historical, retained */', '[name, legacy]', 'code -- source, legacy']);
+    });
+
+    it('preserves comments when Oracle adds a hidden row locator to SELECT *', () => {
+        const sql = '-- exported row\nSELECT * /* current fields */\nFROM /* live source */ users';
+        expect(rewriteOracleSelectAllWithExpressions(sql, ['ROWID AS "__gonavi_oracle_rowid__"']))
+            .toBe('-- exported row\nSELECT gonavi_query_source.*, gonavi_query_source.ROWID AS "__gonavi_oracle_rowid__" /* current fields */\nFROM /* live source */ users gonavi_query_source');
+    });
+});
 
 describe('QueryEditor connection timeout', () => {
     it('keeps the configured MySQL timeout instead of forcing a 120 second minimum', () => {
@@ -249,6 +284,34 @@ describe('QueryEditor completion candidate budget', () => {
         expect(currentTableNameReads).toBe(3);
         expect(otherTableNameReads).toBe(0);
     });
+
+    it('keeps PostgreSQL database partitions case-distinct', () => {
+        const tables = [
+            { dbName: 'app', tableName: 'public.users' },
+            { dbName: 'App', tableName: 'public.Users' },
+        ];
+
+        expect(findCompletionTablesByDatabase(tables, 'app', 'postgres')).toEqual([
+            tables[0],
+        ]);
+        expect(findCompletionTablesByDatabase(tables, 'App', 'postgres')).toEqual([
+            tables[1],
+        ]);
+    });
+
+    it('preserves PostgreSQL quoted table case in schema duplicate counts', () => {
+        const tables = [
+            { dbName: 'app', tableName: 'public.users' },
+            { dbName: 'app', tableName: 'public.Users' },
+        ];
+
+        const postgresCounts = getCompletionTableSchemaCounts(tables, 'postgres');
+        const mysqlCounts = getCompletionTableSchemaCounts(tables, 'mysql');
+
+        expect(postgresCounts.get('users')).toBe(1);
+        expect(postgresCounts.get('Users')).toBe(1);
+        expect(mysqlCounts.get('users')).toBe(2);
+    });
 });
 
 describe('QueryEditor completion filter text', () => {
@@ -353,6 +416,13 @@ describe('QueryEditorHelpers Oracle-like execution schema', () => {
 });
 
 describe('QueryEditorHelpers qualified navigation (MySQL db.table + PG schema.table)', () => {
+    it('keeps a dot inside a quoted object name when adding its schema', () => {
+        expect(buildQualifiedCompletionName('audit', '"order.items"')).toBe('audit."order.items"');
+        expect(buildQualifiedCompletionName('audit', 'audit.orders')).toBe('audit.orders');
+        expect(buildQualifiedCompletionName('audit', 'order.items', 'sqlserver')).toBe('audit.[order.items]');
+        expect(buildQualifiedCompletionName('audit', 'order.items', 'mysql')).toBe('audit.`order.items`');
+    });
+
     it('generates table source aliases from name initials and resolves collisions', () => {
         expect(buildQueryEditorTableSourceAlias('system_user', '')).toBe('su');
         expect(buildQueryEditorTableSourceAlias('code_query_record_zykj', '')).toBe('cqrz');
@@ -458,6 +528,77 @@ describe('QueryEditorHelpers qualified navigation (MySQL db.table + PG schema.ta
         });
     });
 
+    it('resolves columns through a schema-qualified PostgreSQL alias in the current database', () => {
+        const fullSql = 'SELECT u.id FROM sales.users u';
+        const aliasMap = buildQueryEditorAliasMap(fullSql, 'app');
+
+        expect(resolveQueryEditorHoverTarget(
+            'u.id',
+            'u.id',
+            2,
+            'app',
+            ['app', 'sales'],
+            [
+                { dbName: 'sales', tableName: 'users' },
+                { dbName: 'app', tableName: 'sales.users' },
+            ],
+            [
+                { dbName: 'sales', tableName: 'users', name: 'id', type: 'text' },
+                { dbName: 'app', tableName: 'sales.users', name: 'id', type: 'bigint' },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: 'u.id', offset: 1 },
+            'sales',
+            aliasMap,
+            false,
+            'postgres',
+        )).toMatchObject({
+            kind: 'column',
+            dbName: 'app',
+            tableName: 'sales.users',
+            columnName: 'id',
+            schemaName: 'sales',
+        });
+    });
+
+    it('resolves a three-part schema.table.column reference as a column when metadata matches', () => {
+        const sql = 'SELECT sales.users.id FROM sales.users';
+        const qualifiedColumn = 'sales.users.id';
+        const columnEndColumn = sql.indexOf(qualifiedColumn) + qualifiedColumn.length;
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            columnEndColumn,
+            'app',
+            ['app'],
+            [{ dbName: 'app', tableName: 'sales.users' }],
+            [{ dbName: 'app', tableName: 'sales.users', name: 'id', type: 'bigint', comment: 'primary key' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: columnEndColumn - 1 },
+            'sales',
+            undefined,
+            true,
+        )).toMatchObject({
+            kind: 'column',
+            dbName: 'app',
+            tableName: 'sales.users',
+            columnName: 'id',
+            type: 'bigint',
+        });
+    });
+
     it('collects table names and aliases from comma-separated FROM sources', () => {
         const aliases = buildQueryEditorAliasMap(
             'SELECT * FROM VULNERABILITY_INFO_T a, VULNERABILITY_DETAIL_T b '
@@ -547,8 +688,15 @@ WHERE e.id > 0
         expect(isQueryEditorTableSourceCompletionContext('SELECT * FROM users u, hrmres')).toBe(true);
         expect(isQueryEditorTableSourceCompletionContext('SELECT * FROM users u,')).toBe(true);
         expect(isQueryEditorTableSourceCompletionContext('SELECT * FROM users u')).toBe(false);
+        expect(isQueryEditorTableSourceCompletionContext('SELECT * FROM users.')).toBe(false);
+        expect(isQueryEditorTableAliasCompletionContext('SELECT * FROM public.')).toBe(true);
+        expect(isQueryEditorTableAliasCompletionContext('INSERT INTO users.')).toBe(false);
+        expect(isQueryEditorTableAliasCompletionContext('REPLACE INTO users.')).toBe(false);
         expect(isQueryEditorTableSourceCompletionContext('SELECT * FROM users WHERE id = 1')).toBe(false);
         expect(isQueryEditorTableSourceCompletionContext('SELECT EXTRACT(YEAR FROM created_at)')).toBe(false);
+        const columnSql = 'SELECT users.id FROM users';
+        const columnOffset = columnSql.indexOf('users.id') + 'users.id'.length - 1;
+        expect(isQueryEditorTableSourceAtPosition(columnSql, 1, columnOffset + 1)).toBe(false);
     });
 
     it('collects cross-db names from SQL without requiring an empty visible list', () => {
@@ -581,6 +729,79 @@ SELECT * FROM analytics.public.events;
             ['mkefu_test_new'],
         );
         expect(names).toEqual(expect.arrayContaining(['mkefu_test_new', 'front_end_sys_new']));
+    });
+
+    it('does not treat PostgreSQL schema.table as a cross-database reference', () => {
+        expect(collectQueryEditorReferencedDatabaseNames(
+            'SELECT * FROM billing.orders',
+            'appdb',
+            ['appdb', 'billing'],
+            'postgres',
+        )).toEqual(['appdb']);
+        expect(collectQueryEditorReferencedDatabaseNames(
+            'SELECT * FROM analytics.public.events',
+            'appdb',
+            ['appdb', 'analytics'],
+            'postgres',
+        )).toEqual(['appdb', 'analytics']);
+    });
+
+    it.each(['trino', 'iris'])(
+        'does not treat %s schema.table as a cross-database reference',
+        (dialect) => {
+            expect(collectQueryEditorReferencedDatabaseNames(
+                'SELECT * FROM billing.orders',
+                'appdb',
+                ['appdb', 'billing'],
+                dialect,
+            )).toEqual(['appdb']);
+        },
+    );
+
+    it('keeps SQLite main.table references in the connection scope', () => {
+        expect(collectQueryEditorReferencedDatabaseNames(
+            'SELECT * FROM main.users',
+            '',
+            ['main'],
+            'sqlite',
+        )).toEqual([]);
+    });
+
+    it('treats Oracle and Dameng qualified owners as metadata databases', () => {
+        const sql = [
+            'SELECT * FROM B.local_table',
+            'SELECT * FROM A.remote_view',
+            'SELECT * FROM C.pkg.proc_name',
+        ].join('\n');
+
+        expect(collectQueryEditorReferencedDatabaseNames(
+            sql,
+            'B',
+            ['A', 'B'],
+            'oracle',
+        )).toEqual(['B', 'A', 'C']);
+        expect(collectQueryEditorReferencedDatabaseNames(
+            sql,
+            'B',
+            ['A', 'B'],
+            'dameng',
+        )).toEqual(['B', 'A', 'C']);
+    });
+
+    it('omits Oracle login-owner fallback queries for an explicitly selected remote owner', () => {
+        const viewSpecs = buildCompletionViewsMetadataQuerySpecs('oracle', 'A', {
+            includeCurrentOwnerFallback: false,
+        });
+        const routineSpecs = buildCompletionFunctionsMetadataQuerySpecs('oracle', 'A', {
+            includeCurrentOwnerFallback: false,
+        });
+
+        expect(viewSpecs).toHaveLength(1);
+        expect(viewSpecs[0].sql).toContain("FROM ALL_VIEWS WHERE OWNER = 'A'");
+        expect(viewSpecs[0].sql).not.toContain('USER_VIEWS');
+        expect(routineSpecs).toHaveLength(1);
+        expect(routineSpecs[0].sql).toContain("FROM ALL_OBJECTS WHERE OWNER = 'A'");
+        expect(routineSpecs[0].sql).not.toContain('USER_OBJECTS');
     });
 
     it('resolves MySQL db.table when the database is visible', () => {
@@ -670,6 +891,240 @@ SELECT * FROM analytics.public.events;
         });
     });
 
+    it('resolves a connection-scoped table when the database name is empty', () => {
+        const sql = 'SELECT * FROM users';
+        expect(resolveQueryEditorNavigationTarget(
+            sql,
+            sql.length,
+            '',
+            [],
+            [{ dbName: '', tableName: 'users' }],
+        )).toEqual({
+            type: 'table',
+            dbName: '',
+            tableName: 'users',
+            schemaName: undefined,
+        });
+    });
+
+    it('resolves a SQLite main.table reference against connection-scoped metadata', () => {
+        const sql = 'SELECT * FROM main.users';
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            '',
+            ['main'],
+            [{ dbName: '', tableName: 'users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+            'sqlite',
+        )).toMatchObject({ kind: 'table', dbName: '', tableName: 'users' });
+
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'main',
+            ['main'],
+            [{ dbName: 'main', tableName: 'users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+            'sqlite',
+        )).toMatchObject({ kind: 'table', dbName: 'main', tableName: 'users' });
+    });
+
+    it('keeps a SQLite bracketed dotted catalog name out of the schema slot', () => {
+        const sql = 'SELECT * FROM [order.items]';
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'main',
+            ['main'],
+            [{ dbName: 'main', tableName: 'order.items' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+            'sqlite',
+        )).toMatchObject({
+            kind: 'table',
+            dbName: 'main',
+            tableName: 'order.items',
+            schemaName: undefined,
+            lookupTableName: '[order.items]',
+        });
+    });
+
+    it.each([
+        ['mysql', 'SELECT * FROM `order.items`', '`order.items`', 'order.items'],
+        ['sqlserver', 'SELECT * FROM [order.items]', '[order.items]', '[dbo].[order.items]'],
+    ])('keeps a quoted dotted table literal intact for %s navigation and hover', (dialect, sql, quotedTable, metadataTableName) => {
+        const tables = [{ dbName: 'app', tableName: metadataTableName, comment: 'literal dotted table' }];
+        const navigation = resolveQueryEditorNavigationTarget(
+            sql,
+            sql.length,
+            'app',
+            ['app'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            undefined,
+            '',
+            dialect,
+        );
+        expect(navigation).toEqual({
+            type: 'table',
+            dbName: 'app',
+            tableName: metadataTableName,
+            schemaName: undefined,
+            lookupTableName: quotedTable,
+        });
+
+        const hover = resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'app',
+            ['app'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+            dialect,
+        );
+        expect(hover).toMatchObject({
+            kind: 'table',
+            dbName: 'app',
+            tableName: metadataTableName,
+            schemaName: undefined,
+            comment: 'literal dotted table',
+            lookupTableName: quotedTable,
+        });
+    });
+
+    it('treats the legacy SQLite schema-prefixed dotted form as one table', () => {
+        const sql = 'SELECT * FROM order.[order.items]';
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'main',
+            ['main'],
+            [{ dbName: 'main', tableName: 'order.items' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+            'sqlite',
+        )).toMatchObject({
+            kind: 'table',
+            dbName: 'main',
+            tableName: 'order.items',
+            schemaName: undefined,
+            lookupTableName: 'order.[order.items]',
+        });
+    });
+
+    it('finds a table source when the formatter leaves multiple spaces after FROM', () => {
+        const sql = 'SELECT * FROM    users';
+        expect(isQueryEditorTableSourceAtPosition(sql, 1, sql.length)).toBe(true);
+        expect(resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'main',
+            ['main'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+        )).toMatchObject({ kind: 'table', dbName: 'main', tableName: 'users' });
+    });
+
+    it('keeps spaces, escaped delimiters, and dots inside quoted table identifiers', () => {
+        expect(collectQueryEditorTableReferences('SELECT * FROM "Sales Data"')).toEqual([
+            { tableIdent: 'Sales Data', parts: ['Sales Data'] },
+        ]);
+        expect(collectQueryEditorTableReferences('SELECT * FROM `Sales.Data`')).toEqual([
+            { tableIdent: 'Sales.Data', parts: ['Sales.Data'] },
+        ]);
+        expect(collectQueryEditorTableReferences('SELECT * FROM [Sales]]Data]')).toEqual([
+            { tableIdent: 'Sales]Data', parts: ['Sales]Data'] },
+        ]);
+        expect(collectQueryEditorTableReferences('SELECT * FROM [Sales#Data]')).toEqual([
+            { tableIdent: 'Sales#Data', parts: ['Sales#Data'] },
+        ]);
+        expect(collectQueryEditorTableReferences('SELECT * FROM `Sales--Data`')).toEqual([
+            { tableIdent: 'Sales--Data', parts: ['Sales--Data'] },
+        ]);
+    });
+
+    it('does not classify a table alias as a table source', () => {
+        const sql = 'SELECT * FROM users u';
+        expect(isQueryEditorTableSourceAtPosition(sql, 1, sql.length)).toBe(false);
+    });
+
     it('resolves PostgreSQL schema.table under the current database', () => {
         const tables = [
             { dbName: 'appdb', tableName: 'public.users' },
@@ -751,6 +1206,141 @@ SELECT * FROM analytics.public.events;
             dbName: 'appdb',
             tableName: 'sales.users',
             schemaName: 'sales',
+        });
+    });
+
+    it('distinguishes PostgreSQL quoted table names from folded unquoted names', () => {
+        const tables = [
+            { dbName: 'appdb', tableName: 'public.users', comment: 'lowercase table' },
+            { dbName: 'appdb', tableName: 'public.Users', comment: 'quoted uppercase table' },
+        ];
+        const quotedSql = 'SELECT * FROM "Users"';
+        const unquotedSql = 'SELECT * FROM users';
+
+        expect(resolveQueryEditorNavigationTarget(
+            quotedSql,
+            quotedSql.length,
+            'appdb',
+            ['appdb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'public',
+            'postgres',
+        )).toEqual({
+            type: 'table',
+            dbName: 'appdb',
+            tableName: 'public.Users',
+            schemaName: 'public',
+        });
+        expect(resolveQueryEditorNavigationTarget(
+            unquotedSql,
+            unquotedSql.length,
+            'appdb',
+            ['appdb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'public',
+            'postgres',
+        )).toEqual({
+            type: 'table',
+            dbName: 'appdb',
+            tableName: 'public.users',
+            schemaName: 'public',
+        });
+
+        expect(resolveQueryEditorHoverTarget(
+            quotedSql,
+            quotedSql,
+            quotedSql.length,
+            'appdb',
+            ['appdb'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'public',
+            undefined,
+            true,
+            'postgres',
+        )).toMatchObject({
+            kind: 'table',
+            tableName: 'public.Users',
+            comment: 'quoted uppercase table',
+            lookupTableName: 'public."Users"',
+        });
+    });
+
+    it('distinguishes PostgreSQL quoted named objects from folded unquoted names', () => {
+        const views = [
+            { dbName: 'appdb', viewName: 'public.users', schemaName: 'public' },
+            { dbName: 'appdb', viewName: 'public.Users', schemaName: 'public' },
+        ];
+        const quotedSql = 'SELECT * FROM "Users"';
+        const unquotedSql = 'SELECT * FROM users';
+
+        expect(resolveQueryEditorNavigationTarget(
+            quotedSql,
+            quotedSql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            views,
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'public',
+            'postgres',
+        )).toEqual({
+            type: 'view',
+            dbName: 'appdb',
+            viewName: 'public.Users',
+            schemaName: 'public',
+        });
+        expect(resolveQueryEditorNavigationTarget(
+            unquotedSql,
+            unquotedSql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            views,
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            undefined,
+            'public',
+            'postgres',
+        )).toEqual({
+            type: 'view',
+            dbName: 'appdb',
+            viewName: 'public.users',
+            schemaName: 'public',
         });
     });
 
@@ -904,6 +1494,67 @@ describe('QueryEditorHelpers cross-line qualified identifier resolution', () => 
         )).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
     });
 
+    it('does not let a stale qualified document offset replace the current line token', () => {
+        const line = 'SELECT value';
+        const documentText = 'SELECT * FROM other.users';
+        const target = resolveQueryEditorHoverTarget(
+            documentText,
+            line,
+            line.length,
+            'main',
+            ['main', 'other'],
+            [
+                { dbName: 'main', tableName: 'value' },
+                { dbName: 'other', tableName: 'users' },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: documentText, offset: documentText.length - 1 },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'main', tableName: 'value' });
+    });
+
+    it('does not treat PostgreSQL quoted and folded names as the same stale token', () => {
+        const line = 'SELECT users';
+        const documentText = 'SELECT * FROM "Users"';
+        const target = resolveQueryEditorHoverTarget(
+            documentText,
+            line,
+            line.length,
+            'main',
+            ['main'],
+            [
+                { dbName: 'main', tableName: 'users' },
+                { dbName: 'main', tableName: 'Users' },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: documentText, offset: documentText.length - 1 },
+            '',
+            undefined,
+            true,
+            'postgres',
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'main', tableName: 'users' });
+    });
+
     it('does not absorb across statement terminators while expanding the window', () => {
         const sql = 'select * from a.b;\nselect * from c.d';
         const target = resolveQueryEditorHoverTarget(
@@ -974,6 +1625,36 @@ describe('QueryEditorHelpers cross-line qualified identifier resolution', () => 
         );
 
         expect(target).toMatchObject({ kind: 'table', dbName: 'mydb', tableName: 'users' });
+    });
+
+    it('resolves a three-part table when the last line keeps schema.table together', () => {
+        const sql = 'SELECT * FROM analytics\n  . public.events';
+        const lineContent = '  . public.events';
+        const column = lineContent.length + 1;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'other',
+            ['other', 'analytics'],
+            [{ dbName: 'analytics', tableName: 'public.events' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 2, column) },
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'analytics',
+            tableName: 'public.events',
+            schemaName: 'public',
+        });
     });
 
     it('keeps a cross-line target when the current line probe is temporarily empty', () => {
@@ -1084,6 +1765,304 @@ describe('QueryEditorHelpers cross-line qualified identifier resolution', () => 
         });
     });
 
+    it('preserves an explicit database in three-part fallback while metadata is loading', () => {
+        const sql = 'select * from missingdb.audit.users';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'missingdb',
+            tableName: 'users',
+            schemaName: 'audit',
+            lookupTableName: 'audit.users',
+        });
+    });
+
+    it('infers the second source in a comma-separated FROM list when metadata misses it', () => {
+        const sql = 'SELECT * FROM known_table, missing_table';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'main',
+            ['main'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'main',
+            tableName: 'missing_table',
+        });
+    });
+
+    it('infers an arbitrary schema-qualified table when metadata misses it', () => {
+        const sql = 'SELECT * FROM billing.orders';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'appdb',
+            tableName: 'orders',
+            schemaName: 'billing',
+        });
+    });
+
+    it.each(['mysql', 'oracle'])(
+        'preserves an explicit %s database or owner while metadata is still loading',
+        (dialect) => {
+            const sql = 'SELECT * FROM missingdb.users';
+            const target = resolveQueryEditorHoverTarget(
+                sql,
+                sql,
+                sql.length,
+                'appdb',
+                ['appdb'],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                [],
+                false,
+                { text: sql, offset: sql.length - 1 },
+                '',
+                undefined,
+                true,
+                dialect,
+            );
+
+            expect(target).toMatchObject({
+                kind: 'table',
+                dbName: 'missingdb',
+                tableName: 'users',
+                lookupTableName: 'users',
+            });
+        },
+    );
+
+    it('keeps PostgreSQL schema.table in the current database when a same-name database also has that table', () => {
+        const sql = 'select * from billing.orders';
+        const tables = [
+            { dbName: 'billing', tableName: 'orders' },
+            { dbName: 'appdb', tableName: 'billing.orders' },
+        ];
+
+        expect(resolveQueryEditorNavigationTarget(
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb', 'billing'],
+            tables,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            undefined,
+            '',
+            'postgres',
+        )).toEqual({
+            type: 'table',
+            dbName: 'appdb',
+            tableName: 'billing.orders',
+            schemaName: 'billing',
+        });
+    });
+
+    it('keeps a quoted table identifier containing spaces intact for fallback hover', () => {
+        const sql = 'SELECT * FROM "Sales Data"';
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'appdb',
+            tableName: 'Sales Data',
+        });
+    });
+
+    it.each([
+        ['SELECT * FROM `Sales.Data`', '`Sales.Data`'],
+        ['SELECT * FROM [Sales Data]', '[Sales Data]'],
+        ['SELECT * FROM "Sales""Data"', '"Sales""Data"'],
+    ])('keeps delimited identifier %s intact', (sql, identifier) => {
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            sql,
+            sql.length,
+            'appdb',
+            ['appdb'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: sql.length - 1 },
+            '',
+            undefined,
+            true,
+        );
+        expect(target).toMatchObject({ kind: 'table' });
+        expect(target?.kind === 'table' ? target.tableName : '').toBe(identifier.slice(1, -1).replace(/""/g, '"').replace(/``/g, '`').replace(/\]\]/g, ']'));
+    });
+
+    it('does not let a quote in a preceding comment consume the real table token', () => {
+        const line = '-- dangling [comment\nSELECT * FROM users';
+        const window = findIdentifierWindowAtOffset(line, line.length - 1, true);
+        expect(window).toEqual({ start: line.lastIndexOf('users'), end: line.length });
+        expect(collectQueryEditorObjectDecorationCandidates('SELECT * FROM "Sales Data"'))
+            .toEqual(expect.arrayContaining([
+                expect.objectContaining({
+                    lineNumber: 1,
+                    positionColumn: 16,
+                }),
+            ]));
+    });
+
+    it('masks line comments that begin immediately after a statement delimiter', () => {
+        const sql = 'SELECT 1;-- FROM fake_table\nSELECT * FROM users';
+        const masked = maskQueryEditorSqlLiteralsAndComments(sql);
+        expect(masked.split('\n')[0]).not.toContain('FROM fake_table');
+        expect(masked.split('\n')[1]).toContain('FROM users');
+    });
+
+    it.each(['postgres', 'clickhouse', 'duckdb'])('keeps nested array brackets from swallowing later comments for %s', (dialect) => {
+        const sql = 'SELECT [[1],[2]];\n-- FROM fake_table\nSELECT * FROM real_table';
+        const masked = maskQueryEditorSqlLiteralsAndComments(sql, dialect);
+
+        expect(masked.split('\n')[1]).not.toContain('FROM fake_table');
+        expect(collectQueryEditorTableReferences(sql, dialect)).toEqual([
+            { tableIdent: 'real_table', parts: ['real_table'] },
+        ]);
+    });
+
+    it('keeps SQL Server and SQLite bracket identifiers opaque while treating array brackets as syntax elsewhere', () => {
+        expect(splitQueryIdentifierPathSegments('[Sales Data]', 'sqlserver')).toEqual([
+            { raw: '[Sales Data]', value: 'Sales Data', quoted: true },
+        ]);
+        expect(splitQueryIdentifierPathSegments('[Sales Data]', 'sqlite')).toEqual([
+            { raw: '[Sales Data]', value: 'Sales Data', quoted: true },
+        ]);
+        expect(splitQueryIdentifierPathSegments('[Sales Data]', 'postgres')).toEqual([
+            { raw: '[Sales Data]', value: '[Sales Data]', quoted: false },
+        ]);
+        expect(collectQueryEditorTableReferences('SELECT * FROM [Sales]]Data]', 'sqlserver')).toEqual([
+            { tableIdent: 'Sales]Data', parts: ['Sales]Data'] },
+        ]);
+        expect(collectQueryEditorTableReferences('SELECT * FROM [Sales Data]', 'sqlite')).toEqual([
+            { tableIdent: 'Sales Data', parts: ['Sales Data'] },
+        ]);
+    });
+
+    it('does not let a trailing backslash inside a MySQL identifier hide later SQL', () => {
+        const sql = 'SELECT * FROM `C:\\temp\\`; -- FROM fake_table\nSELECT * FROM real_table';
+        const masked = maskQueryEditorSqlLiteralsAndComments(sql, 'mysql');
+
+        expect(masked.split('\n')[0]).not.toContain('FROM fake_table');
+        expect(collectQueryEditorTableReferences(sql, 'mysql')).toEqual([
+            { tableIdent: 'C:\\temp\\', parts: ['C:\\temp\\'] },
+            { tableIdent: 'real_table', parts: ['real_table'] },
+        ]);
+    });
+
+    it('masks PostgreSQL dollar-quoted function bodies before collecting table references', () => {
+        const sql = [
+            'CREATE FUNCTION audit_row() RETURNS trigger AS $fn$',
+            'BEGIN',
+            '  INSERT INTO fake_audit_log VALUES (1);',
+            '  -- FROM fake_table',
+            '  RETURN NEW;',
+            'END;',
+            '$fn$ LANGUAGE plpgsql;',
+            'SELECT * FROM real_table;',
+        ].join('\n');
+
+        const masked = maskQueryEditorSqlLiteralsAndComments(sql);
+        expect(masked).not.toContain('fake_audit_log');
+        expect(masked).not.toContain('fake_table');
+        expect(masked).toContain('real_table');
+        expect(collectQueryEditorTableReferences(sql)).toEqual([
+            { tableIdent: 'real_table', parts: ['real_table'] },
+        ]);
+    });
+
     it('anchors the hover range on the table token after FROM', () => {
         const sql = 'SELECT *\nFROM test_users;';
         const target = resolveQueryEditorHoverTarget(
@@ -1183,5 +2162,139 @@ describe('QueryEditorHelpers cross-line qualified identifier resolution', () => 
         );
 
         expect(target).toMatchObject({ kind: 'table', tableName: 'test_users' });
+    });
+
+    it('resolves the table in the second cross-line statement without losing its source context', () => {
+        const sql = [
+            'SELECT * FROM test_users;',
+            '',
+            'SELECT *',
+            'FROM',
+            '  test_users;',
+        ].join('\n');
+        const lineContent = '  test_users;';
+        const column = lineContent.length + 1;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'db1',
+            ['db1'],
+            [{ dbName: 'db1', tableName: 'test_users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, 5, column) },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'db1',
+            tableName: 'test_users',
+        });
+    });
+
+    it('keeps CRLF document offsets aligned for a cross-line table source', () => {
+        const sql = 'SELECT *\r\nFROM\r\n  test_users';
+        const lineContent = '  test_users';
+        const column = lineContent.length + 1;
+        const rawOffset = 'SELECT *\r\nFROM\r\n'.length + lineContent.length;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'db1',
+            ['db1'],
+            [{ dbName: 'db1', tableName: 'test_users' }],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: rawOffset },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({ kind: 'table', dbName: 'db1', tableName: 'test_users' });
+    });
+
+    it('keeps CRLF offsets aligned for a qualified cross-line table source', () => {
+        const sql = 'SELECT *\r\nFROM\r\n  audit\r\n.\r\n  test_users';
+        const lineContent = '  test_users';
+        const column = lineContent.length + 1;
+        const rawOffset = 'SELECT *\r\nFROM\r\n  audit\r\n.\r\n'.length + lineContent.length;
+        const target = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'db1',
+            ['db1'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            true,
+            { text: sql, offset: rawOffset },
+            '',
+            undefined,
+            true,
+        );
+
+        expect(target).toMatchObject({
+            kind: 'table',
+            dbName: 'db1',
+            tableName: 'test_users',
+            schemaName: 'audit',
+        });
+    });
+
+    it.each([
+        ['SELECT * FROM\n\n  test_users', '  test_users'],
+        ['SELECT *\nFROM /* source comment */\n  test_users', '  test_users'],
+        ['SELECT *\nFROM\n  audit\n.\n  test_users', '  test_users'],
+    ])('keeps table-source context through formatter whitespace/comments: %s', (sql, lineContent) => {
+        const lineNumber = sql.split('\n').findIndex((line) => line === lineContent) + 1;
+        const column = lineContent.length + 1;
+        expect(lineNumber).toBeGreaterThan(0);
+        const sourceContext = isQueryEditorTableSourceAtPosition(sql, lineNumber, column);
+        expect(sourceContext).toBe(true);
+        const resolvedTarget = resolveQueryEditorHoverTarget(
+            sql,
+            lineContent,
+            column,
+            'other',
+            ['other', 'audit'],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+            { text: sql, offset: getQueryEditorDocumentOffsetAtPosition(sql, lineNumber, column) },
+            '',
+            undefined,
+            true,
+        );
+        expect(resolvedTarget).toMatchObject({ kind: 'table', tableName: lineContent.trim() });
     });
 });

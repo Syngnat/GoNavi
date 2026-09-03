@@ -94,6 +94,9 @@ export interface SessionProjectionResult {
   messages?: Array<Record<string, unknown>>;
 }
 
+export const createRunPendingMessageId = (runId: string): string =>
+  `agent-run-${runId}-pending`;
+
 export interface SessionListRequest {
   limit?: number;
   offset?: number;
@@ -329,17 +332,61 @@ export const serializeShortcutOptionsForWorkspace = (
   return result;
 };
 
+const appendDurableTurn = (completed: string, current: string): string => {
+  if (!current) return completed;
+  if (!completed) return current;
+  if (completed === current || completed.endsWith(current)) return completed;
+  if (current.startsWith(completed)) return current;
+  return `${completed.trimEnd()}\n\n${current.trimStart()}`;
+};
+
+const mergeDurableToolCalls = (
+  existing: AIToolCall[] | undefined,
+  incoming: AIToolCall[] | undefined,
+): AIToolCall[] | undefined => {
+  if (!incoming || incoming.length === 0) return existing;
+  const calls = [...(existing || [])];
+  const existingIds = new Set(calls.map((call) => call.id));
+  for (const call of incoming) {
+    if (existingIds.has(call.id)) continue;
+    calls.push(call);
+    existingIds.add(call.id);
+  }
+  return calls.length > 0 ? calls : undefined;
+};
+
+const mergeDurableAssistant = (target: AIChatMessage, incoming: AIChatMessage): void => {
+  target.content = appendDurableTurn(target.content, incoming.content);
+  target.reasoning_content = appendDurableTurn(
+    String(target.reasoning_content || ''),
+    String(incoming.reasoning_content || ''),
+  ) || undefined;
+  target.tool_calls = mergeDurableToolCalls(target.tool_calls, incoming.tool_calls);
+  if (incoming.images?.length) {
+    target.images = [...new Set([...(target.images || []), ...incoming.images])];
+  }
+  if (incoming.attachments?.length) {
+    const attachmentIds = new Set((target.attachments || []).map((attachment) => attachment.id));
+    target.attachments = [
+      ...(target.attachments || []),
+      ...incoming.attachments.filter((attachment) => !attachmentIds.has(attachment.id)),
+    ];
+  }
+};
+
 /** Convert an encrypted-ledger session projection into the UI message shape. */
 export const toAIChatMessages = (projection: SessionProjectionResult | null | undefined): AIChatMessage[] => {
   if (!projection || !Array.isArray(projection.messages)) return [];
-  return projection.messages.flatMap((raw): AIChatMessage[] => {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  const messages: AIChatMessage[] = [];
+  const assistantByRun = new Map<string, AIChatMessage>();
+  projection.messages.forEach((raw): void => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
     const message = raw as Record<string, unknown>;
     const role = String(message.role || '').trim();
-    if (role !== 'user' && role !== 'assistant' && role !== 'system' && role !== 'tool') return [];
+    if (role !== 'user' && role !== 'assistant' && role !== 'system' && role !== 'tool') return;
     const toolCalls = parseToolCalls(message.toolCalls ?? message.tool_calls);
     const id = String(message.id || '').trim();
-    if (!id) return [];
+    if (!id) return;
     const attachments = Array.isArray(message.attachments)
       ? message.attachments.flatMap((rawAttachment): AIChatAttachment[] => {
         if (!rawAttachment || typeof rawAttachment !== 'object' || Array.isArray(rawAttachment)) return [];
@@ -359,8 +406,11 @@ export const toAIChatMessages = (projection: SessionProjectionResult | null | un
         }];
       })
       : undefined;
-    const result: AIChatMessage = {
+    const uiMessage: AIChatMessage = {
       id,
+      ...(String(message.runId || message.RunID || '').trim()
+        ? { runId: String(message.runId || message.RunID || '').trim() }
+        : {}),
       role,
       content: String(message.content || ''),
       timestamp: parseTimestamp(message.createdAt ?? message.created_at),
@@ -372,9 +422,18 @@ export const toAIChatMessages = (projection: SessionProjectionResult | null | un
       loading: false,
       phase: 'idle',
     };
-    if (role === 'tool') result.tool_name = String(message.toolName || '').trim() || undefined;
-    return [result];
+    if (role === 'tool') uiMessage.tool_name = String(message.toolName || '').trim() || undefined;
+    if (role === 'assistant' && uiMessage.runId) {
+      const existing = assistantByRun.get(uiMessage.runId);
+      if (existing) {
+        mergeDurableAssistant(existing, uiMessage);
+        return;
+      }
+      assistantByRun.set(uiMessage.runId, uiMessage);
+    }
+    messages.push(uiMessage);
   });
+  return messages;
 };
 
 /** Merge a durable projection with transient assistant UI state. */
@@ -409,6 +468,84 @@ export const mergeAIChatSessionMessages = (
       && hasDurableAssistantAfterLatestUser
       && message.timestamp >= latestDurableUserTimestamp)
   ));
-  if (transient.length === 0) return durable;
-  return [...durable, ...transient];
+  // A terminal error is emitted after the assistant's tool-call turn has
+  // already been persisted. Keep that run-scoped error across the terminal
+  // hydration; otherwise the durable empty tool-call row replaces it and the
+  // user sees a blank assistant bubble with no failure explanation.
+  const terminalFailures = current.filter((message) => (
+    message.role === 'assistant'
+    && message.loading === false
+    && message.excludeFromAIContext === true
+    && /^agent-run-.+-error$/.test(String(message.id || ''))
+    && Boolean(String(message.runId || '').trim())
+    && Boolean(String(message.rawError || '').trim())
+    && !durableIDs.has(message.id)
+  ));
+  const terminalFailureRunIds = new Set(
+    terminalFailures
+      .map((message) => String(message.runId || '').trim())
+      .filter(Boolean),
+  );
+  // A failed receipt can add its queued row after the terminal event has
+  // already rendered the error. Do not let hydration merge that stale row
+  // back into the conversation for the run that is already settled.
+  const settledTransient = transient.filter((message) => {
+    const runId = String(message.runId || '').trim();
+    return !runId || !terminalFailureRunIds.has(runId);
+  });
+  const candidates = [...settledTransient, ...terminalFailures];
+  if (candidates.length === 0) return durable;
+
+  // A terminal/error or pending row belongs immediately after the durable
+  // turns for the same run. This is stronger than timestamp ordering because
+  // a delayed terminal event can arrive after the next user turn was saved.
+  const byRun = new Map<string, Array<{ message: AIChatMessage; index: number }>>();
+  const fallback: Array<{ message: AIChatMessage; index: number }> = [];
+  candidates.forEach((message, index) => {
+    const runId = String(message.runId || '').trim();
+    if (!runId) {
+      fallback.push({ message, index });
+      return;
+    }
+    const group = byRun.get(runId) || [];
+    group.push({ message, index });
+    byRun.set(runId, group);
+  });
+  for (const group of byRun.values()) {
+    group.sort((left, right) => left.message.timestamp - right.message.timestamp || left.index - right.index);
+  }
+
+  const anchoredRunIds = new Set<string>();
+  const lastDurableIndexByRun = new Map<string, number>();
+  durable.forEach((message, index) => {
+    const runId = String(message.runId || '').trim();
+    if (runId) lastDurableIndexByRun.set(runId, index);
+  });
+  const result: AIChatMessage[] = [];
+  durable.forEach((message, index) => {
+    result.push(message);
+    const runId = String(message.runId || '').trim();
+    if (!runId || index !== lastDurableIndexByRun.get(runId)) {
+      return;
+    }
+    const group = byRun.get(runId);
+    if (!group) return;
+    anchoredRunIds.add(runId);
+    result.push(...group.map(({ message: candidate }) => candidate));
+  });
+
+  // Legacy local rows, and run-scoped rows whose durable run is not present
+  // in this page, keep the previous timestamp fallback.
+  const unanchored = [
+    ...fallback,
+    ...[...byRun.entries()]
+      .filter(([runId]) => !anchoredRunIds.has(runId))
+      .flatMap(([, group]) => group),
+  ].sort((left, right) => left.message.timestamp - right.message.timestamp || left.index - right.index);
+  for (const item of unanchored) {
+    const insertAt = result.findIndex((candidate) => candidate.timestamp > item.message.timestamp);
+    if (insertAt < 0) result.push(item.message);
+    else result.splice(insertAt, 0, item.message);
+  }
+  return result;
 };

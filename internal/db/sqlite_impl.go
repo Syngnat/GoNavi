@@ -297,8 +297,14 @@ func (s *SQLiteDB) GetTableRowCounts(_ string, tables []string) (map[string]int6
 	return getSQLiteTableRowCounts(s.Query, tables)
 }
 
+func normalizeSQLiteMetadataTableName(dbName, raw string) string {
+	_, table := NormalizeSQLiteSchemaAndTable(dbName, raw)
+	return table
+}
+
 func (s *SQLiteDB) GetCreateStatement(dbName, tableName string) (string, error) {
-	query := fmt.Sprintf("SELECT sql FROM sqlite_master WHERE type='table' AND name='%s'", escapeSQLiteStringLiteral(tableName))
+	normalizedTableName := normalizeSQLiteMetadataTableName(dbName, tableName)
+	query := fmt.Sprintf("SELECT sql FROM sqlite_master WHERE type='table' AND name='%s'", escapeSQLiteStringLiteral(normalizedTableName))
 	data, _, err := s.Query(query)
 	if err != nil {
 		return "", err
@@ -323,7 +329,7 @@ func (s *SQLiteDB) GetColumnsContext(ctx context.Context, dbName, tableName stri
 }
 
 func (s *SQLiteDB) getColumnsContext(ctx context.Context, dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	table := strings.TrimSpace(tableName)
+	table := normalizeSQLiteMetadataTableName(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
@@ -412,7 +418,7 @@ func (s *SQLiteDB) getColumnsContext(ctx context.Context, dbName, tableName stri
 }
 
 func (s *SQLiteDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {
-	table := strings.TrimSpace(tableName)
+	table := normalizeSQLiteMetadataTableName(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
@@ -502,7 +508,7 @@ func (s *SQLiteDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefin
 }
 
 func (s *SQLiteDB) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {
-	table := strings.TrimSpace(tableName)
+	table := normalizeSQLiteMetadataTableName(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}
@@ -574,7 +580,7 @@ func (s *SQLiteDB) GetForeignKeys(dbName, tableName string) ([]connection.Foreig
 }
 
 func (s *SQLiteDB) GetTriggers(dbName, tableName string) ([]connection.TriggerDefinition, error) {
-	table := strings.TrimSpace(tableName)
+	table := normalizeSQLiteMetadataTableName(dbName, tableName)
 	if table == "" {
 		return nil, localizedDatabaseRuntimeError("db.backend.error.table_name_required", nil)
 	}

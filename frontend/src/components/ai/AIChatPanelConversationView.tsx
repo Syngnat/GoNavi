@@ -42,6 +42,7 @@ interface AIChatPanelConversationViewProps {
   onScrollMessages: (event: React.UIEvent<HTMLDivElement>) => void;
   onQuickAction: (prompt: string, autoSend?: boolean) => void;
   onSelectSession: (sessionId: string) => void;
+  onArchiveSession?: (session: AIChatInlineHistorySession) => Promise<void> | void;
   onEditMessage: (message: AIChatMessage) => void;
   onRetryMessage: (message: AIChatMessage) => void;
   onDeleteMessage?: (id: string) => void;
@@ -185,6 +186,7 @@ const AIChatPanelConversationView: React.FC<AIChatPanelConversationViewProps> = 
   onScrollMessages,
   onQuickAction,
   onSelectSession,
+  onArchiveSession,
   onEditMessage,
   onRetryMessage,
   onDeleteMessage,
@@ -229,6 +231,7 @@ const AIChatPanelConversationView: React.FC<AIChatPanelConversationViewProps> = 
         activeSessionId={activeSessionId}
         sessionActionsDisabled={sessionActionsDisabled}
         onSelectSession={onSelectSession}
+        onArchiveSession={onArchiveSession}
       />
 
       <div ref={messagesEndRef} />

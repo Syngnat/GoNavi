@@ -68,9 +68,14 @@ func TestDBTableExistsUsesExactSQLiteTableName(t *testing.T) {
 	}
 	t.Cleanup(func() { app.DBReleaseConnection(config) })
 
-	result := app.DBQueryMulti(config, databasePath, `CREATE TABLE "CaseSensitive" (id INTEGER PRIMARY KEY)`, "sqlite-table-exists")
-	if !result.Success {
-		t.Fatalf("create table returned failure: %s", result.Message)
+	for _, statement := range []string{
+		`CREATE TABLE "CaseSensitive" (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE "order.items" (id INTEGER PRIMARY KEY)`,
+	} {
+		result := app.DBQueryMulti(config, databasePath, statement, "sqlite-table-exists")
+		if !result.Success {
+			t.Fatalf("create table returned failure: %s", result.Message)
+		}
 	}
 
 	for _, test := range []struct {
@@ -79,6 +84,7 @@ func TestDBTableExistsUsesExactSQLiteTableName(t *testing.T) {
 		want      bool
 	}{
 		{name: "existing exact name", tableName: "CaseSensitive", want: true},
+		{name: "bracketed dotted name", tableName: "[order.items]", want: true},
 		{name: "different case", tableName: "casesensitive", want: false},
 		{name: "missing table", tableName: "missing", want: false},
 	} {

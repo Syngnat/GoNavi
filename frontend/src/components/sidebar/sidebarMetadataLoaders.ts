@@ -2,10 +2,13 @@ import { DBQuery } from "../../../wailsjs/go/app/App";
 import type { SavedConnection } from "../../types";
 import { buildRpcConnectionConfig } from "../../utils/connectionRpcConfig";
 import { normalizeOceanBaseProtocol } from "../../utils/oceanBaseProtocol";
+import { buildMetadataIdentityKey } from "../../utils/metadataIdentity";
 import {
   splitQualifiedNameLast,
   splitQualifiedNameSegmentsDetailed,
+  splitMetadataQualifiedName,
 } from "../../utils/qualifiedName";
+import { quoteSqlIdentifierPart, resolveSqlDialect } from "../../utils/sqlDialect";
 import {
   buildMySQLCompatibleViewMetadataSqls,
   isSidebarViewTableType,
@@ -394,6 +397,28 @@ const buildQualifiedName = (schemaName: string, objectName: string): string => {
   if (!schema) return name;
   if (splitQualifiedNameSegmentsDetailed(name).length > 1) return name;
   return `${schema}.${name}`;
+};
+
+const buildMetadataQualifiedName = (
+  schemaName: string,
+  objectName: string,
+  dialect: string,
+  explicitQualifiedName = '',
+): string => {
+  const explicit = String(explicitQualifiedName || '').trim();
+  if (explicit) return explicit;
+  const schema = String(schemaName || '').trim();
+  const object = String(objectName || '').trim();
+  if (!object) return '';
+  if (!schema) return object;
+  const objectSegments = splitQualifiedNameSegmentsDetailed(object, dialect);
+  if (objectSegments.length > 1 && objectSegments.some((segment) => segment.quoted)) {
+    return object;
+  }
+  if (objectSegments.length > 1) {
+    return `${schema}.${quoteSqlIdentifierPart(resolveSqlDialect(dialect), object)}`;
+  }
+  return `${schema}.${object}`;
 };
 
 const buildSidebarObjectKeyName = (
@@ -923,7 +948,11 @@ const loadViews = async (
         viewName,
       );
       if (!entry) return;
-      const uniqueKey = `${entry.schemaName.toLowerCase()}@@${entry.viewName.toLowerCase()}`;
+      const uniqueKey = buildMetadataIdentityKey(
+        dialect,
+        entry.schemaName,
+        entry.viewName,
+      );
       if (seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       views.push(entry);
@@ -986,7 +1015,11 @@ const loadStarRocksMaterializedViews = async (
         viewName,
       );
       if (!entry) return;
-      const uniqueKey = `${entry.schemaName.toLowerCase()}@@${entry.viewName.toLowerCase()}`;
+      const uniqueKey = buildMetadataIdentityKey(
+        dialect,
+        entry.schemaName,
+        entry.viewName,
+      );
       if (seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       views.push(entry);
@@ -1004,6 +1037,7 @@ const loadDatabaseTriggers = async (
     displayName: string;
     triggerName: string;
     tableName: string;
+    schemaName?: string;
     objectStatus?: string;
   }>;
 } & MetadataLoadState> => {
@@ -1019,6 +1053,7 @@ const loadDatabaseTriggers = async (
     displayName: string;
     triggerName: string;
     tableName: string;
+    schemaName?: string;
   }> = [];
 
   results.forEach((queryResult) => {
@@ -1047,29 +1082,48 @@ const loadDatabaseTriggers = async (
         "table",
       ]);
 
-      const triggerParts = splitQualifiedName(rawTriggerName);
-      const tableParts = splitQualifiedName(rawTableName);
+      const metadataSchemaHint = String(rawSchemaName || '').trim();
+      const triggerParts = metadataSchemaHint
+        ? splitMetadataQualifiedName(String(rawTriggerName), metadataSchemaHint)
+        : splitQualifiedNameLast(String(rawTriggerName));
+      const tableParts = metadataSchemaHint
+        ? splitMetadataQualifiedName(String(rawTableName), metadataSchemaHint)
+        : splitQualifiedNameLast(String(rawTableName));
 
       const resolvedSchema = (
         rawSchemaName ||
-        tableParts.schemaName ||
-        triggerParts.schemaName ||
+        tableParts.parentPath ||
+        triggerParts.parentPath ||
         dbName
-      ).trim();
+      ).toString().trim();
       const resolvedTriggerName = (
         triggerParts.objectName || rawTriggerName
       ).trim();
       const resolvedTableName = (tableParts.objectName || rawTableName).trim();
-      const fullTableName = buildQualifiedName(
+      const fullTableName = buildMetadataQualifiedName(
         resolvedSchema,
         resolvedTableName,
+        dialect,
+        tableParts.parentPath ? String(rawTableName || '').trim() : '',
       );
+      const fullTriggerName = triggerParts.parentPath
+        ? String(rawTriggerName || '').trim()
+        : resolvedTriggerName;
 
       // MySQL 下 trigger 名在同 schema 内唯一，直接按 schema+trigger 去重可彻底规避多元数据查询导致的重复
       const uniqueKey =
         dialect === "mysql"
-          ? `${resolvedSchema.toLowerCase()}@@${resolvedTriggerName.toLowerCase()}`
-          : `${resolvedSchema.toLowerCase()}@@${resolvedTriggerName.toLowerCase()}@@${resolvedTableName.toLowerCase()}`;
+          ? buildMetadataIdentityKey(
+            dialect,
+            resolvedSchema,
+            resolvedTriggerName,
+          )
+          : buildMetadataIdentityKey(
+            dialect,
+            resolvedSchema,
+            resolvedTriggerName,
+            resolvedTableName,
+          );
       if (seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       const displayName = fullTableName
@@ -1080,13 +1134,18 @@ const loadDatabaseTriggers = async (
         : "";
       triggers.push({
         displayName,
-        triggerName: resolvedTriggerName,
+        triggerName: fullTriggerName || resolvedTriggerName,
         tableName: fullTableName || resolvedTableName,
+        ...(resolvedSchema ? { schemaName: resolvedSchema } : {}),
         ...(objectStatus ? { objectStatus } : {}),
       });
     });
   });
-  return { triggers, supported: hasSuccessfulQuery, failureMessage };
+  return {
+    triggers,
+    supported: hasSuccessfulQuery,
+    ...(failureMessage ? { failureMessage } : {}),
+  };
 };
 
 const loadFunctions = async (
@@ -1138,8 +1197,11 @@ const loadFunctions = async (
         ? "PROCEDURE"
         : "FUNCTION";
       const fullName = buildQualifiedName(schemaName, routineName);
-      // Case-insensitive dedupe: Kingbase/PG 多条 catalog SQL 或 overload 行容易同名大小写不一致
-      const uniqueKey = `${fullName.toLowerCase()}@@${normalizedType}`;
+      const uniqueKey = buildMetadataIdentityKey(
+        dialect,
+        fullName,
+        normalizedType,
+      );
       if (!fullName || seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       const typeLabel = normalizedType === "PROCEDURE" ? "P" : "F";
@@ -1204,7 +1266,11 @@ const loadSequences = async (
       ).trim();
       const objectName = (sequenceParts.objectName || rawSequenceName).trim();
       const fullName = buildQualifiedName(schemaName, objectName);
-      const uniqueKey = `${schemaName.toLowerCase()}@@${objectName.toLowerCase()}`;
+      const uniqueKey = buildMetadataIdentityKey(
+        dialect,
+        schemaName,
+        objectName,
+      );
       if (!fullName || seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       sequences.push({
@@ -1263,7 +1329,11 @@ const loadPackages = async (
       ).trim();
       const objectName = (packageParts.objectName || rawPackageName).trim();
       const fullName = buildQualifiedName(schemaName, objectName);
-      const uniqueKey = `${schemaName.toLowerCase()}@@${objectName.toLowerCase()}`;
+      const uniqueKey = buildMetadataIdentityKey(
+        dialect,
+        schemaName,
+        objectName,
+      );
       if (!fullName || seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
       packages.push({
@@ -1325,7 +1395,11 @@ const loadDatabaseEvents = async (
       const eventName = (parsed.objectName || rawEventName).trim();
       if (!eventName) return;
 
-      const uniqueKey = `${schemaName.toLowerCase()}@@${eventName.toLowerCase()}`;
+      const uniqueKey = buildMetadataIdentityKey(
+        dialect,
+        schemaName,
+        eventName,
+      );
       if (seen.has(uniqueKey)) return;
       seen.add(uniqueKey);
 

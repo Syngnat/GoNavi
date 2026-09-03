@@ -1,5 +1,11 @@
 import React from 'react';
-import { DatabaseOutlined, HistoryOutlined, TableOutlined, WarningOutlined } from '@ant-design/icons';
+import {
+  DatabaseOutlined,
+  DeleteOutlined,
+  HistoryOutlined,
+  TableOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import { useI18n } from '../../i18n/provider';
 
 export type AIChatPanelMode = 'chat' | 'insights' | 'history';
@@ -14,6 +20,7 @@ export interface AIChatInlineHistorySession {
   id: string;
   title: string;
   updatedAt: number;
+  revision?: number;
 }
 
 interface AIChatPanelModeContentProps {
@@ -23,6 +30,7 @@ interface AIChatPanelModeContentProps {
   activeSessionId: string;
   sessionActionsDisabled?: boolean;
   onSelectSession: (sessionId: string) => void;
+  onArchiveSession?: (session: AIChatInlineHistorySession) => Promise<void> | void;
 }
 
 const renderInsightIcon = (tone: AIChatInsightItem['tone']) => {
@@ -42,6 +50,7 @@ const AIChatPanelModeContent: React.FC<AIChatPanelModeContentProps> = ({
   activeSessionId,
   sessionActionsDisabled = false,
   onSelectSession,
+  onArchiveSession,
 }) => {
   const { t } = useI18n();
 
@@ -73,26 +82,43 @@ const AIChatPanelModeContent: React.FC<AIChatPanelModeContentProps> = ({
     return (
       <div className="gn-v2-ai-history-list">
         {sessions.map((session) => (
-          <button
-            key={session.id}
-            type="button"
-            className={`gn-v2-ai-history-card${session.id === activeSessionId ? ' is-active' : ''}`}
-            disabled={sessionActionsDisabled}
-            onClick={() => onSelectSession(session.id)}
-          >
-            <span>
-              <HistoryOutlined />
-              <strong>{session.title || t('ai_chat.panel.session.default_title')}</strong>
-            </span>
-            <small>
-              {new Date(session.updatedAt).toLocaleString(undefined, {
-                month: 'numeric',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </small>
-          </button>
+          <div className="gn-v2-ai-history-row" key={session.id}>
+            <button
+              type="button"
+              className={`gn-v2-ai-history-card${session.id === activeSessionId ? ' is-active' : ''}`}
+              disabled={sessionActionsDisabled}
+              onClick={() => onSelectSession(session.id)}
+            >
+              <span>
+                <HistoryOutlined />
+                <strong>{session.title || t('ai_chat.panel.session.default_title')}</strong>
+              </span>
+              <small>
+                {new Date(session.updatedAt).toLocaleString(undefined, {
+                  month: 'numeric',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </small>
+            </button>
+            {onArchiveSession && (
+              <button
+                type="button"
+                className="gn-v2-ai-history-delete"
+                aria-label={t('ai_chat.history.tooltip.delete')}
+                title={t('ai_chat.history.tooltip.delete')}
+                disabled={sessionActionsDisabled}
+                onClick={() => {
+                  void Promise.resolve(onArchiveSession(session)).catch((error) => {
+                    console.warn('Failed to archive AI agent session', error);
+                  });
+                }}
+              >
+                <DeleteOutlined />
+              </button>
+            )}
+          </div>
         ))}
       </div>
     );

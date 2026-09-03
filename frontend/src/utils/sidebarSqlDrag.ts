@@ -12,7 +12,9 @@ export const encodeSidebarSqlEditorDragPayload = (payload: SidebarSqlEditorDragP
     text: String(payload.text || '').trim(),
     nodeType: payload.nodeType ? String(payload.nodeType) : undefined,
     connectionId: payload.connectionId ? String(payload.connectionId) : undefined,
-    dbName: payload.dbName ? String(payload.dbName) : undefined,
+    // An explicitly empty database identifies connection-scoped sources such
+    // as SQLite. Preserve that distinction from an omitted field.
+    dbName: payload.dbName !== undefined ? String(payload.dbName) : undefined,
   });
 
 export const hasSidebarSqlEditorDragPayload = (dataTransfer: Pick<DataTransfer, 'types'> | null | undefined): boolean => {
@@ -31,7 +33,7 @@ export const decodeSidebarSqlEditorDragPayload = (value: string): SidebarSqlEdit
       text,
       nodeType: parsed?.nodeType ? String(parsed.nodeType) : undefined,
       connectionId: parsed?.connectionId ? String(parsed.connectionId) : undefined,
-      dbName: parsed?.dbName ? String(parsed.dbName) : undefined,
+      dbName: parsed?.dbName !== undefined ? String(parsed.dbName) : undefined,
     };
   } catch {
     return null;

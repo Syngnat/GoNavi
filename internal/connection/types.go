@@ -456,6 +456,9 @@ type TriggerDefinition struct {
 	Timing    string `json:"timing"` // BEFORE/AFTER
 	Event     string `json:"event"`  // INSERT/UPDATE/DELETE
 	Statement string `json:"statement"`
+	// Orientation preserves whether a trigger fires once per row or once per
+	// statement when a dialect exposes only an action fragment in metadata.
+	Orientation string `json:"orientation,omitempty"`
 }
 
 // ColumnDefinitionWithTable 带有表名标识的列定义，用于跨表搜索和 SQL 自动补全。

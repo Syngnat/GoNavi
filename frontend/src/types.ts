@@ -466,6 +466,8 @@ export interface TriggerDefinition {
   timing: string;
   event: string;
   statement: string;
+  /** ROW or STATEMENT when the backend exposes trigger firing granularity. */
+  orientation?: string;
 }
 
 export type TableExportScope = "selected" | "page" | "all" | "filteredAll";
@@ -866,13 +868,38 @@ export interface AIChatAttachment {
 
 export type ChatPhase =
   | "idle"
+  | "queued"
   | "connecting"
   | "thinking"
   | "generating"
   | "tool_calling";
 
+/**
+ * A user-visible, redacted projection of one Agent Harness run step. Keep
+ * provider reasoning, tool arguments, tool output, and raw errors out of
+ * this type: those belong to their existing dedicated UI paths.
+ */
+export type AIChatRunActivityKind = "model" | "tool" | "approval" | "workspace" | "retry" | "run";
+export type AIChatRunActivityStatus = "active" | "waiting" | "completed" | "failed" | "canceled";
+
+export interface AIChatRunActivity {
+  /** Stable only within a run; it is not rendered to the user. */
+  id: string;
+  kind: AIChatRunActivityKind;
+  status: AIChatRunActivityStatus;
+  timestamp: number;
+  /** A catalog tool name, safe to expose without its arguments or results. */
+  toolName?: string;
+  /** Harness retry attempt, when the activity represents a retry. */
+  attempt?: number;
+  /** Stable failure code only; raw provider messages stay in `rawError`. */
+  errorCode?: string;
+}
+
 export interface AIChatMessage {
   id: string;
+  /** Harness run that owns this transient or durable message, when known. */
+  runId?: string;
   role: "user" | "assistant" | "system" | "tool";
   phase?: ChatPhase;
   content: string;
@@ -883,6 +910,8 @@ export interface AIChatMessage {
   images?: string[]; // base64 encoded images with data URI prefix
   attachments?: AIChatAttachment[];
   tool_calls?: AIToolCall[];
+  /** Redacted, ordered execution steps retained with this assistant message. */
+  runActivities?: AIChatRunActivity[];
   tool_call_id?: string;
   tool_name?: string; // used for UI display
   rawError?: string; // 存储未清洗的原始错误信息，用于用户复制排查

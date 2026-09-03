@@ -72,6 +72,38 @@ func TestSQLStreamSplitterTransactionBeginFormsAcrossChunkBoundaries(t *testing.
 	}
 }
 
+func TestSQLStreamSplitterKeepsSQLServerBracketIdentifiersAcrossChunkBoundaries(t *testing.T) {
+	input := "SELECT * FROM [audit]];events]; SELECT 2;"
+	splitter := &sqlStreamSplitter{dbType: "sqlserver"}
+	var got []string
+	for index := range len(input) {
+		got = append(got, splitter.Feed([]byte(input[index:index+1]))...)
+	}
+	if last := splitter.Flush(); last != "" {
+		got = append(got, last)
+	}
+	want := []string{"SELECT * FROM [audit]];events]", "SELECT 2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("one-byte streaming split of %q = %#v, want %#v", input, got, want)
+	}
+}
+
+func TestSQLStreamSplitterKeepsSQLiteBracketIdentifiersAcrossChunkBoundaries(t *testing.T) {
+	input := "SELECT * FROM [a;b]; SELECT 2;"
+	splitter := &sqlStreamSplitter{dbType: "sqlite"}
+	var got []string
+	for index := range len(input) {
+		got = append(got, splitter.Feed([]byte(input[index:index+1]))...)
+	}
+	if last := splitter.Flush(); last != "" {
+		got = append(got, last)
+	}
+	want := []string{"SELECT * FROM [a;b]", "SELECT 2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("one-byte streaming split of %q = %#v, want %#v", input, got, want)
+	}
+}
+
 func TestSQLStreamSplitterKeepsMariaDBNotAtomicBlockAcrossChunkBoundaries(t *testing.T) {
 	block := "BEGIN NOT ATOMIC\n  SET @value = 1;\nEND"
 	input := block + "; SELECT 1;"

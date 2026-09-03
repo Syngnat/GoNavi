@@ -8,16 +8,16 @@ import (
 
 func TestNormalizeThinkingIntensityKeepsProviderNativeLevels(t *testing.T) {
 	cases := map[string]ai.ThinkingIntensity{
-		"":         "",
-		"auto":     "",
-		"off":      ai.ThinkingIntensityOff,
-		"none":     ai.ThinkingIntensity("none"),
-		"minimal":  ai.ThinkingIntensity("minimal"),
-		"low":      ai.ThinkingIntensityLow,
-		"MEDIUM":   ai.ThinkingIntensityMedium,
-		"high":     ai.ThinkingIntensityHigh,
-		"xhigh":    ai.ThinkingIntensity("xhigh"),
-		"max":      ai.ThinkingIntensity("max"),
+		"":        "",
+		"auto":    "",
+		"off":     ai.ThinkingIntensityOff,
+		"none":    ai.ThinkingIntensity("none"),
+		"minimal": ai.ThinkingIntensity("minimal"),
+		"low":     ai.ThinkingIntensityLow,
+		"MEDIUM":  ai.ThinkingIntensityMedium,
+		"high":    ai.ThinkingIntensityHigh,
+		"xhigh":   ai.ThinkingIntensity("xhigh"),
+		"max":     ai.ThinkingIntensity("max"),
 	}
 	for input, want := range cases {
 		if got := NormalizeThinkingIntensity(input); got != want {
@@ -38,6 +38,11 @@ func TestResolveThinkingProfile(t *testing.T) {
 	}
 	if got := ResolveThinkingProfile("gemini", "", "https://generativelanguage.googleapis.com", "gemini-3-flash"); got != ThinkingProfileGemini {
 		t.Fatalf("expected gemini profile, got %q", got)
+	}
+	for _, model := range []string{"glm-4-plus", "z-ai/glm-5.3-free"} {
+		if got := ResolveThinkingProfile("openai", "openai-responses", "https://api.example.com/v1", model); got != ThinkingProfileOpenAI {
+			t.Fatalf("expected OpenAI profile for Responses-routed %q, got %q", model, got)
+		}
 	}
 }
 

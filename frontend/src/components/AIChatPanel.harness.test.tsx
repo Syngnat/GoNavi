@@ -73,6 +73,7 @@ vi.mock('./ai/useAIChatRunEventSubscription', () => ({
 }));
 vi.mock('./ai/aiRunHarnessClient', () => ({
   controlAgentRun: harnessMock.controlAgentRun,
+  createRunPendingMessageId: (runId: string) => `agent-run-${runId}-pending`,
   getAIRunHarnessService: () => harnessMock.service,
   getRunPolicy: harnessMock.getRunPolicy,
   hasAIRunHarness: () => true,
@@ -369,6 +370,131 @@ describe('AIChatPanel agent run branch submission', () => {
     await act(async () => renderer?.unmount());
   });
 
+  it('lets the Ledger create a newly opened local session atomically', async () => {
+    harnessMock.session = {
+      sid: 'session-local-only',
+      messages: [],
+      orderedAISessions: [],
+    };
+    harnessMock.submitAgentInput.mockResolvedValueOnce(submitReceipt('durable-session'));
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await act(async () => {
+      harnessMock.inputProps?.setInput('First message in a new session');
+    });
+    await act(async () => {
+      await harnessMock.inputProps?.onSend();
+    });
+
+    expect(harnessMock.readAgentSession).not.toHaveBeenCalledWith({
+      sessionId: 'session-local-only',
+      limit: 1,
+    }, harnessMock.service);
+    expect(harnessMock.submitAgentInput).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'First message in a new session',
+    }), harnessMock.service);
+    expect(harnessMock.submitAgentInput.mock.calls[0][0]).not.toHaveProperty('sessionId');
+    expect(harnessMock.submitAgentInput.mock.calls[0][0]).not.toHaveProperty('expectedRevision');
+
+    await act(async () => renderer?.unmount());
+  });
+
+  it('does not add a pending bubble when the receipt is already terminal', async () => {
+    const addAIChatMessage = vi.fn();
+    useStore.setState({ addAIChatMessage });
+    harnessMock.submitAgentInput.mockResolvedValueOnce({
+      ...submitReceipt('source-session'),
+      state: 'failed',
+    });
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await act(async () => {
+      harnessMock.inputProps?.setInput('Terminal receipt');
+      await harnessMock.inputProps?.onSend();
+    });
+
+    expect(addAIChatMessage).not.toHaveBeenCalledWith('source-session', expect.objectContaining({
+      id: 'agent-run-run-1-pending',
+      loading: true,
+    }));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('does not resurrect a pending bubble when a terminal error event wins the receipt race', async () => {
+    const addAIChatMessage = vi.fn();
+    const terminalError: AIChatMessage = {
+      id: 'agent-run-run-1-0-error',
+      runId: 'run-1',
+      role: 'assistant',
+      content: 'Error: reasoning effort is invalid',
+      rawError: 'reasoning effort is invalid',
+      timestamp: 2,
+      loading: false,
+      phase: 'idle',
+      excludeFromAIContext: true,
+    };
+    useStore.setState({
+      addAIChatMessage,
+      aiChatHistory: { 'source-session': [...sourceMessages, terminalError] },
+    });
+    harnessMock.submitAgentInput.mockResolvedValueOnce(submitReceipt('source-session'));
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await act(async () => {
+      harnessMock.inputProps?.setInput('Receipt after failure');
+      await harnessMock.inputProps?.onSend();
+    });
+
+    expect(addAIChatMessage).not.toHaveBeenCalledWith('source-session', expect.objectContaining({
+      id: 'agent-run-run-1-pending',
+      loading: true,
+    }));
+    await act(async () => renderer?.unmount());
+  });
+
+  it('keeps an event-first terminal state when its queued receipt arrives later', async () => {
+    const addAIChatMessage = vi.fn();
+    let resolveReceipt: ((value: ReturnType<typeof submitReceipt>) => void) | undefined;
+    const receipt = new Promise<ReturnType<typeof submitReceipt>>((resolve) => {
+      resolveReceipt = resolve;
+    });
+    useStore.setState({ addAIChatMessage });
+    harnessMock.submitAgentInput.mockReturnValueOnce(receipt);
+
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+    await act(async () => {
+      harnessMock.inputProps?.setInput('Event before receipt');
+    });
+    let send: Promise<void> | undefined;
+    await act(async () => {
+      send = harnessMock.inputProps?.onSend();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      harnessMock.runSubscriptionProps?.onRunStateChange('run-1', 'failed', 2);
+      resolveReceipt?.(submitReceipt('source-session'));
+      await send;
+    });
+
+    expect(harnessMock.inputProps?.sending).toBe(false);
+    expect(addAIChatMessage).not.toHaveBeenCalledWith('source-session', expect.objectContaining({
+      id: 'agent-run-run-1-pending',
+      loading: true,
+    }));
+    await act(async () => renderer?.unmount());
+  });
+
   it('uses the exact run revision for a stale-workspace control and refreshes a conflict', async () => {
     harnessMock.controlAgentRun.mockRejectedValueOnce(new Error('revision_conflict: expected 12, got 13'));
     harnessMock.readAgentRun.mockResolvedValueOnce({
@@ -440,6 +566,33 @@ describe('AIChatPanel agent run branch submission', () => {
       sessionId: 'source-session',
       expectedRevision: 84,
     }), harnessMock.service);
+    await act(async () => renderer?.unmount());
+  });
+
+  it('archives an inline history session through the Ledger and removes it locally', async () => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = renderPanel();
+    });
+
+    await act(async () => {
+      await harnessMock.conversationProps?.onArchiveSession({
+        id: 'source-session',
+        title: 'Source',
+        updatedAt: 1,
+        revision: 42,
+      });
+    });
+
+    expect(harnessMock.mutateAgentSession).toHaveBeenCalledWith({
+      sessionId: 'source-session',
+      expectedRevision: 42,
+      archived: true,
+    }, harnessMock.service);
+    expect(useStore.getState().aiChatSessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'source-session' }),
+    ]));
+    expect(useStore.getState().aiChatHistory['source-session']).toBeUndefined();
     await act(async () => renderer?.unmount());
   });
 

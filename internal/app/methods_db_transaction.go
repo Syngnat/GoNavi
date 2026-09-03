@@ -718,12 +718,12 @@ func isManagedSQLBlockWrite(dbType string, stmt string) bool {
 		return false
 	}
 
-	return sqlContainsKeyword(stmt, "insert") ||
-		sqlContainsKeyword(stmt, "update") ||
-		sqlContainsKeyword(stmt, "delete") ||
-		sqlContainsKeyword(stmt, "merge") ||
-		sqlContainsKeyword(stmt, "replace") ||
-		sqlContainsKeyword(stmt, "upsert")
+	return sqlContainsKeyword(stmt, "insert", dbType) ||
+		sqlContainsKeyword(stmt, "update", dbType) ||
+		sqlContainsKeyword(stmt, "delete", dbType) ||
+		sqlContainsKeyword(stmt, "merge", dbType) ||
+		sqlContainsKeyword(stmt, "replace", dbType) ||
+		sqlContainsKeyword(stmt, "upsert", dbType)
 }
 
 func (a *App) DBCommitTransaction(transactionID string) connection.QueryResult {

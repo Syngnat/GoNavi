@@ -16,6 +16,8 @@ func splitSQLStatements(sql string) []string {
 // the actual comment and dollar-quote rules of the target database.
 func splitSQLStatementsForDialect(dbType, sql string) []string {
 	text := strings.ReplaceAll(sql, "\r\n", "\n")
+	bracketIdentifiers := supportsSQLBracketIdentifier(dbType)
+	escapedBracketIdentifiers := supportsSQLEscapedBracketIdentifier(dbType)
 	if normalizeSQLClassifierDBType(dbType) == "elasticsearch" {
 		if source := strings.TrimSpace(text); source != "" {
 			return []string{source}
@@ -28,6 +30,7 @@ func splitSQLStatementsForDialect(dbType, sql string) []string {
 	inSingle := false
 	inDouble := false
 	inBacktick := false
+	inBracket := false
 	escaped := false
 	inLineComment := false
 	inBlockComment := false
@@ -69,6 +72,22 @@ func splitSQLStatementsForDialect(dbType, sql string) []string {
 				cur.WriteByte('/')
 				i++
 				inBlockComment = false
+			}
+			continue
+		}
+
+		// SQL Server and SQLite delimited identifiers use [name]. SQL Server
+		// escapes a closing bracket as ]], while SQLite closes at the first ].
+		// Semicolons inside the identifier are data, not statement delimiters.
+		if bracketIdentifiers && inBracket {
+			cur.WriteByte(ch)
+			if ch == ']' {
+				if escapedBracketIdentifiers && next == ']' {
+					cur.WriteByte(next)
+					i++
+					continue
+				}
+				inBracket = false
 			}
 			continue
 		}
@@ -117,6 +136,11 @@ func splitSQLStatementsForDialect(dbType, sql string) []string {
 		}
 		if !inSingle && !inDouble && ch == '`' {
 			inBacktick = !inBacktick
+			cur.WriteByte(ch)
+			continue
+		}
+		if bracketIdentifiers && !inSingle && !inDouble && !inBacktick && ch == '[' {
+			inBracket = true
 			cur.WriteByte(ch)
 			continue
 		}
@@ -260,6 +284,20 @@ func splitSQLStatementsForDialect(dbType, sql string) []string {
 	push()
 	return statements
 }
+
+func supportsSQLBracketIdentifier(dbType string) bool {
+	switch normalizeSQLClassifierDBType(dbType) {
+	case "sqlserver", "sqlite":
+		return true
+	default:
+		return false
+	}
+}
+
+func supportsSQLEscapedBracketIdentifier(dbType string) bool {
+	return normalizeSQLClassifierDBType(dbType) == "sqlserver"
+}
+
 
 func hasExecutableSQLStatementContent(dbType, statement string) bool {
 	for i := 0; i < len(statement); {

@@ -138,7 +138,7 @@ func (p *OpenAIProvider) applyThinkingToRequest(body *openAIChatRequest) {
 		body.Thinking = map[string]string{"type": "enabled"}
 		return
 	}
-	// OpenAI / GPT 推理模型：reasoning_effort = none|minimal|low|medium|high|xhigh
+	// OpenAI-compatible reasoning_effort = none|minimal|low|medium|high|xhigh.
 	if effort := openAIReasoningEffort(intensity); effort != "" {
 		body.ReasoningEffort = effort
 	}

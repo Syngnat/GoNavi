@@ -204,4 +204,18 @@ describe('extractQueryResultTableRef', () => {
     expect(extractQueryResultTableRef('SELECT DISTINCT ID FROM users', 'mysql', 'app'))
       .toBeUndefined();
   });
+
+  it.each([
+    ['leading line comments', '-- query source\nSELECT * FROM users', 'users'],
+    ['leading block comments', '/* query source */\nSELECT * FROM users', 'users'],
+    ['comments that mention JOIN', '/* JOIN legacy documentation */\nSELECT * FROM users', 'users'],
+    ['leading hash comments', '# JOIN legacy documentation\nSELECT * FROM users', 'users'],
+    ['comments between FROM and the table', 'SELECT * FROM /* primary source */ users', 'users'],
+  ])('keeps single-table metadata for %s', (_label, sql, tableName) => {
+    expect(extractQueryResultTableRef(sql, 'mysql', 'app')).toMatchObject({
+      tableName,
+      metadataDbName: 'app',
+      metadataTableName: tableName,
+    });
+  });
 });

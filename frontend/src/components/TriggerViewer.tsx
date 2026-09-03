@@ -6,8 +6,11 @@ import { TabData } from '../types';
 import { useStore } from '../store';
 import { DBGetTriggers, DBQuery } from '../../wailsjs/go/app/App';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
-import { normalizeOceanBaseProtocol } from '../utils/oceanBaseProtocol';
-import { splitQualifiedNameLast } from '../utils/qualifiedName';
+import { resolveSqlDialect } from '../utils/sqlDialect';
+import {
+    splitMetadataQualifiedName,
+    splitQualifiedNameLast,
+} from '../utils/qualifiedName';
 import { buildEditableTriggerSql } from '../utils/triggerEditSql';
 import {
     buildTableDesignerTriggerDropSql,
@@ -135,26 +138,27 @@ const TriggerViewer: React.FC<TriggerViewerProps> = ({ tab }) => {
     // 透明 Monaco Editor 主题由 MonacoEditor 包装组件按需注册（含 stickyScroll 不透明背景）
 
     const escapeSQLLiteral = (raw: string): string => String(raw || '').replace(/'/g, "''");
-    const parseSchemaAndName = (fullName: string): { schema: string; name: string } => {
-        const parsed = splitQualifiedNameLast(fullName);
-        return { schema: parsed.parentPath, name: parsed.objectName };
+    const parseSchemaAndName = (fullName: string, expectedParent = ''): { schema: string; name: string } => {
+        const normalizedExpectedParent = String(expectedParent || '').trim();
+        const parsed = normalizedExpectedParent
+            ? splitMetadataQualifiedName(fullName, normalizedExpectedParent)
+            : splitQualifiedNameLast(fullName);
+        return {
+            schema: parsed.parentPath || normalizedExpectedParent,
+            name: parsed.objectName,
+        };
     };
 
     const getMetadataDialect = (conn: any): string => {
         const type = String(conn?.config?.type || '').trim().toLowerCase();
-        if (type === 'custom') {
-            const driver = String(conn?.config?.driver || '').trim().toLowerCase();
-            if (driver === 'diros' || driver === 'doris') return 'mysql';
-            if (driver === 'goldendb' || driver === 'greatdb' || driver === 'gdb') return 'mysql';
-            if (driver === 'oceanbase') return normalizeOceanBaseProtocol(conn?.config?.oceanBaseProtocol) === 'oracle' ? 'oracle' : 'mysql';
-            if (driver === 'opengauss' || driver === 'open_gauss' || driver === 'open-gauss') return 'opengauss';
-            if (driver === 'gaussdb' || driver === 'gauss_db' || driver === 'gauss-db') return 'gaussdb';
-            return driver;
-        }
-        if (type === 'oceanbase' && normalizeOceanBaseProtocol(conn?.config?.oceanBaseProtocol) === 'oracle') return 'oracle';
-        if (type === 'goldendb' || type === 'mariadb' || type === 'oceanbase' || type === 'diros' || type === 'sphinx') return 'mysql';
-        if (type === 'dameng') return 'dm';
-        return type;
+        const dialect = resolveSqlDialect(
+            type,
+            String(conn?.config?.driver || '').trim(),
+            { oceanBaseProtocol: conn?.config?.oceanBaseProtocol },
+        );
+        if (dialect === 'diros' || dialect === 'goldendb' || dialect === 'mariadb' || dialect === 'oceanbase' || dialect === 'sphinx') return 'mysql';
+        if (dialect === 'dameng') return 'dm';
+        return String(dialect || '').trim().toLowerCase();
     };
 
     const isSphinxConnection = (conn: any): boolean => {
@@ -167,22 +171,40 @@ const TriggerViewer: React.FC<TriggerViewerProps> = ({ tab }) => {
 
     const commentLine = (key: string, params?: Record<string, any>): string => `-- ${t(key, params)}`;
 
-    const buildShowTriggerQueries = (dialect: string, triggerName: string, dbName: string): string[] => {
-        const { schema, name } = parseSchemaAndName(triggerName);
+    const buildShowTriggerQueries = (
+        dialect: string,
+        triggerName: string,
+        dbName: string,
+        tableName = '',
+        schemaName = '',
+    ): string[] => {
+        const schemaHint = String(schemaName || '').trim();
+        const { schema, name } = parseSchemaAndName(triggerName, schemaHint);
         const safeTriggerName = escapeSQLLiteral(name);
         const safeDbName = escapeSQLLiteral(dbName);
+        const parsedTable = splitMetadataQualifiedName(String(tableName || '').trim(), schemaHint || schema);
+        const safeTableName = escapeSQLLiteral(parsedTable.objectName || tableName);
+        const effectiveSchema = schema || parsedTable.parentPath || schemaHint;
+        const safeSchemaName = escapeSQLLiteral(effectiveSchema);
         switch (dialect) {
             case 'mysql':
             case 'starrocks':
+            {
+                const triggerDatabaseName = String(effectiveSchema || dbName || '').trim();
+                const safeTriggerDatabaseName = escapeSQLLiteral(triggerDatabaseName);
+                const triggerRef = effectiveSchema
+                    ? `\`${effectiveSchema.replace(/`/g, '``')}\`.\`${name.replace(/`/g, '``')}\``
+                    : `\`${name.replace(/`/g, '``')}\``;
                 return [
-                    `SHOW CREATE TRIGGER \`${name.replace(/`/g, '``')}\``,
-                    safeDbName
-                        ? `SELECT TRIGGER_NAME, TRIGGER_SCHEMA, EVENT_OBJECT_SCHEMA, EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION, ACTION_ORIENTATION, ACTION_STATEMENT FROM information_schema.triggers WHERE trigger_schema = '${safeDbName}' AND trigger_name = '${safeTriggerName}' LIMIT 1`
+                    `SHOW CREATE TRIGGER ${triggerRef}`,
+                    safeTriggerDatabaseName
+                        ? `SELECT TRIGGER_NAME, TRIGGER_SCHEMA, EVENT_OBJECT_SCHEMA, EVENT_OBJECT_TABLE, ACTION_TIMING, EVENT_MANIPULATION, ACTION_ORIENTATION, ACTION_STATEMENT FROM information_schema.triggers WHERE trigger_schema = '${safeTriggerDatabaseName}' AND trigger_name = '${safeTriggerName}' LIMIT 1`
                         : '',
-                    safeDbName
-                        ? `SHOW TRIGGERS FROM \`${dbName.replace(/`/g, '``')}\` LIKE '${safeTriggerName}'`
+                    safeTriggerDatabaseName
+                        ? `SHOW TRIGGERS FROM \`${triggerDatabaseName.replace(/`/g, '``')}\` LIKE '${safeTriggerName}'`
                         : `SHOW TRIGGERS LIKE '${safeTriggerName}'`,
                 ].filter(Boolean);
+            }
             case 'postgres':
             case 'kingbase':
             case 'highgo':
@@ -192,19 +214,29 @@ const TriggerViewer: React.FC<TriggerViewerProps> = ({ tab }) => {
                 return [`SELECT pg_get_triggerdef(t.oid, true) AS trigger_definition
 FROM pg_trigger t
 JOIN pg_class c ON t.tgrelid = c.oid
+JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE t.tgname = '${safeTriggerName}'
   AND NOT t.tgisinternal
-LIMIT 1`];
+${safeSchemaName ? `  AND n.nspname = '${safeSchemaName}'\n` : ''}${safeTableName ? `  AND c.relname = '${safeTableName}'\n` : ''}LIMIT 1`];
             case 'sqlserver': {
-                return buildSqlServerObjectDefinitionQueries('trigger', triggerName, dbName, 'trigger_definition');
+                const quoteSqlServerIdentifier = (value: string): string => `[${String(value || '').replace(/]/g, ']]')}]`;
+                const sqlServerTriggerLookupName = effectiveSchema
+                    ? `${quoteSqlServerIdentifier(effectiveSchema)}.${quoteSqlServerIdentifier(name)}`
+                    : quoteSqlServerIdentifier(name);
+                return buildSqlServerObjectDefinitionQueries(
+                    'trigger',
+                    sqlServerTriggerLookupName,
+                    dbName,
+                    'trigger_definition',
+                );
             }
             case 'oracle':
                 return [];
             case 'dm':
                 if (schema) {
                     return [
-                        `SELECT DBMS_METADATA.GET_DDL('TRIGGER', '${safeTriggerName.toUpperCase()}', '${escapeSQLLiteral(schema).toUpperCase()}') AS trigger_definition FROM DUAL`,
-                        `SELECT OWNER, TABLE_OWNER, TABLE_NAME, TRIGGER_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, WHEN_CLAUSE, TRIGGER_BODY FROM ALL_TRIGGERS WHERE OWNER = '${escapeSQLLiteral(schema).toUpperCase()}' AND TRIGGER_NAME = '${safeTriggerName.toUpperCase()}'`,
+                        `SELECT DBMS_METADATA.GET_DDL('TRIGGER', '${safeTriggerName.toUpperCase()}', '${escapeSQLLiteral(effectiveSchema).toUpperCase()}') AS trigger_definition FROM DUAL`,
+                        `SELECT OWNER, TABLE_OWNER, TABLE_NAME, TRIGGER_NAME, TRIGGER_TYPE, TRIGGERING_EVENT, WHEN_CLAUSE, TRIGGER_BODY FROM ALL_TRIGGERS WHERE OWNER = '${escapeSQLLiteral(effectiveSchema).toUpperCase()}' AND TRIGGER_NAME = '${safeTriggerName.toUpperCase()}'`,
                     ];
                 }
                 if (!safeDbName) {
@@ -235,7 +267,7 @@ LIMIT 1`];
         dbName: string,
         schemaName?: string,
     ): string => {
-        const { schema, name } = parseSchemaAndName(triggerName);
+        const { schema, name } = parseSchemaAndName(triggerName, schemaName);
         const owner = String(schema || schemaName || dbName || '').trim();
         const safeName = escapeSQLLiteral(name);
         const upperName = safeName.toUpperCase();
@@ -253,7 +285,7 @@ LIMIT 1`];
         triggerName: string,
         fallbackOwner: string,
     ): string => {
-        const targetName = String(parseSchemaAndName(triggerName).name || triggerName || '').trim();
+        const targetName = String(parseSchemaAndName(triggerName, fallbackOwner).name || triggerName || '').trim();
         const rows = Array.isArray(data)
             ? data.filter((row): row is Record<string, any> => Boolean(row) && typeof row === 'object')
             : [];
@@ -421,7 +453,13 @@ LIMIT 1`];
         }
 
         const dialect = getMetadataDialect(conn);
-        const queries = buildShowTriggerQueries(dialect, triggerName, dbName);
+        const queries = buildShowTriggerQueries(
+            dialect,
+            triggerName,
+            dbName,
+            String(tab.triggerTableName || ''),
+            String(tab.schemaName || ''),
+        );
         const sphinxLike = isSphinxConnection(conn) && dialect === 'mysql';
 
         if (dialect !== 'oracle' && (!queries.length || String(queries[0] || '').startsWith('--'))) {
@@ -441,7 +479,7 @@ LIMIT 1`];
             let triggerTableName = String(tab.triggerTableName || '').trim();
             if (dialect === 'oracle') {
                 if (!triggerTableName) {
-                    const parsedTrigger = parseSchemaAndName(triggerName);
+                    const parsedTrigger = parseSchemaAndName(triggerName, tab.schemaName);
                     const fallbackOwner = String(parsedTrigger.schema || tab.schemaName || dbName || '').trim();
                     const tableLookup = await runQueryCandidates(config, dbName, [
                         buildOracleTriggerTableLookupQuery(triggerName, dbName, tab.schemaName),
@@ -643,9 +681,10 @@ LIMIT 1`];
                 { name: triggerName, statement: latestDefinition },
                 triggerTableName,
                 dialect,
+                tab.schemaName,
             );
             const triggerDropSql = shouldDropTableDesignerTriggerBeforeReplace(triggerRollbackSql, dialect)
-                ? buildTableDesignerTriggerDropSql(triggerName, triggerTableName, dialect)
+                ? buildTableDesignerTriggerDropSql(triggerName, triggerTableName, dialect, tab.schemaName)
                 : '';
             loadedDefinitionKeyRef.current = objectIdentityKey;
             setTriggerDefinition(latestDefinition);
@@ -663,6 +702,7 @@ LIMIT 1`];
                 schemaName: schemaName || undefined,
                 query: buildEditableTriggerSql(triggerName, latestDefinition, {
                     dropSql: triggerDropSql,
+                    dbType: dialect,
                     translate: t,
                 }),
                 triggerName,

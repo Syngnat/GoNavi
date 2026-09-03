@@ -849,8 +849,16 @@ func quoteTDengineTableLegacy(dbName, tableName string) string {
 	if table == "" {
 		return ""
 	}
-	if strings.Contains(table, ".") {
-		return strings.Join(splitTDengineIdentifierParts(table), ".")
+	segments := SplitSQLIdentifierPathForDialect(table, "tdengine")
+	if len(segments) >= 2 {
+		parts := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			parts = append(parts, strings.TrimSpace(segment.Value))
+		}
+		return strings.Join(parts, ".")
+	}
+	if len(segments) == 1 {
+		table = strings.TrimSpace(segments[0].Value)
 	}
 	db := strings.TrimSpace(dbName)
 	if db == "" {
@@ -860,10 +868,10 @@ func quoteTDengineTableLegacy(dbName, tableName string) string {
 }
 
 func splitTDengineIdentifierParts(path string) []string {
-	parts := strings.Split(strings.TrimSpace(path), ".")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.Trim(strings.TrimSpace(part), "`")
+	segments := SplitSQLIdentifierPathForDialect(path, "tdengine")
+	result := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		trimmed := strings.TrimSpace(segment.Value)
 		if trimmed == "" {
 			continue
 		}
@@ -886,28 +894,28 @@ func isTDengineSyntaxCompatibilityError(err error) bool {
 }
 
 func quoteTDengineTable(dbName, tableName string) string {
-	t := escapeBacktickIdent(tableName)
-	if t == "" {
+	tableText := strings.TrimSpace(tableName)
+	if tableText == "" {
 		return "``"
 	}
-	if strings.Contains(t, ".") {
-		parts := strings.Split(t, ".")
-		quoted := make([]string, 0, len(parts))
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			quoted = append(quoted, fmt.Sprintf("`%s`", escapeBacktickIdent(part)))
+	segments := SplitSQLIdentifierPathForDialect(tableText, "tdengine")
+	if len(segments) >= 2 {
+		// A qualified TDengine name is database.table. The final segment may
+		// itself contain dots when it was delimited, so never split its value.
+		dbPart := strings.TrimSpace(segments[0].Value)
+		tableParts := make([]string, 0, len(segments)-1)
+		for _, segment := range segments[1:] {
+			tableParts = append(tableParts, strings.TrimSpace(segment.Value))
 		}
-		if len(quoted) > 0 {
-			return strings.Join(quoted, ".")
-		}
+		return fmt.Sprintf("`%s`.`%s`", escapeBacktickIdent(dbPart), escapeBacktickIdent(strings.Join(tableParts, ".")))
+	}
+	if len(segments) == 1 {
+		tableText = strings.TrimSpace(segments[0].Value)
 	}
 
 	db := escapeBacktickIdent(dbName)
 	if db == "" {
-		return fmt.Sprintf("`%s`", t)
+		return fmt.Sprintf("`%s`", escapeBacktickIdent(tableText))
 	}
-	return fmt.Sprintf("`%s`.`%s`", db, t)
+	return fmt.Sprintf("`%s`.`%s`", db, escapeBacktickIdent(tableText))
 }

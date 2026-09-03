@@ -15,4 +15,10 @@ describe('findTriggerDefinitionStatement', () => {
       { name: 'tr_audit', statement: 'LOWERCASE_TRIGGER' },
     ], 'H2."tr_audit"')).toBe('LOWERCASE_TRIGGER');
   });
+
+  it('matches a literal dotted trigger name before stripping path segments', () => {
+    expect(findTriggerDefinitionStatement([
+      { name: 'a.b', statement: 'CREATE TRIGGER `a.b` ...' },
+    ], 'a.b')).toBe('CREATE TRIGGER `a.b` ...');
+  });
 });

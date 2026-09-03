@@ -455,3 +455,70 @@ func TestSQLServerMetadataErrorsUseCurrentLanguage(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitSQLServerTableNamePreservesDelimitedDots(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantSchema string
+		wantTable  string
+	}{
+		{name: "plain qualified", input: "audit.users", wantSchema: "audit", wantTable: "users"},
+		{name: "bracketed dotted table", input: "[Sales.Data]", wantSchema: "dbo", wantTable: "Sales.Data"},
+		{name: "bracketed schema and table", input: "[audit].[Sales.Data]", wantSchema: "audit", wantTable: "Sales.Data"},
+		{name: "quoted schema and table", input: `"audit"."Sales.Data"`, wantSchema: "audit", wantTable: "Sales.Data"},
+		{name: "bracketed whitespace table", input: "[audit].[ id ]", wantSchema: "audit", wantTable: " id "},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schema, table := splitSQLServerTableName(test.input)
+			if schema != test.wantSchema || table != test.wantTable {
+				t.Fatalf("splitSQLServerTableName(%q)=(%q,%q), want (%q,%q)", test.input, schema, table, test.wantSchema, test.wantTable)
+			}
+		})
+	}
+}
+
+func TestFormatSQLServerTableMetadataNameQuotesAmbiguousParts(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema string
+		table  string
+		want   string
+	}{
+		{name: "plain", schema: "audit", table: "users", want: "audit.users"},
+		{name: "dotted table", schema: "audit", table: "order.items", want: "[audit].[order.items]"},
+		{name: "escaped bracket", schema: "audit]ops", table: "order]items", want: "[audit]]ops].[order]]items]"},
+		{name: "whitespace table", schema: "audit", table: " id ", want: "[audit].[ id ]"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := formatSQLServerTableMetadataName(test.schema, test.table); got != test.want {
+				t.Fatalf("formatSQLServerTableMetadataName(%q,%q)=%q, want %q", test.schema, test.table, got, test.want)
+			}
+		})
+	}
+}
+
+func TestQuoteSQLServerChangeIdentifierOnlyUnquotesOneBracketPair(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{input: "users", want: "[users]"},
+		{input: "[users]", want: "[users]"},
+		{input: "[a]]b]", want: "[a]]b]"},
+		{input: "]x[", want: "[]]x[]"},
+		{input: " id ", want: "[ id ]"},
+		{input: " [ id ] ", want: "[ id ]"},
+	}
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			if got := quoteSQLServerChangeIdentifier(test.input); got != test.want {
+				t.Fatalf("quoteSQLServerChangeIdentifier(%q)=%q, want %q", test.input, got, test.want)
+			}
+		})
+	}
+}

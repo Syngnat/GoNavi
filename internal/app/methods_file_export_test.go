@@ -1794,7 +1794,7 @@ func TestDumpTableSQL_PostgresBackupExportIncludesEscapedTableComment(t *testing
 			t.Fatalf("expected PostgreSQL backup export to contain %q, got %s", want, content)
 		}
 	}
-	if fake.tableCommentCalls != 1 || fake.commentSchema != "Sales.Schema" || fake.commentTable != "Order.Items" {
+	if fake.tableCommentCalls != 1 || fake.commentSchema != "Sales.Schema" || fake.commentTable != `"Order.Items"` {
 		t.Fatalf("unexpected table-comment metadata target: calls=%d target=%q.%q", fake.tableCommentCalls, fake.commentSchema, fake.commentTable)
 	}
 }
@@ -1832,6 +1832,88 @@ func TestDumpTableSQL_PostgresSchemaExportOmitsEmptyTableComment(t *testing.T) {
 	}
 	if fake.tableCommentCalls != 1 {
 		t.Fatalf("expected one table-comment metadata lookup, got %d", fake.tableCommentCalls)
+	}
+}
+
+func TestResolveCreateStatementWithFallback_PostgresTableCommentUsesVisibleMetadataScope(t *testing.T) {
+	fake := &fakePostgresCommentExportDB{
+		fakeSQLDumpExportDB: fakeSQLDumpExportDB{
+			fakeExportQueryDB: fakeExportQueryDB{
+				defs: []connection.ColumnDefinition{{Name: "id", Type: "bigint", Nullable: "NO"}},
+			},
+			createSQL: "-- SHOW CREATE TABLE not fully supported for PostgreSQL in this MVP.",
+		},
+		tableComment: "orders comment",
+	}
+
+	ddl, err := resolveCreateStatementWithFallback(
+		fake,
+		connection.ConnectionConfig{Type: "postgres"},
+		"app",
+		"orders",
+	)
+	if err != nil {
+		t.Fatalf("resolveCreateStatementWithFallback returned error: %v", err)
+	}
+	if fake.commentSchema != "" || fake.commentTable != "orders" {
+		t.Fatalf("expected visible PostgreSQL metadata scope, got %q.%q", fake.commentSchema, fake.commentTable)
+	}
+	if !strings.Contains(ddl, `COMMENT ON TABLE "public"."orders" IS 'orders comment';`) {
+		t.Fatalf("expected public-qualified DDL comment, got: %s", ddl)
+	}
+}
+
+func TestBuildSQLDropIfExistsStatementKeepsDottedDelimitedTableAsOneIdentifier(t *testing.T) {
+	tests := []struct {
+		name   string
+		config connection.ConnectionConfig
+		dbName string
+		object string
+		want   string
+	}{
+		{
+			name:   "postgres",
+			config: connection.ConnectionConfig{Type: "postgres"},
+			dbName: "app",
+			object: `"order.items"`,
+			want:   `DROP TABLE IF EXISTS "public"."order.items";`,
+		},
+		{
+			name:   "mysql",
+			config: connection.ConnectionConfig{Type: "mysql"},
+			dbName: "app",
+			object: "`order.items`",
+			want:   "DROP TABLE IF EXISTS `app`.`order.items`;",
+		},
+		{
+			name:   "sqlite",
+			config: connection.ConnectionConfig{Type: "sqlite"},
+			dbName: "main",
+			object: "order.items",
+			want:   `DROP TABLE IF EXISTS "main"."order.items";`,
+		},
+		{
+			name:   "clickhouse",
+			config: connection.ConnectionConfig{Type: "clickhouse"},
+			dbName: "app",
+			object: "`order.items`",
+			want:   "DROP TABLE IF EXISTS `app`.`order.items`;",
+		},
+		{
+			name:   "tdengine",
+			config: connection.ConnectionConfig{Type: "tdengine"},
+			dbName: "app",
+			object: "`order.items`",
+			want:   "DROP TABLE IF EXISTS `app`.`order.items`;",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := buildSQLDropIfExistsStatement(test.config, test.dbName, test.object, false); got != test.want {
+				t.Fatalf("buildSQLDropIfExistsStatement(%q,%q) = %q, want %q", test.dbName, test.object, got, test.want)
+			}
+		})
 	}
 }
 

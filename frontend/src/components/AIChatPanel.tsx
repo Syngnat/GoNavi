@@ -19,6 +19,7 @@ import AIChatRunControls, {
 import { useAIChatRunEventSubscription } from './ai/useAIChatRunEventSubscription';
 import {
     controlAgentRun,
+    createRunPendingMessageId,
     getAIRunHarnessService,
     getRunPolicy,
     hasAIRunHarness,
@@ -103,6 +104,14 @@ const isTerminalRunState = (state: string | undefined): boolean =>
     || state === 'failed'
     || state === 'canceled'
     || state === 'exhausted';
+
+const hasTerminalRunError = (message: AIChatMessage, runId: string): boolean => (
+    message.role === 'assistant'
+    && message.runId === runId
+    && message.loading === false
+    && message.excludeFromAIContext === true
+    && Boolean(String(message.rawError || '').trim())
+);
 
 const isRevisionConflictError = (error: unknown): boolean =>
     String(error instanceof Error ? error.message : error || '')
@@ -472,6 +481,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     }, []);
 
     const isTrackedRun = useCallback((runId: string): boolean => activeRunsRef.current.has(runId), []);
+    const trackedRunIds = Array.from(activeRunsRef.current.keys());
 
     const handleRunTerminal = useCallback((_runId: string, sessionId: string) => {
         const service = harnessServiceRef.current || getAIRunHarnessService();
@@ -490,6 +500,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         onApprovalChange: handleApprovalChange,
         onRecoveryChange: handleRecoveryChange,
         isRunTracked: isTrackedRun,
+        trackedRunIds,
         onRunTerminal: handleRunTerminal,
         translate: t,
     });
@@ -701,11 +712,19 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         }, service);
         const receiptRunId = String(receipt.runId || '').trim();
         const receiptSessionId = String(receipt.sessionId || sessionId || '').trim();
+        const receiptState = String(receipt.state || 'queued').trim() || 'queued';
+        const previousRun = receiptRunId ? activeRunsRef.current.get(receiptRunId) : undefined;
+        // Events and the SubmitInput receipt are delivered independently. A
+        // terminal event may win the race; never let its later receipt regress
+        // the run back to queued/connecting.
+        const effectiveState = previousRun && isTerminalRunState(previousRun.state)
+            ? previousRun.state
+            : receiptState;
         if (receiptRunId) {
             activeRunsRef.current.set(receiptRunId, {
-                state: String(receipt.state || 'queued'),
-                revision: Number(receipt.revision || 0),
-                sessionId: receiptSessionId,
+                state: effectiveState,
+                revision: Math.max(Number(receipt.revision || 0), previousRun?.revision || 0),
+                sessionId: receiptSessionId || previousRun?.sessionId,
             });
             activeRunIdRef.current = receiptRunId;
             setRunStateVersion((version) => version + 1);
@@ -714,14 +733,20 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
             setAIActiveSessionId(receiptSessionId);
         }
         if (receiptSessionId && receiptRunId) {
-            const hasPendingAssistant = (useStore.getState().aiChatHistory[receiptSessionId] || [])
-                .some((message) => message.role === 'assistant' && message.loading === true);
-            if (!hasPendingAssistant) {
+            const sessionMessages = useStore.getState().aiChatHistory[receiptSessionId] || [];
+            const hasRunPendingAssistant = sessionMessages.some((message) => message.role === 'assistant'
+                && message.runId === receiptRunId
+                && message.loading === true);
+            const hasRunTerminalError = sessionMessages.some((message) => hasTerminalRunError(message, receiptRunId));
+            if (!isTerminalRunState(effectiveState) && !hasRunTerminalError && !hasRunPendingAssistant) {
                 addAIChatMessage(receiptSessionId, {
-                    id: `agent-run-${receiptRunId}-pending`,
+                    id: createRunPendingMessageId(receiptRunId),
+                    runId: receiptRunId,
                     role: 'assistant',
                     content: '',
-                    phase: 'connecting',
+                    // SubmitInput has acknowledged this run, but the worker
+                    // has not yet entered its model step.
+                    phase: 'queued',
                     timestamp: Date.now(),
                     loading: true,
                 });
@@ -730,7 +755,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         if (receiptSessionId) {
             void hydrateSessionProjection(receiptSessionId, service);
         }
-        if (isTerminalRunState(String(receipt.state || ''))) {
+        if (isTerminalRunState(effectiveState)) {
             setSending(false);
         }
         return receipt;
@@ -818,7 +843,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         const branch = pendingBranch?.sourceSessionId === sid ? pendingBranch : null;
         const targetSessionId = branch
             ? branch.sourceSessionId
-            : (sid === 'session-fallback' ? undefined : sid);
+            : durableSession?.id;
         const expectedRevision = branch?.sourceRevision ?? positiveRevision(durableSession?.revision);
         setInput('');
         setDraftAttachments([]);
@@ -1134,6 +1159,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                     }
                 }}
                 onSelectSession={handleSelectSession}
+                onArchiveSession={handleArchiveSession}
                 onEditMessage={handleEditMessage}
                 onRetryMessage={handleRetryMessage}
                 onMessageRenderError={handleMessageRenderError}

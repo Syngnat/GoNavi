@@ -368,6 +368,11 @@ vi.mock('@monaco-editor/react', () => ({
           }),
           registerHoverProvider: vi.fn((_language: string, provider: any) => {
             editorState.hoverProviders.push(provider);
+            editorState.hoverProviders.sort((left, right) => {
+              const leftRank = left?.__gonaviHoverProviderKind === 'metadata' ? 0 : 1;
+              const rightRank = right?.__gonaviHoverProviderKind === 'metadata' ? 0 : 1;
+              return leftRank - rightRank;
+            });
             return { dispose: vi.fn() };
           }),
         },
@@ -1064,6 +1069,34 @@ describe('QueryEditor external SQL save', () => {
       status: 'success',
     }));
     renderer?.unmount();
+  });
+
+  it('runs a connection-scoped SQLite query without requiring a database name', async () => {
+    storeState.connections[0].config.type = 'sqlite';
+    storeState.connections[0].config.database = '';
+    const sql = 'SELECT id FROM users';
+    editorState.value = sql;
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['id'], rows: [{ id: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: '', query: sql })} />);
+    });
+    await act(async () => {
+      await findButton(renderer, '运行').props.onClick();
+      for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    });
+
+    expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'sqlite' }),
+      '',
+      `${sql} LIMIT 5000`,
+      'query-1',
+    );
+    renderer.unmount();
   });
 
   it('executes a long commented Oracle anonymous block without blocking the UI thread', async () => {
@@ -2077,6 +2110,47 @@ describe('QueryEditor external SQL save', () => {
     expect(storeState.addSqlLog).toHaveBeenCalledWith(expect.objectContaining({
       sql: expect.stringContaining('select 2 as two'),
     }));
+  });
+
+  it('executes only the statement body when the cursor is on a semicolon after leading comments', async () => {
+    const sql = [
+      '-- 1856887305879470081',
+      '-- 3257969823961465780',
+      '-- 3257963896428446491',
+      "SELECT * FROM contract WHERE contract_code = 'YEC202608039';",
+    ].join('\n');
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{
+        columns: ['id', 'contract_code'],
+        rows: [{ id: 1, contract_code: 'YEC202608039' }],
+      }],
+    });
+    backendApp.DBGetColumns.mockResolvedValueOnce({
+      success: true,
+      data: [{ name: 'id', key: 'PRI' }, { name: 'contract_code', key: '' }],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: 'main', query: sql })} />);
+    });
+    editorState.position = { lineNumber: 4, column: sql.split('\n')[3].length + 1 };
+
+    await act(async () => {
+      const runButton = findButton(renderer!, '运行');
+      runButton.props.onMouseDown?.();
+      await runButton.props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(backendApp.DBQueryMulti.mock.calls[0]?.[2]).toBe(
+      "SELECT * FROM contract WHERE contract_code = 'YEC202608039' LIMIT 5000",
+    );
+    renderer!.unmount();
   });
 
   it('keeps cursor statement execution available in v2 UI', async () => {
@@ -5148,6 +5222,50 @@ describe('QueryEditor external SQL save', () => {
     });
     expect(dataGridState.latestProps?.readOnly).toBe(false);
     expect(dataGridState.latestProps?.columnPinScope).toBeUndefined();
+    renderer!.unmount();
+  });
+
+  it.each([
+    ['leading line comments', '-- 1856887305879470081\n-- 3257969823961465780\nSELECT * FROM contract WHERE contract_code = \'YEC202608039\';'],
+    ['leading block comments', '/* export batch: 3257963896428446491 */\nSELECT * FROM contract WHERE contract_code = \'YEC202608039\';'],
+    ['leading hash comments', '# exported query\nSELECT * FROM contract WHERE contract_code = \'YEC202608039\';'],
+    ['comments containing SQL join keywords', '/* JOIN notes from the previous export */\nSELECT * FROM contract WHERE contract_code = \'YEC202608039\';'],
+    ['a comment between FROM and the table', 'SELECT * FROM /* primary contract source */ contract WHERE contract_code = \'YEC202608039\';'],
+  ])('keeps a single-table result editable with %s', async (_label, sql) => {
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{
+        columns: ['id', 'contract_code'],
+        rows: [{ id: 1, contract_code: 'YEC202608039' }],
+      }],
+    });
+    backendApp.DBGetColumns.mockResolvedValueOnce({
+      success: true,
+      data: [
+        { name: 'id', key: 'PRI' },
+        { name: 'contract_code', key: '' },
+      ],
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ dbName: 'main', query: sql })} />);
+    });
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(dataGridState.latestProps?.tableName).toBe('contract');
+    expect(dataGridState.latestProps?.editLocator).toMatchObject({
+      strategy: 'primary-key',
+      columns: ['id'],
+      readOnly: false,
+    });
+    expect(dataGridState.latestProps?.readOnly).toBe(false);
     renderer!.unmount();
   });
 

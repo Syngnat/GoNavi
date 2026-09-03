@@ -84,6 +84,7 @@ describe('AIChatPanelModeContent', () => {
         ]}
         activeSessionId="session-1"
         onSelectSession={() => {}}
+        onArchiveSession={() => {}}
       />,
     );
 
@@ -91,6 +92,8 @@ describe('AIChatPanelModeContent', () => {
     expect(markup).toContain('Current session');
     expect(markup).toContain('New chat');
     expect(markup).not.toContain('新对话');
+    expect(markup).toContain('aria-label="Delete"');
+    expect(markup).toContain('gn-v2-ai-history-delete');
   });
 
   it('disables history session switches while a response is streaming', () => {

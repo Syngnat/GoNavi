@@ -178,7 +178,7 @@ var codebuddyCLIHealthCheckFunc = func(config ai.ProviderConfig) error {
 
 // NewService 创建 AI Service 实例
 func NewService() *Service {
-	return NewServiceWithSecretStore(secretstore.NewKeyringStore())
+	return NewServiceWithSecretStore(newDefaultAISecretStore())
 }
 
 // NewServiceWithConfigChangeHandler creates a service that notifies the owner
@@ -429,9 +429,9 @@ func (s *Service) startup(ctx context.Context) {
 	if lifecycleCtx == nil {
 		logger.Warnf("未提供应用生命周期上下文，AI Agent Run Harness 未启动")
 	}
-	// Opening the encrypted Agent ledger reads its Keychain key. Defer that
-	// operation until an Agent API is actually used, rather than prompting on
-	// every desktop startup or Wails development rebuild.
+	// Agent ledger initialization is deferred until an Agent API is used. Its
+	// encryption key is a local 0600 file, so this startup path never accesses
+	// the system keychain or prompts during Wails development rebuilds.
 	s.restoreMCPHTTPServer()
 	logger.Infof("AI Service 启动完成，已加载 %d 个 Provider", len(s.providers))
 }

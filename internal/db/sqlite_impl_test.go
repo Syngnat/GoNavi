@@ -114,6 +114,96 @@ func TestSQLiteMetadataSupportsApostropheObjectNames(t *testing.T) {
 	}
 }
 
+func TestSQLiteGetCreateStatementUnquotesDottedIdentifier(t *testing.T) {
+	client := &SQLiteDB{}
+	if err := client.Connect(connection.ConnectionConfig{Type: "sqlite", Host: ":memory:"}); err != nil {
+		t.Fatalf("连接 SQLite 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if _, err := client.conn.Exec(`CREATE TABLE "order.items" (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatalf("创建带点号表失败: %v", err)
+	}
+	ddl, err := client.GetCreateStatement("", "`order.items`")
+	if err != nil || !strings.Contains(ddl, `"order.items"`) {
+		t.Fatalf("GetCreateStatement for quoted dotted table = %q, %v", ddl, err)
+	}
+	ddl, err = client.GetCreateStatement("main", "[order.items]")
+	if err != nil || !strings.Contains(ddl, `"order.items"`) {
+		t.Fatalf("GetCreateStatement for SQLite bracketed dotted table = %q, %v", ddl, err)
+	}
+	ddl, err = client.GetCreateStatement("main", "order.[order.items]")
+	if err != nil || !strings.Contains(ddl, `"order.items"`) {
+		t.Fatalf("GetCreateStatement for schema-prefixed SQLite bracketed dotted table = %q, %v", ddl, err)
+	}
+}
+
+func TestSQLiteMetadataUnquotesDottedTableAcrossObjectLookups(t *testing.T) {
+	client := &SQLiteDB{}
+	if err := client.Connect(connection.ConnectionConfig{Type: "sqlite", Host: ":memory:"}); err != nil {
+		t.Fatalf("连接 SQLite 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if _, err := client.conn.Exec(`CREATE TABLE "order.items" (id INTEGER PRIMARY KEY, value TEXT)`); err != nil {
+		t.Fatalf("创建带点号表失败: %v", err)
+	}
+	if _, err := client.conn.Exec(`CREATE INDEX "idx.order.items" ON "order.items" (value)`); err != nil {
+		t.Fatalf("创建索引失败: %v", err)
+	}
+	if _, err := client.conn.Exec(`CREATE TRIGGER "trg.order.items" AFTER INSERT ON "order.items" BEGIN SELECT 1; END`); err != nil {
+		t.Fatalf("创建触发器失败: %v", err)
+	}
+
+	columns, err := client.GetColumns("main", "main.`order.items`")
+	if err != nil || len(columns) != 2 {
+		t.Fatalf("GetColumns for quoted dotted table = %#v, %v", columns, err)
+	}
+	indexes, err := client.GetIndexes("main", "main.`order.items`")
+	if err != nil || len(indexes) != 1 || indexes[0].Name != "idx.order.items" {
+		t.Fatalf("GetIndexes for quoted dotted table = %#v, %v", indexes, err)
+	}
+	triggers, err := client.GetTriggers("main", "main.`order.items`")
+	if err != nil || len(triggers) != 1 || triggers[0].Name != "trg.order.items" {
+		t.Fatalf("GetTriggers for quoted dotted table = %#v, %v", triggers, err)
+	}
+
+	// sqlite_master returns the object name without delimiters. The same
+	// metadata APIs must therefore keep an unquoted dotted name intact too.
+	plainDDL, err := client.GetCreateStatement("main", "order.items")
+	if err != nil || !strings.Contains(plainDDL, `"order.items"`) {
+		t.Fatalf("GetCreateStatement for plain dotted table = %q, %v", plainDDL, err)
+	}
+	plainColumns, err := client.GetColumns("main", "order.items")
+	if err != nil || len(plainColumns) != 2 {
+		t.Fatalf("GetColumns for plain dotted table = %#v, %v", plainColumns, err)
+	}
+	plainIndexes, err := client.GetIndexes("main", "order.items")
+	if err != nil || len(plainIndexes) != 1 || plainIndexes[0].Name != "idx.order.items" {
+		t.Fatalf("GetIndexes for plain dotted table = %#v, %v", plainIndexes, err)
+	}
+	plainTriggers, err := client.GetTriggers("main", "order.items")
+	if err != nil || len(plainTriggers) != 1 || plainTriggers[0].Name != "trg.order.items" {
+		t.Fatalf("GetTriggers for plain dotted table = %#v, %v", plainTriggers, err)
+	}
+}
+
+func TestSQLiteMetadataKeepsUnquotedDottedTableAfterKnownDatabase(t *testing.T) {
+	client := &SQLiteDB{}
+	if err := client.Connect(connection.ConnectionConfig{Type: "sqlite", Host: ":memory:"}); err != nil {
+		t.Fatalf("连接 SQLite 失败: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if _, err := client.conn.Exec(`CREATE TABLE "order.items" (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatalf("创建带点号表失败: %v", err)
+	}
+	columns, err := client.GetColumns("main", "main.order.items")
+	if err != nil || len(columns) != 1 {
+		t.Fatalf("GetColumns for known-db dotted table = %#v, %v", columns, err)
+	}
+}
+
 func TestResolveSQLiteDSNRejectsHostPort(t *testing.T) {
 	_, err := resolveSQLiteDSN(connection.ConnectionConfig{Type: "sqlite", Host: "localhost:3306"})
 	if err == nil {

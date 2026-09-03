@@ -254,7 +254,11 @@ export const useDataGridDdlView = ({
       const res = await DBShowCreateTable(buildRpcConnectionConfig(currentConnConfig as any) as any, dbName || '', tableName);
       if (requestSeq !== ddlRequestSeqRef.current) return;
       if (res.success) {
-        setDdlText(formatDdlForDisplay(res.data, dbType || String((currentConnConfig as any)?.type || '')));
+        setDdlText(formatDdlForDisplay(
+          res.data,
+          dbType || String((currentConnConfig as any)?.type || ''),
+          { oceanBaseProtocol: (currentConnConfig as any)?.oceanBaseProtocol },
+        ));
         return;
       }
       messageApi.error(res.message || translateMessage('data_grid.message.ddl_load_failed'));

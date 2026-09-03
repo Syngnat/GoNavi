@@ -10,14 +10,20 @@ import (
 func normalizePGLikeMetadataTable(schemaName, tableName string) (string, string) {
 	schema := strings.TrimSpace(schemaName)
 	table := strings.TrimSpace(tableName)
-	if parsedSchema, parsedTable := SplitSQLQualifiedName(table); parsedSchema != "" && parsedTable != "" {
+	if parsedSchema, parsedTable := SplitSQLQualifiedNamePreserveTableQuoteForDialect(table, "postgres"); parsedSchema != "" && parsedTable != "" {
 		schema = parsedSchema
 		table = parsedTable
 	}
+	return normalizePGLikeMetadataParts(schema, table)
+}
+
+func normalizePGLikeMetadataParts(schemaName, tableName string) (string, string) {
+	schema := strings.TrimSpace(schemaName)
+	table := strings.TrimSpace(tableName)
 	schema = strings.TrimSpace(normalizeSQLIdentifierEscapes(schema))
 	table = strings.TrimSpace(normalizeSQLIdentifierEscapes(table))
-	schema = strings.Trim(schema, `"`)
-	table = strings.Trim(table, `"`)
+	schema = normalizeSQLIdentPartWithBracketMode(schema, false, false)
+	table = normalizeSQLIdentPartWithBracketMode(table, false, false)
 	return schema, table
 }
 
@@ -127,14 +133,136 @@ ORDER BY tc.constraint_name, kcu.ordinal_position`, escapePGLikeMetadataLiteral(
 }
 
 func buildPGLikeTriggersMetadataQuery(schemaName, tableName string) string {
+	return buildPGLikeTriggersMetadataQueryWithOrientation(schemaName, tableName, true)
+}
+
+func buildPGLikeTriggersMetadataQueryWithoutOrientation(schemaName, tableName string) string {
+	return buildPGLikeTriggersMetadataQueryWithOrientation(schemaName, tableName, false)
+}
+
+func buildPGLikeTriggersMetadataQueryWithOrientation(schemaName, tableName string, includeOrientation bool) string {
+	orientationColumn := ""
+	if includeOrientation {
+		orientationColumn = ", t.action_orientation"
+	}
 	return fmt.Sprintf(`
-SELECT t.trigger_name, t.action_timing, t.event_manipulation, t.action_statement
+SELECT t.trigger_name, t.action_timing, t.event_manipulation, t.action_statement%s
 FROM information_schema.triggers AS t
 JOIN pg_catalog.pg_namespace AS n ON n.nspname = t.event_object_schema
 JOIN pg_catalog.pg_class AS c ON c.relnamespace = n.oid AND c.relname = t.event_object_table
 WHERE t.event_object_table = '%s'
   AND %s
-ORDER BY t.trigger_name, t.event_manipulation`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("c", schemaName))
+ORDER BY t.trigger_name, t.event_manipulation`, orientationColumn, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("c", schemaName))
+}
+
+// buildPGLikeTriggerOrientationMetadataQuery derives trigger granularity from
+// pg_trigger.tgtype. Some PostgreSQL-compatible servers omit
+// information_schema.triggers.action_orientation, while the catalog bit is
+// still available and preserves statement-level versus row-level semantics.
+func buildPGLikeTriggerOrientationMetadataQuery(schemaName, tableName string) string {
+	return fmt.Sprintf(`
+SELECT pt.tgname AS trigger_name,
+       CASE WHEN (pt.tgtype & 1) <> 0 THEN 'ROW' ELSE 'STATEMENT' END AS action_orientation
+FROM pg_catalog.pg_trigger AS pt
+JOIN pg_catalog.pg_class AS c ON c.oid = pt.tgrelid
+JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE NOT pt.tgisinternal
+  AND c.relname = '%s'
+  AND %s
+ORDER BY pt.tgname`, escapePGLikeMetadataLiteral(tableName), buildPGLikeVisibleRelationPredicate("c", schemaName))
+}
+
+type triggerMetadataQueryer interface {
+	Query(string) ([]map[string]interface{}, []string, error)
+}
+
+func queryPGLikeTriggersMetadata(queryer triggerMetadataQueryer, schemaName, tableName string) ([]map[string]interface{}, error) {
+	data, _, firstErr := queryer.Query(buildPGLikeTriggersMetadataQuery(schemaName, tableName))
+	if firstErr == nil {
+		return data, nil
+	}
+	// A few PostgreSQL-compatible servers expose information_schema.triggers
+	// without the optional orientation column. Keep trigger metadata usable on
+	// those versions and make a best-effort catalog lookup so rollback can still
+	// preserve the original firing granularity. Do not key this fallback only on
+	// the English column name: compatible servers may localize or redact the
+	// original database error.
+	fallbackData, _, fallbackErr := queryer.Query(buildPGLikeTriggersMetadataQueryWithoutOrientation(schemaName, tableName))
+	if fallbackErr != nil {
+		return data, firstErr
+	}
+	data = fallbackData
+	if len(data) == 0 {
+		return data, nil
+	}
+	orientationRows, _, orientationErr := queryer.Query(buildPGLikeTriggerOrientationMetadataQuery(schemaName, tableName))
+	if orientationErr != nil {
+		// The compatibility query itself succeeded; an unavailable catalog bit
+		// lookup should not turn usable trigger metadata into a hard failure.
+		return data, nil
+	}
+	orientations := make(map[string]string, len(orientationRows))
+	foldedOrientations := make(map[string]map[string]string, len(orientationRows))
+	for _, row := range orientationRows {
+		name := getPGLikeTriggerName(row)
+		orientation := getPGLikeTriggerOrientation(row)
+		if name != "" && orientation != "" {
+			orientations[name] = orientation
+			foldedName := strings.ToLower(name)
+			if foldedOrientations[foldedName] == nil {
+				foldedOrientations[foldedName] = make(map[string]string)
+			}
+			foldedOrientations[foldedName][name] = orientation
+		}
+	}
+	for _, row := range data {
+		if getPGLikeTriggerOrientation(row) != "" {
+			continue
+		}
+		name := getPGLikeTriggerName(row)
+		orientation := orientations[name]
+		if orientation == "" {
+			candidates := foldedOrientations[strings.ToLower(name)]
+			if len(candidates) == 1 {
+				for _, candidate := range candidates {
+					orientation = candidate
+				}
+			}
+		}
+		if orientation != "" {
+			row["action_orientation"] = orientation
+		}
+	}
+	return data, nil
+}
+
+func getPGLikeTriggerName(row map[string]interface{}) string {
+	for key, value := range row {
+		if strings.EqualFold(key, "trigger_name") && value != nil {
+			return getPGLikeMetadataString(value)
+		}
+	}
+	return ""
+}
+
+func getPGLikeTriggerOrientation(row map[string]interface{}) string {
+	for key, value := range row {
+		if !strings.EqualFold(key, "action_orientation") || value == nil {
+			continue
+		}
+		return getPGLikeMetadataString(value)
+	}
+	return ""
+}
+
+func getPGLikeMetadataString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	if typed, ok := value.([]byte); ok {
+		return strings.TrimSpace(string(typed))
+	}
+	return strings.TrimSpace(fmt.Sprintf("%v", value))
 }
 
 func buildPGLikeTableCommentMetadataQuery(schemaName, tableName string) string {

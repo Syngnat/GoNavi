@@ -53,20 +53,28 @@ func leadingSQLKeyword(query string) string {
 	return strings.ToLower(text)
 }
 
-func sqlDataOperationKeyword(query string) string {
-	keyword, _ := sqlDataOperationInfo(query)
+func sqlDataOperationKeyword(query string, dbTypes ...string) string {
+	keyword, _ := sqlDataOperationInfo(query, dbTypes...)
 	return keyword
 }
 
-func sqlDataOperationInfo(query string) (keyword string, withHasWrite bool) {
+func sqlDataOperationInfo(query string, dbTypes ...string) (keyword string, withHasWrite bool) {
 	keyword, keywordEnd := nextSQLKeyword(query, 0)
 	if keyword != "with" {
 		return keyword, false
 	}
-	if withKeyword, hasWrite, ok := sqlKeywordAfterLeadingWith(query, keywordEnd); ok {
+	dbType := optionalSQLDialect(dbTypes)
+	if withKeyword, hasWrite, ok := sqlKeywordAfterLeadingWith(query, keywordEnd, dbType); ok {
 		return withKeyword, hasWrite
 	}
 	return keyword, false
+}
+
+func optionalSQLDialect(dbTypes []string) string {
+	if len(dbTypes) == 0 {
+		return ""
+	}
+	return dbTypes[0]
 }
 
 func nextSQLKeyword(text string, start int) (string, int) {
@@ -112,7 +120,8 @@ func skipSQLTrivia(text string, start int) int {
 	return pos
 }
 
-func sqlKeywordAfterLeadingWith(text string, start int) (string, bool, bool) {
+func sqlKeywordAfterLeadingWith(text string, start int, dbTypes ...string) (string, bool, bool) {
+	dbType := optionalSQLDialect(dbTypes)
 	pos := skipSQLTrivia(text, start)
 	hasWriteCTE := false
 	if keyword, end := nextSQLKeyword(text, pos); keyword == "recursive" {
@@ -121,20 +130,20 @@ func sqlKeywordAfterLeadingWith(text string, start int) (string, bool, bool) {
 
 	for {
 		pos = skipSQLTrivia(text, pos)
-		next, ok := skipSQLIdentifierToken(text, pos)
+		next, ok := skipSQLIdentifierToken(text, pos, dbType)
 		if !ok {
 			return "", hasWriteCTE, false
 		}
 		pos = skipSQLTrivia(text, next)
 		if pos < len(text) && text[pos] == '(' {
-			next = skipBalancedSQLParens(text, pos)
+			next = skipBalancedSQLParens(text, pos, dbType)
 			if next < 0 {
 				return "", hasWriteCTE, false
 			}
 			pos = skipSQLTrivia(text, next)
 		}
 
-		asEnd := findTopLevelSQLKeyword(text, pos, "as")
+		asEnd := findTopLevelSQLKeyword(text, pos, "as", dbType)
 		if asEnd < 0 {
 			return "", hasWriteCTE, false
 		}
@@ -152,13 +161,13 @@ func sqlKeywordAfterLeadingWith(text string, start int) (string, bool, bool) {
 			return "", hasWriteCTE, false
 		}
 		cteBodyStart := pos + 1
-		next = skipBalancedSQLParens(text, pos)
+		next = skipBalancedSQLParens(text, pos, dbType)
 		if next < 0 {
 			return "", hasWriteCTE, false
 		}
 		cteBodyEnd := next - 1
 		if cteBodyEnd >= cteBodyStart {
-			bodyKeyword, bodyHasWrite := sqlDataOperationInfo(text[cteBodyStart:cteBodyEnd])
+			bodyKeyword, bodyHasWrite := sqlDataOperationInfo(text[cteBodyStart:cteBodyEnd], dbType)
 			if bodyHasWrite || isSQLDataWriteKeyword(bodyKeyword) {
 				hasWriteCTE = true
 			}
@@ -174,10 +183,11 @@ func sqlKeywordAfterLeadingWith(text string, start int) (string, bool, bool) {
 	}
 }
 
-func findTopLevelSQLKeyword(text string, start int, want string) int {
+func findTopLevelSQLKeyword(text string, start int, want string, dbTypes ...string) int {
+	dbType := optionalSQLDialect(dbTypes)
 	depth := 0
 	for pos := start; pos < len(text); {
-		if next, ok := skipSQLQuotedOrComment(text, pos); ok {
+		if next, ok := skipSQLQuotedOrComment(text, pos, dbType); ok {
 			pos = next
 			continue
 		}
@@ -208,7 +218,8 @@ func findTopLevelSQLKeyword(text string, start int, want string) int {
 	return -1
 }
 
-func skipSQLIdentifierToken(text string, start int) (int, bool) {
+func skipSQLIdentifierToken(text string, start int, dbTypes ...string) (int, bool) {
+	dbType := optionalSQLDialect(dbTypes)
 	if start >= len(text) {
 		return start, false
 	}
@@ -217,11 +228,10 @@ func skipSQLIdentifierToken(text string, start int) (int, bool) {
 		next := skipSQLDelimited(text, start, text[start])
 		return next, next > start
 	case '[':
-		next := strings.IndexByte(text[start+1:], ']')
-		if next < 0 {
-			return len(text), true
+		if !supportsSQLBracketIdentifier(dbType) {
+			return start, false
 		}
-		return start + next + 2, true
+		return skipSQLBracketIdentifier(text, start), true
 	default:
 		if !isSQLKeywordByte(text[start]) {
 			return start, false
@@ -234,13 +244,14 @@ func skipSQLIdentifierToken(text string, start int) (int, bool) {
 	}
 }
 
-func skipBalancedSQLParens(text string, start int) int {
+func skipBalancedSQLParens(text string, start int, dbTypes ...string) int {
+	dbType := optionalSQLDialect(dbTypes)
 	if start >= len(text) || text[start] != '(' {
 		return -1
 	}
 	depth := 0
 	for pos := start; pos < len(text); {
-		if next, ok := skipSQLQuotedOrComment(text, pos); ok {
+		if next, ok := skipSQLQuotedOrComment(text, pos, dbType); ok {
 			pos = next
 			continue
 		}
@@ -261,7 +272,8 @@ func skipBalancedSQLParens(text string, start int) int {
 	return -1
 }
 
-func skipSQLQuotedOrComment(text string, start int) (int, bool) {
+func skipSQLQuotedOrComment(text string, start int, dbTypes ...string) (int, bool) {
+	dbType := optionalSQLDialect(dbTypes)
 	if start >= len(text) {
 		return start, false
 	}
@@ -286,12 +298,8 @@ func skipSQLQuotedOrComment(text string, start int) (int, bool) {
 		return start + end + 4, true
 	case text[start] == '\'' || text[start] == '"' || text[start] == '`':
 		return skipSQLDelimited(text, start, text[start]), true
-	case text[start] == '[':
-		next := strings.IndexByte(text[start+1:], ']')
-		if next < 0 {
-			return len(text), true
-		}
-		return start + next + 2, true
+	case text[start] == '[' && supportsSQLBracketIdentifier(dbType):
+		return skipSQLBracketIdentifier(text, start), true
 	default:
 		if tag, ok := sqlDollarQuoteTag(text, start); ok {
 			end := strings.Index(text[start+len(tag):], tag)
@@ -379,14 +387,16 @@ func isPostgresNoticeCapableDBType(dbType string) bool {
 	}
 }
 
-func isSQLSelectIntoStatement(query string) bool {
-	keyword, _ := sqlDataOperationInfo(query)
-	return keyword == "select" && findTopLevelSQLKeyword(query, 0, "into") >= 0
+func isSQLSelectIntoStatement(query string, dbTypes ...string) bool {
+	dbType := optionalSQLDialect(dbTypes)
+	keyword, _ := sqlDataOperationInfo(query, dbType)
+	return keyword == "select" && findTopLevelSQLKeyword(query, 0, "into", dbType) >= 0
 }
 
-func sqlContainsKeyword(text string, want string) bool {
+func sqlContainsKeyword(text string, want string, dbTypes ...string) bool {
+	dbType := optionalSQLDialect(dbTypes)
 	for pos := 0; pos < len(text); {
-		if next, ok := skipSQLQuotedOrComment(text, pos); ok {
+		if next, ok := skipSQLQuotedOrComment(text, pos, dbType); ok {
 			pos = next
 			continue
 		}
@@ -407,17 +417,17 @@ func sqlContainsKeyword(text string, want string) bool {
 }
 
 func sqlWriteStatementReturnsRows(dbType string, query string) bool {
-	keyword, withHasWrite := sqlDataOperationInfo(query)
+	keyword, withHasWrite := sqlDataOperationInfo(query, dbType)
 	if withHasWrite && keyword == "select" {
 		return true
 	}
 	if !isSQLDataWriteKeyword(keyword) {
 		return false
 	}
-	if !isOracleLikeDBType(dbType) && findTopLevelSQLKeyword(query, 0, "returning") >= 0 {
+	if !isOracleLikeDBType(dbType) && findTopLevelSQLKeyword(query, 0, "returning", dbType) >= 0 {
 		return true
 	}
-	if isSQLServerDBType(dbType) && findTopLevelSQLKeyword(query, 0, "output") >= 0 {
+	if isSQLServerDBType(dbType) && findTopLevelSQLKeyword(query, 0, "output", dbType) >= 0 {
 		return true
 	}
 	return false
@@ -426,13 +436,13 @@ func sqlWriteStatementReturnsRows(dbType string, query string) bool {
 func sqlServerControlFlowMayReturnMessages(query string) bool {
 	switch leadingSQLKeyword(query) {
 	case "if", "begin", "while", "declare", "try", "catch":
-		return sqlContainsKeyword(query, "exec") ||
-			sqlContainsKeyword(query, "execute") ||
-			sqlContainsKeyword(query, "print") ||
-			sqlContainsKeyword(query, "raiserror") ||
-			sqlContainsKeyword(query, "throw") ||
-			sqlContainsKeyword(query, "dbcc") ||
-			sqlContainsKeyword(query, "set")
+		return sqlContainsKeyword(query, "exec", "sqlserver") ||
+			sqlContainsKeyword(query, "execute", "sqlserver") ||
+			sqlContainsKeyword(query, "print", "sqlserver") ||
+			sqlContainsKeyword(query, "raiserror", "sqlserver") ||
+			sqlContainsKeyword(query, "throw", "sqlserver") ||
+			sqlContainsKeyword(query, "dbcc", "sqlserver") ||
+			sqlContainsKeyword(query, "set", "sqlserver")
 	default:
 		return false
 	}
@@ -452,18 +462,18 @@ func isReadOnlySQLQuery(dbType string, query string) bool {
 		return false
 	}
 
-	keyword, withHasWrite := sqlDataOperationInfo(query)
+	keyword, withHasWrite := sqlDataOperationInfo(query, dbType)
 	if withHasWrite {
 		return false
 	}
-	if keyword == "select" && isSQLSelectIntoStatement(query) {
+	if keyword == "select" && isSQLSelectIntoStatement(query, dbType) {
 		return false
 	}
-	if keyword == "explain" && explainAnalyzeMayWrite(query) {
+	if keyword == "explain" && explainAnalyzeMayWrite(query, dbType) {
 		return false
 	}
 	if keyword == "pragma" {
-		return !pragmaMayWrite(query)
+		return !pragmaMayWrite(query, dbType)
 	}
 	switch keyword {
 	case "select", "with", "show", "describe", "desc", "explain", "values", "consume":
@@ -473,7 +483,8 @@ func isReadOnlySQLQuery(dbType string, query string) bool {
 	}
 }
 
-func explainAnalyzeMayWrite(query string) bool {
+func explainAnalyzeMayWrite(query string, dbTypes ...string) bool {
+	dbType := optionalSQLDialect(dbTypes)
 	keyword, pos := nextSQLKeyword(query, 0)
 	if keyword != "explain" {
 		return false
@@ -481,12 +492,12 @@ func explainAnalyzeMayWrite(query string) bool {
 	pos = skipSQLTrivia(query, pos)
 	analyze := false
 	if pos < len(query) && query[pos] == '(' {
-		next := skipBalancedSQLParens(query, pos)
+		next := skipBalancedSQLParens(query, pos, dbType)
 		if next < 0 {
 			return false
 		}
 		options := query[pos+1 : next-1]
-		analyze = sqlContainsKeyword(options, "analyze") || sqlContainsKeyword(options, "analyse")
+		analyze = sqlContainsKeyword(options, "analyze", dbType) || sqlContainsKeyword(options, "analyse", dbType)
 		pos = next
 	} else {
 		for {
@@ -508,11 +519,11 @@ optionsDone:
 		return false
 	}
 	body := query[skipSQLTrivia(query, pos):]
-	bodyKeyword, withHasWrite := sqlDataOperationInfo(body)
+	bodyKeyword, withHasWrite := sqlDataOperationInfo(body, dbType)
 	if withHasWrite || isSQLDataWriteKeyword(bodyKeyword) {
 		return true
 	}
-	if bodyKeyword == "select" && isSQLSelectIntoStatement(body) {
+	if bodyKeyword == "select" && isSQLSelectIntoStatement(body, dbType) {
 		return true
 	}
 	switch bodyKeyword {
@@ -523,18 +534,19 @@ optionsDone:
 	}
 }
 
-func pragmaMayWrite(query string) bool {
+func pragmaMayWrite(query string, dbTypes ...string) bool {
+	dbType := optionalSQLDialect(dbTypes)
 	keyword, pos := nextSQLKeyword(query, 0)
 	if keyword != "pragma" {
 		return false
 	}
-	name, next, ok := readSQLIdentifierName(query, pos)
+	name, next, ok := readSQLIdentifierName(query, pos, dbType)
 	if !ok {
 		return true
 	}
 	pos = skipSQLTrivia(query, next)
 	if pos < len(query) && query[pos] == '.' {
-		name, next, ok = readSQLIdentifierName(query, pos+1)
+		name, next, ok = readSQLIdentifierName(query, pos+1, dbType)
 		if !ok {
 			return true
 		}
@@ -560,9 +572,9 @@ func pragmaMayWrite(query string) bool {
 	return !isReadOnlyPragmaWithoutArgument(name)
 }
 
-func readSQLIdentifierName(text string, start int) (string, int, bool) {
+func readSQLIdentifierName(text string, start int, dbTypes ...string) (string, int, bool) {
 	pos := skipSQLTrivia(text, start)
-	end, ok := skipSQLIdentifierToken(text, pos)
+	end, ok := skipSQLIdentifierToken(text, pos, optionalSQLDialect(dbTypes))
 	if !ok || end <= pos {
 		return "", pos, false
 	}
@@ -622,11 +634,11 @@ func isBatchableWriteSQLStatement(dbType string, query string) bool {
 		return false
 	}
 
-	keyword, withHasWrite := sqlDataOperationInfo(query)
+	keyword, withHasWrite := sqlDataOperationInfo(query, dbType)
 	if withHasWrite {
 		return true
 	}
-	if keyword == "select" && isSQLSelectIntoStatement(query) {
+	if keyword == "select" && isSQLSelectIntoStatement(query, dbType) {
 		return true
 	}
 	return isSQLDataWriteKeyword(keyword)

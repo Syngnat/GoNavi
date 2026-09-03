@@ -1,4 +1,8 @@
-import { splitQualifiedNameLast, stripIdentifierQuotes } from '../utils/qualifiedName';
+import {
+  splitQualifiedNameLast,
+  splitQualifiedNameSegmentsDetailed,
+  stripIdentifierQuotes,
+} from '../utils/qualifiedName';
 import { isOracleLikeDialect, isSqlServerDialect, resolveSqlDialect } from '../utils/sqlDialect';
 
 const supportsRequestedSchemaSelection = (dbType: string): boolean => {
@@ -103,8 +107,8 @@ export const qualifyTableDesignerCreateName = (
 ): string => {
   const rawTableName = String(tableName || '').trim();
   if (!rawTableName || !supportsRequestedSchemaSelection(dbType)) return rawTableName;
-  if (splitQualifiedNameLast(rawTableName).parentPath) return rawTableName;
-  const schema = stripIdentifierQuotes(selectedSchema);
+  if (splitQualifiedNameLast(rawTableName, dbType).parentPath) return rawTableName;
+  const schema = stripIdentifierQuotes(selectedSchema, dbType);
   return schema ? `${schema}.${rawTableName}` : rawTableName;
 };
 
@@ -117,11 +121,12 @@ export const resolveTableDesignerTableInfo = ({
   const dialect = resolveSqlDialect(dbType);
   const rawTable = String(tableName || '').trim();
   const rawDb = String(dbName || '').trim();
-  const parsed = splitQualifiedNameLast(rawTable);
-  const table = stripIdentifierQuotes(parsed.objectName || rawTable);
+  const segments = splitQualifiedNameSegmentsDetailed(rawTable, dialect);
+  const parsed = splitQualifiedNameLast(rawTable, dialect);
+  const table = stripIdentifierQuotes(parsed.objectName || rawTable, dialect);
   let schema = stripIdentifierQuotes(parsed.parentPath || (
     supportsRequestedSchemaSelection(dialect) ? (selectedSchema || '') : ''
-  ));
+  ), dialect);
 
   if (!schema) {
     if (supportsRequestedSchemaSelection(dialect)) {
@@ -129,16 +134,26 @@ export const resolveTableDesignerTableInfo = ({
     } else if (isSqlServerDialect(dialect)) {
       schema = 'dbo';
     } else if (isOracleLikeDialect(dialect)) {
-      schema = stripIdentifierQuotes(rawDb);
+      schema = stripIdentifierQuotes(rawDb, dialect);
     } else {
-      schema = stripIdentifierQuotes(rawDb);
+      schema = stripIdentifierQuotes(rawDb, dialect);
     }
   }
+
+  // Keep delimiters from the source path when rebuilding the identifier. A
+  // table literally named `order.items` must remain one segment after the
+  // schema context is resolved; reconstructing from the unquoted values would
+  // turn it back into `schema.order.items`.
+  const rawObjectName = String(segments[segments.length - 1]?.raw || rawTable).trim();
+  const rawParentPath = segments.slice(0, -1).map((segment) => segment.raw).join('.');
+  const qualifiedName = rawParentPath
+    ? `${rawParentPath}.${rawObjectName}`
+    : (schema ? `${schema}.${rawObjectName}` : rawObjectName);
 
   return {
     schema,
     table,
-    qualifiedName: schema ? `${schema}.${table}` : table,
+    qualifiedName,
   };
 };
 
@@ -149,8 +164,13 @@ export const resolveTableDesignerEditTarget = ({
   selectedSchema,
   schemaSelectionOverride,
 }: ResolveTableDesignerEditTargetInput) => {
+  const dialect = resolveSqlDialect(dbType);
   const sourceTableName = schemaSelectionOverride
-    ? (splitQualifiedNameLast(tableName).objectName || tableName)
+    ? (
+      splitQualifiedNameSegmentsDetailed(tableName, dialect).slice(-1)[0]?.raw
+      || splitQualifiedNameLast(tableName, dialect).objectName
+      || tableName
+    )
     : tableName;
   return resolveTableDesignerTableInfo({
     dbType,

@@ -232,7 +232,7 @@ func normalizeCopyTableSource(dbType string, dbName string, sourceSchemaName str
 		if schemaName == "" {
 			return normalizeSchemaAndTableByType(dbType, databaseName, sourceName)
 		}
-		if parsedSchema, parsedTable := db.SplitSQLQualifiedName(sourceName); parsedSchema == schemaName && parsedTable != "" {
+		if parsedSchema, parsedTable := db.SplitSQLQualifiedNameForDialect(sourceName, dbType); parsedSchema == schemaName && parsedTable != "" {
 			return schemaName, parsedTable
 		}
 		if prefix := schemaName + "."; strings.HasPrefix(sourceName, prefix) {

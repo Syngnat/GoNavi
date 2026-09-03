@@ -56,12 +56,14 @@ describe('AI run harness client', () => {
     const [message] = toAIChatMessages({
       messages: [{
         id: 'assistant-1',
+        runId: 'run-1',
         role: 'assistant',
         content: '',
         toolCalls: bytes,
       }],
     });
 
+    expect(message.runId).toBe('run-1');
     expect(message.tool_calls).toEqual([{
       id: 'call-1',
       type: 'function',
@@ -78,6 +80,19 @@ describe('AI run harness client', () => {
     }]))));
     expect(calls?.[0]?.function.arguments).toBe('{"sql":"select 2"}');
     expect(parseToolCalls([255, 0, 1])).toBeUndefined();
+  });
+
+  it('merges assistant turns from one run while retaining tool messages', () => {
+    expect(toAIChatMessages({
+      messages: [
+        { id: 'assistant-1', runId: 'run-1', role: 'assistant', content: 'first', createdAt: 1 },
+        { id: 'tool-1', runId: 'run-1', role: 'tool', toolCallId: 'call-1', toolName: 'inspect', content: '{"ok":true}', createdAt: 2 },
+        { id: 'assistant-2', runId: 'run-1', role: 'assistant', content: 'second', createdAt: 3 },
+      ],
+    })).toEqual([
+      expect.objectContaining({ id: 'assistant-1', content: 'first\n\nsecond', runId: 'run-1' }),
+      expect.objectContaining({ id: 'tool-1', role: 'tool', tool_call_id: 'call-1', tool_name: 'inspect' }),
+    ]);
   });
 
   it('flattens nested shortcut bindings to the Go map[string]string contract', () => {
@@ -110,5 +125,112 @@ describe('AI run harness client', () => {
       timestamp: 1,
       loading: true,
     }])).toEqual([expect.objectContaining({ id: 'local-loading' })]);
+  });
+
+  it('keeps a run-scoped terminal error when hydration races an empty Ledger transcript', () => {
+    const terminalError = {
+      id: 'agent-run-run-1-0-error',
+      runId: 'run-1',
+      role: 'assistant' as const,
+      content: 'Error: stream payload failed',
+      rawError: 'stream payload failed',
+      timestamp: 2,
+      loading: false,
+      phase: 'idle' as const,
+      excludeFromAIContext: true,
+    };
+
+    expect(mergeAIChatSessionMessages([], [terminalError])).toEqual([terminalError]);
+  });
+
+  it('keeps a terminal run failure visible after hydrating its durable tool turn', () => {
+    const durable = [{
+      id: 'durable-tool-turn',
+      role: 'assistant' as const,
+      content: '',
+      tool_calls: [{
+        id: 'call-connections',
+        type: 'function' as const,
+        function: { name: 'get_connections', arguments: '{}' },
+      }],
+      timestamp: 1,
+      loading: false,
+    }];
+    const terminalError = {
+      id: 'agent-run-run-1-0-error',
+      runId: 'run-1',
+      role: 'assistant' as const,
+      content: 'Error: upstream model failed after tool execution',
+      rawError: 'upstream model failed after tool execution',
+      timestamp: 2,
+      loading: false,
+      phase: 'idle' as const,
+      excludeFromAIContext: true,
+    };
+
+    expect(mergeAIChatSessionMessages(durable, [terminalError])).toEqual([
+      durable[0],
+      terminalError,
+    ]);
+  });
+
+  it('does not resurrect a failed run pending row during hydration', () => {
+    const pending = {
+      id: 'agent-run-run-1-pending',
+      runId: 'run-1',
+      role: 'assistant' as const,
+      content: '',
+      timestamp: 3,
+      loading: true,
+      phase: 'queued' as const,
+    };
+    const terminalError = {
+      id: 'agent-run-run-1-0-error',
+      runId: 'run-1',
+      role: 'assistant' as const,
+      content: 'Error: reasoning effort is invalid',
+      rawError: 'reasoning effort is invalid',
+      timestamp: 2,
+      loading: false,
+      phase: 'idle' as const,
+      excludeFromAIContext: true,
+    };
+
+    expect(mergeAIChatSessionMessages([], [pending, terminalError])).toEqual([
+      terminalError,
+    ]);
+  });
+
+  it('keeps terminal errors in chronological order relative to later user messages', () => {
+    const userOne = {
+      id: 'user-1',
+      runId: 'run-1',
+      role: 'user' as const,
+      content: 'first question',
+      timestamp: 1,
+    };
+    const error = {
+      id: 'agent-run-run-1-0-error',
+      runId: 'run-1',
+      role: 'assistant' as const,
+      content: 'Error: provider failed',
+      rawError: 'provider failed',
+      timestamp: 2,
+      loading: false,
+      phase: 'idle' as const,
+      excludeFromAIContext: true,
+    };
+    const userTwo = {
+      id: 'user-2',
+      runId: 'run-2',
+      role: 'user' as const,
+      content: 'second question',
+      timestamp: 3,
+    };
+
+    expect(mergeAIChatSessionMessages(
+      [userOne, userTwo],
+      [error],
+    ).map((message) => message.id)).toEqual(['user-1', 'agent-run-run-1-0-error', 'user-2']);
   });
 });

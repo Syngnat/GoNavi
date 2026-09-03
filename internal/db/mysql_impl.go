@@ -1073,7 +1073,7 @@ func dedupeExactTableMetadataNames(tables []string) []string {
 func normalizeMySQLIdentifierPart(ident string) string {
 	value := strings.TrimSpace(ident)
 	for i := 0; i < 4; i++ {
-		next := normalizeSQLIdentPartCommon(value)
+		next := normalizeSQLIdentPartWithBracketMode(value, false, false)
 		if next == value {
 			break
 		}
@@ -1099,7 +1099,7 @@ func quoteMySQLIdentifier(ident string) string {
 func mysqlMetadataTableParts(dbName, tableName string) (string, string) {
 	schema := normalizeMySQLIdentifierPart(dbName)
 	table := strings.TrimSpace(tableName)
-	if parsedSchema, parsedTable := SplitSQLQualifiedName(table); parsedTable != "" {
+	if parsedSchema, parsedTable := SplitSQLQualifiedNamePreserveTableQuoteForDialect(table, "mysql"); parsedTable != "" {
 		if parsedSchema != "" {
 			schema = normalizeMySQLIdentifierPart(parsedSchema)
 		}
