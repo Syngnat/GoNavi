@@ -1646,6 +1646,8 @@ interface DataGridProps {
     onSort?: (field: string, order: string) => void;
     onPageChange?: (page: number, size: number) => void;
     onLastPage?: (pageSize: number) => void;
+    /** SQL query max rows used only as a result-grid page-size suggestion. */
+    queryMaxRows?: number;
     pagination?: {
         current: number,
         pageSize: number,

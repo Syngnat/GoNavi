@@ -6213,6 +6213,25 @@ body[data-ui-version="v2"] .gn-v2-data-grid-pagination-wrap .data-grid-paginatio
   outline: none !important;
 }
 
+body[data-ui-version="v2"] [data-grid-custom-page-size-dropdown="true"] {
+  width: 128px;
+  max-width: calc(100vw - 24px);
+}
+
+body[data-ui-version="v2"] [data-grid-custom-page-size-confirm="true"].ant-btn {
+  box-sizing: border-box;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  flex: 0 0 24px;
+}
+
 /* ─── V2 context menus, including portal-rendered custom menus ─ */
 body[data-ui-version="v2"] .gn-v2-action-menu-surface {
   width: 264px;

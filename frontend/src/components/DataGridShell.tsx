@@ -244,6 +244,7 @@ const DataGridShell: React.FC<DataGridShellProps> = (props) => {
     pageFindSummary,
     pageFindText,
     pagination,
+    allowCustomPageSize,
     paginationControlTotal,
     paginationHasKnownTotalPages,
     paginationPageSizeOptions,
@@ -495,6 +496,7 @@ const renderDataTableView = () => (
           paginationTotalPages={paginationTotalPages}
           paginationPageText={paginationPageText}
           paginationPageSizeOptions={paginationPageSizeOptions}
+          allowCustomPageSize={allowCustomPageSize}
           showKnownPageCount={paginationHasKnownTotalPages}
           manualTotalCountAvailable={prefersManualTotalCount && !!onRequestTotalCount}
           totalCountLoading={pagination?.totalCountLoading}

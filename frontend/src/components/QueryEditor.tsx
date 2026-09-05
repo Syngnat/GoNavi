@@ -9988,8 +9988,10 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       if (!conn) return;
       const executionDbName = target?.executionDbName ?? currentDb;
       if (!target?.page?.baseSql || !canUseQueryEditorDatabaseContext(conn, executionDbName)) return;
-      const safePage = Math.max(1, Math.floor(Number(page) || 1));
-      const safePageSize = Math.max(1, Math.floor(Number(pageSize) || target.page.pageSize || 1));
+      const safePageSize = pageSize === 0
+          ? 0
+          : Math.max(1, Math.floor(Number(pageSize) || target.page.pageSize || 1));
+      const safePage = safePageSize === 0 ? 1 : Math.max(1, Math.floor(Number(page) || 1));
       const config = {
           ...conn.config,
           port: Number(conn.config.port),
@@ -10076,9 +10078,9 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
               return;
           }
           const rawRows = Array.isArray(rsData.rows) ? rsData.rows : [];
-          const hasNext = rawRows.length > safePageSize;
-          const rows = rawRows.slice(0, safePageSize);
-          const rowKeyOffset = (safePage - 1) * safePageSize;
+          const hasNext = safePageSize > 0 && rawRows.length > safePageSize;
+          const rows = safePageSize > 0 ? rawRows.slice(0, safePageSize) : rawRows;
+          const rowKeyOffset = safePageSize > 0 ? (safePage - 1) * safePageSize : 0;
           rows.forEach((row: any, i: number) => {
               if (row && typeof row === 'object') row[GONAVI_ROW_KEY] = rowKeyOffset + i;
           });
@@ -13351,6 +13353,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
           isV2Ui={isV2Ui}
           currentDb={currentDb}
           currentConnectionId={currentConnectionId}
+          maxRows={queryOptions?.maxRows ?? 5000}
           dataPreviewRequest={resultDataPreviewRequest}
           toggleShortcutLabel={toggleQueryResultsPanelShortcutLabel}
           onActiveResultKeyChange={setActiveResultKey}
