@@ -163,14 +163,17 @@ export const buildQueryResultPageSql = (params: {
   sortInfo?: Array<{ columnKey: string; order: string; enabled?: boolean }>;
 }): string => {
   const pageSize = normalizePositiveInteger(params.pageSize);
-  if (pageSize <= 0) return String(params.baseSql || '').trim();
-  const page = Math.max(1, Math.floor(Number(params.page) || 1));
-  const limit = params.lookahead ? pageSize + 1 : pageSize;
-  const offset = (page - 1) * pageSize;
   const dialect = resolveSqlDialect(params.dbType || 'mysql', params.driver || '', {
     oceanBaseProtocol: params.oceanBaseProtocol || '',
   });
   const orderBySql = buildOrderBySQL(dialect, params.sortInfo || []);
+  if (pageSize <= 0) {
+    if (!orderBySql) return String(params.baseSql || '').trim();
+    return `${resolveWrappedBaseSql(dialect, params.baseSql)}${orderBySql}`;
+  }
+  const page = Math.max(1, Math.floor(Number(params.page) || 1));
+  const limit = params.lookahead ? pageSize + 1 : pageSize;
+  const offset = (page - 1) * pageSize;
   return buildPaginatedSelectSQL(
     dialect,
     resolveWrappedBaseSql(dialect, params.baseSql),

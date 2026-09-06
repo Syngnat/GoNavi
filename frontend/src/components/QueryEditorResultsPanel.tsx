@@ -92,6 +92,7 @@ interface QueryEditorResultsPanelProps {
     isV2Ui: boolean;
     currentDb: string;
     currentConnectionId: string;
+    maxRows?: number;
     dataPreviewRequest?: { resultKey: string; requestId: string } | null;
     toggleShortcutLabel: string;
     onActiveResultKeyChange: (key: string) => void;
@@ -156,6 +157,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     isV2Ui,
     currentDb,
     currentConnectionId,
+    maxRows,
     dataPreviewRequest,
     toggleShortcutLabel,
     onActiveResultKeyChange,
@@ -729,6 +731,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                         ddlTableName={rs.ddlTableName}
                         connectionId={rs.executionConnectionId || currentConnectionId}
                         connectionParamsOverride={rs.executionConnectionParams}
+                        queryMaxRows={rs.page ? maxRows : undefined}
                         initialViewMode={dataPreviewRequest?.resultKey === rs.key ? 'table' : undefined}
                         initialViewModeRequestId={dataPreviewRequest?.resultKey === rs.key ? dataPreviewRequest.requestId : undefined}
                         initialViewModeScope={dataPreviewRequest?.resultKey === rs.key ? 'local' : undefined}

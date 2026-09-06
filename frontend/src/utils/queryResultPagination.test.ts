@@ -76,6 +76,19 @@ describe('queryResultPagination', () => {
     })).toBe('SELECT * FROM (SELECT id FROM users) AS __gonavi_query_page__ LIMIT 501 OFFSET 500');
   });
 
+  it('keeps sorting but omits LIMIT and OFFSET for an unlimited result page', () => {
+    expect(buildQueryResultPageSql({
+      baseSql: 'SELECT id, display_name FROM users',
+      dbType: 'mysql',
+      page: 1,
+      pageSize: 0,
+      lookahead: true,
+      sortInfo: [{ columnKey: 'display_name', order: 'ascend', enabled: true }],
+    })).toBe(
+      'SELECT * FROM (SELECT id, display_name FROM users) AS __gonavi_query_page__ ORDER BY `display_name` ASC',
+    );
+  });
+
   it('sorts the wrapped MySQL result before applying pagination', () => {
     expect(buildQueryResultPageSql({
       baseSql: 'SELECT id, display_name FROM users',

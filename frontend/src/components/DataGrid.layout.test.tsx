@@ -6,6 +6,7 @@ import { readV2ThemeCss } from '../test/readV2ThemeCss';
 
 import DataGrid, {
   buildGridFieldSelectOptions,
+  buildDataGridPaginationPageSizeOptions,
   formatCellDisplayText,
   resolveContextMenuFieldName,
   resolveDefaultGridFilterOperator,
@@ -150,6 +151,20 @@ const zhObjectDesignLabel = zhCnCatalog['data_grid.secondary.object_design'];
 const enUndoCellChangeLabel = enUsCatalog['data_grid.context_menu.undo_cell_change'];
 
 describe('DataGrid layout', () => {
+  it('uses SQL max-row presets for paginated SQL results without changing other grids', () => {
+    expect(buildDataGridPaginationPageSizeOptions()).toEqual(['100', '200', '500', '1000']);
+    expect(buildDataGridPaginationPageSizeOptions(750)).toEqual(['100', '500', '1000', '5000', '20000', '0', '750']);
+    expect(buildDataGridPaginationPageSizeOptions(1000)).toEqual(['100', '500', '1000', '5000', '20000', '0']);
+    expect(buildDataGridPaginationPageSizeOptions(0)).toEqual(['100', '500', '1000', '5000', '20000', '0']);
+  });
+
+  it.each([-1, 12.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'ignores an invalid SQL max row count (%s)',
+    (queryMaxRows) => {
+      expect(buildDataGridPaginationPageSizeOptions(queryMaxRows)).toEqual(['100', '500', '1000', '5000', '20000', '0']);
+    },
+  );
+
   it('renders without navigator in server-side environments', () => {
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     Reflect.deleteProperty(globalThis, 'navigator');
@@ -405,6 +420,13 @@ describe('DataGrid layout', () => {
     expect(markup).toContain('统计总数');
     expect(css).toMatch(/\[data-grid-pagination-total-count="true"\]\.ant-btn \{[\s\S]*?width: auto !important;[\s\S]*?min-width: max-content !important;[\s\S]*?white-space: nowrap;/);
     expect(css).toMatch(/\[data-grid-pagination-total-count="true"\]\.ant-btn \.ant-btn-icon \{[\s\S]*?margin-inline-end: 3px !important;/);
+  });
+
+  it('keeps the SQL custom page-size dropdown input and confirmation button compact', () => {
+    const css = readV2ThemeCss();
+
+    expect(css).toMatch(/\[data-grid-custom-page-size-dropdown="true"\]\s*\{[^}]*width:\s*128px;[^}]*max-width:\s*calc\(100vw - 24px\);/s);
+    expect(css).toMatch(/\[data-grid-custom-page-size-confirm="true"\]\.ant-btn\s*\{[^}]*width:\s*24px\s*!important;[^}]*min-width:\s*24px\s*!important;[^}]*max-width:\s*24px\s*!important;[^}]*height:\s*24px\s*!important;[^}]*min-height:\s*24px\s*!important;[^}]*padding:\s*0\s*!important;/s);
   });
 
   it('keeps V2 current-page find hidden until its floating table overlay is opened', () => {

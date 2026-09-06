@@ -291,6 +291,7 @@ import {
     INLINE_EDIT_FORM_ITEM_STYLE,
     VIRTUAL_EDITING_CELL_STYLE,
 } from './DataGridCore';
+
 import type {
     DataGridErrorBoundaryState,
     DataGridErrorBoundaryProps,
@@ -332,6 +333,22 @@ export {
     shouldOmitBlankDataGridInsertValue,
 } from './DataGridCore';
 
+const DATA_GRID_BASE_PAGE_SIZE_OPTIONS = ['100', '200', '500', '1000'] as const;
+const DATA_GRID_SQL_RESULT_PAGE_SIZE_OPTIONS = ['100', '500', '1000', '5000', '20000', '0'] as const;
+
+export const buildDataGridPaginationPageSizeOptions = (queryMaxRows?: number): string[] => {
+    if (queryMaxRows === undefined) return [...DATA_GRID_BASE_PAGE_SIZE_OPTIONS];
+
+    const options: string[] = [...DATA_GRID_SQL_RESULT_PAGE_SIZE_OPTIONS];
+    if (typeof queryMaxRows === 'number' && Number.isSafeInteger(queryMaxRows) && queryMaxRows > 0) {
+        const value = String(queryMaxRows);
+        if (!options.includes(value)) {
+            options.push(value);
+        }
+    }
+    return options;
+};
+
 // Native scroll events can outlive a pointer gesture on macOS. Wait for a brief
 // idle window before the virtual table performs its final visual correction.
 const EXTERNAL_HORIZONTAL_SCROLL_IDLE_SETTLE_MS = 80;
@@ -340,7 +357,7 @@ const DataGrid: React.FC<DataGridProps> = ({
     data, columnNames, loading, tableName, columnPinScope, objectType = 'table', exportScope = 'table', dbName, schemaName, ddlDbName, ddlTableName, connectionId, connectionParamsOverride, pkColumns = [], editLocator, readOnly = false,
     resultSql,
     resultExportAllSql,
-    onReload, onSort, onPageChange, onLastPage, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, exportSqlWithFilter, onApplyFilter, appliedFilterConditions, quickWhereCondition,
+    onReload, onSort, onPageChange, onLastPage, queryMaxRows, pagination, onRequestTotalCount, onCancelTotalCount, sortInfoExternal, showFilter, onToggleFilter, exportSqlWithFilter, onApplyFilter, appliedFilterConditions, quickWhereCondition,
     onApplyQuickWhereCondition,
     scrollSnapshot, onScrollSnapshotChange, toolbarExtraActions, showRowNumberColumn, isActive = true, enableSqlLogEvent = false,
     initialViewMode,
@@ -780,7 +797,10 @@ const DataGrid: React.FC<DataGridProps> = ({
   const horizontalScrollbarThumbBorderColor = 'transparent';
   const horizontalScrollbarThumbShadow = 'none';
   const externalScrollbarMinWidth = 1;
-  const paginationPageSizeOptions = ['100', '200', '500', '1000'];
+  const paginationPageSizeOptions = useMemo(
+      () => buildDataGridPaginationPageSizeOptions(queryMaxRows),
+      [queryMaxRows],
+  );
   
   const [form] = Form.useForm();
   const [modal, contextHolder] = Modal.useModal();
@@ -5739,6 +5759,7 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const paginationTotalPages = useMemo(() => {
       if (!pagination) return 1;
+      if (pagination.pageSize === 0) return 1;
       if (!Number.isFinite(paginationControlTotal) || paginationControlTotal <= 0) {
           return Math.max(1, pagination.current);
       }
@@ -5771,12 +5792,16 @@ const DataGrid: React.FC<DataGridProps> = ({
 
   const handlePageSizeChange = useCallback((value: string) => {
       if (!pagination || !onPageChange) return;
+      if (value === '0' && queryMaxRows !== undefined) {
+          onPageChange(1, 0);
+          return;
+      }
       const nextSize = Number(value);
-      if (!Number.isFinite(nextSize) || nextSize <= 0) return;
+      if (!Number.isSafeInteger(nextSize) || nextSize <= 0) return;
       const firstRowIndex = Math.max(0, (pagination.current - 1) * pagination.pageSize);
       const nextPage = Math.floor(firstRowIndex / nextSize) + 1;
       onPageChange(nextPage, nextSize);
-  }, [pagination, onPageChange]);
+  }, [pagination, onPageChange, queryMaxRows]);
 
   const handleV2PageStep = useCallback((direction: 'previous' | 'next') => {
       if (!pagination || !onPageChange) return;
@@ -6021,6 +6046,7 @@ const DataGrid: React.FC<DataGridProps> = ({
         pageFindSummary,
         pageFindText,
         pagination,
+        allowCustomPageSize: Boolean(pagination && queryMaxRows !== undefined),
         paginationControlTotal,
         paginationHasKnownTotalPages,
         paginationPageSizeOptions,
