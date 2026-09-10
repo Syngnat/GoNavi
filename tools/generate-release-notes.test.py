@@ -31,6 +31,12 @@ class GenerateReleaseNotesTests(unittest.TestCase):
         ):
             self.assertEqual(MODULE.resolve_previous_tag("v1.1.0"), "v1.0.0")
 
+    def test_release_notes_range_override_is_valid_and_preserves_v095_changes(self) -> None:
+        override_path = ROOT / ".github" / "release-notes-ranges.json"
+        overrides = json.loads(override_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(overrides["v0.9.6"]["previousTag"], "v0.9.4")
+
     def test_warns_when_release_tags_have_diverged(self) -> None:
         error = subprocess.CalledProcessError(1, ["git", "merge-base"])
         stderr = io.StringIO()
