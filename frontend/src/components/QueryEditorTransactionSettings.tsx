@@ -25,7 +25,6 @@ export const SQL_EDITOR_AUTO_COMMIT_DELAY_OPTIONS: SqlEditorAutoCommitDelayOptio
 ];
 
 type QueryEditorTransactionSettingsProps = {
-  isV2Ui: boolean;
   commitMode: SqlEditorCommitMode;
   autoCommitDelayMs: number;
   onCommitModeChange: (mode: SqlEditorCommitMode) => void;
@@ -35,7 +34,6 @@ type QueryEditorTransactionSettingsProps = {
 type OpenTransactionSelect = 'mode' | 'delay' | null;
 
 const QueryEditorTransactionSettings: React.FC<QueryEditorTransactionSettingsProps> = ({
-  isV2Ui,
   commitMode,
   autoCommitDelayMs,
   onCommitModeChange,
@@ -63,25 +61,24 @@ const QueryEditorTransactionSettings: React.FC<QueryEditorTransactionSettingsPro
   return (
     <>
       <Tooltip
-        title={isV2Ui && openTransactionSelect === 'mode' ? null : commitModeTooltip}
+        title={openTransactionSelect === 'mode' ? null : commitModeTooltip}
         placement="topLeft"
       >
         <Select
           aria-label={commitModeLabel}
-          className={isV2Ui ? 'gn-v2-query-toolbar-select gn-v2-query-toolbar-icon-select gn-v2-query-toolbar-transaction-mode-select' : undefined}
-          style={isV2Ui ? undefined : { width: 78 }}
+          className="gn-v2-query-toolbar-select gn-v2-query-toolbar-icon-select gn-v2-query-toolbar-transaction-mode-select"
           value={commitMode}
-          popupMatchSelectWidth={isV2Ui ? false : undefined}
-          onOpenChange={isV2Ui ? (open) => updateTransactionSelectOpen('mode', open) : undefined}
+          popupMatchSelectWidth={false}
+          onOpenChange={(open) => updateTransactionSelectOpen('mode', open)}
           onChange={(mode) => {
             setOpenTransactionSelect(null);
             onCommitModeChange(mode === 'auto' ? 'auto' : 'manual');
           }}
-          labelRender={isV2Ui ? (option) => (
+          labelRender={(option) => (
             <span className="gn-v2-query-toolbar-select-icon" aria-hidden="true">
               {option.value === 'auto' ? <SyncOutlined /> : <ControlOutlined />}
             </span>
-          ) : undefined}
+          )}
           options={[
             { label: t('query_editor.transaction.mode.manual'), value: 'manual' },
             { label: t('query_editor.transaction.mode.auto'), value: 'auto' },
@@ -90,25 +87,24 @@ const QueryEditorTransactionSettings: React.FC<QueryEditorTransactionSettingsPro
       </Tooltip>
       {commitMode === 'auto' && (
         <Tooltip
-          title={isV2Ui && openTransactionSelect === 'delay' ? null : autoCommitDelayTooltip}
+          title={openTransactionSelect === 'delay' ? null : autoCommitDelayTooltip}
           placement="topLeft"
         >
           <Select
             aria-label={autoCommitDelayLabel}
-            className={isV2Ui ? 'gn-v2-query-toolbar-select gn-v2-query-toolbar-icon-select gn-v2-query-toolbar-transaction-delay-select' : undefined}
-            style={isV2Ui ? undefined : { width: 68 }}
+            className="gn-v2-query-toolbar-select gn-v2-query-toolbar-icon-select gn-v2-query-toolbar-transaction-delay-select"
             value={autoCommitDelayMs}
-            popupMatchSelectWidth={isV2Ui ? false : undefined}
-            onOpenChange={isV2Ui ? (open) => updateTransactionSelectOpen('delay', open) : undefined}
+            popupMatchSelectWidth={false}
+            onOpenChange={(open) => updateTransactionSelectOpen('delay', open)}
             onChange={(delayMs) => {
               setOpenTransactionSelect(null);
               onAutoCommitDelayMsChange(Number(delayMs));
             }}
-            labelRender={isV2Ui ? () => (
+            labelRender={() => (
               <span className="gn-v2-query-toolbar-select-icon" aria-hidden="true">
                 {autoCommitDelayMs === 0 ? <ThunderboltOutlined /> : <ClockCircleOutlined />}
               </span>
-            ) : undefined}
+            )}
             options={autoCommitDelayOptions}
           />
         </Tooltip>

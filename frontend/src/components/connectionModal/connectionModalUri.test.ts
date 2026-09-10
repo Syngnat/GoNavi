@@ -82,6 +82,47 @@ describe('connectionModalUri trino support', () => {
   });
 });
 
+describe('connectionModalUri Caché support', () => {
+  it('parses a Caché URI without routing it through the IRIS datasource type', () => {
+    expect(
+      parseUriToValues(
+        'cache://user:secret@cache.local:1972/APP?timeout=30',
+        'cache',
+      ),
+    ).toMatchObject({
+      host: 'cache.local',
+      port: 1972,
+      user: 'user',
+      password: 'secret',
+      database: 'APP',
+      connectionParams: 'timeout=30',
+    });
+  });
+
+  it('builds a Caché URI with its own scheme and connection parameters', () => {
+    expect(
+      buildUriFromValues({
+        type: 'cache',
+        host: 'cache.local',
+        port: 1972,
+        user: 'user',
+        password: 'secret',
+        database: 'APP',
+        connectionParams: 'timeout=30',
+      }),
+    ).toBe('cache://user:secret@cache.local:1972/APP?timeout=30');
+  });
+
+  it('keeps Caché URI and driver parameters independent from the IRIS datasource type', () => {
+    expect(getUriPlaceholder('cache')).toBe(
+      'cache://user:pass@127.0.0.1:1972/USER',
+    );
+    expect(getConnectionParamsPlaceholder('cache', 'mysql')).toBe(
+      'timeout=30',
+    );
+  });
+});
+
 describe('connectionModalUri Milvus support', () => {
   it('parses the REST v2 URI, database path, token, and TLS state', () => {
     expect(parseUriToValues('https://127.0.0.1:19530/default?token=secret&skip_verify=true', 'milvus'))

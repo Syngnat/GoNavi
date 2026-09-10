@@ -27,6 +27,7 @@ const translatedCopy: Record<string, string> = {
   'connection_modal.step1.hint.nacos': 'T:nacos',
   'connection_modal.step1.hint.oceanBase': 'T:oceanbase',
   'connection_modal.step1.hint.goldendb': 'T:goldendb',
+  'connection_modal.step1.hint.cache': 'T:cache',
   'connection_modal.step1.hint.file': 'T:file',
   'connection_modal.step1.hint.standard': 'T:standard',
   'connection_modal.db_icon_label.custom': 'T:custom',
@@ -66,6 +67,7 @@ describe('connectionTypeCatalog', () => {
     expect(keys).toContain('mysql');
     expect(keys).toContain('oceanbase');
     expect(keys).toContain('gaussdb');
+    expect(keys).toContain('cache');
     expect(keys).toContain('goldendb');
     expect(keys).toContain('trino');
     expect(keys).toContain('mongodb');
@@ -89,6 +91,7 @@ describe('connectionTypeCatalog', () => {
     expect(getConnectionTypeDefaultPort('diros')).toBe(9030);
     expect(getConnectionTypeDefaultPort('postgres')).toBe(5432);
     expect(getConnectionTypeDefaultPort('gaussdb')).toBe(5432);
+    expect(getConnectionTypeDefaultPort('cache')).toBe(1972);
     expect(getConnectionTypeDefaultPort('redis')).toBe(6379);
     expect(getConnectionTypeDefaultPort('oracle')).toBe(1521);
     expect(getConnectionTypeDefaultPort('mongodb')).toBe(27017);
@@ -117,6 +120,7 @@ describe('connectionTypeCatalog', () => {
     expect(getConnectionTypeHint('nacos', translate)).toBe('T:nacos');
     expect(getConnectionTypeHint('oceanbase', translate)).toBe('T:oceanbase');
     expect(getConnectionTypeHint('goldendb', translate)).toBe('T:goldendb');
+    expect(getConnectionTypeHint('cache', translate)).toBe('T:cache');
     expect(getConnectionTypeHint('trino')).toBe('HTTP / HTTPS / catalog.schema');
     expect(getConnectionTypeHint('duckdb', translate)).toBe('T:file');
     expect(getConnectionTypeHint('mysql', translate)).toBe('T:standard');

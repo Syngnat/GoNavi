@@ -36,6 +36,7 @@ type savedQueryConnectionFingerprintPayload struct {
 	HTTPTunnelHost     string   `json:"httpTunnelHost,omitempty"`
 	HTTPTunnelPort     int      `json:"httpTunnelPort,omitempty"`
 	HTTPTunnelUser     string   `json:"httpTunnelUser,omitempty"`
+	HTTPTunnelBase64   *bool    `json:"httpTunnelEncodeBase64,omitempty"`
 	ClickHouseProtocol string   `json:"clickHouseProtocol,omitempty"`
 	OceanBaseProtocol  string   `json:"oceanBaseProtocol,omitempty"`
 	Topology           string   `json:"topology,omitempty"`
@@ -96,6 +97,7 @@ func buildConnectionFingerprint(config connection.ConnectionConfig) (string, boo
 		HTTPTunnelHost:     normalizeFingerprintLower(config.HTTPTunnel.Host),
 		HTTPTunnelPort:     config.HTTPTunnel.Port,
 		HTTPTunnelUser:     normalizeFingerprintText(config.HTTPTunnel.User),
+		HTTPTunnelBase64:   config.HTTPTunnel.EncodeBase64,
 		ClickHouseProtocol: normalizeFingerprintLower(config.ClickHouseProtocol),
 		OceanBaseProtocol:  normalizeFingerprintLower(config.OceanBaseProtocol),
 		Topology:           normalizeFingerprintLower(config.Topology),

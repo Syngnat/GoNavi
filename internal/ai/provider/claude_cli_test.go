@@ -38,7 +38,7 @@ func TestBuildClaudeCLIEnv_IncludesAnthropicProxyEnv(t *testing.T) {
 	}
 }
 
-func TestBuildClaudeCLIEnv_LocalAuthRemovesAPIOverrides(t *testing.T) {
+func TestBuildClaudeCLIEnv_LocalAuthPreservesActiveCLIAuthentication(t *testing.T) {
 	env, err := buildClaudeCLIEnv(ai.ProviderConfig{
 		AuthMode: "local-cli",
 		BaseURL:  "https://proxy.example",
@@ -68,23 +68,23 @@ func TestBuildClaudeCLIEnv_LocalAuthRemovesAPIOverrides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	for _, key := range []string{
-		"ANTHROPIC_BASE_URL",
-		"ANTHROPIC_AUTH_TOKEN",
-		"ANTHROPIC_API_KEY",
-		"ANTHROPIC_FOUNDRY_API_KEY",
-		"AWS_ACCESS_KEY_ID",
-		"CLAUDE_API_KEY",
-		"CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
-		"CLAUDE_CODE_USE_BEDROCK",
-		"CLAUDE_CODE_USE_VERTEX",
-		"CLAUDE_CODE_USE_FOUNDRY",
-		"CLAUDE_CODE_USE_MANTLE",
-		"CLAUDE_CODE_USE_ANTHROPIC_AWS",
-		"GOOGLE_APPLICATION_CREDENTIALS",
+	for key, want := range map[string]string{
+		"ANTHROPIC_BASE_URL":                  "https://environment-proxy.example",
+		"ANTHROPIC_AUTH_TOKEN":                "environment-token",
+		"ANTHROPIC_API_KEY":                   "environment-key",
+		"ANTHROPIC_FOUNDRY_API_KEY":           "foundry-key",
+		"AWS_ACCESS_KEY_ID":                   "aws-access-key",
+		"CLAUDE_API_KEY":                      "claude-api-key",
+		"CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR": "9",
+		"CLAUDE_CODE_USE_BEDROCK":             "1",
+		"CLAUDE_CODE_USE_VERTEX":              "1",
+		"CLAUDE_CODE_USE_FOUNDRY":             "1",
+		"CLAUDE_CODE_USE_MANTLE":              "1",
+		"CLAUDE_CODE_USE_ANTHROPIC_AWS":       "1",
+		"GOOGLE_APPLICATION_CREDENTIALS":      "/tmp/google-credentials.json",
 	} {
-		if got := envValue(env, key); got != "" {
-			t.Fatalf("expected %s to be removed in local auth mode, got %q", key, got)
+		if got := envValue(env, key); got != want {
+			t.Fatalf("expected %s=%q to be preserved in local CLI mode, got %q", key, want, got)
 		}
 	}
 	if got := envValue(env, "CLAUDE_CONFIG_DIR"); got != "/tmp/claude-config" {
@@ -97,6 +97,30 @@ func TestBuildClaudeCLIEnv_LocalAuthRemovesAPIOverrides(t *testing.T) {
 		if got := envValue(env, key); got != "1" {
 			t.Fatalf("expected %s=1 in local auth mode, got %q", key, got)
 		}
+	}
+}
+
+func TestClaudeCLIProviderCustomEnvironmentCanSelectAPIKeyAuthentication(t *testing.T) {
+	provider := &ClaudeCLIProvider{config: ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv: map[string]string{
+			"GONAVI_CLAUDE_CUSTOM": "configured",
+			"ANTHROPIC_API_KEY":    "must-stay-blocked",
+			"ANTHROPIC_BASE_URL":   "https://must-stay-blocked.invalid",
+		},
+	}}
+	command := exec.Command(os.Args[0])
+	if err := provider.setEnv(command); err != nil {
+		t.Fatal(err)
+	}
+	if got := envValue(command.Env, "GONAVI_CLAUDE_CUSTOM"); got != "configured" {
+		t.Fatalf("custom environment = %q, want configured", got)
+	}
+	if got := envValue(command.Env, "ANTHROPIC_API_KEY"); got != "must-stay-blocked" {
+		t.Fatalf("configured API key was not preserved: %q", got)
+	}
+	if got := envValue(command.Env, "ANTHROPIC_BASE_URL"); got != "https://must-stay-blocked.invalid" {
+		t.Fatalf("configured API base URL was not preserved: %q", got)
 	}
 }
 
@@ -133,23 +157,20 @@ func TestBuildClaudeCLIArgs_LocalAuthKeepsPromptOutOfArgvAndDisablesTools(t *tes
 	}
 }
 
-func TestClaudeCLILocalAuthSettingsNeutralizeUserEnvironmentOverrides(t *testing.T) {
-	var settings struct {
-		APIKeyHelper string `json:"apiKeyHelper"`
-		Env          any    `json:"env"`
-	}
+func TestClaudeCLILocalAuthSettingsPreserveUserAuthenticationSources(t *testing.T) {
+	var settings map[string]any
 	if err := json.Unmarshal([]byte(claudeCLILocalAuthSettings), &settings); err != nil {
 		t.Fatalf("parse isolation settings: %v", err)
 	}
-	if settings.APIKeyHelper != "" {
-		t.Fatalf("expected user apiKeyHelper to be disabled, got %q", settings.APIKeyHelper)
+	if _, exists := settings["apiKeyHelper"]; exists {
+		t.Fatal("inline settings must not override the CLI user's apiKeyHelper")
 	}
-	if settings.Env != nil {
-		t.Fatalf("expected complete user settings env block to be neutralized, got %#v", settings.Env)
+	if _, exists := settings["env"]; exists {
+		t.Fatal("inline settings must not override authentication variables from user settings")
 	}
 }
 
-func TestValidateClaudeCLISubscriptionStatus(t *testing.T) {
+func TestValidateClaudeCLILocalAuthStatus(t *testing.T) {
 	tests := []struct {
 		name       string
 		status     claudeCLIAuthStatus
@@ -171,15 +192,13 @@ func TestValidateClaudeCLISubscriptionStatus(t *testing.T) {
 			wantDetail: "claude auth login",
 		},
 		{
-			name: "api key override",
+			name: "api key source",
 			status: claudeCLIAuthStatus{
 				LoggedIn:     true,
 				AuthMethod:   "oauth_token",
 				APIProvider:  "firstParty",
 				APIKeySource: "ANTHROPIC_API_KEY",
 			},
-			wantErr:    true,
-			wantDetail: "ANTHROPIC_API_KEY",
 		},
 		{
 			name: "third-party provider",
@@ -188,8 +207,6 @@ func TestValidateClaudeCLISubscriptionStatus(t *testing.T) {
 				AuthMethod:  "oauth_token",
 				APIProvider: "bedrock",
 			},
-			wantErr:    true,
-			wantDetail: "bedrock",
 		},
 		{
 			name: "non-oauth method",
@@ -198,8 +215,6 @@ func TestValidateClaudeCLISubscriptionStatus(t *testing.T) {
 				AuthMethod:  "api_key",
 				APIProvider: "firstParty",
 			},
-			wantErr:    true,
-			wantDetail: "api_key",
 		},
 		{
 			name: "misleading oauth substring",
@@ -208,14 +223,12 @@ func TestValidateClaudeCLISubscriptionStatus(t *testing.T) {
 				AuthMethod:  "not_oauth",
 				APIProvider: "firstParty",
 			},
-			wantErr:    true,
-			wantDetail: "not_oauth",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateClaudeCLISubscriptionStatus(tt.status)
+			err := validateClaudeCLILocalAuthStatus(tt.status)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("validate status error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -245,7 +258,7 @@ func TestCheckClaudeCLILocalAuthReportsLoggedOutStatus(t *testing.T) {
 	}
 }
 
-func TestClaudeCLILocalAuthRejectsAPIKeyOverrideBeforeChatAndStream(t *testing.T) {
+func TestClaudeCLILocalAuthAcceptsAPIKeyOverrideForChatAndStream(t *testing.T) {
 	restore := overrideClaudeCLIWithTestProcess(t, "api-key-override")
 	defer restore()
 
@@ -255,11 +268,12 @@ func TestClaudeCLILocalAuthRejectsAPIKeyOverrideBeforeChatAndStream(t *testing.T
 	}
 	request := ai.ChatRequest{Messages: []ai.Message{{Role: "user", Content: "ping"}}}
 
-	if _, err := provider.Chat(context.Background(), request); err == nil || !strings.Contains(err.Error(), "apiKeyHelper") {
-		t.Fatalf("expected Chat to reject API key override before model request, got %v", err)
+	response, err := provider.Chat(context.Background(), request)
+	if err != nil || response == nil || response.Content != "model request should not run" {
+		t.Fatalf("expected Chat to use active API key authentication, response=%#v err=%v", response, err)
 	}
-	if err := provider.ChatStream(context.Background(), request, func(ai.StreamChunk) {}); err == nil || !strings.Contains(err.Error(), "apiKeyHelper") {
-		t.Fatalf("expected ChatStream to reject API key override before model request, got %v", err)
+	if err := provider.ChatStream(context.Background(), request, func(ai.StreamChunk) {}); err != nil {
+		t.Fatalf("expected ChatStream to use active API key authentication, got %v", err)
 	}
 }
 
@@ -641,7 +655,10 @@ func TestClaudeCLIProvider_ChatTimesOutWhenCommandDoesNotFinish(t *testing.T) {
 	defer restore()
 
 	originalRequestTimeout := claudeCLIRequestTimeout
-	claudeCLIRequestTimeout = 200 * time.Millisecond
+	// Windows can take longer than 200ms to start the helper process. Keep the
+	// timeout short for the test, but leave enough room to exercise the hung
+	// command path rather than timing out during process creation.
+	claudeCLIRequestTimeout = 2 * time.Second
 	defer func() {
 		claudeCLIRequestTimeout = originalRequestTimeout
 	}()
@@ -669,12 +686,13 @@ func TestClaudeCLIProvider_ChatTimesOutWhenCommandDoesNotFinish(t *testing.T) {
 }
 
 func TestClaudeCLIProvider_ChatStreamUsesRequestTimeoutWhenNoMeaningfulResponseArrives(t *testing.T) {
-	fakeClaude := writeFakeClaudeScript(t, "#!/bin/sh\necho '{\"type\":\"system\",\"subtype\":\"init\"}'\nexec sleep 5\n")
-	restore := overrideClaudeCLIForTest(t, fakeClaude)
+	restore := overrideClaudeCLIWithTestProcess(t, "hang-after-init")
 	defer restore()
 
 	originalRequestTimeout := claudeCLIRequestTimeout
-	claudeCLIRequestTimeout = 200 * time.Millisecond
+	// The stream timeout starts before cmd.Start. A 200ms deadline flakes on
+	// Windows CI before the helper has a chance to emit its init event.
+	claudeCLIRequestTimeout = 2 * time.Second
 	defer func() {
 		claudeCLIRequestTimeout = originalRequestTimeout
 	}()
@@ -1018,6 +1036,10 @@ func TestClaudeCLIHelperProcess(t *testing.T) {
 		_, _ = os.Stdout.WriteString("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"OK\"}]}}\n")
 		_, _ = os.Stdout.WriteString("{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"OK\"}\n")
 		os.Exit(0)
+	case "hang-after-init":
+		_, _ = os.Stdout.WriteString("{\"type\":\"system\",\"subtype\":\"init\"}\n")
+		time.Sleep(5 * time.Second)
+		os.Exit(0)
 	case "sleep":
 		time.Sleep(5 * time.Second)
 		os.Exit(0)
@@ -1065,32 +1087,48 @@ func gitBashTestPath(path string) string {
 // Claude Code 2.1.241 起，订阅登录的 authMethod 改报 "claude.ai" 而不再是 "oauth"，
 // 同时新增权威字段 subscriptionType。只按旧词表判定会把真实 Max 订阅误判为未连接。
 // 本用例用实测到的真实载荷锁住这一行为。
-func TestValidateClaudeCLISubscriptionAcceptsClaudeAIMaxPayload(t *testing.T) {
+func TestValidateClaudeCLILocalAuthAcceptsOAuthAndAPIKeyPayloads(t *testing.T) {
 	realPayload := claudeCLIAuthStatus{
 		LoggedIn:         true,
 		AuthMethod:       "claude.ai",
 		APIProvider:      "firstParty",
 		SubscriptionType: "max",
 	}
-	if err := validateClaudeCLISubscriptionStatus(realPayload); err != nil {
+	if err := validateClaudeCLILocalAuthStatus(realPayload); err != nil {
 		t.Fatalf("真实 Max 订阅载荷应通过校验：%v", err)
 	}
 
 	// 旧版没有 subscriptionType 时仍要接受 oauth。
 	legacy := claudeCLIAuthStatus{LoggedIn: true, AuthMethod: "oauth", APIProvider: "firstParty"}
-	if err := validateClaudeCLISubscriptionStatus(legacy); err != nil {
+	if err := validateClaudeCLILocalAuthStatus(legacy); err != nil {
 		t.Fatalf("旧版 oauth 载荷应继续通过：%v", err)
 	}
 
-	// 明确的非订阅套餐仍要拒绝。
+	// 本机 CLI 模式复用当前认证，因此 free 登录态也交给 CLI 自身决定是否可调用模型。
 	free := claudeCLIAuthStatus{LoggedIn: true, AuthMethod: "claude.ai", APIProvider: "firstParty", SubscriptionType: "free"}
-	if err := validateClaudeCLISubscriptionStatus(free); err == nil {
-		t.Fatal("free 套餐不应被当作付费订阅")
+	if err := validateClaudeCLILocalAuthStatus(free); err != nil {
+		t.Fatalf("已登录的 free 状态应通过本机认证检查：%v", err)
 	}
 
-	// API key 覆盖仍要优先拒绝，即便订阅字段看起来正常。
+	// API key 是受支持的本机 CLI 认证来源，不能因为同时存在订阅字段而拒绝。
 	overridden := claudeCLIAuthStatus{LoggedIn: true, AuthMethod: "claude.ai", APIProvider: "firstParty", SubscriptionType: "max", APIKeySource: "ANTHROPIC_API_KEY"}
-	if err := validateClaudeCLISubscriptionStatus(overridden); err == nil {
-		t.Fatal("存在 API key 覆盖时不应放行")
+	if err := validateClaudeCLILocalAuthStatus(overridden); err != nil {
+		t.Fatalf("API key 认证来源应通过：%v", err)
+	}
+}
+
+func TestNormalizeClaudeCLIUsageIncludesCacheBreakdown(t *testing.T) {
+	created := 3
+	read := 12
+	usage := normalizeClaudeCLIUsage(&claudeCLIUsage{
+		InputTokens: 5, OutputTokens: 4,
+		CacheCreationInputTokens: &created,
+		CacheReadInputTokens:     &read,
+	})
+	if usage.PromptTokens != 20 || usage.CompletionTokens != 4 || usage.TotalTokens != 24 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	if usage.CachedTokens == nil || *usage.CachedTokens != 12 {
+		t.Fatalf("cached usage = %#v", usage.CachedTokens)
 	}
 }

@@ -260,9 +260,14 @@ describe("ImportPreviewModal i18n", () => {
   it("renders the same preview and actions inside a workbench panel", async () => {
     const renderer = await renderImportPreview("D:/imports/users.csv", "embedded");
 
-    expect(renderer.root.findByProps({
+    const embeddedPreview = renderer.root.findByProps({
       "data-import-preview-embedded": "true",
-    })).toBeDefined();
+    });
+    expect(embeddedPreview).toBeDefined();
+    expect(embeddedPreview.props.style.overflow).toBe("visible");
+    expect(renderer.root.findByProps({
+      "data-import-preview-embedded-content": "true",
+    }).props.style.overflow).toBe("visible");
     expect(renderer.root.findByProps({
       "data-import-preview-embedded-footer": "true",
     })).toBeDefined();

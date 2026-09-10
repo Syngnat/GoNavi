@@ -32,6 +32,9 @@ describe('sqlDialect', () => {
     expect(resolveSqlDialect('dameng')).toBe('dameng');
     expect(resolveSqlDialect('InterSystems IRIS')).toBe('iris');
     expect(resolveSqlDialect('custom', 'intersystemsiris')).toBe('iris');
+    expect(resolveSqlDialect('InterSystems-Cache')).toBe('iris');
+    expect(resolveSqlDialect('InterSystems Caché')).toBe('iris');
+    expect(resolveSqlDialect('custom', 'cachedb')).toBe('iris');
     expect(resolveSqlDialect('custom', 'kingbase8')).toBe('kingbase');
     expect(resolveSqlDialect('custom', 'dm8')).toBe('dameng');
     expect(resolveSqlDialect('custom', 'mariadb')).toBe('mariadb');

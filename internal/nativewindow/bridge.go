@@ -826,6 +826,17 @@ func (c *Control) Hide(visibilityRevision uint64) OperationResult {
 // settings modal. The request runs in Go after WindowHide, so WebView suspension
 // cannot leave the modal behind the detached window.
 func (c *Control) HideForAISettings(visibilityRevision uint64) OperationResult {
+	return c.hideForAISettings(visibilityRevision, "")
+}
+
+// HideForAISettingsProvider preserves the provider selected by the detached
+// chat so the parent can open that provider's editor, not only the AI settings
+// landing page.
+func (c *Control) HideForAISettingsProvider(visibilityRevision uint64, providerID string) OperationResult {
+	return c.hideForAISettings(visibilityRevision, strings.TrimSpace(providerID))
+}
+
+func (c *Control) hideForAISettings(visibilityRevision uint64, providerID string) OperationResult {
 	if c == nil || c.bridge == nil {
 		return operationFailure("native window control is unavailable")
 	}
@@ -844,11 +855,15 @@ func (c *Control) HideForAISettings(visibilityRevision uint64) OperationResult {
 		failure.VisibilityRevision = hideResult.VisibilityRevision
 		return failure
 	}
-	actionResult := bridge.action("open-ai-settings", map[string]any{
+	payload := map[string]any{
 		"id":                 bridge.windowID,
 		"kind":               bridge.kind,
 		"visibilityRevision": visibilityRevision,
-	}, false)
+	}
+	if providerID != "" {
+		payload["providerId"] = providerID
+	}
+	actionResult := bridge.action("open-ai-settings", payload, false)
 	if actionResult.Success && (actionResult.Applied == nil || *actionResult.Applied) {
 		return OperationResult{
 			Success:            true,

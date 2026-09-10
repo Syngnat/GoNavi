@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Menu } from 'antd';
+import V2ActionMenuPopup from '../common/V2ActionMenuPopup';
 import {
   V2DatabaseContextMenuView,
   V2ConnectionGroupContextMenuView,
@@ -47,12 +49,41 @@ export type SidebarContextMenuState = {
   sourceX?: number;
   sourceY?: number;
   items: any;
-  kind?: 'v2-table' | 'v2-database' | 'v2-schema' | 'v2-table-group' | 'v2-connection' | 'v2-connection-group';
+  kind?: 'v2-table' | 'v2-database' | 'v2-schema' | 'v2-table-group' | 'v2-connection' | 'v2-connection-group' | 'v2-node';
   node?: any;
   rootClassName?: string;
   overlayStyle?: React.CSSProperties;
   maxHeight?: number;
 };
+
+export const buildSidebarNodeMenuProps = ({
+  menu,
+  portalRef,
+  onClose,
+}: {
+  menu: SidebarContextMenuState;
+  portalRef: React.RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+}) => ({
+  className: 'gn-v2-sidebar-node-menu',
+  items: menu.items,
+  selectable: false,
+  onClick: onClose,
+  getPopupContainer: () => portalRef.current || document.body,
+});
+
+export const SidebarNodeContextMenuContent: React.FC<{
+  menu: SidebarContextMenuState;
+  portalRef: React.RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+}> = ({ menu, portalRef, onClose }) => (
+  <V2ActionMenuPopup
+    title={String(menu.node?.title || t('sidebar.context_menu.object_fallback'))}
+    badge={String(menu.node?.type || 'OBJECT').toUpperCase()}
+  >
+    <Menu {...buildSidebarNodeMenuProps({ menu, portalRef, onClose })} />
+  </V2ActionMenuPopup>
+);
 
 type SidebarV2ContextMenuOptions = {
   connections: SavedConnection[];
@@ -420,6 +451,9 @@ export const useSidebarV2ContextMenu = ({
 
   const handleV2SchemaContextMenuAction = (node: any, action: V2SchemaContextMenuActionKey) => {
       switch (action) {
+          case 'new-query':
+              handleV2DatabaseContextMenuAction(node, 'new-query');
+              return;
           case 'rename-schema':
               openRenameSchemaModal(node);
               return;
@@ -508,6 +542,15 @@ export const useSidebarV2ContextMenu = ({
       if (menu.kind === 'v2-table-group') return renderV2TableGroupContextMenu(menu.node);
       if (menu.kind === 'v2-connection') return renderV2ConnectionContextMenu(menu.node);
       if (menu.kind === 'v2-connection-group') return renderV2ConnectionGroupContextMenu(menu.node);
+      if (menu.kind === 'v2-node') {
+          return (
+              <SidebarNodeContextMenuContent
+                  menu={menu}
+                  portalRef={contextMenuPortalRef}
+                  onClose={() => setContextMenu(null)}
+              />
+          );
+      }
       return null;
   };
 

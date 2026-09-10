@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-logo.png" width="128" alt="GoNavi Logo" />
+  <img src="https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1/03-ribbon-graphite-glow.svg" width="128" alt="GoNavi Logo" />
 </p>
 
 <h1 align="center">GoNavi</h1>
@@ -208,7 +208,7 @@ Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](htt
 | | |
 |---|---|
 | **Built-in** | MySQL · GoldenDB · PostgreSQL · Oracle · Redis · Chroma · Qdrant · Milvus · RocketMQ · MQTT · Kafka · RabbitMQ |
-| **Optional** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · Dameng · Kingbase · HighGo · Vastbase · OpenGauss · GaussDB · IRIS · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · Custom Driver/DSN |
+| **Optional** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · Dameng · Kingbase · HighGo · Vastbase · OpenGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · Custom Driver/DSN |
 
 <details>
 <summary><b>Full capability matrix</b></summary>
@@ -242,6 +242,7 @@ Special thanks to **[APISmart](https://www.apismart.ai/)** and **[HuaLongAI](htt
 | Domestic DB | OpenGauss | Optional driver agent | PostgreSQL-like schema browsing, SQL query, object management |
 | Domestic DB | GaussDB | Optional driver agent | PostgreSQL-like schema browsing, SQL query, object management |
 | Multi-model | InterSystems IRIS | Optional driver agent | Namespace browsing, SQL query, object management |
+| Multi-model | InterSystems Caché | Optional driver agent | Namespace browsing, Caché SQL query, object management |
 | Document | MongoDB | Optional driver agent | Document query, collection browsing, connection management |
 | Time-series | TDengine | Optional driver agent | Time-series schema browsing and querying |
 | Time-series | Apache IoTDB | Optional driver agent | Storage group / device / timeseries browsing and querying |

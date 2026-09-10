@@ -55,6 +55,7 @@ const CONNECTION_READ_ONLY_TYPES = new Set([
   "gaussdb",
   "sqlserver",
   "iris",
+  "cache",
   "sqlite",
   "duckdb",
   "oracle",

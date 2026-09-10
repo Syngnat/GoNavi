@@ -127,6 +127,8 @@ export function DBQuery(arg1:connection.ConnectionConfig,arg2:string,arg3:string
 
 export function DBQueryAI(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
 
+export function DBQueryApplicationWithCancel(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
+
 export function DBQueryAudited(arg1:connection.ConnectionConfig,arg2:string,arg3:string,arg4:string):Promise<connection.QueryResult>;
 
 export function DBQueryIsolated(arg1:connection.ConnectionConfig,arg2:string,arg3:string):Promise<connection.QueryResult>;
@@ -312,6 +314,8 @@ export function ForceQuitApplication():Promise<connection.QueryResult>;
 export function GenerateQueryID():Promise<string>;
 
 export function GetAppInfo():Promise<connection.QueryResult>;
+
+export function GetBrandIconDataURL(arg1:string):Promise<string>;
 
 export function GetDataRootDirectoryInfo():Promise<connection.QueryResult>;
 
@@ -699,7 +703,7 @@ export function SetMacNativeWindowControls(arg1:boolean):Promise<void>;
 
 export function SetUpdateChannel(arg1:string):Promise<connection.QueryResult>;
 
-export function SetWindowTranslucency(arg1:number,arg2:number):Promise<void>;
+export function SetWindowTranslucency(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function Shutdown():Promise<void>;
 

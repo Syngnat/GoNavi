@@ -21,6 +21,7 @@ export interface HTTPTunnelConfig {
   port: number;
   user?: string;
   password?: string;
+  encodeBase64?: boolean;
 }
 
 export interface ConnectionProtectionConfig {
@@ -408,7 +409,7 @@ export interface ConnectionTag {
 }
 
 export type ConnectionSortMode = 'manual' | 'name' | 'createdAt';
-export type ConnectionDisplaySortMode = 'name' | 'createdAt';
+export type ConnectionDisplaySortMode = 'manual' | 'name' | 'createdAt';
 
 export interface ConnectionSidebarLayoutInput {
   connectionTags: ConnectionTag[];
@@ -517,6 +518,8 @@ export interface TabData {
     | "sql-file-execution"
     | "sql-analysis"
     | "sql-audit"
+    | "driver-manager"
+    | "settings-center"
     | "request-diagnostics"
     | "message-queue"
     | "redis-keys"
@@ -723,9 +726,15 @@ export interface StreamEntry {
 // --- AI Types ---
 
 export type AIProviderType = "openai" | "anthropic" | "gemini" | "custom";
-export type AIProviderAuthMode = "api-key" | "local-cli";
+export type AIProviderAuthMode = "api-key" | "bearer" | "local-cli";
 export type AISafetyLevel = "readonly" | "readwrite" | "full";
 export type AIContextLevel = "schema_only" | "with_samples" | "with_results";
+
+export interface AIResultMaskingSettings {
+  enabled: boolean;
+  fullMaskFields: string[];
+  partialMaskFields: string[];
+}
 
 export interface AIContextItem {
   dbName: string;
@@ -751,8 +760,11 @@ export interface AIProviderConfig {
   apiFormat?: string; // openai 可选 openai-responses；custom 支持 openai/anthropic/gemini/CLI 等格式
   headers?: Record<string, string>;
   maxTokens: number;
+  contextWindow?: number;
+  cliPath?: string;
+  cliEnv?: Record<string, string>;
   temperature: number;
-  /** 思考强度：off | low | medium | high；空表示供应商默认 */
+  /** API 供应商的思考强度；合法值域由供应商 profile 决定。 */
   thinkingIntensity?: string;
   /**
    * 本机 CLI 供应商的推理档位。合法值域由目标 CLI 决定，三个 CLI 两两不同，
@@ -896,6 +908,14 @@ export interface AIChatRunActivity {
   errorCode?: string;
 }
 
+export interface AIChatTokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+  /** Undefined means the provider did not expose cache-hit usage. */
+  cachedTokens?: number;
+}
+
 export interface AIChatMessage {
   id: string;
   /** Harness run that owns this transient or durable message, when known. */
@@ -910,6 +930,8 @@ export interface AIChatMessage {
   images?: string[]; // base64 encoded images with data URI prefix
   attachments?: AIChatAttachment[];
   tool_calls?: AIToolCall[];
+  /** Provider-reported usage aggregated across all model turns in this reply. */
+  tokenUsage?: AIChatTokenUsage;
   /** Redacted, ordered execution steps retained with this assistant message. */
   runActivities?: AIChatRunActivity[];
   tool_call_id?: string;

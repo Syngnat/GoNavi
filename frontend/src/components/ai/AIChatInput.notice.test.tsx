@@ -77,7 +77,7 @@ const buildAIChatInput = (overrides: Partial<React.ComponentProps<typeof AIChatI
     textColor="#162033"
     mutedColor="rgba(16,24,40,0.55)"
     overlayTheme={buildOverlayWorkbenchTheme(false)}
-    isV2Ui
+
     {...overrides}
   />
 );
@@ -122,7 +122,7 @@ describe('AIChatInput notice layout', () => {
         textColor="#162033"
         mutedColor="rgba(16,24,40,0.55)"
         overlayTheme={buildOverlayWorkbenchTheme(false)}
-        isV2Ui
+
       />
     );
 
@@ -163,7 +163,7 @@ describe('AIChatInput notice layout', () => {
         textColor="#162033"
         mutedColor="rgba(16,24,40,0.55)"
         overlayTheme={buildOverlayWorkbenchTheme(false)}
-        isV2Ui
+
       />
     );
 
@@ -198,7 +198,7 @@ describe('AIChatInput notice layout', () => {
         textColor="#162033"
         mutedColor="rgba(16,24,40,0.55)"
         overlayTheme={buildOverlayWorkbenchTheme(false)}
-        isV2Ui
+
       />
     );
 
@@ -225,16 +225,6 @@ describe('AIChatInput notice layout', () => {
     expect(markup).toContain('aria-label="picture"');
     expect(markup).toContain('aria-label="table"');
     expect(markup).toContain('aria-label="code"');
-  });
-
-  it('keeps the legacy composer free of v2-only layout classes by default', () => {
-    const markup = renderAIChatInput({ isV2Ui: false, input: 'select 1' });
-
-    expect(markup).toContain('class="ai-chat-input-area"');
-    expect(markup).toContain('class="ai-chat-send-btn"');
-    expect(markup).not.toContain('gn-v2-ai-composer');
-    expect(markup).not.toContain('gn-v2-ai-model-select');
-    expect(markup).not.toContain('gn-v2-ai-send');
   });
 
   it('renders an actionable composer notice button when the notice provides an action', () => {

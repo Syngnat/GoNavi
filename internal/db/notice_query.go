@@ -55,6 +55,6 @@ func querySQLConnWithTextNotices(ctx context.Context, conn *sql.Conn, query stri
 	}
 	defer rows.Close()
 
-	data, columns, err := scanRows(rows)
+	data, columns, err := scanRowsContext(ctx, rows)
 	return data, columns, append([]string(nil), notices...), err
 }

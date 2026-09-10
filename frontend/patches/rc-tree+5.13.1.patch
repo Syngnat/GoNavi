@@ -1,0 +1,182 @@
+diff --git a/node_modules/rc-tree/es/NodeList.d.ts b/node_modules/rc-tree/es/NodeList.d.ts
+index d6448fe..a2423c7 100644
+--- a/node_modules/rc-tree/es/NodeList.d.ts
++++ b/node_modules/rc-tree/es/NodeList.d.ts
+@@ -33,6 +33,8 @@ interface NodeListProps<TreeDataType extends BasicDataNode> {
+     dropPosition: number;
+     height: number;
+     itemHeight: number;
++    itemHeightFixed?: boolean;
++    itemHeightResolver?: (item: TreeDataType, index: number) => number;
+     virtual?: boolean;
+     scrollWidth?: number;
+     onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+diff --git a/node_modules/rc-tree/es/NodeList.js b/node_modules/rc-tree/es/NodeList.js
+index edc6fa9..6dd7c86 100644
+--- a/node_modules/rc-tree/es/NodeList.js
++++ b/node_modules/rc-tree/es/NodeList.js
+@@ -2,7 +2,7 @@ import _extends from "@babel/runtime/helpers/esm/extends";
+ import _objectDestructuringEmpty from "@babel/runtime/helpers/esm/objectDestructuringEmpty";
+ import _slicedToArray from "@babel/runtime/helpers/esm/slicedToArray";
+ import _objectWithoutProperties from "@babel/runtime/helpers/esm/objectWithoutProperties";
+-var _excluded = ["prefixCls", "data", "selectable", "checkable", "expandedKeys", "selectedKeys", "checkedKeys", "loadedKeys", "loadingKeys", "halfCheckedKeys", "keyEntities", "disabled", "dragging", "dragOverNodeKey", "dropPosition", "motion", "height", "itemHeight", "virtual", "scrollWidth", "focusable", "activeItem", "focused", "tabIndex", "onKeyDown", "onFocus", "onBlur", "onActiveChange", "onListChangeStart", "onListChangeEnd"];
++var _excluded = ["prefixCls", "data", "selectable", "checkable", "expandedKeys", "selectedKeys", "checkedKeys", "loadedKeys", "loadingKeys", "halfCheckedKeys", "keyEntities", "disabled", "dragging", "dragOverNodeKey", "dropPosition", "motion", "height", "itemHeight", "itemHeightFixed", "itemHeightResolver", "virtual", "scrollWidth", "focusable", "activeItem", "focused", "tabIndex", "onKeyDown", "onFocus", "onBlur", "onActiveChange", "onListChangeStart", "onListChangeEnd"];
+ /**
+  * Handle virtual list of the TreeNodes.
+  */
+@@ -89,6 +89,8 @@ var NodeList = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     motion = props.motion,
+     height = props.height,
+     itemHeight = props.itemHeight,
++    itemHeightFixed = props.itemHeightFixed,
++    itemHeightResolver = props.itemHeightResolver,
+     virtual = props.virtual,
+     scrollWidth = props.scrollWidth,
+     focusable = props.focusable,
+@@ -194,6 +196,9 @@ var NodeList = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     }
+   }, [dragging]);
+   var mergedData = motion ? transitionData : data;
++  var resolvedItemHeight = React.useCallback(function (item, index) {
++    return itemHeightResolver(item.data, index);
++  }, [itemHeightResolver]);
+   var treeNodeRequiredProps = {
+     expandedKeys: expandedKeys,
+     selectedKeys: selectedKeys,
+@@ -242,6 +247,8 @@ var NodeList = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     fullHeight: false,
+     virtual: virtual,
+     itemHeight: itemHeight,
++    itemHeightFixed: motionType ? false : itemHeightFixed,
++    itemHeightResolver: !motionType && itemHeightResolver ? resolvedItemHeight : undefined,
+     scrollWidth: scrollWidth,
+     prefixCls: "".concat(prefixCls, "-list"),
+     ref: listRef,
+diff --git a/node_modules/rc-tree/es/Tree.d.ts b/node_modules/rc-tree/es/Tree.d.ts
+index 8c04c4f..22dda81 100644
+--- a/node_modules/rc-tree/es/Tree.d.ts
++++ b/node_modules/rc-tree/es/Tree.d.ts
+@@ -120,6 +120,10 @@ export interface TreeProps<TreeDataType extends BasicDataNode = DataNode> {
+     switcherIcon?: IconType;
+     height?: number;
+     itemHeight?: number;
++    /** Treat every virtual tree row as the configured itemHeight. */
++    itemHeightFixed?: boolean;
++    /** Resolve an exact height for each virtual tree row. */
++    itemHeightResolver?: (item: TreeDataType, index: number) => number;
+     scrollWidth?: number;
+     itemScrollOffset?: number;
+     virtual?: boolean;
+diff --git a/node_modules/rc-tree/es/Tree.js b/node_modules/rc-tree/es/Tree.js
+index eee37d3..55b168c 100644
+--- a/node_modules/rc-tree/es/Tree.js
++++ b/node_modules/rc-tree/es/Tree.js
+@@ -947,6 +947,8 @@ var Tree = /*#__PURE__*/function (_React$Component) {
+         filterTreeNode = _this$props12.filterTreeNode,
+         height = _this$props12.height,
+         itemHeight = _this$props12.itemHeight,
++        itemHeightFixed = _this$props12.itemHeightFixed,
++        itemHeightResolver = _this$props12.itemHeightResolver,
+         scrollWidth = _this$props12.scrollWidth,
+         virtual = _this$props12.virtual,
+         titleRender = _this$props12.titleRender,
+@@ -1030,6 +1032,8 @@ var Tree = /*#__PURE__*/function (_React$Component) {
+         dragging: draggingNodeKey !== null,
+         height: height,
+         itemHeight: itemHeight,
++        itemHeightFixed: itemHeightFixed,
++        itemHeightResolver: itemHeightResolver,
+         virtual: virtual,
+         focusable: focusable,
+         focused: focused,
+diff --git a/node_modules/rc-tree/lib/NodeList.d.ts b/node_modules/rc-tree/lib/NodeList.d.ts
+index d6448fe..a2423c7 100644
+--- a/node_modules/rc-tree/lib/NodeList.d.ts
++++ b/node_modules/rc-tree/lib/NodeList.d.ts
+@@ -33,6 +33,8 @@ interface NodeListProps<TreeDataType extends BasicDataNode> {
+     dropPosition: number;
+     height: number;
+     itemHeight: number;
++    itemHeightFixed?: boolean;
++    itemHeightResolver?: (item: TreeDataType, index: number) => number;
+     virtual?: boolean;
+     scrollWidth?: number;
+     onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+diff --git a/node_modules/rc-tree/lib/NodeList.js b/node_modules/rc-tree/lib/NodeList.js
+index 75ed97e..d289c04 100644
+--- a/node_modules/rc-tree/lib/NodeList.js
++++ b/node_modules/rc-tree/lib/NodeList.js
+@@ -17,7 +17,7 @@ var React = _interopRequireWildcard(require("react"));
+ var _MotionTreeNode = _interopRequireDefault(require("./MotionTreeNode"));
+ var _diffUtil = require("./utils/diffUtil");
+ var _treeUtil = require("./utils/treeUtil");
+-var _excluded = ["prefixCls", "data", "selectable", "checkable", "expandedKeys", "selectedKeys", "checkedKeys", "loadedKeys", "loadingKeys", "halfCheckedKeys", "keyEntities", "disabled", "dragging", "dragOverNodeKey", "dropPosition", "motion", "height", "itemHeight", "virtual", "scrollWidth", "focusable", "activeItem", "focused", "tabIndex", "onKeyDown", "onFocus", "onBlur", "onActiveChange", "onListChangeStart", "onListChangeEnd"];
++var _excluded = ["prefixCls", "data", "selectable", "checkable", "expandedKeys", "selectedKeys", "checkedKeys", "loadedKeys", "loadingKeys", "halfCheckedKeys", "keyEntities", "disabled", "dragging", "dragOverNodeKey", "dropPosition", "motion", "height", "itemHeight", "itemHeightFixed", "itemHeightResolver", "virtual", "scrollWidth", "focusable", "activeItem", "focused", "tabIndex", "onKeyDown", "onFocus", "onBlur", "onActiveChange", "onListChangeStart", "onListChangeEnd"];
+ /**
+  * Handle virtual list of the TreeNodes.
+  */
+@@ -99,6 +99,8 @@ var NodeList = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     motion = props.motion,
+     height = props.height,
+     itemHeight = props.itemHeight,
++    itemHeightFixed = props.itemHeightFixed,
++    itemHeightResolver = props.itemHeightResolver,
+     virtual = props.virtual,
+     scrollWidth = props.scrollWidth,
+     focusable = props.focusable,
+@@ -204,6 +206,9 @@ var NodeList = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     }
+   }, [dragging]);
+   var mergedData = motion ? transitionData : data;
++  var resolvedItemHeight = React.useCallback(function (item, index) {
++    return itemHeightResolver(item.data, index);
++  }, [itemHeightResolver]);
+   var treeNodeRequiredProps = {
+     expandedKeys: expandedKeys,
+     selectedKeys: selectedKeys,
+@@ -252,6 +257,8 @@ var NodeList = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     fullHeight: false,
+     virtual: virtual,
+     itemHeight: itemHeight,
++    itemHeightFixed: motionType ? false : itemHeightFixed,
++    itemHeightResolver: !motionType && itemHeightResolver ? resolvedItemHeight : undefined,
+     scrollWidth: scrollWidth,
+     prefixCls: "".concat(prefixCls, "-list"),
+     ref: listRef,
+diff --git a/node_modules/rc-tree/lib/Tree.d.ts b/node_modules/rc-tree/lib/Tree.d.ts
+index 8c04c4f..22dda81 100644
+--- a/node_modules/rc-tree/lib/Tree.d.ts
++++ b/node_modules/rc-tree/lib/Tree.d.ts
+@@ -120,6 +120,10 @@ export interface TreeProps<TreeDataType extends BasicDataNode = DataNode> {
+     switcherIcon?: IconType;
+     height?: number;
+     itemHeight?: number;
++    /** Treat every virtual tree row as the configured itemHeight. */
++    itemHeightFixed?: boolean;
++    /** Resolve an exact height for each virtual tree row. */
++    itemHeightResolver?: (item: TreeDataType, index: number) => number;
+     scrollWidth?: number;
+     itemScrollOffset?: number;
+     virtual?: boolean;
+diff --git a/node_modules/rc-tree/lib/Tree.js b/node_modules/rc-tree/lib/Tree.js
+index 99abdbe..5b9be81 100644
+--- a/node_modules/rc-tree/lib/Tree.js
++++ b/node_modules/rc-tree/lib/Tree.js
+@@ -957,6 +957,8 @@ var Tree = /*#__PURE__*/function (_React$Component) {
+         filterTreeNode = _this$props12.filterTreeNode,
+         height = _this$props12.height,
+         itemHeight = _this$props12.itemHeight,
++        itemHeightFixed = _this$props12.itemHeightFixed,
++        itemHeightResolver = _this$props12.itemHeightResolver,
+         scrollWidth = _this$props12.scrollWidth,
+         virtual = _this$props12.virtual,
+         titleRender = _this$props12.titleRender,
+@@ -1040,6 +1042,8 @@ var Tree = /*#__PURE__*/function (_React$Component) {
+         dragging: draggingNodeKey !== null,
+         height: height,
+         itemHeight: itemHeight,
++        itemHeightFixed: itemHeightFixed,
++        itemHeightResolver: itemHeightResolver,
+         virtual: virtual,
+         focusable: focusable,
+         focused: focused,

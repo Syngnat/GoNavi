@@ -84,7 +84,6 @@ type NativeDetachedDocument = Pick<Document, 'body' | 'documentElement'>;
 
 export const applyNativeDetachedDocumentAppearance = (
   themeMode: 'light' | 'dark',
-  uiVersion: 'legacy' | 'v2',
   fontSize: number,
   uiScale: number,
   documentRef: NativeDetachedDocument | null = typeof document === 'undefined' ? null : document,
@@ -101,7 +100,7 @@ export const applyNativeDetachedDocumentAppearance = (
   );
   const rootStyle = documentRef.documentElement?.style;
   documentRef.body.setAttribute('data-theme', resolvedTheme);
-  documentRef.body.setAttribute('data-ui-version', uiVersion);
+  documentRef.body.setAttribute('data-ui-version', 'v2');
   documentRef.body.setAttribute('data-gonavi-detached', 'true');
   documentRef.body.style.backgroundColor = 'transparent';
   documentRef.body.style.color = resolvedTheme === 'dark' ? '#ffffff' : '#000000';
@@ -144,7 +143,7 @@ type NativeDetachedWindowClient = {
   hide?: (payload: NativeDetachedWindowActionPayload) => Promise<number>;
   close: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
   cancelCloseRequest?: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
-  openAISettings: (visibilityRevision: number) => Promise<void>;
+  openAISettings: (visibilityRevision: number, providerId?: string) => Promise<void>;
   hostEvent?: (payload: NativeDetachedWindowActionPayload) => Promise<void>;
   closeCurrentWindow: () => Promise<void>;
   hideCurrentWindow?: (visibilityRevision: number) => Promise<void>;
@@ -353,7 +352,7 @@ const NativeDetachedWindowContent: React.FC<{
   onContentReady: () => void;
   onAttach: () => void;
   onClose: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (providerId?: string) => void;
   onRegisterAITerminalGuard: (guard: (() => Promise<boolean>) | null) => void;
   onQueryResultDataChange: (rows: Array<Record<string, unknown>>) => void;
   interactionDisabled?: boolean;
@@ -374,11 +373,17 @@ const NativeDetachedWindowContent: React.FC<{
   const tab = tabFromStore || bootstrap.payload.tab;
   const storeThemeMode = useStore((state) => state.theme);
   const themeMode = themeModeOverride ?? storeThemeMode;
-  const uiVersion = useStore((state) => state.appearance.uiVersion);
 
   if (bootstrap.kind === 'workbench') {
     return tab
-      ? <WorkbenchTabContent tab={tab} isActive onContentReady={onContentReady} />
+      ? (
+          <WorkbenchTabContent
+            tab={tab}
+            isActive
+            onContentReady={onContentReady}
+            onRequestClose={onClose}
+          />
+        )
       : null;
   }
   if (bootstrap.kind === 'query-result') {
@@ -406,7 +411,6 @@ const NativeDetachedWindowContent: React.FC<{
         bgColor={aiPanelBackground}
         overlayTheme={buildOverlayWorkbenchTheme(isDark, {
           disableBackdropFilter: true,
-          uiVersion,
           useThemeVariables: true,
         })}
         presentation="detached"
@@ -456,6 +460,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   const terminalActionGenerationRef = useRef(0);
   const terminalCloseRecoveryPendingRef = useRef(false);
   const openAISettingsAfterHideRef = useRef(false);
+  const openAISettingsProviderIdRef = useRef('');
   const activeTerminalActionRef = useRef<'attach' | 'hide' | 'close' | null>(null);
   const closePreemptionRequestedRef = useRef(false);
   const hideVisibilityRevisionRef = useRef(0);
@@ -489,7 +494,6 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   }, []);
 
   const themeMode = useStore((state) => state.theme);
-  const uiVersion = useStore((state) => state.appearance.uiVersion);
   const fontSize = useStore((state) => state.fontSize);
   const uiScale = useStore((state) => state.uiScale);
   const shortcutOptions = useStore((state) => state.shortcutOptions);
@@ -501,8 +505,8 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
       : themeMode;
 
   useLayoutEffect(() => {
-    applyNativeDetachedDocumentAppearance(effectiveThemeMode, uiVersion, fontSize, uiScale);
-  }, [effectiveThemeMode, fontSize, uiScale, uiVersion]);
+    applyNativeDetachedDocumentAppearance(effectiveThemeMode, fontSize, uiScale);
+  }, [effectiveThemeMode, fontSize, uiScale]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -652,6 +656,8 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
         ]
       : [
           'gonavi:ai:inject-prompt',
+          'gonavi:open-download-source-settings',
+          'gonavi:open-global-proxy-settings',
           ...(bootstrap.kind === 'workbench' ? ['gonavi:locate-sidebar-object' as const] : []),
         ];
     const forwardToHost = (event: Event) => {
@@ -726,11 +732,11 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   useEffect(() => {
     if (typeof document === 'undefined') return;
     document.body.setAttribute('data-theme', effectiveThemeMode === 'dark' ? 'dark' : 'light');
-    document.body.setAttribute('data-ui-version', uiVersion);
+    document.body.setAttribute('data-ui-version', 'v2');
     document.body.style.color = effectiveThemeMode === 'dark' ? '#ffffff' : '#111827';
     document.body.style.fontSize = `${Math.max(10, Number(fontSize) || 14)}px`;
     document.documentElement.style.colorScheme = effectiveThemeMode === 'dark' ? 'dark' : 'light';
-  }, [effectiveThemeMode, fontSize, uiVersion]);
+  }, [effectiveThemeMode, fontSize]);
 
   const readCurrentTab = useCallback((): TabData | undefined => {
     const bootstrapTab = bootstrap?.payload.tab;
@@ -965,13 +971,14 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
     setTerminalAction(action);
   }, [bootstrap]);
 
-  const requestOpenAISettings = useCallback(() => {
+  const requestOpenAISettings = useCallback((providerId?: string) => {
     if (
       !bootstrap
       || bootstrap.kind !== 'ai-chat'
       || terminalActionRequestedRef.current
     ) return;
     openAISettingsAfterHideRef.current = true;
+    openAISettingsProviderIdRef.current = String(providerId || '').trim();
     requestTerminalAction('hide');
   }, [bootstrap, requestTerminalAction]);
 
@@ -1197,7 +1204,12 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
           if (closePreemptionRequestedRef.current) {
             await submitPreemptingClose();
           } else if (openAISettingsAfterHideRef.current) {
-            await client.openAISettings(visibilityRevision);
+            const providerId = openAISettingsProviderIdRef.current;
+            if (providerId) {
+              await client.openAISettings(visibilityRevision, providerId);
+            } else {
+              await client.openAISettings(visibilityRevision);
+            }
           } else {
             if (!client.hideCurrentWindow) {
               throw new Error('Native detached hide control is unavailable');
@@ -1248,6 +1260,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
         if (!isCurrentTerminalAction()) return;
         if (actionToRun === 'hide' && !closeActionSubmitted) {
           openAISettingsAfterHideRef.current = false;
+          openAISettingsProviderIdRef.current = '';
           terminalActionStartedRef.current = false;
           terminalActionRequestedRef.current = false;
           activeTerminalActionRef.current = null;
@@ -1265,6 +1278,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
       if (!isCurrentTerminalAction()) return;
       if (actionToRun === 'hide') {
         openAISettingsAfterHideRef.current = false;
+        openAISettingsProviderIdRef.current = '';
         terminalActionStartedRef.current = false;
         terminalActionRequestedRef.current = false;
         activeTerminalActionRef.current = null;
@@ -1329,7 +1343,7 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
   }), [bootstrap?.kind, translate]);
 
   const isDark = effectiveThemeMode === 'dark';
-  const customThemeStyleContextKey = `${effectiveThemeMode}:${uiVersion}`;
+  const customThemeStyleContextKey = `${effectiveThemeMode}:v2`;
   const customThemeAntTokens = computedCustomThemeAntTokens?.contextKey === customThemeStyleContextKey
     ? computedCustomThemeAntTokens.tokens
     : {};
@@ -1361,41 +1375,37 @@ const NativeDetachedWindowApp: React.FC<NativeDetachedWindowAppProps> = ({
           token: {
             fontSize: Math.max(10, Number(fontSize) || 14),
             zIndexPopupBase: APP_OVERLAY_Z_INDEX_BASE,
-            ...(uiVersion === 'v2' && customThemeAntTokens.bgContainer ? {
+            ...(customThemeAntTokens.bgContainer ? {
               colorBgContainer: customThemeAntTokens.bgContainer,
             } : {}),
-            ...(uiVersion === 'v2' && customThemeAntTokens.bgElevated ? {
+            ...(customThemeAntTokens.bgElevated ? {
               colorBgElevated: customThemeAntTokens.bgElevated,
             } : {}),
-            ...(uiVersion === 'v2' && customThemeAntTokens.fillAlter ? {
+            ...(customThemeAntTokens.fillAlter ? {
               colorFillAlter: customThemeAntTokens.fillAlter,
             } : {}),
-            ...(uiVersion === 'v2' && customThemeAntTokens.textPrimary ? {
+            ...(customThemeAntTokens.textPrimary ? {
               colorText: customThemeAntTokens.textPrimary,
             } : {}),
-            ...(uiVersion === 'v2' && customThemeAntTokens.textSecondary ? {
+            ...(customThemeAntTokens.textSecondary ? {
               colorTextSecondary: customThemeAntTokens.textSecondary,
             } : {}),
-            ...(uiVersion === 'v2' && customThemeAntTokens.border ? {
+            ...(customThemeAntTokens.border ? {
               colorBorder: customThemeAntTokens.border,
               colorBorderSecondary: customThemeAntTokens.border,
             } : {}),
-            colorPrimary: uiVersion === 'v2'
-              ? v2PrimaryColor
-              : (isDark ? '#f6c453' : '#1677ff'),
-            colorTextLightSolid: uiVersion === 'v2' ? v2PrimaryContrastColor : '#ffffff',
-            colorPrimaryHover: uiVersion === 'v2' ? v2PrimaryHoverColor : (isDark ? '#ffd666' : '#4096ff'),
-            colorPrimaryActive: uiVersion === 'v2' ? v2PrimaryActiveColor : (isDark ? '#d8a93b' : '#0958d9'),
-            colorInfo: uiVersion === 'v2'
-              ? (customThemeAntTokens.info ?? v2PrimaryColor)
-              : (isDark ? '#f6c453' : '#1677ff'),
-            colorPrimaryBg: uiVersion === 'v2' ? v2PrimaryBgColor : (isDark ? 'rgba(246, 196, 83, 0.22)' : '#e6f4ff'),
-            colorPrimaryBgHover: uiVersion === 'v2' ? v2PrimaryBgHoverColor : (isDark ? 'rgba(246, 196, 83, 0.30)' : '#bae0ff'),
-            colorPrimaryBorder: uiVersion === 'v2' ? v2PrimaryBorderColor : (isDark ? 'rgba(246, 196, 83, 0.45)' : '#91caff'),
-            colorPrimaryBorderHover: uiVersion === 'v2' ? v2PrimaryBorderHoverColor : (isDark ? 'rgba(246, 196, 83, 0.60)' : '#69b1ff'),
-            controlItemBgActive: uiVersion === 'v2' ? v2ControlActiveBg : (isDark ? 'rgba(246, 196, 83, 0.20)' : 'rgba(22, 119, 255, 0.12)'),
-            controlItemBgActiveHover: uiVersion === 'v2' ? v2ControlActiveHoverBg : (isDark ? 'rgba(246, 196, 83, 0.28)' : 'rgba(22, 119, 255, 0.18)'),
-            controlOutline: uiVersion === 'v2' ? v2ControlOutline : (isDark ? 'rgba(246, 196, 83, 0.50)' : 'rgba(5, 145, 255, 0.24)'),
+            colorPrimary: v2PrimaryColor,
+            colorTextLightSolid: v2PrimaryContrastColor,
+            colorPrimaryHover: v2PrimaryHoverColor,
+            colorPrimaryActive: v2PrimaryActiveColor,
+            colorInfo: customThemeAntTokens.info ?? v2PrimaryColor,
+            colorPrimaryBg: v2PrimaryBgColor,
+            colorPrimaryBgHover: v2PrimaryBgHoverColor,
+            colorPrimaryBorder: v2PrimaryBorderColor,
+            colorPrimaryBorderHover: v2PrimaryBorderHoverColor,
+            controlItemBgActive: v2ControlActiveBg,
+            controlItemBgActiveHover: v2ControlActiveHoverBg,
+            controlOutline: v2ControlOutline,
           },
         }}
       >

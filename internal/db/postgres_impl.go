@@ -233,7 +233,7 @@ func (p *PostgresDB) QueryContext(ctx context.Context, query string) ([]map[stri
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (p *PostgresDB) QueryContextWithMessages(ctx context.Context, query string) ([]map[string]interface{}, []string, []string, error) {

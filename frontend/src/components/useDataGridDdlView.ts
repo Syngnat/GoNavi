@@ -8,7 +8,6 @@ type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLo
 type DdlViewLayoutMode = 'bottom' | 'side';
 type TranslateParams = Record<string, string | number | boolean | null | undefined>;
 const GRID_VIEW_MODES: GridViewMode[] = ['table', 'json', 'text', 'fields', 'ddl', 'er', 'sqlLog'];
-const V2_ONLY_GRID_VIEW_MODES = new Set<GridViewMode>(['fields', 'ddl', 'er', 'sqlLog']);
 const DDL_VIEW_LAYOUT_STORAGE_KEY = 'gonavi.dataGrid.ddlViewLayout';
 let sharedDdlViewOpen = false;
 let sharedDdlViewLayout: DdlViewLayoutMode | null = null;
@@ -76,11 +75,9 @@ const buildDdlContextKey = (currentConnConfig: unknown, dbName?: string, tableNa
 
 const resolveInitialGridViewMode = (
   initialViewMode: GridViewMode | undefined,
-  isV2Ui: boolean,
   canViewDdl: boolean,
 ): GridViewMode | null => {
   if (!initialViewMode || !GRID_VIEW_MODES.includes(initialViewMode)) return null;
-  if (!isV2Ui && V2_ONLY_GRID_VIEW_MODES.has(initialViewMode)) return null;
   if (initialViewMode === 'ddl' && !canViewDdl) return null;
   return initialViewMode;
 };
@@ -90,7 +87,6 @@ interface UseDataGridDdlViewParams {
   currentConnConfig: unknown;
   dbName?: string;
   tableName?: string;
-  isV2Ui: boolean;
   isActive?: boolean;
   cellEditMode: boolean;
   selectedRowKeys: React.Key[];
@@ -133,7 +129,6 @@ export const useDataGridDdlView = ({
   currentConnConfig,
   dbName,
   tableName,
-  isV2Ui,
   isActive = true,
   cellEditMode,
   selectedRowKeys,
@@ -148,12 +143,11 @@ export const useDataGridDdlView = ({
   initialViewModeRequestId,
   initialViewModeScope,
 }: UseDataGridDdlViewParams): UseDataGridDdlViewResult => {
-  const initialResolvedViewMode = resolveInitialGridViewMode(initialViewMode, isV2Ui, canViewDdl);
+  const initialResolvedViewMode = resolveInitialGridViewMode(initialViewMode, canViewDdl);
   const shouldInitiallySuppressSharedDdlView = initialViewModeScope === 'local'
     && initialResolvedViewMode === 'table';
   const [suppressSharedDdlView, setSuppressSharedDdlView] = React.useState(shouldInitiallySuppressSharedDdlView);
-  const canRestoreSharedDdlView = isV2Ui
-    && canViewDdl
+  const canRestoreSharedDdlView = canViewDdl
     && !!currentConnConfig
     && !!tableName
     && !suppressSharedDdlView
@@ -184,6 +178,8 @@ export const useDataGridDdlView = ({
     () => buildDdlContextKey(currentConnConfig, dbName, tableName),
     [currentConnConfig, dbName, tableName],
   );
+  const ddlContextKeyRef = React.useRef(ddlContextKey);
+  ddlContextKeyRef.current = ddlContextKey;
   const appliedInitialViewModeKeyRef = React.useRef('');
   const initialViewModeApplyKey = `${ddlContextKey}\u0001${initialResolvedViewMode || ''}\u0001${initialViewModeRequestId || ''}\u0001${initialViewModeScope || 'shared'}`;
   const hasPendingLocalTableViewRequest = isActive
@@ -205,7 +201,7 @@ export const useDataGridDdlView = ({
     && ddlRequestedContextKeyRef.current !== ddlContextKey;
   const resolvedDdlLoading = ddlLoading || isDdlContextPending;
   const resolvedDdlText = isDdlContextPending ? '' : ddlText;
-  const isTableSurfaceActive = resolvedViewMode === 'table' || (isV2Ui && resolvedViewMode === 'ddl' && ddlViewLayout === 'side');
+  const isTableSurfaceActive = resolvedViewMode === 'table' || (resolvedViewMode === 'ddl' && ddlViewLayout === 'side');
 
   const translateMessage = React.useCallback((key: string, params?: TranslateParams) => {
     return translate ? translate(key, params) : catalogTranslate('zh-CN', key, params);
@@ -237,8 +233,9 @@ export const useDataGridDdlView = ({
       messageApi.error(translateMessage('data_grid.message.ddl_missing_context'));
       return;
     }
-    const asView = options?.asView === true && isV2Ui;
+    const asView = options?.asView === true;
     const requestSeq = ++ddlRequestSeqRef.current;
+    const requestContextKey = ddlContextKey;
     ddlRequestedContextKeyRef.current = ddlContextKey;
     if (asView) {
       setSuppressSharedDdlView(false);
@@ -252,7 +249,7 @@ export const useDataGridDdlView = ({
     setDdlText('');
     try {
       const res = await DBShowCreateTable(buildRpcConnectionConfig(currentConnConfig as any) as any, dbName || '', tableName);
-      if (requestSeq !== ddlRequestSeqRef.current) return;
+      if (requestSeq !== ddlRequestSeqRef.current || requestContextKey !== ddlContextKeyRef.current) return;
       if (res.success) {
         setDdlText(formatDdlForDisplay(
           res.data,
@@ -263,19 +260,14 @@ export const useDataGridDdlView = ({
       }
       messageApi.error(res.message || translateMessage('data_grid.message.ddl_load_failed'));
     } catch (error: any) {
-      if (requestSeq !== ddlRequestSeqRef.current) return;
+      if (requestSeq !== ddlRequestSeqRef.current || requestContextKey !== ddlContextKeyRef.current) return;
       messageApi.error(error?.message || translateMessage('data_grid.message.ddl_load_failed'));
     } finally {
-      if (requestSeq === ddlRequestSeqRef.current) {
+      if (requestSeq === ddlRequestSeqRef.current && requestContextKey === ddlContextKeyRef.current) {
         setDdlLoading(false);
       }
     }
-  }, [canViewDdl, currentConnConfig, dbName, dbType, ddlContextKey, isV2Ui, messageApi, tableName, translateMessage]);
-
-  React.useEffect(() => {
-    if (isV2Ui || (viewMode !== 'fields' && viewMode !== 'ddl' && viewMode !== 'er' && viewMode !== 'sqlLog')) return;
-    setViewMode('table');
-  }, [isV2Ui, viewMode]);
+  }, [canViewDdl, currentConnConfig, dbName, dbType, ddlContextKey, messageApi, tableName, translateMessage]);
 
   const closeDdlView = React.useCallback(() => {
     setSuppressSharedDdlView(false);
@@ -297,18 +289,13 @@ export const useDataGridDdlView = ({
 
   const handleViewModeChange = React.useCallback((nextMode: GridViewMode, options?: { textRecordIndex?: number }) => {
     setSuppressSharedDdlView(false);
-    if ((nextMode === 'fields' || nextMode === 'ddl' || nextMode === 'er' || nextMode === 'sqlLog') && !isV2Ui) {
-      setSharedDdlViewOpen(false);
-      setViewMode('table');
-      return;
-    }
     if (nextMode === 'sqlLog') {
       setSharedDdlViewOpen(false);
       setViewMode('sqlLog');
       return;
     }
     if (nextMode === 'ddl') {
-      if (isV2Ui && resolvedViewMode === 'ddl') {
+      if (resolvedViewMode === 'ddl') {
         closeDdlView();
         return;
       }
@@ -337,7 +324,7 @@ export const useDataGridDdlView = ({
     }
 
     setViewMode(nextMode);
-  }, [cellEditMode, closeCellEditModeRef, closeDdlView, handleOpenTableDdl, isV2Ui, mergedDisplayDataRef, resolvedViewMode, rowKeyStr, selectedRowKeys, setTextRecordIndex]);
+  }, [cellEditMode, closeCellEditModeRef, closeDdlView, handleOpenTableDdl, mergedDisplayDataRef, resolvedViewMode, rowKeyStr, selectedRowKeys, setTextRecordIndex]);
 
   React.useEffect(() => {
     if (!isActive) return;

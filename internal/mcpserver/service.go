@@ -57,7 +57,7 @@ type executeSQLArgs struct {
 	DBName           string `json:"dbName,omitempty" jsonschema:"可选数据库/Schema 名称。为空时优先使用保存连接里的默认数据库"`
 	SQL              string `json:"sql" jsonschema:"待执行的 SQL 文本，可以包含多条语句"`
 	AllowMutating    bool   `json:"allowMutating,omitempty" jsonschema:"当 SQL 包含当前 AI 安全控制允许范围内的 DDL/DML 等非只读语句时，必须显式设为 true"`
-	MaxRowsPerResult int    `json:"maxRowsPerResult,omitempty" jsonschema:"每个结果集最多返回多少行。默认 50，最大 200（少量数据探查）"`
+	MaxRowsPerResult int    `json:"maxRowsPerResult,omitempty" jsonschema:"每个结果集最多返回多少行。默认 50，最大 200（少量数据探查）。达到上限后立即停止读取，剩余行不返回；多语句查询中某条语句达到上限时，后续语句不再返回结果（逐条执行路径中后续语句将不执行；原生多语句批次中的语句仍会在服务端全部执行）"`
 }
 
 type connectionDescriptor struct {
@@ -621,9 +621,16 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	if err := s.backend.AuthorizeSQLConnection(view.Config, sqlText); err != nil {
 		return toolError("连接写保护拒绝 SQL 执行: %s", strings.TrimSpace(err.Error())), executeSQLResult{}, nil
 	}
+	maskingSettings, err := s.backend.GetResultMaskingSettings()
+	if err != nil {
+		return toolError("加载 SQL 结果脱敏配置失败: %s", strings.TrimSpace(err.Error())), executeSQLResult{}, nil
+	}
 
+	// 行预算在执行前下传到 db 层：达到上限后停止读取行并释放连接，
+	// 而不是把完整结果物化后再截断。
+	maxRowsPerResult := normalizeMaxRowsPerResult(args.MaxRowsPerResult)
 	dbName := effectiveDBName(args.DBName, view.Config)
-	queryResult := s.executeAuthorizedSQL(ctx, view, dbName, sqlText, args.AllowMutating)
+	queryResult, effectiveDialect := s.executeAuthorizedSQL(ctx, view, dbName, sqlText, args.AllowMutating, maxRowsPerResult)
 	if !queryResult.Success {
 		failure := executeSQLResult{
 			RequestID:         mcpRequestID(ctx),
@@ -637,18 +644,46 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 			OutcomeUnknown:    queryResult.OutcomeUnknown,
 			Statements:        toStatementSummaries(inspection.Statements),
 		}
+		var failureText string
 		if queryResult.CancellationState != "" {
-			return toolError("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message)), failure, nil
+			failureText = fmt.Sprintf("SQL 执行失败（cancellationState=%s）: %s", queryResult.CancellationState, strings.TrimSpace(queryResult.Message))
+		} else {
+			failureText = fmt.Sprintf("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message))
 		}
-		return toolError("SQL 执行失败: %s", strings.TrimSpace(queryResult.Message)), failure, nil
+		if queryResult.OutcomeUnknown {
+			// 结果未知的错误对 Agent 不是普通失败：底层语句可能已生效，
+			// 自动重试非幂等写入会造成重复数据。错误文本必须显式传达
+			// 禁止重试契约；结构化输出同时携带 outcomeUnknown 标记。
+			failureText += "\n" + unknownSQLOutcomeGuidance
+		}
+		return toolError("%s", failureText), failure, nil
 	}
 
 	resultSets, err := decodeResultSets(queryResult.Data)
 	if err != nil {
 		return toolError("解析 SQL 执行结果失败: %v", err), executeSQLResult{}, nil
 	}
+	if strings.TrimSpace(effectiveDialect) == "" {
+		effectiveDialect = view.Config.Type
+	}
+	resultSets = maskResultSets(maskingSettings, effectiveDialect, sqlText, resultSets)
 
-	normalizedResults, truncated := normalizeResultSets(resultSets, normalizeMaxRowsPerResult(args.MaxRowsPerResult))
+	normalizedResults, truncated := normalizeResultSets(resultSets, maxRowsPerResult)
+	message := strings.TrimSpace(queryResult.Message)
+	// 逐条执行路径达到行预算后停止读取并不再执行剩余语句；原生多语句批次
+	// 的语句已在服务端全部执行（ExecutedCount 等于语句总数），不产生该说明。
+	if truncated && queryResult.ExecutedCount > 0 && queryResult.ExecutedCount < inspection.StatementCount {
+		budgetNote := fmt.Sprintf(
+			"已达到每结果集行数上限 %d，剩余 %d 条语句未执行",
+			maxRowsPerResult,
+			inspection.StatementCount-queryResult.ExecutedCount,
+		)
+		if message != "" {
+			message += "；" + budgetNote
+		} else {
+			message = budgetNote
+		}
+	}
 	output := executeSQLResult{
 		RequestID:         mcpRequestID(ctx),
 		ConnectionID:      view.ID,
@@ -657,7 +692,7 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 		ReadOnly:          inspection.ReadOnly,
 		QueryID:           strings.TrimSpace(queryResult.QueryID),
 		CancellationState: strings.TrimSpace(queryResult.CancellationState),
-		Message:           strings.TrimSpace(queryResult.Message),
+		Message:           message,
 		OutcomeUnknown:    queryResult.OutcomeUnknown,
 		Truncated:         truncated,
 		Statements:        toStatementSummaries(inspection.Statements),
@@ -666,11 +701,11 @@ func (s *Service) ExecuteSQL(ctx context.Context, req *mcp.CallToolRequest, args
 	return textResult(formatExecuteSQLResultContent(output)), output, nil
 }
 
-func (s *Service) executeAuthorizedSQL(ctx context.Context, view connection.SavedConnectionView, dbName string, sqlText string, allowMutating bool) connection.QueryResult {
+func (s *Service) executeAuthorizedSQL(ctx context.Context, view connection.SavedConnectionView, dbName string, sqlText string, allowMutating bool, maxRowsPerResult int) (connection.QueryResult, string) {
 	if backend, ok := s.backend.(executionAuthorizingBackend); ok {
-		return backend.ExecuteAuthorizedSQLFromMCP(ctx, view.ID, view.Config, dbName, sqlText, allowMutating)
+		return backend.ExecuteAuthorizedSQLFromMCP(ctx, view.ID, view.Config, dbName, sqlText, allowMutating, maxRowsPerResult)
 	}
-	return s.backend.ExecuteSQLFromMCP(ctx, view.Config, dbName, sqlText)
+	return s.backend.ExecuteSQLFromMCP(ctx, view.Config, dbName, sqlText, maxRowsPerResult), view.Config.Type
 }
 
 func successResult() *mcp.CallToolResult {
@@ -684,6 +719,11 @@ func textResult(text string) *mcp.CallToolResult {
 		},
 	}
 }
+
+// unknownSQLOutcomeGuidance 把 QueryResult.OutcomeUnknown 的禁止重试契约
+// 转达给 MCP 客户端：结果未知意味着语句可能已生效，与可安全重试的
+// 确定性失败（如语法错误、约束冲突）不同。
+const unknownSQLOutcomeGuidance = "执行结果未知：连接中断、超时、执行被取消或提交响应丢失，无法确认语句是否已在服务端生效。请勿自动重试该语句（尤其是非幂等写入），请先查询核实实际结果后再决定后续操作。"
 
 func toolError(format string, args ...interface{}) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
@@ -1017,17 +1057,26 @@ func normalizeResultSets(resultSets []connection.ResultSetData, maxRows int) ([]
 	for _, resultSet := range resultSets {
 		rows := ensureNonNilRows(resultSet.Rows)
 		rowCount := len(rows)
-		truncated := false
+		// Truncated 为 true 表示 db 层达到行预算后停止读取，返回的行是
+		// 服务器端数据的下界；否则只在超出 maxRows 时做响应侧裁剪。
+		truncatedByBudget := resultSet.Truncated
+		truncated := truncatedByBudget
 		if maxRows > 0 && len(rows) > maxRows {
 			rows = append([]map[string]interface{}(nil), rows[:maxRows]...)
 			truncated = true
+		}
+		if truncated {
 			truncatedAny = true
+		}
+		messages := ensureNonNilStrings(append([]string(nil), resultSet.Messages...))
+		if truncatedByBudget {
+			messages = append(messages, fmt.Sprintf("结果集达到每结果集行数上限 %d，剩余行未读取", maxRows))
 		}
 		normalized = append(normalized, sqlResultSet{
 			StatementIndex: resultSet.StatementIndex,
 			Columns:        ensureNonNilStrings(append([]string(nil), resultSet.Columns...)),
 			Rows:           rows,
-			Messages:       ensureNonNilStrings(append([]string(nil), resultSet.Messages...)),
+			Messages:       messages,
 			RowCount:       rowCount,
 			Truncated:      truncated,
 		})
@@ -1068,7 +1117,7 @@ func formatExecuteSQLResultContent(result executeSQLResult) string {
 		}
 		builder.WriteString(fmt.Sprintf("：%d 行", resultSet.RowCount))
 		if resultSet.Truncated {
-			builder.WriteString(fmt.Sprintf("，仅显示前 %d 行", len(resultSet.Rows)))
+			builder.WriteString(fmt.Sprintf("，已达每结果集行数上限（返回前 %d 行），其余行未返回", len(resultSet.Rows)))
 		}
 		if len(resultSet.Messages) > 0 {
 			builder.WriteString("\n消息：")

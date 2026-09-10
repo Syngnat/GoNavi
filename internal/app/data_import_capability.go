@@ -93,7 +93,7 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 		if _, ok := runtime.(db.BatchApplierContext); ok {
 			capability.TableImport = DataImportModeCapability{
 				Supported:                  true,
-				SupportsTransactionalBatch: dbType == "dameng",
+				SupportsTransactionalBatch: dbType == "dameng" && runtimeSupportsBatchApply(runtime),
 				SupportsContinue:           true,
 				SupportedFormats:           []string{"csv", "json", "xlsx"},
 				SupportedEncodings:         []string{"auto", "utf-8", "utf-16le", "utf-16be", "gb18030"},
@@ -117,7 +117,7 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 	if _, ok := runtime.(db.BatchApplierContext); ok {
 		capability.TableImport = DataImportModeCapability{
 			Supported:                  true,
-			SupportsTransactionalBatch: dataImportTableSupportsTransactionalBatch(dbType),
+			SupportsTransactionalBatch: dataImportTableSupportsTransactionalBatch(dbType) && runtimeSupportsBatchApply(runtime),
 			SupportsContinue:           true,
 			SupportedFormats:           []string{"csv", "json", "xlsx"},
 			SupportedEncodings:         []string{"auto", "utf-8", "utf-16le", "utf-16be", "gb18030"},
@@ -130,7 +130,7 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 		capability.SQLFileImport.Reason = DataImportReasonSQLFileRestricted
 		return capability
 	}
-	if _, ok := runtime.(db.SessionExecerProvider); !ok {
+	if !runtimeSupportsSessionExecer(runtime) {
 		capability.SQLFileImport.Reason = DataImportReasonPinnedSessionUnavailable
 		return capability
 	}
@@ -158,6 +158,26 @@ func ResolveDataImportCapability(config connection.ConnectionConfig, runtime db.
 		SupportedConflictPolicies:  []string{},
 	}
 	return capability
+}
+
+func runtimeSupportsBatchApply(runtime db.Database) bool {
+	if _, ok := runtime.(db.BatchApplier); !ok {
+		return false
+	}
+	if capability, ok := runtime.(db.BatchApplyCapability); ok {
+		return capability.SupportsBatchApply()
+	}
+	return true
+}
+
+func runtimeSupportsSessionExecer(runtime db.Database) bool {
+	if _, ok := runtime.(db.SessionExecerProvider); !ok {
+		return false
+	}
+	if capability, ok := runtime.(db.SessionExecerCapability); ok {
+		return capability.SupportsSessionExecer()
+	}
+	return true
 }
 
 func dataImportTableSupportsTransactionalBatch(dbType string) bool {

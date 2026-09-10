@@ -353,18 +353,16 @@ describe("i18n catalog", () => {
       "app.theme.query_template.reset_default",
       "app.theme.query_template.title",
       "app.theme.table_alias.description",
+      "app.theme.table_alias.custom_prefix.description",
+      "app.theme.table_alias.custom_prefix.placeholder",
+      "app.theme.table_alias.custom_prefix.title",
       "app.theme.table_alias.title",
       "app.theme.theme_settings_description",
       "app.theme.theme_settings_title",
-      "app.theme.ui_version.beta_warning",
-      "app.theme.ui_version.description",
-      "app.theme.ui_version.legacy.badge",
-      "app.theme.ui_version.legacy.description",
-      "app.theme.ui_version.legacy.label",
-      "app.theme.ui_version.platform_hint",
-      "app.theme.ui_version.title",
-      "app.theme.ui_version.v2.description",
-      "app.theme.ui_version.v2.label",
+      "app.theme.ui_version.sidebar_search.title",
+      "app.theme.ui_version.sidebar_search.command",
+      "app.theme.ui_version.sidebar_search.filter",
+      "app.theme.ui_version.sidebar_search.hint",
     ] as const;
 
     for (const language of SUPPORTED_LANGUAGES) {
@@ -375,24 +373,22 @@ describe("i18n catalog", () => {
     }
   });
 
-  it("renders the table alias setting in both theme setting variants", () => {
+  it("renders the table alias setting in theme settings", () => {
     const source = readAppSource();
     const v2Source = sliceBetween(
       source,
-      "const renderThemeSettingsContentV2 = () =>",
-      "const renderThemeSettingsContentLegacy = () =>",
-    );
-    const legacySource = sliceBetween(
-      source,
-      "const renderThemeSettingsContentLegacy = () =>",
-      "const renderThemeSettingsContent = () =>",
+      "const renderThemeSettingsContentV2 =",
+      "const renderThemeSettingsContent =",
     );
 
-    for (const settingsSource of [v2Source, legacySource]) {
-      expect(settingsSource).toContain("app.theme.table_alias.title");
-      expect(settingsSource).toContain("app.theme.table_alias.description");
-      expect(settingsSource).toContain("setAppearance({ autoAddTableAlias: checked })");
-    }
+    expect(v2Source).toContain("app.theme.table_alias.title");
+    expect(v2Source).toContain("app.theme.table_alias.description");
+    expect(v2Source).toContain("setAppearance({ autoAddTableAlias: checked })");
+    expect(v2Source).toContain("app.theme.table_alias.custom_prefix.title");
+    expect(v2Source).toContain("app.theme.table_alias.custom_prefix.description");
+    expect(v2Source).toContain("app.theme.table_alias.custom_prefix.placeholder");
+    expect(v2Source).toContain("setAppearance({ customTableAliasPrefixEnabled: checked })");
+    expect(v2Source).toContain("setAppearance({ customTableAliasPrefix: event.target.value })");
   });
 
   it("includes App shortcut modal keys required by every supported language", () => {
@@ -563,6 +559,9 @@ describe("i18n catalog", () => {
       "data_grid.pagination.result_set",
       "data_grid.pagination.page_size_aria",
       "data_grid.pagination.page_size_option",
+      "data_grid.pagination.page_size_custom",
+      "data_grid.pagination.page_size_custom_label",
+      "data_grid.pagination.page_size_custom_invalid",
       "data_grid.pagination.first_page",
       "data_grid.pagination.last_page",
       "data_grid.pagination.jump_label",
@@ -605,7 +604,11 @@ describe("i18n catalog", () => {
       "data_grid.row_editor.popup_edit",
       "data_grid.cell_editor.title",
       "data_grid.cell_editor.title_with_column",
+      "data_grid.cell_editor.escape",
+      "data_grid.cell_editor.unescape",
+      "data_grid.cell_editor.invalid_unescape",
       "data_grid.cell_viewer.title_with_column",
+      "data_grid.context_menu.edit_cell_in_editor",
       "data_grid.batch_fill.title",
       "data_grid.batch_fill.set_null",
       "data_grid.batch_fill.set_null_selected",
@@ -613,6 +616,7 @@ describe("i18n catalog", () => {
       "data_grid.json_editor.title",
       "data_grid.json_editor.description",
       "data_grid.json_editor.format",
+      "data_grid.json_editor.compact",
       "data_grid.json_editor.apply_changes",
       "data_grid.json_editor.invalid_format",
       "data_grid.ddl.layout_bottom",
@@ -695,8 +699,13 @@ describe("i18n catalog", () => {
     expect(t("en-US", "data_grid.json_editor.title")).toContain("JSON");
     expect(t("zh-CN", "data_grid.json_editor.description")).toContain("JSON");
     expect(t("zh-CN", "data_grid.json_editor.format")).toContain("JSON");
+    expect(t("zh-CN", "data_grid.json_editor.compact")).toContain("JSON");
     expect(t("zh-CN", "data_grid.json_editor.invalid_format", { error: "<raw-json-error>" })).toContain("<raw-json-error>");
     expect(getPlaceholders(catalogs["en-US"]["data_grid.json_editor.invalid_format"])).toEqual(["error"]);
+    expect(t("zh-CN", "data_grid.cell_editor.escape")).toBe("转义");
+    expect(t("zh-CN", "data_grid.cell_editor.unescape")).toBe("去转义");
+    expect(t("en-US", "data_grid.cell_editor.invalid_unescape", { error: "<raw-unescape-error>" })).toContain("<raw-unescape-error>");
+    expect(getPlaceholders(catalogs["en-US"]["data_grid.cell_editor.invalid_unescape"])).toEqual(["error"]);
     assertSourceDoesNotInlineCatalogValues(detachedChromeSource, dataGridDetachedChromeKeys, { ignoreEnglishBaseline: true });
   });
 
@@ -1951,7 +1960,7 @@ describe("i18n catalog", () => {
     const source = readQueryEditorResultsPanelSource();
     const emptyStateSource = sliceBetween(
       source,
-      "<div className={isV2Ui ? 'gn-v2-query-empty' : undefined}",
+      '<div className="gn-v2-query-empty"',
       "                    </>",
     );
 
@@ -1960,9 +1969,6 @@ describe("i18n catalog", () => {
         expect(catalogs[language]).toHaveProperty(key);
         expect(catalogs[language][key]).toBeTruthy();
       }
-    }
-
-    for (const key of emptyStateKeys) {
     }
 
     assertSourceDoesNotInlineCatalogValues(emptyStateSource, emptyStateKeys);

@@ -24,6 +24,16 @@ type sqlAuditTestDatabase struct {
 	connected bool
 }
 
+type delayedSQLAuditTestDatabase struct {
+	*sqlAuditTestDatabase
+	delay time.Duration
+}
+
+func (database *delayedSQLAuditTestDatabase) Query(query string) ([]map[string]interface{}, []string, error) {
+	time.Sleep(database.delay)
+	return database.sqlAuditTestDatabase.Query(query)
+}
+
 func (database *sqlAuditTestDatabase) Connect(connection.ConnectionConfig) error {
 	database.connected = true
 	return nil
@@ -194,6 +204,47 @@ func TestDBQueryWithCancelWritesRedactedSQLAudit(t *testing.T) {
 	}
 	if !event.SQLRedacted || event.ConnectionFingerprint == "" {
 		t.Fatalf("expected redacted event with connection identity: %#v", event)
+	}
+}
+
+func TestDBQueryApplicationWithCancelKeepsApplicationAuditAndHistorySemantics(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	database := &delayedSQLAuditTestDatabase{
+		sqlAuditTestDatabase: &sqlAuditTestDatabase{
+			rows:    []map[string]interface{}{{"id": int64(7)}},
+			columns: []string{"id"},
+		},
+		delay: time.Duration(queryHistorySlowThresholdMs)*time.Millisecond + 25*time.Millisecond,
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+	app := newSQLAuditTestApp(t)
+	app.webRuntime = true
+	config := connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432, Database: "app"}
+	const queryID = "database-search-audit-1"
+
+	result := app.DBQueryApplicationWithCancel(config, "app", "SELECT id FROM users", queryID)
+	if !result.Success || result.QueryID != queryID {
+		t.Fatalf("DBQueryApplicationWithCancel returned %#v", result)
+	}
+	events := loadSQLAuditEvents(t, app, sqlaudit.Filter{Search: queryID})
+	if len(events) != 1 || events[0].Source != "application_api" {
+		t.Fatalf("application query audit events = %#v, want one application_api event", events)
+	}
+	executionHistory := loadSQLAuditEvents(t, app, sqlaudit.Filter{ExecutionHistory: true, Search: queryID})
+	if len(executionHistory) != 0 {
+		t.Fatalf("application query leaked into query-editor execution history: %#v", executionHistory)
+	}
+	history := app.GetSlowQueries(config, "app", "recent", 10)
+	if !history.Success {
+		t.Fatalf("GetSlowQueries returned failure: %s", history.Message)
+	}
+	records, ok := history.Data.([]connection.QueryExecutionRecord)
+	if !ok {
+		t.Fatalf("GetSlowQueries data type = %T, want []connection.QueryExecutionRecord", history.Data)
+	}
+	if len(records) != 0 {
+		t.Fatalf("application query leaked into slow query history: %#v", records)
 	}
 }
 

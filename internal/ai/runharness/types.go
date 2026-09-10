@@ -345,6 +345,9 @@ type SessionMutationRequest struct {
 }
 
 // RunSnapshot is the non-sensitive run projection returned to adapters.
+// time.Time fields use ts_type:"string" because the Wails TypeScript generator
+// treats time.Time as a named struct, logs "Not found: time.Time", and emits
+// `any`. JSON encoding remains RFC3339.
 type RunSnapshot struct {
 	ID                string   `json:"runId"`
 	SessionID         string   `json:"sessionId"`
@@ -357,11 +360,11 @@ type RunSnapshot struct {
 	// ownerToken is the local fencing token held by an active supervisor. It
 	// must never be returned through a Wails or CLI projection.
 	ownerToken              string        `json:"-"`
-	OwnerExpiresAt          time.Time     `json:"ownerExpiresAt,omitempty"`
+	OwnerExpiresAt          time.Time     `json:"ownerExpiresAt,omitempty" ts_type:"string"`
 	CheckpointID            string        `json:"checkpointId,omitempty"`
 	TerminalReason          string        `json:"terminalReason,omitempty"`
-	CreatedAt               time.Time     `json:"createdAt"`
-	UpdatedAt               time.Time     `json:"updatedAt"`
+	CreatedAt               time.Time     `json:"createdAt" ts_type:"string"`
+	UpdatedAt               time.Time     `json:"updatedAt" ts_type:"string"`
 	ActiveDurationMS        int64         `json:"activeDurationMs"`
 	Policy                  RunPolicy     `json:"policy"`
 	Provider                string        `json:"provider,omitempty"`
@@ -403,8 +406,8 @@ type SessionProjection struct {
 	BranchFromMessageID string        `json:"branchFromMessageId,omitempty"`
 	BranchFromSequence  int64         `json:"branchFromSequence,omitempty"`
 	Archived            bool          `json:"archived"`
-	CreatedAt           time.Time     `json:"createdAt"`
-	UpdatedAt           time.Time     `json:"updatedAt"`
+	CreatedAt           time.Time     `json:"createdAt" ts_type:"string"`
+	UpdatedAt           time.Time     `json:"updatedAt" ts_type:"string"`
 	Runs                []RunSnapshot `json:"runs,omitempty"`
 	Messages            []Message     `json:"messages,omitempty"`
 }
@@ -429,7 +432,7 @@ type Message struct {
 	ToolCallID  string          `json:"toolCallId,omitempty"`
 	ToolCalls   json.RawMessage `json:"toolCalls,omitempty"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt   time.Time       `json:"createdAt"`
+	CreatedAt   time.Time       `json:"createdAt" ts_type:"string"`
 }
 
 // RunEvent is persisted before it is emitted. Payload is JSON for transport,
@@ -442,7 +445,7 @@ type RunEvent struct {
 	Sequence          int64           `json:"sequence"`
 	RunRevision       int64           `json:"runRevision"`
 	Attempt           int             `json:"attempt"`
-	Timestamp         time.Time       `json:"timestamp"`
+	Timestamp         time.Time       `json:"timestamp" ts_type:"string"`
 	Kind              EventKind       `json:"kind"`
 	ResultingState    RunState        `json:"resultingState"`
 	Payload           json.RawMessage `json:"payload,omitempty"`
@@ -609,9 +612,10 @@ type ApprovalEvent struct {
 }
 
 type Usage struct {
-	PromptTokens     int `json:"promptTokens,omitempty"`
-	CompletionTokens int `json:"completionTokens,omitempty"`
-	TotalTokens      int `json:"totalTokens,omitempty"`
+	PromptTokens     int  `json:"promptTokens,omitempty"`
+	CompletionTokens int  `json:"completionTokens,omitempty"`
+	TotalTokens      int  `json:"totalTokens,omitempty"`
+	CachedTokens     *int `json:"cachedTokens,omitempty"`
 }
 
 // TokenReservation is an encrypted-ledger-independent accounting record for
@@ -628,8 +632,8 @@ type TokenReservation struct {
 	Status            string    `json:"status"` // reserved | reconciled
 	CommittedSequence int64     `json:"committedSequence,omitempty"`
 	CommittedRevision int64     `json:"committedRevision,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
-	ReconciledAt      time.Time `json:"reconciledAt,omitempty"`
+	CreatedAt         time.Time `json:"createdAt" ts_type:"string"`
+	ReconciledAt      time.Time `json:"reconciledAt,omitempty" ts_type:"string"`
 }
 
 type ReserveTokensRequest struct {
@@ -731,7 +735,7 @@ type WorkspaceSnapshot struct {
 	SourceID               string                 `json:"sourceId"`
 	SourceInstanceID       string                 `json:"sourceInstanceId"`
 	Revision               int64                  `json:"revision"`
-	CapturedAt             time.Time              `json:"capturedAt"`
+	CapturedAt             time.Time              `json:"capturedAt" ts_type:"string"`
 	ContentHash            string                 `json:"contentHash"`
 	ActiveContext          map[string]any         `json:"activeContext,omitempty"`
 	Tabs                   []WorkspaceTab         `json:"tabs,omitempty"`
@@ -762,7 +766,7 @@ type WorkspaceSQLActivity struct {
 	ID        string    `json:"id,omitempty"`
 	Statement string    `json:"statement,omitempty"`
 	Status    string    `json:"status,omitempty"`
-	CreatedAt time.Time `json:"createdAt,omitempty"`
+	CreatedAt time.Time `json:"createdAt,omitempty" ts_type:"string"`
 }
 
 type WorkspaceQuery struct {
@@ -1067,8 +1071,8 @@ type ToolCallRecord struct {
 	ResultHash        string                      `json:"resultHash,omitempty"`
 	Truncated         bool                        `json:"truncated,omitempty"`
 	OriginalBytes     int64                       `json:"originalBytes,omitempty"`
-	StartedAt         time.Time                   `json:"startedAt,omitempty"`
-	CompletedAt       time.Time                   `json:"completedAt,omitempty"`
+	StartedAt         time.Time                   `json:"startedAt,omitempty" ts_type:"string"`
+	CompletedAt       time.Time                   `json:"completedAt,omitempty" ts_type:"string"`
 	ErrorCode         string                      `json:"errorCode,omitempty"`
 	UnknownOutcome    bool                        `json:"unknownOutcome,omitempty"`
 	WorkspaceSnapshot *WorkspaceSnapshotReference `json:"workspaceSnapshot,omitempty"`
@@ -1084,8 +1088,8 @@ type ApprovalRecord struct {
 	Arguments   json.RawMessage `json:"-"`
 	Status      string          `json:"status"`
 	RunRevision int64           `json:"runRevision"`
-	CreatedAt   time.Time       `json:"createdAt"`
-	DecidedAt   time.Time       `json:"decidedAt,omitempty"`
+	CreatedAt   time.Time       `json:"createdAt" ts_type:"string"`
+	DecidedAt   time.Time       `json:"decidedAt,omitempty" ts_type:"string"`
 }
 
 type Checkpoint struct {
@@ -1096,7 +1100,7 @@ type Checkpoint struct {
 	ConversationCursor string                      `json:"conversationCursor,omitempty"`
 	ProviderState      json.RawMessage             `json:"providerState,omitempty"`
 	WorkspaceSnapshot  *WorkspaceSnapshotReference `json:"workspaceSnapshot,omitempty"`
-	CreatedAt          time.Time                   `json:"createdAt"`
+	CreatedAt          time.Time                   `json:"createdAt" ts_type:"string"`
 }
 
 // RunResumeContext is the durable execution boundary used after a process
@@ -1120,7 +1124,7 @@ type Lease struct {
 	RunID     string    `json:"runId"`
 	OwnerID   string    `json:"ownerId"`
 	Token     string    `json:"-"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	ExpiresAt time.Time `json:"expiresAt" ts_type:"string"`
 }
 
 type CreateSessionRequest struct {
@@ -1269,15 +1273,15 @@ type ControlCommand struct {
 	Action           RunControlAction `json:"action"`
 	Payload          json.RawMessage  `json:"payload,omitempty"`
 	ExpectedRevision int64            `json:"expectedRevision,omitempty"`
-	CreatedAt        time.Time        `json:"createdAt"`
-	ConsumedAt       time.Time        `json:"consumedAt,omitempty"`
+	CreatedAt        time.Time        `json:"createdAt" ts_type:"string"`
+	ConsumedAt       time.Time        `json:"consumedAt,omitempty" ts_type:"string"`
 	// Claim fields describe the crash-recoverable hand-off between a
 	// supervisor and the durable command queue. A claim is not an acknowledgement
 	// and therefore must never make a command disappear from a later owner.
 	ClaimedBy      string    `json:"-"`
-	ClaimedAt      time.Time `json:"claimedAt,omitempty"`
-	ClaimExpiresAt time.Time `json:"claimExpiresAt,omitempty"`
-	AppliedAt      time.Time `json:"appliedAt,omitempty"`
+	ClaimedAt      time.Time `json:"claimedAt,omitempty" ts_type:"string"`
+	ClaimExpiresAt time.Time `json:"claimExpiresAt,omitempty" ts_type:"string"`
+	AppliedAt      time.Time `json:"appliedAt,omitempty" ts_type:"string"`
 }
 
 // SteerOrQueueRequest is the atomic submission envelope used when a caller

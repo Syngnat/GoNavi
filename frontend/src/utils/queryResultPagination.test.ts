@@ -47,6 +47,23 @@ describe('queryResultPagination', () => {
     });
   });
 
+  it('recognizes a Dameng limit placed before WITH UR as editor pagination', () => {
+    const page = createInitialQueryResultPagination({
+      executedSql: 'SELECT id FROM users LIMIT 500 OFFSET 0 WITH UR;',
+      exportSql: 'SELECT id FROM users WITH UR;',
+      dbType: 'dameng',
+      returnedRowCount: 500,
+      fallbackPageSize: 500,
+    });
+
+    expect(page).toMatchObject({
+      current: 1,
+      pageSize: 500,
+      baseSql: 'SELECT id FROM users WITH UR',
+      exportAllSql: 'SELECT id FROM users WITH UR',
+    });
+  });
+
   it('keeps query-editor injected Oracle ROWNUM wrapper pageable', () => {
     const page = createInitialQueryResultPagination({
       executedSql: 'SELECT * FROM (SELECT id, name FROM users ORDER BY created_at DESC) WHERE ROWNUM <= 500',
@@ -74,6 +91,36 @@ describe('queryResultPagination', () => {
       pageSize: 500,
       lookahead: true,
     })).toBe('SELECT * FROM (SELECT id FROM users) AS __gonavi_query_page__ LIMIT 501 OFFSET 500');
+  });
+
+  it('keeps sorting but omits LIMIT and OFFSET for an unlimited result page', () => {
+    expect(buildQueryResultPageSql({
+      baseSql: 'SELECT id, display_name FROM users',
+      dbType: 'mysql',
+      page: 1,
+      pageSize: 0,
+      lookahead: true,
+      sortInfo: [{ columnKey: 'display_name', order: 'ascend', enabled: true }],
+    })).toBe(
+      'SELECT * FROM (SELECT id, display_name FROM users) AS __gonavi_query_page__ ORDER BY `display_name` ASC',
+    );
+  });
+
+  it('keeps Dameng WITH UR outside the paginated derived table', () => {
+    expect(buildQueryResultPageSql({
+      baseSql: 'SELECT id FROM users WITH UR',
+      dbType: 'dameng',
+      page: 2,
+      pageSize: 500,
+      lookahead: true,
+    })).toBe(
+      'SELECT * FROM (SELECT id FROM users) "__gonavi_query_page__" LIMIT 501 OFFSET 500 WITH UR',
+    );
+  });
+
+  it('moves a trailing isolation clause outside the total-count subquery', () => {
+    expect(buildQueryResultCountSql('SELECT id FROM users WITH UR;'))
+      .toBe('SELECT COUNT(*) AS __gonavi_total__ FROM (SELECT id FROM users) __gonavi_query_count__ WITH UR');
   });
 
   it('sorts the wrapped MySQL result before applying pagination', () => {
@@ -113,6 +160,43 @@ describe('queryResultPagination', () => {
       rowCount: 500,
       hasNext: false,
     })).toEqual({ total: 1000, totalKnown: true });
+  });
+
+  it('returns an exact zero total for an empty first page', () => {
+    expect(resolveQueryResultPaginationTotal({
+      current: 1,
+      pageSize: 500,
+      rowCount: 0,
+      hasNext: false,
+    })).toEqual({ total: 0, totalKnown: true });
+  });
+
+  it('counts GROUP BY and HAVING results without the top-level ordering', () => {
+    expect(buildQueryResultCountSql(
+      'SELECT dept_id, COUNT(*) total FROM users GROUP BY dept_id HAVING COUNT(*) > 1 ORDER BY total DESC',
+      'postgres',
+    )).toBe(
+      'SELECT COUNT(*) AS __gonavi_total__ FROM (SELECT dept_id, COUNT(*) total FROM users GROUP BY dept_id HAVING COUNT(*) > 1) __gonavi_query_count__',
+    );
+  });
+
+  it('ignores compact line-comment keywords when building a count query', () => {
+    expect(buildQueryResultCountSql('SELECT id FROM users --ORDER BY ignored', 'postgres'))
+      .toBe('SELECT COUNT(*) AS __gonavi_total__ FROM (SELECT id FROM users) __gonavi_query_count__');
+  });
+
+  it('keeps a compact-commented PostgreSQL query pageable', () => {
+    expect(createInitialQueryResultPagination({
+      executedSql: '--preview\nSELECT id FROM users LIMIT 500',
+      exportSql: '--preview\nSELECT id FROM users',
+      dbType: 'postgres',
+      returnedRowCount: 500,
+      fallbackPageSize: 500,
+    })).toMatchObject({
+      current: 1,
+      pageSize: 500,
+      baseSql: '--preview\nSELECT id FROM users',
+    });
   });
 
   it('builds a portable total-count query and removes only the top-level ordering', () => {

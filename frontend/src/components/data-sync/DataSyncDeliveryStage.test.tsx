@@ -222,6 +222,36 @@ describe('DataSyncTaskEditor delivery stage', () => {
     });
   });
 
+  it('keeps migration schema controls for an identity object rename', async () => {
+    const mapping = {
+      ...createDataSyncTableMapping('migration:rename', 'public.test', 'public.test1'),
+      targetMode: 'create_or_reuse' as const,
+      keyColumns: ['id'],
+    };
+    const base = createDataSyncTaskDraft({ id: 'migration-rename', kind: 'migration' });
+    const task = reviseDataSyncTask(base, {
+      source: endpoint('source'),
+      target: endpoint('target'),
+      mappings: [mapping],
+      delivery: { ...base.delivery, autoAddColumns: true, createIndexes: true },
+    });
+
+    const { renderer, onPatch } = await renderDelivery(task);
+    expect(
+      renderer.root.findAllByProps({
+        'data-structure-option': 'auto-add-columns',
+      }),
+    ).toHaveLength(1);
+    expect(
+      renderer.root.findAllByProps({
+        'data-structure-option': 'create-indexes',
+      }),
+    ).toHaveLength(1);
+    expect(onPatch).not.toHaveBeenCalledWith({
+      delivery: expect.objectContaining({ autoAddColumns: false }),
+    });
+  });
+
   it('keeps migration schema controls for same-name tables in different schemas', async () => {
     const mapping = {
       ...createDataSyncTableMapping('migration:cross-schema', 'source.orders', 'target.orders'),

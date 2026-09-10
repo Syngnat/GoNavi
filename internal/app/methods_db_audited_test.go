@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -430,7 +431,7 @@ func TestMCPQueryExecutorCancelsUnderlyingQueryWithRequestContext(t *testing.T) 
 
 	resultCh := make(chan connection.QueryResult, 1)
 	go func() {
-		resultCh <- NewMCPQueryExecutor(application).DBQueryMultiContext(requestCtx, config, "app", "SELECT 1")
+		resultCh <- NewMCPQueryExecutor(application).DBQueryMultiContext(requestCtx, config, "app", "SELECT 1", 0)
 	}()
 	select {
 	case <-database.started:
@@ -446,5 +447,103 @@ func TestMCPQueryExecutorCancelsUnderlyingQueryWithRequestContext(t *testing.T) 
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("cancelled MCP query did not return")
+	}
+}
+
+type mcpRowBudgetCaptureDatabase struct {
+	sqlAuditTestDatabase
+	mu   sync.Mutex
+	ctxs []context.Context
+}
+
+func (database *mcpRowBudgetCaptureDatabase) QueryContext(ctx context.Context, _ string) ([]map[string]interface{}, []string, error) {
+	database.mu.Lock()
+	defer database.mu.Unlock()
+	database.ctxs = append(database.ctxs, ctx)
+	return database.rows, database.columns, database.queryErr
+}
+
+func TestMCPQueryExecutorPassesRowBudgetThroughQueryContext(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	database := &mcpRowBudgetCaptureDatabase{sqlAuditTestDatabase: sqlAuditTestDatabase{
+		rows:    []map[string]interface{}{{"id": int64(1)}},
+		columns: []string{"id"},
+	}}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+	application := newSQLAuditTestApp(t)
+	config := connection.ConnectionConfig{Type: "postgres", Host: "127.0.0.1", Port: 5432, Database: "app"}
+
+	mcpResult := NewMCPQueryExecutor(application).DBQueryMultiAuthorizedContext(
+		context.Background(), config, "app", "SELECT id FROM users", true, 50,
+	)
+	if !mcpResult.Success {
+		t.Fatalf("MCP query with row budget returned failure: %s", mcpResult.Message)
+	}
+	if len(database.ctxs) != 1 {
+		t.Fatalf("expected 1 dispatched query, got %d", len(database.ctxs))
+	}
+	budget := db.RowBudgetFromContext(database.ctxs[0])
+	if budget == nil || budget.MaxRowsPerResult() != 50 {
+		t.Fatalf("MCP query context lacks the 50-row budget: %#v", budget)
+	}
+
+	database.mu.Lock()
+	database.ctxs = nil
+	database.mu.Unlock()
+	appResult := application.DBQueryMulti(config, "app", "SELECT id FROM users", "")
+	if !appResult.Success {
+		t.Fatalf("application query returned failure: %s", appResult.Message)
+	}
+	if len(database.ctxs) != 1 {
+		t.Fatalf("expected 1 dispatched application query, got %d", len(database.ctxs))
+	}
+	if budget := db.RowBudgetFromContext(database.ctxs[0]); budget != nil {
+		t.Fatalf("application query context must not carry an MCP row budget: %#v", budget)
+	}
+}
+
+func TestMCPQueryExecutorReportsEffectiveDialectFromResolvedSavedConnection(t *testing.T) {
+	installFakeOptionalDriverRuntime(t)
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+	database := &sqlAuditTestDatabase{
+		rows:    []map[string]interface{}{{"mobile": "secret"}},
+		columns: []string{"mobile"},
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+
+	application := NewAppWithSecretStore(newFakeAppSecretStore())
+	application.configDir = t.TempDir()
+	application.activateSQLAudit()
+	t.Cleanup(func() { application.closeSQLAuditStore() })
+	view, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID:   "oceanbase-oracle",
+		Name: "OceanBase Oracle",
+		Config: connection.ConnectionConfig{
+			ID:                "oceanbase-oracle",
+			Type:              "oceanbase",
+			OceanBaseProtocol: "oracle",
+			Host:              "127.0.0.1",
+			Port:              2881,
+			Database:          "app",
+			DSN:               "oracle-secret-dsn",
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveConnection returned error: %v", err)
+	}
+	if view.Config.DSN != "" {
+		t.Fatalf("saved connection view exposed DSN: %q", view.Config.DSN)
+	}
+
+	result, dialect := NewMCPQueryExecutor(application).DBQueryMultiAuthorizedContextWithDialect(
+		context.Background(), view.Config, "app", "SELECT phone AS mobile FROM users", true, 50,
+	)
+	if !result.Success {
+		t.Fatalf("MCP query returned failure: %s", result.Message)
+	}
+	if dialect != "oracle" {
+		t.Fatalf("effective dialect = %q, want oracle", dialect)
 	}
 }

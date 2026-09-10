@@ -13,20 +13,21 @@ import (
 )
 
 const (
-	aiConfigSchemaVersion = 5
+	aiConfigSchemaVersion = 6
 	aiConfigFileName      = "ai_config.json"
 )
 
 type aiConfig struct {
-	SchemaVersion      int                    `json:"schemaVersion,omitempty"`
-	Providers          []ai.ProviderConfig    `json:"providers"`
-	ActiveProvider     string                 `json:"activeProvider"`
-	SafetyLevel        string                 `json:"safetyLevel"`
-	ContextLevel       string                 `json:"contextLevel"`
-	UserPromptSettings ai.UserPromptSettings  `json:"userPromptSettings,omitempty"`
-	MCPServers         []ai.MCPServerConfig   `json:"mcpServers,omitempty"`
-	MCPHTTPServer      ai.MCPHTTPServerConfig `json:"mcpHTTPServer"`
-	Skills             []ai.SkillConfig       `json:"skills,omitempty"`
+	SchemaVersion      int                      `json:"schemaVersion,omitempty"`
+	Providers          []ai.ProviderConfig      `json:"providers"`
+	ActiveProvider     string                   `json:"activeProvider"`
+	SafetyLevel        string                   `json:"safetyLevel"`
+	ContextLevel       string                   `json:"contextLevel"`
+	UserPromptSettings ai.UserPromptSettings    `json:"userPromptSettings,omitempty"`
+	MCPServers         []ai.MCPServerConfig     `json:"mcpServers,omitempty"`
+	MCPHTTPServer      ai.MCPHTTPServerConfig   `json:"mcpHTTPServer"`
+	Skills             []ai.SkillConfig         `json:"skills,omitempty"`
+	ResultMasking      ai.ResultMaskingSettings `json:"resultMasking,omitempty"`
 }
 
 type ProviderConfigStoreSnapshot struct {
@@ -38,6 +39,7 @@ type ProviderConfigStoreSnapshot struct {
 	MCPServers         []ai.MCPServerConfig
 	MCPHTTPServer      ai.MCPHTTPServerConfig
 	Skills             []ai.SkillConfig
+	ResultMasking      ai.ResultMaskingSettings
 }
 
 type ProviderConfigStoreInspection struct {
@@ -90,6 +92,12 @@ func (s *ProviderConfigStore) Load() (ProviderConfigStoreSnapshot, error) {
 	}
 
 	shouldRewrite := cfg.SchemaVersion != aiConfigSchemaVersion
+	for _, providerConfig := range cfg.Providers {
+		if providerHasRemovedEditorFields(providerConfig) {
+			shouldRewrite = true
+			break
+		}
+	}
 	providers := make([]ai.ProviderConfig, 0, len(snapshot.Providers))
 	for _, providerConfig := range snapshot.Providers {
 		runtimeConfig, rewritten, loadErr := s.loadStoredProviderConfig(providerConfig)
@@ -149,7 +157,7 @@ func (s *ProviderConfigStore) Inspect() (ProviderConfigStoreInspection, error) {
 func (s *ProviderConfigStore) Save(snapshot ProviderConfigStoreSnapshot) error {
 	providers := make([]ai.ProviderConfig, 0, len(snapshot.Providers))
 	for _, providerConfig := range snapshot.Providers {
-		runtimeConfig := normalizeProviderConfig(providerConfig)
+		runtimeConfig := clearRemovedProviderEditorFields(normalizeProviderConfig(clearRemovedProviderEditorFields(providerConfig)))
 		meta, bundle := splitProviderSecrets(runtimeConfig)
 		if bundle.hasAny() {
 			storedMeta, err := persistProviderSecretBundleWithLocalizer(s.dailySecrets, meta, bundle, s.localizer)
@@ -164,7 +172,7 @@ func (s *ProviderConfigStore) Save(snapshot ProviderConfigStoreSnapshot) error {
 			}
 			meta = providerMetadataView(resolved)
 		}
-		providers = append(providers, providerMetadataView(meta))
+		providers = append(providers, clearRemovedProviderEditorFields(providerMetadataView(meta)))
 	}
 	if providers == nil {
 		providers = []ai.ProviderConfig{}
@@ -184,6 +192,7 @@ func (s *ProviderConfigStore) Save(snapshot ProviderConfigStoreSnapshot) error {
 		MCPServers:         snapshot.MCPServers,
 		MCPHTTPServer:      mcpHTTPServer,
 		Skills:             snapshot.Skills,
+		ResultMasking:      ai.NormalizeResultMaskingSettings(snapshot.ResultMasking),
 	}
 
 	data, err := json.MarshalIndent(cfg, "", "  ")
@@ -234,10 +243,11 @@ func (s *ProviderConfigStore) readStoredSnapshot() (aiConfig, ProviderConfigStor
 	snapshot.MCPServers = append([]ai.MCPServerConfig(nil), cfg.MCPServers...)
 	snapshot.MCPHTTPServer = normalizeMCPHTTPServerConfig(cfg.MCPHTTPServer)
 	snapshot.Skills = append([]ai.SkillConfig(nil), cfg.Skills...)
+	snapshot.ResultMasking = ai.NormalizeResultMaskingSettings(cfg.ResultMasking)
 
 	providers := make([]ai.ProviderConfig, 0, len(cfg.Providers))
 	for _, providerConfig := range cfg.Providers {
-		providers = append(providers, normalizeProviderConfig(providerConfig))
+		providers = append(providers, clearRemovedProviderEditorFields(normalizeProviderConfig(clearRemovedProviderEditorFields(providerConfig))))
 	}
 	if providers == nil {
 		providers = []ai.ProviderConfig{}
@@ -245,6 +255,17 @@ func (s *ProviderConfigStore) readStoredSnapshot() (aiConfig, ProviderConfigStor
 	snapshot.Providers = providers
 
 	return cfg, snapshot, nil
+}
+
+func providerHasRemovedEditorFields(config ai.ProviderConfig) bool {
+	return len(config.Models) > 0 || config.MaxTokens != 0 || config.ContextWindow != 0
+}
+
+func clearRemovedProviderEditorFields(config ai.ProviderConfig) ai.ProviderConfig {
+	config.Models = nil
+	config.MaxTokens = 0
+	config.ContextWindow = 0
+	return config
 }
 
 func (s *ProviderConfigStore) loadMCPHTTPServerConfig(config ai.MCPHTTPServerConfig) (ai.MCPHTTPServerConfig, error) {

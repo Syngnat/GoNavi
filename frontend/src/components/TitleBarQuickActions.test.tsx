@@ -37,9 +37,12 @@ describe('TitleBarQuickActions', () => {
     expect(appCss).toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-label');
     expect(appCss).toContain('display: inline;');
     expect(appCss).not.toContain('body[data-ui-version="v2"] .gn-v2-titlebar-quick-more span');
+    expect(appCss).not.toMatch(/@media \(max-width: 920px\) \{[^@]*\.gn-v2-titlebar-quick-primary \{[^}]*display:\s*none;/s);
+    expect(appCss).not.toMatch(/@media \(max-width: 920px\) \{[^@]*\.gn-v2-titlebar-quick-action > span:not\(\.anticon\) \{[^}]*display:\s*none;/s);
+    expect(appCss).not.toMatch(/@media \(max-width: 420px\) \{[^@]*\.gn-v2-titlebar-quick-action[^}]*font-size:\s*0/s);
   });
 
-  it('renders primary actions with visible labels and keeps secondary actions in More', () => {
+  it('renders primary actions with visible labels and does not show a More overflow', () => {
     const onBatchTables = vi.fn();
     const onBatchDatabases = vi.fn();
     const onImport = vi.fn();
@@ -52,12 +55,11 @@ describe('TitleBarQuickActions', () => {
     const renderer = create(
       <TitleBarQuickActions
         label="Object actions"
-        moreLabel="More tools"
         actions={[
           {
             key: 'batch-actions',
             label: 'Batch operations',
-            icon: <span />,
+            icon: <span data-titlebar-icon="data-workflow" />,
             menu: [
               { key: 'batch-tables', label: 'Batch tables', icon: <span />, onClick: onBatchTables },
               { key: 'batch-databases', label: 'Batch databases', icon: <span />, onClick: onBatchDatabases },
@@ -67,7 +69,7 @@ describe('TitleBarQuickActions', () => {
           {
             key: 'sql-tools',
             label: 'SQL tools',
-            icon: <span />,
+            icon: <span data-titlebar-icon="sql-tools" />,
             menu: [
               { key: 'slow-query', label: 'Slow SQL workbench', icon: <span />, onClick: onSlowQuery, disabled: true },
               { key: 'sql-audit', label: 'SQL Audit Center', icon: <span />, onClick: onSqlAudit },
@@ -76,7 +78,7 @@ describe('TitleBarQuickActions', () => {
           {
             key: 'data-workflow',
             label: 'Data workflows',
-            icon: <span />,
+            icon: <span data-titlebar-icon="data-workflow-secondary" />,
             menu: [
               { key: 'schema-compare', label: 'Schema Compare', icon: <span />, onClick: onSchemaCompare },
               { key: 'data-compare', label: 'Data Compare', icon: <span />, onClick: onDataCompare },
@@ -91,28 +93,24 @@ describe('TitleBarQuickActions', () => {
     const toolbar = renderer.root.findByProps({ 'data-titlebar-quick-actions': 'true' });
     expect(toolbar.props['aria-label']).toBe('Object actions');
     expect(toolbar.props['data-no-titlebar-toggle']).toBe('true');
-    expect(toolbar.findAllByProps({ className: 'gn-v2-titlebar-quick-label' })).toHaveLength(1);
+    expect(toolbar.findAllByProps({ className: 'gn-v2-titlebar-quick-label' })).toHaveLength(0);
+    expect(toolbar.findAll((node) => Boolean(node.props['data-titlebar-icon']))).toHaveLength(0);
     const batchMenuButton = toolbar.findByProps({ 'data-titlebar-quick-menu': 'batch-actions' });
     expect(batchMenuButton.props['data-no-titlebar-toggle']).toBe('true');
     const dropdowns = renderer.root.findAll((node) => Array.isArray(node.props.menu?.items)) as ReactTestInstance[];
-    expect(dropdowns).toHaveLength(4);
+    expect(dropdowns).toHaveLength(3);
     const batchDropdown = dropdowns.find((dropdown) => dropdown.props.menu.items.some((item: { key: string }) => item.key === 'batch-tables'));
     expect(batchDropdown).toBeDefined();
     const batchPopup = create(batchDropdown?.props.popupRender(<div data-menu-content="true" />));
     expect(batchPopup.root.findAllByProps({ className: 'gn-v2-context-menu-header gn-v2-action-menu-header' })).toHaveLength(0);
     expect(batchPopup.root.findAllByProps({ 'data-menu-content': 'true' })).toHaveLength(1);
-    const moreDropdown = dropdowns.find((dropdown) => dropdown.props.menu.items.some((item: { key: string }) => item.key === 'open-external-sql-file'));
-    const morePopup = create(moreDropdown?.props.popupRender(<div data-menu-content="true" />));
-    expect(morePopup.root.findAllByProps({ className: 'gn-v2-context-menu-header gn-v2-action-menu-header' })).toHaveLength(0);
+    expect(dropdowns.find((dropdown) => dropdown.props.menu.items.some((item: { key: string }) => item.key === 'open-external-sql-file'))).toBeUndefined();
     const textOf = (instance: ReactTestInstance) => instance
       .findAllByType('span')
       .flatMap((span) => span.children.filter((child): child is string => typeof child === 'string'))
       .join(' ');
     expect(textOf(batchMenuButton)).toContain('Batch operations');
-    const moreButton = toolbar.findByProps({ 'data-titlebar-quick-more': 'true' });
-    expect(moreButton.findByProps({ 'data-icon': 'more' })).toBeDefined();
-    expect(moreButton.findByProps({ className: 'gn-v2-titlebar-quick-label' }).children).toContain('More tools');
-    expect(textOf(moreButton)).toContain('More tools');
+    expect(toolbar.findAllByProps({ 'data-titlebar-quick-more': 'true' })).toHaveLength(0);
 
     const batchMenuItems = batchDropdown?.props.menu.items as Array<{ key: string; onClick?: () => void }>;
     batchMenuItems.find((item) => item.key === 'batch-tables')?.onClick?.();

@@ -280,7 +280,12 @@ func (a *App) ExecuteElasticsearchConsole(config connection.ConnectionConfig, de
 		result.Message = "Elasticsearch console query ID is already running"
 		return result
 	}
-	a.runningQueries[result.QueryID] = queryContext{cancel: cancel, started: time.Now(), retainUntilDone: true}
+	a.runningQueries[result.QueryID] = queryContext{
+		cancel:          cancel,
+		started:         time.Now(),
+		retainUntilDone: true,
+		driverType:      optionalDriverTypeForConnectionConfig(runConfig),
+	}
 	a.queryMu.Unlock()
 	defer func() {
 		a.queryMu.Lock()

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findSqlStatementRanges, resolveCurrentSqlStatementRange, resolveExecutableSql, stripLeadingSqlTrivia } from './sqlStatementSelection';
+import { findSqlStatementRanges, resolveCurrentSqlStatementRange, resolveExecutableSql, resolveSqlStatementPrefix, stripLeadingSqlTrivia } from './sqlStatementSelection';
 
 describe('sqlStatementSelection', () => {
   it('resolves the statement containing the cursor', () => {
@@ -26,6 +26,23 @@ describe('sqlStatementSelection', () => {
       "-- comment ;\nselect 'a; b' as text",
       "select $$a; b$$ as body",
     ]);
+  });
+
+  it('resolves the editable statement prefix without falling back across a completed statement', () => {
+    expect(resolveSqlStatementPrefix("SELECT ';' AS marker JOIN service_user ", 'mysql')).toBe(
+      "SELECT ';' AS marker JOIN service_user ",
+    );
+    expect(resolveSqlStatementPrefix('SELECT 1 -- ;\r\nJOIN service_user ', 'mysql')).toBe(
+      'SELECT 1 -- ;\nJOIN service_user ',
+    );
+    expect(resolveSqlStatementPrefix('SELECT 1 # ;\r\nJOIN service_user ', 'mysql')).toBe(
+      'SELECT 1 # ;\nJOIN service_user ',
+    );
+    expect(resolveSqlStatementPrefix('SELECT 1 /* ; */ JOIN service_user ', 'mysql')).toBe(
+      'SELECT 1 /* ; */ JOIN service_user ',
+    );
+    expect(resolveSqlStatementPrefix('\uFEFFSELECT 1\r\n', 'mysql')).toBe('\uFEFFSELECT 1\n');
+    expect(resolveSqlStatementPrefix('SELECT 1; -- completed statement\r\n', 'mysql')).toBe('');
   });
 
   it('ignores semicolons inside escaped delimited identifiers', () => {
@@ -591,6 +608,49 @@ describe('sqlStatementSelection', () => {
 
     expect(resolveExecutableSql(sql, afterSecondSemicolon)).toEqual({
       sql: 'select 2 as b',
+      source: 'statement',
+    });
+  });
+
+  it('keeps a caret reported on the newline after a semicolon with the preceding statement', () => {
+    const sql = 'select 1 as a;\nselect 2 as b;';
+    const firstSemicolon = sql.indexOf(';');
+
+    expect(resolveExecutableSql(sql, firstSemicolon + 1)).toEqual({
+      sql: 'select 1 as a',
+      source: 'statement',
+    });
+  });
+
+  it('does not swallow the next statement when it starts immediately after a semicolon', () => {
+    const sql = 'select 1;select 2;';
+
+    expect(resolveExecutableSql(sql, sql.indexOf('select 2'))).toEqual({
+      sql: 'select 2',
+      source: 'statement',
+    });
+  });
+
+  it('keeps whitespace before a delimiter attached to the preceding statement', () => {
+    const sql = 'select 1   ;\nselect 2;';
+    const delimiterFollowup = sql.indexOf(';') + 1;
+
+    expect(resolveExecutableSql(sql, delimiterFollowup)).toEqual({
+      sql: 'select 1',
+      source: 'statement',
+    });
+  });
+
+  it('keeps execution on the preceding statement across same-line semicolon whitespace', () => {
+    const sql = 'select 1 as a; select 2 as b;';
+    const semicolon = sql.indexOf(';');
+
+    expect(resolveExecutableSql(sql, semicolon)).toEqual({
+      sql: 'select 1 as a',
+      source: 'statement',
+    });
+    expect(resolveExecutableSql(sql, semicolon + 1)).toEqual({
+      sql: 'select 1 as a',
       source: 'statement',
     });
   });

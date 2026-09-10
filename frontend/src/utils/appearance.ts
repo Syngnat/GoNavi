@@ -2,7 +2,8 @@ const DEFAULT_OPACITY = 1.0;
 const MIN_OPACITY = 0.1;
 const MAX_OPACITY = 1.0;
 
-// 平台透明度映射因子：值越大，滑块变化越平滑（1.0 = 线性映射）
+// 平台透明度映射因子：从完全不透明端缩放变化量，避免滑块刚离开
+// 100% 就骤降为低不透明度。1.0 = 线性映射，值越小变化越平缓。
 const MAC_OPACITY_FACTOR = 0.60;
 const MAC_BLUR_FACTOR = 1.00;
 const WINDOWS_OPACITY_FACTOR = 0.70;
@@ -65,7 +66,11 @@ export const normalizeOpacityForPlatform = (opacity: number | undefined): number
     return raw;
   }
 
-  return clamp(MIN_OPACITY + (raw - MIN_OPACITY) * factors.opacity, MIN_OPACITY, MAX_OPACITY);
+  return clamp(
+    MAX_OPACITY - (MAX_OPACITY - raw) * factors.opacity,
+    MIN_OPACITY,
+    MAX_OPACITY,
+  );
 };
 
 export const normalizeBlurForPlatform = (blur: number | undefined): number => {

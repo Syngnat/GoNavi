@@ -11,11 +11,19 @@ if [[ -n "$same_commit_result" ]]; then
   exit 1
 fi
 
-tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-diff-driver-revisions.XXXXXX")"
+tmpdir=""
+tmpdir_frontend=""
 cleanup() {
-  rm -rf "$tmpdir"
+  if [[ -n "$tmpdir" ]]; then
+    rm -rf "$tmpdir"
+  fi
+  if [[ -n "$tmpdir_frontend" ]]; then
+    rm -rf "$tmpdir_frontend"
+  fi
 }
 trap cleanup EXIT
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-diff-driver-revisions.XXXXXX")"
 
 rsync -a --exclude .git ./ "$tmpdir/" >/dev/null
 
@@ -50,11 +58,10 @@ rsync -a --exclude .git ./ "$tmpdir/" >/dev/null
   fi
 )
 
+rm -rf "$tmpdir"
+tmpdir=""
+
 tmpdir_frontend="$(mktemp -d "${TMPDIR:-/tmp}/gonavi-diff-driver-revisions-frontend.XXXXXX")"
-cleanup_frontend() {
-  rm -rf "$tmpdir_frontend"
-}
-trap cleanup_frontend EXIT
 
 rsync -a --exclude .git ./ "$tmpdir_frontend/" >/dev/null
 

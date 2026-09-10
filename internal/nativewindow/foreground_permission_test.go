@@ -44,6 +44,33 @@ func TestControlHidesBeforeOpeningAISettingsInParent(t *testing.T) {
 	}
 }
 
+func TestControlIncludesFocusedProviderWhenOpeningAISettings(t *testing.T) {
+	bridge := newBridge(ChildOptions{
+		ParentURL: "http://127.0.0.1:43119",
+		Token:     "test-token",
+		ID:        "ai-chat",
+		Kind:      "ai-chat",
+	})
+	control := newControl(bridge)
+	InitializeControl(control, context.Background())
+	control.hideWindow = func(context.Context) {}
+	bridge.client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
+		}
+		if !strings.Contains(string(body), `"providerId":"provider-grok"`) {
+			t.Fatalf("provider focus missing from action body: %s", body)
+		}
+		return successfulForegroundActionResponse(), nil
+	})
+
+	result := control.HideForAISettingsProvider(7, " provider-grok ")
+	if !result.Success {
+		t.Fatalf("HideForAISettingsProvider result = %#v", result)
+	}
+}
+
 func TestControlDoesNotOpenAISettingsAfterHideIsSupersededByFocus(t *testing.T) {
 	bridge := newBridge(ChildOptions{
 		ParentURL: "http://127.0.0.1:43119",

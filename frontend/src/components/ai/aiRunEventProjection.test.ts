@@ -36,6 +36,24 @@ describe('AI run event projection contract', () => {
     })).toMatchObject({ payload: { text: ' world' } });
   });
 
+  it('preserves provider-reported cached token usage', () => {
+    expect(parseAIRunEvent({
+      ...event(3),
+      kind: 'model_completed',
+      payload: {
+        text: 'done',
+        usage: {
+          promptTokens: 10,
+          completionTokens: 2,
+          totalTokens: 12,
+          cachedTokens: 4,
+        },
+      },
+    })).toMatchObject({
+      payload: { usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedTokens: 4 } },
+    });
+  });
+
   it('decodes Wails byte-array payloads and complete byte-array events', () => {
     const payload = Array.from(new TextEncoder().encode(JSON.stringify({ text: 'bytes' })));
     expect(parseAIRunEvent({

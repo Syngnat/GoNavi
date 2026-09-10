@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   buildV2TableStatusSQL,
+  buildSidebarNodeMenuProps,
   handleSidebarV2ContextMenuShortcut,
   type SidebarContextMenuState,
 } from './useSidebarV2ContextMenu';
@@ -113,5 +114,33 @@ describe('V2 table status SQL', () => {
 
     expect(sql).toContain('TABLE_ROWS AS table_rows');
     expect(sql).not.toContain('COUNT(*)');
+  });
+});
+
+describe('V2 generic sidebar node menu', () => {
+  it('closes after a menu action and mounts nested popups inside the tracked portal', () => {
+    const onClose = vi.fn();
+    const portal = {} as HTMLDivElement;
+    const portalRef = { current: portal };
+    const menu: SidebarContextMenuState = {
+      x: 10,
+      y: 20,
+      kind: 'v2-node',
+      node: { title: 'Saved query', type: 'saved-query' },
+      items: [{
+        key: 'move',
+        label: 'Move',
+        children: [{ key: 'target', label: 'Target' }],
+      }],
+    };
+    const props = buildSidebarNodeMenuProps({
+      menu,
+      portalRef,
+      onClose,
+    });
+
+    expect(props.getPopupContainer()).toBe(portal);
+    props.onClick();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

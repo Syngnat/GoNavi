@@ -129,6 +129,7 @@ export interface AIRunUsage {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  cachedTokens?: number;
 }
 
 export interface AIRunUsagePayload {
@@ -266,6 +267,7 @@ const parseUsage = (value: unknown): AIRunUsage | null => {
     ['promptTokens', 'promptTokens'],
     ['completionTokens', 'completionTokens'],
     ['totalTokens', 'totalTokens'],
+    ['cachedTokens', 'cachedTokens'],
   ] as const) {
     if (raw[source] === undefined) continue;
     const count = toNonNegativeInteger(raw[source]);

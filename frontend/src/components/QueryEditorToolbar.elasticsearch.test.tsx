@@ -72,7 +72,6 @@ vi.mock('./QueryEditorTransactionSettings', () => ({
 const disabledShortcut = { enabled: false, combo: '' };
 
 const buildProps = (overrides: Record<string, unknown> = {}) => ({
-  isV2Ui: true,
   currentConnectionId: 'es-1',
   currentDb: 'events',
   queryCapableConnections: [{ id: 'es-1', name: 'Elasticsearch', config: { type: 'elasticsearch' } } as any],

@@ -30,11 +30,12 @@ static int gonaviSetApplicationIconFromPNG(const void *data, int length) {
 import "C"
 
 import (
+	"context"
 	"errors"
 	"unsafe"
 )
 
-func setApplicationIconPNG(png []byte) error {
+func setApplicationIconPNG(png []byte, _ string, _ context.Context) error {
 	if len(png) == 0 {
 		return errors.New("application icon PNG is empty")
 	}

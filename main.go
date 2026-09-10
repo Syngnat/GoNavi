@@ -129,7 +129,6 @@ func main() {
 			defer releaseSingleInstance()
 		}
 	}
-
 	// Create an instance of the app structure
 	application := app.NewApp()
 	aiService := aiservice.NewServiceWithConfigChangeHandler(app.NewCloudBackupChangeHandler(application))

@@ -29,6 +29,7 @@ const resolveApproximateTotal = (pagination: PaginationStateLike): number | null
 
 const resolveCurrentCount = (pagination: PaginationStateLike): number => {
   const total = toFiniteNonNegativeNumber(pagination.total) ?? 0;
+  if (pagination.pageSize <= 0) return total;
   const rangeStart = Math.max(0, (pagination.current - 1) * pagination.pageSize + (total > 0 ? 1 : 0));
   const hasValidRange = total > 0 && rangeStart > 0;
   if (!hasValidRange) return 0;
@@ -88,6 +89,10 @@ export const resolvePaginationPageText = (params: {
       : supportsApproximateTotalPages && approximateTotal !== null
         ? approximateTotal
         : 0;
+
+  if (pagination.pageSize <= 0) {
+    return translate('data_grid.pagination.page.known', { current: pagination.current, totalPages: 1 });
+  }
 
   if (effectiveTotal <= 0) return translate('data_grid.pagination.page.current', { current: pagination.current });
 

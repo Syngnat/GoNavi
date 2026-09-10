@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import TableOverview from './TableOverview';
 
@@ -11,10 +11,8 @@ const countdownConfirm = vi.hoisted(() => vi.fn());
 const storeState = vi.hoisted(() => ({
   theme: 'light',
   appearance: {
-    uiVersion: 'legacy',
     tableDoubleClickAction: 'open-data',
   } as {
-    uiVersion: 'legacy' | 'v2';
     tableDoubleClickAction: 'open-data' | 'open-design';
   },
   connections: [
@@ -75,6 +73,10 @@ vi.mock('../store', async () => {
   };
 });
 
+vi.mock('react-dom', () => ({
+  createPortal: (node: React.ReactNode) => node,
+}));
+
 vi.mock('../../wailsjs/go/app/App', () => backendApp);
 vi.mock('../utils/autoFetchVisibility', () => ({
   useAutoFetchVisibility: () => true,
@@ -89,7 +91,11 @@ vi.mock('./ExportProgressModal', () => ({
   }),
 }));
 vi.mock('./V2TableContextMenu', () => ({
-  V2TableContextMenuView: () => null,
+  V2TableContextMenuView: ({ onAction }: { onAction?: (action: string) => void }) => (
+    <button type="button" data-overview-menu-action="drop-table" onClick={() => onAction?.('drop-table')}>
+      drop table
+    </button>
+  ),
 }));
 vi.mock('./common/countdownDangerConfirm', () => ({
   showCountdownDangerConfirm: countdownConfirm,
@@ -186,9 +192,19 @@ const createDeferred = <T,>() => {
 describe('TableOverview metadata compatibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('document', {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      body: {},
+    });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
     storeSubscribers.clear();
     renderedDropdownMenus.length = 0;
-    storeState.appearance = { uiVersion: 'legacy', tableDoubleClickAction: 'open-data' };
+    storeState.appearance = { tableDoubleClickAction: 'open-data' };
     storeState.queryOptions = { tableOverviewViewMode: undefined };
     storeState.setQueryOptions.mockImplementation((options: { tableOverviewViewMode?: 'card' | 'list' | 'table' }) => {
       storeState.queryOptions = { ...storeState.queryOptions, ...options };
@@ -221,6 +237,10 @@ describe('TableOverview metadata compatibility', () => {
       success: false,
       message: '[0x2600] syntax error near',
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('reports a production table deletion only after the table list has refreshed', async () => {
@@ -261,9 +281,17 @@ describe('TableOverview metadata compatibility', () => {
     });
     await flushPromises();
 
-    const dropMenuItem = renderedDropdownMenus
-      .map((menu) => findMenuItem(menu?.items, 'drop-table'))
-      .find(Boolean);
+    const tableCard = renderer!.root.findByProps({ 'data-table-overview-card': 'meters' });
+    act(() => {
+      tableCard.props.onContextMenu({
+        clientX: 100,
+        clientY: 100,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      });
+    });
+    const dropMenuItem = renderer!.root.findByProps({ 'data-overview-menu-action': 'drop-table' });
+    const triggerDrop = dropMenuItem.props.onClick as () => void;
     const refreshTrigger = renderer!.root.findAllByType('span').find(
       (candidate) => typeof candidate.props.onClick === 'function'
         && candidate.props.style?.cursor === 'pointer',
@@ -277,7 +305,7 @@ describe('TableOverview metadata compatibility', () => {
     expect(backendApp.DBGetTables).toHaveBeenCalledTimes(2);
 
     act(() => {
-      dropMenuItem.onClick();
+      triggerDrop();
     });
     const initialConfirm = countdownConfirm.mock.calls[0]?.[0];
     expect(initialConfirm).toBeTruthy();
@@ -388,10 +416,8 @@ describe('TableOverview metadata compatibility', () => {
     expect(renderedText).toContain('orders');
     expect(renderedText).toContain('34');
     expect(renderedText).toContain('4.0 KB');
-    expect(renderedText).toContain('8.0 KB');
     expect(renderedText).toContain('2.0 KB');
-    expect(renderedText).toContain('0 B');
-    expect(renderedText).toContain('100%');
+    expect(renderedText).toContain('14.0 KB');
   });
 
   it('shows cached sqlite rows before an asynchronous stats refresh completes', async () => {
@@ -484,7 +510,7 @@ describe('TableOverview metadata compatibility', () => {
   });
 
   it.each(['postgres', 'kingbase'])('shows bare table names for %s while preserving qualified operation targets', async (type) => {
-    storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-data' };
+    storeState.appearance = { tableDoubleClickAction: 'open-data' };
     storeState.connections = [
       {
         id: 'conn-1',
@@ -632,7 +658,7 @@ describe('TableOverview metadata compatibility', () => {
   });
 
   it('uses the table default open behavior for v2 card double-clicks', async () => {
-    storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-design' };
+    storeState.appearance = { tableDoubleClickAction: 'open-design' };
     let renderer: ReactTestRenderer;
     await act(async () => {
       renderer = create(<TableOverview tab={{
@@ -665,7 +691,7 @@ describe('TableOverview metadata compatibility', () => {
   });
 
   it('keeps v2 cards fixed-height and reserves metadata slots when values are missing', async () => {
-    storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-data' };
+    storeState.appearance = { tableDoubleClickAction: 'open-data' };
     storeState.connections = [{
       id: 'conn-1',
       config: {
@@ -743,7 +769,7 @@ describe('TableOverview metadata compatibility', () => {
   });
 
   it('uses the table default open behavior for list double-clicks', async () => {
-    storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-design' };
+    storeState.appearance = { tableDoubleClickAction: 'open-design' };
     let renderer: ReactTestRenderer;
     await act(async () => {
       renderer = create(<TableOverview tab={{
@@ -780,7 +806,7 @@ describe('TableOverview metadata compatibility', () => {
   });
 
   it('persists compact view across hosts and sorts numeric headers with unknown values last', async () => {
-    storeState.appearance = { uiVersion: 'v2', tableDoubleClickAction: 'open-data' };
+    storeState.appearance = { tableDoubleClickAction: 'open-data' };
     storeState.connections = [
       {
         id: 'conn-1',

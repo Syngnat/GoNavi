@@ -167,7 +167,12 @@ if (!forceInstall && existsSync(nodeModulesPath)) {
   }
 }
 
-runNpm(isCI ? 'ci' : 'install');
+// A local `npm install` preserves the existing node_modules tree. That is
+// unsafe for patch-package: after an interrupted install, a package may be
+// left partially patched and the next postinstall applies the same patch a
+// second time. The lockfile-driven CI path rebuilds the tree before running
+// postinstall, so use it for every real reinstall as well.
+runNpm(existsSync(packageLockPath) ? 'ci' : 'install');
 const missingAfterInstall = missingBuildBinaries();
 if (missingAfterInstall.length > 0) {
   fail(`frontend dependencies installed without required build binaries: ${missingAfterInstall.join(', ')}`);

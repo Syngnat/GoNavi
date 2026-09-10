@@ -8,17 +8,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"GoNavi-Wails/internal/connection"
-	"GoNavi-Wails/internal/secretstore"
 	"GoNavi-Wails/internal/syncjob"
 )
 
 const (
-	dataSyncFingerprintSecretKind = "data-sync-fingerprint"
-	dataSyncFingerprintSecretID   = "v1"
+	// Legacy OS-keychain identity. Keep the kind string so tests can assert
+	// save/run/preflight never reintroduce a Keychain ACL prompt.
+	dataSyncFingerprintSecretKind  = "data-sync-fingerprint"
+	dataSyncFingerprintKeyFileName = "data_sync_fingerprint.key"
+	dataSyncFingerprintKeySize     = 32
 )
 
 type resolvedDataSyncJobEndpoint struct {
@@ -30,6 +34,17 @@ type resolvedDataSyncJobEndpoint struct {
 }
 
 func (a *App) resolveDataSyncJobEndpoint(connectionID, database, schema string) (resolvedDataSyncJobEndpoint, error) {
+	resolved, err := a.resolveDataSyncSavedEndpoint(connectionID, database, schema)
+	if err != nil {
+		return resolved, err
+	}
+	return a.withDataSyncJobEndpointFingerprint(resolved)
+}
+
+// resolveDataSyncSavedEndpoint loads a saved connection for metadata/query use
+// without loading the data-sync fingerprint key. Listing databases or objects
+// only needs the saved connection bundle.
+func (a *App) resolveDataSyncSavedEndpoint(connectionID, database, schema string) (resolvedDataSyncJobEndpoint, error) {
 	connectionID = strings.TrimSpace(connectionID)
 	if connectionID == "" {
 		return resolvedDataSyncJobEndpoint{}, errors.New("saved connection id is required")
@@ -44,12 +59,15 @@ func (a *App) resolveDataSyncJobEndpoint(connectionID, database, schema string) 
 	if err != nil {
 		return resolvedDataSyncJobEndpoint{}, err
 	}
-	resolved := resolvedDataSyncJobEndpoint{
+	return resolvedDataSyncJobEndpoint{
 		View:     view,
 		Config:   config,
 		Database: selectedDatabase,
 		Schema:   strings.TrimSpace(schema),
-	}
+	}, nil
+}
+
+func (a *App) withDataSyncJobEndpointFingerprint(resolved resolvedDataSyncJobEndpoint) (resolvedDataSyncJobEndpoint, error) {
 	fingerprintKey, err := a.dataSyncJobFingerprintKeyBytes()
 	if err != nil {
 		return resolvedDataSyncJobEndpoint{}, err
@@ -62,7 +80,7 @@ func (a *App) resolveDataSyncJobEndpoint(connectionID, database, schema string) 
 }
 
 func dataSyncJobEndpointFingerprint(endpoint resolvedDataSyncJobEndpoint, key []byte) (string, error) {
-	if len(key) < 32 {
+	if len(key) < dataSyncFingerprintKeySize {
 		return "", errors.New("data sync endpoint fingerprint key is unavailable")
 	}
 	// A per-install secret HMAC covers the complete canonical resolved endpoint,
@@ -94,33 +112,116 @@ func dataSyncJobEndpointFingerprint(endpoint resolvedDataSyncJobEndpoint, key []
 }
 
 func (a *App) dataSyncJobFingerprintKeyBytes() ([]byte, error) {
-	if a == nil || a.secretStore == nil {
-		return nil, errors.New("data sync endpoint fingerprint secret store is unavailable")
+	if a == nil {
+		return nil, errors.New("data sync endpoint fingerprint store is unavailable")
+	}
+	configDir := strings.TrimSpace(a.configDir)
+	if configDir == "" {
+		return nil, errors.New("data sync endpoint fingerprint store is unavailable")
 	}
 	a.dataSyncFingerprintMu.Lock()
 	defer a.dataSyncFingerprintMu.Unlock()
-	if len(a.dataSyncFingerprintKey) >= 32 {
+	if len(a.dataSyncFingerprintKey) >= dataSyncFingerprintKeySize {
 		return append([]byte(nil), a.dataSyncFingerprintKey...), nil
 	}
-	ref, err := secretstore.BuildRef(dataSyncFingerprintSecretKind, dataSyncFingerprintSecretID)
+	// Persist under configDir, never the OS keychain. A Keychain Get/Put on
+	// macOS surfaces an ACL prompt after Wails rebuilds, which must not
+	// interrupt save, preflight, or run.
+	key, err := loadOrCreateDataSyncFingerprintKeyFile(filepath.Join(configDir, dataSyncFingerprintKeyFileName))
 	if err != nil {
 		return nil, err
 	}
-	key, err := a.secretStore.Get(ref)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("load data sync endpoint fingerprint key: %w", err)
-	}
-	if errors.Is(err, os.ErrNotExist) || len(key) < 32 {
-		key = make([]byte, 32)
-		if _, err := rand.Read(key); err != nil {
-			return nil, fmt.Errorf("generate data sync endpoint fingerprint key: %w", err)
-		}
-		if err := a.secretStore.Put(ref, key); err != nil {
-			return nil, fmt.Errorf("persist data sync endpoint fingerprint key: %w", err)
-		}
-	}
 	a.dataSyncFingerprintKey = append([]byte(nil), key...)
 	return append([]byte(nil), key...), nil
+}
+
+func loadOrCreateDataSyncFingerprintKeyFile(path string) ([]byte, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, errors.New("data sync endpoint fingerprint store is unavailable")
+	}
+	info, err := os.Lstat(path)
+	if err == nil {
+		return readDataSyncFingerprintKeyFile(path, info)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("inspect data sync endpoint fingerprint key: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create data sync endpoint fingerprint directory: %w", err)
+	}
+	key := make([]byte, dataSyncFingerprintKeySize)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate data sync endpoint fingerprint key: %w", err)
+	}
+	if err := writeDataSyncFingerprintKeyFileExclusive(path, key); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			info, statErr := os.Lstat(path)
+			if statErr != nil {
+				return nil, fmt.Errorf("load data sync endpoint fingerprint key: %w", statErr)
+			}
+			return readDataSyncFingerprintKeyFile(path, info)
+		}
+		return nil, err
+	}
+	return key, nil
+}
+
+func writeDataSyncFingerprintKeyFileExclusive(path string, key []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	cleanup := true
+	defer func() {
+		_ = file.Close()
+		if cleanup {
+			_ = os.Remove(path)
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("persist data sync endpoint fingerprint key: %w", err)
+	}
+	if _, err := file.Write(key); err != nil {
+		return fmt.Errorf("persist data sync endpoint fingerprint key: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("persist data sync endpoint fingerprint key: %w", err)
+	}
+	cleanup = false
+	return nil
+}
+
+func readDataSyncFingerprintKeyFile(path string, info os.FileInfo) ([]byte, error) {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("data sync endpoint fingerprint key file is a symlink")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("data sync endpoint fingerprint key file is not regular")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("load data sync endpoint fingerprint key: %w", err)
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("load data sync endpoint fingerprint key: %w", err)
+	}
+	if !os.SameFile(info, opened) {
+		return nil, errors.New("data sync endpoint fingerprint key file changed while opening")
+	}
+	if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("restrict data sync endpoint fingerprint key: %w", err)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("load data sync endpoint fingerprint key: %w", err)
+	}
+	if len(data) != dataSyncFingerprintKeySize {
+		return nil, fmt.Errorf("data sync endpoint fingerprint key has length %d", len(data))
+	}
+	return append([]byte(nil), data...), nil
 }
 
 func dataSyncJobNeedsProductionApproval(endpoint resolvedDataSyncJobEndpoint) bool {

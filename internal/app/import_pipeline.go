@@ -274,10 +274,7 @@ func newImportColumnMappingConsumer(
 	requiredTargets := make(map[string]string)
 	for _, column := range targetColumns {
 		if strings.EqualFold(strings.TrimSpace(column.Nullable), "NO") &&
-			!column.HasDefault && column.Default == nil &&
-			!strings.Contains(strings.ToLower(column.Extra), "auto_increment") &&
-			!strings.Contains(strings.ToLower(column.Extra), "identity") &&
-			!strings.Contains(strings.ToLower(column.Extra), "generated") {
+			!importColumnUsesDatabaseValue(column) {
 			requiredTargets[normalizeColumnName(column.Name)] = column.Name
 		}
 	}
@@ -427,18 +424,22 @@ type importRowColumnValidator interface {
 }
 
 type importColumnTypeLookup struct {
-	byExactName          map[string]string
-	byFoldedName         map[string][]string
-	nullableByExactName  map[string]string
-	nullableByFoldedName map[string][]string
+	byExactName               map[string]string
+	byFoldedName              map[string][]string
+	nullableByExactName       map[string]string
+	nullableByFoldedName      map[string][]string
+	databaseValueByExactName  map[string]bool
+	databaseValueByFoldedName map[string][]bool
 }
 
 func newImportColumnTypeLookup(columns []connection.ColumnDefinition) importColumnTypeLookup {
 	lookup := importColumnTypeLookup{
-		byExactName:          make(map[string]string, len(columns)),
-		byFoldedName:         make(map[string][]string, len(columns)),
-		nullableByExactName:  make(map[string]string, len(columns)),
-		nullableByFoldedName: make(map[string][]string, len(columns)),
+		byExactName:               make(map[string]string, len(columns)),
+		byFoldedName:              make(map[string][]string, len(columns)),
+		nullableByExactName:       make(map[string]string, len(columns)),
+		nullableByFoldedName:      make(map[string][]string, len(columns)),
+		databaseValueByExactName:  make(map[string]bool, len(columns)),
+		databaseValueByFoldedName: make(map[string][]bool, len(columns)),
 	}
 	for _, column := range columns {
 		name := column.Name
@@ -452,11 +453,24 @@ func newImportColumnTypeLookup(columns []connection.ColumnDefinition) importColu
 				lookup.nullableByFoldedName[foldedName],
 				strings.TrimSpace(column.Nullable),
 			)
+			lookup.databaseValueByFoldedName[foldedName] = append(
+				lookup.databaseValueByFoldedName[foldedName],
+				importColumnUsesDatabaseValue(column),
+			)
 		}
 		lookup.byExactName[name] = strings.TrimSpace(column.Type)
 		lookup.nullableByExactName[name] = strings.TrimSpace(column.Nullable)
+		lookup.databaseValueByExactName[name] = importColumnUsesDatabaseValue(column)
 	}
 	return lookup
+}
+
+func importColumnUsesDatabaseValue(column connection.ColumnDefinition) bool {
+	extra := strings.ToLower(strings.TrimSpace(column.Extra))
+	return column.HasDefault || column.Default != nil ||
+		strings.Contains(extra, "auto_increment") ||
+		strings.Contains(extra, "identity") ||
+		strings.Contains(extra, "generated")
 }
 
 func (l importColumnTypeLookup) Resolve(columnName string) string {
@@ -493,9 +507,25 @@ func (l importColumnTypeLookup) IsNullable(columnName string) (bool, bool) {
 	return normalizeImportNullable(raw)
 }
 
+func (l importColumnTypeLookup) UsesDatabaseValue(columnName string) bool {
+	if usesDatabaseValue, ok := l.databaseValueByExactName[columnName]; ok {
+		return usesDatabaseValue
+	}
+	foldedMatches := l.databaseValueByFoldedName[normalizeColumnName(columnName)]
+	return len(foldedMatches) == 1 && foldedMatches[0]
+}
+
+func isBlankImportValue(value interface{}) bool {
+	if value == nil {
+		return true
+	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
+}
+
 func normalizeImportValueForColumn(value interface{}, nullable bool) interface{} {
 	if nullable {
-		if text, ok := value.(string); ok && text == "" {
+		if text, ok := value.(string); ok && strings.TrimSpace(text) == "" {
 			return nil
 		}
 	}
@@ -506,7 +536,13 @@ func normalizeImportRowForTargetColumns(row map[string]interface{}, columnTypes 
 	normalized := cloneImportRow(row)
 	for column, value := range normalized {
 		if nullable, known := columnTypes.IsNullable(column); known {
-			normalized[column] = normalizeImportValueForColumn(value, nullable)
+			if nullable {
+				normalized[column] = normalizeImportValueForColumn(value, true)
+				continue
+			}
+		}
+		if columnTypes.UsesDatabaseValue(column) && isBlankImportValue(value) {
+			delete(normalized, column)
 		}
 	}
 	return normalized
@@ -547,7 +583,7 @@ func newImportDatabaseRowWriterWithOptions(dbInst db.Database, dbType, tableName
 		conflictPolicy:     normalizeImportConflictPolicy(options.ConflictPolicy),
 		conflictKeyColumns: append([]string(nil), options.ConflictKeyColumns...),
 	}
-	if applier, ok := dbInst.(db.BatchApplier); ok {
+	if applier, ok := dbInst.(db.BatchApplier); ok && runtimeSupportsBatchApply(dbInst) {
 		writer.applier = applier
 	}
 	return writer
@@ -1501,10 +1537,13 @@ func buildImportInsertQueryWithConflict(
 		if strings.TrimSpace(column) == "" {
 			continue
 		}
+		value, exists := normalizedRow[column]
+		if !exists {
+			continue
+		}
 		usableColumns = append(usableColumns, column)
 		quotedCols = append(quotedCols, quoteIdentByType(dbType, column))
 		colType := columnTypes.Resolve(column)
-		value := normalizedRow[column]
 		values = append(values, formatImportSQLValue(dbType, colType, value))
 	}
 	if len(quotedCols) == 0 {

@@ -136,7 +136,7 @@ func TestMCPAuthorizedExecutionRechecksLatestConnectionProtection(t *testing.T) 
 	stale := initial.Config
 	stale.ID = initial.ID
 	result := NewMCPQueryExecutor(runtime.app).DBQueryMultiAuthorizedContext(
-		context.Background(), stale, "app", "UPDATE demo SET value = 1", true,
+		context.Background(), stale, "app", "UPDATE demo SET value = 1", true, 0,
 	)
 	if result.Success {
 		t.Fatalf("MCP execution bypassed latest read-only protection: %#v", result)

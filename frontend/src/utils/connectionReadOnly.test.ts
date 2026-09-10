@@ -44,6 +44,15 @@ describe('connectionReadOnly', () => {
     expect(supportsConnectionKeepAliveSQL(config)).toBe(false);
   });
 
+  it('supports Caché production protection and SQL keepalive checks', () => {
+    const config = { type: 'cache' } as any;
+
+    expect(supportsConnectionReadOnlyMode(config)).toBe(true);
+    expect(supportsConnectionKeepAliveSQL(config)).toBe(true);
+    expect(isSingleReadOnlyConnectionQuery(config, 'SELECT 1')).toBe(true);
+    expect(isSingleReadOnlyConnectionQuery(config, 'UPDATE Sample.Person SET Name = \'next\'')).toBe(false);
+  });
+
   it('maps legacy readOnly connections to the full production protection set', () => {
     expect(resolveConnectionProtectionConfig({
       type: 'postgres',

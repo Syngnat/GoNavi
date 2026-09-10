@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AIProviderAuthMode, AIProviderType } from '../types';
+import type { AIProviderAuthMode } from '../types';
 import {
   ATLAS_CLOUD_BASE_URL,
   DEEPSEEK_DEFAULT_MODEL,
@@ -12,6 +12,11 @@ import {
   QWEN_BAILIAN_MODELS_BASE_URL,
   QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
   QWEN_CODING_PLAN_MODELS,
+  XIAOMI_MIMO_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_DEFAULT_MODEL,
+  XIAOMI_MIMO_OPENAI_BASE_URL,
+  XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL,
+  XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL,
   isLocalCLISubscriptionProvider,
   getSingletonCLIIdentity,
   matchQwenPresetKey,
@@ -20,6 +25,8 @@ import {
   resolvePresetModelSelection,
   resolvePresetTransport,
   resolveProviderPresetKey,
+  resolveProviderPresetModeKey,
+  type ProviderPresetMatcher,
 } from './aiProviderPresets';
 
 describe('singleton CLI integrations', () => {
@@ -38,33 +45,50 @@ describe('singleton CLI integrations', () => {
   });
 });
 
-type PresetMatcher = {
-  key: string;
-  backendType: AIProviderType;
-  defaultBaseUrl: string;
-  fixedApiFormat?: string;
-  defaultApiFormat?: string;
-  authMode?: AIProviderAuthMode;
-};
-
-const PRESETS: PresetMatcher[] = [
+const PRESETS: ProviderPresetMatcher[] = [
   { key: 'openai', backendType: 'openai', defaultBaseUrl: 'https://api.openai.com/v1' },
   { key: 'atlascloud', backendType: 'openai', defaultBaseUrl: ATLAS_CLOUD_BASE_URL },
   { key: 'orcarouter', backendType: 'openai', defaultBaseUrl: ORCAROUTER_BASE_URL },
   { key: 'moonshot', backendType: 'openai', defaultBaseUrl: MOONSHOT_OPENAI_BASE_URL },
-  { key: 'deepseek', backendType: 'openai', defaultBaseUrl: DEEPSEEK_RESPONSES_BASE_URL, defaultApiFormat: 'openai-responses' },
-  { key: 'qwen-bailian', backendType: 'anthropic', defaultBaseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL },
   {
-    key: 'qwen-coding-plan',
-    backendType: 'custom',
-    defaultBaseUrl: QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
-    fixedApiFormat: 'claude-cli',
+    key: 'xiaomi-mimo', backendType: 'openai', defaultBaseUrl: XIAOMI_MIMO_OPENAI_BASE_URL,
+    endpoints: [
+      { backendType: 'openai', baseUrl: XIAOMI_MIMO_OPENAI_BASE_URL },
+      { backendType: 'anthropic', baseUrl: XIAOMI_MIMO_ANTHROPIC_BASE_URL },
+      { backendType: 'openai', baseUrl: XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL },
+      { backendType: 'anthropic', baseUrl: XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL },
+    ],
+  },
+  { key: 'deepseek', backendType: 'openai', defaultBaseUrl: DEEPSEEK_RESPONSES_BASE_URL, defaultApiFormat: 'openai-responses' },
+  {
+    key: 'qwen-bailian', backendType: 'anthropic', defaultBaseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL, defaultModeKey: 'bailian',
+    modes: [
+      { key: 'bailian', label: 'Bailian', labelKey: 'bailian', legacyPresetKey: 'qwen-bailian', backendType: 'anthropic', defaultBaseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL, defaultModel: '', models: [] },
+      { key: 'coding-plan', label: 'Coding Plan', labelKey: 'coding-plan', legacyPresetKey: 'qwen-coding-plan', backendType: 'custom', defaultBaseUrl: QWEN_CODING_PLAN_ANTHROPIC_BASE_URL, fixedApiFormat: 'claude-cli', defaultModel: '', models: [] },
+    ],
   },
   { key: 'codebuddy', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'codebuddy-cli' },
-  { key: 'codex', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'codex-cli', authMode: 'local-cli' },
-  { key: 'claude-subscription', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'claude-cli', authMode: 'local-cli' },
-  { key: 'cursor', backendType: 'custom', defaultBaseUrl: 'https://api.cursor.com/v1', fixedApiFormat: 'cursor-agent' },
-  { key: 'cursor-cli', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'cursor-cli', authMode: 'local-cli' },
+  {
+    key: 'anthropic', backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModeKey: 'api',
+    modes: [
+      { key: 'api', label: 'API', labelKey: 'api', legacyPresetKey: 'anthropic', backendType: 'anthropic', defaultBaseUrl: 'https://api.anthropic.com', defaultModel: '', models: [] },
+      { key: 'subscription', label: 'Subscription', labelKey: 'subscription', legacyPresetKey: 'claude-subscription', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'claude-cli', authMode: 'local-cli', defaultModel: '', models: [] },
+    ],
+  },
+  {
+    key: 'volcengine-ark', backendType: 'openai', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModeKey: 'ark',
+    modes: [
+      { key: 'ark', label: 'Ark', labelKey: 'ark', legacyPresetKey: 'volcengine-ark', backendType: 'openai', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/v3', defaultModel: '', models: [] },
+      { key: 'coding-plan', label: 'Coding Plan', labelKey: 'coding-plan', legacyPresetKey: 'volcengine-coding', backendType: 'openai', defaultBaseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3', defaultModel: '', models: [] },
+    ],
+  },
+  {
+    key: 'cursor', backendType: 'custom', defaultBaseUrl: 'https://api.cursor.com/v1', fixedApiFormat: 'cursor-agent', defaultModeKey: 'api',
+    modes: [
+      { key: 'api', label: 'API', labelKey: 'api', legacyPresetKey: 'cursor', backendType: 'custom', defaultBaseUrl: 'https://api.cursor.com/v1', fixedApiFormat: 'cursor-agent', defaultModel: '', models: [] },
+      { key: 'local-cli', label: 'Local CLI', labelKey: 'local-cli', legacyPresetKey: 'cursor-cli', backendType: 'custom', defaultBaseUrl: '', fixedApiFormat: 'cursor-cli', authMode: 'local-cli', defaultModel: '', models: [] },
+    ],
+  },
   { key: 'custom', backendType: 'custom', defaultBaseUrl: '' },
 ];
 
@@ -124,6 +148,23 @@ describe('ai provider preset helpers', () => {
   it('keeps Kimi endpoint variants mapped by their actual protocol', () => {
     expect(MOONSHOT_OPENAI_BASE_URL).toBe('https://api.moonshot.cn/v1');
     expect(MOONSHOT_ANTHROPIC_BASE_URL).toBe('https://api.moonshot.cn/anthropic');
+  });
+
+  it('recognizes Xiaomi MiMo pay-as-you-go and Token Plan endpoints', () => {
+    expect(XIAOMI_MIMO_OPENAI_BASE_URL).toBe('https://api.xiaomimimo.com/v1');
+    expect(XIAOMI_MIMO_ANTHROPIC_BASE_URL).toBe('https://api.xiaomimimo.com/anthropic');
+    expect(XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL).toBe('https://token-plan-cn.xiaomimimo.com/v1');
+    expect(XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL).toBe('https://token-plan-cn.xiaomimimo.com/anthropic');
+    expect(XIAOMI_MIMO_DEFAULT_MODEL).toBe('mimo-v2.5-pro');
+
+    for (const provider of [
+      { type: 'openai' as const, baseUrl: XIAOMI_MIMO_OPENAI_BASE_URL },
+      { type: 'anthropic' as const, baseUrl: XIAOMI_MIMO_ANTHROPIC_BASE_URL },
+      { type: 'openai' as const, baseUrl: XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL },
+      { type: 'anthropic' as const, baseUrl: XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL },
+    ]) {
+      expect(resolveProviderPresetKey(provider, PRESETS, 'custom')).toBe('xiaomi-mimo');
+    }
   });
 
   it('uses the current DeepSeek Responses endpoint and model as the preset defaults', () => {
@@ -222,7 +263,8 @@ describe('ai provider preset helpers', () => {
   it('recognizes local Cursor independently of the existing Cursor cloud API', () => {
     const local = { type: 'custom' as const, apiFormat: 'cursor-cli', authMode: 'local-cli' as const, baseUrl: '' };
     expect(isLocalCLISubscriptionProvider(local)).toBe(true);
-    expect(resolveProviderPresetKey(local, PRESETS, 'custom')).toBe('cursor-cli');
+    expect(resolveProviderPresetKey(local, PRESETS, 'custom')).toBe('cursor');
+    expect(resolveProviderPresetModeKey(PRESETS.find((preset) => preset.key === 'cursor')!, local)).toBe('local-cli');
     expect(resolveProviderPresetKey({ type: 'custom', apiFormat: 'cursor-agent', authMode: 'api-key', baseUrl: 'https://api.cursor.com/v1' }, PRESETS, 'custom')).toBe('cursor');
   });
 
@@ -369,7 +411,7 @@ describe('resolveProviderPresetKey', () => {
       'custom',
     );
 
-    expect(key).toBe('qwen-coding-plan');
+    expect(key).toBe('qwen-bailian');
   });
 
   it('仍然能识别当前内置的千问百炼预设', () => {
@@ -414,29 +456,48 @@ describe('resolveProviderPresetKey', () => {
     expect(key).toBe('cursor');
   });
 
-  it('通过本机登录方式识别 Codex 订阅预设', () => {
+  it('将本机 Codex 订阅归入 OpenAI 预设', () => {
     expect(resolveProviderPresetKey({
       type: 'custom',
       apiFormat: 'codex-cli',
       authMode: 'local-cli',
       baseUrl: '',
-    }, PRESETS, 'custom')).toBe('codex');
+    }, PRESETS, 'custom')).toBe('openai');
   });
 
   it('区分 Claude 订阅与带端点和密钥的千问 Claude CLI', () => {
-    expect(resolveProviderPresetKey({
+    const claudeSubscription = {
       type: 'custom',
       apiFormat: 'claude-cli',
       authMode: 'local-cli',
       baseUrl: '',
-    }, PRESETS, 'custom')).toBe('claude-subscription');
+    } as const;
+    expect(resolveProviderPresetKey(claudeSubscription, PRESETS, 'custom')).toBe('anthropic');
+    expect(resolveProviderPresetModeKey(PRESETS.find((preset) => preset.key === 'anthropic')!, claudeSubscription)).toBe('subscription');
 
-    expect(resolveProviderPresetKey({
+    const qwenCodingPlan = {
       type: 'custom',
       apiFormat: 'claude-cli',
       authMode: 'api-key',
       baseUrl: QWEN_CODING_PLAN_ANTHROPIC_BASE_URL,
-    }, PRESETS, 'custom')).toBe('qwen-coding-plan');
+    } as const;
+    expect(resolveProviderPresetKey(qwenCodingPlan, PRESETS, 'custom')).toBe('qwen-bailian');
+    expect(resolveProviderPresetModeKey(PRESETS.find((preset) => preset.key === 'qwen-bailian')!, qwenCodingPlan)).toBe('coding-plan');
+  });
+
+  it.each([
+    ['qwen-bailian', { type: 'anthropic', baseUrl: QWEN_BAILIAN_ANTHROPIC_BASE_URL }, 'bailian'],
+    ['qwen-bailian', { type: 'custom', apiFormat: 'claude-cli', baseUrl: QWEN_CODING_PLAN_ANTHROPIC_BASE_URL }, 'coding-plan'],
+    ['anthropic', { type: 'anthropic', baseUrl: 'https://api.anthropic.com' }, 'api'],
+    ['anthropic', { type: 'custom', apiFormat: 'claude-cli', authMode: 'local-cli', baseUrl: '' }, 'subscription'],
+    ['volcengine-ark', { type: 'openai', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3' }, 'ark'],
+    ['volcengine-ark', { type: 'openai', baseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3' }, 'coding-plan'],
+    ['cursor', { type: 'custom', apiFormat: 'cursor-agent', baseUrl: 'https://api.cursor.com/v1' }, 'api'],
+    ['cursor', { type: 'custom', apiFormat: 'cursor-cli', authMode: 'local-cli', baseUrl: '' }, 'local-cli'],
+  ] as const)('maps %s saved transport to its %s mode', (presetKey, provider, expectedMode) => {
+    const preset = PRESETS.find((item) => item.key === presetKey)!;
+    expect(resolveProviderPresetKey(provider, PRESETS, 'custom')).toBe(presetKey);
+    expect(resolveProviderPresetModeKey(preset, provider)).toBe(expectedMode);
   });
 
   it('does not reclassify a legacy Claude CLI API-key provider as a subscription', () => {

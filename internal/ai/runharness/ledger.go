@@ -3706,6 +3706,19 @@ func (l *Ledger) PutWorkspaceSnapshotWithLeaseDuration(ctx context.Context, snap
 	if _, err := tx.ExecContext(ctx, `INSERT INTO workspace_snapshots(source_id,source_instance_id,revision,content_hash,captured_at,payload,lease_expires_at) VALUES(?,?,?,?,?,?,?)`, snapshot.SourceID, snapshot.SourceInstanceID, snapshot.Revision, snapshot.ContentHash, toNano(snapshot.CapturedAt), sealed, leaseExpiresAt); err != nil {
 		return WorkspaceSnapshot{}, err
 	}
+	// A legacy desktop source minted a new revision for every five-second lease
+	// heartbeat. When no active run can still depend on an exact older snapshot,
+	// collapse that source instance to its newest complete view immediately.
+	// This backend guard bounds disk growth even when an older UI is connected.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM workspace_snapshots
+		WHERE source_id=? AND source_instance_id=? AND revision<?
+		  AND NOT EXISTS (
+			SELECT 1 FROM runs
+			WHERE context_source_id=? AND context_source_instance_id=?
+			  AND state NOT IN ('completed','failed','canceled','exhausted')
+		  )`, snapshot.SourceID, snapshot.SourceInstanceID, snapshot.Revision, snapshot.SourceID, snapshot.SourceInstanceID); err != nil {
+		return WorkspaceSnapshot{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return WorkspaceSnapshot{}, err
 	}

@@ -5,9 +5,10 @@ import { registerGonaviMonacoThemes } from './MonacoEditor';
 
 const readHexProperty = (css: string, property: string): string => {
   const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = css.match(new RegExp(`${escaped}\\s*:\\s*(#[0-9a-f]{6})`, 'i'));
-  if (!match?.[1]) throw new Error(`Missing hexadecimal custom property: ${property}`);
-  return match[1];
+  const value = css.match(new RegExp(`${escaped}\\s*:\\s*([^;]+)`, 'i'))?.[1];
+  const hex = value?.match(/#[0-9a-f]{6}/i)?.[0];
+  if (!hex) throw new Error(`Missing hexadecimal custom property: ${property}`);
+  return hex;
 };
 
 const relativeLuminance = (hex: string): number => {

@@ -5,6 +5,13 @@ declare module 'monaco-editor/esm/nls.messages.zh-cn' {
   export default messages;
 }
 
+// 按需引入的 monaco 模块(纯副作用,无类型定义):见 MonacoEditor.tsx 的加载链
+declare module 'monaco-editor/esm/vs/editor/editor.all.js';
+declare module 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js';
+declare module 'monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution.js';
+declare module 'monaco-editor/esm/vs/basic-languages/redis/redis.contribution.js';
+declare module 'monaco-editor/esm/vs/language/json/monaco.contribution.js';
+
 declare module 'monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard.js' {
   export const PasteAction: {
     addImplementation(

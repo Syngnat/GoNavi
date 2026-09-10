@@ -245,7 +245,7 @@ describe('AISettingsMCPSection', () => {
     expect(markup).toContain('legacy_tool');
     expect(markup).toContain('No inputSchema declared; check the service docs or use /mcptool before calling.');
     expect(markup).toContain('class="gonavi-ai-mcp-server-row gonavi-ai-mcp-disclosure"');
-    expect(markup).toContain('border-left:3px solid #1677ff');
+    expect(markup).toContain('border-left:3px solid #15803d');
   });
 
   it('toggles the in-app MCP HTTP service from the switch panel', async () => {

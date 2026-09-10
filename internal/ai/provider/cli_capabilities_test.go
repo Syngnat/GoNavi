@@ -29,6 +29,9 @@ func TestCLIEffortDomainsAreNotShared(t *testing.T) {
 		t.Fatalf("三个 CLI 的档位值域长度相同，说明可能被误合并：codex=%v claude=%v grok=%v",
 			codex.EffortValues, claude.EffortValues, grok.EffortValues)
 	}
+	if _, err := codex.NormalizeEffort("ultra"); err != nil {
+		t.Fatalf("Codex 当前能力并集应接受 model/list 返回的 ultra：%v", err)
+	}
 
 	// grok 实测只认 4 个值，minimal 与 max 都会被拒。
 	for _, rejected := range []string{"minimal", "max"} {

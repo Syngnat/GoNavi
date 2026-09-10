@@ -1,4 +1,4 @@
-import type { AIChatAttachment, AIChatMessage, AIToolCall } from '../../types';
+import type { AIChatAttachment, AIChatMessage, AIChatTokenUsage, AIToolCall } from '../../types';
 import { decodeRawJSON, decodeRawJSONWithStatus } from './aiRawMessage';
 
 export type AIRunDispatchMode = 'queue' | 'steer';
@@ -355,6 +355,40 @@ const mergeDurableToolCalls = (
   return calls.length > 0 ? calls : undefined;
 };
 
+const parseNonNegativeTokenCount = (value: unknown): number | undefined => (
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : undefined
+);
+
+const parseMessageTokenUsage = (value: unknown): AIChatTokenUsage | undefined => {
+  const decoded = decodeRawJSON(value);
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) return undefined;
+  const metadata = decoded as Record<string, unknown>;
+  const rawUsage = metadata.usage ?? metadata.tokenUsage;
+  if (!rawUsage || typeof rawUsage !== 'object' || Array.isArray(rawUsage)) return undefined;
+  const source = rawUsage as Record<string, unknown>;
+  const usage: AIChatTokenUsage = {};
+  for (const key of ['promptTokens', 'completionTokens', 'totalTokens', 'cachedTokens'] as const) {
+    const count = parseNonNegativeTokenCount(source[key]);
+    if (count !== undefined) usage[key] = count;
+  }
+  return Object.keys(usage).length > 0 ? usage : undefined;
+};
+
+const mergeTokenUsage = (
+  existing: AIChatTokenUsage | undefined,
+  incoming: AIChatTokenUsage | undefined,
+): AIChatTokenUsage | undefined => {
+  if (!incoming) return existing;
+  const merged: AIChatTokenUsage = { ...(existing || {}) };
+  for (const key of ['promptTokens', 'completionTokens', 'totalTokens', 'cachedTokens'] as const) {
+    if (incoming[key] === undefined) continue;
+    merged[key] = (merged[key] || 0) + incoming[key];
+  }
+  return merged;
+};
+
 const mergeDurableAssistant = (target: AIChatMessage, incoming: AIChatMessage): void => {
   target.content = appendDurableTurn(target.content, incoming.content);
   target.reasoning_content = appendDurableTurn(
@@ -362,6 +396,7 @@ const mergeDurableAssistant = (target: AIChatMessage, incoming: AIChatMessage): 
     String(incoming.reasoning_content || ''),
   ) || undefined;
   target.tool_calls = mergeDurableToolCalls(target.tool_calls, incoming.tool_calls);
+  target.tokenUsage = mergeTokenUsage(target.tokenUsage, incoming.tokenUsage);
   if (incoming.images?.length) {
     target.images = [...new Set([...(target.images || []), ...incoming.images])];
   }
@@ -418,6 +453,7 @@ export const toAIChatMessages = (projection: SessionProjectionResult | null | un
       attachments,
       reasoning_content: String(message.reasoning || '').trim() || undefined,
       tool_calls: toolCalls,
+      tokenUsage: parseMessageTokenUsage(message.metadata),
       tool_call_id: String(message.toolCallId || message.tool_call_id || '').trim() || undefined,
       loading: false,
       phase: 'idle',

@@ -51,7 +51,7 @@ describe('QueryEditorTransactionSettings', () => {
     act(() => {
       renderer = create(
         <QueryEditorTransactionSettings
-          isV2Ui
+
           commitMode="manual"
           autoCommitDelayMs={0}
           onCommitModeChange={vi.fn()}
@@ -70,7 +70,7 @@ describe('QueryEditorTransactionSettings', () => {
     act(() => {
       renderer = create(
         <QueryEditorTransactionSettings
-          isV2Ui
+
           commitMode="auto"
           autoCommitDelayMs={0}
           onCommitModeChange={vi.fn()}
@@ -111,7 +111,7 @@ describe('QueryEditorTransactionSettings', () => {
     act(() => {
       renderer = create(
         <QueryEditorTransactionSettings
-          isV2Ui
+
           commitMode="auto"
           autoCommitDelayMs={0}
           onCommitModeChange={vi.fn()}
@@ -135,11 +135,11 @@ describe('QueryEditorTransactionSettings', () => {
     expect(latestTooltipProps('gn-v2-query-toolbar-transaction-delay-select').title).toBeNull();
   });
 
-  it('keeps textual select labels in the legacy toolbar', () => {
+  it('always renders the current icon selector contract', () => {
     act(() => {
       renderer = create(
         <QueryEditorTransactionSettings
-          isV2Ui={false}
+
           commitMode="manual"
           autoCommitDelayMs={0}
           onCommitModeChange={vi.fn()}
@@ -148,9 +148,9 @@ describe('QueryEditorTransactionSettings', () => {
       );
     });
 
-    expect(antdState.selectProps[0].labelRender).toBeUndefined();
-    expect(antdState.selectProps[0].className).toBeUndefined();
-    expect(antdState.selectProps[0].popupMatchSelectWidth).toBeUndefined();
-    expect(antdState.selectProps[0].onOpenChange).toBeUndefined();
+    expect(antdState.selectProps[0].labelRender).toEqual(expect.any(Function));
+    expect(antdState.selectProps[0].className).toContain('gn-v2-query-toolbar-transaction-mode-select');
+    expect(antdState.selectProps[0].popupMatchSelectWidth).toBe(false);
+    expect(antdState.selectProps[0].onOpenChange).toEqual(expect.any(Function));
   });
 });

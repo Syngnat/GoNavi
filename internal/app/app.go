@@ -130,6 +130,7 @@ type databaseConnectFlight struct {
 	groupKey        string
 	cacheKey        string
 	releaseMatchKey string
+	driverType      string
 	cancelErr       error
 }
 
@@ -144,6 +145,7 @@ type queryContext struct {
 	retainUntilDone         bool
 	cancellationUnsupported bool
 	registrationID          uint64
+	driverType              string
 }
 
 type managedSQLTransaction struct {
@@ -197,6 +199,8 @@ type App struct {
 	driverDownloadTasks           map[string]DriverDownloadTaskStatus
 	driverDownloadActiveTaskID    string
 	driverDownloadTaskRunner      func(string, string, string, string) connection.QueryResult
+	driverInstallMu               sync.Mutex
+	driverMaintenance             map[string]int
 	dataRootApplyMu               sync.Mutex
 	configDir                     string
 	downloadSourceMu              sync.RWMutex
@@ -276,6 +280,16 @@ func NewApp() *App {
 	return NewAppWithSecretStore(secretstore.NewKeyringStore())
 }
 
+// ConfigDirForIntegration returns the directory used for persisted application
+// settings. It is a package function rather than an App method so Wails does
+// not expose the local filesystem path through its reflective RPC bridge.
+func ConfigDirForIntegration(a *App) string {
+	if a == nil {
+		return ""
+	}
+	return strings.TrimSpace(a.configDir)
+}
+
 // NewWebApp creates the backend used by the authenticated browser server.
 // The immutable runtime marker keeps desktop-only Wails APIs from being
 // reached through the reflective Web RPC bridge.
@@ -307,6 +321,7 @@ func NewAppWithSecretStore(store secretstore.SecretStore) *App {
 		connectionHealthRuns:          make(map[string]*connectionHealthRun),
 		importTasks:                   make(map[string]importTaskRegistration),
 		driverDownloadTasks:           make(map[string]DriverDownloadTaskStatus),
+		driverMaintenance:             make(map[string]int),
 		sqlTransactions:               make(map[string]*managedSQLTransaction),
 		requestTraceStore:             requesttrace.NewStore(requesttrace.DefaultCapacity),
 		configDir:                     resolveAppConfigDir(),
@@ -522,8 +537,8 @@ func (a *App) startup(ctx context.Context) {
 // SetWindowTranslucency 动态调整 macOS 窗口透明度。
 // 前端在加载用户外观设置后、以及用户修改外观时调用此方法。
 // opacity=1.0 且 blur=0 时窗口标记为 opaque，GPU 不再持续计算窗口背后的模糊合成。
-func (a *App) SetWindowTranslucency(opacity float64, blur float64) {
-	setMacWindowTranslucency(opacity, blur)
+func (a *App) SetWindowTranslucency(opacity float64, blur float64, darkAppearance bool) {
+	setMacWindowTranslucency(opacity, blur, darkAppearance)
 }
 
 // SetMacNativeWindowControls is retained for compatibility with older frontends.
@@ -720,7 +735,18 @@ func resolveFileDatabaseDSN(config connection.ConnectionConfig) string {
 // Helper: Generate a unique key for the connection config
 func getCacheKey(config connection.ConnectionConfig) string {
 	normalized := normalizeCacheKeyConfig(config)
-	b, _ := json.Marshal(normalized)
+	var b []byte
+	if currentSchema := db.QuoteOracleSchemaIdentifier(normalized.RuntimeOracleCurrentSchema()); normalized.Type == "oracle" && currentSchema != "" {
+		b, _ = json.Marshal(struct {
+			Connection          connection.ConnectionConfig `json:"connection"`
+			OracleCurrentSchema string                      `json:"oracleCurrentSchema"`
+		}{
+			Connection:          normalized,
+			OracleCurrentSchema: currentSchema,
+		})
+	} else {
+		b, _ = json.Marshal(normalized)
+	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
@@ -755,6 +781,11 @@ func (a *App) beginDatabaseConnectFlight(groupKey string, config connection.Conn
 	if a.dbShuttingDown {
 		return nil, errDatabaseConnectionShutdown
 	}
+	if driverType := optionalDriverTypeForConnectionConfig(config); driverType != "" && a.driverMaintenance[driverType] > 0 {
+		return nil, fmt.Errorf("%s", a.appText("driver_manager.backend.error.driver_maintenance_active", map[string]any{
+			"name": a.driverStatusDisplayName(driverDefinition{Type: driverType}),
+		}))
+	}
 	if a.dbConnectFlights == nil {
 		a.dbConnectFlights = make(map[uint64]*databaseConnectFlight)
 	}
@@ -766,6 +797,7 @@ func (a *App) beginDatabaseConnectFlight(groupKey string, config connection.Conn
 		groupKey:        groupKey,
 		cacheKey:        groupKey,
 		releaseMatchKey: getConnectionReleaseMatchKey(config),
+		driverType:      optionalDriverTypeForConnectionConfig(config),
 	}
 	a.dbConnectFlights[flight.id] = flight
 	return flight, nil
@@ -1283,7 +1315,7 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 		}
 	}
 	if config.UseHTTPTunnel {
-		b.WriteString(fmt.Sprintf(" HTTP隧道=%s:%d", strings.TrimSpace(config.HTTPTunnel.Host), config.HTTPTunnel.Port))
+		b.WriteString(fmt.Sprintf(" HTTP隧道=%s", formatHTTPTunnelEndpointForLog(config.HTTPTunnel)))
 		if strings.TrimSpace(config.HTTPTunnel.User) != "" {
 			b.WriteString(" HTTP隧道认证=已配置")
 		}
@@ -1302,6 +1334,19 @@ func formatConnSummary(config connection.ConnectionConfig) string {
 	}
 
 	return b.String()
+}
+
+func formatHTTPTunnelEndpointForLog(config connection.HTTPTunnelConfig) string {
+	raw := strings.TrimSpace(config.Host)
+	parsed, err := url.Parse(raw)
+	if err == nil && parsed.Host != "" && (strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")) {
+		parsed.User = nil
+		parsed.RawQuery = ""
+		parsed.ForceQuery = false
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	return fmt.Sprintf("%s:%d", raw, config.Port)
 }
 
 func (a *App) getDatabaseForcePing(config connection.ConnectionConfig) (db.Database, error) {
@@ -1401,15 +1446,22 @@ func (a *App) getDatabaseSynchronouslyWithContext(ctx context.Context, config co
 }
 
 func (a *App) openDatabaseIsolated(config connection.ConnectionConfig) (db.Database, error) {
+	effectiveConfig, err := a.resolveEffectiveConnectionConfig(config)
+	if err != nil {
+		return nil, err
+	}
+	runtimeDriverType := optionalDriverTypeForConnectionConfig(effectiveConfig)
 	a.mu.RLock()
 	shuttingDown := a.dbShuttingDown
+	driverMaintenance := runtimeDriverType != "" && a.driverMaintenance[runtimeDriverType] > 0
 	a.mu.RUnlock()
 	if shuttingDown {
 		return nil, errDatabaseConnectionShutdown
 	}
-	effectiveConfig, err := a.resolveEffectiveConnectionConfig(config)
-	if err != nil {
-		return nil, err
+	if driverMaintenance {
+		return nil, fmt.Errorf("%s", a.appText("driver_manager.backend.error.driver_maintenance_active", map[string]any{
+			"name": a.driverStatusDisplayName(driverDefinition{Type: runtimeDriverType}),
+		}))
 	}
 	if supported, reason := driverRuntimeSupportStatusFunc(effectiveConfig.Type); !supported {
 		if strings.TrimSpace(reason) == "" {
@@ -1455,11 +1507,18 @@ func (a *App) getDatabaseWithPing(config connection.ConnectionConfig, forcePing 
 	if err != nil {
 		return nil, err
 	}
+	runtimeDriverType := optionalDriverTypeForConnectionConfig(effectiveConfig)
 	a.mu.RLock()
 	shuttingDown := a.dbShuttingDown
+	driverMaintenance := runtimeDriverType != "" && a.driverMaintenance[runtimeDriverType] > 0
 	a.mu.RUnlock()
 	if shuttingDown {
 		return nil, errDatabaseConnectionShutdown
+	}
+	if driverMaintenance {
+		return nil, fmt.Errorf("%s", a.appText("driver_manager.backend.error.driver_maintenance_active", map[string]any{
+			"name": a.driverStatusDisplayName(driverDefinition{Type: runtimeDriverType}),
+		}))
 	}
 	isFileDB := isFileDatabaseType(effectiveConfig.Type)
 
@@ -1846,11 +1905,12 @@ func verifyRuntimeOptionalDriverAgentRevision(config connection.ConnectionConfig
 		return nil
 	}
 	displayName := resolveDriverDisplayName(driverDefinition{Type: driverType})
+	// revision 不匹配只告警不阻断连接：旧 agent 仍可正常连库。
 	agentRevision, err := verifyInstalledOptionalDriverAgentRevision(driverType, executablePath, selectedVersion)
 	if err != nil {
-		logger.Warnf("%s driver-agent revision 校验失败，已阻止使用不匹配代理：当前需要=%s version=%s path=%s err=%v",
+		logger.Warnf("%s driver-agent revision 不匹配，放行连接（建议在驱动管理中重装）：当前需要=%s version=%s path=%s err=%v",
 			displayName, expectedRevision, selectedVersion, executablePath, err)
-		return err
+		return nil
 	}
 	logger.Infof("%s driver-agent revision 校验通过：已安装=%s 当前需要=%s version=%s path=%s",
 		displayName, strings.TrimSpace(agentRevision), expectedRevision, selectedVersion, executablePath)
@@ -1979,12 +2039,16 @@ func generateQueryID() string {
 	return "query-" + uuid.New().String()
 }
 
-func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool) func() {
-	cleanup, _ := a.registerRunningQueryWithCancellationCapability(queryID, cancel, retainUntilDone)
+func (a *App) registerRunningQuery(queryID string, cancel context.CancelFunc, retainUntilDone bool, driverTypes ...string) func() {
+	cleanup, _ := a.registerRunningQueryWithCancellationCapability(queryID, cancel, retainUntilDone, driverTypes...)
 	return cleanup
 }
 
-func (a *App) registerRunningQueryWithCancellationCapability(queryID string, cancel context.CancelFunc, retainUntilDone bool) (func(), func(bool)) {
+func (a *App) registerRunningQueryWithCancellationCapability(queryID string, cancel context.CancelFunc, retainUntilDone bool, driverTypes ...string) (func(), func(bool)) {
+	driverType := ""
+	if len(driverTypes) > 0 {
+		driverType = normalizeDriverType(driverTypes[0])
+	}
 	a.queryMu.Lock()
 	if a.runningQueries == nil {
 		a.runningQueries = make(map[string]queryContext)
@@ -1999,6 +2063,7 @@ func (a *App) registerRunningQueryWithCancellationCapability(queryID string, can
 		started:         time.Now(),
 		retainUntilDone: retainUntilDone,
 		registrationID:  registrationID,
+		driverType:      driverType,
 	}
 	a.queryMu.Unlock()
 

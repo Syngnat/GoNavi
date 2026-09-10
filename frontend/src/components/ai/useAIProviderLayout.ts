@@ -32,10 +32,14 @@ interface LayoutPreferences {
   catalogWidth: number;
   savedCollapsed: boolean;
   density: 'compact' | 'normal';
+  connectionLayout: 'stacked' | 'inline';
   hiddenPresetKeys: string[];
+  presetOrder: string[];
   hiddenPaneHeight: number | null;
 }
-const defaults: LayoutPreferences = { catalogCollapsed: false, catalogWidth: DEFAULT_WIDTH, savedCollapsed: false, density: 'compact', hiddenPresetKeys: [], hiddenPaneHeight: null };
+const defaults: LayoutPreferences = { catalogCollapsed: false, catalogWidth: DEFAULT_WIDTH, savedCollapsed: false, density: 'compact', connectionLayout: 'stacked', hiddenPresetKeys: [], presetOrder: [], hiddenPaneHeight: null };
+const readKeyList = (value: unknown): string[] => Array.isArray(value)
+  ? [...new Set<string>(value.filter((key: unknown): key is string => typeof key === 'string' && Boolean(key.trim())).map((key: string) => key.trim()))] : [];
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const scheduleFrame = (frame: { current: number }, paint: () => void) => {
   if (frame.current) return;
@@ -48,8 +52,9 @@ function readPreferences(): LayoutPreferences {
     const value = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '{}');
     return { catalogCollapsed: value.catalogCollapsed === true, savedCollapsed: value.savedCollapsed === true,
       density: value.density === 'normal' ? 'normal' : 'compact',
-      hiddenPresetKeys: Array.isArray(value.hiddenPresetKeys)
-        ? [...new Set<string>(value.hiddenPresetKeys.filter((key: unknown): key is string => typeof key === 'string' && Boolean(key.trim())).map((key: string) => key.trim()))] : [],
+      connectionLayout: value.connectionLayout === 'inline' ? 'inline' : 'stacked',
+      hiddenPresetKeys: readKeyList(value.hiddenPresetKeys),
+      presetOrder: readKeyList(value.presetOrder),
       catalogWidth: Number.isFinite(value.catalogWidth) ? clamp(value.catalogWidth, MIN_CATALOG_WIDTH, MAX_CATALOG_WIDTH) : DEFAULT_WIDTH,
       hiddenPaneHeight: Number.isFinite(value.hiddenPaneHeight) && value.hiddenPaneHeight > 0 ? value.hiddenPaneHeight : null };
   } catch { return { ...defaults }; }

@@ -46,9 +46,27 @@ describe('buildAIReadonlyPreviewSQL', () => {
       .toBe('SELECT * FROM events LIMIT 50 OFFSET 0');
   });
 
+  it('ignores apparent limits inside SQL comments', () => {
+    expect(buildAIReadonlyPreviewSQL('postgres', 'SELECT id FROM users /* LIMIT 10 */', 50))
+      .toBe('SELECT id FROM users LIMIT 50 OFFSET 0 /* LIMIT 10 */');
+    expect(buildAIReadonlyPreviewSQL('postgres', 'SELECT id FROM users --LIMIT 10', 50))
+      .toBe('SELECT id FROM users LIMIT 50 OFFSET 0 --LIMIT 10');
+  });
+
+  it('adds a limit before an existing OFFSET on grouped SQL', () => {
+    const sql = 'SELECT dept_id, COUNT(*) total FROM users GROUP BY dept_id HAVING COUNT(*) > 1 ORDER BY total DESC OFFSET 40';
+    expect(buildAIReadonlyPreviewSQL('postgres', sql, 50))
+      .toBe('SELECT dept_id, COUNT(*) total FROM users GROUP BY dept_id HAVING COUNT(*) > 1 ORDER BY total DESC LIMIT 50 OFFSET 40');
+  });
+
   it('limits Dameng readonly SQL with native LIMIT syntax', () => {
     expect(buildAIReadonlyPreviewSQL('dameng', 'SELECT 1 FROM DUAL;', 50))
       .toBe('SELECT 1 FROM DUAL LIMIT 50 OFFSET 0');
+  });
+
+  it('places the Dameng readonly limit before WITH UR', () => {
+    expect(buildAIReadonlyPreviewSQL('dameng', 'SELECT 1 FROM DUAL WITH ur;', 50))
+      .toBe('SELECT 1 FROM DUAL LIMIT 50 OFFSET 0 WITH ur');
   });
 
   it('does not limit non-readonly SQL', () => {

@@ -5,7 +5,6 @@ export const AI_PANEL_OVERLAY_GAP = 12;
 export const AI_PANEL_FULLSCREEN_OVERLAY_BREAKPOINT = 640;
 
 interface AIPanelLayoutOptions {
-  isV2Ui: boolean;
   viewportWidth: number;
   sidebarWidth: number;
   panelWidth?: number;
@@ -40,7 +39,6 @@ export const resolveFullscreenAIPanelOverlayWidth = (
 };
 
 export const shouldOverlayAIPanel = ({
-  isV2Ui,
   viewportWidth,
   sidebarWidth,
   panelWidth = DEFAULT_AI_PANEL_WIDTH,
@@ -52,7 +50,6 @@ export const shouldOverlayAIPanel = ({
   const safeMinWorkbenchWidth = Math.max(0, normalizePositiveNumber(minWorkbenchWidth, MIN_WORKBENCH_WIDTH_WHEN_AI_DOCKED));
   const workspaceWidth = Math.max(0, safeViewportWidth - safeSidebarWidth);
 
-  void isV2Ui;
   return workspaceWidth - safePanelWidth < safeMinWorkbenchWidth;
 };
 

@@ -25,7 +25,7 @@ const storeState = {
     setCurrentLanguage(languagePreference);
     notifyStoreSubscribers();
   }),
-  appearance: { uiVersion: "legacy", opacity: 1 },
+  appearance: { opacity: 1 },
 };
 
 const storeSubscribers = new Set<() => void>();
@@ -241,6 +241,9 @@ vi.mock("@ant-design/icons", () => {
 });
 
 const modalConfirm = vi.hoisted(() => vi.fn());
+const modalTestState = vi.hoisted(() => ({
+  connectionPanel: null as any,
+}));
 
 vi.mock("antd", () => {
   const Button: any = ({ children, disabled, loading, onClick, ...rest }: any) => (
@@ -403,14 +406,34 @@ vi.mock("antd", () => {
     }
   };
 
-  const Modal: any = ({ title, children, footer, open }: any) =>
-    open ? (
+  const Modal: any = ({ title, children, footer, open, panelRef, wrapClassName }: any) => {
+    React.useLayoutEffect(() => {
+      if (!String(wrapClassName || "").includes("connection-modal-wrap") || !panelRef) {
+        return undefined;
+      }
+      const panel = open ? modalTestState.connectionPanel : null;
+      if (typeof panelRef === "function") {
+        panelRef(panel);
+      } else {
+        panelRef.current = panel;
+      }
+      return () => {
+        if (typeof panelRef === "function") {
+          panelRef(null);
+        } else {
+          panelRef.current = null;
+        }
+      };
+    }, [open, panelRef, wrapClassName]);
+
+    return open ? (
       <section>
         <div>{title}</div>
         <div>{children}</div>
         <div>{footer}</div>
       </section>
     ) : null;
+  };
   Modal.confirm = modalConfirm;
 
   const Typography = {
@@ -443,6 +466,7 @@ describe("ConnectionModal i18n", () => {
   beforeEach(() => {
     vi.stubGlobal("document", {
       body: {},
+      getElementById: vi.fn(() => null),
       querySelectorAll: vi.fn(() => []),
     });
     vi.stubGlobal(
@@ -460,9 +484,10 @@ describe("ConnectionModal i18n", () => {
     });
     storeState.theme = "light";
     storeState.languagePreference = "zh-CN";
-    storeState.appearance.uiVersion = "legacy";
+
     storeState.appearance.opacity = 1;
     storeState.pinnedConnectionTypes = [];
+    modalTestState.connectionPanel = null;
     backendApp.GetDriverStatusList.mockResolvedValue({ success: true, data: { drivers: [] } });
     backendApp.SaveConnection.mockReset();
     backendApp.SaveConnection.mockImplementation(async (input) => ({
@@ -1221,10 +1246,10 @@ describe("ConnectionModal i18n", () => {
     ).toContain("All");
   });
 
-  it.each(["legacy", "v2"] as const)(
-    "renders localized create flow copy for %s ui",
-    async (uiVersion) => {
-      storeState.appearance.uiVersion = uiVersion;
+  it(
+    "renders localized create flow copy",
+    async () => {
+
       mockFormValues = {
         type: "mysql",
         useSSL: true,
@@ -1276,10 +1301,10 @@ describe("ConnectionModal i18n", () => {
     },
   );
 
-  it.each(["legacy", "v2"] as const)(
-    "renders English titles, footer copy, and raw-preserving failure feedback for %s ui",
-    async (uiVersion) => {
-      storeState.appearance.uiVersion = uiVersion;
+  it(
+    "renders English titles, footer copy, and raw-preserving failure feedback",
+    async () => {
+
       setCurrentLanguage("en-US");
       const { default: ConnectionModal } = await import("./ConnectionModal");
 
@@ -1396,7 +1421,7 @@ describe("ConnectionModal i18n", () => {
   );
 
   it("renders English topology and authentication copy for legacy mysql, mongodb, and redis sections", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
 
@@ -1474,7 +1499,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English network, appearance, and raw-preserving copy for v2 ui", async () => {
-    storeState.appearance.uiVersion = "v2";
+
     setCurrentLanguage("en-US");
     mockFormValues = {
       type: "mysql",
@@ -1613,7 +1638,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English driver unavailable alert while preserving product names", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     backendApp.GetDriverStatusList.mockResolvedValue({
       success: true,
@@ -1650,7 +1675,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English tail copy for SSL hints, driver confirm, Mongo discovery, ClickHouse auto, and examples", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     const { Modal } = await import("antd");
@@ -1820,8 +1845,21 @@ describe("ConnectionModal i18n", () => {
     expect(combinedConnectionModalSource).not.toContain("SelectSSHKnownHostsFile");
   });
 
+  it("uses a complete Navicat tunnel URL and exposes base64 encoding without a form port", () => {
+    expect(networkSecuritySource).toContain('name="httpTunnelHost"');
+    expect(networkSecuritySource).toContain(
+      '"connection.modal.network.httpTunnel.urlPlaceholder"',
+    );
+    expect(networkSecuritySource).toContain(
+      'name="httpTunnelEncodeBase64"',
+    );
+    expect(networkSecuritySource).not.toContain('name="httpTunnelPort"');
+    expect(step2Source).toContain("httpTunnelEncodeBase64: true");
+    expect(source).toContain("config.httpTunnel?.encodeBase64 !== false");
+  });
+
   it("renders English URI feedback and file picker error shell while preserving raw detail", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     backendApp.SelectDatabaseFile.mockResolvedValue({
       success: false,
@@ -1880,7 +1918,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("automatically dismisses URI warning feedback after four seconds", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     let dismissUriFeedback: (() => void) | undefined;
@@ -1919,7 +1957,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("retranslates test failure feedback while preserving raw detail when language changes in-place", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     backendApp.TestConnection.mockReset();
     backendApp.TestConnection.mockResolvedValue({
@@ -1960,7 +1998,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("stops connection action loading before optional database discovery finishes", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     backendApp.TestConnection.mockResolvedValue({
       success: true,
@@ -2003,7 +2041,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("does not let a stale validation run restart loading after the modal reopens", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     let resolveValidation: (() => void) | undefined;
     mockValidateFields = () =>
@@ -2048,7 +2086,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("ignores a stale connection-test rejection after the modal reopens", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     let rejectConnection: ((reason?: unknown) => void) | undefined;
     backendApp.TestConnection.mockReset();
@@ -2094,7 +2132,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("cancels an in-flight Nacos test and ignores its late result", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     let resolveConnection: ((value: unknown) => void) | undefined;
     backendApp.NacosTestConnectionWithProgress.mockReset();
@@ -2143,7 +2181,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English data source groups and hints for the remaining step one copy", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     mockFormValues = {
       jvmDiagnosticEnabled: true,
@@ -2176,7 +2214,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("searches across all data sources, keeps category state consistent, and resets on reopen", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     const onClose = vi.fn();
@@ -2285,6 +2323,96 @@ describe("ConnectionModal i18n", () => {
     expect(findClickableCard(renderer!, "MySQL").props.type).toBe("button");
   });
 
+  it("keeps keyboard focus in the active form after switching connection type", async () => {
+    const createFocusable = () => {
+      const element: any = {
+        disabled: false,
+        hidden: false,
+        parentElement: {},
+        closest: vi.fn(() => null),
+        getAttribute: vi.fn(() => null),
+        hasAttribute: vi.fn(() => false),
+        getClientRects: vi.fn(() => [{}]),
+      };
+      element.focus = vi.fn(() => {
+        (document as any).activeElement = element;
+      });
+      return element;
+    };
+
+    const outsideControl = createFocusable();
+    const portalControl = createFocusable();
+    const firstControl = createFocusable();
+    const selectedSection = createFocusable();
+    const lastControl = createFocusable();
+    const panel = {
+      contains: vi.fn((element: unknown) =>
+        [firstControl, selectedSection, lastControl].includes(element),
+      ),
+      querySelector: vi.fn((selector: string) =>
+        selector.includes("gn-conn-form-nav-item") ? selectedSection : null,
+      ),
+      querySelectorAll: vi.fn(() => [firstControl, selectedSection, lastControl]),
+    };
+    modalTestState.connectionPanel = panel;
+    vi.mocked(document.getElementById).mockReturnValue({
+      contains: (element: unknown) => element === outsideControl,
+    } as HTMLElement);
+    (document as any).activeElement = outsideControl;
+
+    const onClose = vi.fn();
+    const { default: ConnectionModal } = await import("./ConnectionModal");
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<ConnectionModal open onClose={onClose} />);
+    });
+    await act(async () => {
+      findClickableCard(renderer!, "MySQL").props.onClick();
+    });
+
+    expect(selectedSection.focus).toHaveBeenCalledTimes(1);
+    expect((document as any).activeElement).toBe(selectedSection);
+
+    const keydownRegistrations = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === "keydown" && options === true);
+    const keydownListener = (
+      keydownRegistrations[keydownRegistrations.length - 1]?.[1]
+    ) as EventListener | undefined;
+    expect(keydownListener).toBeDefined();
+
+    const dispatchKey = (key: string, shiftKey = false) => {
+      const event = {
+        key,
+        shiftKey,
+        defaultPrevented: false,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      };
+      keydownListener?.(event as unknown as Event);
+      return event;
+    };
+
+    (document as any).activeElement = outsideControl;
+    const forwardTab = dispatchKey("Tab");
+    expect(forwardTab.preventDefault).toHaveBeenCalledTimes(1);
+    expect(firstControl.focus).toHaveBeenCalledTimes(1);
+
+    (document as any).activeElement = outsideControl;
+    const backwardTab = dispatchKey("Tab", true);
+    expect(backwardTab.preventDefault).toHaveBeenCalledTimes(1);
+    expect(lastControl.focus).toHaveBeenCalledTimes(1);
+
+    (document as any).activeElement = outsideControl;
+    const escape = dispatchKey("Escape");
+    expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    (document as any).activeElement = portalControl;
+    const portalEscape = dispatchKey("Escape");
+    expect(portalEscape.preventDefault).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("pins data source types without opening the form and restores their personal order", async () => {
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
@@ -2354,7 +2482,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English custom driver DSN copy after the module was loaded in another language", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("zh-CN");
     const { default: ConnectionModal } = await import("./ConnectionModal");
     setCurrentLanguage("en-US");
@@ -2380,7 +2508,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English JVM fields and diagnostic transport copy", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
 
@@ -2429,7 +2557,7 @@ describe("ConnectionModal i18n", () => {
   });
 
   it("renders English protocol and database service fields", async () => {
-    storeState.appearance.uiVersion = "legacy";
+
     setCurrentLanguage("en-US");
     const { default: ConnectionModal } = await import("./ConnectionModal");
 

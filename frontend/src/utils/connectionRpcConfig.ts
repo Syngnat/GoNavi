@@ -156,6 +156,16 @@ export function buildRpcConnectionConfig(
     redisDB,
   }) as RpcConnectionConfig;
 
+  if (rpcConfig.httpTunnel) {
+    // ConnectionConfig reconstructs nested generated models, so attach the new
+    // field after that conversion. This keeps user-modified generated bindings
+    // untouched while still including the property in the RPC payload.
+    const rpcHttpTunnel = rpcConfig.httpTunnel as connection.HTTPTunnelConfig & {
+      encodeBase64: boolean;
+    };
+    rpcHttpTunnel.encodeBase64 =
+      ((rpcMerged.httpTunnel ?? {}) as HttpTunnelConfigInput).encodeBase64 !== false;
+  }
   rpcConfig.id = baseId;
   return rpcConfig;
 }

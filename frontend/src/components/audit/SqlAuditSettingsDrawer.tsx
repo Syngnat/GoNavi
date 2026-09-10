@@ -84,9 +84,10 @@ export default function SqlAuditSettingsDrawer({
       title={t('sql_audit.settings.title')}
       destroyOnHidden
       extra={(
-        <Space>
-          <Button onClick={onClose}>{t('common.cancel')}</Button>
+        <Space className="gn-sql-audit-settings-actions">
+          <Button size="middle" onClick={onClose}>{t('common.cancel')}</Button>
           <Button
+            size="middle"
             type="primary"
             icon={<SaveOutlined aria-hidden="true" />}
             loading={saving}

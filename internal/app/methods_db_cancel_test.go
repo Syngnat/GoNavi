@@ -292,6 +292,60 @@ func TestDBQueryWithCancel_LegacyOnlyDriverReportsCancellationUnsupported(t *tes
 	}
 }
 
+func TestDBQueryApplicationWithCancel_StopsContextQuery(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })
+
+	legacy := &blockingLegacyCancelDB{
+		queryStarted: make(chan struct{}),
+		queryRelease: make(chan struct{}),
+		queryDone:    make(chan struct{}),
+	}
+	database := &blockingContextCancelDB{
+		blockingLegacyCancelDB: legacy,
+		contextQueryStarted:    make(chan struct{}),
+		contextQueryDone:       make(chan struct{}),
+	}
+	newDatabaseFunc = func(string) (db.Database, error) { return database, nil }
+
+	app := NewApp()
+	t.Cleanup(app.Shutdown)
+	const queryID = "database-search-run-0"
+	resultCh := make(chan connection.QueryResult, 1)
+	go func() {
+		resultCh <- app.DBQueryApplicationWithCancel(connection.ConnectionConfig{
+			Type: "postgres", Host: "database-search.test", Port: 5432,
+		}, "app", "SELECT 1", queryID)
+	}()
+
+	select {
+	case <-database.contextQueryStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for database-search query execution")
+	}
+	if cancelled := app.CancelQuery(queryID); !cancelled.Success {
+		t.Fatalf("CancelQuery returned failure: %#v", cancelled)
+	}
+	select {
+	case result := <-resultCh:
+		if result.Success {
+			t.Fatalf("cancelled application query should fail, got %#v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("application query did not stop after cancellation")
+	}
+	select {
+	case <-database.contextQueryDone:
+	default:
+		t.Fatal("query returned before the driver observed cancellation")
+	}
+	select {
+	case <-legacy.queryStarted:
+		t.Fatal("Context-capable driver unexpectedly fell back to legacy Query")
+	default:
+	}
+}
+
 func TestDBQueryMulti_LegacyOnlyParentCancellationIsExplicit(t *testing.T) {
 	originalNewDatabaseFunc := newDatabaseFunc
 	t.Cleanup(func() { newDatabaseFunc = originalNewDatabaseFunc })

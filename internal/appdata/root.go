@@ -16,6 +16,7 @@ const (
 	configuredLogFileName          = "gonavi.log"
 	savedQueryDirectoryName        = "saved_queries"
 	savedQueryDirectoryProbePrefix = ".gonavi-saved-query-"
+	agentDataDirectoryProbePrefix  = ".gonavi-agent-data-"
 )
 const dataRootEnvName = "GONAVI_DATA_ROOT"
 
@@ -103,6 +104,7 @@ type bootstrapConfig struct {
 	DataRoot            string `json:"dataRoot,omitempty"`
 	LogDirectory        string `json:"logDirectory,omitempty"`
 	SavedQueryDirectory string `json:"savedQueryDirectory,omitempty"`
+	AgentDataDirectory  string `json:"agentDataDirectory,omitempty"`
 }
 
 func readBootstrapConfig() (bootstrapConfig, error) {
@@ -124,7 +126,8 @@ func writeBootstrapConfig(cfg bootstrapConfig) error {
 	cfg.DataRoot = strings.TrimSpace(cfg.DataRoot)
 	cfg.LogDirectory = strings.TrimSpace(cfg.LogDirectory)
 	cfg.SavedQueryDirectory = strings.TrimSpace(cfg.SavedQueryDirectory)
-	if cfg.DataRoot == "" && cfg.LogDirectory == "" && cfg.SavedQueryDirectory == "" {
+	cfg.AgentDataDirectory = strings.TrimSpace(cfg.AgentDataDirectory)
+	if cfg.DataRoot == "" && cfg.LogDirectory == "" && cfg.SavedQueryDirectory == "" && cfg.AgentDataDirectory == "" {
 		if err := os.Remove(BootstrapPath()); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -276,6 +279,91 @@ func DefaultSavedQueryDirectory(activeRoot string) string {
 		root = abs
 	}
 	return filepath.Join(filepath.Clean(root), savedQueryDirectoryName)
+}
+
+// DefaultAgentDataDirectory keeps the historical layout: unless explicitly
+// overridden, the encrypted Agent ledger lives directly in the active GoNavi
+// data root. This avoids silently splitting existing installations after the
+// per-feature directory setting is introduced.
+func DefaultAgentDataDirectory(activeRoot string) string {
+	root := strings.TrimSpace(activeRoot)
+	if root == "" {
+		root = MustResolveActiveRoot()
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	return filepath.Clean(root)
+}
+
+func ResolveConfiguredAgentDataDirectory() (string, error) {
+	bootstrapConfigMu.Lock()
+	cfg, err := readBootstrapConfig()
+	bootstrapConfigMu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	directory := strings.TrimSpace(cfg.AgentDataDirectory)
+	if directory == "" {
+		return "", nil
+	}
+	abs, err := filepath.Abs(directory)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
+}
+
+func ResolveAgentDataDirectory(activeRoot string) (string, error) {
+	directory, err := ResolveConfiguredAgentDataDirectory()
+	if err != nil {
+		return "", err
+	}
+	if directory != "" {
+		return directory, nil
+	}
+	return DefaultAgentDataDirectory(activeRoot), nil
+}
+
+// SetConfiguredAgentDataDirectory persists a directory override only after
+// verifying that it can hold private Agent data. An empty value restores the
+// active data-root default.
+func SetConfiguredAgentDataDirectory(directory string) (string, error) {
+	target := strings.TrimSpace(directory)
+	if target != "" {
+		abs, err := filepath.Abs(target)
+		if err != nil {
+			return "", err
+		}
+		target = filepath.Clean(abs)
+		if err := os.MkdirAll(target, 0o700); err != nil {
+			return "", err
+		}
+		probe, err := os.CreateTemp(target, agentDataDirectoryProbePrefix)
+		if err != nil {
+			return "", err
+		}
+		probePath := probe.Name()
+		if err := probe.Chmod(0o600); err != nil {
+			_ = probe.Close()
+			_ = os.Remove(probePath)
+			return "", err
+		}
+		if err := probe.Close(); err != nil {
+			_ = os.Remove(probePath)
+			return "", err
+		}
+		if err := os.Remove(probePath); err != nil {
+			return "", err
+		}
+	}
+
+	if err := updateBootstrapConfig(func(cfg *bootstrapConfig) {
+		cfg.AgentDataDirectory = target
+	}); err != nil {
+		return "", err
+	}
+	return target, nil
 }
 
 func SetActiveRoot(root string) (string, error) {

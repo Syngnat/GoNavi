@@ -79,7 +79,11 @@ func (a *App) resolveDataSyncEndpointConfig(raw connection.ConnectionConfig, sel
 	if err != nil {
 		return resolved, selected, err
 	}
-	return effectiveConfig, selected, nil
+	// DataSync endpoints are later handed directly to the sync engine instead
+	// of going through getDatabaseWithPing/openDatabaseIsolated. Attach the
+	// runtime-only GoNavi SSH trust store here so task execution and interactive
+	// connection tests verify the bastion host against the same records.
+	return a.withManagedSSHHostKeyTrustStore(effectiveConfig), selected, nil
 }
 
 // DataSyncCapability returns the effective migration support for a connection

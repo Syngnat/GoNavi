@@ -46,6 +46,7 @@ import {
   DATA_EXPORT_FORMAT_OPTIONS,
   DEFAULT_DATA_EXPORT_FORMAT,
   DEFAULT_XLSX_ROWS_PER_SHEET,
+  DataExportColumnSelect,
   MAX_XLSX_ROWS_PER_SHEET,
   resolveDataExportColumns,
   type DataExportFormat,
@@ -1812,14 +1813,11 @@ const TableExportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
                 {format !== 'sql' || activeScopeQuery ? (
                   <div>
                     <div style={{ marginBottom: 6, fontSize: 12, color: secondaryTextColor }}>{t('data_export.dialog.field.columns')}</div>
-                    <Select
-                      style={{ width: '100%' }}
-                      mode="multiple"
+                    <DataExportColumnSelect
+                      availableColumns={availableColumns}
                       value={selectedColumns}
                       loading={loadingColumns}
                       disabled={isConfigurationLocked}
-                      options={availableColumns.map((column) => ({ value: column, label: column }))}
-                      maxTagCount="responsive"
                       onChange={(columns) => setSelectedColumns(
                         resolveDataExportColumns(columns, availableColumns) || [],
                       )}

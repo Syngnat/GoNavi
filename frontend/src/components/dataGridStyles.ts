@@ -40,10 +40,6 @@ export const buildDataGridCssText = ({
     selectionAccentHex,
     selectionAccentRgb,
     tableBodyBottomPadding,
-    useVirtualEditablePaintContain,
-    useVirtualEditableVisibilityHints,
-    useVirtualHolderPaintHints,
-    useVirtualRowCellContain,
     verticalScrollbarTrackBg,
 }: DataGridCssTextParams) => `
 
@@ -227,7 +223,7 @@ export const buildDataGridCssText = ({
                 /*
                  * 固定列：
                  * - 表头：scrollLeft + sticky（保留全选 / 行号）
-                 * - 虚拟表体：marginLeft + translateX 补偿
+                 * - 虚拟表体：合成层 translate + 固定列 translateX 补偿
                  * - 固定列表头 z-index 必须 > 列宽手柄(10)，否则其他列拖拽/筛选图标会穿透进来
                  */
                 /* 普通表头压低层级，子元素（拖拽区/缩放条）不得盖过固定列 */
@@ -636,9 +632,9 @@ export const buildDataGridCssText = ({
 
                     scroll-padding-bottom: ${tableBodyBottomPadding}px;
 
-                    contain: ${useVirtualHolderPaintHints ? 'layout paint style' : 'layout style'};
+                    contain: layout style;
 
-                    content-visibility: ${useVirtualHolderPaintHints ? 'auto' : 'visible'};
+                    content-visibility: visible;
 
                 }
 
@@ -648,7 +644,9 @@ export const buildDataGridCssText = ({
 
                     box-sizing: border-box;
 
-                    contain: ${useVirtualHolderPaintHints ? 'layout paint style' : 'layout style'};
+                    contain: layout style;
+
+                    will-change: transform;
 
                 }
 
@@ -656,7 +654,7 @@ export const buildDataGridCssText = ({
 
                 .${gridId} .ant-table-tbody-virtual-holder .ant-table-row > .ant-table-cell {
 
-                    contain: ${useVirtualRowCellContain ? 'layout paint style' : 'none'};
+                    contain: none;
 
                 }
 
@@ -880,7 +878,7 @@ export const buildDataGridCssText = ({
 
                     position: relative;
 
-                    contain: ${useVirtualEditablePaintContain ? 'layout paint style' : 'layout style'};
+                    contain: layout style;
 
                 }
 
@@ -918,9 +916,9 @@ export const buildDataGridCssText = ({
 
                 .${gridId} .ant-table-tbody-virtual-holder .editable-cell-value-wrap {
 
-                    content-visibility: ${useVirtualEditableVisibilityHints ? 'auto' : 'visible'};
+                    content-visibility: visible;
 
-                    contain-intrinsic-size: ${useVirtualEditableVisibilityHints ? '24px 160px' : 'auto'};
+                    contain-intrinsic-size: auto;
 
                 }
 
@@ -1060,6 +1058,42 @@ export const buildDataGridCssText = ({
                 .${gridId} .rc-virtual-list-holder::-webkit-scrollbar-thumb:hover {
 
                     background: ${floatingScrollbarThumbHoverBg};
+
+                    border: 1px solid ${floatingScrollbarThumbBorderColor};
+
+                    background-clip: border-box;
+
+                    box-shadow: ${floatingScrollbarThumbShadow};
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-holder[data-virtual-scrollbar-controlled="true"] {
+
+                    scrollbar-width: none;
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-holder[data-virtual-scrollbar-controlled="true"]::-webkit-scrollbar {
+
+                    width: 0;
+
+                    height: 0;
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-scrollbar-vertical {
+
+                    width: ${floatingScrollbarHeight}px !important;
+
+                    right: 0 !important;
+
+                    z-index: 25;
+
+                }
+
+                .${gridId} .ant-table-tbody-virtual-scrollbar-vertical .ant-table-tbody-virtual-scrollbar-thumb {
+
+                    background: ${floatingScrollbarThumbBg} !important;
 
                     border: 1px solid ${floatingScrollbarThumbBorderColor};
 

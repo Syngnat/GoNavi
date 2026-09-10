@@ -53,7 +53,7 @@ const renderConversation = (messages: AIChatMessage[]) => (
     quickActionBorder="1px solid rgba(0,0,0,0.06)"
     showScrollBottom={false}
     contextTableNames={[]}
-    isV2Ui
+
     insights={[]}
     sessions={[]}
     activeSessionId="session-performance"

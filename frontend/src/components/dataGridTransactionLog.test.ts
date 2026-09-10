@@ -35,4 +35,13 @@ describe('buildDataGridTransactionLog', () => {
     expect(sql).toContain("UPDATE \"users\" SET \"name\" = 'failed' WHERE \"id\" = 8;");
     expect(sql).not.toContain('COMMIT;');
   });
+
+  it('uses Caché transaction boundaries for committed data-grid changes', () => {
+    expect(buildDataGridTransactionLog({
+      dbType: 'cache',
+      tableName: 'Sample.Person',
+      preview: { updates: ['UPDATE Sample.Person SET Name = \'next\' WHERE ID = 1;'] },
+      committed: true,
+    })).toContain("BEGIN;\nUPDATE Sample.Person SET Name = 'next' WHERE ID = 1;\nCOMMIT;");
+  });
 });

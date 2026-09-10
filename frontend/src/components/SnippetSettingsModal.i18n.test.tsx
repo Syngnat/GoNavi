@@ -44,17 +44,19 @@ vi.mock('antd', async () => {
     value,
     onChange,
     placeholder,
+    prefix,
     ...props
   }: {
     value?: string;
     onChange?: (event: { target: { value: string } }) => void;
     placeholder?: string;
-  }) => React.createElement('input', {
+    prefix?: React.ReactNode;
+  }) => React.createElement('div', null, prefix, React.createElement('input', {
     ...props,
     value,
     placeholder,
     onChange: (event: { target: { value: string } }) => onChange?.(event),
-  });
+  }));
 
   Input.TextArea = ({
     value,
@@ -109,7 +111,7 @@ vi.mock('antd', async () => {
     children?: React.ReactNode;
   }) => React.createElement('div', null, title, description, children);
 
-  const Collapse = ({
+  const Tabs = ({
     items,
   }: {
     items?: Array<{ key: string; label: React.ReactNode; children: React.ReactNode }>;
@@ -119,14 +121,30 @@ vi.mock('antd', async () => {
     items?.map((item) => React.createElement('section', { key: item.key }, item.label, item.children)),
   );
 
-  const Typography = {
-    Text: ({
-      children,
-      ...props
-    }: {
-      children?: React.ReactNode;
-    }) => React.createElement('code', props, children),
-  };
+  const Segmented = ({
+    options,
+    value,
+    onChange,
+    ...props
+  }: {
+    options?: Array<{ label: React.ReactNode; value: string }>;
+    value?: string;
+    onChange?: (value: string) => void;
+  }) => React.createElement(
+    'div',
+    props,
+    options?.map((option) => React.createElement(
+      'button',
+      {
+        key: option.value,
+        type: 'button',
+        'data-segmented-value': option.value,
+        'data-segmented-active': value === option.value ? 'true' : 'false',
+        onClick: () => onChange?.(option.value),
+      },
+      option.label,
+    )),
+  );
 
   return {
     Modal: ({
@@ -144,8 +162,8 @@ vi.mock('antd', async () => {
     Tag,
     Popconfirm,
     message: messageApi,
-    Collapse,
-    Typography,
+    Tabs,
+    Segmented,
   };
 });
 
@@ -157,6 +175,7 @@ vi.mock('@ant-design/icons', async () => {
     UndoOutlined: () => React.createElement('span', null, 'undo'),
     SaveOutlined: () => React.createElement('span', null, 'save'),
     CodeOutlined: () => React.createElement('span', null, 'code'),
+    SearchOutlined: () => React.createElement('span', null, 'search'),
   };
 });
 
@@ -245,7 +264,12 @@ describe('SnippetSettingsModal i18n', () => {
     expect(initialText).toContain('Manage SQL snippets and prefix completion.');
     expect(initialText).toContain('Snippet List');
     expect(initialText).toContain('New Snippet');
+    expect(initialText).toContain('All');
+    expect(initialText).toContain('Built-in');
+    expect(initialText).toContain('Custom');
     expect(initialText).toContain('Select a snippet on the left to edit, or click "New Snippet"');
+    const searchInput = renderer.root.findByProps({ placeholder: 'Search prefix, name, or description' });
+    expect(searchInput).toBeTruthy();
 
     const newButton = renderer.root.findAll((node: any) => node.type === 'button' && getText(node).includes('New Snippet'))[0];
 
@@ -260,8 +284,8 @@ describe('SnippetSettingsModal i18n', () => {
     expect(editorText).toContain('Name');
     expect(editorText).toContain('Description (optional)');
     expect(editorText).toContain('Snippet Body');
-    expect(editorText).toContain('Snippet syntax notes (editable)');
-    expect(editorText).toContain('Placeholder syntax reference');
+    expect(editorText).toContain('Syntax Notes');
+    expect(editorText).toContain('Placeholder Reference');
     expect(editorText).toContain('Built-in variables (auto-replaced when expanded):');
     expect(editorText).toContain('Example: SELECT ${1:column_name} FROM ${2:table_name}');
 
@@ -302,12 +326,12 @@ describe('SnippetSettingsModal i18n', () => {
       overscrollBehavior: 'contain',
     });
     expect(editorScrollRegion.props.style).toMatchObject({
-      flex: '0 0 auto',
-      minHeight: 0,
+      flex: '1 1 auto',
+      minHeight: 200,
       marginTop: 10,
     });
     expect(syntaxReferenceScrollRegion.props.style).toMatchObject({
-      maxHeight: 'min(220px, 32vh)',
+      maxHeight: 98,
       overflowY: 'auto',
       overflowX: 'hidden',
       overscrollBehavior: 'contain',
@@ -348,7 +372,7 @@ describe('SnippetSettingsModal i18n', () => {
     expect(actionRow.props.style).toMatchObject({
       flex: '0 0 auto',
       gap: 8,
-      paddingTop: 12,
+      paddingTop: 8,
       marginTop: 0,
     });
   });
@@ -360,11 +384,11 @@ describe('SnippetSettingsModal i18n', () => {
 
     expect(embeddedContent.props.style).toMatchObject({
       gap: 0,
-      borderTop: overlayTheme.sectionBorder,
       fontFamily: 'var(--gn-font-sans)',
     });
+    expect(embeddedContent.props.style.borderTop).toBeUndefined();
     expect(embeddedMaster.props.style).toMatchObject({
-      width: 196,
+      width: 270,
       borderRadius: 0,
       border: 'none',
       borderRight: overlayTheme.sectionBorder,
@@ -388,7 +412,8 @@ describe('SnippetSettingsModal i18n', () => {
       fontFamily: 'var(--gn-font-sans)',
     });
 
-    const embeddedActionLabels = embeddedRenderer.root
+    const actionRow = embeddedRenderer.root.findByProps({ 'data-sql-snippet-action-row': 'true' });
+    const embeddedActionLabels = actionRow
       .findAll((node: any) => node.type === 'button')
       .map((node: any) => getText(node));
     const backIndex = embeddedActionLabels.findIndex((label) => label.includes('Back'));
@@ -401,7 +426,7 @@ describe('SnippetSettingsModal i18n', () => {
     const standaloneRenderer = await renderModal();
     const standaloneMaster = standaloneRenderer.root.findByProps({ 'data-sql-snippet-master-panel': 'true' });
     expect(standaloneMaster.props.style).toMatchObject({
-      width: 220,
+      width: 260,
       borderRadius: 14,
       border: overlayTheme.sectionBorder,
       background: overlayTheme.sectionBg,
@@ -417,9 +442,10 @@ describe('SnippetSettingsModal i18n', () => {
       newButton.props.onClick();
     });
 
-    const saveButton = renderer.root.findAll((node: any) => node.type === 'button' && getText(node).includes('Save'))[0];
-    const closeButton = renderer.root.findAll((node: any) => node.type === 'button' && getText(node).includes('Close'))[0];
-    const backButton = renderer.root.findAll((node: any) => node.type === 'button' && getText(node).includes('Back'))[0];
+    const actionRow = renderer.root.findByProps({ 'data-sql-snippet-action-row': 'true' });
+    const saveButton = actionRow.findAll((node: any) => node.type === 'button' && getText(node).includes('Save'))[0];
+    const closeButton = actionRow.findAll((node: any) => node.type === 'button' && getText(node).includes('Close'))[0];
+    const backButton = actionRow.findAll((node: any) => node.type === 'button' && getText(node).includes('Back'))[0];
 
     expect(saveButton.props.size).toBe('middle');
     expect(saveButton.props.style).toMatchObject({ minWidth: 84 });

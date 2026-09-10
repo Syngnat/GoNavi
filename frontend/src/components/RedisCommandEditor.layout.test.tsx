@@ -28,7 +28,6 @@ const storeState = vi.hoisted((): any => ({
         enabled: true,
         opacity: 1,
         blur: 0,
-        uiVersion: 'v2',
     },
 }));
 
@@ -87,7 +86,6 @@ describe('RedisCommandEditor layout', () => {
             enabled: true,
             opacity: 1,
             blur: 0,
-            uiVersion: 'v2',
         };
     });
 

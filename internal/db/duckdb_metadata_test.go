@@ -369,3 +369,35 @@ func duckDBTestContainsQuery(queries []string, target string) bool {
 	}
 	return false
 }
+
+// TestBuildDuckDBColumnDefinitions_MarksSerialAutoIncrement 锁住 SERIAL 列的
+// 自增识别：DuckDB 的 serial 实际是整数列 + nextval 序列默认值，
+// information_schema 不回显 serial 类型名，只能从默认值识别。
+func TestBuildDuckDBColumnDefinitions_MarksSerialAutoIncrement(t *testing.T) {
+	t.Parallel()
+
+	columns := buildDuckDBColumnDefinitions(
+		[]map[string]interface{}{
+			{
+				"column_name":    "id",
+				"data_type":      "BIGINT",
+				"is_nullable":    "NO",
+				"column_default": "nextval('t_id_seq')",
+			},
+			{
+				"column_name":    "name",
+				"data_type":      "VARCHAR",
+				"is_nullable":    "YES",
+				"column_default": nil,
+			},
+		},
+		[]map[string]interface{}{},
+	)
+
+	if columns[0].Extra != "auto_increment" {
+		t.Fatalf("nextval 默认值未标记 auto_increment: %+v", columns[0])
+	}
+	if columns[1].Extra != "" {
+		t.Fatalf("普通列被误标记自增: %+v", columns[1])
+	}
+}

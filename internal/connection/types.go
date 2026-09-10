@@ -194,12 +194,14 @@ type ProxyConfig struct {
 	Password string `json:"password,omitempty"`
 }
 
-// HTTPTunnelConfig 存储 HTTP CONNECT 隧道配置。
+// HTTPTunnelConfig 存储 HTTP 隧道配置。Host 为完整 http(s) URL 时使用
+// Navicat 风格脚本隧道；否则保留为旧版 HTTP CONNECT 配置。
 type HTTPTunnelConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user,omitempty"`
-	Password string `json:"password,omitempty"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	User         string `json:"user,omitempty"`
+	Password     string `json:"password,omitempty"`
+	EncodeBase64 *bool  `json:"encodeBase64,omitempty"`
 }
 
 // JVMJMXConfig 存储 JVM JMX 连接配置。
@@ -313,6 +315,7 @@ type ConnectionConfig struct {
 	JVM                      JVMConfig                  `json:"jvm,omitempty"`                      // JVM connector config
 	runtimeDBOverride        string                     // App-only selected database; never persisted or sent over RPC.
 	runtimeDBOverrideSet     bool                       // Distinguishes an explicit server-level override from no override.
+	oracleSchema             string                     // App-only selected Oracle schema; never persisted or sent over RPC.
 	resolvedSavedSnapshot    bool                       // App-only marker for one lock-consistent metadata and secret snapshot.
 }
 
@@ -342,6 +345,24 @@ func (c ConnectionConfig) WithoutRuntimeDatabaseOverride() ConnectionConfig {
 	return c
 }
 
+// WithRuntimeOracleCurrentSchema carries the caller-selected Oracle schema
+// without replacing the connection's service name or SID.
+func (c ConnectionConfig) WithRuntimeOracleCurrentSchema(schema string) ConnectionConfig {
+	c.oracleSchema = strings.TrimSpace(schema)
+	return c
+}
+
+// RuntimeOracleCurrentSchema returns the caller-selected Oracle schema.
+func (c ConnectionConfig) RuntimeOracleCurrentSchema() string {
+	return c.oracleSchema
+}
+
+// WithoutRuntimeOracleCurrentSchema removes the app-only Oracle schema context.
+func (c ConnectionConfig) WithoutRuntimeOracleCurrentSchema() ConnectionConfig {
+	c.oracleSchema = ""
+	return c
+}
+
 // WithResolvedSavedSnapshot marks a config whose saved metadata and secrets
 // were loaded together under the shared storage lock. The marker is not
 // serialized and prevents a later execution layer from mixing in a newer
@@ -363,6 +384,8 @@ type ResultSetData struct {
 	Columns        []string                 `json:"columns"`
 	Messages       []string                 `json:"messages,omitempty"`
 	StatementIndex int                      `json:"statementIndex,omitempty"`
+	// Truncated 表示该结果集达到调用方行预算后停止读取，行数可能不完整。
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 const QueryCancellationStateUnsupported = "unsupported"

@@ -67,6 +67,7 @@ export const CONNECTION_TYPE_GROUPS: ConnectionTypeCatalogGroup[] = [
       { key: 'postgres', name: 'PostgreSQL' },
       { key: 'sqlserver', name: 'SQL Server' },
       { key: 'iris', name: 'InterSystems IRIS' },
+      { key: 'cache', name: 'InterSystems Caché' },
       { key: 'sqlite', name: 'SQLite' },
       { key: 'duckdb', name: 'DuckDB' },
       { key: 'oracle', name: 'Oracle' },
@@ -192,6 +193,7 @@ export const getConnectionTypeDefaultPort = (type: string): number => {
     case 'sqlserver':
       return 1433;
     case 'iris':
+    case 'cache':
       return 1972;
     case 'mongodb':
       return 27017;
@@ -240,6 +242,12 @@ export const getConnectionTypeHint = (
       return translateCatalogCopy(translate, 'connection_modal.step1.hint.redis', 'Single node / cluster');
     case 'mongodb':
       return translateCatalogCopy(translate, 'connection_modal.step1.hint.mongodb', 'Single node / replica set');
+    case 'cache':
+      return translateCatalogCopy(
+        translate,
+        'connection_modal.step1.hint.cache',
+        'Namespace browsing and Caché SQL over the SuperServer port',
+      );
     case 'elasticsearch':
       return translateCatalogCopy(
         translate,

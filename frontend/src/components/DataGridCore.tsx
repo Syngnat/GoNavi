@@ -2,24 +2,24 @@ import Modal from './common/ResizableDraggableModal';
 // cspell:ignore anticon sqls uuidv uuidv4 hscroll
 import React, { useState, useEffect, useRef, useContext, useMemo, useCallback, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { Table, message, Input, Button, Dropdown, MenuProps, Form, Pagination, Select, Checkbox, Segmented, Tooltip, Popover, DatePicker, TimePicker } from 'antd';
+import { Table, message, Input, Button, Form, Pagination, Select, Checkbox, Segmented, Tooltip, Popover, DatePicker, TimePicker } from 'antd';
 import dayjs from 'dayjs';
 import type { SortOrder, ColumnType } from 'antd/es/table/interface';
 import type { Reference as TableReference } from 'rc-table';
-import { CloseOutlined, ConsoleSqlOutlined, CopyOutlined, EditOutlined, ExportOutlined, FileTextOutlined, LeftOutlined, RightOutlined, SearchOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
-import { 
-    DndContext, 
-    DragEndEvent, 
-    PointerSensor, 
-    useSensor, 
-    useSensors, 
-    closestCenter 
+import { CloseOutlined, EditOutlined, LeftOutlined, RightOutlined, SearchOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons';
+import {
+    DndContext,
+    DragEndEvent,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    closestCenter
 } from '@dnd-kit/core';
-import { 
-    SortableContext, 
-    useSortable, 
-    horizontalListSortingStrategy, 
-    arrayMove 
+import {
+    SortableContext,
+    useSortable,
+    horizontalListSortingStrategy,
+    arrayMove
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ImportData, ExportDataWithOptions, ExportQueryWithOptions, ApplyChanges, PreviewChanges, DBGetColumns, DBGetIndexes, DBGetForeignKeys, DBShowCreateTable } from '../../wailsjs/go/app/App';
@@ -146,7 +146,6 @@ import DataGridResultViewSwitcher from './DataGridResultViewSwitcher';
 import DataGridSecondaryActions from './DataGridSecondaryActions';
 import DataGridToolbarFrame from './DataGridToolbarFrame';
 import DataGridModals from './DataGridModals';
-import DataGridLegacyCellContextMenu from './DataGridLegacyCellContextMenu';
 import DataGridPreviewPanel from './DataGridPreviewPanel';
 import {
     DEFAULT_DATA_EXPORT_FORMAT,
@@ -253,6 +252,42 @@ const splitCellKey = (cellKey: string): { rowKey: string; colName: string } | nu
         rowKey: cellKey.slice(0, sepIndex),
         colName: cellKey.slice(sepIndex + CELL_KEY_SEP.length),
     };
+};
+const buildDataGridCellSelectionRectangle = ({
+    startRowIndex,
+    startColIndex,
+    endRowIndex,
+    endColIndex,
+    rows,
+    columnNames,
+    rowKeyField = GONAVI_ROW_KEY,
+    canSelectColumn = () => true,
+}: {
+    startRowIndex: number;
+    startColIndex: number;
+    endRowIndex: number;
+    endColIndex: number;
+    rows: Array<Record<string, any>>;
+    columnNames: string[];
+    rowKeyField?: string;
+    canSelectColumn?: (columnName: string) => boolean;
+}): Set<string> => {
+    const selectedCells = new Set<string>();
+    const minRowIndex = Math.min(startRowIndex, endRowIndex);
+    const maxRowIndex = Math.max(startRowIndex, endRowIndex);
+    const minColIndex = Math.min(startColIndex, endColIndex);
+    const maxColIndex = Math.max(startColIndex, endColIndex);
+
+    for (let rowIndex = minRowIndex; rowIndex <= maxRowIndex; rowIndex++) {
+        const rowKey = rows[rowIndex]?.[rowKeyField];
+        if (rowKey === undefined || rowKey === null) continue;
+        for (let colIndex = minColIndex; colIndex <= maxColIndex; colIndex++) {
+            const columnName = columnNames[colIndex];
+            if (!columnName || !canSelectColumn(columnName)) continue;
+            selectedCells.add(makeCellKey(String(rowKey), columnName));
+        }
+    }
+    return selectedCells;
 };
 const collectDataGridCellSelectionRowKeys = (cellKeys: Iterable<string>): string[] => {
     const rowKeys = new Set<string>();
@@ -1015,21 +1050,6 @@ const CellContextMenuContext = React.createContext<{
     showMenu: (e: React.MouseEvent, record: Item, dataIndex: string, title: React.ReactNode) => void;
     handleBatchFillToSelected: (record: Item, dataIndex: string) => void;
 } | null>(null);
-const DataContext = React.createContext<{
-    selectedRowKeysRef: React.MutableRefObject<React.Key[]>;
-    displayDataRef: React.MutableRefObject<any[]>;
-    handleCopyInsert: (r: any) => void;
-    handleCopyUpdate: (r: any) => void;
-    handleCopyDelete: (r: any) => void;
-    handleCopyJson: (r: any) => void;
-    handleCopyCsv: (r: any) => void;
-    handleExportSelected: (options: DataExportFileOptions, r: any) => Promise<void>;
-    copyToClipboard: (t: string | DataGridClipboardPayload) => void;
-    tableName?: string;
-    enableRowContextMenu: boolean;
-    supportsCopyInsert: boolean;
-} | null>(null);
-
 interface Item {
   [key: string]: any;
 }
@@ -1528,96 +1548,6 @@ const EditableCell: React.FC<EditableCellProps> = React.memo(({
   );
 }, areEditableCellPropsEqual);
 
-const ContextMenuRow = React.memo(({ children, record, ...props }: any) => {
-    const context = useContext(DataContext);
-    
-    if (!record || !context) return <tr {...props}>{children}</tr>;
-
-    const {
-        selectedRowKeysRef,
-        displayDataRef,
-        handleCopyInsert,
-        handleCopyUpdate,
-        handleCopyDelete,
-        handleCopyJson,
-        handleCopyCsv,
-        handleExportSelected,
-        copyToClipboard,
-        enableRowContextMenu,
-        supportsCopyInsert,
-    } = context;
-
-    if (!enableRowContextMenu) {
-        return <tr {...props}>{children}</tr>;
-    }
-
-    const getTargets = () => {
-        const keys = selectedRowKeysRef.current;
-        const recordKey = record?.[GONAVI_ROW_KEY];
-        if (recordKey !== undefined && keys.includes(recordKey)) {
-            return displayDataRef.current.filter(d => keys.includes(d?.[GONAVI_ROW_KEY]));
-        }
-        return [record];
-    };
-
-    const menuItems: MenuProps['items'] = [
-        ...(supportsCopyInsert ? [{
-            key: 'insert',
-            label: t('data_grid.context_menu.copy_as_insert'),
-            icon: <ConsoleSqlOutlined />,
-            onClick: () => handleCopyInsert(record),
-        }, {
-            key: 'update',
-            label: t('data_grid.context_menu.copy_as_update'),
-            icon: <ConsoleSqlOutlined />,
-            onClick: () => handleCopyUpdate(record),
-        }, {
-            key: 'delete',
-            label: t('data_grid.context_menu.copy_as_delete'),
-            icon: <ConsoleSqlOutlined />,
-            onClick: () => handleCopyDelete(record),
-        }] : []),
-        { key: 'json', label: t('data_grid.context_menu.copy_as_json'), icon: <FileTextOutlined />, onClick: () => handleCopyJson(record) },
-        { key: 'csv', label: t('data_grid.context_menu.copy_as_csv'), icon: <FileTextOutlined />, onClick: () => handleCopyCsv(record) },
-        { key: 'copy', label: t('data_grid.context_menu.copy_as_markdown'), icon: <CopyOutlined />, onClick: () => {
-            const records = getTargets();
-            const orderedCols = displayDataRef.current.length > 0
-                ? Object.keys(displayDataRef.current[0]).filter(c => c !== GONAVI_ROW_KEY)
-                : [];
-            const header = `| ${orderedCols.join(' | ')} |`;
-            const separator = `| ${orderedCols.map(() => '---').join(' | ')} |`;
-            const rows = records.map((r: any) => {
-                const values = orderedCols.map(c => {
-                    const v = r[c];
-                    if (v === null || v === undefined) return 'NULL';
-                    return String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ');
-                });
-                return `| ${values.join(' | ')} |`;
-            });
-            copyToClipboard([header, separator, ...rows].join('\n'));
-        } },
-        { type: 'divider' },
-        {
-            key: 'export-selected',
-            label: t('data_grid.context_menu.export_selected'),
-            icon: <ExportOutlined />,
-            children: [
-                { key: 'exp-csv', label: 'CSV', onClick: () => handleExportSelected({ format: 'csv' }, record).catch(console.error) },
-                { key: 'exp-xlsx', label: 'Excel', onClick: () => handleExportSelected({ format: 'xlsx' }, record).catch(console.error) },
-                { key: 'exp-json', label: 'JSON', onClick: () => handleExportSelected({ format: 'json' }, record).catch(console.error) },
-                { key: 'exp-md', label: 'Markdown', onClick: () => handleExportSelected({ format: 'md' }, record).catch(console.error) },
-                { key: 'exp-html', label: 'HTML', onClick: () => handleExportSelected({ format: 'html' }, record).catch(console.error) },
-            ]
-        }
-    ];
-
-    return (
-        <Dropdown menu={{ items: menuItems }} trigger={['contextMenu']} getPopupContainer={() => document.body} autoAdjustOverflow>
-            <tr {...props}>{children}</tr>
-        </Dropdown>
-    );
-});
-
 interface DataGridProps {
     data: any[];
     columnNames: string[];
@@ -1646,6 +1576,8 @@ interface DataGridProps {
     onSort?: (field: string, order: string) => void;
     onPageChange?: (page: number, size: number) => void;
     onLastPage?: (pageSize: number) => void;
+    /** SQL query max rows used only as a result-grid page-size suggestion. */
+    queryMaxRows?: number;
     pagination?: {
         current: number,
         pageSize: number,
@@ -2002,6 +1934,7 @@ export {
     useDataGridI18nLanguage,
     makeCellKey,
     splitCellKey,
+    buildDataGridCellSelectionRectangle,
     collectDataGridCellSelectionRowKeys,
     filterDataGridCellSelectionToVisibleRows,
     resolveDataGridCellSelectionAnchor,
@@ -2037,14 +1970,12 @@ export {
     SortableHeaderCell,
     EditableContext,
     CellContextMenuContext,
-    DataContext,
     setGlobalDeletedRowKeys,
     resolveEditableCellRowKey,
     isEditableCellDeleted,
     isEditableCellModified,
     areEditableCellPropsEqual,
     EditableCell,
-    ContextMenuRow,
     buildColumnMetaMap,
     hasUsableColumnMeta,
     EXACT_GRID_FILTER_OPERATOR,

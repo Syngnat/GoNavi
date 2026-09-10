@@ -6,15 +6,14 @@
 
        body[data-ui-version="v2"]
 
-   is set by App.tsx (driven by the AppearanceSettings.uiVersion store
-   field). Legacy stays available as a rollback option in settings.
+   is set by App.tsx as the stable scope for the current UI.
 
    Strategy:
      1. Define design tokens (light + dark) as CSS variables on the body.
      2. Override the small handful of Ant Design / project class selectors
         that drive the visual impression: surfaces, typography, sidebar
         tree, tabs, buttons, tables, inputs, dropdowns, modals.
-     3. Keep specificity tight to the v2 scope so legacy is untouched.
+     3. Keep specificity tight to the application UI scope.
 
    Workbench-specific rules are imported after this file at app entry.
    ────────────────────────────────────────────────────────────────────── */
@@ -24,17 +23,18 @@ body[data-ui-version="v2"][data-theme="light"] {
   --gn-font-sans: "Inter", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Ubuntu", sans-serif;
   --gn-font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  --gn-bg-app:      #f6f6f4;
-  --gn-bg-chrome:   #ececea;
-  --gn-bg-chrome-strong: #e8eeeb;
-  --gn-bg-panel:    #ffffff;
-  --gn-bg-panel-2:  #fafaf8;
+  --gn-bg-app:      rgb(246 246 244 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome:   rgb(236 236 234 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome-strong: rgb(232 238 235 / var(--gn-window-opacity, 1));
+  --gn-bg-titlebar: rgb(250 250 248 / var(--gn-window-opacity, 1));
+  --gn-bg-panel:    rgb(255 255 255 / var(--gn-window-opacity, 1));
+  --gn-bg-panel-2:  rgb(250 250 248 / var(--gn-window-opacity, 1));
   /* All Monaco editors share this surface token (see .gn-monaco-surface). */
   --gn-monaco-bg:   var(--gn-bg-panel);
   --gn-bg-hover:    rgba(15, 23, 42, 0.045);
   --gn-bg-active:   rgba(15, 23, 42, 0.075);
   --gn-bg-selected: rgba(34, 197, 94, 0.10);
-  --gn-bg-input:    #ffffff;
+  --gn-bg-input:    rgb(255 255 255 / var(--gn-window-opacity, 1));
 
   --gn-fg-1: #0c1322;
   --gn-fg-2: #1f2937;
@@ -77,22 +77,23 @@ body[data-ui-version="v2"][data-theme="dark"] {
   --gn-font-sans: "Inter", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Ubuntu", sans-serif;
   --gn-font-mono: "JetBrains Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  --gn-bg-app:      #0c0e12;
-  --gn-bg-chrome:   #14171c;
-  --gn-bg-chrome-strong: #11161b;
-  --gn-bg-panel:    #161a21;
-  --gn-bg-panel-2:  #1b1f27;
+  --gn-bg-app:      rgb(12 14 18 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome:   rgb(20 23 28 / var(--gn-window-opacity, 1));
+  --gn-bg-chrome-strong: rgb(17 22 27 / var(--gn-window-opacity, 1));
+  --gn-bg-titlebar: rgb(27 31 39 / var(--gn-window-opacity, 1));
+  --gn-bg-panel:    rgb(22 26 33 / var(--gn-window-opacity, 1));
+  --gn-bg-panel-2:  rgb(27 31 39 / var(--gn-window-opacity, 1));
   --gn-monaco-bg:   var(--gn-bg-panel);
   --gn-bg-hover:    rgba(255, 255, 255, 0.05);
   --gn-bg-active:   rgba(255, 255, 255, 0.08);
   --gn-bg-selected: rgba(34, 197, 94, 0.14);
-  --gn-bg-input:    #0f1217;
+  --gn-bg-input:    rgb(15 18 23 / var(--gn-window-opacity, 1));
 
-  --gn-fg-1: #f1f3f5;
-  --gn-fg-2: #d6dade;
-  --gn-fg-3: #a8aeb5;
-  --gn-fg-4: #80868f;
-  --gn-fg-5: #5a6068;
+  --gn-fg-1: #ffffff;
+  --gn-fg-2: #f5f5f5;
+  --gn-fg-3: #e6e6e6;
+  --gn-fg-4: #d9d9d9;
+  --gn-fg-5: #cccccc;
 
   --gn-br-1: rgba(255, 255, 255, 0.06);
   --gn-br-2: rgba(255, 255, 255, 0.10);
@@ -191,7 +192,7 @@ body[data-ui-version="v2"] [class*="monospace"] {
    ────────────────────────────────────────────────────────── */
 
 body[data-ui-version="v2"] .ant-layout {
-  background: var(--gn-bg-app) !important;
+  background: transparent !important;
 }
 
 /* 主内容区与左侧 sider 同用 panel-2：原先 app 近黑、panel 更深一档，
@@ -1724,21 +1725,6 @@ body[data-ui-version="v2"] .ant-divider {
    Small additions — visual polish unique to v2
    ────────────────────────────────────────────────────────── */
 
-/* Brand-tinted active row indicator in sidebar */
-body[data-ui-version="v2"] .gn-v2-object-explorer .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected::before {
-  content: '';
-  position: absolute;
-  left: 2px;
-  top: 5px;
-  bottom: 5px;
-  width: 3px;
-  background: var(--gn-accent);
-  border-radius: 2px;
-  display: block;
-  pointer-events: none;
-  z-index: 1;
-}
-
 body[data-ui-version="v2"] .ant-tree .ant-tree-node-content-wrapper {
   position: relative;
 }
@@ -2105,14 +2091,12 @@ body[data-ui-version="v2"] .ant-modal-body input[type="number"] {
 /* ─── Redis viewer / Driver manager / overlay workbench ─── */
 /* These render their cards via inline styles read from workbenchTheme
    objects (see overlayWorkbenchTheme.ts, redisViewerWorkbenchTheme.ts,
-   driverManagerWorkbenchTheme.ts). Those files now branch on uiVersion
-   and supply v2 colors directly. The hooks below tighten edges that
+   driverManagerWorkbenchTheme.ts). The hooks below tighten edges that
    inline styles can't reach. */
 
 body[data-ui-version="v2"] .redis-viewer-workbench {
   background: var(--gn-bg-panel-2) !important;
-  /* the inner cards still read workbenchTheme — those return v2 palette
-     once the workbench theme files honor uiVersion */
+  /* the inner cards still read the shared workbench theme palette */
 }
 
 body[data-ui-version="v2"] .redis-tree-expander-button:hover {
@@ -2164,7 +2148,7 @@ body[data-ui-version="v2"] h4.ant-typography {
 
 /* ─── V2 structural shell: redesigned sidebar / workbench ─ */
 body[data-ui-version="v2"] .gn-v2-sidebar-shell {
-  background: var(--gn-bg-panel-2);
+  background: transparent;
 }
 
 body[data-ui-version="v2"] .gn-v2-app-sider {
@@ -2174,9 +2158,9 @@ body[data-ui-version="v2"] .gn-v2-app-sider {
 
 body[data-ui-version="v2"] .gn-v2-sidebar-redesign {
   --gn-v2-rail-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
-  --gn-v2-explorer-scale: var(--gn-ui-scale, 1);
+  --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
   width: 100%;
-  background: var(--gn-bg-panel-2);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -2550,7 +2534,7 @@ body[data-ui-version="v2"] .gn-v2-rail-create-label {
 body[data-ui-version="v2"] .gn-v2-object-explorer {
   min-width: 0;
   flex: 1 1 0;
-  background: var(--gn-bg-panel-2);
+  background: transparent;
   overflow: hidden;
   container-type: inline-size;
   container-name: gn-v2-object-explorer;
@@ -2569,7 +2553,7 @@ body[data-ui-version="v2"] .gn-v2-explorer-actions {
   overflow-x: auto;
   overflow-y: hidden;
   border-bottom: none;
-  background: var(--gn-bg-panel-2);
+  background: transparent;
   scrollbar-width: none;
 }
 
@@ -2753,14 +2737,14 @@ body[data-ui-version="v2"] .gn-v2-explorer-search {
   border-bottom: none !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row {
+body[data-ui-version="v2"] .gn-v2-explorer-filter-row {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-legacy-filter-row .ant-input-affix-wrapper {
+body[data-ui-version="v2"] .gn-v2-explorer-filter-row .ant-input-affix-wrapper {
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -3082,10 +3066,11 @@ body[data-ui-version="v2"] .gn-v2-explorer-search .ant-input-suffix {
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs {
   display: flex;
   flex-wrap: nowrap;
-  gap: 4px;
+  gap: calc(2px * var(--gn-v2-explorer-scale));
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 2px 10px 8px;
+  overscroll-behavior-x: contain;
+  padding: 0 calc(10px * var(--gn-v2-explorer-scale)) calc(8px * var(--gn-v2-explorer-scale));
   scrollbar-width: none;
 }
 
@@ -3094,17 +3079,24 @@ body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs::-webkit-scrollbar {
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button {
-  flex: 0 0 auto;
-  height: 22px;
-  padding: 0 7px;
+  display: inline-flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(28px * var(--gn-v2-explorer-scale));
+  height: calc(28px * var(--gn-v2-explorer-scale));
+  padding: 0;
+  overflow: hidden;
   border: none;
-  border-radius: 6px;
+  border-radius: calc(7px * var(--gn-v2-explorer-scale));
   background: transparent;
   color: var(--gn-fg-4);
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
+  cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button .anticon {
+  font-size: calc(14px * var(--gn-v2-explorer-scale));
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-filter-tabs button:hover {
@@ -3124,6 +3116,8 @@ body[data-ui-version="v2"] .gn-v2-explorer-toolbar {
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell {
   --gn-v2-tree-horizontal-scroll-reserve: 32px;
+  --gn-v2-tree-trailing-inset: 12px;
+  --gn-v2-tree-trailing-status-slot: 16px;
   margin: 0;
   border: 0;
   border-radius: 0;
@@ -3137,7 +3131,9 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .sidebar-tree-scroll-conte
   min-height: 0;
   height: 100%;
   box-sizing: border-box;
-  padding: 4px 0 0;
+  /* Keep the native vertical scrollbar outside the inner half of the
+     sidebar resize hit area. The other half stays over the workbench. */
+  padding: 6px max(8px, var(--gonavi-sidebar-resize-inner-hit-width, 8px)) 8px 8px;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree {
@@ -3208,50 +3204,74 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-list-holder-inne
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode {
+  position: relative;
+  width: calc(100% + var(--gn-v2-tree-horizontal-offset, 0px)) !important;
   min-height: 26px !important;
   padding: 0 6px !important;
   align-items: center;
-}
-
-/* Connection rows sit one step taller than object rows for hierarchy */
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) {
-  min-height: 30px !important;
+  transition: background-color 80ms ease;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher {
+  flex: 0 0 16px !important;
   width: 16px !important;
   min-width: 16px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
   align-self: stretch;
-  line-height: 26px !important;
+  line-height: 1 !important;
   font-size: 12px !important;
-  color: var(--gn-fg-4);
+  color: var(--gn-fg-5);
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-switcher {
-  line-height: 30px !important;
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .anticon {
+  font-size: 12px;
+  transition: color 80ms ease;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:hover > .ant-tree-switcher,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher_open {
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher:hover {
+  color: var(--gn-fg-2) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher-noop .ant-tree-switcher-icon {
+  visibility: hidden;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-indent-unit {
-  width: 12px !important;
+  width: 16px !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper {
-  min-width: 100%;
+  min-width: 0;
   width: max-content !important;
   min-height: 26px !important;
-  padding: 0 6px 0 8px !important;
+  padding: 0 6px 0 6px !important;
   display: flex !important;
   align-items: center;
   border-radius: 6px !important;
   color: var(--gn-fg-3) !important;
 }
 
-body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-node-content-wrapper {
-  min-height: 30px !important;
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title.is-connection,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-title.is-connection-group {
+  padding-right: 2px;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper:hover {
   background: var(--gn-bg-hover) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wrapper:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: -2px;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-draggable {
@@ -3274,14 +3294,56 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-node-content-wra
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle {
-  width: 15px !important;
-  min-width: 15px !important;
+  width: 16px !important;
+  min-width: 16px !important;
+  height: 16px !important;
   margin-right: 4px !important;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
   color: var(--gn-fg-4);
-  font-size: 13px;
+  font-size: 14px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle [data-db-icon-frame="true"] {
+  max-width: 16px !important;
+  max-height: 16px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-folder-icon) .ant-tree-iconEle {
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 20px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection) .ant-tree-iconEle [data-db-icon-frame="true"],
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle img,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle svg,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="saved-query-group"]) .ant-tree-iconEle [data-db-icon-frame="true"],
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-folder-icon) .ant-tree-iconEle > *,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-folder-icon) .ant-tree-iconEle svg {
+  max-width: 20px !important;
+  max-height: 20px !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon-table,
@@ -3298,18 +3360,30 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-iconEle .anticon
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  flex: 0 0 22px;
+  flex: 0 0 20px;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder,
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-folder-icon .anticon-folder-open {
-  color: #faad14;
-  font-size: 18px;
+  color: #d48806;
+  font-size: 17px;
+  line-height: 1;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-iconEle .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="all-saved-queries"]) .ant-tree-iconEle .anticon-folder-open,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title[data-node-type="external-sql-root"]) .ant-tree-iconEle .anticon-folder-open {
+  color: #d48806;
+  font-size: 17px;
+  line-height: 1;
 }
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title {
@@ -3329,13 +3403,13 @@ body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title > span {
 
 body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-title > .gn-v2-tree-title {
   width: max-content;
-  min-width: 100%;
+  min-width: 0;
   overflow: visible;
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-title {
   width: max-content;
-  min-width: 100%;
+  min-width: 0;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -3349,7 +3423,7 @@ body[data-ui-version="v2"] .gn-v2-tree-title {
 
 body[data-ui-version="v2"] .gn-v2-tree-title.is-mono {
   width: max-content;
-  min-width: 100%;
+  min-width: 0;
   flex: 0 0 auto;
 }
 
@@ -3389,8 +3463,14 @@ body[data-ui-version="v2"] .gn-v2-tree-object-status.is-invalid {
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-title.is-group {
-  font-weight: 400 !important;
-  color: var(--gn-fg-1);
+  font-weight: 500 !important;
+  color: var(--gn-fg-3);
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection-group {
+  color: var(--gn-fg-3);
+  font-weight: 600 !important;
+  letter-spacing: 0.01em;
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-title.is-connection {
@@ -3398,6 +3478,137 @@ body[data-ui-version="v2"] .gn-v2-tree-title.is-connection {
   gap: 6px;
   font-weight: 500 !important;
   color: var(--gn-fg-1);
+}
+
+/* Host / folder rows fill the sidebar and ellipsize; object identifiers keep
+   the existing horizontal scroll so long table names stay readable. */
+/* 可见层长标签按内容撑开（横滚由 estimate 按展开层计算）；短标签自然不溢出 */
+
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title:not(.is-mono)):hover {
+  background: var(--gn-bg-hover) !important;
+  border-radius: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title:not(.is-mono)):hover .ant-tree-node-content-wrapper {
+  background: transparent !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected {
+  background: color-mix(in srgb, var(--gn-accent) 10%, var(--gn-bg-selected)) !important;
+  border-radius: 6px;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected:hover {
+  background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-selected)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title:not(.is-mono)):active {
+  background: var(--gn-bg-active) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected:active {
+  background: color-mix(in srgb, var(--gn-accent) 16%, var(--gn-bg-selected)) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected .ant-tree-node-content-wrapper,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode.ant-tree-treenode-selected .ant-tree-node-content-wrapper.ant-tree-node-selected {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title:not(.is-mono) {
+  width: max-content;
+  min-width: 0;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection .gn-v2-tree-connection-copy {
+  min-width: max-content;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+/* 状态点绝对定位，行宽仍按内容；只留右侧槽位 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-status) .ant-tree-node-content-wrapper {
+  padding-right: calc(var(--gn-v2-tree-trailing-inset, 12px) + var(--gn-v2-tree-trailing-status-slot, 16px) + 12px) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection-group .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title.is-group .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="database"] .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="queries-folder"] .gn-v2-tree-label,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="external-sql-root"] .gn-v2-tree-label {
+  display: block;
+  flex: 0 0 auto;
+  min-width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-title.is-connection-group .gn-v2-tree-count,
+body[data-ui-version="v2"] .gn-v2-tree-title.is-group .gn-v2-tree-count,
+body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="database"] .gn-v2-tree-count {
+  margin-left: auto;
+  padding: 0 6px;
+  min-width: 16px;
+  min-height: 16px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gn-fg-4) 8%, transparent);
+  color: var(--gn-fg-4);
+  font-size: 10px;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em;
+  opacity: 0.92;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .gn-v2-tree-status {
+  position: absolute;
+  top: 50%;
+  right: var(--gn-v2-tree-trailing-inset, 12px);
+  z-index: 1;
+  margin: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* 分组/对象组数字：与绿色状态点同一右缘；有状态点时让到圆点左侧 */
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .gn-v2-tree-count,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-group) .gn-v2-tree-count {
+  position: absolute;
+  top: 50%;
+  right: var(--gn-v2-tree-trailing-inset, 12px);
+  z-index: 1;
+  margin-left: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-status) .gn-v2-tree-count {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--gn-v2-tree-trailing-inset, 12px) + var(--gn-v2-tree-trailing-status-slot, 16px));
+  z-index: 1;
+  margin-left: 0;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-connection-group) .ant-tree-node-content-wrapper,
+body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode:has(.gn-v2-tree-title.is-group) .ant-tree-node-content-wrapper {
+  padding-right: calc(var(--gn-v2-tree-trailing-inset, 12px) + 20px) !important;
 }
 
 /* Host grouping drag: group rows are magnetic targets, gaps remain sortable. */
@@ -3531,6 +3742,11 @@ body[data-ui-version="v2"] .gn-v2-sidebar-tree-drag-preview-label {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-treenode,
+  body[data-ui-version="v2"] .gn-v2-explorer-tree-shell .ant-tree-switcher .anticon {
+    transition: none;
+  }
+
   body[data-ui-version="v2"] .gn-v2-explorer-tree-shell.is-host-tree-dragging .ant-tree-treenode:has(.gn-v2-tree-title.is-drop-inside) {
     transition: none;
   }
@@ -3538,7 +3754,7 @@ body[data-ui-version="v2"] .gn-v2-sidebar-tree-drag-preview-label {
 
 body[data-ui-version="v2"] .gn-v2-tree-status {
   position: relative;
-  margin: 0 2px 0 0;
+  margin: 0;
   width: 14px;
   min-width: 14px;
   height: 14px;
@@ -3547,23 +3763,31 @@ body[data-ui-version="v2"] .gn-v2-tree-status {
   align-items: center;
   justify-content: center;
   overflow: visible;
+  pointer-events: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-tree-status.is-default {
+  display: none;
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-status::before {
   content: '';
-  width: 9px;
-  height: 9px;
+  width: 6px;
+  height: 6px;
   box-sizing: border-box;
-  border: 1.5px solid var(--gn-fg-4);
+  border: 0;
   border-radius: 50%;
-  flex: 0 0 9px;
-  background: transparent;
+  flex: 0 0 6px;
+  background: color-mix(in srgb, var(--gn-fg-4) 55%, transparent);
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-status.is-success::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
   border: 0;
   background: var(--gn-status-connected);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gn-status-connected) 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-status-connected) 22%, transparent);
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-status.is-loading::before {
@@ -3578,9 +3802,12 @@ body[data-ui-version="v2"] .gn-v2-tree-status.is-loading::before {
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-status.is-error::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
   border: 0;
   background: var(--gn-danger);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gn-danger) 20%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-danger) 20%, transparent);
 }
 
 @keyframes gn-v2-tree-status-spin {
@@ -3706,20 +3933,22 @@ body[data-ui-version="v2"] .gn-v2-redis-db-alias {
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-connection-copy {
-  min-width: max-content;
-  flex: 0 0 auto;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
   color: var(--gn-fg-1);
   font-weight: 400 !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-count {
   flex: 0 0 auto;
+  align-self: center;
   color: var(--gn-fg-5);
   font-family: var(--gn-font-sans);
   font-variant-numeric: tabular-nums;
   font-size: clamp(10px, calc(var(--gn-sidebar-tree-font-size, var(--gn-font-size-sm, 12px)) - 1px), 16px);
   font-weight: 400 !important;
-  opacity: 0.82;
+  opacity: 0.78;
 }
 
 body[data-ui-version="v2"] .gn-v2-table-pin-indicator {
@@ -3736,8 +3965,6 @@ body[data-ui-version="v2"] .gn-v2-table-pin-indicator {
   color: var(--gn-warn);
 }
 
-/* Selected accent bar kept on; see rule near Small additions block */
-
 body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="database"] {
   font-weight: 400 !important;
   color: var(--gn-fg-1);
@@ -3745,8 +3972,8 @@ body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="database"] {
 
 body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="queries-folder"],
 body[data-ui-version="v2"] .gn-v2-tree-title[data-node-type="external-sql-root"] {
-  color: var(--gn-fg-1);
-  font-weight: 400 !important;
+  color: var(--gn-fg-3);
+  font-weight: 500 !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-tree-external-root {
@@ -3824,7 +4051,7 @@ body[data-ui-version="v2"] .gn-v2-empty-workbench {
   flex-direction: column;
   gap: 0;
   padding: 0;
-  background: var(--gn-bg-panel-2);
+  background: transparent;
   overflow: auto;
   overscroll-behavior: contain;
 }
@@ -3844,7 +4071,7 @@ body[data-ui-version="v2"] .gn-v2-empty-hero {
   flex-direction: column;
   justify-content: flex-start;
   min-height: 0;
-  background: var(--gn-bg-panel-2);
+  background: transparent;
   padding: 24px 28px 18px 30px;
 }
 
@@ -3912,7 +4139,7 @@ body[data-ui-version="v2"] .gn-v2-empty-resource-card {
   flex-direction: column;
   border: 0.5px solid var(--gn-br-1);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--gn-bg-panel-2) 90%, var(--gn-bg-panel) 10%);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -4161,7 +4388,7 @@ body[data-ui-version="v2"]
   padding-left: max(
     0px,
     calc(
-      (182px * var(--gn-ui-scale, 1))
+      (182px * var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1))
       - var(--gn-v2-empty-hero-padding-inline-start, 30px)
     )
   );
@@ -4176,7 +4403,7 @@ body[data-ui-version="v2"] .gn-v2-app-root {
 body[data-ui-version="v2"] .gn-v2-titlebar {
   position: relative;
   overflow: visible;
-  background: var(--gn-bg-panel-2) !important;
+  background: var(--gn-bg-titlebar) !important;
   border: 0 !important;
   box-shadow: none !important;
 }
@@ -4185,7 +4412,7 @@ body[data-ui-version="v2"] .gn-v2-titlebar {
    empty lower titlebar band for the same six scaled actions shown by the
    expanded explorer toolbar. Keep the Windows window controls out of its way. */
 body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sidebar-actions {
-  --gn-v2-explorer-scale: var(--gn-ui-scale, 1);
+  --gn-v2-explorer-scale: calc(var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1));
   position: absolute;
   left: calc(6px * var(--gn-ui-scale, 1));
   right: calc(var(--gn-titlebar-window-controls-width, 0px) + 6px);
@@ -4197,8 +4424,8 @@ body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked .gn-v2-collapsed-sid
   height: calc(26px * var(--gn-v2-explorer-scale));
   flex-wrap: nowrap;
   align-items: center;
-  gap: calc(2px * var(--gn-ui-scale, 1));
-  padding: 0 calc(2px * var(--gn-ui-scale, 1));
+  gap: calc(2px * var(--gn-v2-explorer-scale));
+  padding: 0 calc(2px * var(--gn-v2-explorer-scale));
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
@@ -4232,7 +4459,7 @@ body[data-ui-version="v2"] .gn-v2-titlebar-brand {
 }
 
 body[data-ui-version="v2"] .gn-v2-app-shell {
-  background: var(--gn-bg-app) !important;
+  background: transparent !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-app-sider {
@@ -4240,11 +4467,11 @@ body[data-ui-version="v2"] .gn-v2-app-sider {
 }
 
 body[data-ui-version="v2"] .gn-v2-workspace-shell {
-  background: var(--gn-bg-app) !important;
+  background: transparent !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-workspace-body {
-  background: var(--gn-bg-app);
+  background: transparent;
 }
 
 body[data-ui-version="v2"] .gn-v2-workspace-main {
@@ -4293,7 +4520,7 @@ body[data-ui-version="v2"] .gn-v2-tab-workbench {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--gn-bg-panel-2);
+  background: transparent;
 }
 
 body[data-ui-version="v2"] .gn-v2-main-tabs > .ant-tabs-nav {
@@ -6026,6 +6253,25 @@ body[data-ui-version="v2"] .gn-v2-data-grid-pagination-wrap .data-grid-paginatio
   outline: none !important;
 }
 
+body[data-ui-version="v2"] [data-grid-custom-page-size-dropdown="true"] {
+  width: 128px;
+  max-width: calc(100vw - 24px);
+}
+
+body[data-ui-version="v2"] [data-grid-custom-page-size-confirm="true"].ant-btn {
+  box-sizing: border-box;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 24px !important;
+  min-width: 24px !important;
+  max-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  flex: 0 0 24px;
+}
+
 /* ─── V2 context menus, including portal-rendered custom menus ─ */
 body[data-ui-version="v2"] .gn-v2-action-menu-surface {
   width: 264px;
@@ -6063,6 +6309,47 @@ body[data-ui-version="v2"] .gn-v2-action-menu-body > .ant-dropdown-menu {
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-action-menu-body > .gn-v2-sidebar-node-menu.ant-menu {
+  width: 100%;
+  min-width: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-item,
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-submenu-title,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-item,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-submenu-title {
+  width: 100%;
+  height: var(--gn-v2-menu-row-height, 28px);
+  min-height: var(--gn-v2-menu-row-height, 28px);
+  margin: 0 !important;
+  padding: 0 8px 0 10px !important;
+  border-radius: var(--gn-v2-menu-item-radius, 5px);
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: var(--gn-v2-menu-row-height, 28px);
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup > .ant-menu {
+  min-width: 180px;
+  padding: 4px !important;
+  border: 0.5px solid var(--gn-br-2) !important;
+  border-radius: var(--gn-v2-menu-surface-radius, 10px) !important;
+  background: var(--gn-bg-panel) !important;
+  box-shadow: var(--gn-shadow-lg) !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-sidebar-node-menu.ant-menu .ant-menu-item-divider,
+body[data-ui-version="v2"] .gn-v2-sidebar-context-menu-portal .ant-menu-submenu-popup .ant-menu-item-divider {
+  margin: 4px !important;
+  border-color: var(--gn-br-1) !important;
 }
 
 body[data-ui-version="v2"] .gn-v2-action-menu-body .ant-dropdown-menu-item,
@@ -6387,4 +6674,50 @@ body[data-ui-version="v2"] .gn-v2-context-menu-kbd {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Settings center: flush right edge + refined scrollbar
+   Must beat body[data-ui-version="v2"] ::-webkit-scrollbar (imported after App.css). */
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench,
+body[data-ui-version="v2"] .gonavi-settings-center-modal {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gn-fg-4) 50%, transparent) transparent;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-track,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-track,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 2px 0;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--gn-fg-4) 38%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  min-height: 36px;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:hover,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-thumb:hover,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--gn-accent) 50%, var(--gn-fg-4));
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-workbench-host ::-webkit-scrollbar-corner,
+body[data-ui-version="v2"] .gonavi-settings-center-workbench ::-webkit-scrollbar-corner,
+body[data-ui-version="v2"] .gonavi-settings-center-modal ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+body[data-ui-version="v2"] .gonavi-settings-center-pane-scroll,
+body[data-ui-version="v2"] .gonavi-settings-center-content {
+  scrollbar-gutter: auto;
 }

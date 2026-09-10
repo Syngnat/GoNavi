@@ -22,7 +22,7 @@ func (a *App) dataSyncDatabaseListContext(ctx context.Context, connectionID stri
 	if result := contextQueryFailure(ctx); result.Message != "" {
 		return result
 	}
-	endpoint, err := a.resolveDataSyncJobEndpoint(connectionID, "", "")
+	endpoint, err := a.resolveDataSyncSavedEndpoint(connectionID, "", "")
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -33,7 +33,7 @@ func (a *App) dataSyncObjectListContext(ctx context.Context, connectionID, datab
 	if result := contextQueryFailure(ctx); result.Message != "" {
 		return result
 	}
-	endpoint, err := a.resolveDataSyncJobEndpoint(connectionID, database, schema)
+	endpoint, err := a.resolveDataSyncSavedEndpoint(connectionID, database, schema)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -46,7 +46,7 @@ func (a *App) dataSyncFieldListContext(ctx context.Context, connectionID, databa
 	if result := contextQueryFailure(ctx); result.Message != "" {
 		return result
 	}
-	endpoint, err := a.resolveDataSyncJobEndpoint(connectionID, database, schema)
+	endpoint, err := a.resolveDataSyncSavedEndpoint(connectionID, database, schema)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -64,14 +64,14 @@ func (a *App) dataSyncCapabilityResolveContext(ctx context.Context, sourceConnec
 	if result := contextQueryFailure(ctx); result.Message != "" {
 		return result
 	}
-	source, err := a.resolveDataSyncJobEndpoint(sourceConnectionID, sourceDatabase, sourceSchema)
+	source, err := a.resolveDataSyncSavedEndpoint(sourceConnectionID, sourceDatabase, sourceSchema)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 	if result := contextQueryFailure(ctx); result.Message != "" {
 		return result
 	}
-	target, err := a.resolveDataSyncJobEndpoint(targetConnectionID, targetDatabase, targetSchema)
+	target, err := a.resolveDataSyncSavedEndpoint(targetConnectionID, targetDatabase, targetSchema)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
@@ -98,7 +98,7 @@ func (a *App) dataSyncCDCProbeContext(ctx context.Context, connectionID, databas
 	if result := contextQueryFailure(ctx); result.Message != "" {
 		return result
 	}
-	endpoint, err := a.resolveDataSyncJobEndpoint(connectionID, database, schema)
+	endpoint, err := a.resolveDataSyncSavedEndpoint(connectionID, database, schema)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

@@ -194,6 +194,18 @@ const AIRawErrorButton: React.FC<{
   </div>
 );
 
+const formatTokenCount = (value: number | undefined): string => {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return '—';
+  return String(Math.floor(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+};
+
+const formatCacheRate = (cachedTokens: number | undefined, promptTokens: number | undefined): string => {
+  if (cachedTokens === undefined || promptTokens === undefined) return '—';
+  if (promptTokens <= 0) return cachedTokens === 0 ? '0%' : '—';
+  const percentage = Math.min(100, Math.max(0, (cachedTokens / promptTokens) * 100));
+  return `${Number(percentage.toFixed(1))}%`;
+};
+
 export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
   msg,
   canRetry,
@@ -497,6 +509,30 @@ export const AIMessageBubble: React.FC<AIMessageBubbleProps> = React.memo(({
 
           {(msg.loading || typewriter.isAnimating) && msg.phase !== 'tool_calling' && msg.content && (
             <span className="ai-blinking-cursor" style={{ background: overlayTheme.iconColor }} />
+          )}
+
+          {!isUser && !msg.loading && !typewriter.isAnimating && !msg.rawError && !msg.excludeFromAIContext && (
+            <div
+              className="ai-message-token-usage"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
+                marginTop: 10,
+                paddingTop: 8,
+                borderTop: overlayTheme.shellBorder,
+                color: overlayTheme.mutedText,
+                fontSize: 11,
+                lineHeight: 1.4,
+              }}
+            >
+              <span>{copy('ai_chat.message.usage.input')} {formatTokenCount(msg.tokenUsage?.promptTokens)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{copy('ai_chat.message.usage.output')} {formatTokenCount(msg.tokenUsage?.completionTokens)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{copy('ai_chat.message.usage.cache_rate')} {formatCacheRate(msg.tokenUsage?.cachedTokens, msg.tokenUsage?.promptTokens)}</span>
+            </div>
           )}
         </div>
       </div>

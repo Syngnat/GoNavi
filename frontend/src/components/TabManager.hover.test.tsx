@@ -136,20 +136,21 @@ describe('TabManager hover info', () => {
     });
   });
 
-  it('keeps the tab workbench as a full-height flex child in legacy and v2 UI', () => {
+  it('keeps the tab workbench as a full-height flex child', () => {
 
     expect(TAB_WORKBENCH_CLASS_NAME).toBe('tab-workbench');
   });
 
-  it('applies the persisted environment accent thickness in both legacy and v2 tabs', () => {
-    expect(buildTabWorkbenchStyle(true, 260, 6)).toEqual({
+  it('applies the persisted environment accent thickness', () => {
+    expect(buildTabWorkbenchStyle(260, 6)).toEqual({
       '--gn-v2-tab-width': '260px',
       '--gn-tab-environment-accent-thickness': '6px',
     });
-    expect(buildTabWorkbenchStyle(false, 260, 1)).toEqual({
+    expect(buildTabWorkbenchStyle(260, 1)).toEqual({
+      '--gn-v2-tab-width': '260px',
       '--gn-tab-environment-accent-thickness': '1px',
     });
-    expect(buildTabWorkbenchStyle(true, 180, 99)).toEqual({
+    expect(buildTabWorkbenchStyle(180, 99)).toEqual({
       '--gn-v2-tab-width': '180px',
       '--gn-tab-environment-accent-thickness': '2px',
     });

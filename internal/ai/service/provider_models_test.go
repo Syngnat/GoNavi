@@ -74,6 +74,57 @@ func TestProviderModelPreferencesFilterEveryListSource(t *testing.T) {
 	}
 }
 
+func TestAIListProviderModelsRefreshesDraftWithoutChangingSavedState(t *testing.T) {
+	originalFetch := fetchModelsFunc
+	t.Cleanup(func() { fetchModelsFunc = originalFetch })
+	service := newProviderManagementTestService(t)
+	saved := ai.ProviderConfig{ID: "saved", Name: "Saved", Type: "openai", BaseURL: "https://saved.invalid/v1", APIKey: "saved-key", Model: "saved-model"}
+	if err := service.AISaveProvider(saved); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AISetActiveProvider(saved.ID); err != nil {
+		t.Fatal(err)
+	}
+	var fetched ai.ProviderConfig
+	fetchModelsFunc = func(config ai.ProviderConfig, _ *i18n.Localizer) ([]string, error) {
+		fetched = config
+		return []string{" upstream-b ", "upstream-a", "upstream-a"}, nil
+	}
+	draft := ai.ProviderConfig{ID: "draft", Name: "Draft", Type: "custom", APIFormat: "openai", BaseURL: "https://draft.invalid/v1", APIKey: "draft-key"}
+	result := service.AIListProviderModels(draft)
+	if result["success"] != true || result["source"] != "api" || !reflect.DeepEqual(result["models"], []string{" upstream-b ", "upstream-a", "upstream-a"}) {
+		t.Fatalf("unexpected draft model result: %#v", result)
+	}
+	if fetched.BaseURL != draft.BaseURL || fetched.APIKey != draft.APIKey || fetched.ID != draft.ID {
+		t.Fatalf("model refresh used the wrong draft: %#v", fetched)
+	}
+	if service.AIGetActiveProvider() != saved.ID || len(service.AIGetProviders()) != 1 || service.AIGetProviders()[0].Name != saved.Name {
+		t.Fatal("draft model refresh must not write config or change the active provider")
+	}
+}
+
+func TestAIListProviderModelsResolvesRetainedSecretAndDoesNotMaskRemoteFailure(t *testing.T) {
+	originalFetch := fetchModelsFunc
+	t.Cleanup(func() { fetchModelsFunc = originalFetch })
+	service := newProviderManagementTestService(t)
+	saved := ai.ProviderConfig{ID: "saved", Name: "Saved", Type: "openai", BaseURL: "https://saved.invalid/v1", APIKey: "saved-key", Model: "saved-model"}
+	if err := service.AISaveProvider(saved); err != nil {
+		t.Fatal(err)
+	}
+	fetchModelsFunc = func(config ai.ProviderConfig, _ *i18n.Localizer) ([]string, error) {
+		if config.APIKey != saved.APIKey {
+			t.Fatalf("retained secret was not resolved: %#v", config)
+		}
+		return nil, errors.New("upstream unavailable")
+	}
+	view := service.AIGetProviders()[0]
+	view.Models = []string{"must-not-be-used-as-sync-result"}
+	result := service.AIListProviderModels(view)
+	if result["success"] != false || !strings.Contains(result["error"].(string), "upstream unavailable") {
+		t.Fatalf("remote sync failure must remain visible: %#v", result)
+	}
+}
+
 func TestProviderModelPreferencesRejectDisabledRequiredModelsBeforeWriting(t *testing.T) {
 	service := newProviderManagementTestService(t)
 	config := ai.ProviderConfig{ID: "one", Name: "saved", Type: "openai", Model: "default", InlineCompletionModel: "sql", APIKey: "fixture-key"}
@@ -103,7 +154,7 @@ func TestProviderModelPreferencesRejectDisabledRequiredModelsBeforeWriting(t *te
 
 func TestProviderModelPreferencesRoundTripAndCopyIsolation(t *testing.T) {
 	service := newProviderManagementTestService(t)
-	original := ai.ProviderConfig{ID: "original", Name: "Original", Type: "openai", Model: "default", InlineCompletionModel: "sql", Models: []string{"default", "sql", "other"}, CustomModels: []string{"mine"}, DisabledModels: []string{"other"}, APIKey: "fixture-key", Headers: map[string]string{"X-Api-Key": "fixture-header", "X-Team": "fixture"}}
+	original := ai.ProviderConfig{ID: "original", Name: "Original", Type: "openai", Model: "default", InlineCompletionModel: "sql", CustomModels: []string{"mine"}, DisabledModels: []string{"other"}, APIKey: "fixture-key", Headers: map[string]string{"X-Api-Key": "fixture-header", "X-Team": "fixture"}}
 	if err := service.AISaveProvider(original); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +188,7 @@ func TestProviderModelPreferencesRoundTripAndCopyIsolation(t *testing.T) {
 	}
 }
 
-func TestProviderModelPreferencesAbsentInLegacyJSON(t *testing.T) {
+func TestProviderModelPreferencesMigrateRemovedLegacyList(t *testing.T) {
 	service := newProviderManagementTestService(t)
 	legacy := `{"providers":[{"id":"old","type":"openai","name":"Old","model":"pinned-default","inlineCompletionModel":"pinned-sql","models":["pinned-default","pinned-sql"]}],"activeProvider":"old"}`
 	if err := os.WriteFile(filepath.Join(service.configDir, aiConfigFileName), []byte(legacy), 0600); err != nil {
@@ -145,11 +196,11 @@ func TestProviderModelPreferencesAbsentInLegacyJSON(t *testing.T) {
 	}
 	service.loadConfig()
 	got := service.AIGetProviders()
-	if len(got) != 1 || got[0].Model != "pinned-default" || got[0].InlineCompletionModel != "pinned-sql" || got[0].DisabledModels != nil || got[0].CustomModels != nil {
-		t.Fatal("legacy config must not gain preferences or change selected models")
+	if len(got) != 1 || got[0].Model != "pinned-default" || got[0].InlineCompletionModel != "pinned-sql" || got[0].Models != nil || got[0].DisabledModels != nil || got[0].CustomModels != nil {
+		t.Fatal("legacy config must drop the removed list without changing selected models")
 	}
 	serialized, err := json.Marshal(got[0])
-	if err != nil || strings.Contains(string(serialized), "disabledModels") || strings.Contains(string(serialized), "customModels") {
+	if err != nil || strings.Contains(string(serialized), "\"models\"") || strings.Contains(string(serialized), "disabledModels") || strings.Contains(string(serialized), "customModels") {
 		t.Fatal("absent optional fields must remain omitted")
 	}
 }

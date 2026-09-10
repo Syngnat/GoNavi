@@ -695,6 +695,9 @@ func resolveDDLDBType(config connection.ConnectionConfig) string {
 	if dbType == "intersystems" || dbType == "intersystemsiris" || dbType == "inter-systems" || dbType == "inter-systems-iris" {
 		return "iris"
 	}
+	if dbType == "cache" || dbType == "caché" || dbType == "intersystems cache" || dbType == "intersystems caché" || dbType == "intersystems-cache" || dbType == "intersystems-caché" || dbType == "intersystemscache" || dbType == "intersystemscaché" || dbType == "inter-systems-cache" || dbType == "inter-systems-caché" || dbType == "intersystems-cache-database" || dbType == "cache-db" || dbType == "cachedb" {
+		return "iris"
+	}
 	if dbType == "oceanbase" && isOceanBaseOracleProtocol(config) {
 		return "oracle"
 	}
@@ -731,6 +734,8 @@ func resolveDDLDBType(config connection.ConnectionConfig) string {
 	case "vastbase":
 		return "vastbase"
 	case "iris", "intersystems", "intersystemsiris", "inter-systems", "inter-systems-iris":
+		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
 		return "iris"
 	case "oceanbase":
 		return "oceanbase"
@@ -1163,6 +1168,9 @@ type dbQueryMultiAuditOptions struct {
 	executionContext          context.Context
 	synchronousConnectionWait bool
 	classifyConnectionErrors  bool
+	// RowBudget 为每个结果集的物化行数上限，0 表示不限制。
+	// 仅无界面调用方（如 MCP）需要设置；达到上限后停止读取并标记截断。
+	RowBudget int
 }
 
 func buildQueryConnectionFailure(err error, queryID string, classify bool) connection.QueryResult {
@@ -1328,6 +1336,16 @@ func (a *App) DBQuery(config connection.ConnectionConfig, dbName string, query s
 	})
 }
 
+// DBQueryApplicationWithCancel exposes DBQuery's cancellation support without
+// classifying an application-owned read as query-editor execution history.
+func (a *App) DBQueryApplicationWithCancel(config connection.ConnectionConfig, dbName string, query string, queryID string) connection.QueryResult {
+	return a.dbQueryWithCancel(config, dbName, query, queryID, dbQueryAuditOptions{
+		auditAll:    a.webRuntime,
+		auditWrites: true,
+		source:      "application_api",
+	})
+}
+
 func (a *App) DBQueryWithCancel(config connection.ConnectionConfig, dbName string, query string, queryID string) connection.QueryResult {
 	explicitQuery := strings.TrimSpace(queryID) != ""
 	auditSource := "query_editor"
@@ -1411,7 +1429,12 @@ func (a *App) dbQueryWithCancel(
 		requestTrace.SetRequestMetadata("", "", deadline)
 	}
 	requestTrace.AddEvent("driver.dispatched", nil)
-	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(queryID, cancel, true)
+	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(
+		queryID,
+		cancel,
+		true,
+		optionalDriverTypeForConnectionConfig(runConfig),
+	)
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -1659,11 +1682,23 @@ func (a *App) dbQueryMulti(
 	}
 
 	ctx, cancel := newQueryExecutionContextWithParent(auditOptions.executionContext, runConfig)
+	// 行预算通过 context 下传到 db 层扫描函数：达到上限后扫描停止 rows.Next，
+	// 由方言层既有的 rows.Close 释放 Rows 与连接，而不是物化后再截断。
+	var rowBudget *db.RowBudget
+	if auditOptions.RowBudget > 0 {
+		rowBudget = db.NewRowBudget(auditOptions.RowBudget)
+		ctx = db.ContextWithRowBudget(ctx, rowBudget)
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		requestTrace.SetRequestMetadata("", "", deadline)
 	}
 	requestTrace.AddEvent("driver.dispatched", nil)
-	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(queryID, cancel, true)
+	cleanupRunningQuery, setRunningQueryCancellable := a.registerRunningQueryWithCancellationCapability(
+		queryID,
+		cancel,
+		true,
+		optionalDriverTypeForConnectionConfig(runConfig),
+	)
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -1688,10 +1723,9 @@ func (a *App) dbQueryMulti(
 	}()
 	legacyCancellationUnsupported := false
 
-	// 尝试使用驱动原生多结果集支持。
-	// 注意：原生 conn.Query() 执行写操作（UPDATE/INSERT/DELETE）时，
-	// sql.Rows 不暴露 RowsAffected，导致影响行数丢失。
-	// 因此仅在全部语句皆为读操作时才使用原生路径。
+	// 尝试使用驱动原生多结果集支持。普通 database/sql 驱动仅在安全的
+	// 读取场景使用该路径；Navicat ntunnel_mysql.php 则可用一个请求的
+	// 多个 q[] 同时保留会话状态和每条写语句的 affectedRows。
 	statements := splitSQLStatementsForDialect(resolvedDBType, query)
 	statementCount := 0
 	for _, statement := range statements {
@@ -1745,9 +1779,24 @@ func (a *App) dbQueryMulti(
 			break
 		}
 	}
-	useNativeMultiResult := shouldUseNativeMultiResultBatch(resolvedDBType, statements, allReadOnly)
+	supportsStatementBatch := func(inst db.Database) bool {
+		querier, ok := inst.(db.StatementBatchMultiResultQuerierContext)
+		return ok && querier.SupportsStatementBatchMultiResult()
+	}
+	useNativeMultiResult := shouldUseNativeMultiResultBatch(resolvedDBType, statements, allReadOnly) || supportsStatementBatch(dbInst)
 
 	runMultiQuery := func(inst db.Database) ([]connection.ResultSetData, []string, error) {
+		if q, ok := inst.(db.StatementBatchMultiResultQuerierContext); ok && q.SupportsStatementBatchMultiResult() {
+			setRunningQueryCancellable(true)
+			var (
+				results []connection.ResultSetData
+				err     error
+			)
+			measureQueryExecution(func() {
+				results, err = q.QueryStatementsMultiContext(ctx, statements)
+			})
+			return results, nil, err
+		}
 		if !useNativeMultiResult {
 			return nil, nil, nil // 包含写操作，走逐条执行路径
 		}
@@ -1878,6 +1927,7 @@ func (a *App) dbQueryMulti(
 				appendStatementAudit(statement, index+1, auditStartedAt, 0, 0, sqlaudit.BoundaryModeDriverAPI, sqlaudit.CommitModeAuto, nil)
 			}
 		}
+		applyRowBudgetTruncation(results, rowBudget)
 		return summarizeMultiStatementResult(connection.QueryResult{Success: true, Data: results, Messages: resultMessages, QueryID: queryID}, statementCount, 0, sqlaudit.BoundaryModeDriverAPI, false)
 	}
 
@@ -1897,7 +1947,7 @@ func (a *App) dbQueryMulti(
 	var sessionExecTarget db.StatementExecer
 	var sessionBatchTarget db.BatchWriteExecer
 	closeExecTarget := func() {}
-	if provider, ok := dbInst.(db.SessionExecerProvider); ok {
+	if provider, ok := dbInst.(db.SessionExecerProvider); ok && runtimeSupportsSessionExecer(dbInst) {
 		setRunningQueryCancellable(true)
 		sessionExecer, sessionErr := provider.OpenSessionExecer(ctx)
 		if sessionErr != nil {
@@ -1993,6 +2043,10 @@ func (a *App) dbQueryMulti(
 	summaryBoundaryMode := sqlaudit.BoundaryModeImplicit
 	summaryCommitMode := sqlaudit.CommitModeAuto
 	for idx, stmt := range statements {
+		if rowBudget.Truncated() {
+			// 前一语句已达行预算并停止读取，剩余语句不再执行。
+			break
+		}
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
@@ -2244,11 +2298,23 @@ func (a *App) dbQueryMulti(
 	if len(statements) > 1 {
 		fallbackMsg = buildSequentialFallbackMessage(len(statements))
 	}
+	applyRowBudgetTruncation(resultSets, rowBudget)
 	return summarizeMultiStatementResultWithCommitMode(connection.QueryResult{Success: true, Data: resultSets, QueryID: queryID, Message: fallbackMsg}, executedCount, 0, summaryBoundaryMode, summaryCommitMode, false)
 }
 
+// applyRowBudgetTruncation 在达到行预算后，把截断标记落到最后物化的结果集上：
+// 预算耗尽即停止读取，最后一个结果集就是被截断的那个。多结果集扫描路径
+// （scanMultiRows / SQL Server）已在结果集内自带标记，此处是单结果集路径的
+// 统一入口，重复标记幂等。
+func applyRowBudgetTruncation(results []connection.ResultSetData, budget *db.RowBudget) {
+	if budget == nil || !budget.Truncated() || len(results) == 0 {
+		return
+	}
+	results[len(results)-1].Truncated = true
+}
+
 func normalizeNativeResultStatementIndexes(dbType string, statements []string, results []connection.ResultSetData) {
-	if !isSQLServerDBType(dbType) || len(results) == 0 {
+	if len(results) == 0 {
 		return
 	}
 	hasExplicitStatementIndex := false
@@ -2259,6 +2325,28 @@ func normalizeNativeResultStatementIndexes(dbType string, statements []string, r
 		}
 	}
 	if hasExplicitStatementIndex {
+		return
+	}
+
+	if supportsSequentialNativeSelectIndexes(dbType) {
+		if len(results) > len(statements) {
+			return
+		}
+		for _, statement := range statements {
+			if sqlDataOperationKeyword(statement, dbType) != "select" {
+				return
+			}
+		}
+		// MySQL-family native batches are used only for read-only statements.
+		// A regular SELECT contributes one result set, and a row budget may stop
+		// scanning at any leading prefix, so prefix indexes remain exact.
+		for idx := range results {
+			results[idx].StatementIndex = idx + 1
+		}
+		return
+	}
+
+	if !isSQLServerDBType(dbType) {
 		return
 	}
 
@@ -2286,6 +2374,15 @@ func normalizeNativeResultStatementIndexes(dbType string, statements []string, r
 			results[resultIdx].StatementIndex = statementIdx + 1
 			results[resultIdx+1].StatementIndex = statementIdx + 1
 		}
+	}
+}
+
+func supportsSequentialNativeSelectIndexes(dbType string) bool {
+	switch normalizeExplainLexicalDBType(dbType) {
+	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "goldendb", "sphinx", "tidb":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -3265,7 +3362,7 @@ func tryGetOceanBaseOracleShowCreateStatement(dbInst db.Database, schemaName str
 
 func supportsCreateStatementFallback(dbType string) bool {
 	switch dbType {
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "dameng":
 		return true
 	default:
 		return false
@@ -3440,7 +3537,7 @@ func buildFallbackCreateStatementWithText(dbType string, schemaName string, tabl
 		colName := quoteIdentByType(dbType, colNameRaw)
 		defParts := []string{fmt.Sprintf("%s %s", colName, colType)}
 
-		if dbType == "sqlserver" && strings.Contains(strings.ToLower(strings.TrimSpace(col.Extra)), "auto_increment") {
+		if supportsFallbackIdentityColumn(dbType, colType, col.Extra) {
 			defParts = append(defParts, "IDENTITY(1,1)")
 		}
 		if strings.EqualFold(strings.TrimSpace(col.Nullable), "NO") {
@@ -3485,6 +3582,28 @@ func buildFallbackCreateStatementWithText(dbType string, schemaName string, tabl
 		ddl.WriteString(strings.Join(columnCommentLines, "\n"))
 	}
 	return ddl.String(), nil
+}
+
+func supportsFallbackIdentityColumn(dbType string, columnType string, extra string) bool {
+	if !strings.Contains(strings.ToLower(strings.TrimSpace(extra)), "auto_increment") {
+		return false
+	}
+	if dbType == "sqlserver" {
+		return true
+	}
+	if dbType != "dameng" {
+		return false
+	}
+
+	// 达梦只允许整数列声明 IDENTITY；NUMBER 等类型强行追加会触发
+	// Error -2713（非法 IDENTITY 列类型）。GetColumns 对真实自增列会返回
+	// SMALLINT、INTEGER 或 BIGINT，因此仅在这些合法类型上还原该属性。
+	switch strings.ToUpper(strings.TrimSpace(columnType)) {
+	case "SMALLINT", "INTEGER", "BIGINT":
+		return true
+	default:
+		return false
+	}
 }
 
 type fallbackIndexGroup struct {
@@ -3802,7 +3921,11 @@ func formatAppOracleColumnType(row map[string]interface{}) string {
 		precision, hasPrecision := appOracleRowInt(row, "DATA_PRECISION", "NUMERIC_PRECISION", "data_precision", "numeric_precision")
 		if hasPrecision && precision > 0 {
 			scale, hasScale := appOracleRowInt(row, "DATA_SCALE", "NUMERIC_SCALE", "data_scale", "numeric_scale")
-			if hasScale && scale > 0 {
+			// 负 scale 必须保留，理由与 internal/db 的 formatOracleColumnType 相同：
+			// Oracle 的 NUMBER(10,-2) 表示向左舍入到百位，丢掉负号会显示成
+			// NUMBER(10) 而改变精度语义。这两条路径都可能被 DBGetColumns 走到
+			// （db 层返回空列表时才走本兜底），保持一致才不会让同一列显示出两种类型。
+			if hasScale && scale != 0 {
 				return fmt.Sprintf("%s(%d,%d)", dataType, precision, scale)
 			}
 			return fmt.Sprintf("%s(%d)", dataType, precision)

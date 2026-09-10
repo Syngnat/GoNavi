@@ -420,7 +420,7 @@ func (a *App) preflightDataSyncMappingsContext(ctx context.Context, definition s
 			targetExists = payload["exists"]
 		}
 		if !targetExists {
-			targetStrategy := firstNonEmptySyncJob(mapping.TargetTableStrategy, definition.Options.TargetTableStrategy)
+			targetStrategy := dataSyncJobEffectiveTargetTableStrategy(definition, mapping)
 			if dataSyncJobMappingNeedsExplicitProjection(definition, mapping) || targetStrategy == "existing_only" || !resultSupportsAutoCreate(sync.ResolveMigrationCapability(source.Config, target.Config)) {
 				issues = append(issues, preflightIssue("target_table_missing", DataSyncJobPreflightBlocker, "mappings", "target table does not exist and this mapping cannot auto-create it", mappingID))
 			} else {

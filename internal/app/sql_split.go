@@ -11,10 +11,27 @@ func splitSQLStatements(sql string) []string {
 	return splitSQLStatementsForDialect("", sql)
 }
 
+// SplitSQLStatementsForDialect exposes the established dialect-aware splitter
+// to narrowly scoped consumers that must align statement indexes with SQL.
+func SplitSQLStatementsForDialect(dbType, sql string) []string {
+	return splitSQLStatementsForDialectMode(dbType, sql, true)
+}
+
+// SplitSQLStatementsForDialectMode lets security-sensitive integrations parse
+// MySQL text using the connection's possible backslash-escape modes. Existing
+// execution paths retain their established behavior through the wrapper above.
+func SplitSQLStatementsForDialectMode(dbType, sql string, backslashEscapes bool) []string {
+	return splitSQLStatementsForDialectMode(dbType, sql, backslashEscapes)
+}
+
 // splitSQLStatementsForDialect keeps the legacy generic splitter available to
 // existing execution paths while allowing security-sensitive callers to apply
 // the actual comment and dollar-quote rules of the target database.
 func splitSQLStatementsForDialect(dbType, sql string) []string {
+	return splitSQLStatementsForDialectMode(dbType, sql, true)
+}
+
+func splitSQLStatementsForDialectMode(dbType, sql string, backslashEscapes bool) []string {
 	text := strings.ReplaceAll(sql, "\r\n", "\n")
 	bracketIdentifiers := supportsSQLBracketIdentifier(dbType)
 	escapedBracketIdentifiers := supportsSQLEscapedBracketIdentifier(dbType)
@@ -110,7 +127,7 @@ func splitSQLStatementsForDialect(dbType, sql string) []string {
 			cur.WriteByte(ch)
 			continue
 		}
-		if (inSingle || inDouble) && ch == '\\' {
+		if backslashEscapes && (inSingle || inDouble) && ch == '\\' {
 			escaped = true
 			cur.WriteByte(ch)
 			continue
@@ -297,7 +314,6 @@ func supportsSQLBracketIdentifier(dbType string) bool {
 func supportsSQLEscapedBracketIdentifier(dbType string) bool {
 	return normalizeSQLClassifierDBType(dbType) == "sqlserver"
 }
-
 
 func hasExecutableSQLStatementContent(dbType, statement string) bool {
 	for i := 0; i < len(statement); {
@@ -566,7 +582,7 @@ func sqlBeginStartsTransactionForDialect(dbType string, text string, tokenEnd in
 		default:
 			return false
 		}
-	case "duckdb", "iris":
+	case "duckdb", "iris", "cache":
 		return second == "" || second == "work" || second == "transaction"
 	default:
 		return false

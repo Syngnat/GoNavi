@@ -47,7 +47,7 @@ describe('useAIChatPanelResize interaction cleanup', () => {
   };
 
   const Harness = ({ attachPanel = true }: { attachPanel?: boolean }) => {
-    resize = useAIChatPanelResize({ width: 420, isV2Ui: true });
+    resize = useAIChatPanelResize({ width: 420 });
     return attachPanel ? <div ref={resize.panelRef} /> : null;
   };
 

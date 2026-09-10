@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useStore } from '../../store';
 import type { AIChatMessage } from '../../types';
@@ -9,6 +9,7 @@ import {
   readAgentSession,
   toAIChatMessages,
 } from './aiRunHarnessClient';
+import { AI_AGENT_DATA_CLEARED_EVENT } from './aiAgentDataEvents';
 
 interface UseAIChatSessionStateOptions {
   aiActiveSessionId: string | null;
@@ -30,9 +31,17 @@ export const useAIChatSessionState = ({
   aiPanelVisible,
   createNewAISession,
 }: UseAIChatSessionStateOptions) => {
+  const [agentDataRevision, setAgentDataRevision] = useState(0);
   const aiChatSessions = useStore((state) => state.aiChatSessions);
   const sid = aiActiveSessionId || 'session-fallback';
   const messages = useStore((state) => state.aiChatHistory[sid] || EMPTY_AI_CHAT_MESSAGES);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleDataCleared = () => setAgentDataRevision((revision) => revision + 1);
+    window.addEventListener(AI_AGENT_DATA_CLEARED_EVENT, handleDataCleared);
+    return () => window.removeEventListener(AI_AGENT_DATA_CLEARED_EVENT, handleDataCleared);
+  }, []);
 
   useEffect(() => {
     if (!aiActiveSessionId) {
@@ -128,7 +137,7 @@ export const useAIChatSessionState = ({
       disposed = true;
       clearRefreshTimer();
     };
-  }, [aiPanelVisible]);
+  }, [agentDataRevision, aiPanelVisible]);
 
   useEffect(() => {
     if (!sid || sid === 'session-fallback') return;
@@ -150,7 +159,7 @@ export const useAIChatSessionState = ({
     return () => {
       disposed = true;
     };
-  }, [sid]);
+  }, [agentDataRevision, sid]);
 
   const orderedAISessions = useMemo(
     () => [...aiChatSessions].sort((left, right) => right.updatedAt - left.updatedAt),

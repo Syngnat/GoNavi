@@ -156,17 +156,17 @@ describe('AIChatWelcome i18n', () => {
     }
   });
 
-  it('renders English legacy welcome chrome and sends localized SQL prompts with raw fences', async () => {
+  it('renders English welcome chrome and sends localized SQL prompts with raw fences', async () => {
     const quickActionPrompts: string[] = [];
-    const renderer = await renderWelcome({ isV2Ui: false }, quickActionPrompts);
+    const renderer = await renderWelcome({  }, quickActionPrompts);
     const pageText = textContent(renderer.toJSON());
 
     expect(pageText).toContain(t('en-US', 'ai_chat.welcome.title'));
     expect(pageText).toContain(t('en-US', 'ai_chat.welcome.description.default'));
-    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.generate_sql'));
-    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.explain_sql'));
-    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.optimize'));
-    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.schema_analysis'));
+    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.generate_sql.title'));
+    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.explain_sql.title'));
+    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.optimize.title'));
+    expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.schema_analysis.title'));
     expect(pageText).not.toContain('你好，我是 GoNavi AI');
     expect(pageText).not.toContain('请解释以下 SQL');
 
@@ -182,7 +182,7 @@ describe('AIChatWelcome i18n', () => {
 
   it('renders English V2 quick action labels, hints, divider, and suggestions', async () => {
     const quickActionPrompts: string[] = [];
-    const renderer = await renderWelcome({ isV2Ui: true }, quickActionPrompts);
+    const renderer = await renderWelcome({  }, quickActionPrompts);
     const pageText = textContent(renderer.toJSON());
 
     expect(pageText).toContain(t('en-US', 'ai_chat.quick_action.generate_sql.title'));
@@ -208,7 +208,7 @@ describe('AIChatWelcome i18n', () => {
   it('keeps context table names raw in V2 suggestions and quick action prompts', async () => {
     const quickActionPrompts: string[] = [];
     const renderer = await renderWelcome(
-      { isV2Ui: true, contextTableNames: ['public.orders', 'analytics.channel_metrics'] },
+      { contextTableNames: ['public.orders', 'analytics.channel_metrics'] },
       quickActionPrompts,
     );
     const pageText = textContent(renderer.toJSON());

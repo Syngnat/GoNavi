@@ -30,7 +30,6 @@ interface AIChatPanelConversationViewProps {
   quickActionBorder: string;
   showScrollBottom: boolean;
   contextTableNames: string[];
-  isV2Ui: boolean;
   insights: AIChatInsightItem[];
   sessions: AIChatInlineHistorySession[];
   activeSessionId: string;
@@ -174,7 +173,6 @@ const AIChatPanelConversationView: React.FC<AIChatPanelConversationViewProps> = 
   quickActionBorder,
   showScrollBottom,
   contextTableNames,
-  isV2Ui,
   insights,
   sessions,
   activeSessionId,
@@ -205,7 +203,6 @@ const AIChatPanelConversationView: React.FC<AIChatPanelConversationViewProps> = 
             mutedColor={mutedColor}
             onQuickAction={onQuickAction}
             contextTableNames={contextTableNames}
-            isV2Ui={isV2Ui}
           />
         ) : (
           <AIChatMessageList

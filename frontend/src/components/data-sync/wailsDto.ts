@@ -343,6 +343,11 @@ const tableMappingFromWire = (
     TARGET_STRATEGIES,
     `${path}.targetTableStrategy`,
   );
+  const strategyExplicit = optionalBoolean(
+    mapping.targetTableStrategyExplicit,
+    `${path}.targetTableStrategyExplicit`,
+    false,
+  );
   const columns = array(mapping.columns ?? [], `${path}.columns`).map(
     (item, columnIndex) => {
       const column = record(item, `${path}.columns[${columnIndex}]`);
@@ -402,6 +407,7 @@ const tableMappingFromWire = (
     sourceObject: qualifiedObject(sourceSchema, sourceTable),
     targetObject: qualifiedObject(targetSchema, targetTable),
     targetMode: strategy === 'existing_only' ? 'existing_only' : 'create_or_reuse',
+    targetModeExplicit: strategyExplicit,
     keyColumns: keys,
     ...(watermark ? { watermark } : {}),
     fields: columns,
@@ -642,6 +648,9 @@ const tableMappingToWire = (
     targetTable: target.name,
     targetTableStrategy:
       mapping.targetMode === 'existing_only' ? 'existing_only' : 'smart',
+    ...(mapping.targetModeExplicit === true
+      ? { targetTableStrategyExplicit: true }
+      : {}),
     keyColumns: mapping.keyColumns,
     columns: mapping.fields.map((field, fieldIndex) => {
       const kind = field.transform.trim().toLowerCase();

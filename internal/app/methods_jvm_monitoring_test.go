@@ -53,8 +53,28 @@ func swapJVMMonitoringManager(manager jvmMonitoringService) func() {
 	return func() { currentJVMMonitoringManager = prev }
 }
 
+func newJVMMonitoringTestApp(t *testing.T) *App {
+	t.Helper()
+	app := NewAppWithSecretStore(newFakeAppSecretStore())
+	app.configDir = t.TempDir()
+	return app
+}
+
+func saveJVMMonitoringConnection(t *testing.T, app *App, cfg connection.ConnectionConfig) connection.SavedConnectionView {
+	t.Helper()
+	view, err := app.SaveConnection(connection.SavedConnectionInput{
+		ID:     cfg.ID,
+		Name:   "jvm-monitor",
+		Config: cfg,
+	})
+	if err != nil {
+		t.Fatalf("SaveConnection returned error: %v", err)
+	}
+	return view
+}
+
 func TestJVMStartMonitoringReturnsManagerSnapshot(t *testing.T) {
-	app := NewAppWithSecretStore(nil)
+	app := newJVMMonitoringTestApp(t)
 	manager := &fakeJVMMonitoringManager{
 		startSnapshot: jvm.MonitoringSessionSnapshot{
 			ConnectionID: "conn-monitor",
@@ -68,7 +88,7 @@ func TestJVMStartMonitoringReturnsManagerSnapshot(t *testing.T) {
 	restore := swapJVMMonitoringManager(manager)
 	defer restore()
 
-	res := app.JVMStartMonitoring(connection.ConnectionConfig{
+	cfg := connection.ConnectionConfig{
 		ID:   "conn-monitor",
 		Type: "jvm",
 		Host: "orders.internal",
@@ -76,7 +96,10 @@ func TestJVMStartMonitoringReturnsManagerSnapshot(t *testing.T) {
 			PreferredMode: jvm.ModeEndpoint,
 			AllowedModes:  []string{jvm.ModeEndpoint},
 		},
-	})
+	}
+	saveJVMMonitoringConnection(t, app, cfg)
+
+	res := app.JVMStartMonitoring(cfg)
 
 	if !res.Success {
 		t.Fatalf("expected success, got %+v", res)
@@ -90,6 +113,147 @@ func TestJVMStartMonitoringReturnsManagerSnapshot(t *testing.T) {
 	}
 	if manager.startCfg.ID != "conn-monitor" {
 		t.Fatalf("expected manager to receive config ID, got %#v", manager.startCfg)
+	}
+}
+
+func TestJVMStartMonitoringRestoresSavedCredentialsAfterReload(t *testing.T) {
+	app := newJVMMonitoringTestApp(t)
+	manager := &fakeJVMMonitoringManager{
+		startSnapshot: jvm.MonitoringSessionSnapshot{
+			ConnectionID: "conn-auth",
+			ProviderMode: jvm.ModeEndpoint,
+			Running:      true,
+		},
+	}
+	restore := swapJVMMonitoringManager(manager)
+	defer restore()
+
+	saved := saveJVMMonitoringConnection(t, app, connection.ConnectionConfig{
+		ID:   "conn-auth",
+		Type: "jvm",
+		Host: "orders.internal",
+		JVM: connection.JVMConfig{
+			PreferredMode: jvm.ModeEndpoint,
+			AllowedModes:  []string{jvm.ModeEndpoint, jvm.ModeJMX, jvm.ModeAgent},
+			JMX:           connection.JVMJMXConfig{Enabled: true, Username: "monitor", Password: "jmx-secret"},
+			Endpoint:      connection.JVMEndpointConfig{Enabled: true, BaseURL: "https://endpoint.local", APIKey: "endpoint-key"},
+			Agent:         connection.JVMAgentConfig{Enabled: true, BaseURL: "https://agent.local", APIKey: "agent-key"},
+		},
+	})
+	if saved.Config.JVM.JMX.Password != "" || saved.Config.JVM.Endpoint.APIKey != "" || saved.Config.JVM.Agent.APIKey != "" {
+		t.Fatalf("saved connection view must not expose JVM credentials: %#v", saved.Config.JVM)
+	}
+
+	listed, err := app.GetSavedConnections()
+	if err != nil {
+		t.Fatalf("GetSavedConnections returned error: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected one saved connection, got %d", len(listed))
+	}
+	if listed[0].Config.JVM.JMX.Password != "" || listed[0].Config.JVM.Endpoint.APIKey != "" || listed[0].Config.JVM.Agent.APIKey != "" {
+		t.Fatalf("public connection list must not expose JVM credentials: %#v", listed[0].Config.JVM)
+	}
+
+	res := app.JVMStartMonitoring(listed[0].Config)
+	if !res.Success {
+		t.Fatalf("expected success after restoring saved credentials, got %+v", res)
+	}
+	if manager.startCfg.JVM.JMX.Password != "jmx-secret" ||
+		manager.startCfg.JVM.Endpoint.APIKey != "endpoint-key" ||
+		manager.startCfg.JVM.Agent.APIKey != "agent-key" {
+		t.Fatalf("expected monitoring manager to receive restored credentials, got %#v", manager.startCfg.JVM)
+	}
+}
+
+func TestJVMStartMonitoringReturnsClearErrorWhenSavedCredentialsMissing(t *testing.T) {
+	app := newJVMMonitoringTestApp(t)
+	app.SetLanguage("en-US")
+	manager := &fakeJVMMonitoringManager{}
+	restore := swapJVMMonitoringManager(manager)
+	defer restore()
+
+	res := app.JVMStartMonitoring(connection.ConnectionConfig{
+		ID:   "conn-missing-secret",
+		Type: "jvm",
+		Host: "orders.internal",
+		JVM: connection.JVMConfig{
+			PreferredMode: jvm.ModeEndpoint,
+			AllowedModes:  []string{jvm.ModeEndpoint},
+		},
+	})
+	if res.Success {
+		t.Fatalf("expected missing-credential failure, got %+v", res)
+	}
+	want := "The saved secret for the current connection was not found. Re-enter the password, save, and try again."
+	if res.Message != want {
+		t.Fatalf("expected missing-credential message %q, got %#v", want, res)
+	}
+	if manager.startCfg.ID != "" {
+		t.Fatalf("expected monitoring manager not to start with unresolved credentials, got %#v", manager.startCfg)
+	}
+}
+
+func TestJVMStartMonitoringReturnsClearErrorWhenSecretBundleIsMissing(t *testing.T) {
+	app := newJVMMonitoringTestApp(t)
+	app.SetLanguage("en-US")
+	manager := &fakeJVMMonitoringManager{}
+	restore := swapJVMMonitoringManager(manager)
+	defer restore()
+
+	saved := saveJVMMonitoringConnection(t, app, connection.ConnectionConfig{
+		ID:   "conn-deleted-secret",
+		Type: "jvm",
+		Host: "orders.internal",
+		JVM: connection.JVMConfig{
+			PreferredMode: jvm.ModeJMX,
+			AllowedModes:  []string{jvm.ModeJMX},
+			JMX:           connection.JVMJMXConfig{Enabled: true, Username: "monitor", Password: "jmx-secret"},
+		},
+	})
+	if err := app.dailySecretStore().DeleteConnection("conn-deleted-secret"); err != nil {
+		t.Fatalf("DeleteConnection returned error: %v", err)
+	}
+
+	res := app.JVMStartMonitoring(saved.Config)
+	if res.Success {
+		t.Fatalf("expected missing-credential failure after secret deletion, got %+v", res)
+	}
+	want := "The saved secret for the current connection was not found. Re-enter the password, save, and try again."
+	if res.Message != want {
+		t.Fatalf("expected missing-credential message %q, got %#v", want, res)
+	}
+	if manager.startCfg.ID != "" {
+		t.Fatalf("expected monitoring manager not to start with unresolved credentials, got %#v", manager.startCfg)
+	}
+}
+
+func TestJVMStartMonitoringKeepsInlineSecretsForUnsavedConnection(t *testing.T) {
+	app := newJVMMonitoringTestApp(t)
+	manager := &fakeJVMMonitoringManager{
+		startSnapshot: jvm.MonitoringSessionSnapshot{
+			ConnectionID: "orders.internal",
+			ProviderMode: jvm.ModeEndpoint,
+			Running:      true,
+		},
+	}
+	restore := swapJVMMonitoringManager(manager)
+	defer restore()
+
+	res := app.JVMStartMonitoring(connection.ConnectionConfig{
+		Type: "jvm",
+		Host: "orders.internal",
+		JVM: connection.JVMConfig{
+			PreferredMode: jvm.ModeEndpoint,
+			AllowedModes:  []string{jvm.ModeEndpoint},
+			Endpoint:      connection.JVMEndpointConfig{Enabled: true, BaseURL: "https://endpoint.local", APIKey: "inline-endpoint-key"},
+		},
+	})
+	if !res.Success {
+		t.Fatalf("expected unsaved inline secrets to be accepted, got %+v", res)
+	}
+	if manager.startCfg.JVM.Endpoint.APIKey != "inline-endpoint-key" {
+		t.Fatalf("expected monitoring manager to receive inline credentials, got %#v", manager.startCfg.JVM)
 	}
 }
 
@@ -165,7 +329,7 @@ func TestCloseJVMMonitoringSessionsShutsDownManager(t *testing.T) {
 }
 
 func TestJVMMonitoringMethodsLocalizeManagerLocalizedErrors(t *testing.T) {
-	app := NewAppWithSecretStore(nil)
+	app := newJVMMonitoringTestApp(t)
 	app.SetLanguage("en-US")
 	manager := &fakeJVMMonitoringManager{
 		startErr: &jvm.LocalizedError{
@@ -192,7 +356,7 @@ func TestJVMMonitoringMethodsLocalizeManagerLocalizedErrors(t *testing.T) {
 	restore := swapJVMMonitoringManager(manager)
 	defer restore()
 
-	startRes := app.JVMStartMonitoring(connection.ConnectionConfig{
+	startCfg := connection.ConnectionConfig{
 		ID:   "conn-monitor",
 		Type: "jvm",
 		Host: "orders.internal",
@@ -200,7 +364,9 @@ func TestJVMMonitoringMethodsLocalizeManagerLocalizedErrors(t *testing.T) {
 			PreferredMode: jvm.ModeJMX,
 			AllowedModes:  []string{jvm.ModeJMX},
 		},
-	})
+	}
+	saveJVMMonitoringConnection(t, app, startCfg)
+	startRes := app.JVMStartMonitoring(startCfg)
 	assertMonitoringEnglishMessage(t, startRes, "JMX monitoring snapshot is not supported yet")
 
 	historyRes := app.JVMGetMonitoringHistory(connection.ConnectionConfig{
@@ -227,7 +393,7 @@ func TestJVMMonitoringMethodsLocalizeManagerLocalizedErrors(t *testing.T) {
 }
 
 func TestJVMMonitoringMethodsLocalizeStructuredProviderWarnings(t *testing.T) {
-	app := NewAppWithSecretStore(nil)
+	app := newJVMMonitoringTestApp(t)
 	app.SetLanguage("en-US")
 	manager := &fakeJVMMonitoringManager{
 		startSnapshot: jvm.MonitoringSessionSnapshot{
@@ -252,7 +418,7 @@ func TestJVMMonitoringMethodsLocalizeStructuredProviderWarnings(t *testing.T) {
 	restore := swapJVMMonitoringManager(manager)
 	defer restore()
 
-	startRes := app.JVMStartMonitoring(connection.ConnectionConfig{
+	startCfg := connection.ConnectionConfig{
 		ID:   "conn-monitor",
 		Type: "jvm",
 		Host: "orders.internal",
@@ -260,7 +426,9 @@ func TestJVMMonitoringMethodsLocalizeStructuredProviderWarnings(t *testing.T) {
 			PreferredMode: jvm.ModeJMX,
 			AllowedModes:  []string{jvm.ModeJMX},
 		},
-	})
+	}
+	saveJVMMonitoringConnection(t, app, startCfg)
+	startRes := app.JVMStartMonitoring(startCfg)
 	startSnapshot := assertMonitoringSnapshot(t, startRes)
 	assertMonitoringWarnings(t, startSnapshot.ProviderWarnings, []string{
 		"endpoint cpu metric unavailable",

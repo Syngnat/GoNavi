@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import TestRenderer, { act } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
 
@@ -67,5 +67,48 @@ describe("I18nProvider", () => {
     });
 
     expect(onPreferenceChange).toHaveBeenCalledWith("en-US");
+  });
+
+  it("does not unmount the app tree when switching to another loaded language", async () => {
+    let mountCount = 0;
+    const MountProbe: React.FC = () => {
+      const { language, t } = useI18n();
+      useEffect(() => {
+        mountCount += 1;
+      }, []);
+      return <span data-language={language}>{t("settings.language.title")}</span>;
+    };
+
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        <I18nProvider
+          preference="zh-CN"
+          systemLanguages={["zh-CN"]}
+          onPreferenceChange={() => undefined}
+        >
+          <MountProbe />
+        </I18nProvider>,
+      );
+    });
+
+    expect(mountCount).toBe(1);
+    expect(renderer!.root.findByType("span").props["data-language"]).toBe("zh-CN");
+
+    await act(async () => {
+      renderer!.update(
+        <I18nProvider
+          preference="en-US"
+          systemLanguages={["zh-CN"]}
+          onPreferenceChange={() => undefined}
+        >
+          <MountProbe />
+        </I18nProvider>,
+      );
+    });
+
+    expect(mountCount).toBe(1);
+    expect(renderer!.root.findByType("span").props["data-language"]).toBe("en-US");
+    expect(renderer!.root.findByType("span").children).toEqual(["Language"]);
   });
 });

@@ -274,6 +274,21 @@ func TestApplyChatSendOptionsToProviderConfig_OverridesThinkingIntensity(t *test
 	}
 }
 
+func TestApplyChatSendOptionsToProviderConfig_MapsLocalCLIEffort(t *testing.T) {
+	config := ai.ProviderConfig{
+		Type: "custom", AuthMode: "local-cli", APIFormat: "codex-cli",
+		ThinkingIntensity: "low", Effort: "high",
+	}
+	got := applyChatSendOptionsToProviderConfig(config, ai.ChatSendOptions{ThinkingIntensity: "xhigh"})
+	if got.Effort != "xhigh" || got.ThinkingIntensity != "low" {
+		t.Fatalf("chat effort must override the CLI effort only: %+v", got)
+	}
+	got = applyChatSendOptionsToProviderConfig(config, ai.ChatSendOptions{ThinkingIntensity: "off"})
+	if got.Effort != "" {
+		t.Fatalf("off must clear the configured CLI override, got %q", got.Effort)
+	}
+}
+
 func TestApplyChatSendOptionsToProviderConfig_KeepsConfiguredModelWhenOverrideEmpty(t *testing.T) {
 	config := applyChatSendOptionsToProviderConfig(ai.ProviderConfig{
 		Model: "chat-model",

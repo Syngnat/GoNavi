@@ -115,6 +115,8 @@ describe('windowStartupLayout', () => {
     expect(isStartupMaximisedWindowSettled({
       isMaximised: true,
       isWindows: true,
+      windowWidth: 1920,
+      windowHeight: 1050,
       surfaceWidth: 1432,
       surfaceHeight: 892,
       viewport: {
@@ -124,10 +126,46 @@ describe('windowStartupLayout', () => {
     })).toBe(false);
   });
 
-  it('accepts a Windows WebView surface that covers the maximised work area', () => {
+  it('does not accept normal native bounds even when the maximise flag and WebView surface appear settled', () => {
     expect(isStartupMaximisedWindowSettled({
       isMaximised: true,
       isWindows: true,
+      windowWidth: 1440,
+      windowHeight: 900,
+      surfaceWidth: 1920,
+      surfaceHeight: 1050,
+      viewport: {
+        availWidth: 1920,
+        availHeight: 1050,
+      },
+    })).toBe(false);
+  });
+
+  it.each([
+    { windowWidth: 0, windowHeight: 1050 },
+    { windowWidth: 1920, windowHeight: -1 },
+    { windowWidth: Number.NaN, windowHeight: 1050 },
+    { windowWidth: 1920, windowHeight: Number.POSITIVE_INFINITY },
+  ])('does not settle Windows with invalid native dimensions: %o', (nativeBounds) => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: true,
+      isWindows: true,
+      ...nativeBounds,
+      surfaceWidth: 1920,
+      surfaceHeight: 1050,
+      viewport: {
+        availWidth: 1920,
+        availHeight: 1050,
+      },
+    })).toBe(false);
+  });
+
+  it('accepts Windows native bounds and WebView surface that cover the maximised work area in DIP', () => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: true,
+      isWindows: true,
+      windowWidth: 1920,
+      windowHeight: 1050,
       surfaceWidth: 1912,
       surfaceHeight: 1042,
       viewport: {
@@ -137,10 +175,27 @@ describe('windowStartupLayout', () => {
     })).toBe(true);
   });
 
+  it('keeps the existing tolerance for unavailable work-area dimensions', () => {
+    expect(isStartupMaximisedWindowSettled({
+      isMaximised: true,
+      isWindows: true,
+      windowWidth: 1440,
+      windowHeight: 900,
+      surfaceWidth: 1432,
+      surfaceHeight: 892,
+      viewport: {
+        availWidth: 0,
+        availHeight: 0,
+      },
+    })).toBe(true);
+  });
+
   it('keeps state-only maximise detection on non-Windows platforms', () => {
     expect(isStartupMaximisedWindowSettled({
       isMaximised: true,
       isWindows: false,
+      windowWidth: 0,
+      windowHeight: 0,
       surfaceWidth: 800,
       surfaceHeight: 600,
       viewport: {
@@ -154,6 +209,8 @@ describe('windowStartupLayout', () => {
     expect(isStartupMaximisedWindowSettled({
       isMaximised: false,
       isWindows: true,
+      windowWidth: 1920,
+      windowHeight: 1050,
       surfaceWidth: 1920,
       surfaceHeight: 1050,
       viewport: {

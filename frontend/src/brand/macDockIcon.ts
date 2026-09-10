@@ -1,8 +1,9 @@
 const DOCK_ICON_SIZE = 1024;
-// Chrome and VS Code both keep their high-alpha artwork inside an 824px
-// square on a 1024px macOS icon canvas.
-const DOCK_ICON_INSET = 100;
-// Chrome's 824px tile uses a 184px outer corner radius.
+// The PNG handed to NSApp is already a complete Dock tile.  Leaving a
+// 100px transparent border here makes GoNavi render visibly smaller than
+// neighbouring macOS apps, so use the full 1024px canvas.
+const DOCK_ICON_INSET = 0;
+// Keep the same rounded-tile proportion used by the source artwork.
 const DOCK_ICON_CORNER_RADIUS_RATIO = 184 / 824;
 
 export type DockIconRuntimeEnvironment = {
@@ -18,12 +19,13 @@ export type MacOSDockImageRect = {
 };
 
 /**
- * Only the native macOS runtime can update the Dock image.  The generated
- * Wails bridge also exists in the browser build, so checking method presence
- * alone would still serialize and post a large image from the web client.
+ * macOS and Windows both support changing the native runtime icon. The
+ * generated Wails bridge also exists in the browser build, so checking method
+ * presence alone would still serialize and post a large image from the web.
  */
-export function shouldSyncMacOSDockIcon(environment?: DockIconRuntimeEnvironment | null): boolean {
-  return String(environment?.platform || '').trim().toLowerCase() === 'darwin'
+export function shouldSyncApplicationBrandIcon(environment?: DockIconRuntimeEnvironment | null): boolean {
+  const platform = String(environment?.platform || '').trim().toLowerCase();
+  return (platform === 'darwin' || platform === 'windows')
     && String(environment?.buildType || '').trim().toLowerCase() !== 'web';
 }
 

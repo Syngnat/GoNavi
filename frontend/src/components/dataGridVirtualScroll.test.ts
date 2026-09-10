@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
 
 import {
   applyDataGridFixedCellPreviewOffset,
+  applyDataGridVirtualInnerOffset,
   calculateFixedVirtualRange,
   commitDataGridFixedCellOffset,
   createDataGridIdleCommitScheduler,
   createDataGridVisualFrameGuard,
+  readDataGridVirtualInnerOffset,
+  shouldVirtualizeDataGridColumns,
   type DataGridVisualFrameGuard,
 } from './dataGridVirtualScroll';
 
@@ -27,21 +29,14 @@ const createStyleStub = () => {
 };
 
 describe('fixed cell horizontal preview', () => {
-  it('updates visible fixed cells directly without invalidating their ancestor', () => {
-    const first = { style: createStyleStub() };
-    const second = { style: createStyleStub() };
-    const root = { querySelectorAll: vi.fn(() => [first, second]) };
+  it('updates one inherited variable instead of every visible fixed cell', () => {
+    const inner = { style: createStyleStub() };
 
-    expect(applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 640)).toBe(2);
-    expect(first.style.setProperty).toHaveBeenCalledWith(
-      'transform',
-      'translate3d(640px, 0, 0)',
-      'important',
-    );
-    expect(second.style.setProperty).toHaveBeenCalledTimes(1);
+    expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 640)).toBe(1);
+    expect(inner.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '640px');
 
-    applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 640);
-    expect(first.style.setProperty).toHaveBeenCalledTimes(1);
+    expect(applyDataGridFixedCellPreviewOffset(inner as unknown as HTMLElement, 640)).toBe(0);
+    expect(inner.style.setProperty).toHaveBeenCalledTimes(1);
   });
 
   it('persists the settled offset once and releases per-cell preview styles', () => {
@@ -49,7 +44,8 @@ describe('fixed cell horizontal preview', () => {
     const second = { style: createStyleStub() };
     const root = { querySelectorAll: vi.fn(() => [first, second]) };
     const inner = { style: createStyleStub() };
-    applyDataGridFixedCellPreviewOffset(root as unknown as ParentNode, 480);
+    first.style.setProperty('transform', 'translate3d(480px, 0, 0)', 'important');
+    second.style.setProperty('transform', 'translate3d(480px, 0, 0)', 'important');
 
     expect(commitDataGridFixedCellOffset(
       root as unknown as ParentNode,
@@ -59,6 +55,30 @@ describe('fixed cell horizontal preview', () => {
     expect(inner.style.setProperty).toHaveBeenCalledWith('--gn-datagrid-h-scroll', '480px');
     expect(first.style.removeProperty).toHaveBeenCalledWith('transform');
     expect(second.style.removeProperty).toHaveBeenCalledWith('transform');
+  });
+});
+
+describe('virtual body horizontal offset', () => {
+  it('uses compositor translate and keeps a marginLeft fallback for stale DOM', () => {
+    const style = {
+      translate: '',
+      marginLeft: '-240px',
+    };
+    const inner = { style } as unknown as HTMLElement;
+
+    expect(readDataGridVirtualInnerOffset(inner)).toBe(240);
+    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(true);
+    expect(style.translate).toBe('-640px 0');
+    expect(readDataGridVirtualInnerOffset(inner)).toBe(640);
+    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(false);
+  });
+});
+
+describe('column virtualization threshold', () => {
+  it('renders narrow tables directly and virtualizes wider tables', () => {
+    expect(shouldVirtualizeDataGridColumns(16)).toBe(false);
+    expect(shouldVirtualizeDataGridColumns(17)).toBe(true);
+    expect(shouldVirtualizeDataGridColumns(64)).toBe(true);
   });
 });
 
@@ -107,9 +127,9 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: 14_000_001,
     })).toEqual({
       scrollHeight: 28_000_000,
-      start: 500_000,
-      end: 500_011,
-      offset: 14_000_000,
+      start: 499_991,
+      end: 500_020,
+      offset: 13_999_748,
     });
   });
 
@@ -122,7 +142,7 @@ describe('calculateFixedVirtualRange', () => {
     })).toEqual({
       scrollHeight: 2_800,
       start: 0,
-      end: 12,
+      end: 21,
       offset: 0,
     });
   });
@@ -142,53 +162,66 @@ describe('calculateFixedVirtualRange', () => {
       scrollTop: Number.POSITIVE_INFINITY,
     })).toEqual({
       scrollHeight: 2_800,
-      start: 89,
+      start: 80,
       end: 99,
-      offset: 2_492,
+      offset: 2_240,
     });
   });
 
-  it('matches the dependency linear scan throughout a small fixed-height list', () => {
+  it('extends the dependency visible range by one viewport for native scroll coverage', () => {
     const itemCount = 40;
     const itemHeight = 7;
-    const viewportHeight = 35;
+    const viewportHeight = 70;
     const maxScrollTop = itemCount * itemHeight - viewportHeight;
     for (let scrollTop = 0; scrollTop <= maxScrollTop; scrollTop += 1) {
+      const linear = calculateLinearReference({
+        itemCount,
+        itemHeight,
+        viewportHeight,
+        scrollTop,
+      });
+      const overscanRows = Math.max(6, Math.ceil(viewportHeight / itemHeight));
       expect(calculateFixedVirtualRange({
         itemCount,
         itemHeight,
         viewportHeight,
         scrollTop,
-      })).toEqual(calculateLinearReference({
-        itemCount,
-        itemHeight,
-        viewportHeight,
-        scrollTop,
-      }));
+      })).toEqual({
+        ...linear,
+        start: Math.max(0, linear.start - (overscanRows - 1)),
+        end: Math.min(itemCount - 1, linear.end + (overscanRows - 1)),
+        offset: Math.max(0, linear.start - (overscanRows - 1)) * itemHeight,
+      });
     }
   });
 
-  it('ships the fixed-height opt-in through both dependency patches', () => {
-    const virtualListPatch = readFileSync(
-      new URL('../../patches/rc-virtual-list+3.19.2.patch', import.meta.url),
-      'utf8',
-    );
-    const tablePatch = readFileSync(
-      new URL('../../patches/rc-table+7.54.0.patch', import.meta.url),
-      'utf8',
-    );
+  it('keeps the recorded fifteen-row native jump covered before React commits', () => {
+    const itemHeight = 28;
+    const viewportHeight = 840;
+    const initialRange = calculateFixedVirtualRange({
+      itemCount: 1_000,
+      itemHeight,
+      viewportHeight,
+      scrollTop: 0,
+    });
+    const jumpedViewportBottom = (15 * itemHeight) + viewportHeight;
 
-    expect(virtualListPatch).toContain('itemHeightFixed');
-    expect(virtualListPatch).toContain('fixedStartIndex');
-    expect(tablePatch).toContain('listItemHeightFixed');
-    expect(tablePatch).toContain('itemHeightFixed: listItemHeightFixed');
-    expect(tablePatch).toContain('bodyLinePropsAreEqual');
-    expect(tablePatch).toContain('responseImmutable(BodyLine, bodyLinePropsAreEqual)');
-    expect(tablePatch).toContain('lastForwardedXRef');
-    expect(tablePatch).toContain('listItemColumnVirtual');
-    expect(tablePatch).toContain('cell-virtual-spacer');
-    expect(tablePatch).toContain('if (listItemColumnVirtual)');
-    expect(virtualListPatch).toContain('disabled?: boolean');
+    expect((initialRange.end + 1) * itemHeight).toBeGreaterThanOrEqual(jumpedViewportBottom);
+  });
+
+  it('keeps the recorded reverse jump covered while React still has the old range', () => {
+    const itemHeight = 28;
+    const viewportHeight = 840;
+    const previousVisibleRow = 112;
+    const previousRange = calculateFixedVirtualRange({
+      itemCount: 1_000,
+      itemHeight,
+      viewportHeight,
+      scrollTop: previousVisibleRow * itemHeight,
+    });
+    const jumpedVisibleRow = previousVisibleRow - 24;
+
+    expect(previousRange.start).toBeLessThanOrEqual(jumpedVisibleRow);
   });
 });
 

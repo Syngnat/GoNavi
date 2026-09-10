@@ -69,13 +69,9 @@ const overlayTheme: OverlayWorkbenchTheme = {
 };
 
 const baseProps = {
-  variant: 'legacy' as const,
   input: 'select 1',
   draftAttachmentCount: 0,
   sending: false,
-  darkMode: false,
-  textColor: '#111',
-  mutedColor: '#666',
   overlayTheme,
   fileInputRef: { current: null } as React.RefObject<HTMLInputElement>,
   onAttachmentUpload: () => undefined,
@@ -107,8 +103,8 @@ const renderComposerActionsWithoutProvider = (props: Partial<React.ComponentProp
 
 describe('AIChatComposerActions i18n source guards', () => {
 
-  it('renders localized v2 tooltips and stop title in en-US', () => {
-    const markup = renderComposerActions({ variant: 'v2', sending: true, input: '' });
+  it('renders localized tooltips and stop title in en-US', () => {
+    const markup = renderComposerActions({ sending: true, input: '' });
 
     expect(markup).toContain('Upload attachment (images, Markdown, Word, Excel, PDF, text)');
     expect(markup).toContain('Attach database table context');
@@ -116,25 +112,17 @@ describe('AIChatComposerActions i18n source guards', () => {
     expect(markup).toContain('title="Stop generating"');
   });
 
-  it('renders localized legacy send title in en-US', () => {
-    const markup = renderComposerActions({ variant: 'legacy', sending: false });
-
-    expect(markup).toContain('Upload attachment (images, Markdown, Word, Excel, PDF, text)');
-    expect(markup).toContain('Attach database table context');
-    expect(markup).toContain('title="Send"');
-  });
-
   it('falls back to English tooltips and action titles without an i18n provider', () => {
-    expect(() => renderComposerActionsWithoutProvider({ variant: 'v2', sending: true, input: '' })).not.toThrow();
+    expect(() => renderComposerActionsWithoutProvider({ sending: true, input: '' })).not.toThrow();
 
-    const sendingMarkup = renderComposerActionsWithoutProvider({ variant: 'v2', sending: true, input: '' });
+    const sendingMarkup = renderComposerActionsWithoutProvider({ sending: true, input: '' });
     expect(sendingMarkup).toContain('Upload attachment (images, Markdown, Word, Excel, PDF, text)');
     expect(sendingMarkup).toContain('Attach database table context');
     expect(sendingMarkup).toContain('Slash commands');
     expect(sendingMarkup).toContain('title="Stop generating"');
     expect(sendingMarkup).not.toContain('ai_chat.input.tooltip.upload_attachment');
 
-    const idleMarkup = renderComposerActionsWithoutProvider({ variant: 'legacy', sending: false });
+    const idleMarkup = renderComposerActionsWithoutProvider({ sending: false });
     expect(idleMarkup).toContain('title="Send"');
     expect(idleMarkup).not.toContain('ai_chat.input.action.send');
   });

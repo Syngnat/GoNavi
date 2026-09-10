@@ -28,9 +28,12 @@ export type StartupWindowSurfaceSnapshot = {
 export type StartupMaximisedWindowSnapshot = StartupWindowSurfaceSnapshot & {
   isMaximised: boolean;
   isWindows: boolean;
+  /** Wails WindowGetSize returns native window dimensions in DIP, like screen.availWidth. */
+  windowWidth: number;
+  windowHeight: number;
 };
 
-const MIN_MAXIMISED_SURFACE_COVERAGE = 0.95;
+const MIN_MAXIMISED_VIEWPORT_COVERAGE = 0.95;
 
 /** Force maximise when requested; otherwise restore the last observed window state. */
 export const resolveStartupWindowRestoreMode = (
@@ -43,9 +46,10 @@ export const resolveStartupWindowRestoreMode = (
 );
 
 /**
- * Determine whether the native maximised state has also reached the WebView surface.
- * Windows can expose WS_MAXIMIZE before WebView2 updates its controller bounds, so
- * state alone is not enough there. Other platforms retain the state-only contract.
+ * Verify that maximisation reached both the native bounds and the WebView surface.
+ * Windows can retain WS_MAXIMIZE and a full-size client area after a stale SetSize
+ * shrinks the outer window, so neither state nor surface alone proves completion.
+ * Other platforms retain the state-only contract.
  */
 export const isStartupMaximisedWindowSettled = (
   snapshot: StartupMaximisedWindowSnapshot,
@@ -57,23 +61,34 @@ export const isStartupMaximisedWindowSettled = (
     return true;
   }
 
-  return isStartupWindowSurfaceCoveringViewport(snapshot);
+  if (!Number.isFinite(snapshot.windowWidth) || snapshot.windowWidth <= 0
+    || !Number.isFinite(snapshot.windowHeight) || snapshot.windowHeight <= 0) {
+    return false;
+  }
+
+  return isStartupWindowAreaCoveringViewport(snapshot.windowWidth, snapshot.windowHeight, snapshot.viewport)
+    && isStartupWindowSurfaceCoveringViewport(snapshot);
 };
 
 export const isStartupWindowSurfaceCoveringViewport = (
   snapshot: StartupWindowSurfaceSnapshot,
-): boolean => {
+): boolean => isStartupWindowAreaCoveringViewport(snapshot.surfaceWidth, snapshot.surfaceHeight, snapshot.viewport);
 
-  const availWidth = Math.max(0, Math.trunc(Number(snapshot.viewport.availWidth) || 0));
-  const availHeight = Math.max(0, Math.trunc(Number(snapshot.viewport.availHeight) || 0));
+const isStartupWindowAreaCoveringViewport = (
+  width: number,
+  height: number,
+  viewport: StartupVisibleViewport,
+): boolean => {
+  const availWidth = Math.max(0, Math.trunc(Number(viewport.availWidth) || 0));
+  const availHeight = Math.max(0, Math.trunc(Number(viewport.availHeight) || 0));
   if (availWidth <= 0 || availHeight <= 0) {
     return true;
   }
 
-  const surfaceWidth = Math.max(0, Math.trunc(Number(snapshot.surfaceWidth) || 0));
-  const surfaceHeight = Math.max(0, Math.trunc(Number(snapshot.surfaceHeight) || 0));
-  return surfaceWidth >= Math.trunc(availWidth * MIN_MAXIMISED_SURFACE_COVERAGE)
-    && surfaceHeight >= Math.trunc(availHeight * MIN_MAXIMISED_SURFACE_COVERAGE);
+  const areaWidth = Math.max(0, Math.trunc(Number(width) || 0));
+  const areaHeight = Math.max(0, Math.trunc(Number(height) || 0));
+  return areaWidth >= Math.trunc(availWidth * MIN_MAXIMISED_VIEWPORT_COVERAGE)
+    && areaHeight >= Math.trunc(availHeight * MIN_MAXIMISED_VIEWPORT_COVERAGE);
 };
 
 /** Resolve a centered normal window when no persisted bounds exist. */

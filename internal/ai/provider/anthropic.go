@@ -152,15 +152,15 @@ func (p *AnthropicProvider) Validate() error {
 // --- 请求体类型 ---
 
 type anthropicRequest struct {
-	Model        string                  `json:"model"`
-	Messages     []anthropicMessage      `json:"messages"`
-	System       string                  `json:"system,omitempty"`
-	MaxTokens    int                     `json:"max_tokens"`
-	Temperature  float64                 `json:"temperature,omitempty"`
-	Stream       bool                    `json:"stream,omitempty"`
-	Tools        []anthropicTool         `json:"tools,omitempty"`
-	Thinking     *anthropicThinking      `json:"thinking,omitempty"`
-	OutputConfig *anthropicOutputConfig  `json:"output_config,omitempty"`
+	Model        string                 `json:"model"`
+	Messages     []anthropicMessage     `json:"messages"`
+	System       string                 `json:"system,omitempty"`
+	MaxTokens    int                    `json:"max_tokens"`
+	Temperature  float64                `json:"temperature,omitempty"`
+	Stream       bool                   `json:"stream,omitempty"`
+	Tools        []anthropicTool        `json:"tools,omitempty"`
+	Thinking     *anthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
 }
 
 // anthropicThinking Anthropic / DeepSeek Anthropic 兼容思考开关。
@@ -319,13 +319,37 @@ type anthropicContentBlock struct {
 
 type anthropicResponse struct {
 	Content []anthropicContentBlock `json:"content"`
-	Usage   struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
-	Error *struct {
+	Usage   anthropicUsage          `json:"usage"`
+	Error   *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type anthropicUsage struct {
+	InputTokens              int  `json:"input_tokens"`
+	OutputTokens             int  `json:"output_tokens"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens,omitempty"`
+}
+
+func normalizeAnthropicUsage(usage anthropicUsage) ai.TokenUsage {
+	promptTokens := usage.InputTokens
+	if usage.CacheCreationInputTokens != nil {
+		promptTokens += *usage.CacheCreationInputTokens
+	}
+	result := ai.TokenUsage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: usage.OutputTokens,
+		TotalTokens:      promptTokens + usage.OutputTokens,
+	}
+	if usage.CacheReadInputTokens != nil {
+		promptTokens += *usage.CacheReadInputTokens
+		cached := *usage.CacheReadInputTokens
+		result.PromptTokens = promptTokens
+		result.TotalTokens = promptTokens + usage.OutputTokens
+		result.CachedTokens = &cached
+	}
+	return result
 }
 
 // 流式事件类型
@@ -339,6 +363,10 @@ type anthropicStreamEvent struct {
 		Thinking    string `json:"thinking,omitempty"`
 		PartialJSON string `json:"partial_json,omitempty"`
 	} `json:"delta,omitempty"`
+	Message *struct {
+		Usage anthropicUsage `json:"usage"`
+	} `json:"message,omitempty"`
+	Usage *anthropicUsage `json:"usage,omitempty"`
 }
 
 func (p *AnthropicProvider) shouldReplayThinkingBlocks() bool {
@@ -462,11 +490,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.C
 		Content:          textContent,
 		ReasoningContent: reasoningContent,
 		ToolCalls:        toolCalls,
-		TokensUsed: ai.TokenUsage{
-			PromptTokens:     result.Usage.InputTokens,
-			CompletionTokens: result.Usage.OutputTokens,
-			TotalTokens:      result.Usage.InputTokens + result.Usage.OutputTokens,
-		},
+		TokensUsed:       normalizeAnthropicUsage(result.Usage),
 	}, nil
 }
 
@@ -522,6 +546,25 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 		argsJSON strings.Builder
 	}
 	activeBlocks := make(map[int]*activeToolUse) // index -> block
+	var streamUsage *ai.TokenUsage
+	mergeUsage := func(raw anthropicUsage) {
+		normalized := normalizeAnthropicUsage(raw)
+		if streamUsage == nil {
+			streamUsage = &normalized
+			return
+		}
+		if normalized.PromptTokens > 0 {
+			streamUsage.PromptTokens = normalized.PromptTokens
+		}
+		if normalized.CompletionTokens > streamUsage.CompletionTokens {
+			streamUsage.CompletionTokens = normalized.CompletionTokens
+		}
+		streamUsage.TotalTokens = streamUsage.PromptTokens + streamUsage.CompletionTokens
+		if normalized.CachedTokens != nil {
+			cached := *normalized.CachedTokens
+			streamUsage.CachedTokens = &cached
+		}
+	}
 
 	scanner := bufio.NewScanner(respBody)
 	for scanner.Scan() {
@@ -537,6 +580,16 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 		}
 
 		switch event.Type {
+		case "message_start":
+			if event.Message != nil {
+				mergeUsage(event.Message.Usage)
+			}
+
+		case "message_delta":
+			if event.Usage != nil {
+				mergeUsage(*event.Usage)
+			}
+
 		case "content_block_start":
 			if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
 				activeBlocks[event.Index] = &activeToolUse{
@@ -590,7 +643,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 			}
 
 		case "message_stop":
-			callback(ai.StreamChunk{Done: true})
+			callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 			return nil
 		}
 	}
@@ -598,7 +651,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req ai.ChatRequest, 
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	callback(ai.StreamChunk{Done: true})
+	callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 	return nil
 }
 
@@ -621,6 +674,10 @@ func (p *AnthropicProvider) doRequest(ctx context.Context, body interface{}) (io
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	ApplyAnthropicAuthHeaders(httpReq.Header, p.baseURL, p.config.APIKey)
+	if strings.EqualFold(strings.TrimSpace(p.config.AuthMode), "bearer") {
+		httpReq.Header.Set("Authorization", "Bearer "+p.config.APIKey)
+		httpReq.Header.Del("x-api-key")
+	}
 
 	if strings.Contains(string(jsonBody), `"stream":true`) || strings.Contains(string(jsonBody), `"stream": true`) {
 		httpReq.Header.Set("Accept", "text/event-stream")

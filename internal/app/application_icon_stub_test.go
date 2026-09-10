@@ -1,11 +1,14 @@
-//go:build !darwin || !cgo
+//go:build !windows && (!darwin || !cgo)
 
 package app
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestSetApplicationIconPNGIsExplicitlyUnsupportedOutsideMacOS(t *testing.T) {
-	if err := setApplicationIconPNG([]byte{0x89}); err == nil {
+func TestSetApplicationIconPNGIsExplicitlyUnsupportedOutsideNativePlatforms(t *testing.T) {
+	if err := setApplicationIconPNG([]byte{0x89}, t.TempDir(), context.Background()); err == nil {
 		t.Fatal("expected unsupported-platform error")
 	}
 }

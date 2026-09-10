@@ -213,12 +213,6 @@ export const hasSidebarLazyChildren = (children: unknown): boolean => {
 };
 
 /**
- * shouldClearSidebarActiveContextOnEmptySelect 判断在空选择时是否清空激活上下文。
- * 仅 legacy UI 需要清空；V2 UI 保留上下文。
- */
-export const shouldClearSidebarActiveContextOnEmptySelect = (isV2Ui: boolean): boolean => !isV2Ui;
-
-/**
  * getV2RailConnectionGroupBadgeText 从组名生成 1-2 字符的徽章文本。
  * 中文取首字；英文取前两个 token 的首字母大写；其他取前 2 字符。
  */

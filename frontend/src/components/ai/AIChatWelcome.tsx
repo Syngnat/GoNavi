@@ -11,29 +11,14 @@ interface AIChatWelcomeProps {
     mutedColor: string;
     onQuickAction: (prompt: string, autoSend?: boolean) => void;
     contextTableNames?: string[];
-    isV2Ui?: boolean;
 }
 
 export const AIChatWelcome: React.FC<AIChatWelcomeProps> = ({
-    overlayTheme, quickActionBg, quickActionBorder, textColor, mutedColor, onQuickAction, contextTableNames = [], isV2Ui = false
+    overlayTheme, quickActionBg, quickActionBorder, textColor, mutedColor, onQuickAction, contextTableNames = []
 }) => {
     const { t } = useI18n();
     const hasContext = contextTableNames.length > 0;
     const tableList = contextTableNames.join(t('ai_chat.quick_action.table_separator'));
-    const legacyQuickActions = hasContext
-        ? [
-            { label: t('ai_chat.quick_action.generate_sql'), prompt: t('ai_chat.quick_action.generate_sql.prompt.with_context', { tables: tableList }) },
-            { label: t('ai_chat.quick_action.explain_schema'), prompt: t('ai_chat.quick_action.explain_schema.prompt.with_context', { tables: tableList }) },
-            { label: t('ai_chat.quick_action.optimize'), prompt: t('ai_chat.quick_action.optimize.prompt.with_context', { tables: tableList }) },
-            { label: t('ai_chat.quick_action.schema_analysis'), prompt: t('ai_chat.quick_action.schema_analysis.prompt.with_context', { tables: tableList }) },
-        ]
-        : [
-            { label: t('ai_chat.quick_action.generate_sql'), prompt: t('ai_chat.quick_action.generate_sql.prompt.default') },
-            { label: t('ai_chat.quick_action.explain_sql'), prompt: t('ai_chat.quick_action.explain_sql.prompt.default') },
-            { label: t('ai_chat.quick_action.optimize'), prompt: t('ai_chat.quick_action.optimize.prompt.default') },
-            { label: t('ai_chat.quick_action.schema_analysis'), prompt: t('ai_chat.quick_action.schema_analysis.prompt.default') },
-        ];
-
     const quickActions = hasContext
         ? [
             { label: t('ai_chat.quick_action.generate_sql.title'), hint: t('ai_chat.quick_action.generate_sql.hint.with_context'), icon: <FileTextOutlined />, tone: 'info', prompt: t('ai_chat.quick_action.generate_sql.prompt.with_context', { tables: tableList }) },
@@ -59,37 +44,7 @@ export const AIChatWelcome: React.FC<AIChatWelcomeProps> = ({
             t('ai_chat.welcome.suggestion.cleanup.default'),
         ];
 
-    if (!isV2Ui) {
-        return (
-            <div className="ai-chat-welcome" style={{ padding: '30px 20px', alignItems: 'flex-start', textAlign: 'left' }}>
-                <div style={{ color: overlayTheme.titleText, fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-                    <RobotOutlined style={{ marginRight: 8, color: overlayTheme.iconColor }} />
-                    {t('ai_chat.welcome.title')}
-                </div>
-                <div className="welcome-desc" style={{ color: mutedColor, fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
-                    {hasContext
-                        ? t('ai_chat.welcome.description.with_context', { count: contextTableNames.length })
-                        : t('ai_chat.welcome.description.default')}
-                </div>
-                <div className="quick-actions">
-                    {legacyQuickActions.map(action => (
-                        <div
-                            key={action.label}
-                            className="quick-action-btn"
-                            style={{
-                                background: quickActionBg,
-                                borderColor: quickActionBorder,
-                                color: textColor,
-                            }}
-                            onClick={() => onQuickAction(action.prompt)}
-                        >
-                            {action.label}
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
+
 
     return (
         <div className="ai-chat-welcome" style={{ padding: '30px 20px', alignItems: 'flex-start', textAlign: 'left' }}>

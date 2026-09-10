@@ -462,7 +462,7 @@ func buildWatermarkRuntimePlan(config SyncConfig, tableName, mode string, batchS
 			return plan, fmt.Errorf("watermark 目标表 %s 不存在或没有字段", targetTable)
 		}
 		plan.sourceQueryTable = qualifiedNameForQuery(plan.sourceType, sourceSchema, sourceTable, tableName)
-		plan.targetQueryTable = qualifiedNameForQuery(plan.targetType, targetSchema, targetTable, tableName)
+		plan.targetQueryTable = qualifiedTargetNameForQuery(plan.targetType, targetSchema, targetTable)
 		plan.applyTableName = targetTable
 		if shouldUseQualifiedSyncApplyTable(config.TargetConfig) {
 			plan.applyTableName = plan.targetQueryTable

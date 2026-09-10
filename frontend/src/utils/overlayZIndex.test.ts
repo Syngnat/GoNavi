@@ -23,7 +23,6 @@ const readSource = (path: string): string => readFileSync(
 const floatingAIChatSource = readSource('../components/FloatingAIChatWindow.tsx');
 const floatingWorkbenchSource = readSource('../components/FloatingWorkbenchWindows.tsx');
 const floatingQueryResultSource = readSource('../components/FloatingQueryResultWindows.tsx');
-const legacyGridContextMenuSource = readSource('../components/DataGridLegacyCellContextMenu.tsx');
 const dataGridShellSource = readSource('../components/DataGridShell.tsx');
 const sidebarSource = readSource('../components/Sidebar.tsx');
 const tableOverviewSource = readSource('../components/TableOverview.tsx');
@@ -131,7 +130,6 @@ describe('application overlay z-index policy', () => {
 
   it('routes body-level context menus through the shared popup layer', () => {
     for (const source of [
-      legacyGridContextMenuSource,
       dataGridShellSource,
       sidebarSource,
       tableOverviewSource,

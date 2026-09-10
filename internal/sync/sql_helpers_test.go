@@ -82,6 +82,22 @@ func TestNormalizeSyncTargetSchemaAndTable_UsesTargetSchemaWhenSourceTableIsQual
 	}
 }
 
+func TestNormalizeSyncTargetSchemaAndTable_IdentityRenameInheritsTargetSchema(t *testing.T) {
+	t.Parallel()
+
+	config := SyncConfig{
+		TargetConfig:          connection.ConnectionConfig{Type: "postgres", Database: "warehouse"},
+		TargetDatabase:        "warehouse",
+		TargetSchema:          "reporting",
+		identityMappingTarget: SyncObjectRef{Name: "orders_archive"},
+	}
+
+	schema, table := normalizeSyncTargetSchemaAndTable(config, "orders")
+	if schema != "reporting" || table != "orders_archive" {
+		t.Fatalf("identity rename target = %q.%q, want reporting.orders_archive", schema, table)
+	}
+}
+
 func TestNormalizeSyncTargetSchemaAndTable_KeepsQualifiedTargetTableInSourceQueryMode(t *testing.T) {
 	t.Parallel()
 
@@ -212,6 +228,17 @@ func TestQualifiedNameForQuery_UsesSchemaAwareTargets(t *testing.T) {
 	}
 	if got := qualifiedNameForQuery("duckdb", "analytics", "reporting.orders", "orders"); got != "reporting.orders" {
 		t.Fatalf("unexpected duckdb qualified name: %s", got)
+	}
+}
+
+func TestQualifiedTargetNameForQuery_PreservesResolvedTargetDialectShape(t *testing.T) {
+	t.Parallel()
+
+	if got := qualifiedTargetNameForQuery("kingbase", "sysmac", "test"); got != "sysmac.test" {
+		t.Fatalf("unexpected kingbase target qualified name: %s", got)
+	}
+	if got := qualifiedTargetNameForQuery("sqlserver", "warehouse", "sales.orders"); got != "sales.orders" {
+		t.Fatalf("unexpected sqlserver target qualified name: %s", got)
 	}
 }
 

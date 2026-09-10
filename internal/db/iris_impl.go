@@ -1,4 +1,4 @@
-//go:build gonavi_full_drivers || gonavi_iris_driver
+//go:build gonavi_full_drivers || gonavi_iris_driver || gonavi_cache_driver
 
 package db
 
@@ -26,12 +26,43 @@ const (
 	defaultIRISNamespace = "USER"
 )
 
+type interSystemsProduct string
+
+const (
+	interSystemsProductIRIS  interSystemsProduct = "iris"
+	interSystemsProductCache interSystemsProduct = "cache"
+)
+
 type IrisDB struct {
 	conn        *sql.DB
 	pingTimeout time.Duration
 	namespace   string
 	forwarder   *ssh.LocalForwarder
+	product     interSystemsProduct
 }
+
+// CacheDB exposes InterSystems Caché as an independent data-source type while
+// reusing the wire-compatible InterSystems SQL implementation. Keeping a
+// dedicated wrapper preserves Caché connection identity, driver lifecycle and
+// UI state instead of silently rewriting saved connections to IRIS.
+type CacheDB struct {
+	IrisDB
+}
+
+// productName/productType intentionally shadow the embedded IrisDB methods so
+// a zero-value CacheDB already reports its stable Caché identity. This keeps
+// connection identity independent even before Connect initializes the
+// embedded implementation state.
+func (c *CacheDB) productName() string {
+	return "InterSystems Caché"
+}
+
+func (c *CacheDB) productType() string {
+	return string(interSystemsProductCache)
+}
+
+var _ Database = (*IrisDB)(nil)
+var _ Database = (*CacheDB)(nil)
 
 type irisTableRef struct {
 	Schema string
@@ -46,8 +77,29 @@ func normalizeIRISNamespace(namespace string) string {
 	return trimmed
 }
 
+func (i *IrisDB) productName() string {
+	if i != nil && i.product == interSystemsProductCache {
+		return "InterSystems Caché"
+	}
+	return "InterSystems IRIS"
+}
+
+func (i *IrisDB) productType() string {
+	if i != nil && i.product == interSystemsProductCache {
+		return string(interSystemsProductCache)
+	}
+	return string(interSystemsProductIRIS)
+}
+
 func applyIRISURI(config connection.ConnectionConfig) connection.ConnectionConfig {
-	parsed, ok := parseConnectionURI(config.URI, "iris", "intersystems")
+	parsed, ok := parseConnectionURI(
+		config.URI,
+		"iris",
+		"intersystems",
+		"cache",
+		"intersystems-cache",
+		"intersystemscache",
+	)
 	if !ok || parsed == nil {
 		return config
 	}
@@ -87,7 +139,15 @@ func (i *IrisDB) getDSN(config connection.ConnectionConfig) string {
 	u.User = url.UserPassword(config.User, config.Password)
 
 	q := url.Values{}
-	mergeConnectionParamsFromConfig(q, config, "iris", "intersystems")
+	mergeConnectionParamsFromConfig(
+		q,
+		config,
+		"iris",
+		"intersystems",
+		"cache",
+		"intersystems-cache",
+		"intersystemscache",
+	)
 	u.RawQuery = q.Encode()
 	return u.String()
 }
@@ -107,7 +167,7 @@ func (i *IrisDB) Connect(config connection.ConnectionConfig) (err error) {
 	i.namespace = normalizeIRISNamespace(runConfig.Database)
 
 	if runConfig.UseSSH {
-		logger.Infof("InterSystems IRIS 使用 SSH 连接：地址=%s:%d 用户=%s", runConfig.Host, runConfig.Port, runConfig.User)
+		logger.Infof("%s 使用 SSH 连接：地址=%s:%d 用户=%s", i.productName(), runConfig.Host, runConfig.Port, runConfig.User)
 		forwarder, err := ssh.AcquireLocalForwarder(runConfig.SSH, runConfig.Host, runConfig.Port)
 		if err != nil {
 			return fmt.Errorf("创建 SSH 隧道失败：%w", err)
@@ -126,14 +186,14 @@ func (i *IrisDB) Connect(config connection.ConnectionConfig) (err error) {
 		runConfig.Host = host
 		runConfig.Port = port
 		runConfig.UseSSH = false
-		logger.Infof("InterSystems IRIS 通过本地端口转发连接：%s -> %s:%d", forwarder.LocalAddr, config.Host, config.Port)
+		logger.Infof("%s 通过本地端口转发连接：%s -> %s:%d", i.productName(), forwarder.LocalAddr, config.Host, config.Port)
 	}
 
 	db, err := sql.Open("iris", i.getDSN(runConfig))
 	if err != nil {
 		return wrapDatabaseConnectionOpenError(err)
 	}
-	configureSQLConnectionPool(db, "iris")
+	configureSQLConnectionPool(db, i.productType())
 	i.conn = db
 	i.pingTimeout = getConnectTimeout(runConfig)
 	if err := i.Ping(); err != nil {
@@ -144,10 +204,15 @@ func (i *IrisDB) Connect(config connection.ConnectionConfig) (err error) {
 	return nil
 }
 
+func (c *CacheDB) Connect(config connection.ConnectionConfig) error {
+	c.product = interSystemsProductCache
+	return c.IrisDB.Connect(config)
+}
+
 func (i *IrisDB) Close() error {
 	if i.forwarder != nil {
 		if err := i.forwarder.Release(); err != nil {
-			logger.Warnf("关闭 InterSystems IRIS SSH 端口转发失败：%v", err)
+			logger.Warnf("关闭 %s SSH 端口转发失败：%v", i.productName(), err)
 		}
 		i.forwarder = nil
 	}
@@ -191,7 +256,7 @@ func (i *IrisDB) QueryMultiContext(ctx context.Context, query string) ([]connect
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRows(rows)
+	return scanMultiRowsContext(ctx, rows)
 }
 
 func (i *IrisDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
@@ -203,7 +268,7 @@ func (i *IrisDB) QueryContext(ctx context.Context, query string) ([]map[string]i
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (i *IrisDB) Query(query string) ([]map[string]interface{}, []string, error) {

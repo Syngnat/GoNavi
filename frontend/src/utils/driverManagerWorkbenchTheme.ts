@@ -16,15 +16,7 @@ export type DriverManagerWorkbenchTheme = {
   warningText: string;
 };
 
-/** v2 = body[data-ui-version="v2"]，由 App.tsx 切换。 */
-const isV2 = (): boolean => {
-  if (typeof document === 'undefined' || !document.body) return false;
-  return document.body.getAttribute('data-ui-version') === 'v2';
-};
-
-export const buildDriverManagerWorkbenchTheme = (darkMode: boolean, _opacity: number): DriverManagerWorkbenchTheme => {
-  // ─── v2 palette ──────────────────────────────────────────────
-  if (isV2()) {
+export const buildDriverManagerWorkbenchTheme = (darkMode: boolean): DriverManagerWorkbenchTheme => {
     if (darkMode) {
       return {
         isDark: true,
@@ -61,48 +53,4 @@ export const buildDriverManagerWorkbenchTheme = (darkMode: boolean, _opacity: nu
       titleText: '#0c1322',
       warningText: '#d97706',
     };
-  }
-
-  // ─── legacy palette ──────────────────────────────────────────
-  if (darkMode) {
-    const darkSurface = 'rgb(31, 31, 31)';
-
-    return {
-      isDark: true,
-      pageBg: darkSurface,
-      sectionBg: darkSurface,
-      sectionBorder: '1px solid rgba(255, 255, 255, 0.08)',
-      cardBg: darkSurface,
-      cardBorder: '1px solid rgba(255, 255, 255, 0.08)',
-      cardWarningBorder: '1px solid rgba(250, 173, 20, 0.35)',
-      cardReadyBorder: '1px solid rgba(82, 196, 26, 0.22)',
-      statBg: darkSurface,
-      statBorder: '1px solid rgba(255, 255, 255, 0.08)',
-      updateNoteBg: darkSurface,
-      updateNoteBorder: '1px solid rgba(250, 173, 20, 0.24)',
-      mutedText: 'rgba(255, 255, 255, 0.62)',
-      titleText: '#f5f7ff',
-      warningText: '#f6c453',
-    };
-  }
-
-  const lightSurface = 'rgb(255, 255, 255)';
-
-  return {
-    isDark: false,
-    pageBg: lightSurface,
-    sectionBg: lightSurface,
-    sectionBorder: '1px solid rgba(5, 5, 5, 0.08)',
-    cardBg: lightSurface,
-    cardBorder: '1px solid rgba(5, 5, 5, 0.08)',
-    cardWarningBorder: '1px solid rgba(250, 173, 20, 0.35)',
-    cardReadyBorder: '1px solid rgba(82, 196, 26, 0.22)',
-    statBg: lightSurface,
-    statBorder: '1px solid rgba(5, 5, 5, 0.08)',
-    updateNoteBg: lightSurface,
-    updateNoteBorder: '1px solid rgba(250, 173, 20, 0.24)',
-    mutedText: 'rgba(5, 5, 5, 0.62)',
-    titleText: 'rgba(5, 5, 5, 0.92)',
-    warningText: '#d48806',
   };
-};

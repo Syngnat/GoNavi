@@ -1,7 +1,26 @@
 export type SourceDatasetMode = 'table' | 'query';
 
 type SyncContent = 'data' | 'schema' | 'both';
-type TargetTableStrategy = 'existing_only' | 'auto_create_if_missing' | 'smart';
+export type DataSyncTargetTableStrategy = 'existing_only' | 'auto_create_if_missing' | 'smart';
+
+export const resolveDataSyncTargetTableStrategy = (
+  strategy: DataSyncTargetTableStrategy,
+  workflowType: 'sync' | 'migration',
+  sourceDatasetMode: SourceDatasetMode,
+  supportsAutoCreate: boolean,
+  strategyExplicitlySelected = false,
+): DataSyncTargetTableStrategy => {
+  if (
+    workflowType === 'migration' &&
+    sourceDatasetMode === 'table' &&
+    supportsAutoCreate &&
+    strategy === 'existing_only' &&
+    !strategyExplicitlySelected
+  ) {
+    return 'smart';
+  }
+  return strategy;
+};
 
 export type BuildDataSyncRequestParams = {
   sourceConfig: any;
@@ -15,7 +34,7 @@ export type BuildDataSyncRequestParams = {
   syncContent: SyncContent;
   syncMode: string;
   autoAddColumns: boolean;
-  targetTableStrategy: TargetTableStrategy;
+  targetTableStrategy: DataSyncTargetTableStrategy;
   createIndexes: boolean;
   mongoCollectionName: string;
   jobId?: string;
@@ -34,7 +53,7 @@ export type BuildDataSyncAnalysisFingerprintParams = {
   syncContent: SyncContent;
   syncMode: string;
   autoAddColumns: boolean;
-  targetTableStrategy: TargetTableStrategy;
+  targetTableStrategy: DataSyncTargetTableStrategy;
   createIndexes: boolean;
   mongoCollectionName: string;
 };

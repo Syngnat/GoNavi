@@ -89,6 +89,8 @@ const getTabKindLabel = (tab: TabData): string => {
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
   if (tab.type === 'sql-analysis') return t('tab_manager.kind_badge.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.kind_badge.sql_audit');
+  if (tab.type === 'driver-manager') return t('tab_manager.kind_badge.driver_manager');
+  if (tab.type === 'settings-center') return t('tab_manager.kind_badge.settings_center');
   if (tab.type === 'message-queue') return t('message_queue_workbench.tab_kind');
   if (tab.type.startsWith('redis')) return t('tab_manager.kind_badge.redis');
   if (tab.type.startsWith('jvm')) return t('tab_manager.kind_badge.jvm');
@@ -109,6 +111,11 @@ export const isBackgroundTaskWorkbenchTab = (tab: Pick<TabData, 'type'>): boolea
   tab.type === 'table-export' || tab.type === 'data-import' || tab.type === 'data-sync'
 );
 
+/** Settings center keeps its UI/state in the main App bridge; do not detach it. */
+export const isMainWindowBoundWorkbenchTab = (tab: Pick<TabData, 'type'>): boolean => (
+  tab.type === 'settings-center' || isBackgroundTaskWorkbenchTab(tab)
+);
+
 export const resolveQueryTabRenameMenuState = (
   tab: Pick<TabData, 'type' | 'filePath'>,
 ): { visible: boolean; disabled: boolean } => ({
@@ -124,11 +131,10 @@ export const TAB_WORKBENCH_CLASS_NAME = 'tab-workbench';
 export const TAB_ENVIRONMENT_ACCENT_CSS_HEIGHT = 'var(--gn-tab-environment-accent-thickness, 2px)';
 
 export const buildTabWorkbenchStyle = (
-  isV2Ui: boolean,
   v2TabWidth: number,
   tabEnvironmentAccentThickness: unknown,
 ): React.CSSProperties => ({
-  ...(isV2Ui ? { '--gn-v2-tab-width': `${v2TabWidth}px` } : {}),
+  ...({ '--gn-v2-tab-width': `${v2TabWidth}px` }),
   '--gn-tab-environment-accent-thickness': `${sanitizeTabEnvironmentAccentThickness(tabEnvironmentAccentThickness)}px`,
 } as React.CSSProperties);
 
@@ -330,6 +336,8 @@ const getTabKindTooltipLabel = (tab: TabData): string => {
   if (tab.type === 'sql-file-execution') return t('sidebar.sql_file_exec.title');
   if (tab.type === 'sql-analysis') return t('tab_manager.hover.kind.sql_analysis');
   if (tab.type === 'sql-audit') return t('tab_manager.hover.kind.sql_audit');
+  if (tab.type === 'driver-manager') return t('tab_manager.hover.kind.driver_manager');
+  if (tab.type === 'settings-center') return t('tab_manager.hover.kind.settings_center');
   if (tab.type === 'message-queue') return t('message_queue_workbench.tab_kind');
   if (tab.type === 'redis-keys') return t('tab_manager.hover.kind.redis_keys');
   if (tab.type === 'redis-command') return t('tab_manager.hover.kind.redis_command');
@@ -364,6 +372,8 @@ const getTabObjectLabel = (tab: TabData): string => {
   if (tab.triggerName) return tab.triggerName;
   if (tab.resourcePath) return tab.resourcePath;
   if (tab.filePath) return tab.filePath;
+  if (tab.type === 'driver-manager') return t('app.tools.entry.drivers.title');
+  if (tab.type === 'settings-center') return t('app.settings.title');
   if (tab.type === 'sql-analysis' || tab.type === 'sql-audit') return tab.title;
   if (tab.type === 'message-queue') return tab.messageQueueTarget || tab.dbName || '';
   if (tab.type.startsWith('redis')) return `db${tab.redisDB ?? 0}`;
@@ -516,7 +526,6 @@ type SortableTabLabelProps = {
   environmentColor?: string;
   environmentLabel?: string;
   environmentType?: string;
-  isV2Ui?: boolean;
   onClose?: () => void;
 };
 
@@ -554,7 +563,6 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
   environmentColor,
   environmentLabel,
   environmentType,
-  isV2Ui,
   onClose,
 }) => {
   const [isHoverInfoOpen, setIsHoverInfoOpen] = useState(false);
@@ -589,15 +597,15 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
   };
 
   const tabDisplayPartCount = displayModel.primaryParts.length + displayModel.secondaryParts.length;
-  const showSecondaryLine = isV2Ui && displayModel.layout === 'double' && Boolean(displayModel.secondaryText);
+  const showSecondaryLine = displayModel.layout === 'double' && Boolean(displayModel.secondaryText);
   const labelNode = (
     <span
-      className={`tab-dnd-label${isV2Ui ? ' gn-v2-tab-label' : ''}${showSecondaryLine ? ' gn-v2-tab-label-double' : ''}${tabDisplayPartCount >= 4 ? ' gn-v2-tab-label-rich' : ''}${environmentColor ? ' gn-tab-label-has-environment' : ''}`}
+      className={`tab-dnd-label gn-v2-tab-label${showSecondaryLine ? ' gn-v2-tab-label-double' : ''}${tabDisplayPartCount >= 4 ? ' gn-v2-tab-label-rich' : ''}${environmentColor ? ' gn-tab-label-has-environment' : ''}`}
       data-connection-environment={environmentType}
       onContextMenu={handleTabLabelContextMenu}
       onMouseDown={handleTabLabelMouseDown}
       onAuxClick={handleTabLabelAuxClick}
-      title={isV2Ui ? undefined : displayTitle}
+      title={undefined}
     >
       {environmentColor ? (
         <span
@@ -609,8 +617,7 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
           aria-label={environmentLabel}
         />
       ) : null}
-      {isV2Ui ? (
-        <span className="gn-v2-tab-label-content">
+      <span className="gn-v2-tab-label-content">
           <span className="gn-v2-tab-label-main tab-title-text">
             {displayModel.primaryParts.length > 0
               ? displayModel.primaryParts.map(renderV2TabDisplayPart)
@@ -625,11 +632,8 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
               {renderV2TabSecondaryParts(displayModel.secondaryParts)}
             </span>
           ) : null}
-        </span>
-      ) : (
-        <span className="tab-title-text">{displayTitle}</span>
-      )}
-      {isV2Ui && onClose ? (
+      </span>
+      {onClose ? (
         <button
           type="button"
           className="gn-v2-tab-close"
@@ -646,8 +650,7 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
     </span>
   );
 
-  const wrappedLabel = isV2Ui ? (
-    <Tooltip
+  const wrappedLabel = <Tooltip
       title={(
         <TabHoverInfo
           tab={tab}
@@ -665,16 +668,15 @@ const SortableTabLabel: React.FC<SortableTabLabelProps> = ({
       rootClassName="gn-v2-tab-hover-tooltip"
     >
       {labelNode}
-    </Tooltip>
-  ) : labelNode;
+    </Tooltip>;
 
   return (
     <Dropdown
       menu={{ items: menuItems }}
       trigger={['contextMenu']}
       onOpenChange={handleTabMenuOpenChange}
-      rootClassName={isV2Ui ? 'gn-v2-tab-context-menu-popup' : undefined}
-      popupRender={(menu) => renderV2ActionMenuPopup(menu, Boolean(isV2Ui), {
+      rootClassName={'gn-v2-tab-context-menu-popup'}
+      popupRender={(menu) => renderV2ActionMenuPopup(menu, true, {
         title: displayTitle,
         showHeader: false,
       })}
@@ -897,11 +899,11 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       activationConstraint: { distance: 8 },
     })
   );
-  const isV2Ui = appearance.uiVersion === 'v2';
+
   const hasTabs = tabs.length > 0;
   const hasDockedTabs = dockedTabs.length > 0;
   useLayoutEffect(() => {
-    if (!isV2Ui || dockedTabs.length === 0) {
+    if (dockedTabs.length === 0) {
       setV2TabWidth(V2_WORKBENCH_TAB_MAX_WIDTH);
       return;
     }
@@ -928,16 +930,15 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       observer.disconnect();
       scheduler.dispose();
     };
-  }, [dockedTabs.length, isV2Ui]);
+  }, [dockedTabs.length]);
 
   const tabWorkbenchStyle = buildTabWorkbenchStyle(
-    isV2Ui,
     v2TabWidth,
     appearance.tabEnvironmentAccentThickness,
   );
   const detachTabToWindow = useCallback((tabId: string, preferred?: { x?: number; y?: number; width?: number; height?: number }) => {
     const tab = tabs.find((item) => item.id === tabId);
-    if (tab && isBackgroundTaskWorkbenchTab(tab)) {
+    if (tab && isMainWindowBoundWorkbenchTab(tab)) {
       void message.warning(t('tab_manager.message.background_task_window_unavailable'));
       return;
     }
@@ -1422,7 +1423,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
       if (!sql) return;
 
       const activeTab = tabs.find(t => t.id === activeTabId);
-      
+
       // 🔧 runImmediately（点击"执行"）始终新建独立 tab，避免追加到已有 tab 导致 SQL 重复
       if (runImmediately) {
         const newTabId = 'tab-' + Date.now();
@@ -1444,7 +1445,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
         }, 300);
         return;
       }
-      
+
       // 插入模式：追加到已有 tab 或新建 tab
       if (activeTab && activeTab.type === 'query') {
         window.dispatchEvent(new CustomEvent('gonavi:insert-sql-to-tab', {
@@ -1520,7 +1521,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
         key: 'open-in-window',
         icon: <ExportOutlined />,
         label: t('tab_manager.menu.open_in_window'),
-        disabled: isBackgroundTaskWorkbenchTab(tab),
+        disabled: isMainWindowBoundWorkbenchTab(tab),
         onClick: () => detachTabToWindow(tab.id),
       },
       { type: 'divider' },
@@ -1565,7 +1566,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
         },
       },
     ];
-    
+
     return {
       label: (
         <SortableTabLabel
@@ -1578,15 +1579,14 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
           environmentColor={environment?.color}
           environmentLabel={environment?.label}
           environmentType={environment?.type}
-          isV2Ui={isV2Ui}
           onClose={() => closeTabsWithSQLFilePrompt([tab.id], () => closeTab(tab.id))}
         />
       ),
       key: tab.id,
-      closable: !isV2Ui,
+      closable: false,
       children: <WorkbenchTabContent tab={tab} isActive={tabIsActive} />,
     };
-  }), [dockedTabs, dockedActiveTabId, tabs, connections, connectionGroupNameById, appearance.tabDisplay, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, isV2Ui, languagePreference]);
+  }), [dockedTabs, dockedActiveTabId, tabs, connections, connectionGroupNameById, appearance.tabDisplay, closeTab, closeTabsWithSQLFilePrompt, detachTabToWindow, true, languagePreference]);
 
   const queryCapableConnections = useMemo(
     () => connections.filter((connection) => getDataSourceCapabilities(connection.config).supportsQueryEditor),
@@ -1938,7 +1938,7 @@ const TabManager: React.FC<TabManagerProps> = React.memo<TabManagerProps>(({ onF
   return (
     <div
       ref={tabWorkbenchRef}
-      className={`${TAB_WORKBENCH_CLASS_NAME}${isV2Ui ? ' gn-v2-tab-workbench' : ''}`}
+      className={`${TAB_WORKBENCH_CLASS_NAME} gn-v2-tab-workbench`}
       style={tabWorkbenchStyle}
     >
         <style>{`
@@ -2137,7 +2137,7 @@ body[data-theme='dark'] .main-tabs .ant-tabs-tab.ant-tabs-tab-active {
               -webkit-user-select: none !important;
             }
         `}</style>
-        {isV2Ui && !hasTabs ? (
+        {!hasTabs ? (
           EmptyWorkbench
         ) : !hasDockedTabs ? (
           // All tabs are floating: keep empty docked area; floating host still shows content.
@@ -2153,7 +2153,7 @@ body[data-theme='dark'] .main-tabs .ant-tabs-tab.ant-tabs-tab-active {
         >
           <SortableContext items={tabIds} strategy={horizontalListSortingStrategy}>
             <Tabs
-                className={`main-tabs${isV2Ui ? ' gn-v2-main-tabs' : ''}${hasDoubleLineTabLabel ? ' gn-v2-main-tabs-double' : ''}`}
+                className={`main-tabs gn-v2-main-tabs${hasDoubleLineTabLabel ? ' gn-v2-main-tabs-double' : ''}`}
                 type="editable-card"
                 destroyOnHidden={false}
                 onChange={(newActiveKey) => {

@@ -16,7 +16,6 @@ type GridViewMode = 'table' | 'json' | 'text' | 'fields' | 'ddl' | 'er' | 'sqlLo
 export type DataGridSecondaryActionsTranslate = (key: string, params?: I18nParams) => string;
 
 export interface DataGridSecondaryActionsProps {
-  isV2Ui: boolean;
   canViewDdl: boolean;
   canOpenObjectDesigner: boolean;
   viewMode: GridViewMode;
@@ -26,18 +25,12 @@ export interface DataGridSecondaryActionsProps {
   resultViewSwitcher: React.ReactNode;
   columnInfoSettingContent: React.ReactNode;
   columnQuickFindContent: React.ReactNode;
-  pageFindContent: React.ReactNode;
   paginationContent: React.ReactNode;
   onViewModeChange: (nextMode: GridViewMode) => void;
-  dataPanelOpen: boolean;
-  isTableSurfaceActive: boolean;
-  onToggleDataPanel: () => void;
-  onOpenTableDdl: () => void;
   translate?: DataGridSecondaryActionsTranslate;
 }
 
 const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
-  isV2Ui,
   canViewDdl,
   canOpenObjectDesigner,
   viewMode,
@@ -47,19 +40,13 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
   resultViewSwitcher,
   columnInfoSettingContent,
   columnQuickFindContent,
-  pageFindContent,
   paginationContent,
   onViewModeChange,
-  dataPanelOpen,
-  isTableSurfaceActive,
-  onToggleDataPanel,
-  onOpenTableDdl,
   translate = defaultTranslate,
 }) => {
   const [columnDisplayOpen, setColumnDisplayOpen] = React.useState(false);
 
-  if (isV2Ui) {
-    const fieldsActionLabel = canOpenObjectDesigner
+  const fieldsActionLabel = canOpenObjectDesigner
       ? translate('data_grid.secondary.object_design')
       : translate('data_grid.column_settings.field_info');
     const fieldsActionIcon = canOpenObjectDesigner ? <EditOutlined /> : <FileTextOutlined />;
@@ -72,7 +59,7 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
       { key: 'sqlLog', label: translate('log_panel.short_title'), icon: <BugOutlined /> },
     ];
 
-    return (
+  return (
       <div data-grid-secondary-actions="true" className="gn-v2-data-grid-statusbar">
         <div className="gn-v2-data-grid-status-main">
           <div className="gn-v2-data-grid-view-tabs">
@@ -140,95 +127,6 @@ const DataGridSecondaryActions: React.FC<DataGridSecondaryActionsProps> = ({
           {paginationContent}
         </div>
       </div>
-    );
-  }
-
-  return (
-    <>
-      <div
-        data-grid-secondary-actions="true"
-        data-grid-legacy-secondary-actions="true"
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 4,
-          padding: '4px 0 0',
-        }}
-      >
-        <div
-          data-grid-legacy-secondary-row="primary"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            flexWrap: 'wrap',
-            justifyContent: 'flex-start',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: '0 1 auto', minWidth: 0 }}>
-            <Button
-              icon={<EditOutlined />}
-              type={dataPanelOpen ? 'primary' : 'default'}
-              disabled={!isTableSurfaceActive}
-              onClick={onToggleDataPanel}
-            >
-              {translate('data_grid.secondary.data_preview')}
-            </Button>
-            <Popover trigger="click" placement="bottomRight" content={columnInfoSettingContent}>
-              <Button data-grid-column-display-action="true" icon={<FileTextOutlined />}>{translate('data_grid.column_settings.field_info')}</Button>
-            </Popover>
-            {canViewDdl && (
-              <Button
-                data-grid-ddl-action="true"
-                icon={<FileTextOutlined />}
-                loading={ddlLoading}
-                onClick={onOpenTableDdl}
-              >
-                {translate('data_grid.secondary.view_ddl')}
-              </Button>
-            )}
-          </div>
-          <div
-            data-grid-legacy-result-view-switcher="true"
-            style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}
-          >
-            {resultViewSwitcher}
-          </div>
-        </div>
-        <div
-          data-grid-legacy-secondary-row="search"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            flexWrap: 'wrap',
-            justifyContent: 'flex-start',
-            minHeight: 32,
-          }}
-        >
-          {columnQuickFindContent ? (
-            <div
-              data-grid-legacy-column-quick-find="true"
-              style={{ display: 'flex', flex: '0 1 240px', minWidth: 0 }}
-            >
-              {columnQuickFindContent}
-            </div>
-          ) : null}
-          <div
-            data-grid-legacy-page-find="true"
-            style={{ display: 'flex', flex: '0 1 auto', minWidth: 0 }}
-          >
-            {pageFindContent}
-          </div>
-          <div
-            data-grid-legacy-pagination="true"
-            style={{ display: 'flex', minWidth: 0, marginLeft: 'auto' }}
-          >
-            {paginationContent}
-          </div>
-        </div>
-      </div>
-    </>
   );
 };
 

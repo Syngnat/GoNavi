@@ -19,6 +19,29 @@ const isHorizontalWhitespace = (ch: string): boolean => (
   ch === ' ' || ch === '\t' || ch === '\r' || ch === '\f'
 );
 
+const isDelimiterFollowupOffset = (text: string, offset: number): boolean => {
+  if (offset <= 0 || (text[offset - 1] !== ';' && text[offset - 1] !== '；')) {
+    return false;
+  }
+  if (offset >= text.length || isWhitespace(text[offset])) {
+    return true;
+  }
+  return (text[offset] === '-' && text[offset + 1] === '-')
+    || (text[offset] === '/' && text[offset + 1] === '*');
+};
+
+const findStatementBeforeDelimiter = (
+  text: string,
+  ranges: SqlStatementRange[],
+  delimiterIndex: number,
+): SqlStatementRange | null => [...ranges]
+  .reverse()
+  .find((range) => (
+    range.start <= delimiterIndex
+    && range.end <= delimiterIndex
+    && text.slice(range.end, delimiterIndex).trim() === ''
+  )) || null;
+
 const isSqlIdentifierStart = (ch: string): boolean => /^[A-Za-z_]$/.test(ch);
 
 const isSqlIdentifierPart = (ch: string): boolean => /^[A-Za-z0-9_$#]$/.test(ch);
@@ -48,7 +71,7 @@ const supportsSqlHashLineComment = (dbType: string): boolean => {
   return !normalized || normalized === 'clickhouse' || MYSQL_DASH_COMMENT_DIALECTS.has(normalized);
 };
 
-const isSqlDashLineCommentStart = (dbType: string, next2: string): boolean => {
+export const isSqlDashLineCommentStart = (dbType: string, next2: string): boolean => {
   const normalized = normalizeSqlLexicalDbType(dbType);
   return !MYSQL_DASH_COMMENT_DIALECTS.has(normalized) || !next2 || isWhitespace(next2);
 };
@@ -567,12 +590,35 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
   return ranges;
 };
 
+/**
+ * Returns the executable statement currently being edited at the end of sql.
+ * Unlike cursor navigation, a completed statement followed by only trivia has
+ * no active statement and must not inherit the previous statement's context.
+ */
+export const resolveSqlStatementPrefix = (sql: string, dbType = ''): string => {
+  const text = String(sql || '').replace(/\r\n/g, '\n');
+  const ranges = findSqlStatementRanges(text, dbType);
+  const currentRange = ranges[ranges.length - 1];
+  const trimmedEnd = text.trimEnd().length;
+  return currentRange && currentRange.end === trimmedEnd ? text.slice(currentRange.start) : '';
+};
+
 export const resolveCurrentSqlStatementRange = (sql: string, cursorOffset: number, dbType = ''): SqlStatementRange | null => {
   const text = String(sql || '').replace(/\r\n/g, '\n');
   const offset = Math.max(0, Math.min(text.length, Number.isFinite(cursorOffset) ? cursorOffset : 0));
   const ranges = findSqlStatementRanges(text, dbType);
   if (ranges.length === 0) {
     return null;
+  }
+
+  // Monaco may report a caret clicked on a trailing semicolon as the offset
+  // immediately after it (for example, on the following newline). Keep that
+  // caret attached to the statement whose delimiter was clicked.
+  if (isDelimiterFollowupOffset(text, offset)) {
+    const delimiterStatement = findStatementBeforeDelimiter(text, ranges, offset - 1);
+    if (delimiterStatement) {
+      return delimiterStatement;
+    }
   }
 
   const containingRange = ranges.find((range) => offset >= range.start && offset <= range.end);
@@ -610,6 +656,14 @@ export const resolveExecutableSql = (
   if (ranges.length === 0) {
     return null;
   }
+
+  if (isDelimiterFollowupOffset(text, offset)) {
+    const delimiterStatement = findStatementBeforeDelimiter(text, ranges, offset - 1);
+    if (delimiterStatement?.text.trim()) {
+      return { sql: stripLeadingSqlTrivia(delimiterStatement.text, dbType), source: 'statement' };
+    }
+  }
+
   const statement = ranges.find((range) => offset >= range.start && offset <= range.end);
   if (statement?.text.trim()) {
     return { sql: stripLeadingSqlTrivia(statement.text, dbType), source: 'statement' };
@@ -628,7 +682,14 @@ export const resolveExecutableSql = (
   const lineEnd = nextLineBreak === -1 ? text.length : nextLineBreak;
   const line = text.slice(lineStart, lineEnd).trim();
   if (line) {
-    const lineStatement = [...ranges].reverse().find((range) => range.start < lineEnd && range.end >= lineStart);
+    const lineStatements = ranges.filter((range) => range.start < lineEnd && range.end >= lineStart);
+    // A caret immediately after a semicolon is still attached to the statement
+    // on its left. Prefer the nearest completed statement on this line so a
+    // toolbar click cannot move execution to the next statement.
+    const lineStatement = [...lineStatements]
+      .reverse()
+      .find((range) => range.end < offset)
+      || lineStatements[0];
     if (lineStatement?.text.trim()) {
       return { sql: stripLeadingSqlTrivia(lineStatement.text, dbType), source: 'statement' };
     }

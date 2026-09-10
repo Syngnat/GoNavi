@@ -151,6 +151,23 @@ describe('tabDisplay', () => {
     expect(buildTabDisplayTitle(importTab, redisConnection)).toBe('[订单缓存] 导入 orders');
   });
 
+  it('derives the driver manager label from the current translator instead of the stored title', () => {
+    const driverManagerTab: TabData = {
+      id: 'driver-manager',
+      title: '驱动管理',
+      type: 'driver-manager',
+      connectionId: '',
+    };
+    const translate = (key: string) => (
+      key === 'app.tools.entry.drivers.title' ? 'Treiberverwaltung' : key
+    );
+
+    expect(buildTabDisplayTitle(driverManagerTab, undefined, undefined, translate))
+      .toBe('Treiberverwaltung');
+    expect(buildTabDisplayModel(driverManagerTab, undefined, undefined, translate).primaryText)
+      .toBe('Treiberverwaltung');
+  });
+
   it('hides schema prefixes from schema-qualified table tab labels', () => {
     const connection: SavedConnection = {
       id: 'kingbase-1',

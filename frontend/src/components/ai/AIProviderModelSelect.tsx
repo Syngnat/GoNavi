@@ -1,12 +1,14 @@
 import React from 'react';
 import { Input, Select, Tooltip } from 'antd';
-import { passThroughHintTooltip } from '../common/tooltipTiming';
+import { HINT_TOOLTIP_OVERLAY_CLASS, passThroughHintTooltip } from '../common/tooltipTiming';
 
-// The management popup reserves this much room for its switchable body from the
-// first open. Both tabs then render inside a box of the same height, so choosing a
-// default or flipping to the manage tab can no longer resize the popup and make it
-// jump against its trigger. This module is the single source: the stylesheet reads
-// it through MODEL_MANAGEMENT_BODY_HEIGHT_VAR rather than repeating the number.
+// How long a row keeps its "enabled / disabled / blocked" popover after a click.
+export const MODEL_ROW_FLASH_MS = 1600;
+
+// Upper bound for the management body. Short lists size to their content; longer
+// ones scroll inside this height so the popup never outgrows its trigger area.
+// This module is the single source: the stylesheet reads it through
+// MODEL_MANAGEMENT_BODY_HEIGHT_VAR rather than repeating the number.
 export const MODEL_MANAGEMENT_BODY_HEIGHT = 280;
 export const MODEL_MANAGEMENT_BODY_HEIGHT_VAR = '--gn-model-management-body-height';
 export const modelManagementBodyStyle = {
@@ -17,9 +19,12 @@ interface ModelManagementRowProps {
   value: string;
   label: string;
   enabled: boolean;
+  isDefault: boolean;
   badge: string;
   /** Empty when the switch is actionable; otherwise the localized blocking reason. */
   reason: string;
+  /** Transient confirmation for this row only ("disabled", "enabled", blocked reason); shown as a popover beside the switch. */
+  flash: string;
   stateLabel: string;
   toggleLabel: string;
   setDefaultLabel: string;
@@ -32,16 +37,20 @@ interface ModelManagementRowProps {
 // switch click re-rendered the whole popup, which is what made the enable and
 // set-default buttons feel like they lagged the click on large model lists.
 export const ModelManagementRow = React.memo<ModelManagementRowProps>(({
-  value, label, enabled, badge, reason, stateLabel, toggleLabel, setDefaultLabel, showSetDefault, onSetDefault, onToggle,
-}) => <div className={`gonavi-ai-model-management-row${enabled ? '' : ' is-disabled'}`}>
+  value, label, enabled, isDefault, badge, reason, flash, stateLabel, toggleLabel, setDefaultLabel, showSetDefault, onSetDefault, onToggle,
+}) => <div className={`gonavi-ai-model-management-row${enabled ? '' : ' is-disabled'}${isDefault ? ' is-default' : ''}`}>
   <div className="gonavi-ai-model-management-name">
     <Tooltip title={label} {...passThroughHintTooltip}><span>{label}</span></Tooltip>
     {badge && <small>{badge}</small>}
   </div>
   <div className="gonavi-ai-model-management-actions">
     {showSetDefault && <button type="button" aria-label={`${setDefaultLabel}: ${label}`}
-      onClick={() => onSetDefault(value)}>{setDefaultLabel}</button>}
-    <Tooltip title={reason || undefined} {...passThroughHintTooltip}>
+      onClick={(event) => { event?.stopPropagation(); onSetDefault(value); }}>{setDefaultLabel}</button>}
+    <Tooltip title={flash || reason || undefined} {...passThroughHintTooltip}
+      // While the flash is up the popover is forced open beside the row it
+      // belongs to; afterwards the same tooltip goes back to hover-only reasons.
+      open={flash ? true : undefined} placement={flash ? 'left' : undefined}
+      overlayClassName={flash ? `${HINT_TOOLTIP_OVERLAY_CLASS} gonavi-ai-model-flash` : HINT_TOOLTIP_OVERLAY_CLASS}>
       <button type="button" role="switch" aria-checked={enabled} aria-disabled={Boolean(reason)}
         aria-label={toggleLabel}
         onClick={() => onToggle(value, enabled, reason, label)}>
@@ -86,10 +95,18 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
   const [search, setSearch] = React.useState('');
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<'select' | 'manage'>('select');
-  const [feedback, setFeedback] = React.useState('');
+  // Feedback is anchored to the row it concerns instead of a shared footer line,
+  // so "disabled" is never ambiguous; it clears itself after MODEL_ROW_FLASH_MS.
+  const [flash, setFlash] = React.useState<{ model: string; text: string } | null>(null);
+  const flashTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const announce = (model: string, text: string) => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    setFlash({ model, text });
+    flashTimer.current = setTimeout(() => { flashTimer.current = null; setFlash(null); }, MODEL_ROW_FLASH_MS);
+  };
+  React.useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
   const selectRef = React.useRef<React.ElementRef<typeof Select>>(null);
   const managementRef = React.useRef<HTMLDivElement>(null);
-  const focusCleanupRef = React.useRef<(() => void) | null>(null);
   const disabled = new Set(management?.disabledModels || disabledModels);
   const allCandidates = [...options];
   if (value && !allCandidates.some((option) => option.value === value)) allCandidates.unshift({ value, label: value });
@@ -102,48 +119,30 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
   }
   React.useEffect(() => {
     if (managementRequest > 0) {
-      setMode('manage'); setSearch(''); setFeedback(''); setOpen(true);
+      setMode('manage'); setSearch(''); setFlash(null); setOpen(true);
     }
   }, [managementRequest]);
   const close = () => { setOpen(false); setSearch(''); setMode('select'); };
-  const focusManagementInput = React.useMemo(() => {
-    let focused = false;
-    return (input: React.ElementRef<typeof Input> | null) => {
-      focusCleanupRef.current?.();
-      focusCleanupRef.current = null;
-      if (focused || !open || mode !== 'manage' || !input?.input) return;
-      const focusOnce = () => { focused = true; input.focus(); };
-      if (input.input.offsetWidth) { focusOnce(); return; }
-      // Select retains a hidden portal, and Input renews its imperative ref on
-      // every render. Wait for visibility, then focus only once per opening so
-      // changing a switch does not steal keyboard focus back from that switch.
-      if (typeof ResizeObserver === 'undefined') return;
-      const observer = new ResizeObserver(() => {
-        if (!input.input?.offsetWidth) return;
-        observer.disconnect(); focusCleanupRef.current = null; focusOnce();
-      });
-      focusCleanupRef.current = () => observer.disconnect();
-      observer.observe(input.input);
-    };
-  }, [open, mode]);
   React.useEffect(() => {
-    if (!open || !management || typeof document === 'undefined') return;
+    // The plain option menu is dismissed by Select itself; only the management
+    // dialog owns its own outside-click handling.
+    if (!open || !management || mode !== 'manage' || typeof document === 'undefined') return;
     const outside = (event: PointerEvent) => {
       const target = event.target as Node;
       if (!managementRef.current?.contains(target) && !selectRef.current?.nativeElement?.contains(target)) close();
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [open, Boolean(management)]);
+  }, [open, mode, Boolean(management)]);
   const choose = (next?: string) => {
     if (disabled.has(next || '')) return;
     onChange?.(next || '');
     if (mode !== 'manage') close();
   };
   const toggleModel = (model: string, enabled: boolean, reason: string, label: string) => {
-    if (reason) { setFeedback(reason); return; }
+    if (reason) { announce(model, reason); return; }
     management?.onToggle(model, !enabled);
-    setFeedback(management?.copy(enabled ? 'ai_settings.models.disabled' : 'ai_settings.models.enabled', { model: label }) || '');
+    announce(model, management?.copy(enabled ? 'ai_settings.models.disabled' : 'ai_settings.models.enabled', { model: label }) || '');
   };
   // Row callbacks must keep a stable identity or React.memo on the row can never
   // bail out. The ref carries the latest closure without changing that identity.
@@ -153,14 +152,16 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
   const stableToggle = React.useCallback((model: string, enabled: boolean, reason: string, label: string) =>
     rowHandlersRef.current.toggleModel(model, enabled, reason, label), []);
   const renderManagement = (menu: React.ReactElement) => {
-    if (!management) return menu;
+    // Opening the selector itself shows the plain option menu; the management
+    // chrome (heading, search, switches) only appears from the enabled-count button.
+    if (!management || mode !== 'manage') return menu;
     const { copy } = management;
     const enabledCount = allCandidates.filter((option) => !disabled.has(option.value)).length;
     const canAdd = Boolean(customValue && !customExists);
     const add = () => {
       if (!canAdd) return;
       management.onAdd(customValue);
-      setFeedback(copy('ai_settings.models.added', { model: customValue }));
+      announce(customValue, copy('ai_settings.models.added', { model: customValue }));
       setSearch('');
     };
     return <div ref={managementRef} role="dialog" aria-label={copy('ai_settings.models.actions')} className="gonavi-ai-model-management" style={modelManagementBodyStyle} onMouseDown={(event) => {
@@ -172,21 +173,15 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
       if (event.key === 'Escape') { event.stopPropagation(); close(); selectRef.current?.focus(); }
     }}>
       <div className="gonavi-ai-model-management-head">
-        <div role="group" aria-label={copy('ai_settings.models.actions')}>
-          {(['select', 'manage'] as const).map((next) => <button type="button" key={next} aria-pressed={mode === next}
-            onClick={() => { setMode(next); setFeedback(''); }}>{copy(`ai_settings.models.${next}`)}</button>)}
-        </div>
+        <span>{copy('ai_settings.models.manage')}</span>
         <span>{copy('ai_settings.models.enabled_count', { enabled: enabledCount, total: allCandidates.length })}</span>
         <button type="button" aria-label={copy('common.close')} onClick={() => { close(); selectRef.current?.focus(); }}>×</button>
       </div>
-      <div className="gonavi-ai-model-management-body">{mode === 'select' ? menu : <>
-        <Input ref={focusManagementInput} aria-label={copy('ai_settings.models.search')} placeholder={copy('ai_settings.models.search')}
+      <div className={`gonavi-ai-model-management-body${allCandidates.length <= 4 ? ' is-short' : ''}`}>
+        <Input aria-label={copy('ai_settings.models.search')} placeholder={copy('ai_settings.models.search')}
           value={search} maxLength={150} onChange={(event) => setSearch(event.target.value)}
           onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); add(); } else if (event.key === 'Escape') { close(); selectRef.current?.focus(); } }} />
         <div className="gonavi-ai-model-management-list" role="group" aria-label={copy('ai_settings.models.manage')}>
-          {management.allowDefaultFallback && !search && <div className="gonavi-ai-model-management-row">
-            <span>{placeholder}</span><button type="button" onClick={() => choose('')}>{copy(management.defaultModel ? 'ai_settings.models.set_default' : 'ai_settings.provider.default')}</button>
-          </div>}
           {allCandidates.filter((option) => option.label.toLowerCase().includes(search.trim().toLowerCase())).map((option) => {
             const enabled = !disabled.has(option.value);
             const isDefault = option.value === management.defaultModel;
@@ -198,8 +193,10 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
               value={option.value}
               label={option.label}
               enabled={enabled}
-              badge={isDefault || isCompletion ? copy(isDefault ? 'ai_settings.provider.default' : 'ai_settings.form.section.inline_completion') : ''}
+              isDefault={isDefault}
+              badge={isDefault ? copy('ai_settings.provider.default') : isCompletion ? copy('ai_settings.form.section.inline_completion') : ''}
               reason={reason ? copy(reason) : ''}
+              flash={flash?.model === option.value ? flash.text : ''}
               stateLabel={copy(enabled ? 'ai_settings.models.on' : 'ai_settings.models.off')}
               toggleLabel={copy('ai_settings.models.enable', { model: option.label })}
               setDefaultLabel={copy('ai_settings.models.set_default')}
@@ -210,10 +207,9 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
           })}
           {canAdd && <button type="button" className="gonavi-ai-model-add" onClick={add}>{copy('ai_settings.models.add', { model: customValue })}</button>}
         </div>
-      </>}</div>
-      <div className="gonavi-ai-model-management-foot"><div>{management.source}</div><div>{copy('ai_settings.models.scope')}</div>
-        <div role="status" aria-live="polite">{feedback}</div>
       </div>
+      {/* Screen readers still get the confirmation; sighted users read it off the row popover. */}
+      <div className="gonavi-ai-model-management-live" role="status" aria-live="polite">{flash?.text || ''}</div>
     </div>;
   };
   return (
@@ -243,8 +239,8 @@ const AIProviderModelSelect: React.FC<AIProviderModelSelectProps> = ({
       onChange={choose}
       options={candidates}
       dropdownRender={management ? renderManagement : undefined}
-      popupMatchSelectWidth={management ? 380 : true}
-      popupClassName={management ? 'gonavi-ai-model-management-popup' : undefined}
+      popupMatchSelectWidth={management ? 380 : false}
+      classNames={{ popup: { root: management ? 'gonavi-ai-model-management-popup' : 'gonavi-ai-provider-form-popup' } }}
       listHeight={management ? MODEL_MANAGEMENT_BODY_HEIGHT : 240}
       placeholder={placeholder}
       loading={loading}

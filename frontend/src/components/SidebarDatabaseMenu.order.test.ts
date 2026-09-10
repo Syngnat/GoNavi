@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebar/sidebarNodeMenu';
 
 describe('Sidebar legacy database menu order', () => {
 
@@ -9,7 +9,7 @@ describe('Sidebar legacy database menu order', () => {
       title: 'main_db',
       dataRef: { id: 'sqlserver-1', dbName: 'main_db', config: { type: 'sqlserver' } },
     };
-    const items = buildSidebarLegacyNodeMenuItems(node, {
+    const items = buildSidebarNodeMenuItems(node, {
       getMetadataDialect: () => 'sqlserver',
       isPostgresSchemaDialect: () => false,
       shouldHideSchemaPrefix: () => false,
@@ -28,7 +28,7 @@ describe('Sidebar legacy database menu order', () => {
       title: 'main_db',
       dataRef: { id: 'mysql-1', dbName: 'main_db', config: { type: 'mysql' } },
     };
-    const items = buildSidebarLegacyNodeMenuItems(node, {
+    const items = buildSidebarNodeMenuItems(node, {
       getMetadataDialect: () => 'mysql',
       isPostgresSchemaDialect: () => false,
       shouldHideSchemaPrefix: () => false,

@@ -21,7 +21,7 @@ import (
 
 var cursorLookPath = lookupLocalCLICommand
 var cursorCommandContext = exec.CommandContext
-var cursorCLIAuthCheck = CheckCursorCLIAuth
+var cursorCLIAuthCheck = CheckCursorCLIAuthWithConfig
 var cursorCLIRequestTimeout = 120 * time.Second
 var cursorCLIAuthTimeout = 10 * time.Second
 
@@ -51,7 +51,7 @@ func NewCursorCLIProvider(config ai.ProviderConfig) (Provider, error) {
 func (p *CursorCLIProvider) Name() string { return "CursorCLI" }
 
 func (p *CursorCLIProvider) Validate() error {
-	_, err := resolveCursorCLICommand(runtime.GOOS, cursorLookPath)
+	_, err := resolveCursorCLICommand(runtime.GOOS, lookPathWithOverride(p.config.CLIPath, cursorLookPath))
 	return err
 }
 
@@ -73,7 +73,13 @@ func resolveCursorCLICommand(goos string, lookPath func(string) (string, error))
 // CheckCursorCLIAuth checks local sign-in only. Cursor status can exit zero
 // even when signed out, and a saved login does not verify model entitlement.
 func CheckCursorCLIAuth(ctx context.Context) error {
-	output, err := runCursorCLICommand(ctx, []string{"status", "--format", "json"}, "", cursorCLIAuthTimeout, 1024*1024)
+	return CheckCursorCLIAuthWithConfig(ctx, ai.ProviderConfig{AuthMode: "local-cli"})
+}
+
+// CheckCursorCLIAuthWithConfig validates the same executable and environment
+// that will be used for model discovery and chat.
+func CheckCursorCLIAuthWithConfig(ctx context.Context, config ai.ProviderConfig) error {
+	output, err := runCursorCLICommandWithConfig(ctx, config, []string{"status", "--format", "json"}, "", cursorCLIAuthTimeout, 1024*1024)
 	if err != nil {
 		return fmt.Errorf("Cursor CLI login check failed: %w", err)
 	}
@@ -91,7 +97,11 @@ func CheckCursorCLIAuth(ctx context.Context) error {
 }
 
 func discoverCursorCLIModels(ctx context.Context) ([]string, error) {
-	output, err := runCursorCLICommand(ctx, []string{"models"}, "", modelDiscoveryTimeout, 1024*1024)
+	return discoverCursorCLIModelsWithConfig(ctx, ai.ProviderConfig{AuthMode: "local-cli"})
+}
+
+func discoverCursorCLIModelsWithConfig(ctx context.Context, config ai.ProviderConfig) ([]string, error) {
+	output, err := runCursorCLICommandWithConfig(ctx, config, []string{"models"}, "", modelDiscoveryTimeout, 1024*1024)
 	if err != nil {
 		return nil, fmt.Errorf("Cursor CLI model discovery failed: %w", err)
 	}
@@ -145,7 +155,7 @@ func (p *CursorCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (respo
 	}
 	ctx, cancel := context.WithTimeout(ctx, cursorCLIRequestTimeout)
 	defer cancel()
-	if err := cursorCLIAuthCheck(ctx); err != nil {
+	if err := cursorCLIAuthCheck(ctx, p.config); err != nil {
 		return nil, err
 	}
 	prompt := buildPrompt(req.Messages)
@@ -157,7 +167,7 @@ func (p *CursorCLIProvider) Chat(ctx context.Context, req ai.ChatRequest) (respo
 		"nativeHooks":  "retained",
 	})
 	defer func() { logAIUpstreamRequestFinish(requestLog, 0, requestErr) }()
-	output, err := runCursorCLICommand(ctx, args, prompt, cursorCLIRequestTimeout, cursorCLIMaxOutputBytes)
+	output, err := runCursorCLICommandWithConfig(ctx, p.config, args, prompt, cursorCLIRequestTimeout, cursorCLIMaxOutputBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +198,7 @@ func (p *CursorCLIProvider) stream(ctx context.Context, req ai.ChatRequest, call
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := cursorCLIAuthCheck(ctx); err != nil {
+	if err := cursorCLIAuthCheck(ctx, p.config); err != nil {
 		return err
 	}
 	ctx, watchdog := startCLIIdleWatchdog(ctx, cliStreamIdleTimeout, cliStreamMaxTimeout)
@@ -204,7 +214,7 @@ func (p *CursorCLIProvider) stream(ctx context.Context, req ai.ChatRequest, call
 	})
 	var requestErr error
 	defer func() { logAIUpstreamRequestFinish(requestLog, 0, requestErr) }()
-	requestErr = streamCursorCLICommand(ctx, watchdog, args, prompt, callback)
+	requestErr = streamCursorCLICommandWithConfig(ctx, watchdog, p.config, args, prompt, callback)
 	return requestErr
 }
 
@@ -258,9 +268,13 @@ func buildCursorCLIEnv(env []string, dataDir string) []string {
 }
 
 func runCursorCLICommand(ctx context.Context, args []string, prompt string, timeout time.Duration, outputLimit int) ([]byte, error) {
+	return runCursorCLICommandWithConfig(ctx, ai.ProviderConfig{}, args, prompt, timeout, outputLimit)
+}
+
+func runCursorCLICommandWithConfig(ctx context.Context, config ai.ProviderConfig, args []string, prompt string, timeout time.Duration, outputLimit int) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd, cleanup, err := startCursorCLICommand(ctx, args, prompt)
+	cmd, cleanup, err := startCursorCLICommandWithConfig(ctx, config, args, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -287,10 +301,14 @@ func runCursorCLICommand(ctx context.Context, args []string, prompt string, time
 }
 
 func startCursorCLICommand(ctx context.Context, args []string, prompt string) (*exec.Cmd, func(), error) {
+	return startCursorCLICommandWithConfig(ctx, ai.ProviderConfig{}, args, prompt)
+}
+
+func startCursorCLICommandWithConfig(ctx context.Context, config ai.ProviderConfig, args []string, prompt string) (*exec.Cmd, func(), error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	command, err := resolveCursorCLICommand(runtime.GOOS, cursorLookPath)
+	command, err := resolveCursorCLICommand(runtime.GOOS, lookPathWithOverride(config.CLIPath, cursorLookPath))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -320,17 +338,21 @@ func startCursorCLICommand(ctx context.Context, args []string, prompt string) (*
 	// --trust refers exclusively to our newly-created workspace, never the
 	// user's project. No user CLI configuration or login file is rewritten.
 	commandArgs := append([]string{"--workspace", workspace}, args...)
-	cmd := cursorCommandContext(ctx, command, commandArgs...)
-	configureClaudeCLICommand(cmd) // Hide the console window on Windows.
+	cmd := newLocalCLICommand(cursorCommandContext, ctx, command, commandArgs...)
 	cmd.Dir = workspace
-	cmd.Env = EnrichCLICommandPATH(buildCursorCLIEnv(cmd.Environ(), filepath.Join(workspace, "data")), command)
+	customEnv := MergeProviderCLIEnv(cmd.Environ(), config.CLIEnv)
+	cmd.Env = EnrichCLICommandPATH(buildCursorCLIEnv(customEnv, filepath.Join(workspace, "data")), command)
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.WaitDelay = time.Second
 	return cmd, cleanup, nil
 }
 
 func streamCursorCLICommand(ctx context.Context, watchdog *cliIdleWatchdog, args []string, prompt string, callback func(ai.StreamChunk)) error {
-	cmd, cleanup, err := startCursorCLICommand(ctx, args, prompt)
+	return streamCursorCLICommandWithConfig(ctx, watchdog, ai.ProviderConfig{}, args, prompt, callback)
+}
+
+func streamCursorCLICommandWithConfig(ctx context.Context, watchdog *cliIdleWatchdog, config ai.ProviderConfig, args []string, prompt string, callback func(ai.StreamChunk)) error {
+	cmd, cleanup, err := startCursorCLICommandWithConfig(ctx, config, args, prompt)
 	if err != nil {
 		return err
 	}

@@ -26,11 +26,17 @@ export const getProviderEndpointType = (
 export const getProviderEndpointTypes = (preset: ProviderEndpointPreset): ProviderEndpointType[] => {
   if (preset.key === 'custom') return [...PROVIDER_ENDPOINT_TYPES];
   const types = new Set<ProviderEndpointType>();
-  const primary = getProviderEndpointType({ type: preset.backendType, apiFormat: preset.fixedApiFormat || preset.defaultApiFormat });
-  if (primary) types.add(primary);
-  preset.endpoints?.forEach((endpoint) => {
-    const type = getProviderEndpointType({ type: endpoint.backendType });
-    if (type) types.add(type);
+  const connections = preset.modes?.length ? preset.modes : [preset];
+  connections.forEach((connection) => {
+    const primary = getProviderEndpointType({
+      type: connection.backendType,
+      apiFormat: connection.fixedApiFormat || connection.defaultApiFormat,
+    });
+    if (primary) types.add(primary);
+    connection.endpoints?.forEach((endpoint) => {
+      const type = getProviderEndpointType({ type: endpoint.backendType });
+      if (type) types.add(type);
+    });
   });
   // Only these built-in presets currently expose the Responses adapter. An
   // OpenAI-compatible URL alone does not establish Responses compatibility.
@@ -53,6 +59,16 @@ export const resolveProviderEndpointConnection = (
   currentBaseUrl?: string,
 ): ProviderEndpointConnection | undefined => {
   if (!preset.backendType || !getProviderEndpointTypes(preset).includes(endpointType)) return undefined;
+  const selectedMode = preset.modes?.find((mode) => getProviderEndpointTypes({
+    ...mode,
+    key: `${preset.key}:${mode.key}`,
+  }).includes(endpointType));
+  if (selectedMode) {
+    return resolveProviderEndpointConnection({
+      ...selectedMode,
+      key: `${preset.key}:${selectedMode.key}`,
+    }, endpointType, currentBaseUrl);
+  }
   const endpoints = (preset.endpoints || []).filter((endpoint) => getProviderEndpointType({ type: endpoint.backendType }) === endpointType);
   const endpoint = endpoints.find((item) => getProviderFingerprint(item.baseUrl) === getProviderFingerprint(currentBaseUrl))
     || endpoints.find((item) => getProviderHostname(item.baseUrl) === getProviderHostname(currentBaseUrl))

@@ -2,7 +2,13 @@ import Modal from './common/ResizableDraggableModal';
 import React from 'react';
 import { Button, Checkbox, DatePicker, Form, Input, TimePicker, Tooltip } from 'antd';
 import dayjs from 'dayjs';
-import { CopyOutlined, FormatPainterOutlined } from '@ant-design/icons';
+import {
+  CompressOutlined,
+  CopyOutlined,
+  ExportOutlined,
+  FormatPainterOutlined,
+  ImportOutlined,
+} from '@ant-design/icons';
 import Editor from './MonacoEditor';
 import {
   TEMPORAL_FORMATS,
@@ -46,9 +52,13 @@ export interface DataGridModalsProps {
   cellEditorReadOnly: boolean;
   cellEditorViewerMode: boolean;
   cellEditorIsJson: boolean;
+  cellEditorEscapeApplied: boolean;
   cellEditorValue: string;
   onCloseCellEditor: () => void;
   onFormatJsonInEditor: () => void;
+  onCompactJsonInEditor: () => void;
+  onEscapeCellEditorValue: () => void;
+  onUnescapeCellEditorValue: () => void;
   onSaveCellEditor: () => void;
   onCellEditorValueChange: (value: string) => void;
   batchEditModalOpen: boolean;
@@ -88,9 +98,13 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
   cellEditorReadOnly,
   cellEditorViewerMode,
   cellEditorIsJson,
+  cellEditorEscapeApplied,
   cellEditorValue,
   onCloseCellEditor,
   onFormatJsonInEditor,
+  onCompactJsonInEditor,
+  onEscapeCellEditorValue,
+  onUnescapeCellEditorValue,
   onSaveCellEditor,
   onCellEditorValueChange,
   batchEditModalOpen,
@@ -221,24 +235,67 @@ const DataGridModals: React.FC<DataGridModalsProps> = ({
           display: 'flex',
           alignItems: 'center',
           gap: 8,
+          flexWrap: 'wrap',
         }}
       >
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {cellEditorMeta ? `${tableName || ''}${tableName ? '.' : ''}${cellEditorMeta.dataIndex}` : ''}
         </span>
         <span style={{ flex: 1 }} />
-        {!cellEditorReadOnly && cellEditorIsJson && (
-          <Tooltip title={translate('data_grid.json_editor.format')}>
-            <Button
-              data-grid-cell-editor-format="true"
-              size="small"
-              icon={<FormatPainterOutlined aria-hidden="true" />}
-              aria-label={translate('data_grid.json_editor.format')}
-              onClick={onFormatJsonInEditor}
-            >
-              {translate('data_grid.json_editor.format')}
-            </Button>
-          </Tooltip>
+        {cellEditorIsJson && (
+          <>
+            <Tooltip title={translate('data_grid.json_editor.format')}>
+              <Button
+                data-grid-cell-editor-format="true"
+                size="small"
+                icon={<FormatPainterOutlined aria-hidden="true" />}
+                aria-label={translate('data_grid.json_editor.format')}
+                disabled={cellEditorEscapeApplied}
+                onClick={onFormatJsonInEditor}
+              >
+                {translate('data_grid.json_editor.format')}
+              </Button>
+            </Tooltip>
+            <Tooltip title={translate('data_grid.json_editor.compact')}>
+              <Button
+                data-grid-cell-editor-compact-json="true"
+                size="small"
+                icon={<CompressOutlined aria-hidden="true" />}
+                aria-label={translate('data_grid.json_editor.compact')}
+                disabled={cellEditorEscapeApplied}
+                onClick={onCompactJsonInEditor}
+              >
+                {translate('data_grid.json_editor.compact')}
+              </Button>
+            </Tooltip>
+          </>
+        )}
+        {!cellEditorReadOnly && (
+          <>
+            <Tooltip title={translate('data_grid.cell_editor.escape')}>
+              <Button
+                data-grid-cell-editor-escape="true"
+                size="small"
+                icon={<ExportOutlined aria-hidden="true" />}
+                aria-label={translate('data_grid.cell_editor.escape')}
+                disabled={cellEditorEscapeApplied}
+                onClick={onEscapeCellEditorValue}
+              >
+                {translate('data_grid.cell_editor.escape')}
+              </Button>
+            </Tooltip>
+            <Tooltip title={translate('data_grid.cell_editor.unescape')}>
+              <Button
+                data-grid-cell-editor-unescape="true"
+                size="small"
+                icon={<ImportOutlined aria-hidden="true" />}
+                aria-label={translate('data_grid.cell_editor.unescape')}
+                onClick={onUnescapeCellEditorValue}
+              >
+                {translate('data_grid.cell_editor.unescape')}
+              </Button>
+            </Tooltip>
+          </>
         )}
       </div>
       {cellEditorOpen && (

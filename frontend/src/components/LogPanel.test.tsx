@@ -19,7 +19,7 @@ const storeState = {
   }>,
   clearSqlLogs: vi.fn(),
   theme: "light",
-  appearance: { enabled: true, opacity: 1, blur: 0, uiVersion: "legacy" },
+  appearance: { enabled: true, opacity: 1, blur: 0 },
 };
 
 vi.mock("../store", () => ({
@@ -111,7 +111,7 @@ describe("LogPanel i18n", () => {
     storeState.sqlLogs = [];
     storeState.clearSqlLogs.mockClear();
     storeState.theme = "light";
-    storeState.appearance = { enabled: true, opacity: 1, blur: 0, uiVersion: "legacy" };
+    storeState.appearance = { enabled: true, opacity: 1, blur: 0 };
   });
 
   it("renders log panel chrome in the active language", () => {
@@ -221,7 +221,7 @@ describe("LogPanel i18n", () => {
   });
 
   it("uses the shared SQL workbench background for the embedded log surface", () => {
-    storeState.appearance = { enabled: true, opacity: 1, blur: 0, uiVersion: "v2" };
+    storeState.appearance = { enabled: true, opacity: 1, blur: 0 };
 
     const renderer = renderLogPanel({ variant: "embedded" });
     const embeddedPanel = renderer.root.findByProps({ className: "log-panel-embedded" });

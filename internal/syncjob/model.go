@@ -87,16 +87,17 @@ type WatermarkSpec struct {
 }
 
 type TableMapping struct {
-	SourceSchema        string          `json:"sourceSchema,omitempty"`
-	SourceTable         string          `json:"sourceTable"`
-	TargetSchema        string          `json:"targetSchema,omitempty"`
-	TargetTable         string          `json:"targetTable"`
-	TargetTableStrategy string          `json:"targetTableStrategy,omitempty"`
-	Filter              string          `json:"filter,omitempty"`
-	KeyColumns          []string        `json:"keyColumns,omitempty"`
-	Columns             []ColumnMapping `json:"columns,omitempty"`
-	Watermark           *WatermarkSpec  `json:"watermark,omitempty"`
-	Enabled             bool            `json:"enabled"`
+	SourceSchema                string          `json:"sourceSchema,omitempty"`
+	SourceTable                 string          `json:"sourceTable"`
+	TargetSchema                string          `json:"targetSchema,omitempty"`
+	TargetTable                 string          `json:"targetTable"`
+	TargetTableStrategy         string          `json:"targetTableStrategy,omitempty"`
+	TargetTableStrategyExplicit bool            `json:"targetTableStrategyExplicit,omitempty"`
+	Filter                      string          `json:"filter,omitempty"`
+	KeyColumns                  []string        `json:"keyColumns,omitempty"`
+	Columns                     []ColumnMapping `json:"columns,omitempty"`
+	Watermark                   *WatermarkSpec  `json:"watermark,omitempty"`
+	Enabled                     bool            `json:"enabled"`
 }
 
 type ExecutionOptions struct {

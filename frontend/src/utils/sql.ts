@@ -288,6 +288,19 @@ const addSqlServerTopLimit = (sql: string, limit: number): string => {
   );
 };
 
+export const splitTrailingIsolationClause = (sql: string): { main: string; tail: string } => {
+  const text = String(sql || '').trim();
+  const match = text.match(/^(.*?)(\s+WITH\s+(?:UR|CS|RS|RR))\s*$/is);
+  if (!match) return { main: text, tail: '' };
+  const clauseStart = match[1].length;
+  const currentLine = text.slice(text.lastIndexOf('\n', clauseStart - 1) + 1, clauseStart);
+  if (/(?:--|#)[^\r\n]*$/u.test(currentLine)) return { main: text, tail: '' };
+  return {
+    main: match[1].trimEnd(),
+    tail: match[2],
+  };
+};
+
 const buildSqlServerPaginatedSelectSQL = (
   base: string,
   orderBy: string,
@@ -337,6 +350,15 @@ export const buildPaginatedSelectSQL = (
         return `SELECT * FROM (${orderedSql}) WHERE ROWNUM <= ${upperBound}`;
       }
       return `SELECT * FROM (SELECT "__gonavi_page__".*, ROWNUM "__gonavi_rn__" FROM (${orderedSql}) "__gonavi_page__" WHERE ROWNUM <= ${upperBound}) WHERE "__gonavi_rn__" > ${safeOffset}`;
+    }
+    case 'dameng': {
+      // WITH UR/CS/RS/RR is a terminal isolation clause in Dameng DB2
+      // compatibility mode. Keep it after native LIMIT/OFFSET; appending the
+      // limit after WITH UR is rejected. Native pagination also avoids
+      // wrapping JOIN results whose duplicate column names are ambiguous in a
+      // derived table.
+      const statement = splitTrailingIsolationClause(base);
+      return `${statement.main}${orderBy} LIMIT ${safeLimit} OFFSET ${safeOffset}${statement.tail}`;
     }
     case 'sqlserver':
     case 'mssql': {

@@ -1021,7 +1021,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
           display: "flex",
           minWidth: 0,
           flexDirection: "column",
-          overflow: "hidden",
+          overflow: "visible",
         }}
       >
         <div
@@ -1033,7 +1033,12 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
         >
           {t("import_preview.title")}
         </div>
-        <div style={{ minWidth: 0, overflow: "auto" }}>{content}</div>
+        <div
+          data-import-preview-embedded-content="true"
+          style={{ minWidth: 0, overflow: "visible" }}
+        >
+          {content}
+        </div>
         {footer && (
           <div
             data-import-preview-embedded-footer="true"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -174,6 +175,37 @@ func TestAgentToolCatalogPreservesUnknownSQLOutcome(t *testing.T) {
 	})
 	if err == nil || result.Status != "failed" || !result.UnknownOutcome {
 		t.Fatalf("unknown outcome = %#v, %v", result, err)
+	}
+}
+
+func TestAgentToolCatalogSQLExecutorReturnsOnlyMaskedRows(t *testing.T) {
+	backend := catalogBackend()
+	backend.inspection = appcore.SQLInspection{StatementCount: 1, ReadOnly: true, Statements: []appcore.SQLStatementInspection{{Index: 1, Keyword: "select", ReadOnly: true}}}
+	backend.maskingSettings = ai.ResultMaskingSettings{Enabled: true, FullMaskFields: []string{"phone"}}
+	backend.queryResult = connection.QueryResult{Success: true, Data: []connection.ResultSetData{{
+		StatementIndex: 1,
+		Columns:        []string{"mobile"},
+		Rows:           []map[string]interface{}{{"mobile": "13800138000"}},
+	}}}
+	catalog := NewAgentToolCatalog(backend)
+	_, executor, err := catalog.Resolve(context.Background(), agentSQLToolName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := executor.Execute(context.Background(), runharness.ToolExecutionRequest{
+		ToolName:  agentSQLToolName,
+		Effect:    runharness.ToolEffectReadOnly,
+		Arguments: json.RawMessage(`{"connectionId":"conn-1","sql":"SELECT phone AS mobile FROM users"}`),
+	})
+	if err != nil || result.Status != "completed" {
+		t.Fatalf("agent SQL execution = %#v, %v", result, err)
+	}
+	output, ok := result.Value.(executeSQLResult)
+	if !ok || len(output.Results) != 1 || output.Results[0].Rows[0]["mobile"] != "***********" {
+		t.Fatalf("agent result was not masked: %#v", result.Value)
+	}
+	if strings.Contains(fmt.Sprint(result.Value), "13800138000") {
+		t.Fatalf("agent result leaked original value: %#v", result.Value)
 	}
 }
 

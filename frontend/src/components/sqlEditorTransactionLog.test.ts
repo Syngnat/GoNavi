@@ -31,4 +31,12 @@ describe('buildSqlEditorTransactionLog', () => {
     expect(result).toContain('COMMIT;');
     expect(result).not.toContain('BEGIN;');
   });
+
+  it('uses explicit Caché transaction boundaries', () => {
+    expect(buildSqlEditorTransactionLog({
+      dbType: 'cache',
+      statements: ["UPDATE Sample.Person SET Name = 'next' WHERE ID = 1"],
+      action: 'rollback',
+    })).toBe("BEGIN;\nUPDATE Sample.Person SET Name = 'next' WHERE ID = 1;\nROLLBACK;");
+  });
 });

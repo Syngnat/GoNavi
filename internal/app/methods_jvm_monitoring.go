@@ -23,7 +23,11 @@ func closeJVMMonitoringSessions() {
 }
 
 func (a *App) JVMStartMonitoring(cfg connection.ConnectionConfig) connection.QueryResult {
-	snapshot, err := currentJVMMonitoringManager.Start(a.ctx, cfg, "")
+	resolved, err := a.resolveConnectionSecrets(cfg)
+	if err != nil {
+		return connection.QueryResult{Success: false, Message: a.localizeJVMError(err)}
+	}
+	snapshot, err := currentJVMMonitoringManager.Start(a.ctx, resolved, "")
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: a.localizeJVMError(err)}
 	}

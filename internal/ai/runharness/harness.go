@@ -1898,14 +1898,34 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 		// Build the provider projection only after the newest durable transcript
 		// and workspace snapshot are available. ContextLimit is handled before any
 		// token reservation or provider call, so failed builds cannot leak budget.
+		var providerBinding *ProviderBinding
+		contextWindowTokens, reservedOutputTokens := 0, 0
+		// Provider configuration is accepted as an encrypted, immutable run
+		// contract. Load it before context projection so provider-specific limits
+		// come from the same frozen configuration that executes the model turn.
+		if strings.TrimSpace(run.Provider) != "" {
+			binding, bindingErr := h.ledger.GetProviderBinding(ctx, run.ID)
+			if bindingErr != nil {
+				h.failRun(h.durableContext(), run, "provider_binding", bindingErr, execution)
+				return
+			}
+			contextWindowTokens, reservedOutputTokens, bindingErr = providerContextLimits(binding)
+			if bindingErr != nil {
+				h.failRun(h.durableContext(), run, "provider_binding", bindingErr, execution)
+				return
+			}
+			providerBinding = cloneProviderBinding(&binding)
+		}
 		built, buildErr := h.contextBuilder.Build(ctx, ContextBuildRequest{
-			Run:                run,
-			Messages:           messages,
-			Tools:              descriptors,
-			WorkspaceSnapshot:  workspaceSnapshot,
-			WorkspaceReference: workspaceReference,
-			ConversationCursor: conversationCursor,
-			ProviderState:      providerState,
+			Run:                  run,
+			Messages:             messages,
+			Tools:                descriptors,
+			WorkspaceSnapshot:    workspaceSnapshot,
+			WorkspaceReference:   workspaceReference,
+			ConversationCursor:   conversationCursor,
+			ProviderState:        providerState,
+			ContextWindowTokens:  contextWindowTokens,
+			ReservedOutputTokens: reservedOutputTokens,
 		})
 		if buildErr != nil {
 			if errors.Is(buildErr, ErrContextLimit) {
@@ -1918,17 +1938,7 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 			return
 		}
 		request := built.Request
-		// Provider configuration is accepted as an encrypted, immutable run
-		// contract. Reload it for every attempt so process recovery never falls
-		// back to mutable desktop/CLI provider settings.
-		if strings.TrimSpace(run.Provider) != "" {
-			binding, bindingErr := h.ledger.GetProviderBinding(ctx, run.ID)
-			if bindingErr != nil {
-				h.failRun(h.durableContext(), run, "provider_binding", bindingErr, execution)
-				return
-			}
-			request.ProviderBinding = cloneProviderBinding(&binding)
-		}
+		request.ProviderBinding = providerBinding
 		// Compression intentionally disables tools for this turn. A compressed
 		// projection may omit an earlier assistant/tool pairing, so allowing a
 		// fresh tool intent would violate provider protocol invariants.
@@ -2019,6 +2029,11 @@ func (h *AgentRunHarness) run(execution *runExecution) {
 		var assistant *Message
 		if result.Text != "" || result.Reasoning != "" || len(result.ToolCalls) > 0 {
 			message := Message{ID: uuid.NewString(), SessionID: run.SessionID, RunID: run.ID, Role: "assistant", Content: result.Text, Reasoning: result.Reasoning, CreatedAt: time.Now().UTC()}
+			if metadata, marshalErr := json.Marshal(struct {
+				Usage Usage `json:"usage"`
+			}{Usage: result.Usage}); marshalErr == nil {
+				message.Metadata = metadata
+			}
 			if len(result.ToolCalls) > 0 {
 				calls, _ := json.Marshal(result.ToolCalls)
 				message.ToolCalls = calls

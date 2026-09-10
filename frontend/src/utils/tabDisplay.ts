@@ -488,6 +488,12 @@ const buildCompactObjectTabTitle = (tab: TabData, translate: TabDisplayTranslate
   if (tab.type === 'query') {
     return compactQueryTabTitle(tab, translate);
   }
+  if (tab.type === 'driver-manager') {
+    return translate('app.tools.entry.drivers.title');
+  }
+  if (tab.type === 'settings-center') {
+    return translate('app.settings.title');
+  }
   if (tab.type === 'table') {
     return stripSchemaFromTabObjectLabel(tab.tableName || tab.title) || tab.title;
   }
@@ -534,6 +540,8 @@ export const getTabDisplayKindLabel = (tab: TabData): string => {
   if (tab.type === 'data-sync') return 'SYNC';
   if (tab.type === 'sql-analysis') return 'ANALYZE';
   if (tab.type === 'sql-audit') return 'AUDIT';
+  if (tab.type === 'driver-manager') return 'DRIVER';
+  if (tab.type === 'settings-center') return 'SETTINGS';
   if (tab.type === 'request-diagnostics') return 'TRACE';
   if (tab.type.startsWith('redis')) return 'REDIS';
   if (tab.type.startsWith('jvm')) return 'JVM';
@@ -559,6 +567,8 @@ const getTabRawObjectLabel = (tab: TabData, translate: TabDisplayTranslate = def
   if (tab.filePath) return getFileNameFromPath(tab.filePath);
   if (tab.type.startsWith('redis')) return `db${tab.redisDB ?? 0}`;
   if (tab.type === 'sql-audit') return tab.title;
+  if (tab.type === 'driver-manager') return translate('app.tools.entry.drivers.title');
+  if (tab.type === 'settings-center') return translate('app.settings.title');
   if (tab.type === 'request-diagnostics') return tab.title;
   return tab.title;
 };

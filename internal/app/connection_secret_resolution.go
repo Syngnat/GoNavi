@@ -27,6 +27,7 @@ func (a *App) resolveConnectionSecrets(config connection.ConnectionConfig) (conn
 				base = view.Config
 			}
 			resolved := mergeInlineConnectionSecrets(base, config)
+			resolved = preserveOracleRuntimeSchema(resolved, config)
 			if a.headlessRuntime {
 				resolved = resolved.WithResolvedSavedSnapshot()
 			}
@@ -48,12 +49,20 @@ func (a *App) resolveConnectionSecrets(config connection.ConnectionConfig) (conn
 		base = view.Config
 	}
 	resolved := mergeConnectionSecretBundleIntoConfig(base, bundle)
+	resolved = preserveOracleRuntimeSchema(resolved, config)
 	resolved.ID = view.ID
 	if a.headlessRuntime {
 		resolved = resolved.WithResolvedSavedSnapshot()
 	}
 
 	return resolved, nil
+}
+
+func preserveOracleRuntimeSchema(resolved connection.ConnectionConfig, requested connection.ConnectionConfig) connection.ConnectionConfig {
+	if schema := requested.RuntimeOracleCurrentSchema(); schema != "" {
+		return resolved.WithRuntimeOracleCurrentSchema(schema)
+	}
+	return resolved
 }
 
 func shouldFallbackToInlineConnectionSecrets(config connection.ConnectionConfig, err error) bool {

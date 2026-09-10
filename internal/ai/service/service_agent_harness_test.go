@@ -499,8 +499,7 @@ func TestServiceAgentLedgerStatusDoesNotProbeSecretStore(t *testing.T) {
 }
 
 func TestServiceSubmitBindsActiveProviderToDurableRun(t *testing.T) {
-	service := NewServiceWithSecretStore(newAgentHarnessTestSecretStore())
-	service.configDir = t.TempDir()
+	service, emitter := newInitializedAgentHarnessService(t)
 	base := ai.ProviderConfig{
 		ID: "provider-a", Type: "custom", APIFormat: "openai", Name: "Frozen Provider",
 		APIKey: "key-v1", BaseURL: "http://127.0.0.1:1/v1", Model: "provider-model",
@@ -508,11 +507,6 @@ func TestServiceSubmitBindsActiveProviderToDurableRun(t *testing.T) {
 	}
 	service.providers = []ai.ProviderConfig{base}
 	service.activeProvider = "provider-a"
-	service.agentContext = context.Background()
-	if err := service.initializeAgentHarness(service.agentContext); err != nil {
-		t.Fatalf("initializeAgentHarness: %v", err)
-	}
-	t.Cleanup(service.Shutdown)
 
 	temperature := 0.42
 	maxTokens := 4096
@@ -565,6 +559,12 @@ func TestServiceSubmitBindsActiveProviderToDurableRun(t *testing.T) {
 	}
 	if resolved.Name() != base.Name {
 		t.Fatalf("resolved provider name = %q, want frozen %q", resolved.Name(), base.Name)
+	}
+	for deadline := time.Now().Add(2 * time.Second); emitter.count() == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if emitter.count() == 0 {
+		t.Fatal("expected the asynchronous run to emit through the test lifecycle context")
 	}
 }
 

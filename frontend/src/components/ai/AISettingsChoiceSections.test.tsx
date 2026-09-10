@@ -35,6 +35,16 @@ const REQUIRED_SAFETY_KEYS = [
   'ai_settings.safety.readwrite.desc',
   'ai_settings.safety.full.label',
   'ai_settings.safety.full.desc',
+  'ai_settings.result_masking.title',
+  'ai_settings.result_masking.description',
+  'ai_settings.result_masking.enabled',
+  'ai_settings.result_masking.full_fields',
+  'ai_settings.result_masking.partial_fields',
+  'ai_settings.result_masking.fields_placeholder',
+  'ai_settings.result_masking.save',
+  'ai_settings.result_masking.saved',
+  'ai_settings.result_masking.save_failed',
+  'ai_settings.result_masking.load_failed',
 ] as const;
 
 describe('AI settings readonly sections', () => {
@@ -82,6 +92,29 @@ describe('AI settings readonly sections', () => {
       '控制 AI 可执行的 SQL 操作类型，保护数据安全',
     ]) {
     }
+  });
+
+  it('renders masking rules and disables every editor while a save is in flight', () => {
+    const markup = renderToStaticMarkup(
+      <I18nProvider preference="en-US" systemLanguages={['en-US']} onPreferenceChange={() => {}}>
+        <AISettingsSafetySection
+          safetyLevel="readonly"
+          darkMode={false}
+          overlayTheme={overlayTheme}
+          cardBg="#fff"
+          cardBorder="rgba(0,0,0,0.08)"
+          onChange={() => {}}
+          resultMaskingSettings={{ enabled: true, fullMaskFields: ['phone'], partialMaskFields: ['email'] }}
+          resultMaskingSaving
+          onResultMaskingChange={() => {}}
+          onSaveResultMasking={() => {}}
+        />
+      </I18nProvider>,
+    );
+    expect(markup).toContain('SQL result masking');
+    expect(markup).toContain('phone');
+    expect(markup).toContain('email');
+    expect(markup.match(/disabled=""/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it('renders open-mode and context choices as flat, accessible rows and keeps the selected values visible', () => {

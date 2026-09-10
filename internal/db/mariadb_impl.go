@@ -111,7 +111,7 @@ func (m *MariaDB) QueryMultiContext(ctx context.Context, query string) ([]connec
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRowsForDialect(rows, "mariadb")
+	return scanMultiRowsForDialectContext(ctx, rows, "mariadb")
 }
 
 func (m *MariaDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
@@ -125,7 +125,7 @@ func (m *MariaDB) QueryContext(ctx context.Context, query string) ([]map[string]
 	}
 	defer rows.Close()
 
-	return scanRowsForDialect(rows, "mariadb")
+	return scanRowsForDialectContext(ctx, rows, "mariadb")
 }
 
 func (m *MariaDB) Query(query string) ([]map[string]interface{}, []string, error) {

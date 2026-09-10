@@ -28,7 +28,7 @@ class LegalReleaseAssetsTest(unittest.TestCase):
             "Apache Thrift",
             "Eclipse Paho MQTT Go",
             "Vendored HighGo pq-sm3",
-            "Vendored InterSystems IRIS native driver",
+            "Vendored InterSystems IRIS/Caché native driver",
         ):
             with self.subTest(component=component):
                 self.assertIn(component, notice)

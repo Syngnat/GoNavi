@@ -26,6 +26,11 @@
   min-width: 0;
 }
 
+.gn-sql-audit-settings-actions > .ant-space-item > .ant-btn {
+  min-width: 76px;
+  justify-content: center;
+}
+
 .gn-sql-audit-title-group {
   display: flex;
   align-items: center;

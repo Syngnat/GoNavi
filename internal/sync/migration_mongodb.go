@@ -33,7 +33,7 @@ func buildTabularToMongoPlan(config SyncConfig, tableName string, sourceDB db.Da
 	plan.SourceSchema, plan.SourceTable = normalizeSyncSourceSchemaAndTable(config, tableName)
 	plan.TargetSchema, plan.TargetTable = normalizeSyncTargetSchemaAndTable(config, tableName)
 	plan.SourceQueryTable = qualifiedNameForQuery(sourceType, plan.SourceSchema, plan.SourceTable, tableName)
-	plan.TargetQueryTable = qualifiedNameForQuery(targetType, plan.TargetSchema, plan.TargetTable, tableName)
+	plan.TargetQueryTable = qualifiedTargetNameForQuery(targetType, plan.TargetSchema, plan.TargetTable)
 	plan.PlannedAction = "使用已有目标集合导入"
 
 	sourceCols, sourceExists, err := inspectTableColumns(sourceDB, plan.SourceSchema, plan.SourceTable)
@@ -97,7 +97,7 @@ func buildMongoToMongoPlan(config SyncConfig, tableName string, sourceDB db.Data
 	plan.SourceSchema, plan.SourceTable = normalizeSyncSourceSchemaAndTable(config, tableName)
 	plan.TargetSchema, plan.TargetTable = normalizeSyncTargetSchemaAndTable(config, tableName)
 	plan.SourceQueryTable = qualifiedNameForQuery(sourceType, plan.SourceSchema, plan.SourceTable, tableName)
-	plan.TargetQueryTable = qualifiedNameForQuery(targetType, plan.TargetSchema, plan.TargetTable, tableName)
+	plan.TargetQueryTable = qualifiedTargetNameForQuery(targetType, plan.TargetSchema, plan.TargetTable)
 	plan.PlannedAction = "使用已有目标集合导入"
 
 	sourceCols, warnings, err := inferMongoCollectionColumns(sourceDB, plan.SourceTable)
@@ -163,7 +163,7 @@ func buildMongoToMySQLPlan(config SyncConfig, tableName string, sourceDB db.Data
 	plan.SourceSchema, plan.SourceTable = normalizeSyncSourceSchemaAndTable(config, tableName)
 	plan.TargetSchema, plan.TargetTable = normalizeSyncTargetSchemaAndTable(config, tableName)
 	plan.SourceQueryTable = qualifiedNameForQuery(config.SourceConfig.Type, plan.SourceSchema, plan.SourceTable, tableName)
-	plan.TargetQueryTable = qualifiedNameForQuery(config.TargetConfig.Type, plan.TargetSchema, plan.TargetTable, tableName)
+	plan.TargetQueryTable = qualifiedTargetNameForQuery(config.TargetConfig.Type, plan.TargetSchema, plan.TargetTable)
 	plan.PlannedAction = "使用已有目标表导入"
 
 	sourceCols, warnings, err := inferMongoCollectionColumns(sourceDB, plan.SourceTable)
@@ -597,7 +597,7 @@ func buildMongoToPGLikePlan(config SyncConfig, tableName string, sourceDB db.Dat
 	plan.SourceSchema, plan.SourceTable = normalizeSyncSourceSchemaAndTable(config, tableName)
 	plan.TargetSchema, plan.TargetTable = normalizeSyncTargetSchemaAndTable(config, tableName)
 	plan.SourceQueryTable = qualifiedNameForQuery(config.SourceConfig.Type, plan.SourceSchema, plan.SourceTable, tableName)
-	plan.TargetQueryTable = qualifiedNameForQuery(config.TargetConfig.Type, plan.TargetSchema, plan.TargetTable, tableName)
+	plan.TargetQueryTable = qualifiedTargetNameForQuery(config.TargetConfig.Type, plan.TargetSchema, plan.TargetTable)
 	plan.PlannedAction = "使用已有目标表导入"
 
 	sourceCols, warnings, err := inferMongoCollectionColumns(sourceDB, plan.SourceTable)

@@ -37,7 +37,6 @@ const storeState = vi.hoisted(() => ({
   theme: "light",
   fontSize: 14,
   appearance: {
-    uiVersion: "legacy",
     dataTableFontSize: 14,
     dataTableFontSizeFollowGlobal: true,
     customMonoFontFamily: "",

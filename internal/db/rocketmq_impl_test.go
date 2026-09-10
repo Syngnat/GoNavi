@@ -381,9 +381,10 @@ func TestRocketMQQueryExecAndColumns(t *testing.T) {
 }
 
 func TestRocketMQQueryConsumerGroupsPassesOptionalGroupID(t *testing.T) {
+	lag := int64(4)
 	runtime := &fakeRocketMQRuntime{consumerGroupsResult: []rocketmqConsumerGroupInfo{{
 		GroupID: "orders", State: "CONSUMING", MemberID: "client-a", Topic: "orders.events",
-		QueueID: 1, CurrentOffset: 8, LogEndOffset: 12, Lag: 4,
+		QueueID: intPtr(1), CurrentOffset: int64Ptr(8), LogEndOffset: int64Ptr(12), Lag: &lag,
 	}}}
 	client := &RocketMQDB{runtime: runtime}
 
@@ -483,3 +484,7 @@ func TestRocketMQRecordFromExtUsesPayloadDecoder(t *testing.T) {
 		t.Fatalf("unexpected decoded body: %#v", record.Decoded)
 	}
 }
+
+func intPtr(value int) *int { return &value }
+
+func int64Ptr(value int64) *int64 { return &value }

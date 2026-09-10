@@ -286,13 +286,31 @@ func chromaWhereFromExpr(expr vectorWhereExpr) interface{} {
 }
 
 func qdrantFilterFromExpr(expr vectorWhereExpr) interface{} {
+	return qdrantEnsureRootFilter(qdrantConditionFromExpr(expr))
+}
+
+func qdrantEnsureRootFilter(value interface{}) interface{} {
+	m, ok := value.(map[string]interface{})
+	if !ok {
+		return value
+	}
+	if _, hasKey := m["key"]; hasKey {
+		return map[string]interface{}{"must": []interface{}{m}}
+	}
+	if _, hasID := m["has_id"]; hasID {
+		return map[string]interface{}{"must": []interface{}{m}}
+	}
+	return m
+}
+
+func qdrantConditionFromExpr(expr vectorWhereExpr) interface{} {
 	switch value := expr.(type) {
 	case vectorWhereLogical:
 		key := "must"
 		if value.Op == "OR" {
 			key = "should"
 		}
-		return map[string]interface{}{key: []interface{}{qdrantFilterFromExpr(value.Left), qdrantFilterFromExpr(value.Right)}}
+		return map[string]interface{}{key: []interface{}{qdrantConditionFromExpr(value.Left), qdrantConditionFromExpr(value.Right)}}
 	case vectorWhereComparison:
 		field := strings.TrimPrefix(value.Field, "payload.")
 		if strings.EqualFold(field, "id") && (value.Op == "=" || value.Op == "!=") {

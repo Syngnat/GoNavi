@@ -1,10 +1,14 @@
 package i18n
 
 import (
+	"archive/zip"
+	"bytes"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 )
 
 type Language string
@@ -38,8 +42,14 @@ var supportedLanguageOrder = []Language{
 	LanguageRuRU,
 }
 
-//go:embed zh-CN.json zh-TW.json en-US.json ja-JP.json de-DE.json ru-RU.json
-var catalogFS embed.FS
+// catalog.zip 由 `go generate ./shared/i18n` 通过 tools/gen-i18n-catalog-zip
+// 生成,内容是六个语言 JSON 的 deflate 打包:JSON 源文件是前端共享的,保持
+// 明文入库,而 Go 侧以压缩形态嵌入,避免 6MB+ 的目录文本直接撑大二进制。
+//
+//go:generate go run ../../tools/gen-i18n-catalog-zip -dir .
+//
+//go:embed catalog.zip
+var catalogZipFS embed.FS
 
 type Catalog map[string]string
 
@@ -87,16 +97,43 @@ func SupportedLanguages() []Language {
 	return languages
 }
 
+var (
+	catalogZipOnce sync.Once
+	catalogZip     *zip.Reader
+	catalogZipErr  error
+)
+
+func loadCatalogZip() (*zip.Reader, error) {
+	catalogZipOnce.Do(func() {
+		payload, err := catalogZipFS.ReadFile("catalog.zip")
+		if err != nil {
+			catalogZipErr = err
+			return
+		}
+		catalogZip, catalogZipErr = zip.NewReader(bytes.NewReader(payload), int64(len(payload)))
+	})
+	return catalogZip, catalogZipErr
+}
+
 func LoadCatalogs() (map[Language]Catalog, error) {
+	zipReader, err := loadCatalogZip()
+	if err != nil {
+		return nil, fmt.Errorf("读取内置语言目录失败: %w", err)
+	}
 	result := make(map[Language]Catalog, len(supportedLanguageOrder))
 	for _, lang := range supportedLanguageOrder {
-		payload, err := catalogFS.ReadFile(string(lang) + ".json")
+		entry, err := zipReader.Open(string(lang) + ".json")
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("语言目录缺少 %s: %w", lang, err)
+		}
+		payload, err := io.ReadAll(entry)
+		entry.Close()
+		if err != nil {
+			return nil, fmt.Errorf("读取语言目录 %s 失败: %w", lang, err)
 		}
 		var catalog Catalog
 		if err := json.Unmarshal(payload, &catalog); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("解析语言目录 %s 失败: %w", lang, err)
 		}
 		result[lang] = catalog
 	}

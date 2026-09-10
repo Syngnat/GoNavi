@@ -233,7 +233,7 @@ Two mutually exclusive ways to pick the target database:
 
 `--type` accepts the normalized driver identifier; several friendly names are
 aliases (e.g. `postgresql` → `postgres`, `doris` → `diros`, `kingbase8` →
-`kingbase`, `intersystems` → `iris`, `elastic` → `elasticsearch`,
+`kingbase`, `intersystems` → `iris`, `intersystems-cache` → `cache`, `elastic` → `elasticsearch`,
 `chromadb` → `chroma`, `rocket-mq` → `rocketmq`).
 
 Built-in (always available): `mysql`, `goldendb`, `postgres`, `oracle`,
@@ -242,7 +242,7 @@ Built-in (always available): `mysql`, `goldendb`, `postgres`, `oracle`,
 Optional (must be installed via the GUI Driver Manager or an agent):
 `mariadb`, `oceanbase`, `diros` (Doris), `starrocks`, `sphinx`, `sqlserver`,
 `sqlite`, `duckdb`, `dameng`, `kingbase`, `highgo`, `vastbase`, `opengauss`,
-`gaussdb`, `iris`, `mongodb`, `tdengine`, `iotdb`, `clickhouse`,
+`gaussdb`, `iris`, `cache`, `mongodb`, `tdengine`, `iotdb`, `clickhouse`,
 `elasticsearch`, `trino`, plus custom `driver`/`dsn` connections.
 
 ## Workflows

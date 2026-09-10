@@ -12,15 +12,29 @@ export interface ProviderCheckResult {
 
 export interface CLIModelCatalog {
   models: string[];
-  source: 'none' | 'cache' | 'cli' | 'aliases';
+  source: 'none' | 'cache' | 'cli' | 'aliases' | 'app-server';
   stale: boolean;
+  defaultModel?: string;
+  modelCapabilities?: Record<string, {
+    effortValues: string[];
+    defaultEffort?: string;
+  }>;
 }
 
 export const parseCLIModelCatalog = (value: unknown): CLIModelCatalog | null => {
   if (!value || typeof value !== 'object') return null;
   const result = value as CLIModelCatalog;
   if (!Array.isArray(result.models) || result.models.some((model) => typeof model !== 'string')
-    || !['none', 'cache', 'cli', 'aliases'].includes(result.source) || typeof result.stale !== 'boolean') return null;
+    || !['none', 'cache', 'cli', 'aliases', 'app-server'].includes(result.source) || typeof result.stale !== 'boolean') return null;
+  if (result.defaultModel !== undefined && typeof result.defaultModel !== 'string') return null;
+  if (result.modelCapabilities !== undefined) {
+    if (!result.modelCapabilities || typeof result.modelCapabilities !== 'object' || Array.isArray(result.modelCapabilities)) return null;
+    for (const capability of Object.values(result.modelCapabilities)) {
+      if (!capability || typeof capability !== 'object' || !Array.isArray(capability.effortValues)
+        || capability.effortValues.some((effort) => typeof effort !== 'string')
+        || (capability.defaultEffort !== undefined && typeof capability.defaultEffort !== 'string')) return null;
+    }
+  }
   return { ...result, models: result.stale ? [] : result.models };
 };
 

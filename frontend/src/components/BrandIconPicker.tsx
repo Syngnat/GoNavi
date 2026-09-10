@@ -1,5 +1,5 @@
 import React from 'react';
-import { BRAND_ICONS, type BrandIconId } from '../brand/brandIcons';
+import { BRAND_ICONS, resolveBrandIconSrc, type BrandIconId } from '../brand/brandIcons';
 
 type BrandIconPickerProps = {
   value: string;
@@ -81,21 +81,20 @@ export default function BrandIconPicker({ value, onChange, darkMode = false, acc
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: '#fff',
-                border: `1px solid ${border}`,
-                borderRadius: 6,
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 12,
                 overflow: 'hidden',
+                boxShadow: 'none',
               }}
             >
               <img
-                src={item.iconPath}
+                src={resolveBrandIconSrc(item.id)}
                 alt={item.titleZh}
                 style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  width: 'auto',
-                  height: 'auto',
-                  objectFit: 'contain',
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
                   display: 'block',
                 }}
                 draggable={false}

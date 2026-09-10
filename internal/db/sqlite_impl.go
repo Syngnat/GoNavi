@@ -213,7 +213,7 @@ func (s *SQLiteDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (s *SQLiteDB) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -340,49 +340,74 @@ func (s *SQLiteDB) getColumnsContext(ctx context.Context, dbName, tableName stri
 		return nil, err
 	}
 
-	parseInt := func(v interface{}) int {
-		switch val := v.(type) {
-		case int:
-			return val
-		case int64:
-			return int(val)
-		case float64:
-			return int(val)
-		case string:
-			var n int
-			_, _ = fmt.Sscanf(strings.TrimSpace(val), "%d", &n)
-			return n
-		default:
-			var n int
-			_, _ = fmt.Sscanf(strings.TrimSpace(fmt.Sprintf("%v", v)), "%d", &n)
-			return n
+	columns, _ := sqliteTableInfoColumns(data)
+
+	// PRAGMA table_info 不回显 AUTOINCREMENT，只能从建表 SQL 识别；
+	// 拿不到 DDL（虚拟表/异常）时静默跳过，不影响其余元数据。
+	tableDDL := ""
+	ddlRows, _, ddlErr := s.QueryContext(ctx, fmt.Sprintf("SELECT sql FROM sqlite_master WHERE type='table' AND name='%s'", escapeSQLiteStringLiteral(table)))
+	if ddlErr == nil && len(ddlRows) > 0 {
+		if val, ok := ddlRows[0]["sql"]; ok && val != nil {
+			tableDDL = fmt.Sprintf("%v", val)
 		}
 	}
+	return applySQLiteAutoIncrement(columns, tableDDL), nil
+}
 
-	getStr := func(row map[string]interface{}, key string) string {
-		if v, ok := row[key]; ok && v != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		if v, ok := row[strings.ToUpper(key)]; ok && v != nil {
-			return fmt.Sprintf("%v", v)
-		}
-		return ""
+func sqliteTableInfoParseInt(v interface{}) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case string:
+		var n int
+		_, _ = fmt.Sscanf(strings.TrimSpace(val), "%d", &n)
+		return n
+	default:
+		var n int
+		_, _ = fmt.Sscanf(strings.TrimSpace(fmt.Sprintf("%v", v)), "%d", &n)
+		return n
 	}
+}
 
-	var columns []connection.ColumnDefinition
+func sqliteTableInfoRowString(row map[string]interface{}, key string) string {
+	if v, ok := row[key]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	if v, ok := row[strings.ToUpper(key)]; ok && v != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return ""
+}
+
+// sqliteTableInfoColumns 把 PRAGMA table_info 行转成列定义。
+// pk 是主键内 1-based 序号（非主键为 0），复合主键后续列为 2、3…，
+// 必须按 pk>0 标记 PRI，而不能把 pk==1 当成布尔值。
+// 返回的列保持 table_info 的 cid 顺序；pkNames 按主键序号排列，
+// 供需要 PRIMARY KEY(a,b) 列顺序的调用方使用。
+func sqliteTableInfoColumns(data []map[string]interface{}) (columns []connection.ColumnDefinition, pkNames []string) {
+	type columnWithPK struct {
+		col connection.ColumnDefinition
+		pk  int
+	}
+	parsed := make([]columnWithPK, 0, len(data))
+	maxPK := 0
 	for _, row := range data {
 		notnull := 0
 		if v, ok := row["notnull"]; ok && v != nil {
-			notnull = parseInt(v)
+			notnull = sqliteTableInfoParseInt(v)
 		} else if v, ok := row["NOTNULL"]; ok && v != nil {
-			notnull = parseInt(v)
+			notnull = sqliteTableInfoParseInt(v)
 		}
 
 		pk := 0
 		if v, ok := row["pk"]; ok && v != nil {
-			pk = parseInt(v)
+			pk = sqliteTableInfoParseInt(v)
 		} else if v, ok := row["PK"]; ok && v != nil {
-			pk = parseInt(v)
+			pk = sqliteTableInfoParseInt(v)
 		}
 
 		nullable := "YES"
@@ -391,13 +416,13 @@ func (s *SQLiteDB) getColumnsContext(ctx context.Context, dbName, tableName stri
 		}
 
 		key := ""
-		if pk == 1 {
+		if pk > 0 {
 			key = "PRI"
 		}
 
 		col := connection.ColumnDefinition{
-			Name:     getStr(row, "name"),
-			Type:     getStr(row, "type"),
+			Name:     sqliteTableInfoRowString(row, "name"),
+			Type:     sqliteTableInfoRowString(row, "type"),
 			Nullable: nullable,
 			Key:      key,
 			Extra:    "",
@@ -412,9 +437,47 @@ func (s *SQLiteDB) getColumnsContext(ctx context.Context, dbName, tableName stri
 			col.Default = &def
 		}
 
-		columns = append(columns, col)
+		parsed = append(parsed, columnWithPK{col: col, pk: pk})
+		if pk > maxPK {
+			maxPK = pk
+		}
 	}
-	return columns, nil
+
+	columns = make([]connection.ColumnDefinition, len(parsed))
+	pkNames = make([]string, maxPK)
+	for i, item := range parsed {
+		columns[i] = item.col
+		if item.pk > 0 {
+			pkNames[item.pk-1] = item.col.Name
+		}
+	}
+	return columns, pkNames
+}
+
+// applySQLiteAutoIncrement 给 AUTOINCREMENT 主键列打上 auto_increment 标记，
+// 供跨库迁移识别自增语义。该写法只对单列主键合法，复合主键的 DDL 里不会出现
+// AUTOINCREMENT，按主键列数守卫即可。识别经
+// sqliteDDLPrimaryKeyUsesAutoIncrement 匹配真实的内联约束序列，字符串默认值、
+// 注释与引号标识符里的关键字不会误判，理由见其注释。
+func applySQLiteAutoIncrement(columns []connection.ColumnDefinition, tableDDL string) []connection.ColumnDefinition {
+	if !sqliteDDLPrimaryKeyUsesAutoIncrement(tableDDL) {
+		return columns
+	}
+	pkCount := 0
+	for _, col := range columns {
+		if col.Key == "PRI" {
+			pkCount++
+		}
+	}
+	if pkCount != 1 {
+		return columns
+	}
+	for i := range columns {
+		if columns[i].Key == "PRI" {
+			columns[i].Extra = "auto_increment"
+		}
+	}
+	return columns
 }
 
 func (s *SQLiteDB) GetIndexes(dbName, tableName string) ([]connection.IndexDefinition, error) {

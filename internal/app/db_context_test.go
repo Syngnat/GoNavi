@@ -286,6 +286,59 @@ func TestNormalizeRunConfig_OceanBaseOracleKeepsServiceName(t *testing.T) {
 	}
 }
 
+func TestNormalizeRunConfig_OracleCarriesSelectedSchemaWithoutReplacingServiceName(t *testing.T) {
+	t.Parallel()
+
+	config := connection.ConnectionConfig{
+		Type:     "oracle",
+		Database: "ORCLPDB1",
+		User:     "TEST",
+	}
+	runConfig := normalizeRunConfig(config, "PRO")
+
+	if runConfig.Database != "ORCLPDB1" {
+		t.Fatalf("expected Oracle service name to stay ORCLPDB1, got %q", runConfig.Database)
+	}
+	if runConfig.RuntimeOracleCurrentSchema() != "PRO" {
+		t.Fatalf("expected selected Oracle schema PRO, got %q", runConfig.RuntimeOracleCurrentSchema())
+	}
+}
+
+func TestNormalizeRunConfig_OracleCarriesSelectedSchemaWithoutReplacingSID(t *testing.T) {
+	t.Parallel()
+
+	config := connection.ConnectionConfig{
+		Type:             "oracle",
+		ConnectionParams: "SID=ORCL",
+		User:             "TEST",
+	}
+	runConfig := normalizeRunConfig(config, "PRO")
+
+	if runConfig.Database != "" || runConfig.ConnectionParams != "SID=ORCL" {
+		t.Fatalf("expected Oracle SID config to stay unchanged, got database=%q params=%q", runConfig.Database, runConfig.ConnectionParams)
+	}
+	if runConfig.RuntimeOracleCurrentSchema() != "PRO" {
+		t.Fatalf("expected selected Oracle schema PRO, got %q", runConfig.RuntimeOracleCurrentSchema())
+	}
+}
+
+func TestNormalizeMetadataRunConfig_OracleDoesNotCreateSchemaSpecificSession(t *testing.T) {
+	t.Parallel()
+
+	config := connection.ConnectionConfig{
+		Type:     "oracle",
+		Database: "ORCLPDB1",
+	}.WithRuntimeOracleCurrentSchema("TEST")
+	runConfig := normalizeMetadataRunConfig(config, "PRO")
+
+	if runConfig.Database != "ORCLPDB1" {
+		t.Fatalf("expected Oracle metadata service name to stay ORCLPDB1, got %q", runConfig.Database)
+	}
+	if runConfig.RuntimeOracleCurrentSchema() != "" {
+		t.Fatalf("expected Oracle metadata connection to omit session schema, got %q", runConfig.RuntimeOracleCurrentSchema())
+	}
+}
+
 func TestNormalizeRunConfig_StarRocksUsesDatabaseFromTree(t *testing.T) {
 	t.Parallel()
 

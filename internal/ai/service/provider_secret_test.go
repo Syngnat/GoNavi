@@ -35,6 +35,10 @@ func TestSplitProviderSecretsStripsAPIKeyAndSensitiveHeaders(t *testing.T) {
 			"Authorization": "Bearer test",
 			"X-Team":        "db",
 		},
+		CLIEnv: map[string]string{
+			"HTTP_PROXY":     "http://user:password@proxy.invalid",
+			"OPENAI_API_KEY": "cli-secret",
+		},
 	}
 
 	meta, bundle := splitProviderSecrets(input)
@@ -52,6 +56,9 @@ func TestSplitProviderSecretsStripsAPIKeyAndSensitiveHeaders(t *testing.T) {
 	}
 	if bundle.SensitiveHeaders["Authorization"] != "Bearer test" {
 		t.Fatal("bundle should keep sensitive header")
+	}
+	if len(meta.CLIEnv) != 0 {
+		t.Fatalf("CLI environment should not stay in metadata: %#v", meta.CLIEnv)
 	}
 }
 
@@ -306,6 +313,7 @@ func TestAISaveProviderPersistsSecretlessConfigAndReturnsSecretlessView(t *testi
 			"Authorization": "Bearer test",
 			"X-Team":        "db",
 		},
+		CLIEnv: map[string]string{"GONAVI_PRIVATE_TOKEN": "cli-secret"},
 	})
 	if err != nil {
 		t.Fatalf("AISaveProvider returned error: %v", err)
@@ -324,11 +332,21 @@ func TestAISaveProviderPersistsSecretlessConfigAndReturnsSecretlessView(t *testi
 	if providers[0].Headers["Authorization"] != "" {
 		t.Fatalf("expected secretless provider headers, got %#v", providers[0].Headers)
 	}
+	if len(providers[0].CLIEnv) != 0 {
+		t.Fatalf("expected secretless provider CLI environment, got %#v", providers[0].CLIEnv)
+	}
 	if service.providers[0].APIKey != "sk-test" {
 		t.Fatalf("expected runtime provider to keep apiKey, got %q", service.providers[0].APIKey)
 	}
 	if service.providers[0].Headers["Authorization"] != "Bearer test" {
 		t.Fatalf("expected runtime provider to keep sensitive header, got %#v", service.providers[0].Headers)
+	}
+	if service.providers[0].CLIEnv["GONAVI_PRIVATE_TOKEN"] != "cli-secret" {
+		t.Fatalf("expected runtime provider to keep CLI environment, got %#v", service.providers[0].CLIEnv)
+	}
+	stored, ok, err := service.dailySecretStore().GetAIProvider("openai-main")
+	if err != nil || !ok || stored.CLIEnv["GONAVI_PRIVATE_TOKEN"] != "cli-secret" {
+		t.Fatalf("expected daily secret store to keep CLI environment: %#v %v", stored, err)
 	}
 
 	configPath := filepath.Join(service.configDir, "ai_config.json")
@@ -342,6 +360,9 @@ func TestAISaveProviderPersistsSecretlessConfigAndReturnsSecretlessView(t *testi
 	}
 	if strings.Contains(text, "Bearer test") {
 		t.Fatalf("expected config file to remove sensitive headers, got %s", text)
+	}
+	if strings.Contains(text, "cli-secret") || strings.Contains(text, "GONAVI_PRIVATE_TOKEN") {
+		t.Fatalf("expected config file to remove CLI environment secrets, got %s", text)
 	}
 }
 

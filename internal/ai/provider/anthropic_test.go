@@ -28,11 +28,11 @@ func TestNormalizeAnthropicMessagesURL_UsesMoonshotAnthropicMessagesEndpoint(t *
 
 func TestNormalizeAnthropicMessagesURL_DeepSeekCustomEndpointUsesAnthropicPath(t *testing.T) {
 	cases := map[string]string{
-		"https://api.deepseek.com":               "https://api.deepseek.com/anthropic/v1/messages",
-		"https://api.deepseek.com/":              "https://api.deepseek.com/anthropic/v1/messages",
-		"https://api.deepseek.com/v1":            "https://api.deepseek.com/anthropic/v1/messages",
-		"https://api.deepseek.com/anthropic":     "https://api.deepseek.com/anthropic/v1/messages",
-		"https://api.deepseek.com/anthropic/v1":  "https://api.deepseek.com/anthropic/v1/messages",
+		"https://api.deepseek.com":                       "https://api.deepseek.com/anthropic/v1/messages",
+		"https://api.deepseek.com/":                      "https://api.deepseek.com/anthropic/v1/messages",
+		"https://api.deepseek.com/v1":                    "https://api.deepseek.com/anthropic/v1/messages",
+		"https://api.deepseek.com/anthropic":             "https://api.deepseek.com/anthropic/v1/messages",
+		"https://api.deepseek.com/anthropic/v1":          "https://api.deepseek.com/anthropic/v1/messages",
 		"https://api.deepseek.com/anthropic/v1/messages": "https://api.deepseek.com/anthropic/v1/messages",
 	}
 	for input, want := range cases {
@@ -303,5 +303,46 @@ func TestAnthropicProviderChatStreamRetriesWithoutToolsOnHTTP400(t *testing.T) {
 	}
 	if !chunks[len(chunks)-1].Done {
 		t.Fatalf("expected final done chunk, got %#v", chunks[len(chunks)-1])
+	}
+}
+
+func TestAnthropicProviderChatStreamPreservesUsageAndCacheHits(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":6,"cache_creation_input_tokens":2,"cache_read_input_tokens":12,"output_tokens":1}}}`,
+			``,
+			`data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"pong"}}`,
+			``,
+			`data: {"type":"message_delta","usage":{"output_tokens":5}}`,
+			``,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	providerInstance, err := NewAnthropicProvider(ai.ProviderConfig{
+		Type: "anthropic", APIKey: "sk-test", BaseURL: server.URL, Model: "claude-test", MaxTokens: 64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chunks []ai.StreamChunk
+	err = providerInstance.ChatStream(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	}, func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := chunks[len(chunks)-1]
+	if !final.Done || final.Usage == nil {
+		t.Fatalf("final chunk = %#v", final)
+	}
+	if final.Usage.PromptTokens != 20 || final.Usage.CompletionTokens != 5 || final.Usage.TotalTokens != 25 {
+		t.Fatalf("usage = %#v", final.Usage)
+	}
+	if final.Usage.CachedTokens == nil || *final.Usage.CachedTokens != 12 {
+		t.Fatalf("cached usage = %#v", final.Usage.CachedTokens)
 	}
 }

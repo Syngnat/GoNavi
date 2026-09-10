@@ -6,11 +6,13 @@ import { readV2ThemeCss } from '../test/readV2ThemeCss';
 
 import DataGrid, {
   buildGridFieldSelectOptions,
+  buildDataGridPaginationPageSizeOptions,
   formatCellDisplayText,
   resolveContextMenuFieldName,
   resolveDefaultGridFilterOperator,
   resolveNextGridFilterOperatorForColumnChange,
 } from './DataGrid';
+import DataGridColumnQuickFind from './DataGridColumnQuickFind';
 import DataGridPageFind from './DataGridPageFind';
 import DataGridPaginationBar from './DataGridPaginationBar';
 import DataGridPreviewPanel from './DataGridPreviewPanel';
@@ -21,7 +23,7 @@ import { buildDataGridCssText } from './dataGridStyles';
 import { DataGridV2DdlSideWorkspace, DataGridV2DdlView } from './DataGridV2DdlWorkspace';
 import { DataGridV2ErView, DataGridV2FieldsView } from './DataGridV2MetadataViews';
 import { I18nProvider } from '../i18n/provider';
-import { getCurrentLanguage, setCurrentLanguage, type LanguagePreference } from '../i18n';
+import { getCurrentLanguage, resolveLanguage, setCurrentLanguage, t, type LanguagePreference } from '../i18n';
 import { V2CellContextMenuView } from './V2TableContextMenu';
 import { cloneShortcutOptions, DEFAULT_SHORTCUT_OPTIONS } from '../utils/shortcuts';
 
@@ -42,7 +44,6 @@ const readDataGridShellSource = (): string =>
 
 const mockStoreState = vi.hoisted(() => ({
   languagePreference: 'system' as LanguagePreference,
-  uiVersion: 'v2',
 }));
 
 vi.mock('../store', () => ({
@@ -57,7 +58,6 @@ vi.mock('../store', () => ({
       showDataTableVerticalBorders: false,
       showDataTableRowNumber: true,
       dataTableDensity: 'comfortable',
-      uiVersion: mockStoreState.uiVersion,
     },
     setAppearance: vi.fn(),
     queryOptions: {
@@ -148,9 +148,24 @@ const enUsCatalog = JSON.parse(
   readFileSync(new URL('../../../shared/i18n/en-US.json', import.meta.url), 'utf8'),
 ) as Record<string, string>;
 const zhObjectDesignLabel = zhCnCatalog['data_grid.secondary.object_design'];
+const zhRowNumberHint = zhCnCatalog['data_grid.row_number.double_click_to_view'];
 const enUndoCellChangeLabel = enUsCatalog['data_grid.context_menu.undo_cell_change'];
 
 describe('DataGrid layout', () => {
+  it('uses SQL max-row presets for paginated SQL results without changing other grids', () => {
+    expect(buildDataGridPaginationPageSizeOptions()).toEqual(['100', '200', '500', '1000']);
+    expect(buildDataGridPaginationPageSizeOptions(750)).toEqual(['100', '500', '1000', '5000', '20000', '0', '750']);
+    expect(buildDataGridPaginationPageSizeOptions(1000)).toEqual(['100', '500', '1000', '5000', '20000', '0']);
+    expect(buildDataGridPaginationPageSizeOptions(0)).toEqual(['100', '500', '1000', '5000', '20000', '0']);
+  });
+
+  it.each([-1, 12.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1])(
+    'ignores an invalid SQL max row count (%s)',
+    (queryMaxRows) => {
+      expect(buildDataGridPaginationPageSizeOptions(queryMaxRows)).toEqual(['100', '500', '1000', '5000', '20000', '0']);
+    },
+  );
+
   it('renders without navigator in server-side environments', () => {
     const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
     Reflect.deleteProperty(globalThis, 'navigator');
@@ -236,41 +251,27 @@ describe('DataGrid layout', () => {
 
   it('refreshes DataGrid localized chrome when the language preference changes', () => {
     mockStoreState.languagePreference = 'system';
-    const previousUiVersion = mockStoreState.uiVersion;
-    mockStoreState.uiVersion = 'legacy';
-    const renderLocalizedGrid = (systemLanguages: readonly string[]) => renderDataGridWithI18n(
-      <DataGrid
-        data={[
-          {
-            __gonavi_row_key__: 'row-1',
-            id: 1,
-            name: 'alpha',
-          },
-        ]}
-        columnNames={['id', 'name']}
-        loading={false}
-        tableName="users"
-        readOnly
-        pagination={{
-          current: 1,
-          pageSize: 100,
-          total: 1,
-        }}
-        onPageChange={() => {}}
-      />,
-      { systemLanguages },
-    );
+    const renderLocalizedQuickFind = (systemLanguages: readonly string[]) => {
+      const language = resolveLanguage('system', systemLanguages);
+      return renderDataGridWithI18n(
+        <DataGridColumnQuickFind
 
-    try {
-      const zhMarkup = renderLocalizedGrid(['zh-CN']);
-      expect(zhMarkup).toContain('placeholder="跳到字段列..."');
-      expect(zhMarkup).not.toContain('placeholder="Jump to column..."');
+          value=""
+          options={[]}
+          translate={(key, params) => t(key, params, language)}
+          onChange={() => {}}
+          onSubmit={() => {}}
+        />,
+        { systemLanguages },
+      );
+    };
 
-      const enMarkup = renderLocalizedGrid(['en-US']);
-      expect(enMarkup).toContain('placeholder="Jump to column..."');
-    } finally {
-      mockStoreState.uiVersion = previousUiVersion;
-    }
+    const zhMarkup = renderLocalizedQuickFind(['zh-CN']);
+    expect(zhMarkup).toContain('placeholder="跳到字段列..."');
+    expect(zhMarkup).not.toContain('placeholder="Jump to column..."');
+
+    const enMarkup = renderLocalizedQuickFind(['en-US']);
+    expect(enMarkup).toContain('placeholder="Jump to column..."');
 
     const source = readDataGridSource();
   });
@@ -304,25 +305,17 @@ describe('DataGrid layout', () => {
   });
 
   it('falls back to the current i18n language when rendered outside I18nProvider', () => {
-    const previousUiVersion = mockStoreState.uiVersion;
     const previousLanguage = getCurrentLanguage();
-    mockStoreState.uiVersion = 'legacy';
     setCurrentLanguage('en-US');
 
     try {
       const markup = renderToStaticMarkup(
-        <DataGrid
-          data={[
-            {
-              __gonavi_row_key__: 'row-1',
-              id: 1,
-              name: 'alpha',
-            },
-          ]}
-          columnNames={['id', 'name']}
-          loading={false}
-          tableName="users"
-          readOnly
+        <DataGridColumnQuickFind
+
+          value=""
+          options={[]}
+          onChange={() => {}}
+          onSubmit={() => {}}
         />,
       );
 
@@ -330,101 +323,75 @@ describe('DataGrid layout', () => {
       expect(markup).not.toContain('placeholder="跳到字段列..."');
     } finally {
       setCurrentLanguage(previousLanguage);
-      mockStoreState.uiVersion = previousUiVersion;
     }
   });
 
-  it('localizes legacy and v2 pagination summaries through DataGrid i18n', () => {
+  it('localizes v2 pagination summaries through DataGrid i18n', () => {
     mockStoreState.languagePreference = 'system';
-    const previousUiVersion = mockStoreState.uiVersion;
-    const renderLocalizedGrid = (uiVersion: 'legacy' | 'v2', pagination: React.ComponentProps<typeof DataGrid>['pagination']) => {
-      mockStoreState.uiVersion = uiVersion;
-      return renderDataGridWithI18n(
-        <DataGrid
-          data={[
-            {
-              __gonavi_row_key__: 'row-1',
-              id: 1,
-              name: 'alpha',
-            },
-          ]}
-          columnNames={['id', 'name']}
-          loading={false}
-          tableName="users"
-          readOnly
-          pagination={pagination}
-          onPageChange={() => {}}
-        />,
-        { systemLanguages: ['en-US'] },
-      );
-    };
-
-    try {
-      const legacyMarkup = renderLocalizedGrid('legacy', {
-        current: 1,
-        pageSize: 100,
-        total: 1,
-      });
-      expect(legacyMarkup).toContain('Current 1 rows / 1 rows total');
-      expect(legacyMarkup).not.toContain('当前 1 条');
-
-      const v2Markup = renderLocalizedGrid('v2', {
-        current: 1,
-        pageSize: 100,
-        total: 1,
-        totalKnown: false,
-        totalCountLoading: true,
-      });
-      expect(v2Markup).toContain('Current 1 rows / counting total...');
-      expect(v2Markup).not.toContain('正在统计');
-    } finally {
-      mockStoreState.uiVersion = previousUiVersion;
-    }
+    const markup = renderDataGridWithI18n(
+      <DataGrid
+        data={[
+          {
+            __gonavi_row_key__: 'row-1',
+            id: 1,
+            name: 'alpha',
+          },
+        ]}
+        columnNames={['id', 'name']}
+        loading={false}
+        tableName="users"
+        readOnly
+        pagination={{
+          current: 1,
+          pageSize: 100,
+          total: 1,
+          totalKnown: false,
+          totalCountLoading: true,
+        }}
+        onPageChange={() => {}}
+      />,
+      { systemLanguages: ['en-US'] },
+    );
+    expect(markup).toContain('Current 1 rows / counting total...');
+    expect(markup).not.toContain('正在统计');
   });
 
   it('keeps v2 pagination page text out of the summary because the page chip owns it', () => {
     mockStoreState.languagePreference = 'system';
-    const previousUiVersion = mockStoreState.uiVersion;
-    mockStoreState.uiVersion = 'v2';
+    const markup = renderDataGridWithI18n(
+      <DataGrid
+        data={[
+          {
+            __gonavi_row_key__: 'row-1',
+            id: 1,
+            name: 'alpha',
+          },
+        ]}
+        columnNames={['id', 'name']}
+        loading={false}
+        tableName="users"
+        readOnly
+        pagination={{
+          current: 1,
+          pageSize: 100,
+          total: 1,
+        }}
+        onPageChange={() => {}}
+      />,
+      { systemLanguages: ['en-US'] },
+    );
 
-    try {
-      const markup = renderDataGridWithI18n(
-        <DataGrid
-          data={[
-            {
-              __gonavi_row_key__: 'row-1',
-              id: 1,
-              name: 'alpha',
-            },
-          ]}
-          columnNames={['id', 'name']}
-          loading={false}
-          tableName="users"
-          readOnly
-          pagination={{
-            current: 1,
-            pageSize: 100,
-            total: 1,
-          }}
-          onPageChange={() => {}}
-        />,
-        { systemLanguages: ['en-US'] },
-      );
-
-      expect(markup).toContain('Current 1 rows / 1 rows total');
-      expect(markup).toContain('data-grid-v2-page-chip="true"');
-      expect(markup).toContain('<strong>1</strong><span>/</span><span>1</span>');
-      expect(markup).not.toContain('Page 1 / 1');
-    } finally {
-      mockStoreState.uiVersion = previousUiVersion;
-    }
+    expect(markup).toContain('Current 1 rows / 1 rows total');
+    expect(markup).toContain('data-grid-v2-page-chip="true"');
+    expect(markup).toContain('<strong>1</strong><span>/</span><span>1</span>');
+    expect(markup).not.toContain('Page 1 / 1');
   });
 
   it('keeps the v2 pagination total-count action readable instead of icon-button width', () => {
     const css = readV2ThemeCss();
     const markup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui
+
         pagination={{
           current: 1,
           pageSize: 500,
@@ -432,8 +399,8 @@ describe('DataGrid layout', () => {
           totalKnown: false,
         }}
         paginationV2SummaryText="当前 500 条 / 未统计总数"
-        paginationSummaryText="当前 500 条 / 未统计总数"
-        paginationControlTotal={500}
+
+
         paginationTotalPages={1}
         paginationPageText="第 1 页"
         paginationPageSizeOptions={['500']}
@@ -452,12 +419,15 @@ describe('DataGrid layout', () => {
     expect(css).toMatch(/\[data-grid-pagination-total-count="true"\]\.ant-btn \.ant-btn-icon \{[\s\S]*?margin-inline-end: 3px !important;/);
   });
 
-  it('keeps V2 current-page find hidden until its floating table overlay is opened', () => {
-    const source = readDataGridShellSource();
-    const secondaryActionsSource = readDataGridSecondaryActionsSource();
+  it('keeps the SQL custom page-size dropdown input and confirmation button compact', () => {
     const css = readV2ThemeCss();
-    const v2BranchStart = secondaryActionsSource.indexOf('if (isV2Ui)');
-    const legacyBranchStart = secondaryActionsSource.lastIndexOf('  return (');
+
+    expect(css).toMatch(/\[data-grid-custom-page-size-dropdown="true"\]\s*\{[^}]*width:\s*128px;[^}]*max-width:\s*calc\(100vw - 24px\);/s);
+    expect(css).toMatch(/\[data-grid-custom-page-size-confirm="true"\]\.ant-btn\s*\{[^}]*width:\s*24px\s*!important;[^}]*min-width:\s*24px\s*!important;[^}]*max-width:\s*24px\s*!important;[^}]*height:\s*24px\s*!important;[^}]*min-height:\s*24px\s*!important;[^}]*padding:\s*0\s*!important;/s);
+  });
+
+  it('keeps V2 current-page find hidden until its floating table overlay is opened', () => {
+    const css = readV2ThemeCss();
     expect(css).toMatch(/\.gn-v2-data-grid-page-find-overlay\s*\{[^}]*position:\s*absolute;[^}]*top:\s*8px;[^}]*right:\s*8px;[^}]*z-index:\s*40;[^}]*background:[^;]+;[^}]*box-shadow:/s);
     expect(css).toMatch(/\.gn-v2-data-grid-page-find-overlay\s*\{[^}]*width:\s*min\(360px,\s*calc\(100% - 16px\)\);/s);
     expect(css).toMatch(/\.gn-v2-data-grid-page-find\s*\{[^}]*width:\s*100%;[^}]*flex:\s*1 1 auto;[^}]*overflow:\s*hidden;/s);
@@ -656,32 +626,6 @@ describe('DataGrid layout', () => {
     expect(darkCss).toContain('var(--gn-warn-soft, rgba(255, 214, 102, 0.16))');
   });
 
-  it('avoids duplicating legacy pagination page text beside the pager', () => {
-    const markup = renderToStaticMarkup(
-      <DataGridPaginationBar
-        isV2Ui={false}
-        pagination={{
-          current: 1,
-          pageSize: 100,
-          total: 24,
-        }}
-        paginationV2SummaryText="24 行"
-        paginationSummaryText="当前 24 条 / 共 24 条"
-        paginationControlTotal={24}
-        paginationTotalPages={1}
-        paginationPageText="第 1 / 1 页"
-        paginationPageSizeOptions={['100', '200']}
-        showKnownPageCount
-        onPageChange={() => {}}
-        onPageSizeChange={() => {}}
-        onV2PageStep={() => {}}
-      />,
-    );
-
-    expect(markup).toContain('class="ant-pagination');
-    expect(markup).not.toContain('第 1 / 1 页');
-  });
-
   it('keeps detached DataGrid chrome text behind translateDataGrid', () => {
     const dataGridSource = readDataGridSource();
     const pageFindSource = readFileSync(new URL('./DataGridPageFind.tsx', import.meta.url), 'utf8');
@@ -841,7 +785,7 @@ describe('DataGrid layout', () => {
       '复制 DDL 失败',
     ].forEach((literal) => {
     });
-    expect(dataGridSource.match(/message\.info\(translateDataGrid\('data_grid\.message\.no_copyable_rows'\)\)/g) ?? []).toHaveLength(3);
+    expect(dataGridSource.match(/message\.info\(translateDataGrid\('data_grid\.message\.no_copyable_rows'\)\)/g) ?? []).toHaveLength(2);
 
     const ddlWorkspaceInlineLiterals = [
       '底部',
@@ -865,11 +809,11 @@ describe('DataGrid layout', () => {
     const bottomDdlMarkup = renderToStaticMarkup(
       <DataGridV2DdlView
         layout="bottom"
+        darkMode={false}
         tableName={rawTableName}
         ddlViewLayout="bottom"
         ddlLoading={false}
         ddlText={rawDdl}
-        darkMode={false}
         onDdlViewLayoutChange={() => {}}
         onReload={() => {}}
         onCopy={() => {}}
@@ -1097,7 +1041,6 @@ describe('DataGrid layout', () => {
         'data_grid.page_find.previous': 'Previous find match',
         'data_grid.page_find.next': 'Next find match',
         'data_grid.page_find.summary': `${params?.occurrences} hits / ${params?.cells} cells`,
-        'data_grid.pagination.result_set': 'Result set label',
         'data_grid.pagination.page_size_aria': 'Rows per page label',
         'data_grid.pagination.page_size_option': `${params?.count} rows per page`,
         'data_grid.pagination.first_page': 'First page label',
@@ -1142,8 +1085,6 @@ describe('DataGrid layout', () => {
 
     const pageFindMarkup = renderToStaticMarkup(
       <DataGridPageFind
-        isV2Ui
-        darkMode={false}
         pageFindText="al"
         normalizedPageFindText="al"
         hasMatches
@@ -1168,8 +1109,6 @@ describe('DataGrid layout', () => {
 
     const resultViewMarkup = renderToStaticMarkup(
       <DataGridResultViewSwitcher
-        isV2Ui={false}
-        darkMode={false}
         viewMode="table"
         translate={translate}
         onViewModeChange={() => {}}
@@ -1178,15 +1117,15 @@ describe('DataGrid layout', () => {
 
     const paginationMarkup = renderToStaticMarkup(
       <DataGridPaginationBar
-        isV2Ui={false}
+
         pagination={{
           current: 1,
           pageSize: 100,
           total: 24,
         }}
         paginationV2SummaryText="24 rows"
-        paginationSummaryText="24 rows"
-        paginationControlTotal={24}
+
+
         paginationTotalPages={2}
         paginationPageText="Page 1"
         paginationPageSizeOptions={['100', '200']}
@@ -1197,7 +1136,6 @@ describe('DataGrid layout', () => {
         onV2PageStep={() => {}}
       />,
     );
-    expect(paginationMarkup).toContain('Result set label');
     expect(paginationMarkup).toContain('First page label');
     expect(paginationMarkup).toContain('Last page label');
     expect(paginationMarkup).toContain('Jump label');
@@ -1208,7 +1146,7 @@ describe('DataGrid layout', () => {
 
     const secondaryMarkup = renderToStaticMarkup(
       <DataGridSecondaryActions
-        isV2Ui
+
         canViewDdl
         canOpenObjectDesigner={false}
         viewMode="table"
@@ -1218,14 +1156,9 @@ describe('DataGrid layout', () => {
         resultViewSwitcher={<span>view switcher</span>}
         columnInfoSettingContent={<span>column settings</span>}
         columnQuickFindContent={<span>quick find</span>}
-        pageFindContent={<span>page find</span>}
         paginationContent={<span>pagination</span>}
         translate={translate}
         onViewModeChange={() => {}}
-        dataPanelOpen={false}
-        isTableSurfaceActive
-        onToggleDataPanel={() => {}}
-        onOpenTableDdl={() => {}}
       />,
     );
     expect(secondaryMarkup).toContain('Data preview label');
@@ -1424,46 +1357,6 @@ describe('DataGrid layout', () => {
     expect(markup).toContain('跳页');
   });
 
-  it('keeps legacy unknown-total pagination sequential while still allowing direct page jumps', () => {
-    const previousUiVersion = mockStoreState.uiVersion;
-    mockStoreState.uiVersion = 'legacy';
-
-    try {
-      const markup = renderDataGridWithI18n(
-        <DataGrid
-          data={[
-            {
-              __gonavi_row_key__: 'row-1',
-              id: 1,
-              name: 'alpha',
-            },
-          ]}
-          columnNames={['id', 'name']}
-          loading={false}
-          tableName="users"
-          dbName="main"
-          connectionId="conn-1"
-          readOnly
-          pagination={{
-            current: 3,
-            pageSize: 100,
-            total: 400,
-            totalKnown: false,
-          }}
-          onPageChange={() => {}}
-        />,
-      );
-
-      expect(markup).toContain('第 3 页');
-      expect(markup).toContain('data-grid-pagination-sequential="true"');
-      expect(markup).not.toContain('class="ant-pagination');
-      expect(markup).toContain('data-grid-pagination-jump="true"');
-      expect(markup).toContain('跳页');
-    } finally {
-      mockStoreState.uiVersion = previousUiVersion;
-    }
-  });
-
   it('renders the v2 DataGrid toolbar using the redesigned topbar hooks', () => {
     const markup = renderDataGridWithI18n(
       <DataGrid
@@ -1548,8 +1441,6 @@ describe('DataGrid layout', () => {
 
     const resultViewMarkup = renderToStaticMarkup(
       <DataGridResultViewSwitcher
-        isV2Ui
-        darkMode={false}
         viewMode="table"
         translate={(key) => zhCnCatalog[key] ?? key}
         onViewModeChange={() => {}}
@@ -1759,6 +1650,10 @@ describe('DataGrid layout', () => {
       expect(markup).toContain('vertical-align:middle');
       expect(markup).toContain('data-grid-row-number="true"');
       expect(markup).toContain('data-grid-row-number-action="true"');
+      expect(markup).toContain(`title="${zhRowNumberHint}"`);
+      expect(markup).toContain(
+        `<span class="data-grid-row-number" data-grid-row-number="true" title="${zhRowNumberHint}"`,
+      );
       expect(markup).toContain('display:flex');
       expect(markup).toContain('width:100%');
       expect(markup).toContain('height:100%');
@@ -2120,6 +2015,23 @@ describe('DataGrid layout', () => {
     expect(tableSurfaceCss).toContain('background: var(--gn-query-workbench-bg, var(--gn-bg-panel-2)) !important;');
     expect(tableSurfaceCss).toContain('.gn-v2-data-grid .ant-table-container');
     expect(tableSurfaceCss).toContain('.gn-v2-data-grid .ant-table-tbody-virtual-holder');
+  });
+
+  it('enters fixed-row virtual scrolling before a user can scroll the V2 data table', () => {
+    const source = readFileSync(new URL('./DataGrid.tsx', import.meta.url), 'utf8');
+    const css = readV2ThemeCss();
+
+    expect(css).toContain('height: calc(28px * var(--gn-ui-scale, 1));');
+    expect(source).toContain('const virtualListItemHeight = Math.max(1, 28 * effectiveUiScale);');
+    expect(source).toContain('const virtualListItemHeightFixed = !virtualEditingCellForRender;');
+    expect(source).not.toContain('virtualRowHeightMeasurement');
+  });
+
+  it('keeps overflowing table column references stable across viewport-only resizes', () => {
+    const source = readDataGridSource();
+
+    expect(source).toContain('const baseTableColumns = useMemo(() => (');
+    expect(source).toContain('columns: baseTableColumns,');
   });
 
   it('keeps DataGrid scroll synchronization throttled to animation frames', () => {

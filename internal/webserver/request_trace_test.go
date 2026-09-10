@@ -31,6 +31,13 @@ func TestWebInvokeTraceInputDoesNotExposeConnectionSecrets(t *testing.T) {
 	}
 }
 
+func TestApplicationQueryWithCancelOwnsItsDatabaseTrace(t *testing.T) {
+	request := invokeRequest{Namespace: "app", Receiver: "app", Method: "DBQueryApplicationWithCancel"}
+	if shouldTraceWebInvoke(request) {
+		t.Fatal("application query should not create a duplicate HTTP wrapper trace")
+	}
+}
+
 func TestInvokeResponseExposesRequestIDWithoutChangingResultShape(t *testing.T) {
 	payload, err := json.Marshal(invokeResponse{
 		RequestID: "web-request-1",

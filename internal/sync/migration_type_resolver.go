@@ -24,6 +24,8 @@ func normalizeMigrationDBType(dbType string) string {
 		return "gaussdb"
 	case "intersystems", "intersystemsiris", "inter-systems", "inter-systems-iris":
 		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
+		return "iris"
 	case "dm", "dm8":
 		return "dameng"
 	case "sqlite3":
@@ -50,6 +52,8 @@ func resolveMigrationDBType(config connection.ConnectionConfig) string {
 	case "gaussdb", "gauss_db", "gauss-db":
 		return "gaussdb"
 	case "intersystems", "intersystemsiris", "inter-systems", "inter-systems-iris", "iris":
+		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
 		return "iris"
 	case "dm", "dameng", "dm8":
 		return "dameng"

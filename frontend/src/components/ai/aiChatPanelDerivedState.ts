@@ -110,6 +110,5 @@ export const buildAIChatInlineHistorySessions = (
 ) => sessions.slice(0, limit);
 
 export const resolveAIChatPanelMode = (
-  isV2Ui: boolean,
   activePanelMode: AIChatPanelMode,
-): AIChatPanelMode => (isV2Ui ? activePanelMode : 'chat');
+): AIChatPanelMode => activePanelMode;

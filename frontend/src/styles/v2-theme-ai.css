@@ -768,11 +768,65 @@ body[data-ui-version="v2"] .gn-v2-ai-context-live-dot {
 
 /* 模型 / 思考：固定宽度，禁止被 flex 拉长 */
 body[data-ui-version="v2"] .gn-v2-ai-model-select {
-  width: 128px !important;
+  width: 190px !important;
   min-width: 128px !important;
-  max-width: 128px !important;
+  max-width: 190px !important;
   height: 26px !important;
-  flex: 0 0 128px !important;
+  flex: 0 1 190px !important;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-provider-model-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0.5px solid var(--gn-br-2);
+  border-radius: 7px;
+  background: var(--gn-bg-panel);
+  color: var(--gn-fg-2);
+  box-shadow: none;
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  line-height: 24px;
+  cursor: pointer;
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-provider-model-trigger:hover,
+body[data-ui-version="v2"] .gn-v2-ai-provider-model-trigger:focus-visible,
+body[data-ui-version="v2"] .gn-v2-ai-provider-model-trigger[aria-expanded="true"] {
+  border-color: var(--gn-info);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
+}
+
+body[data-ui-version="v2"] .gn-v2-ai-provider-model-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-v2-ai-provider-model-popup .ant-dropdown-menu {
+  min-width: 228px;
+  max-height: min(420px, calc(100vh - 48px));
+  overflow-y: auto;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 10px;
+  background: var(--gn-bg-panel);
+  box-shadow: var(--gn-shadow-lg);
+  font-family: var(--gn-font-mono);
+}
+
+.gn-v2-ai-provider-model-popup .ant-dropdown-menu-submenu-title,
+.gn-v2-ai-provider-model-popup .ant-dropdown-menu-item {
+  min-height: 34px;
+  border-radius: 7px;
+}
+
+.gn-v2-ai-provider-model-popup .ant-dropdown-menu-item-selected {
+  background: var(--gn-bg-active);
+  color: var(--gn-accent);
 }
 
 body[data-ui-version="v2"] .gn-v2-ai-thinking-select {

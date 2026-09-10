@@ -185,6 +185,30 @@ describe('data sync Wails DTO boundary', () => {
     });
   });
 
+  it('persists an explicitly selected existing-only mapping strategy', () => {
+    const task = reviseDataSyncTask(configuredTask('migration'), {
+      content: 'both',
+      mappings: [
+        {
+          ...createDataSyncTableMapping('map-explicit', 'orders', 'orders'),
+          targetMode: 'existing_only',
+          targetModeExplicit: true,
+        },
+      ],
+    });
+    const wire = encodeDataSyncJobDefinition(task);
+    expect(wire.mappings).toMatchObject([
+      {
+        targetTableStrategy: 'existing_only',
+        targetTableStrategyExplicit: true,
+      },
+    ]);
+    expect(decodeDataSyncJobDefinition(wire).mappings[0]).toMatchObject({
+      targetMode: 'existing_only',
+      targetModeExplicit: true,
+    });
+  });
+
   it('maps query sink, compare content, and CDC into backend wire values', () => {
     const querySink = reviseDataSyncTask(configuredTask('querySink'), {
       sourceQuery: 'SELECT id FROM orders',

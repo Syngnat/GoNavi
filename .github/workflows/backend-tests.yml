@@ -40,9 +40,21 @@ jobs:
         run: |
           mkdir -p frontend/dist
           printf '<!doctype html><title>GoNavi test</title>\n' > frontend/dist/index.html
+          cp tools/stub-dist.zip frontend/dist.zip
+
+      - name: Install Wails Linux build dependencies
+        # assets_prod_test.go 引入 wails/v2/pkg/assetserver，linux 上经
+        # assetserver_webview.go 无条件依赖 webkit2gtk CGO，缺少时根包
+        # 测试构建直接失败。ubuntu-24.04 起 libwebkit2gtk-4.0-dev 已移除，
+        # 安装 4.1 开发包并配合 webkit2_41 构建标签（wails v2.11 原生支持）。
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Run backend tests
-        run: go test ./... -count=1 -timeout=30m
+        run: go test -tags webkit2_41 ./... -count=1 -timeout=30m
 
   platform-sensitive:
     name: Platform-sensitive tests (${{ matrix.os }})

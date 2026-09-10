@@ -26,6 +26,8 @@ const JVMDiagnosticConsole = React.lazy(() => import('./JVMDiagnosticConsole'));
 const JVMMonitoringDashboard = React.lazy(() => import('./JVMMonitoringDashboard'));
 const SqlAnalysisWorkbench = React.lazy(() => import('./explain/SqlAnalysisWorkbench'));
 const SqlAuditWorkbench = React.lazy(() => import('./audit/SqlAuditWorkbench'));
+const DriverManagerWorkbench = React.lazy(() => import('./DriverManagerWorkbench'));
+const SettingsCenterWorkbench = React.lazy(() => import('./settings/SettingsCenterWorkbench'));
 const RequestDiagnosticsWorkbench = React.lazy(() => import('./requestDiagnostics/RequestDiagnosticsWorkbench'));
 const MessageQueueWorkbench = React.lazy(() => import('./MessageQueueWorkbench'));
 
@@ -96,12 +98,14 @@ export interface WorkbenchTabContentProps {
   tab: TabData;
   isActive: boolean;
   onContentReady?: () => void;
+  onRequestClose?: () => void;
 }
 
 export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.memo(({
   tab,
   isActive,
   onContentReady,
+  onRequestClose,
 }) => {
   let content: React.ReactNode;
   if (tab.type === 'query') {
@@ -153,6 +157,16 @@ export const WorkbenchTabContent: React.FC<WorkbenchTabContentProps> = React.mem
     content = <SqlAnalysisWorkbench tab={tab} />;
   } else if (tab.type === 'sql-audit') {
     content = <SqlAuditWorkbench tab={tab} isActive={isActive} />;
+  } else if (tab.type === 'driver-manager') {
+    content = (
+      <DriverManagerWorkbench
+        tab={tab}
+        isActive={isActive}
+        onRequestClose={onRequestClose}
+      />
+    );
+  } else if (tab.type === 'settings-center') {
+    content = <SettingsCenterWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'request-diagnostics') {
     content = <RequestDiagnosticsWorkbench tab={tab} isActive={isActive} />;
   } else if (tab.type === 'message-queue') {

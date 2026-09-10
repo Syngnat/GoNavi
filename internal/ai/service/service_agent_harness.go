@@ -468,7 +468,12 @@ func (s *Service) initializeAgentHarness(ctx context.Context) error {
 		s.agentHarnessInitialization = fmt.Errorf("load agent run policy: %w", err)
 		return s.agentHarnessInitialization
 	}
-	keyPath, err := AgentLedgerKeyFilePath(configDir)
+	agentDataDir, err := appdata.ResolveAgentDataDirectory(configDir)
+	if err != nil {
+		s.agentHarnessInitialization = fmt.Errorf("resolve agent data directory: %w", err)
+		return s.agentHarnessInitialization
+	}
+	keyPath, err := AgentLedgerKeyFilePath(agentDataDir)
 	if err != nil {
 		s.agentHarnessInitialization = fmt.Errorf("resolve local agent ledger key: %w", err)
 		return s.agentHarnessInitialization
@@ -663,6 +668,12 @@ func cloneAgentProviderConfig(config ai.ProviderConfig) ai.ProviderConfig {
 		clone.Headers = make(map[string]string, len(config.Headers))
 		for key, value := range config.Headers {
 			clone.Headers[key] = value
+		}
+	}
+	if config.CLIEnv != nil {
+		clone.CLIEnv = make(map[string]string, len(config.CLIEnv))
+		for key, value := range config.CLIEnv {
+			clone.CLIEnv[key] = value
 		}
 	}
 	return clone

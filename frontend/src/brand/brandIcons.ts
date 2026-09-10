@@ -4,11 +4,7 @@ export type BrandIconId =
   | '03'
   | '04'
   | '05'
-  | '06'
-  | '07'
-  | '08'
-  | '09'
-  | '10';
+  | '06';
 
 export type BrandIconDefinition = {
   id: BrandIconId;
@@ -20,89 +16,61 @@ export type BrandIconDefinition = {
   titlebarPath?: string;
 };
 
-export const DEFAULT_BRAND_ICON_ID: BrandIconId = '02';
+export const DEFAULT_BRAND_ICON_ID: BrandIconId = '03';
+export const BRAND_ICON_REMOTE_BASE_URL = 'https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1';
+export const BRAND_ICON_FALLBACK_SRC = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMjggMTI4Ij48cmVjdCB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgcng9IjI0IiBmaWxsPSIjMTYxYzJhIi8+PHBhdGggZD0iTTI0IDM0aDgwYzAgMjAtMTIgMjktMjkgMjktMTcgMC0yOS05LTI5LTI5bDI5IDBjMTcgMCAyOS05IDI5LTI5em0wIDYwYzE3IDAgMjktOSAyOS0yOWgyMmMwIDIwLTEyIDI5LTI5IDI5LTE3IDAtMjktOS0yOS0yOWgyMmMwIDIwIDEyIDI5IDI5IDI5eiIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==';
+
+const loadedBrandIconSources = new Map<BrandIconId, string>();
 
 export const BRAND_ICONS: BrandIconDefinition[] = [
   {
     id: '01',
-    slug: 'database-hug',
-    titleZh: '抱库小狗',
-    titleEn: 'Database hug',
-    iconPath: '/brand-icons/01-database-hug.webp',
-    aboutPath: '/brand-icons/01-database-hug-about.png',
+    slug: 'ribbon-graphite-air',
+    titleZh: '石墨碳白',
+    titleEn: 'Graphite air',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '02',
-    slug: 'database-search',
-    titleZh: '搜库小狗',
-    titleEn: 'Database search',
-    iconPath: '/brand-icons/02-database-search.webp',
-    aboutPath: '/brand-icons/02-database-search-about.png',
-    titlebarPath: '/brand-marks/02-database-search-transparent.png',
+    slug: 'ribbon-graphite',
+    titleZh: '石墨商务',
+    titleEn: 'Graphite business',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '03',
-    slug: 'bandana-badge',
-    titleZh: '头巾徽章',
-    titleEn: 'Bandana badge',
-    iconPath: '/brand-icons/03-bandana-badge.webp',
-    aboutPath: '/brand-icons/03-bandana-badge-about.png',
+    slug: 'ribbon-graphite-glow',
+    titleZh: '石墨冷蓝',
+    titleEn: 'Graphite glow',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
+    titlebarPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '04',
-    slug: 'magnifier-wink',
-    titleZh: '放大镜眨眼',
-    titleEn: 'Magnifier wink',
-    iconPath: '/brand-icons/04-magnifier-wink.webp',
-    aboutPath: '/brand-icons/04-magnifier-wink-about.png',
+    slug: 'ribbon-indigo-light',
+    titleZh: '浅底深紫',
+    titleEn: 'Indigo light',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '05',
-    slug: 'window-peek',
-    titleZh: '窗口探头',
-    titleEn: 'Window peek',
-    iconPath: '/brand-icons/05-window-peek.webp',
-    aboutPath: '/brand-icons/05-window-peek-about.png',
+    slug: 'ribbon-graphite-light',
+    titleZh: '浅底石墨',
+    titleEn: 'Graphite on light',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
   {
     id: '06',
-    slug: 'hex-collar',
-    titleZh: '六边项圈',
-    titleEn: 'Hex collar',
-    iconPath: '/brand-icons/06-hex-collar.webp',
-    aboutPath: '/brand-icons/06-hex-collar-about.png',
-  },
-  {
-    id: '07',
-    slug: 'graph-sit',
-    titleZh: '关系图',
-    titleEn: 'Graph sit',
-    iconPath: '/brand-icons/07-graph-sit.webp',
-    aboutPath: '/brand-icons/07-graph-sit-about.png',
-  },
-  {
-    id: '08',
-    slug: 'cloud-banner',
-    titleZh: '云朵横幅',
-    titleEn: 'Cloud banner',
-    iconPath: '/brand-icons/08-cloud-banner.webp',
-    aboutPath: '/brand-icons/08-cloud-banner-about.png',
-  },
-  {
-    id: '09',
-    slug: 'terminal-sit',
-    titleZh: '终端旁坐',
-    titleEn: 'Terminal sit',
-    iconPath: '/brand-icons/09-terminal-sit.webp',
-    aboutPath: '/brand-icons/09-terminal-sit-about.png',
-  },
-  {
-    id: '10',
-    slug: 'compass-bandana',
-    titleZh: '罗盘头巾',
-    titleEn: 'Compass bandana',
-    iconPath: '/brand-icons/10-compass-bandana.webp',
-    aboutPath: '/brand-icons/10-compass-bandana-about.png',
+    slug: 'ribbon-lilac-dark',
+    titleZh: '石墨浅紫',
+    titleEn: 'Lilac on graphite',
+    iconPath: BRAND_ICON_FALLBACK_SRC,
+    aboutPath: BRAND_ICON_FALLBACK_SRC,
   },
 ];
 
@@ -117,11 +85,20 @@ export function sanitizeBrandIconId(value: unknown): BrandIconId {
 }
 
 export function resolveBrandIcon(id?: unknown): BrandIconDefinition {
-  return BRAND_ICON_BY_ID.get(sanitizeBrandIconId(id)) || BRAND_ICONS[1];
+  return BRAND_ICON_BY_ID.get(sanitizeBrandIconId(id)) || BRAND_ICONS[2];
+}
+
+/** Browser-only harnesses use the same immutable assets as the native cache. */
+export function resolveBrandIconRemoteSrc(id?: unknown): string {
+  const raw = String(id || '').trim() as BrandIconId;
+  const definition = BRAND_ICON_BY_ID.get(raw);
+  if (!definition) return '';
+  return `${BRAND_ICON_REMOTE_BASE_URL}/${definition.id}-${definition.slug}.svg`;
 }
 
 export function resolveBrandIconSrc(id?: unknown): string {
-  return resolveBrandIcon(id).iconPath;
+  const definition = resolveBrandIcon(id);
+  return loadedBrandIconSources.get(definition.id) || definition.iconPath;
 }
 
 export function resolveBrandFullSrc(id?: unknown): string {
@@ -129,15 +106,26 @@ export function resolveBrandFullSrc(id?: unknown): string {
 }
 
 export function resolveBrandAboutSrc(id?: unknown): string {
-  return resolveBrandIcon(id).aboutPath;
+  return resolveBrandIconSrc(id);
 }
 
 export function resolveBrandTitlebarSrc(id?: unknown): string {
-  const icon = resolveBrandIcon(id);
-  return icon.titlebarPath || icon.iconPath;
+  return resolveBrandIconSrc(id);
 }
 
-/** Dock uses the exact lossless WebP lockup rendered by BrandIconPicker. */
+/**
+ * Native OS surfaces must wait for the selected verified asset. Sending the
+ * shared UI fallback first makes Windows cache that placeholder as the
+ * taskbar icon while the real asset update is still queued.
+ */
 export function resolveBrandDockSrc(id?: unknown): string {
-  return resolveBrandIconSrc(id);
+  const definition = resolveBrandIcon(id);
+  return loadedBrandIconSources.get(definition.id) || '';
+}
+
+export function setLoadedBrandIconSources(sources: Partial<Record<BrandIconId, string>>): void {
+  for (const icon of BRAND_ICONS) {
+    const source = String(sources[icon.id] || '').trim();
+    if (source) loadedBrandIconSources.set(icon.id, source);
+  }
 }

@@ -65,6 +65,8 @@ const workbenchTabTypes: TabData['type'][] = [
   'sql-file-execution',
   'sql-analysis',
   'sql-audit',
+  'driver-manager',
+  'settings-center',
   'redis-keys',
   'redis-command',
   'redis-monitor',
@@ -170,14 +172,20 @@ vi.mock('./WorkbenchTabContent', () => ({
   default: ({
     tab,
     onContentReady,
+    onRequestClose,
   }: {
     tab: TabData;
     onContentReady?: () => void;
+    onRequestClose?: () => void;
   }) => {
     React.useEffect(() => {
       onContentReady?.();
     }, [onContentReady]);
-    return <div data-workbench-tab={tab.id} />;
+    return (
+      <div data-workbench-tab={tab.id}>
+        <button data-workbench-request-close type="button" onClick={onRequestClose} />
+      </div>
+    );
   },
 }));
 
@@ -217,7 +225,7 @@ vi.mock('./AIChatPanel', () => ({
     presentation?: string;
     onAttach?: () => void;
     onClose?: () => void;
-    onOpenSettings?: () => void;
+    onOpenSettings?: (providerId?: string) => void;
     onRegisterTerminalGuard?: (guard: (() => Promise<boolean>) | null) => void;
     interactionDisabled?: boolean;
   }) => {
@@ -230,7 +238,8 @@ vi.mock('./AIChatPanel', () => ({
       >
         <button data-ai-chat-attach type="button" onClick={onAttach} />
         <button data-ai-chat-close type="button" onClick={onClose} />
-        <button data-ai-chat-settings type="button" onClick={onOpenSettings} />
+        <button data-ai-chat-settings type="button" onClick={() => onOpenSettings?.()} />
+        <button data-ai-chat-provider-settings type="button" onClick={() => onOpenSettings?.('provider-grok')} />
       </div>
     );
   },
@@ -286,7 +295,7 @@ describe('NativeDetachedWindowApp', () => {
       connections: [],
       theme: 'light',
       themePreference: 'light',
-      appearance: { uiVersion: 'v2' },
+      appearance: {  },
       fontSize: 14,
       uiScale: 1,
       aiPanelVisible: false,
@@ -317,7 +326,7 @@ describe('NativeDetachedWindowApp', () => {
       },
     } as any;
 
-    applyNativeDetachedDocumentAppearance('dark', 'v2', 24, 0.5, documentRef);
+    applyNativeDetachedDocumentAppearance('dark', 24, 0.5, documentRef);
 
     expect(setAttribute).toHaveBeenCalledWith('data-theme', 'dark');
     expect(setAttribute).toHaveBeenCalledWith('data-ui-version', 'v2');
@@ -361,7 +370,7 @@ describe('NativeDetachedWindowApp', () => {
         storeState: {
           tabs: [queryTab],
           theme: 'dark',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           fontSize: 15,
         },
         tab: queryTab,
@@ -456,7 +465,7 @@ describe('NativeDetachedWindowApp', () => {
         storeState: {
           tabs: [queryTab],
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           [NATIVE_DETACHED_CUSTOM_THEME_CONTEXT_KEY]: theme,
         },
         tab: queryTab,
@@ -505,7 +514,7 @@ describe('NativeDetachedWindowApp', () => {
         storeState: {
           tabs: [queryTab],
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
         },
         tab: queryTab,
       },
@@ -576,7 +585,7 @@ describe('NativeDetachedWindowApp', () => {
           tabs: [tab],
           activeTabId: tab.id,
           theme: 'light',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
         },
         tab,
       },
@@ -604,6 +613,58 @@ describe('NativeDetachedWindowApp', () => {
     });
   });
 
+  it('routes the driver manager body close action through the native window lifecycle', async () => {
+    const tab: TabData = {
+      id: 'driver-manager',
+      title: 'Driver Manager',
+      type: 'driver-manager',
+      connectionId: '',
+    };
+    const bootstrap: NativeDetachedWindowBootstrap = {
+      id: 'workbench:driver-manager',
+      kind: 'workbench',
+      title: tab.title,
+      payload: {
+        storeState: {
+          tabs: [tab],
+          activeTabId: tab.id,
+          theme: 'light',
+          appearance: {  },
+        },
+        tab,
+      },
+    };
+    const client = {
+      load: vi.fn(async () => bootstrap),
+      ready: vi.fn(async () => undefined),
+      sync: vi.fn(async () => undefined),
+      attach: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      cancelCloseRequest: vi.fn(async () => undefined),
+      openAISettings: vi.fn(async () => undefined),
+      closeCurrentWindow: vi.fn(async () => undefined),
+    };
+
+    let renderer: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(<NativeDetachedWindowApp client={client} />);
+      await flushEffects();
+    });
+
+    await act(async () => {
+      renderer!.root.findByProps({ 'data-workbench-request-close': true }).props.onClick();
+      await flushEffects();
+      await flushEffects();
+    });
+
+    expect(client.close).toHaveBeenCalledWith(expect.objectContaining({
+      id: bootstrap.id,
+      kind: 'workbench',
+    }));
+    expect(client.closeCurrentWindow).toHaveBeenCalledOnce();
+    await act(async () => renderer!.unmount());
+  });
+
   it('hydrates and renders AI chat in a native detached window', async () => {
     const bootstrap: NativeDetachedWindowBootstrap = {
       id: 'ai-chat',
@@ -614,7 +675,7 @@ describe('NativeDetachedWindowApp', () => {
           tabs: [queryTab],
           activeTabId: queryTab.id,
           theme: 'dark',
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           fontSize: 15,
           aiPanelVisible: true,
           aiChatHistory: {
@@ -655,7 +716,7 @@ describe('NativeDetachedWindowApp', () => {
           storeState: {
             theme: 'light',
             themePreference: 'light',
-            appearance: { uiVersion: 'v2' },
+            appearance: {  },
             fontSize: 16,
             uiScale: 1.1,
             activeContext: { connectionId: 'connection-2', dbName: 'analytics' },
@@ -673,7 +734,7 @@ describe('NativeDetachedWindowApp', () => {
     ]));
     expect(storeState.theme).toBe('light');
     expect(storeState.themePreference).toBe('light');
-    expect(storeState.appearance).toEqual({ uiVersion: 'v2' });
+    expect(storeState.appearance).toEqual({  });
     expect(storeState.fontSize).toBe(16);
     expect(storeState.uiScale).toBe(1.1);
     expect(aiChatRenderProps.current).toEqual(expect.objectContaining({
@@ -710,7 +771,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'Result 1',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:r1',
           sourceQueryTabId: queryTab.id,
@@ -785,7 +846,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'POST /_bulk',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:es-r1',
           sourceQueryTabId: queryTab.id,
@@ -853,7 +914,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'Stable result callback',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:stable-callback',
           sourceQueryTabId: queryTab.id,
@@ -938,7 +999,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'query-result',
       title: 'Result 1',
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light', sqlLogs: [] },
+        storeState: { appearance: {  }, theme: 'light', sqlLogs: [] },
         resultWindow: {
           id: 'query-result:query-native-1:r1',
           sourceQueryTabId: queryTab.id,
@@ -1012,12 +1073,12 @@ describe('NativeDetachedWindowApp', () => {
     }
   });
 
-  it('parks the native AI window before opening settings in the main window', async () => {
+  it('parks the native AI window before opening the focused provider in main settings', async () => {
     const bootstrap: NativeDetachedWindowBootstrap = {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -1038,13 +1099,13 @@ describe('NativeDetachedWindowApp', () => {
     });
 
     await act(async () => {
-      renderer!.root.findByProps({ 'data-ai-chat-settings': true }).props.onClick();
+      renderer!.root.findByProps({ 'data-ai-chat-provider-settings': true }).props.onClick();
       await flushEffects();
       await flushEffects();
     });
 
     expect(client.hide).toHaveBeenCalledOnce();
-    expect(client.openAISettings).toHaveBeenCalledWith(9);
+    expect(client.openAISettings).toHaveBeenCalledWith(9, 'provider-grok');
     expect(client.hide.mock.invocationCallOrder[0]).toBeLessThan(
       client.openAISettings.mock.invocationCallOrder[0],
     );
@@ -1059,7 +1120,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const settingsError = new Error('parent settings unavailable');
     const client = {
@@ -1133,7 +1194,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -1179,6 +1240,85 @@ describe('NativeDetachedWindowApp', () => {
     }
   });
 
+  it.each([
+    'gonavi:open-global-proxy-settings',
+    'gonavi:open-download-source-settings',
+  ] as const)('forwards driver manager %s requests to the main window', async (eventName) => {
+    const previousWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    const eventTarget = new EventTarget();
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: Object.assign(eventTarget, {
+        clearTimeout: globalThis.clearTimeout,
+        innerWidth: 960,
+        outerHeight: 720,
+        outerWidth: 960,
+        screenX: 40,
+        screenY: 40,
+        setTimeout: globalThis.setTimeout,
+      }),
+    });
+    const tab: TabData = {
+      id: 'driver-manager',
+      title: 'Driver Manager',
+      type: 'driver-manager',
+      connectionId: '',
+    };
+    const bootstrap: NativeDetachedWindowBootstrap = {
+      id: 'workbench:driver-manager',
+      kind: 'workbench',
+      title: tab.title,
+      payload: {
+        storeState: {
+          appearance: {  },
+          theme: 'light',
+          tabs: [tab],
+          activeTabId: tab.id,
+        },
+        tab,
+      },
+    };
+    const client = {
+      load: vi.fn(async () => bootstrap),
+      ready: vi.fn(async () => undefined),
+      sync: vi.fn(async () => undefined),
+      attach: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      openAISettings: vi.fn(async () => undefined),
+      hostEvent: vi.fn(async () => undefined),
+      closeCurrentWindow: vi.fn(async () => undefined),
+    };
+    let renderer: TestRenderer.ReactTestRenderer | undefined;
+
+    try {
+      await act(async () => {
+        renderer = TestRenderer.create(<NativeDetachedWindowApp client={client} />);
+        await flushEffects();
+      });
+      await act(async () => {
+        eventTarget.dispatchEvent(new Event(eventName));
+        await flushEffects();
+      });
+
+      expect(client.hostEvent).toHaveBeenCalledWith(expect.objectContaining({
+        id: bootstrap.id,
+        kind: 'workbench',
+        hostEvent: expect.objectContaining({
+          name: eventName,
+        }),
+      }));
+    } finally {
+      await act(async () => {
+        renderer?.unmount();
+      });
+      if (previousWindowDescriptor) {
+        Object.defineProperty(globalThis, 'window', previousWindowDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'window');
+      }
+    }
+  });
+
   it('forwards sidebar locate actions from a detached workbench to the main process', async () => {
     const previousWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
     const eventTarget = new EventTarget();
@@ -1199,7 +1339,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'workbench',
       title: queryTab.title,
       payload: {
-        storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' },
+        storeState: { appearance: {  }, theme: 'light' },
         tab: queryTab,
       },
     };
@@ -1296,7 +1436,7 @@ describe('NativeDetachedWindowApp', () => {
         title: 'Detached window',
         payload: {
           storeState: {
-            appearance: { uiVersion: 'v2' },
+            appearance: {  },
             theme: 'light',
             shortcutOptions,
             ...(kind === 'workbench' ? { tabs: [queryTab], activeTabId: queryTab.id } : {}),
@@ -1417,7 +1557,7 @@ describe('NativeDetachedWindowApp', () => {
       title: queryTab.title,
       payload: {
         storeState: {
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           theme: 'light',
           tabs: [queryTab],
           activeTabId: queryTab.id,
@@ -1558,7 +1698,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const callOrder: string[] = [];
     aiTerminalGuard.mockImplementationOnce(async () => {
@@ -1628,7 +1768,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const callOrder: string[] = [];
     aiTerminalGuard.mockImplementationOnce(async () => {
@@ -1698,7 +1838,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     let markNativeHideStarted: (() => void) | undefined;
     const nativeHideStarted = new Promise<void>((resolve) => {
@@ -1835,7 +1975,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -1910,7 +2050,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const callOrder: string[] = [];
     let releaseHide: (() => void) | undefined;
@@ -2002,7 +2142,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -2055,7 +2195,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const client = {
       load: vi.fn(async () => bootstrap),
@@ -2111,7 +2251,7 @@ describe('NativeDetachedWindowApp', () => {
       title: 'GoNavi AI',
       payload: {
         storeState: {
-          appearance: { uiVersion: 'v2' },
+          appearance: {  },
           theme: 'light',
           aiActiveSessionId: 'session-handoff',
           aiChatHistory: {
@@ -2173,7 +2313,7 @@ describe('NativeDetachedWindowApp', () => {
       kind: 'ai-chat',
       title: 'GoNavi AI',
       actionRevision: 40,
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     const closeError = new Error('native close failed');
     const client = {
@@ -2247,7 +2387,7 @@ describe('NativeDetachedWindowApp', () => {
           id: 'ai-chat',
           kind: 'ai-chat',
           title: 'GoNavi AI',
-          payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+          payload: { storeState: { appearance: {  }, theme: 'light' } },
         };
         const closeError = new Error(`${failureTarget} convergence failed`);
         const cancelError = new Error(`${failureTarget} cancel failed`);
@@ -2322,7 +2462,7 @@ describe('NativeDetachedWindowApp', () => {
       id: 'ai-chat',
       kind: 'ai-chat',
       title: 'GoNavi AI',
-      payload: { storeState: { appearance: { uiVersion: 'v2' }, theme: 'light' } },
+      payload: { storeState: { appearance: {  }, theme: 'light' } },
     };
     aiTerminalGuard.mockResolvedValue(false);
     const client = {

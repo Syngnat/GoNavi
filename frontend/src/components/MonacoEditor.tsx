@@ -42,9 +42,6 @@ type MonacoWorkerFactory = () => Worker;
 interface MonacoWorkerFactories {
   editor: MonacoWorkerFactory;
   json: MonacoWorkerFactory;
-  css: MonacoWorkerFactory;
-  html: MonacoWorkerFactory;
-  typescript: MonacoWorkerFactory;
 }
 
 export const installMonacoWorkerEnvironment = (
@@ -55,9 +52,8 @@ export const installMonacoWorkerEnvironment = (
     ...(scope.MonacoEnvironment || {}),
     getWorker(_moduleId: string, label: string) {
       if (label === 'json') return workers.json();
-      if (label === 'css' || label === 'scss' || label === 'less') return workers.css();
-      if (label === 'html' || label === 'handlebars' || label === 'razor') return workers.html();
-      if (label === 'typescript' || label === 'javascript') return workers.typescript();
+      // css/html/typescript workers are intentionally not bundled: no editor
+      // instance uses those languages, so they fall back to the base worker.
       return workers.editor();
     },
   };
@@ -904,20 +900,22 @@ const ensureMonacoConfigured = (): Promise<void> => {
   if (!monacoConfiguredPromise) {
     monacoConfiguredPromise = import('monaco-editor/esm/nls.messages.zh-cn')
       .then(() => Promise.all([
-        import('monaco-editor'),
+        import('monaco-editor/esm/vs/editor/editor.api.js'),
         import('monaco-editor/esm/vs/editor/editor.worker?worker'),
         import('monaco-editor/esm/vs/language/json/json.worker?worker'),
-        import('monaco-editor/esm/vs/language/css/css.worker?worker'),
-        import('monaco-editor/esm/vs/language/html/html.worker?worker'),
-        import('monaco-editor/esm/vs/language/typescript/ts.worker?worker'),
+        // 编辑器组件与内置语言高亮按需引入(纯副作用)。刻意不引整包
+        // monaco-editor:其 editor.main 附带 TS/CSS/HTML 语言服务及对应
+        // worker(约 8MB),而本应用只用 sql/mysql/redis/json 语言。
+        import('monaco-editor/esm/vs/editor/editor.all.js'),
+        import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js'),
+        import('monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution.js'),
+        import('monaco-editor/esm/vs/basic-languages/redis/redis.contribution.js'),
+        import('monaco-editor/esm/vs/language/json/monaco.contribution.js'),
       ]))
-      .then(([monaco, editorWorker, jsonWorker, cssWorker, htmlWorker, typescriptWorker]) => {
+      .then(([monaco, editorWorker, jsonWorker]) => {
         installMonacoWorkerEnvironment(globalThis as unknown as Record<string, any>, {
           editor: () => new editorWorker.default(),
           json: () => new jsonWorker.default(),
-          css: () => new cssWorker.default(),
-          html: () => new htmlWorker.default(),
-          typescript: () => new typescriptWorker.default(),
         });
         loader.config({ monaco });
       });
@@ -941,7 +939,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
 }) => {
   const [ready, setReady] = useState(isTestRuntime);
   const appTheme = useStore((state) => state.theme);
-  const uiVersion = useStore((state) => state.appearance.uiVersion);
   const dataTableFontSize = useStore((state) => state.appearance.dataTableFontSize);
   const dataTableFontSizeFollowGlobal = useStore((state) => state.appearance.dataTableFontSizeFollowGlobal);
   const sqlEditorFontSize = useStore((state) => state.appearance.sqlEditorFontSize);
@@ -1029,13 +1026,6 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
   }, [onMount, replaceClipboardPasteHandler]);
 
   const resolvedOptions = useMemo(() => {
-    if (uiVersion !== 'v2') {
-      return {
-        ...options,
-        editContext: false,
-      };
-    }
-
     const effectiveGlobalFontSize = Math.min(
       MAX_FONT_SIZE,
       Math.max(MIN_FONT_SIZE, Math.round(Number(globalFontSize) || DEFAULT_FONT_SIZE)),
@@ -1078,10 +1068,9 @@ const MonacoEditor: React.FC<MonacoEditorProps> = ({
     options,
     sqlEditorFontSize,
     sqlEditorFontSizeFollowGlobal,
-    uiVersion,
   ]);
 
-  const suggestionLayout = uiVersion === 'v2' && gonaviTypography === 'sql'
+  const suggestionLayout = gonaviTypography === 'sql'
     ? resolveSqlEditorSuggestionLayout(resolvedOptions.fontSize)
     : null;
 

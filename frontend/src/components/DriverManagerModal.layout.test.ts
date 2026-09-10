@@ -75,15 +75,64 @@ const readCssRule = (selector: string): string => {
 };
 
 describe('DriverManagerModal embedded layout', () => {
-  it('keeps version, transient progress, and actions in one readable settings flow', () => {
-    const controlsRule = appCss.match(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-card-controls\s*\{([^}]*)\}/s,
-    )?.[1] || '';
-    expect(controlsRule).toContain('grid-template-columns: minmax(0, 1fr);');
-    expect(controlsRule).not.toContain('minmax(96px, 0.7fr)');
+  it('keeps the two-pane master-detail driver workbench layout', () => {
+    // Two-pane body: fixed-width driver list pane + fluid detail pane.
     expect(appCss).toMatch(
-      /\.driver-manager-shell\.is-embedded \.driver-manager-card-actions\s*\{[^}]*grid-column:\s*1[^}]*justify-content:\s*flex-start/s,
+      /\.driver-manager-columns\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*minmax\(300px, 440px\) minmax\(0, 1fr\)/s,
     );
+    expect(appCss).toMatch(
+      /\.driver-manager-list-pane\s*\{[^}]*padding-right:\s*16px[^}]*border-right:\s*1px solid/s,
+    );
+    // List rows are quiet selectable items with a soft selected state.
+    expect(appCss).toMatch(
+      /\.driver-manager-list-item\.is-selected\s*\{[^}]*background:\s*rgba\(22, 119, 255, 0\.10\)/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-list-item-meta\s*\{[^}]*text-overflow:\s*ellipsis/s,
+    );
+    // Detail pane holds the selected driver's controls.
+    expect(appCss).toMatch(/\.driver-manager-detail-controls\s*\{/);
+    // Bulk operations live on a slim bar above the panes.
+    expect(appCss).toMatch(/\.driver-manager-bulkbar\s*\{[^}]*display:\s*flex/s);
+    expect(appCss).toMatch(
+      /\.driver-manager-bulkbar-dir\s*\{[^}]*margin-left:\s*auto/s,
+    );
+    // Footer: ambient network status left, action buttons right.
+    expect(appCss).toMatch(
+      /\.driver-manager-footer-actions\s*\{[^}]*justify-content:\s*space-between/s,
+    );
+    expect(appCss).toContain('.driver-manager-footer-actions.is-status-only');
+    expect(appCss).toContain('.driver-manager-bulkbar.is-embedded-toolbar');
+    expect(appCss).toMatch(
+      /\.driver-manager-list-search-row\.is-embedded\s*\{[^}]*flex-wrap:\s*wrap[^}]*gap:\s*6px/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-mirror-chip\.is-compact\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%[^}]*flex:\s*0 1 auto/s,
+    );
+    expect(appCss).toMatch(
+      /\.gonavi-about-download-source\s*\{[^}]*flex-wrap:\s*wrap[^}]*width:\s*max-content[^}]*max-width:\s*100%/s,
+    );
+    expect(appCss).toMatch(
+      /body \.gonavi-about-section\s*\{[^}]*grid-template-columns:\s*var\(--gn-about-label-width\) minmax\(0, 1fr\)/s,
+    );
+    expect(appCss).toMatch(
+      /body \.gonavi-about-setting,\s*body \.gonavi-about-facts,\s*body \.gonavi-about-link-grid,\s*body \.gonavi-about-download-source\s*\{[^}]*grid-column:\s*1 \/ -1/s,
+    );
+    expect(appCss).toContain('--gn-about-label-width: 14rem');
+    expect(appCss).toMatch(
+      /body \.gonavi-about-field > :not\(\.gonavi-about-field-label\)\s*\{[^}]*justify-self:\s*start[^}]*width:\s*max-content/s,
+    );
+    expect(appCss).toMatch(
+      /body \.gonavi-about-field-control \.ant-switch\s*\{[^}]*width:\s*44px !important/s,
+    );
+    expect(appCss).toMatch(
+      /\.driver-manager-mirror-chip\.is-compact\s*>\s*\.ant-btn,\s*\.gonavi-about-download-source\s*>\s*\.ant-btn\s*\{[^}]*margin-left:\s*auto/s,
+    );
+    expect(appCss).toMatch(/\.driver-manager-filterbar\s*\{[^}]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/s);
+    expect(appCss).toMatch(/\.driver-manager-filter-chip\s*\{[^}]*padding:\s*6px 8px/s);
+    // The old single-column card list chrome is gone.
+    expect(appCss).not.toMatch(/\.driver-manager-card\s[{,]/);
+    expect(appCss).not.toMatch(/@container driver-card/);
     expect(appCss).toMatch(
       /\.driver-manager-control-block\s*\{[^}]*min-width:\s*0/s,
     );

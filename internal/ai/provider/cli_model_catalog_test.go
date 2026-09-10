@@ -2,13 +2,64 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"GoNavi-Wails/internal/ai"
 )
+
+func TestParseCodexAppServerModelList(t *testing.T) {
+	raw := json.RawMessage(`{"data":[
+		{"id":"gpt-5.6-sol","model":"gpt-5.6-sol","hidden":false,"isDefault":true,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"high"},{"reasoningEffort":"ultra"}]},
+		{"id":"gpt-5.6-terra","model":"gpt-5.6-terra","hidden":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"medium"},{"reasoningEffort":"xhigh"}]},
+		{"id":"retired","model":"retired","hidden":true,"supportedReasoningEfforts":[{"reasoningEffort":"high"}]},
+		{"id":"invalid model","model":"invalid model","hidden":false}
+	],"nextCursor":"next-page"}`)
+
+	catalog, nextCursor, err := parseCodexAppServerModelList(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Source != "app-server" || catalog.DefaultModel != "gpt-5.6-sol" || nextCursor != "next-page" {
+		t.Fatalf("unexpected catalog metadata: %+v cursor=%q", catalog, nextCursor)
+	}
+	if !reflect.DeepEqual(catalog.Models, []string{"gpt-5.6-sol", "gpt-5.6-terra"}) {
+		t.Fatalf("unexpected visible models: %v", catalog.Models)
+	}
+	if got := catalog.ModelCapabilities["gpt-5.6-sol"]; !reflect.DeepEqual(got.EffortValues, []string{"low", "high", "ultra"}) || got.DefaultEffort != "low" {
+		t.Fatalf("unexpected sol capability: %+v", got)
+	}
+}
+
+func TestCodexModelCatalogPrefersAppServerOverLegacyCache(t *testing.T) {
+	original := codexAppServerModelCatalog
+	t.Cleanup(func() { codexAppServerModelCatalog = original })
+	codexAppServerModelCatalog = func(context.Context, ai.ProviderConfig) (CLIModelCatalog, error) {
+		return CLIModelCatalog{
+			Models:       []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"},
+			Source:       "app-server",
+			DefaultModel: "gpt-5.6-sol",
+		}, nil
+	}
+
+	codexDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(codexDir, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-5.6-sol","visibility":"list"}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	capability, _ := LookupCLICapability("codex-cli")
+	catalog, err := capability.ModelCatalogWithConfig(context.Background(), ai.ProviderConfig{CLIEnv: map[string]string{"CODEX_HOME": codexDir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Source != "app-server" || !reflect.DeepEqual(catalog.Models, []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"}) {
+		t.Fatalf("app-server catalog must win over the incomplete cache: %+v", catalog)
+	}
+}
 
 func TestCodexModelCatalog(t *testing.T) {
 	now := time.Now()

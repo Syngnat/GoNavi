@@ -94,8 +94,8 @@ type geminiBlob struct {
 }
 
 type geminiGenConfig struct {
-	Temperature     float64              `json:"temperature,omitempty"`
-	MaxOutputTokens int                  `json:"maxOutputTokens,omitempty"`
+	Temperature     float64               `json:"temperature,omitempty"`
+	MaxOutputTokens int                   `json:"maxOutputTokens,omitempty"`
 	ThinkingConfig  *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
@@ -141,14 +141,33 @@ type geminiResponse struct {
 			} `json:"parts"`
 		} `json:"content"`
 	} `json:"candidates"`
-	UsageMetadata *struct {
-		PromptTokenCount     int `json:"promptTokenCount"`
-		CandidatesTokenCount int `json:"candidatesTokenCount"`
-		TotalTokenCount      int `json:"totalTokenCount"`
-	} `json:"usageMetadata"`
-	Error *struct {
+	UsageMetadata *geminiUsageMetadata `json:"usageMetadata"`
+	Error         *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type geminiUsageMetadata struct {
+	PromptTokenCount        int  `json:"promptTokenCount"`
+	CandidatesTokenCount    int  `json:"candidatesTokenCount"`
+	TotalTokenCount         int  `json:"totalTokenCount"`
+	CachedContentTokenCount *int `json:"cachedContentTokenCount,omitempty"`
+}
+
+func normalizeGeminiUsage(usage *geminiUsageMetadata) ai.TokenUsage {
+	if usage == nil {
+		return ai.TokenUsage{}
+	}
+	result := ai.TokenUsage{
+		PromptTokens:     usage.PromptTokenCount,
+		CompletionTokens: usage.CandidatesTokenCount,
+		TotalTokens:      usage.TotalTokenCount,
+	}
+	if usage.CachedContentTokenCount != nil {
+		cached := *usage.CachedContentTokenCount
+		result.CachedTokens = &cached
+	}
+	return result
 }
 
 func (p *GeminiProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.ChatResponse, error) {
@@ -178,14 +197,7 @@ func (p *GeminiProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 		return nil, fmt.Errorf("Gemini returned empty response")
 	}
 
-	var tokens ai.TokenUsage
-	if result.UsageMetadata != nil {
-		tokens = ai.TokenUsage{
-			PromptTokens:     result.UsageMetadata.PromptTokenCount,
-			CompletionTokens: result.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:      result.UsageMetadata.TotalTokenCount,
-		}
-	}
+	tokens := normalizeGeminiUsage(result.UsageMetadata)
 
 	var textParts []string
 	for _, part := range result.Candidates[0].Content.Parts {
@@ -216,6 +228,7 @@ func (p *GeminiProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 	}
 	defer respBody.Close()
 
+	var streamUsage *ai.TokenUsage
 	scanner := bufio.NewScanner(respBody)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -236,12 +249,16 @@ func (p *GeminiProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 				}
 			}
 		}
+		if chunk.UsageMetadata != nil {
+			usage := normalizeGeminiUsage(chunk.UsageMetadata)
+			streamUsage = &usage
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	callback(ai.StreamChunk{Done: true})
+	callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 	return nil
 }
 

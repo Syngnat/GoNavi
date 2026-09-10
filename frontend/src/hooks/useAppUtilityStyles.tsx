@@ -7,7 +7,6 @@ type UseAppUtilityStylesOptions = {
   darkMode: boolean;
   effectiveOpacity: number;
   effectiveUiScale: number;
-  isV2Ui: boolean;
   resolvedAppearance: {
     opacity: number;
     blur: number;
@@ -20,24 +19,12 @@ export const useAppUtilityStyles = ({
   darkMode,
   effectiveOpacity,
   effectiveUiScale,
-  isV2Ui,
   resolvedAppearance,
   sidebarWidth,
 }: UseAppUtilityStylesOptions) => {
   const effectiveBlurFilter = blurFilter || 'none';
-  const getBg = (darkHex: string) => {
-    if (!darkMode) return `rgba(255, 255, 255, ${effectiveOpacity})`;
-    const hex = darkHex.replace('#', '');
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${effectiveOpacity})`;
-  };
-
-  // v2 / 自定义主题：走 CSS token，主内容与 sider 同为 panel-2，避免并排色差。
-  // legacy 仍用 getBg 做透明度混合。
-  const bgMain = isV2Ui ? 'var(--gn-bg-panel-2)' : getBg('#141414');
-  const bgContent = isV2Ui ? 'var(--gn-bg-panel-2)' : getBg('#1d1d1d');
+  const bgMain = 'var(--gn-bg-panel-2)';
+  const bgContent = 'var(--gn-bg-panel-2)';
   const floatingLogButtonBorderColor = darkMode ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.16)';
   const floatingLogButtonTextColor = darkMode ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.82)';
   const floatingLogButtonBgColor = darkMode
@@ -93,9 +80,8 @@ export const useAppUtilityStyles = ({
   const overlayTheme = useMemo(
     () => buildOverlayWorkbenchTheme(darkMode, {
       disableBackdropFilter: disableLocalBackdropFilter,
-      uiVersion: isV2Ui ? 'v2' : 'legacy',
     }),
-    [darkMode, disableLocalBackdropFilter, isV2Ui],
+    [darkMode, disableLocalBackdropFilter],
   );
 
   const sidebarQuickActionBaseStyle = useMemo(() => ({
@@ -157,7 +143,7 @@ export const useAppUtilityStyles = ({
   }), []);
   const toolCenterModalSplitStyle = useMemo<React.CSSProperties>(() => ({
     display: 'grid',
-    gridTemplateColumns: '204px minmax(0, 1fr)',
+    gridTemplateColumns: '248px minmax(0, 1fr)',
     gap: 16,
     flex: 1,
     minHeight: 0,

@@ -134,7 +134,7 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 	}
 
 	ctx, cancel := newQueryExecutionContext(runConfig)
-	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true)
+	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -170,7 +170,7 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 	} else if implicitTextTransaction {
 		transactionBoundaryMode = "implicit"
 		provider, ok := dbInst.(db.SessionExecerProvider)
-		if !ok {
+		if !ok || !runtimeSupportsSessionExecer(dbInst) {
 			return connection.QueryResult{
 				Success: false,
 				Message: buildManagedTransactionUnsupportedMessage(),
@@ -192,7 +192,7 @@ func (a *App) DBQueryMultiTransactional(config connection.ConnectionConfig, dbNa
 			}
 		}
 		provider, ok := dbInst.(db.SessionExecerProvider)
-		if !ok {
+		if !ok || !runtimeSupportsSessionExecer(dbInst) {
 			return connection.QueryResult{
 				Success: false,
 				Message: buildManagedTransactionUnsupportedMessage(),
@@ -346,7 +346,7 @@ func (a *App) DBQueryMultiInTransaction(transactionID string, query string, quer
 		runConfig.Type = tx.dbType
 	}
 	ctx, cancel := newQueryExecutionContext(runConfig)
-	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true)
+	cleanupRunningQuery := a.registerRunningQuery(queryID, cancel, true, optionalDriverTypeForConnectionConfig(runConfig))
 	defer func() {
 		cancel()
 		cleanupRunningQuery()
@@ -915,12 +915,34 @@ func (a *App) rollbackAbandonedSQLTransactionsOnReload() {
 }
 
 func (a *App) rollbackAllPendingSQLTransactions(auditSource string, logPrefix string) {
+	a.rollbackPendingSQLTransactionsMatching(nil, auditSource, logPrefix)
+}
+
+func (a *App) rollbackPendingSQLTransactionsForDriverType(driverType string, auditSource string, logPrefix string) int {
+	normalized := normalizeDriverType(driverType)
+	if normalized == "" {
+		return 0
+	}
+	return a.rollbackPendingSQLTransactionsMatching(func(tx *managedSQLTransaction) bool {
+		if tx == nil {
+			return false
+		}
+		return optionalDriverTypeForConnectionConfig(tx.config) == normalized || normalizeDriverType(tx.dbType) == normalized
+	}, auditSource, logPrefix)
+}
+
+func (a *App) rollbackPendingSQLTransactionsMatching(match func(*managedSQLTransaction) bool, auditSource string, logPrefix string) int {
 	a.sqlTransactionMu.Lock()
 	pending := make([]*managedSQLTransaction, 0, len(a.sqlTransactions))
 	for id, tx := range a.sqlTransactions {
-		if tx != nil {
-			pending = append(pending, tx)
+		if tx == nil {
+			delete(a.sqlTransactions, id)
+			continue
 		}
+		if match != nil && !match(tx) {
+			continue
+		}
+		pending = append(pending, tx)
 		delete(a.sqlTransactions, id)
 	}
 	a.sqlTransactionMu.Unlock()
@@ -989,4 +1011,5 @@ func (a *App) rollbackAllPendingSQLTransactions(auditSource string, logPrefix st
 		})
 		tx.mu.Unlock()
 	}
+	return len(pending)
 }

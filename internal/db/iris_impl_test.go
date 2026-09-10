@@ -1,4 +1,4 @@
-//go:build gonavi_full_drivers || gonavi_iris_driver
+//go:build gonavi_full_drivers || gonavi_iris_driver || gonavi_cache_driver
 
 package db
 
@@ -61,6 +61,30 @@ func TestApplyIRISURIExtractsConnectionFields(t *testing.T) {
 	}
 	if config.Database != "APP" {
 		t.Fatalf("database namespace = %q", config.Database)
+	}
+}
+
+func TestCacheDBKeepsIndependentProductIdentityAndURI(t *testing.T) {
+	cache := &CacheDB{}
+	if got := cache.productType(); got != "cache" {
+		t.Fatalf("cache product type = %q, want cache", got)
+	}
+	if got := cache.productName(); got != "InterSystems Caché" {
+		t.Fatalf("cache product name = %q", got)
+	}
+	config := applyIRISURI(connection.ConnectionConfig{
+		URI: "cache://user:secret@cache.local:1972/APP?timeout=30",
+	})
+	if config.Host != "cache.local" || config.Port != 1972 || config.User != "user" || config.Password != "secret" || config.Database != "APP" {
+		t.Fatalf("unexpected cache URI config: %#v", config)
+	}
+	dsn := cache.getDSN(config)
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("parse cache DSN: %v", err)
+	}
+	if parsed.Scheme != "iris" || parsed.Host != "cache.local:1972" || parsed.Path != "/APP" {
+		t.Fatalf("unexpected wire-compatible cache DSN: %s", dsn)
 	}
 }
 

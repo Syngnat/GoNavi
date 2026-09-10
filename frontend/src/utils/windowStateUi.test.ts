@@ -6,7 +6,6 @@ import {
   resolveWindowsScaleCheckDelayMs,
   shouldApplyWindowsScaleFix,
   shouldResetWebViewZoomForScaleFix,
-  shouldToggleMaximisedWindowForScaleFix,
   WINDOW_STATE_FALLBACK_INTERVAL_MS,
   WINDOWS_SCALE_FALLBACK_INTERVAL_MS,
 } from './windowStateUi';
@@ -177,10 +176,6 @@ describe('windowStateUi', () => {
     cleanup();
   });
 
-  it('does not re-toggle a maximized window on activation when focus returns', () => {
-    expect(shouldToggleMaximisedWindowForScaleFix('activation', true)).toBe(false);
-  });
-
   it('only applies the Windows scale fix on real ratio drift', () => {
     expect(shouldApplyWindowsScaleFix('activation', true)).toBe(false);
     expect(shouldApplyWindowsScaleFix('ratio-change', true)).toBe(true);
@@ -189,18 +184,13 @@ describe('windowStateUi', () => {
   it('applies the Windows scale fix whenever a minimized taskbar window is restored', () => {
     expect(shouldApplyWindowsScaleFix('restore', true)).toBe(true);
     // 外接显示器恢复后的 WebView2/DWM backing surface 可能被旧 DPI 缩放，
-    // 但不一定表现为 viewport ratio drift；restore 仍要触发 1px 轻量重绘。
+    // 但不一定表现为 viewport ratio drift；restore 仍要刷新 WebView2 controller。
     expect(shouldApplyWindowsScaleFix('restore', false)).toBe(true);
-    // 关键：restore 场景刻意不再触发 maximised 窗口的 toggle —— Unmaximise → Maximise 在
-    // 任务栏恢复的真实交互里会被用户肉眼看见为"重复最大化"动画，比偶发字体变大更糟。
-    // 这是 9848b8b2 已有的取舍，禁止再次被"修复"成 true。
-    expect(shouldToggleMaximisedWindowForScaleFix('restore', true)).toBe(false);
   });
 
   it('applies the Windows scale fix on cold startup the same way as taskbar restore', () => {
     expect(shouldApplyWindowsScaleFix('startup', true)).toBe(true);
     expect(shouldApplyWindowsScaleFix('startup', false)).toBe(true);
-    expect(shouldToggleMaximisedWindowForScaleFix('startup', true)).toBe(false);
     expect(shouldResetWebViewZoomForScaleFix('startup', false)).toBe(true);
   });
 
@@ -210,7 +200,7 @@ describe('windowStateUi', () => {
     // 因此任务栏恢复场景必须直接走零动画 WebView2 zoom reset。
     expect(shouldResetWebViewZoomForScaleFix('restore', false)).toBe(true);
     expect(shouldResetWebViewZoomForScaleFix('activation', true)).toBe(false);
-    expect(shouldResetWebViewZoomForScaleFix('ratio-change', true)).toBe(false);
+    expect(shouldResetWebViewZoomForScaleFix('ratio-change', true)).toBe(true);
   });
 
   it('debounces resize-triggered Windows scale checks until window transitions settle', () => {

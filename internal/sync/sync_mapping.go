@@ -56,6 +56,25 @@ func hasExplicitSyncMappings(config SyncConfig) bool {
 	return len(config.Mappings) > 0
 }
 
+// isIdentitySyncObjectMapping has an object-level target override but no
+// field-level transformation. KeyColumns are allowed because they identify
+// rows without changing their shape.
+func isIdentitySyncObjectMapping(mapping SyncObjectMapping) bool {
+	return len(mapping.Columns) == 0 && strings.TrimSpace(mapping.Filter) == ""
+}
+
+func hasOnlyIdentitySyncObjectMappings(config SyncConfig) bool {
+	if len(config.Mappings) == 0 {
+		return false
+	}
+	for _, mapping := range config.Mappings {
+		if !isIdentitySyncObjectMapping(mapping) {
+			return false
+		}
+	}
+	return true
+}
+
 func normalizeMappedSyncTables(config SyncConfig) SyncConfig {
 	if len(config.Mappings) == 0 || len(config.Tables) > 0 {
 		return config
@@ -84,14 +103,15 @@ func validateSyncMappings(config SyncConfig) error {
 		return fmt.Errorf("当前映射执行底座仅支持表格式数据源和目标端")
 	}
 	content := strings.ToLower(strings.TrimSpace(config.Content))
-	if content == "both" {
+	identitySchemaMigration := hasOnlyIdentitySyncObjectMappings(config) && syncContentAllowsSchemaChanges(content)
+	if content == "both" && !identitySchemaMigration {
 		return fmt.Errorf("对象和字段映射当前仅支持仅结构同步或仅数据同步")
 	}
 	if content == "schema" {
-		if config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only" {
+		if !identitySchemaMigration && (config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only") {
 			return fmt.Errorf("仅结构对象映射要求目标表已存在，且不支持自动建表或创建索引")
 		}
-	} else if config.AutoAddColumns || config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only" {
+	} else if !identitySchemaMigration && (config.AutoAddColumns || config.CreateIndexes || normalizeTargetTableStrategy(config.TargetTableStrategy) != "existing_only") {
 		return fmt.Errorf("对象和字段映射当前要求目标表已存在，且不支持自动补字段、建表或创建索引")
 	}
 
@@ -431,11 +451,12 @@ func buildMappedExistingTargetPlan(config SyncConfig, tableName string, sourceDB
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("字段 %s 没有可推断的源列类型，未生成自动补齐 SQL", missingTarget))
 			continue
 		}
-		addSQL, addErr := buildAddColumnSQLForPair(sourceType, targetType, plan.TargetQueryTable, *sourceColumn)
+		addSQL, addWarnings, addErr := buildAddColumnSQLForPair(sourceType, targetType, plan.TargetQueryTable, *sourceColumn)
 		if addErr != nil {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf("字段 %s 自动补齐 SQL 生成失败：%v", missingTarget, addErr))
 			continue
 		}
+		plan.Warnings = append(plan.Warnings, addWarnings...)
 		plan.PreDataSQL = append(plan.PreDataSQL, addSQL)
 	}
 	if len(plan.PreDataSQL) > 0 {

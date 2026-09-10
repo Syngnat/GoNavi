@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"runtime"
@@ -28,6 +29,10 @@ func scanRows(rows *sql.Rows) ([]map[string]interface{}, []string, error) {
 	return scanRowsForDialect(rows, "")
 }
 
+func scanRowsContext(ctx context.Context, rows *sql.Rows) ([]map[string]interface{}, []string, error) {
+	return scanRowsForDialectContext(ctx, rows, "")
+}
+
 func streamRows(rows *sql.Rows, consumer QueryStreamConsumer) error {
 	return streamRowsForDialect(rows, "", consumer)
 }
@@ -48,17 +53,24 @@ type queryRowsScanner interface {
 }
 
 func scanRowsForDialect(rows *sql.Rows, dialect string) ([]map[string]interface{}, []string, error) {
-	return scanRowsForDialectWithPreview(rows, dialect, true)
+	data, columns, _, err := scanRowsForDialectWithPreview(rows, dialect, true, nil)
+	return data, columns, err
+}
+
+func scanRowsForDialectContext(ctx context.Context, rows *sql.Rows, dialect string) ([]map[string]interface{}, []string, error) {
+	data, columns, _, err := scanRowsForDialectWithPreview(rows, dialect, true, RowBudgetFromContext(ctx))
+	return data, columns, err
 }
 
 func scanRowsUnboundedForDialect(rows *sql.Rows, dialect string) ([]map[string]interface{}, []string, error) {
-	return scanRowsForDialectWithPreview(rows, dialect, false)
+	data, columns, _, err := scanRowsForDialectWithPreview(rows, dialect, false, nil)
+	return data, columns, err
 }
 
-func scanRowsForDialectWithPreview(rows *sql.Rows, dialect string, boundOracleLargeObjects bool) ([]map[string]interface{}, []string, error) {
+func scanRowsForDialectWithPreview(rows *sql.Rows, dialect string, boundOracleLargeObjects bool, budget *RowBudget) ([]map[string]interface{}, []string, bool, error) {
 	columns, err := rows.Columns()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, false, err
 	}
 	columns = ensureUniqueQueryColumnNames(columns)
 
@@ -68,14 +80,25 @@ func scanRowsForDialectWithPreview(rows *sql.Rows, dialect string, boundOracleLa
 	}
 
 	scanner := newQueryRowScanner(columns, colTypes, dialect)
-	return scanRowsWithScanner(rows, columns, scanner, boundOracleLargeObjects)
+	return scanRowsWithScanner(rows, columns, scanner, boundOracleLargeObjects, budget)
 }
 
-func scanRowsWithScanner(rows *sql.Rows, columns []string, scanner queryRowsScanner, boundOracleLargeObjects bool) ([]map[string]interface{}, []string, error) {
+func scanRowsWithScanner(rows *sql.Rows, columns []string, scanner queryRowsScanner, boundOracleLargeObjects bool, budget *RowBudget) ([]map[string]interface{}, []string, bool, error) {
 	resultData := make([]map[string]interface{}, 0)
 
+	// maxRows 为每个结果集的行数上限。达到上限后再观察到一次 rows.Next()==true
+	// 才判定截断，保证行数恰好等于上限的完整结果集不被误标。
+	maxRows := budget.MaxRowsPerResult()
 	var rowNumber int64
+	truncated := false
 	for rows.Next() {
+		if maxRows > 0 && rowNumber >= int64(maxRows) {
+			// 结果集仍有更多行：停止读取（不排空、不推进结果集），
+			// 由调用方既有的 rows.Close 释放 Rows 与连接。
+			truncated = true
+			budget.MarkTruncated()
+			break
+		}
 		rowNumber++
 		var (
 			entry map[string]interface{}
@@ -87,15 +110,18 @@ func scanRowsWithScanner(rows *sql.Rows, columns []string, scanner queryRowsScan
 			entry, err = scanner.scanCurrentRow(rows)
 		}
 		if err != nil {
-			return resultData, columns, newQueryRowScanError(rowNumber, columns, err)
+			return resultData, columns, false, newQueryRowScanError(rowNumber, columns, err)
 		}
 		resultData = append(resultData, entry)
 	}
 
-	if err := rows.Err(); err != nil {
-		return resultData, columns, err
+	if truncated {
+		return resultData, columns, true, nil
 	}
-	return resultData, columns, nil
+	if err := rows.Err(); err != nil {
+		return resultData, columns, false, err
+	}
+	return resultData, columns, false, nil
 }
 
 func streamRowsForDialect(rows *sql.Rows, dialect string, consumer QueryStreamConsumer) error {
@@ -343,13 +369,25 @@ func ensureUniqueQueryColumnNames(columns []string) []string {
 // scanMultiRows 遍历 sql.Rows 中的所有结果集，将每个结果集作为 ResultSetData 返回。
 // 利用 rows.NextResultSet() 支持一次 query 返回多个结果集的场景。
 func scanMultiRows(rows *sql.Rows) ([]connection.ResultSetData, error) {
-	return scanMultiRowsForDialect(rows, "")
+	return scanMultiRowsWithBudget(rows, "", nil)
+}
+
+func scanMultiRowsContext(ctx context.Context, rows *sql.Rows) ([]connection.ResultSetData, error) {
+	return scanMultiRowsWithBudget(rows, "", RowBudgetFromContext(ctx))
 }
 
 func scanMultiRowsForDialect(rows *sql.Rows, dialect string) ([]connection.ResultSetData, error) {
+	return scanMultiRowsWithBudget(rows, dialect, nil)
+}
+
+func scanMultiRowsForDialectContext(ctx context.Context, rows *sql.Rows, dialect string) ([]connection.ResultSetData, error) {
+	return scanMultiRowsWithBudget(rows, dialect, RowBudgetFromContext(ctx))
+}
+
+func scanMultiRowsWithBudget(rows *sql.Rows, dialect string, budget *RowBudget) ([]connection.ResultSetData, error) {
 	var results []connection.ResultSetData
 	for {
-		data, cols, err := scanRowsForDialect(rows, dialect)
+		data, cols, truncated, err := scanRowsForDialectWithPreview(rows, dialect, true, budget)
 		if err != nil {
 			return results, err
 		}
@@ -360,9 +398,15 @@ func scanMultiRowsForDialect(rows *sql.Rows, dialect string) ([]connection.Resul
 			cols = []string{}
 		}
 		results = append(results, connection.ResultSetData{
-			Rows:    data,
-			Columns: cols,
+			Rows:      data,
+			Columns:   cols,
+			Truncated: truncated,
 		})
+		if truncated {
+			// 达到行预算：不再调用 NextResultSet（database/sql 会先排空当前
+			// 结果集的剩余行），剩余结果集与行一并放弃。
+			break
+		}
 		if !rows.NextResultSet() {
 			break
 		}

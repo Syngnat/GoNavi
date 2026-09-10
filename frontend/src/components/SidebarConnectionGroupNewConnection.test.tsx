@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import { setCurrentLanguage, t } from '../i18n';
-import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebar/sidebarNodeMenu';
 import { resolveV2ConnectionGroup, type V2RailConnectionGroup } from './sidebarV2Utils';
 import { V2ConnectionGroupContextMenuView } from './V2TableContextMenu';
 
@@ -60,7 +60,7 @@ describe('Sidebar connection group new connection action', () => {
       onCreateConnectionInGroup,
     };
 
-    const items = buildSidebarLegacyNodeMenuItems(node, context) as Array<{ key?: string; onClick?: () => void }>;
+    const items = buildSidebarNodeMenuItems(node, context) as Array<{ key?: string; onClick?: () => void }>;
     const createItem = items.find((item) => item?.key === 'new-connection-in-tag');
 
     expect(createItem).toBeDefined();

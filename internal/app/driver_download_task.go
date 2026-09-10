@@ -48,6 +48,10 @@ func (a *App) StartDriverPackageDownload(driverType string, version string, down
 		}}
 	}
 
+	startMessage := a.appText("driver_manager.progress.agent_install_start", map[string]any{"name": a.driverStatusDisplayName(definition)})
+	if v := strings.TrimSpace(version); v != "" {
+		startMessage = a.appText("driver_manager.progress.agent_install_start_with_version", map[string]any{"name": a.driverStatusDisplayName(definition), "version": v})
+	}
 	task := DriverDownloadTaskStatus{
 		TaskID:      uuid.NewString(),
 		DriverType:  normalizedDriverType,
@@ -56,7 +60,7 @@ func (a *App) StartDriverPackageDownload(driverType string, version string, down
 		DownloadDir: strings.TrimSpace(downloadDir),
 		Status:      "start",
 		Percent:     0,
-		Message:     a.appText("driver_manager.progress.agent_install_start", map[string]any{"name": a.driverStatusDisplayName(definition)}),
+		Message:     startMessage,
 		Running:     true,
 		StartedAt:   time.Now().Format(time.RFC3339),
 	}

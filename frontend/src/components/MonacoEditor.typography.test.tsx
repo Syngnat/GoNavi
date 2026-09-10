@@ -10,7 +10,6 @@ const storeState = vi.hoisted(() => ({
     enabled: true,
     opacity: 1,
     blur: 0,
-    uiVersion: 'v2' as 'legacy' | 'v2',
     customUIFontFamily: null as string | null,
     customMonoFontFamily: null as string | null,
     showDataTableVerticalBorders: false,
@@ -42,7 +41,6 @@ describe('MonacoEditor typography', () => {
       enabled: true,
       opacity: 1,
       blur: 0,
-      uiVersion: 'v2',
       customUIFontFamily: null,
       customMonoFontFamily: null,
       showDataTableVerticalBorders: false,
@@ -134,7 +132,7 @@ describe('MonacoEditor typography', () => {
   });
 
   it('keeps legacy editors on their explicit font settings', () => {
-    storeState.appearance.uiVersion = 'legacy';
+
 
     const markup = renderToStaticMarkup(
       <MonacoEditor options={{ fontFamily: 'Consolas', fontSize: 18 }} />,

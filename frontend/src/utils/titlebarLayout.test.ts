@@ -77,7 +77,7 @@ describe('titlebarLayout', () => {
       [' Darwin ', ''],
       [' WINDOWS ', ''],
     ])('docks V2 actions for runtime platform %s', (runtimePlatform, navigatorPlatform) => {
-      expect(shouldDockCollapsedSidebarActionsInTitlebar(true, runtimePlatform, navigatorPlatform)).toBe(true);
+      expect(shouldDockCollapsedSidebarActionsInTitlebar(runtimePlatform, navigatorPlatform)).toBe(true);
     });
 
     it.each([
@@ -86,120 +86,124 @@ describe('titlebarLayout', () => {
       ['', 'Mozilla/5.0 (Macintosh; Intel Mac OS X)'],
       ['', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'],
     ])('uses navigator platform fallback %s / %s', (runtimePlatform, navigatorPlatform) => {
-      expect(shouldDockCollapsedSidebarActionsInTitlebar(true, runtimePlatform, navigatorPlatform)).toBe(true);
+      expect(shouldDockCollapsedSidebarActionsInTitlebar(runtimePlatform, navigatorPlatform)).toBe(true);
     });
 
     it.each([
-      [false, 'darwin', ''],
-      [true, 'linux', 'MacIntel'],
-      [true, 'linux', 'Win32'],
-      [true, 'freebsd', 'MacIntel'],
-      [true, 'android', 'Win32'],
-      [true, '', 'Linux x86_64'],
-      [true, '', 'Android'],
-    ])('does not dock unsupported platform %s / %s / %s', (isV2Ui, runtimePlatform, navigatorPlatform) => {
-      expect(shouldDockCollapsedSidebarActionsInTitlebar(isV2Ui, runtimePlatform, navigatorPlatform)).toBe(false);
+      ['linux', 'MacIntel'],
+      ['linux', 'Win32'],
+      ['freebsd', 'MacIntel'],
+      ['android', 'Win32'],
+      ['', 'Linux x86_64'],
+      ['', 'Android'],
+    ])('does not dock unsupported platform %s / %s', (runtimePlatform, navigatorPlatform) => {
+      expect(shouldDockCollapsedSidebarActionsInTitlebar(runtimePlatform, navigatorPlatform)).toBe(false);
     });
 
     it('does not dock browser-hosted V2 actions even when the browser is Windows or macOS', () => {
-      expect(shouldDockCollapsedSidebarActionsInTitlebar(true, 'windows', '', true)).toBe(false);
-      expect(shouldDockCollapsedSidebarActionsInTitlebar(true, '', 'MacIntel', true)).toBe(false);
+      expect(shouldDockCollapsedSidebarActionsInTitlebar('windows', '', true)).toBe(false);
+      expect(shouldDockCollapsedSidebarActionsInTitlebar('', 'MacIntel', true)).toBe(false);
     });
   });
 
-  it('restores the compact V2 titlebar while the explorer is expanded', () => {
-    expect(resolveTitleBarLayout(1, true)).toEqual({
-      height: 32,
-      actionHeight: 26,
-      dividerHeight: 12,
-      upperBandHeight: 32,
+  it('uses the larger default V2 titlebar while the explorer is expanded', () => {
+    expect(resolveTitleBarLayout(1)).toEqual({
+      height: 36,
+      actionHeight: 30,
+      dividerHeight: 14,
+      upperBandHeight: 36,
       emptyWorkbenchTopOffset: 0,
     });
   });
 
   it('keeps the expanded V2 layout responsive to the configured UI scale', () => {
-    expect(resolveTitleBarLayout(0.8, true, false)).toEqual({
-      height: 28,
+    expect(resolveTitleBarLayout(0.8, false)).toEqual({
+      height: 29,
       actionHeight: 24,
-      dividerHeight: 10,
-      upperBandHeight: 28,
+      dividerHeight: 11,
+      upperBandHeight: 29,
       emptyWorkbenchTopOffset: 0,
     });
-    expect(resolveTitleBarLayout(1.25, true, false)).toEqual({
+    expect(resolveTitleBarLayout(1.25, false)).toEqual({
+      height: 45,
+      actionHeight: 38,
+      dividerHeight: 18,
+      upperBandHeight: 45,
+      emptyWorkbenchTopOffset: 0,
+    });
+    expect(resolveTitleBarLayout(1.1, false)).toEqual({
       height: 40,
       actionHeight: 33,
       dividerHeight: 15,
       upperBandHeight: 40,
       emptyWorkbenchTopOffset: 0,
     });
-    expect(resolveTitleBarLayout(1.1, true, false)).toEqual({
-      height: 35,
-      actionHeight: 29,
-      dividerHeight: 13,
-      upperBandHeight: 35,
-      emptyWorkbenchTopOffset: 0,
-    });
   });
 
   it('keeps the taller V2 titlebar only while collapsed actions are docked into it', () => {
-    expect(resolveTitleBarLayout(1, true, true)).toEqual({
-      height: 57,
-      actionHeight: 26,
-      dividerHeight: 12,
-      upperBandHeight: 29,
-      emptyWorkbenchTopOffset: 25,
+    expect(resolveTitleBarLayout(1, true)).toEqual({
+      height: 59,
+      actionHeight: 30,
+      dividerHeight: 14,
+      upperBandHeight: 31,
+      emptyWorkbenchTopOffset: 23,
     });
-    expect(resolveTitleBarLayout(0.8, true, true)).toEqual({
+    expect(resolveTitleBarLayout(0.8, true)).toEqual({
       height: 52,
       actionHeight: 24,
-      dividerHeight: 10,
+      dividerHeight: 11,
       upperBandHeight: 29,
-      emptyWorkbenchTopOffset: 24,
+      emptyWorkbenchTopOffset: 23,
     });
-    expect(resolveTitleBarLayout(1.25, true, true)).toEqual({
+    expect(resolveTitleBarLayout(1.25, true)).toEqual({
       height: 70,
+      actionHeight: 38,
+      dividerHeight: 18,
+      upperBandHeight: 35,
+      emptyWorkbenchTopOffset: 25,
+    });
+    expect(resolveTitleBarLayout(1.1, true)).toEqual({
+      height: 64,
       actionHeight: 33,
       dividerHeight: 15,
       upperBandHeight: 33,
-      emptyWorkbenchTopOffset: 30,
+      emptyWorkbenchTopOffset: 24,
     });
-    expect(resolveTitleBarLayout(1.1, true, true)).toEqual({
-      height: 62,
-      actionHeight: 29,
-      dividerHeight: 13,
+  });
+
+  it('reserves enough height for enlarged collapsed sidebar actions', () => {
+    expect(resolveTitleBarLayout(1, true, 1.8)).toEqual({
+      height: 80,
+      actionHeight: 30,
+      dividerHeight: 14,
       upperBandHeight: 31,
-      emptyWorkbenchTopOffset: 27,
+      emptyWorkbenchTopOffset: 44,
     });
   });
 
   it.each([0.8, 0.9, 0.95, 1, 1.1, 1.25])(
     'keeps the empty workbench content origin stable at UI scale %s',
     (scale) => {
-      const expanded = resolveTitleBarLayout(scale, true, false);
-      const collapsed = resolveTitleBarLayout(scale, true, true);
+      const expanded = resolveTitleBarLayout(scale, false);
+      const collapsed = resolveTitleBarLayout(scale, true);
 
       expect(collapsed.height - collapsed.emptyWorkbenchTopOffset).toBe(expanded.height);
     },
   );
 
-  it.each([0.8, 0.9, 0.95, 1, 1.1, 1.25])(
-    'keeps the two docked titlebar rows separated at UI scale %s',
-    (scale) => {
-      const layout = resolveTitleBarLayout(scale, true, true);
+  it.each([
+    [0.8, 1],
+    [1, 1.25],
+    [1.25, 1.8],
+  ])(
+    'keeps the two docked titlebar rows separated at UI scale %s and sidebar scale %s',
+    (scale, sidebarScale) => {
+      const layout = resolveTitleBarLayout(scale, true, sidebarScale);
       const upperBandBottom = layout.upperBandHeight;
-      const collapsedBandTop = layout.height - 1 - (26 * scale);
+      const collapsedBandTop = layout.height - 1 - (26 * scale * sidebarScale);
 
       expect(collapsedBandTop - upperBandBottom).toBeGreaterThanOrEqual(1);
     },
   );
 
-  it('preserves the compact legacy titlebar dimensions', () => {
-    expect(resolveTitleBarLayout(1, false)).toEqual({
-      height: 32,
-      actionHeight: 26,
-      dividerHeight: 12,
-      upperBandHeight: 32,
-      emptyWorkbenchTopOffset: 0,
-    });
-  });
 });

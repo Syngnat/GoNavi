@@ -1,0 +1,3 @@
+# 语言 JSON 是 catalog.zip 的打包源（tools/gen-i18n-catalog-zip），
+# shared/i18n 的测试逐字节比较 zip 条目与磁盘文件，行尾必须跨平台一致。
+shared/i18n/*.json text eol=lf

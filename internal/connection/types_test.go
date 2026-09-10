@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 )
@@ -44,5 +45,34 @@ func TestSSHRuntimeSnapshotCarriesOnlyAgentSafeState(t *testing.T) {
 	}
 	if string(encoded) != `{"host":"127.0.0.1","port":1,"user":"","password":"","keyPath":""}` {
 		t.Fatalf("SSH runtime snapshot leaked into persisted config: %s", encoded)
+	}
+}
+
+func TestConnectionConfigRuntimeOracleCurrentSchemaIsNotSerialized(t *testing.T) {
+	config := ConnectionConfig{
+		Type:     "oracle",
+		Host:     "oracle.local",
+		Port:     1521,
+		User:     "TEST",
+		Database: "ORCLPDB1",
+	}.WithRuntimeOracleCurrentSchema("PRO")
+
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		t.Fatalf("marshal Oracle config: %v", err)
+	}
+	if len(encoded) == 0 || !json.Valid(encoded) {
+		t.Fatalf("invalid serialized Oracle config: %s", encoded)
+	}
+	if bytes.Contains(encoded, []byte(`"PRO"`)) {
+		t.Fatalf("runtime Oracle schema leaked into serialized config: %s", encoded)
+	}
+
+	var decoded ConnectionConfig
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("unmarshal Oracle config: %v", err)
+	}
+	if decoded.RuntimeOracleCurrentSchema() != "" {
+		t.Fatalf("runtime Oracle schema should not survive JSON, got %q", decoded.RuntimeOracleCurrentSchema())
 	}
 }

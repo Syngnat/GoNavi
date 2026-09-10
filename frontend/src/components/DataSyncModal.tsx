@@ -60,6 +60,7 @@ import {
   buildDataSyncAnalysisFingerprint,
   buildInitialDataSyncTableOptions,
   buildDataSyncRequest,
+  resolveDataSyncTargetTableStrategy,
   type SourceDatasetMode,
   validateDataSyncExecutionReadiness,
   validateDataSyncSelection,
@@ -518,8 +519,16 @@ const DataSyncModal: React.FC<{
   const sourceDatabaseRequestSeqRef = useRef(0);
   const targetDatabaseRequestSeqRef = useRef(0);
   const tableMetadataRequestSeqRef = useRef(0);
+  const targetTableStrategyTouchedRef = useRef(false);
   const logBoxRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
+  const effectiveTargetTableStrategy = resolveDataSyncTargetTableStrategy(
+    targetTableStrategy,
+    workflowType,
+    sourceDatasetMode,
+    migrationCapability?.supportsAutoCreate === true,
+    targetTableStrategyTouchedRef.current,
+  );
 
   const currentAnalysisFingerprint = useMemo(
     () =>
@@ -535,7 +544,7 @@ const DataSyncModal: React.FC<{
         syncContent,
         syncMode,
         autoAddColumns,
-        targetTableStrategy,
+        targetTableStrategy: effectiveTargetTableStrategy,
         createIndexes,
         mongoCollectionName,
       }),
@@ -551,7 +560,7 @@ const DataSyncModal: React.FC<{
       syncContent,
       syncMode,
       autoAddColumns,
-      targetTableStrategy,
+      effectiveTargetTableStrategy,
       createIndexes,
       mongoCollectionName,
     ],
@@ -697,6 +706,7 @@ const DataSyncModal: React.FC<{
       setSyncContent(isSchemaCompareEntry ? "schema" : "data");
       setSyncMode("insert_update");
       setAutoAddColumns(true);
+      targetTableStrategyTouchedRef.current = false;
       setTargetTableStrategy("existing_only");
       setCreateIndexes(false);
       setShowSameTables(false);
@@ -789,7 +799,11 @@ const DataSyncModal: React.FC<{
       if (syncContent === "schema") {
         setSyncContent("both");
       }
-      if (supportsAutoCreate && targetTableStrategy === "existing_only") {
+      if (
+        supportsAutoCreate &&
+        targetTableStrategy === "existing_only" &&
+        !targetTableStrategyTouchedRef.current
+      ) {
         setTargetTableStrategy("smart");
       } else if (!supportsAutoCreate && targetTableStrategy !== "existing_only") {
         setTargetTableStrategy("existing_only");
@@ -864,6 +878,7 @@ const DataSyncModal: React.FC<{
   const handleSourceConnChange = async (connId: string) => {
     const requestSeq = ++sourceDatabaseRequestSeqRef.current;
     setSourceConnId(connId);
+    targetTableStrategyTouchedRef.current = false;
     setSourceDb("");
     setSourceDbs([]);
     setDiffTables([]);
@@ -902,6 +917,7 @@ const DataSyncModal: React.FC<{
   const handleTargetConnChange = async (connId: string) => {
     const requestSeq = ++targetDatabaseRequestSeqRef.current;
     setTargetConnId(connId);
+    targetTableStrategyTouchedRef.current = false;
     setTargetDb("");
     setTargetDbs([]);
     setTargetSchema("");
@@ -1098,7 +1114,7 @@ const DataSyncModal: React.FC<{
       syncContent,
       syncMode,
       autoAddColumns,
-      targetTableStrategy,
+      targetTableStrategy: effectiveTargetTableStrategy,
       createIndexes,
       mongoCollectionName,
       jobId,
@@ -1189,7 +1205,7 @@ const DataSyncModal: React.FC<{
       syncContent,
       syncMode,
       autoAddColumns,
-      targetTableStrategy,
+      targetTableStrategy: effectiveTargetTableStrategy,
       createIndexes,
       mongoCollectionName,
     });
@@ -1312,7 +1328,7 @@ const DataSyncModal: React.FC<{
         syncContent,
         syncMode,
         autoAddColumns,
-        targetTableStrategy,
+        targetTableStrategy: effectiveTargetTableStrategy,
         createIndexes,
         mongoCollectionName,
         tableOptions,
@@ -2034,7 +2050,13 @@ const DataSyncModal: React.FC<{
               <Form layout="vertical">
                 {!isCompareEntry && (
                   <Form.Item label={tr("data_sync.field.workflow_type")}>
-                    <Select value={workflowType} onChange={setWorkflowType}>
+                    <Select
+                      value={workflowType}
+                      onChange={(value) => {
+                        targetTableStrategyTouchedRef.current = false;
+                        setWorkflowType(value);
+                      }}
+                    >
                       <Option value="sync">
                         {tr("data_sync.option.workflow.sync")}
                       </Option>
@@ -2147,7 +2169,10 @@ const DataSyncModal: React.FC<{
                   >
                     <Select
                       value={targetTableStrategy}
-                      onChange={setTargetTableStrategy}
+                      onChange={(value) => {
+                        targetTableStrategyTouchedRef.current = true;
+                        setTargetTableStrategy(value);
+                      }}
                       disabled={
                         !isMigrationWorkflow ||
                         isSourceQueryMode ||

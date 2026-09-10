@@ -61,6 +61,18 @@ describe('model candidates', () => {
     const catalog = { models: ['sonnet', 'opus', 'haiku'], source: 'aliases', stale: false };
     expect(parseCLIModelCatalog(catalog)).toEqual(catalog);
   });
+  it('preserves model-specific Codex capabilities from app-server catalogs', () => {
+    const catalog = {
+      models: ['gpt-5.6-sol', 'gpt-5.6-terra'],
+      source: 'app-server',
+      stale: false,
+      defaultModel: 'gpt-5.6-sol',
+      modelCapabilities: {
+        'gpt-5.6-sol': { effortValues: ['low', 'high', 'ultra'], defaultEffort: 'low' },
+      },
+    } as const;
+    expect(parseCLIModelCatalog(catalog)).toEqual(catalog);
+  });
 });
 
 describe('provider list search', () => {

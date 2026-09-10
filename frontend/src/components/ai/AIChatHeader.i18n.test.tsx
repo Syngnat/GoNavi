@@ -59,7 +59,6 @@ const headerKeys = [
   'ai_chat.header.action.export',
   'ai_chat.header.export_time',
   'ai_chat.header.export_user',
-  'app.theme.ui_version.v2.badge',
 ] as const;
 
 type HeaderKey = (typeof headerKeys)[number];
@@ -79,7 +78,6 @@ const placeholderExpectations: Record<HeaderKey, string[]> = {
   'ai_chat.header.action.export': [],
   'ai_chat.header.export_time': [],
   'ai_chat.header.export_user': [],
-  'app.theme.ui_version.v2.badge': [],
 };
 
 const valuesExpectedToDifferFromEnglish = [
@@ -190,34 +188,22 @@ describe('AIChatHeader i18n', () => {
     }
   });
 
-  it('renders English legacy and V2 fixed chrome while preserving raw session titles', async () => {
-    const legacy = await renderHeader({ isV2Ui: false, sessionTitle: 'prod/main.orders' });
-    const legacyText = textContent(legacy.toJSON());
+  it('renders English fixed chrome while preserving raw session titles', async () => {
+    const renderer = await renderHeader({ sessionTitle: 'prod/main.orders' });
+    const pageText = textContent(renderer.toJSON());
 
-    expect(legacyText).toContain('Chat history');
-    expect(legacyText).toContain('Export as Markdown');
-    expect(legacyText).toContain('New chat (clear current)');
-    expect(legacyText).toContain('AI settings');
-    expect(legacyText).toContain('Close panel');
-    expect(legacyText).not.toContain('历史会话');
-    expect(legacyText).not.toContain('导出为 Markdown');
-
-    const v2 = await renderHeader({ isV2Ui: true, sessionTitle: 'prod/main.orders' });
-    const v2Text = textContent(v2.toJSON());
-
-    expect(v2Text).toContain('prod/main.orders · Connected');
-    expect(v2Text).toContain('AI work mode');
-    expect(v2Text).toContain('Chat');
-    expect(v2Text).toContain('Auto insights');
-    expect(v2Text).toContain('History');
-    expect(v2Text).toContain('Export');
-    expect(v2Text).toContain('Beta');
-    expect(v2Text).not.toContain('已连接');
-    expect(v2Text).not.toContain('自动洞察');
+    expect(pageText).toContain('prod/main.orders · Connected');
+    expect(pageText).toContain('AI work mode');
+    expect(pageText).toContain('Chat');
+    expect(pageText).toContain('Auto insights');
+    expect(pageText).toContain('History');
+    expect(pageText).toContain('Export');
+    expect(pageText).not.toContain('已连接');
+    expect(pageText).not.toContain('自动洞察');
   });
 
   it('uses the localized component-level fallback session title', async () => {
-    const v2 = await renderHeader({ isV2Ui: true, sessionTitle: undefined });
+    const v2 = await renderHeader({ sessionTitle: undefined });
     const pageText = textContent(v2.toJSON());
 
     expect(pageText).toContain('New chat · Connected');
@@ -225,26 +211,17 @@ describe('AIChatHeader i18n', () => {
   });
 
   it('falls back to English header chrome when no i18n provider is mounted', () => {
-    expect(() => renderHeaderWithoutProvider({ isV2Ui: false, sessionTitle: undefined })).not.toThrow();
-    expect(() => renderHeaderWithoutProvider({ isV2Ui: true, sessionTitle: 'prod/main.orders' })).not.toThrow();
+    expect(() => renderHeaderWithoutProvider({ sessionTitle: undefined })).not.toThrow();
+    expect(() => renderHeaderWithoutProvider({ sessionTitle: 'prod/main.orders' })).not.toThrow();
 
-    const legacyText = textContent(renderHeaderWithoutProvider({ isV2Ui: false, sessionTitle: undefined }).toJSON());
-    expect(legacyText).toContain('Chat history');
-    expect(legacyText).toContain('Export as Markdown');
-    expect(legacyText).toContain('New chat (clear current)');
-    expect(legacyText).toContain('AI settings');
-    expect(legacyText).toContain('Close panel');
-    expect(legacyText).not.toContain('ai_chat.header.tooltip.history');
-
-    const v2Text = textContent(renderHeaderWithoutProvider({ isV2Ui: true, sessionTitle: 'prod/main.orders' }).toJSON());
-    expect(v2Text).toContain('prod/main.orders · Connected');
-    expect(v2Text).toContain('AI work mode');
-    expect(v2Text).toContain('Chat');
-    expect(v2Text).toContain('Auto insights');
-    expect(v2Text).toContain('History');
-    expect(v2Text).toContain('Export');
-    expect(v2Text).toContain('Beta');
-    expect(v2Text).not.toContain('ai_chat.header.mode.chat');
+    const pageText = textContent(renderHeaderWithoutProvider({ sessionTitle: 'prod/main.orders' }).toJSON());
+    expect(pageText).toContain('prod/main.orders · Connected');
+    expect(pageText).toContain('AI work mode');
+    expect(pageText).toContain('Chat');
+    expect(pageText).toContain('Auto insights');
+    expect(pageText).toContain('History');
+    expect(pageText).toContain('Export');
+    expect(pageText).not.toContain('ai_chat.header.mode.chat');
   });
 
   it('exports Markdown with localized chrome while preserving raw title and message content', async () => {
@@ -271,7 +248,7 @@ describe('AIChatHeader i18n', () => {
       revokeObjectURL: vi.fn(),
     });
 
-    const renderer = await renderHeader({ isV2Ui: true, sessionTitle: 'prod/main.orders' });
+    const renderer = await renderHeader({ sessionTitle: 'prod/main.orders' });
     const exportButton = renderer.root.findByProps({ className: 'gn-v2-ai-export-button' });
 
     await act(async () => {
@@ -318,7 +295,7 @@ describe('AIChatHeader i18n', () => {
 
     let renderer: ReactTestRenderer;
     await act(async () => {
-      renderer = renderHeaderWithoutProvider({ isV2Ui: true, sessionTitle: undefined });
+      renderer = renderHeaderWithoutProvider({ sessionTitle: undefined });
     });
 
     const exportButton = renderer!.root.findByProps({ className: 'gn-v2-ai-export-button' });

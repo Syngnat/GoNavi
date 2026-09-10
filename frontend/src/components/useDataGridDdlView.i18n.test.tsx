@@ -29,7 +29,6 @@ describe('useDataGridDdlView i18n', () => {
         dbName: 'app',
         tableName: 'users',
         dbType: 'mysql',
-        isV2Ui: true,
         cellEditMode: false,
         selectedRowKeys: [],
         mergedDisplayDataRef: { current: [] },

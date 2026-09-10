@@ -6,7 +6,39 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
+
+func TestNormalizeOracleMetadataCommentRepairsUTF8DecodedAsGBK(t *testing.T) {
+	for _, want := range []string{
+		"平台商品编码",
+		"平台sku编码",
+		"核销时间",
+		"核实库存",
+		"批号",
+	} {
+		mojibake, _, err := transform.Bytes(simplifiedchinese.GB18030.NewDecoder(), []byte(want))
+		if err != nil || !utf8.Valid(mojibake) {
+			t.Fatalf("failed to build mojibake fixture: want=%q err=%v bytes=%x", want, err, mojibake)
+		}
+
+		got := normalizeOracleMetadataComment(string(mojibake))
+		if got != want {
+			t.Fatalf("normalizeOracleMetadataComment(%q) = %q, want %q", string(mojibake), got, want)
+		}
+	}
+}
+
+func TestNormalizeOracleMetadataCommentPreservesNormalGBKDecodedText(t *testing.T) {
+	for _, comment := range []string{"企业编码", "订单号", "SKU_ID"} {
+		if got := normalizeOracleMetadataComment(comment); got != comment {
+			t.Fatalf("normalizeOracleMetadataComment(%q) = %q, want unchanged", comment, got)
+		}
+	}
+}
 
 func TestOracleGetTablesPrefixesOwnerForAllTablesQuery(t *testing.T) {
 	t.Parallel()
@@ -113,6 +145,35 @@ func TestOracleGetColumnsIncludesColumnComments(t *testing.T) {
 		if !strings.Contains(queries[0], want) {
 			t.Fatalf("expected GetColumns query to contain stable alias %q, got %s", want, queries[0])
 		}
+	}
+}
+
+func TestOracleGetColumnsRepairsUTF8DecodedAsGBKComments(t *testing.T) {
+	t.Parallel()
+
+	const wantComment = "平台商品编码"
+	mojibake, _, err := transform.Bytes(simplifiedchinese.GB18030.NewDecoder(), []byte(wantComment))
+	if err != nil || !utf8.Valid(mojibake) {
+		t.Fatalf("failed to build mojibake fixture: err=%v bytes=%x", err, mojibake)
+	}
+
+	dbConn, state := openOracleRecordingDB(t)
+	query := buildOracleColumnsQuery("MYCIMLED", "EDC_LOG")
+	state.mu.Lock()
+	state.queryResults[query] = oracleRecordingQueryResult{
+		columns: []string{"COLUMN_NAME", "DATA_TYPE", "NULLABLE", "DATA_DEFAULT", "COLUMN_KEY", "COMMENT"},
+		rows: [][]driver.Value{
+			{"GOODS_CODE", "VARCHAR2", "YES", nil, "", string(mojibake)},
+		},
+	}
+	state.mu.Unlock()
+
+	columns, err := (&OracleDB{conn: dbConn}).GetColumns("MYCIMLED", "EDC_LOG")
+	if err != nil {
+		t.Fatalf("GetColumns 返回错误: %v", err)
+	}
+	if len(columns) != 1 || columns[0].Comment != wantComment {
+		t.Fatalf("expected repaired Oracle comment %q, got %#v", wantComment, columns)
 	}
 }
 
@@ -281,6 +342,25 @@ func TestFormatOracleColumnTypeIncludesLengthAndPrecision(t *testing.T) {
 				"DATA_SCALE":     2,
 			},
 			want: "NUMBER(10,2)",
+		},
+		{
+			// 负 scale 表示向左舍入到百位，丢掉负号会改变精度语义。
+			name: "number negative scale preserved",
+			row: map[string]interface{}{
+				"DATA_TYPE":      "NUMBER",
+				"DATA_PRECISION": 10,
+				"DATA_SCALE":     -2,
+			},
+			want: "NUMBER(10,-2)",
+		},
+		{
+			name: "number zero scale omits scale",
+			row: map[string]interface{}{
+				"DATA_TYPE":      "NUMBER",
+				"DATA_PRECISION": 10,
+				"DATA_SCALE":     0,
+			},
+			want: "NUMBER(10)",
 		},
 		{
 			name: "date remains plain",

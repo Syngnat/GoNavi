@@ -121,6 +121,22 @@ if (-not [string]::Equals($otherMissingIconShortcut.IconLocation, $otherMissingI
     throw ('non-GoNavi MSI icon was modified: ' + $otherMissingIconShortcut.IconLocation)
 }
 
+$brandIcon = Join-Path $env:GONAVI_TEST_ROOT 'gonavi-brand-test.ico'
+[IO.File]::WriteAllBytes($brandIcon, [byte[]](0, 0, 1, 0, 0, 0))
+$brandUpdateCount = Set-GoNaviShortcutBrandIcon -TargetPath $target -IconPath $brandIcon -ShortcutDirectories @($pins)
+if ($brandUpdateCount -ne 4) {
+    throw ('unexpected brand icon shortcut update count: ' + $brandUpdateCount)
+}
+foreach ($shortcutName in @('missing-icon.lnk', 'existing-icon.lnk', 'blank-icon.lnk', 'other-missing-icon.lnk')) {
+    $updatedShortcut = $shell.CreateShortcut((Join-Path $pins $shortcutName))
+    if (-not (Test-ShortcutIconLocation $updatedShortcut.IconLocation $brandIcon)) {
+        throw ('brand icon was not applied to ' + $shortcutName + ': ' + $updatedShortcut.IconLocation)
+    }
+}
+if (-not (Test-ShortcutIconLocation $shell.CreateShortcut((Join-Path $pins 'foreign-target.lnk')).IconLocation $missingIcon)) {
+    throw 'brand icon update modified a foreign target shortcut'
+}
+
 $desktopDirectories = @($desktop, $commonDesktop)
 $absentState = Save-GoNaviDesktopShortcutState -TargetPath $target -BackupDirectory (Join-Path $env:GONAVI_TEST_ROOT 'backup-absent') -DesktopDirectories $desktopDirectories
 if (-not $absentState.Succeeded -or $absentState.InstallValue -ne '0' -or $absentState.Entries.Count -ne 0) {

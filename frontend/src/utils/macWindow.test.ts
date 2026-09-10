@@ -14,12 +14,12 @@ describe('macWindow helpers', () => {
     expect(getMacNativeTitlebarPaddingRight(1, false)).toBe(0);
   });
 
-  it('reserves traffic-light safe area when native controls are enabled', () => {
+  it('reserves the traffic-light area on the left and keeps actions off the right edge', () => {
     expect(getMacNativeTitlebarPaddingLeft(1, true)).toBe(96);
     expect(getMacNativeTitlebarPaddingRight(1, true)).toBe(16);
   });
 
-  it('keeps minimum safe area under small ui scales', () => {
+  it('keeps minimum safe areas under small ui scales', () => {
     expect(getMacNativeTitlebarPaddingLeft(0.5, true)).toBe(88);
     expect(getMacNativeTitlebarPaddingRight(0.5, true)).toBe(12);
   });

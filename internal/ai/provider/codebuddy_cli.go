@@ -38,7 +38,7 @@ func (p *CodeBuddyCLIProvider) Name() string {
 }
 
 func (p *CodeBuddyCLIProvider) Validate() error {
-	_, err := resolveCodeBuddyCLICommand(codebuddyLookPath)
+	_, err := resolveCodeBuddyCLICommand(lookPathWithOverride(p.config.CLIPath, codebuddyLookPath))
 	if err != nil {
 		return err
 	}
@@ -58,7 +58,7 @@ func (p *CodeBuddyCLIProvider) ChatWithState(ctx context.Context, state json.Raw
 	ctx, cancel := ensureClaudeCLITimeout(ctx, codebuddyCLIRequestTimeout)
 	defer cancel()
 
-	commandName, err := resolveCodeBuddyCLICommand(codebuddyLookPath)
+	commandName, err := resolveCodeBuddyCLICommand(lookPathWithOverride(p.config.CLIPath, codebuddyLookPath))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -76,7 +76,7 @@ func (p *CodeBuddyCLIProvider) ChatWithState(ctx context.Context, state json.Raw
 		args = append(args, "--resume", strings.TrimSpace(sessionState.SessionID))
 	}
 
-	cmd := codebuddyCommandContext(ctx, commandName, args...)
+	cmd := newLocalCLICommand(codebuddyCommandContext, ctx, commandName, args...)
 	if err := p.setEnv(cmd); err != nil {
 		return nil, nil, err
 	}
@@ -161,7 +161,7 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 	ctx, cancel := ensureClaudeCLITimeout(ctx, codebuddyCLIRequestTimeout)
 	defer cancel()
 
-	commandName, err := resolveCodeBuddyCLICommand(codebuddyLookPath)
+	commandName, err := resolveCodeBuddyCLICommand(lookPathWithOverride(p.config.CLIPath, codebuddyLookPath))
 	if err != nil {
 		return "", err
 	}
@@ -175,7 +175,7 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 		args = append(args, "--resume", strings.TrimSpace(resumeSessionID))
 	}
 
-	cmd := codebuddyCommandContext(ctx, commandName, args...)
+	cmd := newLocalCLICommand(codebuddyCommandContext, ctx, commandName, args...)
 	if err := p.setEnv(cmd); err != nil {
 		return "", err
 	}
@@ -272,7 +272,12 @@ func (p *CodeBuddyCLIProvider) chatStreamWithSession(ctx context.Context, resume
 				_ = cmd.Wait()
 				return "", nil
 			}
-			callback(ai.StreamChunk{Done: true})
+			var usage *ai.TokenUsage
+			if event.Usage != nil {
+				normalized := normalizeClaudeCLIUsage(event.Usage)
+				usage = &normalized
+			}
+			callback(ai.StreamChunk{Done: true, Usage: usage})
 			_ = cmd.Wait()
 			return currentSessionID, nil
 		case "error":
@@ -392,6 +397,7 @@ func buildCodeBuddyCLIResponseFromEvents(events []cliStreamEvent) (*ai.ChatRespo
 	parts := make([]string, 0, len(events))
 	resultText := ""
 	sessionID := ""
+	var tokenUsage ai.TokenUsage
 
 	for _, event := range events {
 		if errMsg, hasError := extractCodeBuddyCLIEventError(event); hasError {
@@ -403,6 +409,9 @@ func buildCodeBuddyCLIResponseFromEvents(events []cliStreamEvent) (*ai.ChatRespo
 		if strings.TrimSpace(event.SessionID) != "" {
 			sessionID = strings.TrimSpace(event.SessionID)
 		}
+		if event.Usage != nil {
+			tokenUsage = normalizeClaudeCLIUsage(event.Usage)
+		}
 		for _, block := range event.Message.Content {
 			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
 				parts = append(parts, block.Text)
@@ -411,10 +420,10 @@ func buildCodeBuddyCLIResponseFromEvents(events []cliStreamEvent) (*ai.ChatRespo
 	}
 
 	if resultText != "" {
-		return &ai.ChatResponse{Content: resultText}, sessionID, nil
+		return &ai.ChatResponse{Content: resultText, TokensUsed: tokenUsage}, sessionID, nil
 	}
 	if len(parts) > 0 {
-		return &ai.ChatResponse{Content: strings.Join(parts, "")}, sessionID, nil
+		return &ai.ChatResponse{Content: strings.Join(parts, ""), TokensUsed: tokenUsage}, sessionID, nil
 	}
 	return &ai.ChatResponse{}, sessionID, nil
 }
@@ -424,7 +433,7 @@ func (p *CodeBuddyCLIProvider) setEnv(cmd *exec.Cmd) error {
 	if err != nil {
 		return err
 	}
-	cmd.Env = EnrichCLICommandPATH(env, cmd.Path)
+	cmd.Env = MergeProviderCLIEnv(EnrichCLICommandPATH(env, cmd.Path), p.config.CLIEnv)
 	return nil
 }
 

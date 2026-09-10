@@ -38,7 +38,6 @@ import { useStore } from '../store';
 import {
   isMacLikePlatform,
   normalizeBlurForPlatform,
-  normalizeOpacityForPlatform,
   resolveAppearanceValues,
 } from '../utils/appearance';
 import { buildRpcConnectionConfig } from '../utils/connectionRpcConfig';
@@ -174,37 +173,26 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
   );
 
   const darkMode = appTheme === 'dark';
-  const isV2Ui = appearance.uiVersion === 'v2';
+
   const resolvedAppearance = resolveAppearanceValues(appearance);
-  const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
   const blur = normalizeBlurForPlatform(resolvedAppearance.blur);
   const workbenchTheme = useMemo(
     () => buildRedisWorkbenchTheme({
       darkMode,
-      opacity,
       blur,
       disableBackdropFilter: isMacLikePlatform(),
     }),
-    [blur, darkMode, opacity, appearance.uiVersion],
+    [blur, darkMode],
   );
   // v1 keeps raised cards; v2 is flat (same as Redis gn-v2-redis-workbench CSS).
   const workbenchCardStyle = useMemo(() => (
-    isV2Ui
-      ? {
+    {
           background: 'transparent',
           border: 'none',
           boxShadow: 'none',
           borderRadius: 0,
         }
-      : {
-          background: workbenchTheme.panelBg,
-          border: workbenchTheme.panelBorder,
-          boxShadow: `${workbenchTheme.panelInset}, ${workbenchTheme.shadow}`,
-          borderRadius: 12,
-          backdropFilter: workbenchTheme.backdropFilter,
-          WebkitBackdropFilter: workbenchTheme.backdropFilter,
-        }
-  ), [isV2Ui, workbenchTheme]);
+  ), [workbenchTheme]);
 
   const connection = connections.find((item) => item.id === connectionId);
   const connectionProtection = connection?.config?.protection;
@@ -669,7 +657,7 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
       observer.disconnect();
       window.clearTimeout(timer);
     };
-  }, [items.length, pageSize, totalCount, isV2Ui]);
+  }, [items.length, pageSize, totalCount]);
 
   const fuzzyFilterOption = useCallback(
     (input: string, option?: { value?: string | number }) => {
@@ -1305,20 +1293,20 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
 
   return (
     <div
-      className={isV2Ui ? 'gn-v2-nacos-workbench' : undefined}
+      className={'gn-v2-nacos-workbench'}
       style={{
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         minHeight: 0,
-        padding: isV2Ui ? 0 : 12,
-        gap: isV2Ui ? 0 : 12,
+        padding: 0,
+        gap: 0,
         boxSizing: 'border-box',
-        background: isV2Ui ? undefined : workbenchTheme.appBg,
+        background: undefined,
         color: workbenchTheme.textPrimary,
       }}
     >
-      {remoteChanged && !isV2Ui ? (
+      {false ? (
         <Alert
           type="warning"
           showIcon
@@ -1342,44 +1330,29 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
 
       {/* Redis-style split: left | full-height divider | right (headers share one grid row) */}
       <div
-        className={isV2Ui ? 'gn-v2-nacos-split' : undefined}
+        className={'gn-v2-nacos-split'}
         style={{
-          display: isV2Ui ? undefined : 'flex',
+          display: undefined,
           minHeight: 0,
           flex: 1,
           overflow: 'hidden',
-          ...(isV2Ui
-            ? {
+          ...({
                 ['--gn-nacos-sidebar-width' as string]:
                   typeof leftPanelWidth === 'number' ? `${leftPanelWidth}px` : leftPanelWidth,
-              }
-            : {}),
+              }),
         }}
       >
         <div
           ref={leftPanelRef}
-          className={isV2Ui ? 'gn-v2-nacos-list-pane' : undefined}
+          className={'gn-v2-nacos-list-pane'}
           style={
-            isV2Ui
-              ? { minHeight: 0, overflow: 'hidden' }
-              : {
-                  ...workbenchCardStyle,
-                  width: leftPanelWidth,
-                  minWidth: 280,
-                  minHeight: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  flexShrink: 0,
-                  overflow: 'hidden',
-                }
+            { minHeight: 0, overflow: 'hidden' }
           }
         >
           <div
-            className={isV2Ui ? 'gn-v2-nacos-pane-header' : undefined}
+            className={'gn-v2-nacos-pane-header'}
             style={
-              isV2Ui
-                ? { display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'stretch' }
-                : { padding: 8, marginBottom: 8, display: 'flex', flexDirection: 'column', gap: 8 }
+              { display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'stretch' }
             }
           >
             <Space wrap size={[8, 8]}>
@@ -1545,8 +1518,8 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
           </div>
           <div
             ref={listBodyRef}
-            className={isV2Ui ? 'gn-v2-nacos-pane-body gn-v2-nacos-list-body' : undefined}
-            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: isV2Ui ? undefined : 8 }}
+            className={'gn-v2-nacos-pane-body gn-v2-nacos-list-body'}
+            style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', padding: undefined }}
           >
             <Table
               className="gn-nacos-config-table"
@@ -1630,30 +1603,20 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
           targetRef={leftPanelRef}
           onResizeEnd={setLeftPanelWidth}
           minWidth={280}
-          maxReservedWidth={isV2Ui ? 321 : 320}
-          containerWidthCssVariable={isV2Ui ? '--gn-nacos-sidebar-width' : undefined}
+          maxReservedWidth={321}
+          containerWidthCssVariable={'--gn-nacos-sidebar-width'}
           title={tr('redis_viewer.tooltip.resize_panels')}
         />
 
         <div
-          className={isV2Ui ? 'gn-v2-nacos-detail-pane' : undefined}
+          className={'gn-v2-nacos-detail-pane'}
           style={
-            isV2Ui
-              ? { minHeight: 0, overflow: 'hidden' }
-              : {
-                  ...workbenchCardStyle,
-                  flex: 1,
-                  minWidth: 0,
-                  minHeight: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }
+            { minHeight: 0, overflow: 'hidden' }
           }
         >
           <div
-            className={isV2Ui ? 'gn-v2-nacos-pane-header' : undefined}
-            style={isV2Ui ? undefined : { padding: 8, marginBottom: 8 }}
+            className={'gn-v2-nacos-pane-header'}
+            style={undefined}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <Space wrap size={[8, 8]}>
@@ -1701,7 +1664,7 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
                 </Popconfirm>
               </Space>
             </div>
-            {remoteChanged && isV2Ui ? (
+            {remoteChanged ? (
               <div
                 className={`gn-v2-nacos-remote-notice${draftDirty ? ' is-dirty' : ''}`}
                 role="status"
@@ -1747,14 +1710,14 @@ const NacosViewer: React.FC<NacosViewerProps> = ({
           </div>
 
           <div
-            className={isV2Ui ? 'gn-v2-nacos-pane-body' : undefined}
+            className={'gn-v2-nacos-pane-body'}
             style={{
               flex: 1,
               minHeight: 0,
               display: 'flex',
               flexDirection: 'column',
               gap: 8,
-              padding: isV2Ui ? undefined : 12,
+              padding: undefined,
               overflow: 'hidden',
             }}
           >

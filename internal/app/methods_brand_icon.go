@@ -2,12 +2,14 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
 	_ "image/png"
 	"strings"
+	"sync"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
@@ -15,14 +17,18 @@ import (
 
 const applicationBrandIconMaxPNGBytes = 4 * 1024 * 1024
 
+var applicationBrandIconMu sync.Mutex
+
 var (
 	errApplicationBrandIconPayloadEmpty   = errors.New("empty icon payload")
 	errApplicationBrandIconPayloadInvalid = errors.New("invalid PNG icon payload")
 )
 
-// SetApplicationBrandIcon updates the OS application icon (macOS Dock) from a
-// PNG payload. Frontend may pass raw base64 or a data URL (data:image/png;base64,...).
+// SetApplicationBrandIcon updates supported native OS icon surfaces from a PNG
+// payload. Frontend may pass raw base64 or a data URL (data:image/png;base64,...).
 func (a *App) SetApplicationBrandIcon(imageBase64 string) (result connection.QueryResult) {
+	applicationBrandIconMu.Lock()
+	defer applicationBrandIconMu.Unlock()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.Errorf("设置应用图标失败：%v", recovered)
@@ -45,7 +51,13 @@ func (a *App) SetApplicationBrandIcon(imageBase64 string) (result connection.Que
 			"detail": err.Error(),
 		})}
 	}
-	if err := setApplicationIconPNG(png); err != nil {
+	configDir := ""
+	var runtimeContext context.Context
+	if a != nil {
+		configDir = a.configDir
+		runtimeContext = a.ctx
+	}
+	if err := setApplicationIconPNG(png, configDir, runtimeContext); err != nil {
 		return connection.QueryResult{Success: false, Message: a.appText("app.backend.error.set_brand_icon_failed", map[string]any{
 			"detail": err.Error(),
 		})}

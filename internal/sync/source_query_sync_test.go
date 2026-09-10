@@ -310,6 +310,36 @@ func TestResolvePKColumnsUsesCurrentLanguageForQueryDiffErrors(t *testing.T) {
 			t.Fatalf("resolvePKColumns() = %#v, want %#v", keys, want)
 		}
 	})
+
+	t.Run("sqlite composite primary key includes every PRI member", func(t *testing.T) {
+		// Mirrors SQLite GetColumns for PRIMARY KEY(a,b): every pk>0 column is PRI.
+		keys, err := resolvePKColumns([]connection.ColumnDefinition{
+			{Name: "name", Type: "TEXT"},
+			{Name: "a", Type: "INTEGER", Nullable: "NO", Key: "PRI"},
+			{Name: "b", Type: "INTEGER", Nullable: "NO", Key: "PRI"},
+		})
+		if err != nil {
+			t.Fatalf("resolvePKColumns() error = %v", err)
+		}
+		want := []string{"a", "b"}
+		if !reflect.DeepEqual(keys, want) {
+			t.Fatalf("resolvePKColumns() = %#v, want %#v", keys, want)
+		}
+	})
+
+	t.Run("PK key alias is treated as primary", func(t *testing.T) {
+		keys, err := resolvePKColumns([]connection.ColumnDefinition{
+			{Name: "a", Type: "INTEGER", Key: "PK"},
+			{Name: "b", Type: "INTEGER", Key: "PRI"},
+		})
+		if err != nil {
+			t.Fatalf("resolvePKColumns() error = %v", err)
+		}
+		want := []string{"a", "b"}
+		if !reflect.DeepEqual(keys, want) {
+			t.Fatalf("resolvePKColumns() = %#v, want %#v", keys, want)
+		}
+	})
 }
 
 func TestLoadSourceQuerySyncContextUsesCurrentLanguageForStructuredErrors(t *testing.T) {

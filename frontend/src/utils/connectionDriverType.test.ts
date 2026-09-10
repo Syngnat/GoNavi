@@ -29,6 +29,10 @@ describe("connectionDriverType", () => {
     expect(normalizeDriverType("greatdb")).toBe("goldendb");
     expect(normalizeDriverType("gdb")).toBe("goldendb");
     expect(normalizeDriverType("InterSystemsIRIS")).toBe("iris");
+    expect(normalizeDriverType("InterSystems-Cache")).toBe("cache");
+    expect(normalizeDriverType("InterSystems Caché")).toBe("cache");
+    expect(normalizeDriverType("Caché")).toBe("cache");
+    expect(normalizeDriverType("CacheDB")).toBe("cache");
   });
 
   it("resolves custom connection driver types from the selected driver field", () => {
@@ -69,6 +73,8 @@ describe("connectionDriverType", () => {
     expect(supportsIndependentSchemaSelection("postgres")).toBe(true);
     expect(supportsIndependentSchemaSelection("sqlserver")).toBe(true);
     expect(supportsIndependentSchemaSelection("iris")).toBe(true);
+    expect(supportsIndependentSchemaSelection("cache")).toBe(true);
+    expect(supportsIndependentSchemaSelection("intersystems-cache")).toBe(true);
     expect(supportsIndependentSchemaSelection("duckdb")).toBe(true);
     expect(supportsIndependentSchemaSelection("oracle")).toBe(false);
     expect(supportsIndependentSchemaSelection("mysql")).toBe(false);

@@ -70,7 +70,7 @@ func (l *Ledger) CommitModelTurn(ctx context.Context, request CommitModelTurnReq
 	}
 
 	usageInput := request.ModelCompleted.Usage
-	if request.Usage.PromptTokens != 0 || request.Usage.CompletionTokens != 0 || request.Usage.TotalTokens != 0 {
+	if request.Usage.PromptTokens != 0 || request.Usage.CompletionTokens != 0 || request.Usage.TotalTokens != 0 || request.Usage.CachedTokens != nil {
 		usageInput = request.Usage
 	}
 	usage, err := normalizeUsage(usageInput)
@@ -168,7 +168,7 @@ func (l *Ledger) CommitModelTurn(ctx context.Context, request CommitModelTurnReq
 		return CommitModelTurnResult{}, err
 	}
 	sequence++
-	if usage.TotalTokens > 0 {
+	if usage.TotalTokens > 0 || usage.CachedTokens != nil {
 		if err := appendEvent(sequence, EventUsage, UsageEvent{Usage: usage}); err != nil {
 			return CommitModelTurnResult{}, err
 		}

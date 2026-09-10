@@ -247,6 +247,20 @@ export const normalizeDriverType = (value: string): string => {
     normalized === 'inter-systems' ||
     normalized === 'inter-systems-iris'
   ) return 'iris';
+  if (
+    normalized === 'caché' ||
+    normalized === 'intersystems cache' ||
+    normalized === 'intersystems caché' ||
+    normalized === 'intersystems-cache' ||
+    normalized === 'intersystems-caché' ||
+    normalized === 'intersystemscache' ||
+    normalized === 'intersystemscaché' ||
+    normalized === 'inter-systems-cache' ||
+    normalized === 'inter-systems-caché' ||
+    normalized === 'intersystems-cache-database' ||
+    normalized === 'cache-db' ||
+    normalized === 'cachedb'
+  ) return 'cache';
   return normalized;
 };
 
@@ -412,7 +426,6 @@ type UseSidebarTreeLoadersOptions = {
   tableAccessCount: Record<string, any>;
   pinnedSidebarTables: any[];
   pinnedSidebarDatabases: string[];
-  isV2Ui: boolean;
   loadingNodesRef: React.MutableRefObject<Set<string>>;
   setConnectionStates: React.Dispatch<React.SetStateAction<Record<string, SidebarConnectionState>>>;
   setLoadedKeys: React.Dispatch<React.SetStateAction<React.Key[]>>;
@@ -442,7 +455,6 @@ export const useSidebarTreeLoaders = ({
   tableAccessCount,
   pinnedSidebarTables,
   pinnedSidebarDatabases,
-  isV2Ui,
   loadingNodesRef,
   setConnectionStates,
   setLoadedKeys,
@@ -1037,7 +1049,7 @@ export const useSidebarTreeLoaders = ({
                       }
                 ));
 
-            if (isV2Ui) {
+            {
                 const currentPinnedSidebarDatabases =
                     useStore.getState().pinnedSidebarDatabases || pinnedSidebarDatabases;
                 dbs = buildV2SidebarDatabaseSectionedChildren(
@@ -1224,7 +1236,7 @@ export const useSidebarTreeLoaders = ({
               ),
           });
       };
-      
+
       const dbQueries = savedQueries.filter(q => q.connectionId === conn.id && q.dbName === dbName);
       const messageQueueProfile = resolveSidebarMessageQueueProfile(conn.config);
       const queriesNode: TreeNode = {
@@ -1243,8 +1255,8 @@ export const useSidebarTreeLoaders = ({
           }))
       };
 
-      const config = { 
-          ...conn.config, 
+      const config = {
+          ...conn.config,
           port: Number(conn.config.port),
           password: conn.config.password || "",
           database: conn.config.database || "",
@@ -1770,7 +1782,7 @@ export const useSidebarTreeLoaders = ({
 	                dbName: conn.dbName,
 	                sortBy,
 	                tableAccessCount: currentTableAccessCount,
-	                pinnedSidebarTables: isV2Ui ? currentPinnedSidebarTables : [],
+	                pinnedSidebarTables: currentPinnedSidebarTables,
 	            }), {
 		                isEntryVisible: (entry) => !shouldGroupBySchema
 		                    || isSchemaVisible(schemaVisibilityRule, entry.schemaName, schemaIdentifierOptions),
@@ -1794,7 +1806,7 @@ export const useSidebarTreeLoaders = ({
 	            eventEntries.sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()));
 
 	            const buildTableNode = (entry: SidebarLoadedTableEntry): TreeNode => {
-	                const isPinned = isV2Ui && isSidebarTablePinned(
+	                const isPinned = isSidebarTablePinned(
 	                    currentPinnedSidebarTables,
 	                    conn.id,
 	                    conn.dbName,
@@ -1966,7 +1978,7 @@ export const useSidebarTreeLoaders = ({
 	            ): TreeNode => {
 	                const groupNodeKey = `${parentKey}-${groupKey}`;
 	                const groupedChildren = groupKey === 'tables'
-	                    ? buildSidebarTableChildrenForUi(groupNodeKey, children, isV2Ui)
+	                    ? buildSidebarTableChildrenForUi(groupNodeKey, children)
 	                    : children;
 	                return {
 	                    title: groupTitle,

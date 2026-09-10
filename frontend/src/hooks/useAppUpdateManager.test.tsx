@@ -1383,7 +1383,7 @@ describe('useAppUpdateManager', () => {
       await hook?.checkForUpdates(false);
     });
     await act(async () => {
-      hook?.setIsAboutOpen(true);
+      hook?.prepareAboutSurface();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -1396,7 +1396,7 @@ describe('useAppUpdateManager', () => {
     expect(messageApi.error).not.toHaveBeenCalled();
   });
 
-  it('opens settings-center bridge instead of legacy about modal on silent update discovery', async () => {
+  it('opens the settings-center bridge on silent update discovery', async () => {
     const bridge = {
       open: vi.fn(),
       close: vi.fn(),
@@ -1432,7 +1432,6 @@ describe('useAppUpdateManager', () => {
     });
 
     expect(bridge.open).toHaveBeenCalledTimes(1);
-    expect(hook?.isAboutOpen).toBe(false);
     expect(hook?.lastUpdateInfo?.hasUpdate).toBe(true);
     expect(hook?.lastUpdateInfo?.latestVersion).toBe('0.8.2');
   });

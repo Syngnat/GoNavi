@@ -13,6 +13,11 @@ export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
 export const DEEPSEEK_DEFAULT_MODEL = 'deepseek-v4-flash';
 export const MOONSHOT_OPENAI_BASE_URL = 'https://api.moonshot.cn/v1';
 export const MOONSHOT_ANTHROPIC_BASE_URL = 'https://api.moonshot.cn/anthropic';
+export const XIAOMI_MIMO_OPENAI_BASE_URL = 'https://api.xiaomimimo.com/v1';
+export const XIAOMI_MIMO_ANTHROPIC_BASE_URL = 'https://api.xiaomimimo.com/anthropic';
+export const XIAOMI_MIMO_TOKEN_PLAN_OPENAI_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1';
+export const XIAOMI_MIMO_TOKEN_PLAN_ANTHROPIC_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic';
+export const XIAOMI_MIMO_DEFAULT_MODEL = 'mimo-v2.5-pro';
 
 export const QWEN_CODING_PLAN_MODELS = [
   'qwen3.5-plus',
@@ -46,6 +51,21 @@ export interface ProviderPresetEndpoint {
   baseUrl: string;
 }
 
+export interface ProviderPresetMode {
+  key: string;
+  label: string;
+  labelKey: string;
+  legacyPresetKey?: string;
+  backendType: AIProviderType;
+  fixedApiFormat?: string;
+  defaultApiFormat?: string;
+  authMode?: AIProviderAuthMode;
+  defaultBaseUrl: string;
+  endpoints?: ProviderPresetEndpoint[];
+  defaultModel: string;
+  models: string[];
+}
+
 export interface ResolvePresetBaseURLInput {
   presetKey: string;
   presetDefaultBaseUrl: string;
@@ -77,10 +97,57 @@ export interface ProviderPresetMatcher {
   fixedApiFormat?: string;
   defaultApiFormat?: string;
   authMode?: AIProviderAuthMode;
+  defaultModeKey?: string;
+  modes?: ProviderPresetMode[];
 }
 
 export type ProviderPresetCandidate = Pick<AIProviderConfig, 'type' | 'baseUrl'>
   & Partial<Pick<AIProviderConfig, 'apiFormat' | 'authMode' | 'model' | 'apiKey' | 'hasSecret' | 'secretRef'>>;
+
+const inferProviderAuthMode = (provider: ProviderPresetCandidate): AIProviderAuthMode => {
+  const fingerprint = getProviderFingerprint(provider.baseUrl);
+  const hasStoredSecret = provider.hasSecret === true
+    || Boolean(String(provider.secretRef || '').trim())
+    || Boolean(String(provider.apiKey || '').trim());
+  return provider.authMode
+    || (fingerprint === ''
+      && !hasStoredSecret
+      && ['codex-cli', 'claude-cli', 'grok-cli', 'cursor-cli'].includes(provider.apiFormat || '')
+      ? 'local-cli'
+      : 'api-key');
+};
+
+const providerMatchesMode = (
+  provider: ProviderPresetCandidate,
+  mode: ProviderPresetMode,
+  inferredAuthMode = inferProviderAuthMode(provider),
+): boolean => {
+  const fingerprint = getProviderFingerprint(provider.baseUrl);
+  const endpoint = mode.endpoints?.find((candidate) =>
+    fingerprint !== '' && fingerprint === getProviderFingerprint(candidate.baseUrl));
+  const typeMatches = endpoint
+    ? endpoint.backendType === provider.type
+    : mode.backendType === provider.type;
+  const urlMatches = fingerprint === ''
+    ? getProviderFingerprint(mode.defaultBaseUrl) === ''
+    : fingerprint === getProviderFingerprint(mode.defaultBaseUrl) || Boolean(endpoint);
+  return typeMatches
+    && urlMatches
+    && (!mode.fixedApiFormat || mode.fixedApiFormat === provider.apiFormat)
+    && (mode.authMode || 'api-key') === inferredAuthMode;
+};
+
+export const resolveProviderPresetModeKey = (
+  preset: ProviderPresetMatcher,
+  provider: ProviderPresetCandidate,
+): string => {
+  const qwenPresetKey = matchQwenPresetKey(provider);
+  return preset.modes?.find((mode) => providerMatchesMode(provider, mode))?.key
+    || preset.modes?.find((mode) => mode.legacyPresetKey === qwenPresetKey)?.key
+    || preset.defaultModeKey
+    || preset.modes?.[0]?.key
+    || '';
+};
 
 export const isLocalCLISubscriptionProvider = (
   provider: Pick<AIProviderConfig, 'type' | 'apiFormat' | 'authMode'>,
@@ -177,9 +244,18 @@ export const resolveProviderPresetKey = (
   presets: ProviderPresetMatcher[],
   fallbackKey = 'custom',
 ): string => {
+  const inferredAuthMode = inferProviderAuthMode(provider);
+  const mergedModePreset = presets.find((preset) =>
+    preset.modes?.some((mode) => providerMatchesMode(provider, mode, inferredAuthMode)));
+  if (mergedModePreset) {
+    return mergedModePreset.key;
+  }
+
   const qwenPresetKey = matchQwenPresetKey(provider);
   if (qwenPresetKey) {
-    return qwenPresetKey;
+    const mergedQwenPreset = presets.find((preset) =>
+      preset.modes?.some((mode) => mode.legacyPresetKey === qwenPresetKey));
+    return mergedQwenPreset?.key || qwenPresetKey;
   }
   const deepSeekPresetKey = matchDeepSeekPresetKey(provider);
   if (deepSeekPresetKey) {
@@ -187,15 +263,16 @@ export const resolveProviderPresetKey = (
   }
 
   const fingerprint = getProviderFingerprint(provider.baseUrl);
-  const hasStoredSecret = provider.hasSecret === true
-    || Boolean(String(provider.secretRef || '').trim())
-    || Boolean(String(provider.apiKey || '').trim());
-  const inferredAuthMode: AIProviderAuthMode = provider.authMode
-    || (fingerprint === ''
-      && !hasStoredSecret
-      && ['codex-cli', 'claude-cli', 'grok-cli', 'cursor-cli'].includes(provider.apiFormat || '')
-      ? 'local-cli'
-      : 'api-key');
+  // Codex subscription is an authentication option inside OpenAI rather than
+  // a second vendor. Keep existing saved CLI configurations editable under it.
+  if (
+    provider.type === 'custom'
+    && provider.apiFormat === 'codex-cli'
+    && inferredAuthMode === 'local-cli'
+    && presets.some((preset) => preset.key === 'openai')
+  ) {
+    return 'openai';
+  }
   const formatOnlyPreset = presets.find((preset) =>
     preset.backendType === provider.type
     && Boolean(preset.fixedApiFormat)

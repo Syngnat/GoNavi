@@ -17,8 +17,6 @@ vi.mock('@ant-design/icons', () => {
     FolderOpenOutlined: Icon,
     ImportOutlined: Icon,
     MenuUnfoldOutlined: Icon,
-    RobotOutlined: Icon,
-    SettingOutlined: Icon,
     TableOutlined: Icon,
   };
 });
@@ -39,8 +37,6 @@ describe('SidebarConnectionRail', () => {
           openExternalSqlFile: 'Open SQL file',
           locateCurrentTable: 'Locate table',
           locateCurrentTableUnavailable: 'No table',
-          aiAssistant: 'AI assistant',
-          settings: 'Settings',
         }}
         handlers={{
           openCreateTagModal: noop,
@@ -49,8 +45,6 @@ describe('SidebarConnectionRail', () => {
           openDataImport: noop,
           openExternalSqlFile: noop,
           locateActiveTab: noop,
-          toggleAI: noop,
-          openSettings: noop,
         }}
         canLocateActiveTab
         sidebarExpandAction={{ label: 'Expand sidebar', onClick: expandSidebar }}
@@ -88,8 +82,6 @@ describe('SidebarConnectionRail', () => {
           openExternalSqlFile: 'Open SQL file',
           locateCurrentTable: 'Locate table',
           locateCurrentTableUnavailable: 'No table',
-          aiAssistant: 'AI assistant',
-          settings: 'Settings',
         }}
         handlers={{
           openCreateTagModal: noop,
@@ -98,8 +90,6 @@ describe('SidebarConnectionRail', () => {
           openDataImport,
           openExternalSqlFile: noop,
           locateActiveTab: noop,
-          toggleAI: noop,
-          openSettings: noop,
         }}
         canLocateActiveTab
       />,
@@ -129,8 +119,6 @@ describe('SidebarConnectionRail', () => {
           openExternalSqlFile: 'Open SQL file',
           locateCurrentTable: 'Locate table',
           locateCurrentTableUnavailable: 'No table',
-          aiAssistant: 'AI assistant',
-          settings: 'Settings',
         }}
         handlers={{
           openCreateTagModal: noop,
@@ -139,8 +127,6 @@ describe('SidebarConnectionRail', () => {
           openDataImport: noop,
           openExternalSqlFile: noop,
           locateActiveTab,
-          toggleAI: noop,
-          openSettings: noop,
         }}
         canLocateActiveTab
         showObjectActions={false}
@@ -156,7 +142,7 @@ describe('SidebarConnectionRail', () => {
     expect(locateActiveTab).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps expand, AI, and settings in order when collapsed-only actions hide the locator', () => {
+  it('keeps only the expand action when collapsed-only actions hide the locator', () => {
     const noop = vi.fn();
     const renderer = create(
       <SidebarConnectionRail
@@ -170,8 +156,6 @@ describe('SidebarConnectionRail', () => {
           openExternalSqlFile: 'Open SQL file',
           locateCurrentTable: 'Locate table',
           locateCurrentTableUnavailable: 'No table',
-          aiAssistant: 'AI assistant',
-          settings: 'Settings',
         }}
         handlers={{
           openCreateTagModal: noop,
@@ -180,8 +164,6 @@ describe('SidebarConnectionRail', () => {
           openDataImport: noop,
           openExternalSqlFile: noop,
           locateActiveTab: noop,
-          toggleAI: noop,
-          openSettings: noop,
         }}
         canLocateActiveTab
         showObjectActions={false}
@@ -194,14 +176,10 @@ describe('SidebarConnectionRail', () => {
     const buttons = rail.findAllByType('button');
 
     expect(rail.findAllByProps({ 'data-sidebar-locate-current-tab-action': 'true' })).toHaveLength(0);
-    expect(buttons.map((button) => button.props['aria-label'])).toEqual([
-      'Expand sidebar',
-      'AI assistant',
-      'Settings',
-    ]);
+    expect(buttons.map((button) => button.props['aria-label'])).toEqual(['Expand sidebar']);
   });
 
-  it('exposes the AI active state to styling and assistive technology', () => {
+  it('keeps optional workbench actions in the fixed secondary rail', () => {
     const noop = vi.fn();
     const renderer = create(
       <SidebarConnectionRail
@@ -215,8 +193,6 @@ describe('SidebarConnectionRail', () => {
           openExternalSqlFile: 'Open SQL file',
           locateCurrentTable: 'Locate table',
           locateCurrentTableUnavailable: 'No table',
-          aiAssistant: 'AI assistant',
-          settings: 'Settings',
         }}
         handlers={{
           openCreateTagModal: noop,
@@ -225,46 +201,6 @@ describe('SidebarConnectionRail', () => {
           openDataImport: noop,
           openExternalSqlFile: noop,
           locateActiveTab: noop,
-          toggleAI: noop,
-          openSettings: noop,
-        }}
-        canLocateActiveTab={false}
-        aiActive
-      />,
-    );
-
-    const aiAction = renderer.root.findByProps({ 'data-gonavi-ai-entry-action': 'true' });
-
-    expect(aiAction.props['aria-pressed']).toBe(true);
-    expect(aiAction.props.className.split(' ')).toContain('is-active');
-  });
-
-  it('keeps workbench actions in the fixed secondary rail above AI and settings', () => {
-    const noop = vi.fn();
-    const renderer = create(
-      <SidebarConnectionRail
-        labels={{
-          railSystemActions: 'System actions',
-          railObjectActions: 'Object actions',
-          newGroup: 'New group',
-          batchTables: 'Batch tables',
-          batchDatabases: 'Batch databases',
-          dataImport: 'Data import',
-          openExternalSqlFile: 'Open SQL file',
-          locateCurrentTable: 'Locate table',
-          locateCurrentTableUnavailable: 'No table',
-          aiAssistant: 'AI assistant',
-          settings: 'Settings',
-        }}
-        handlers={{
-          openCreateTagModal: noop,
-          openBatchTableExport: noop,
-          openBatchDatabaseExport: noop,
-          openDataImport: noop,
-          openExternalSqlFile: noop,
-          locateActiveTab: noop,
-          toggleAI: noop,
-          openSettings: noop,
         }}
         canLocateActiveTab
         workbenchActions={(
@@ -281,6 +217,6 @@ describe('SidebarConnectionRail', () => {
     const labels = secondaryActions.findAllByType('button').map((button) => button.props['aria-label']);
 
     expect(rail.findByProps({ className: 'gn-v2-rail-items' })).toBeTruthy();
-    expect(labels).toEqual(['SQL analysis', 'SQL audit', 'AI assistant', 'Settings']);
+    expect(labels).toEqual(['SQL analysis', 'SQL audit']);
   });
 });

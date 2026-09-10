@@ -92,4 +92,26 @@ describe('useSidebarV2ActionHandlers Elasticsearch create action', () => {
     expect(setIsCreateDbModalOpen).toHaveBeenCalledWith(true);
     expect(addTab).not.toHaveBeenCalled();
   });
+
+  it('opens a schema-scoped query with both database and schema context', () => {
+    const { handlers, addTab } = buildHandlers();
+    handlers.handleV2DatabaseContextMenuAction({
+      key: 'conn-1-app-schema-sales',
+      title: 'sales',
+      dataRef: {
+        id: 'conn-1',
+        dbName: 'app',
+        schemaName: 'sales',
+        config: { type: 'kingbase' },
+      },
+    }, 'new-query');
+
+    expect(addTab).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'query',
+      connectionId: 'conn-1',
+      dbName: 'app',
+      schemaName: 'sales',
+      query: '',
+    }));
+  });
 });

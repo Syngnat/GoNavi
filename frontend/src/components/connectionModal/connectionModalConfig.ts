@@ -251,6 +251,7 @@ export const buildSavedConnectionInput = ({
           port: 8080,
           user: "",
           password: "",
+          encodeBase64: true,
         }),
         password: httpTunnelDraft.value,
       },
@@ -846,23 +847,18 @@ export const buildConnectionConfig = async ({
           port: Number(mergedValues.httpTunnelPort || 8080),
           user: String(mergedValues.httpTunnelUser || "").trim(),
           password: mergedValues.httpTunnelPassword || "",
+          encodeBase64: mergedValues.httpTunnelEncodeBase64 !== false,
         }
       : {
           host: "",
           port: 8080,
           user: "",
           password: "",
+          encodeBase64: true,
         };
   if (effectiveUseHttpTunnel) {
     if (!httpTunnelConfig.host) {
       throw new Error(t("connection.modal.validation.httpTunnel.hostRequired"));
-    }
-    if (
-      !Number.isFinite(httpTunnelConfig.port) ||
-      httpTunnelConfig.port <= 0 ||
-      httpTunnelConfig.port > 65535
-    ) {
-      throw new Error(t("connection.modal.validation.httpTunnel.portRange"));
     }
   }
 

@@ -260,6 +260,8 @@ export const DataSyncConnectionTreeSelect: React.FC<{
         if (!searchValue) setExpandedGroupValues(expandedKeys.map(String));
       }}
       treeExpandAction="click"
+      listHeight={240}
+      popupMatchSelectWidth
       showSearch
       treeNodeFilterProp="searchText"
       searchValue={searchValue}

@@ -392,7 +392,7 @@ func (t *TDengineDB) QueryContext(ctx context.Context, query string) ([]map[stri
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (t *TDengineDB) Query(query string) ([]map[string]interface{}, []string, error) {

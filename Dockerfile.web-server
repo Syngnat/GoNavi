@@ -35,6 +35,8 @@ RUN go mod download
 COPY . .
 RUN ./tools/generate-driver-agent-revisions.sh --platform "${TARGETOS}/${TARGETARCH}"
 COPY --from=frontend /src/frontend/dist ./frontend/dist
+# 主程序以 zip 形态嵌入前端产物,与 frontend/dist 一样在 frontend 阶段新鲜构建
+COPY --from=frontend /src/frontend/dist.zip ./frontend/dist.zip
 
 # 纯 Go 构建主程序（web-server 模式不需要 Wails WebView / CGO）
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \

@@ -11,7 +11,6 @@ interface AIChatHeaderProps {
     mutedColor: string;
     textColor: string;
     overlayTheme: OverlayWorkbenchTheme;
-    isV2Ui?: boolean;
     presentation?: 'dock' | 'detached';
     onHistoryClick: () => void;
     onClear: () => void;
@@ -56,7 +55,6 @@ const exportToMarkdown = (messages: AIChatMessage[], title: string, labels: Expo
 
 export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
     darkMode, mutedColor, textColor, overlayTheme,
-    isV2Ui = false,
     presentation = 'dock',
     onHistoryClick, onClear, onSettingsClick, onClose,
     onDetach, onAttach, onWindowDragStart,
@@ -85,51 +83,7 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
         onWindowDragStart(event);
     };
 
-    if (!isV2Ui) {
-        return (
-            <div
-                className="ai-chat-header"
-                style={{ borderBottom: 'none', padding: '10px 16px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.01)' }}
-                onPointerDown={handleDragStart}
-            >
-                <div className="ai-chat-header-left" style={{ gap: 8 }}>
-                    <Tooltip title={t('ai_chat.header.tooltip.history')}>
-                        <Button type="text" size="small" icon={<HistoryOutlined />} onClick={onHistoryClick} style={{ color: mutedColor }} />
-                    </Tooltip>
-                    <div className="ai-logo" style={{ background: overlayTheme.iconBg, color: overlayTheme.iconColor, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: 6, fontSize: 12 }}>
-                        <RobotOutlined />
-                    </div>
-                    <span className="ai-title" style={{ color: textColor, fontSize: 13, fontWeight: 600 }}>GoNavi AI</span>
-                </div>
-                <div className="ai-chat-header-right" onPointerDown={(event) => event.stopPropagation()}>
-                    {messages.length > 0 && (
-                        <Tooltip title={t('ai_chat.header.tooltip.export_markdown')}>
-                            <Button type="text" size="small" icon={<ExportOutlined />} onClick={exportMarkdown} style={{ color: mutedColor }} />
-                        </Tooltip>
-                    )}
-                    <Tooltip title={t('ai_chat.header.tooltip.new_chat_clear')}>
-                        <Button type="text" size="small" icon={<ClearOutlined />} onClick={onClear} style={{ color: mutedColor }} />
-                    </Tooltip>
-                    <Tooltip title={t('ai_chat.header.tooltip.settings')}>
-                        <Button type="text" size="small" icon={<SettingOutlined />} onClick={onSettingsClick} style={{ color: mutedColor }} />
-                    </Tooltip>
-                    {presentation === 'dock' && onDetach && (
-                        <Tooltip title={t('ai_chat.detached.action.popout')}>
-                            <Button type="text" size="small" icon={<ExpandOutlined />} onClick={onDetach} style={{ color: mutedColor }} />
-                        </Tooltip>
-                    )}
-                    {presentation === 'detached' && onAttach && (
-                        <Tooltip title={t('ai_chat.detached.action.dock')}>
-                            <Button type="text" size="small" icon={<CompressOutlined />} onClick={onAttach} style={{ color: mutedColor }} />
-                        </Tooltip>
-                    )}
-                    <Tooltip title={t('ai_chat.header.tooltip.close')}>
-                        <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} style={{ color: mutedColor }} />
-                    </Tooltip>
-                </div>
-            </div>
-        );
-    }
+
 
     return (
         <div
@@ -146,7 +100,6 @@ export const AIChatHeader: React.FC<AIChatHeaderProps> = ({
                         <span className="ai-title" style={{ color: textColor, fontSize: 13, fontWeight: 600 }}>GoNavi AI</span>
                         <small>{t('ai_chat.header.session.connected', { title: resolvedSessionTitle })}</small>
                     </div>
-                    <span className="gn-v2-ai-provider-badge">{t('app.theme.ui_version.v2.badge')}</span>
                 </div>
                 <div className="ai-chat-header-right gn-v2-ai-header-actions" onPointerDown={(event) => event.stopPropagation()}>
                     <Tooltip title={t('ai_chat.header.tooltip.new_chat')}>

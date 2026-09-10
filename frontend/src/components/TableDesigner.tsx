@@ -454,14 +454,14 @@ const renderDesignerHeaderTitle = (title: string) => (
 
 const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, embedded = false }) => {
   const isNewTable = !tab.tableName;
-  
+
   const [columns, setColumns] = useState<EditableColumn[]>([]);
   const [originalColumns, setOriginalColumns] = useState<EditableColumn[]>([]);
   const [indexes, setIndexes] = useState<IndexDefinition[]>([]);
   const [fks, setFks] = useState<ForeignKeyDefinition[]>([]);
   const [triggers, setTriggers] = useState<TriggerDefinition[]>([]);
   const [ddl, setDdl] = useState<string>('');
-  
+
   // New Table State
   const [newTableName, setNewTableName] = useState('');
   const [schemaOptions, setSchemaOptions] = useState<{ label: string; value: string }[]>([]);
@@ -496,7 +496,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const [tdengineChildTagDefs, setTdengineChildTagDefs] = useState<TDengineTagDraft[]>([]);
   const [tdengineChildTagValues, setTdengineChildTagValues] = useState<Record<string, string>>({});
   const [tdengineChildTagDefsLoading, setTdengineChildTagDefsLoading] = useState(false);
-  
+
   const [columnsLoading, setColumnsLoading] = useState(false);
   const [indexesLoading, setIndexesLoading] = useState(false);
   const [foreignKeysLoading, setForeignKeysLoading] = useState(false);
@@ -551,7 +551,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const [columnCharset, setColumnCharset] = useState<string | undefined>();
   const [columnCollation, setColumnCollation] = useState<string | undefined>();
   const [inlineCommentEditingKey, setInlineCommentEditingKey] = useState('');
-  
+
   const connections = useStore(state => state.connections);
   const addTab = useStore(state => state.addTab);
   const setActiveContext = useStore(state => state.setActiveContext);
@@ -561,7 +561,7 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   const appearance = useStore(state => state.appearance);
   const i18nLanguage = useTableDesignerI18nLanguage();
   const darkMode = theme === 'dark';
-  const isV2Ui = appearance.uiVersion === 'v2';
+
   const resizeGuideColor = darkMode ? '#f6c453' : '#1890ff';
   const readOnly = !!tab.readOnly;
   const designerTableTitle = isNewTable
@@ -750,10 +750,10 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
   useEffect(() => {
       const columnTypeOptions = resolveColumnTypeOptions(getDbType());
       const initialCols = [
-          { 
+          {
               title: renderDesignerHeaderTitle(t('table_designer.column.name', undefined, i18nLanguage)),
-              dataIndex: 'name', 
-              key: 'name', 
+              dataIndex: 'name',
+              key: 'name',
               width: 180,
               render: (text: string, record: EditableColumn) => readOnly ? text : (
                   renderDesignerCellField(
@@ -761,10 +761,10 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   )
               )
           },
-          { 
+          {
               title: renderDesignerHeaderTitle(t('table_designer.column.type', undefined, i18nLanguage)),
-              dataIndex: 'type', 
-              key: 'type', 
+              dataIndex: 'type',
+              key: 'type',
               width: 150,
               render: (text: string, record: EditableColumn) => readOnly ? text : (
                   renderDesignerCellField(
@@ -773,10 +773,10 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   )
               )
           },
-          { 
+          {
               title: renderDesignerHeaderTitle(t('table_designer.column.primary_key', undefined, i18nLanguage)),
-              dataIndex: 'key', 
-              key: 'key', 
+              dataIndex: 'key',
+              key: 'key',
               width: 60,
               align: 'center',
               render: (text: string, record: EditableColumn) => (
@@ -799,10 +799,10 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   )
               )
           },
-          { 
+          {
               title: renderDesignerHeaderTitle(t('table_designer.column.not_null', undefined, i18nLanguage)),
-              dataIndex: 'nullable', 
-              key: 'nullable', 
+              dataIndex: 'nullable',
+              key: 'nullable',
               width: 80,
               align: 'center',
               render: (text: string, record: EditableColumn) => (
@@ -812,10 +812,10 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   )
               )
           },
-          { 
+          {
               title: renderDesignerHeaderTitle(t('table_designer.column.default', undefined, i18nLanguage)),
-              dataIndex: 'default', 
-              key: 'default', 
+              dataIndex: 'default',
+              key: 'default',
               width: 180, // Increased default width
               render: (text: string | undefined, record: EditableColumn) => {
                   const value = record.hasDefault
@@ -837,9 +837,9 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
                   );
               }
           },
-          { 
+          {
               title: renderDesignerHeaderTitle(t('table_designer.column.comment', undefined, i18nLanguage)),
-              dataIndex: 'comment', 
+              dataIndex: 'comment',
               key: 'comment',
               width: 200,
               render: (text: string, record: EditableColumn) => readOnly ? (
@@ -1043,8 +1043,8 @@ const TableDesigner: React.FC<{ tab: TabData; embedded?: boolean }> = ({ tab, em
         return;
     }
 
-    const config = { 
-        ...conn.config, 
+    const config = {
+        ...conn.config,
         port: Number(conn.config.port),
         password: conn.config.password || "",
         database: conn.config.database || "",
@@ -3477,7 +3477,7 @@ END;`;
   const columnsTabContent = (
       <div
           ref={containerRef}
-          className={`table-designer-wrapper${isV2Ui ? ' gn-v2-designer-table-shell' : ''}`}
+          className="table-designer-wrapper gn-v2-designer-table-shell"
           onCopy={handleColumnClipboardCopy}
           onPaste={handleColumnClipboardPaste}
           style={{
@@ -3496,13 +3496,13 @@ END;`;
             }
         `}</style>
         {readOnly ? (
-        <Table 
-            dataSource={columns} 
-            columns={columnsWithSelect} 
-            rowKey="_key" 
+        <Table
+            dataSource={columns}
+            columns={columnsWithSelect}
+            rowKey="_key"
             rowClassName={(record: EditableColumn) => record._key === focusColumnKey ? 'table-designer-focus-row' : ''}
-            size="small" 
-            pagination={false} 
+            size="small"
+            pagination={false}
             loading={columnsLoading}
             scroll={{ y: tableHeight }}
             bordered={false}
@@ -3515,13 +3515,13 @@ END;`;
   ) : (
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={columns.map(c => c._key)} strategy={verticalListSortingStrategy}>
-            <Table 
-                dataSource={columns} 
-                columns={columnsWithSelect} 
-                rowKey="_key" 
+            <Table
+                dataSource={columns}
+                columns={columnsWithSelect}
+                rowKey="_key"
                 rowClassName={(record: EditableColumn) => record._key === focusColumnKey ? 'table-designer-focus-row' : ''}
-                size="small" 
-                pagination={false} 
+                size="small"
+                pagination={false}
                 loading={columnsLoading}
                 scroll={{ y: tableHeight }}
                 bordered={false}
@@ -3599,7 +3599,7 @@ END;`;
   return (
     <div
         ref={shellRef}
-        className={`table-designer-shell${isV2Ui ? ' gn-v2-table-designer' : ''}${embedded ? ' is-embedded' : ''}`}
+        className={`table-designer-shell gn-v2-table-designer${embedded ? ' is-embedded' : ''}`}
         style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, padding: embedded ? 0 : '6px 0', position: 'relative' }}
     >
         <style>{`
@@ -3902,8 +3902,7 @@ END;`;
             willChange: 'transform',
           }}
         />
-        {isV2Ui && (
-            <div className="gn-v2-designer-header">
+        <div className="gn-v2-designer-header">
                 <div className="gn-v2-designer-title">
                     <span>{t('table_designer.title.schema_designer', undefined, i18nLanguage)}</span>
                     <strong>{designerTableTitle}</strong>
@@ -3914,10 +3913,9 @@ END;`;
                     <span>{designerColumnSummary}</span>
                     {readOnly && <span>{t('table_designer.status.read_only', undefined, i18nLanguage)}</span>}
                 </div>
-            </div>
-        )}
+        </div>
         <div
-            className={isV2Ui ? 'gn-v2-designer-toolbar' : undefined}
+            className={'gn-v2-designer-toolbar'}
             style={{
                 padding: '10px 12px 8px 12px',
                 borderBottom: `1px solid ${panelToolbarBorder}`,
@@ -3951,7 +3949,7 @@ END;`;
             )}
             {isNewTable && (
                 <>
-                    <Input 
+                    <Input
                         {...noAutoCapInputProps}
                         placeholder={t('table_designer.placeholder.table_name', undefined, i18nLanguage)}
                         value={newTableName}
@@ -3965,7 +3963,7 @@ END;`;
                                 setTableDesignerSchema?.(tab.connectionId, explicitSchema);
                             }
                         }}
-                        style={{ width: 150 }} 
+                        style={{ width: 150 }}
                     />
                     {!isTDengineNewTable && (
                         <>
@@ -4018,8 +4016,8 @@ END;`;
             )}
             <div style={{ flex: 1 }} />
         </div>
-        <Tabs 
-            className={isV2Ui ? 'gn-v2-designer-tabs' : undefined}
+        <Tabs
+            className={'gn-v2-designer-tabs'}
             activeKey={activeKey}
             onChange={(key) => React.startTransition(() => setActiveKey(key))}
             style={{
@@ -4059,9 +4057,9 @@ END;`;
                         key: 'indexes',
                         label: t('table_designer.tab.indexes', undefined, i18nLanguage),
                         children: (
-                            <div className={`index-table-wrap${isV2Ui ? ' gn-v2-designer-tab-content gn-v2-designer-index-table' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div className="index-table-wrap gn-v2-designer-tab-content gn-v2-designer-index-table" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {!readOnly && (
-                                    <div className={isV2Ui ? 'gn-v2-designer-actionbar' : undefined} style={{ display: 'flex', gap: 8 }}>
+                                    <div className={'gn-v2-designer-actionbar'} style={{ display: 'flex', gap: 8 }}>
                                         <Button size="small" icon={<PlusOutlined />} disabled={!supportsIndexSchemaOps()} onClick={openCreateIndexModal}>{t('table_designer.action.add', undefined, i18nLanguage)}</Button>
                                         <Button size="small" icon={<EditOutlined />} disabled={!supportsIndexSchemaOps() || selectedIndexKeys.length !== 1} onClick={openEditIndexModal}>{t('table_designer.action.edit', undefined, i18nLanguage)}</Button>
                                         <Button size="small" icon={<DeleteOutlined />} danger disabled={!supportsIndexSchemaOps() || selectedIndexKeys.length === 0} onClick={handleDeleteIndex}>{t('table_designer.action.delete', undefined, i18nLanguage)}</Button>
@@ -4077,7 +4075,7 @@ END;`;
                                         )}
                                     </div>
                                 )}
-                                <div className={isV2Ui ? 'gn-v2-designer-section-note' : undefined} style={{ color: '#888', fontSize: 12 }}>
+                                <div className={'gn-v2-designer-section-note'} style={{ color: '#888', fontSize: 12 }}>
                                     {t('table_designer.summary.indexes', { count: groupedIndexes.length, fields: groupedIndexFieldCount }, i18nLanguage)}
                                 </div>
                                 <Table
@@ -4113,9 +4111,9 @@ END;`;
                         key: 'foreignKeys',
                         label: t('table_designer.tab.foreign_keys', undefined, i18nLanguage),
                         children: (
-                            <div className={isV2Ui ? 'gn-v2-designer-tab-content' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div className={'gn-v2-designer-tab-content'} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {!readOnly && (
-                                    <div className={isV2Ui ? 'gn-v2-designer-actionbar' : undefined} style={{ display: 'flex', gap: 8 }}>
+                                    <div className={'gn-v2-designer-actionbar'} style={{ display: 'flex', gap: 8 }}>
                                         <Button size="small" icon={<PlusOutlined />} disabled={!supportsForeignKeySchemaOps()} onClick={openCreateForeignKeyModal}>{t('table_designer.action.add', undefined, i18nLanguage)}</Button>
                                         <Button size="small" icon={<EditOutlined />} disabled={!supportsForeignKeySchemaOps() || !selectedForeignKey} onClick={openEditForeignKeyModal}>{t('table_designer.action.edit', undefined, i18nLanguage)}</Button>
                                         <Button size="small" icon={<DeleteOutlined />} danger disabled={!supportsForeignKeySchemaOps() || !selectedForeignKey} onClick={handleDeleteForeignKey}>{t('table_designer.action.delete', undefined, i18nLanguage)}</Button>
@@ -4131,8 +4129,8 @@ END;`;
                                         )}
                                     </div>
                                 )}
-                                <Table 
-                                    dataSource={groupedForeignKeys} 
+                                <Table
+                                    dataSource={groupedForeignKeys}
                                     columns={[
                                         { title: t('table_designer.foreign_key.column.constraint_name', undefined, i18nLanguage), dataIndex: 'constraintName', key: 'constraintName', width: 220 },
                                         {
@@ -4149,9 +4147,9 @@ END;`;
                                             render: (vals: string[]) => vals?.length ? vals.join(', ') : '-',
                                         },
                                     ]}
-                                    rowKey="key" 
-                                    size="small" 
-                                    pagination={false} 
+                                    rowKey="key"
+                                    size="small"
+                                    pagination={false}
                                     loading={foreignKeysLoading}
                                     scroll={{ x: 980, y: tableHeight }}
                                     rowSelection={{
@@ -4177,8 +4175,8 @@ END;`;
                         key: 'triggers',
                         label: t('table_designer.tab.triggers', undefined, i18nLanguage),
                         children: (
-                            <div className={isV2Ui ? 'gn-v2-designer-tab-content' : undefined}>
-                                <div className={isV2Ui ? 'gn-v2-designer-actionbar' : undefined} style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
+                            <div className={'gn-v2-designer-tab-content'}>
+                                <div className={'gn-v2-designer-actionbar'} style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
                                     <Button
                                         size="small"
                                         icon={<EyeOutlined />}
@@ -4247,7 +4245,7 @@ END;`;
                         label: 'DDL',
                         icon: <FileTextOutlined />,
                         children: (
-                        <div className={isV2Ui ? 'gn-v2-designer-ddl-shell' : undefined} style={{ height: '100%', minHeight: 320, border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
+                        <div className={'gn-v2-designer-ddl-shell'} style={{ height: '100%', minHeight: 320, border: `1px solid ${panelFrameColor}`, borderRadius: panelRadius, background: panelBodyBg }}>
                             <Editor
                                 height="100%"
                                 language="sql"

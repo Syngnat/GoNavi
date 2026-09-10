@@ -145,13 +145,13 @@ func TestDataSyncJobMappingProjectionRespectsTaskKindAndContent(t *testing.T) {
 			want: false,
 		},
 		{
-			name:       "different table names remain explicit",
+			name:       "renamed structure migration keeps the field projection implicit",
 			definition: syncjob.JobDefinition{Kind: syncjob.JobKindMigration, Options: syncjob.ExecutionOptions{Content: "schema"}},
 			mapping: syncjob.TableMapping{
 				SourceTable: "orders",
 				TargetTable: "orders_archive",
 			},
-			want: true,
+			want: false,
 		},
 		{
 			// issue #1014：UI 会把检测到的物理主键自动写入识别列；
@@ -190,6 +190,74 @@ func TestDataSyncJobMappingProjectionRespectsTaskKindAndContent(t *testing.T) {
 				t.Fatalf("explicit projection = %v, want %v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestBuildDataSyncJobEngineConfigKeepsAutoCreateForIdentityObjectRename(t *testing.T) {
+	definition := syncjob.JobDefinition{
+		Kind: syncjob.JobKindMigration,
+		Options: syncjob.ExecutionOptions{
+			Content:             "both",
+			TargetTableStrategy: "smart",
+			AutoAddColumns:      boolPtr(true),
+		},
+	}
+	config, err := buildDataSyncJobEngineConfig(
+		definition,
+		"run-test-to-test1",
+		resolvedDataSyncJobEndpoint{Config: connection.ConnectionConfig{Type: "mysql"}, Database: "source_db"},
+		resolvedDataSyncJobEndpoint{Config: connection.ConnectionConfig{Type: "dameng"}, Database: "target_db"},
+		syncjob.TableMapping{SourceTable: "test", TargetTable: "test1", KeyColumns: []string{"id"}},
+	)
+	if err != nil {
+		t.Fatalf("buildDataSyncJobEngineConfig returned error: %v", err)
+	}
+	if config.TargetTableStrategy != "smart" || !config.AutoAddColumns {
+		t.Fatalf("identity rename lost migration options: %+v", config)
+	}
+	if len(config.Mappings) != 1 || config.Mappings[0].Target.Name != "test1" || len(config.Mappings[0].Columns) != 0 {
+		t.Fatalf("identity rename must retain only its target object: %+v", config.Mappings)
+	}
+}
+
+func TestBuildDataSyncJobEngineConfigKeepsQualifiedIdentityMappingForTargetPlanner(t *testing.T) {
+	definition := syncjob.JobDefinition{
+		Kind: syncjob.JobKindMigration,
+		Options: syncjob.ExecutionOptions{
+			Content:             "both",
+			TargetTableStrategy: "smart",
+			AutoAddColumns:      boolPtr(true),
+		},
+	}
+	config, err := buildDataSyncJobEngineConfig(
+		definition,
+		"run-cross-schema-rename",
+		resolvedDataSyncJobEndpoint{Config: connection.ConnectionConfig{Type: "mysql"}, Database: "source_db"},
+		resolvedDataSyncJobEndpoint{Config: connection.ConnectionConfig{Type: "kingbase"}, Database: "target_db", Schema: "sysmac"},
+		syncjob.TableMapping{
+			SourceSchema: "WLJY_WJDP",
+			SourceTable:  "test1",
+			TargetSchema: "sysmac",
+			TargetTable:  "test",
+			KeyColumns:   []string{"id"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("buildDataSyncJobEngineConfig returned error: %v", err)
+	}
+	if got := strings.Join(config.Tables, ","); got != "WLJY_WJDP.test1" {
+		t.Fatalf("source tables = %q, want WLJY_WJDP.test1", got)
+	}
+	if config.TargetSchema != "sysmac" {
+		t.Fatalf("target schema = %q, want sysmac", config.TargetSchema)
+	}
+	if len(config.Mappings) != 1 {
+		t.Fatalf("identity object mapping count = %d, want 1", len(config.Mappings))
+	}
+	mapping := config.Mappings[0]
+	if mapping.Source.Schema != "WLJY_WJDP" || mapping.Source.Name != "test1" ||
+		mapping.Target.Schema != "sysmac" || mapping.Target.Name != "test" {
+		t.Fatalf("identity object mapping = %+v", mapping)
 	}
 }
 
@@ -394,5 +462,96 @@ func TestDecodeDataSyncWatermarkStatePreservesTypedCursor(t *testing.T) {
 	got := state.Mappings["orders -> archive"]
 	if sequence != 17 || got.TieBreakers[0].Value != "9007199254740993" || got.Watermark != wantCursor.Watermark {
 		t.Fatalf("decoded state = %#v, sequence=%d", got, sequence)
+	}
+}
+
+// TestMigrationSmartStrategyNotBlockedByPreflightInputs 锁住一次性迁移
+// mysql->dameng 的预检判定输入组合（用户曾报"目标表不存在，且当前任务不能
+// 自动创建该表"）。预检在 target_table_missing blocker 处的条件为
+// dataSyncJobMappingNeedsExplicitProjection || strategy == "existing_only" ||
+// !capability.SupportsAutoCreate——前端工作台曾把映射错定为 existing_only；
+// 这里钉住正确形态：隐式同名映射 + smart 策略 + 可建表能力，三个条件全为假。
+func TestMigrationSmartStrategyNotBlockedByPreflightInputs(t *testing.T) {
+	t.Parallel()
+
+	definition := syncjob.JobDefinition{
+		Kind:    syncjob.JobKindMigration,
+		Options: syncjob.ExecutionOptions{Content: "both", TargetTableStrategy: "smart"},
+	}
+	mapping := syncjob.TableMapping{
+		SourceTable: "orders",
+		TargetTable: "orders",
+		Enabled:     true,
+	}
+
+	if dataSyncJobMappingNeedsExplicitProjection(definition, mapping) {
+		t.Fatal("same-name structure migration must stay on the implicit path")
+	}
+	if definition.Options.TargetTableStrategy == "existing_only" {
+		t.Fatal("smart strategy must not degrade to existing_only")
+	}
+	for _, target := range []connection.ConnectionConfig{
+		{Type: "dameng"},
+		{Type: "custom", Driver: "dm"},
+	} {
+		capability := syncbackend.ResolveMigrationCapability(connection.ConnectionConfig{Type: "mysql"}, target)
+		if !capability.SupportsAutoCreate || capability.RequiresExistingTarget {
+			t.Fatalf("mysql->dameng capability must allow auto-create (target=%+v): %+v", target, capability)
+		}
+	}
+}
+
+func TestBuildDataSyncJobEngineConfigInheritsTaskStrategyForImplicitMigration(t *testing.T) {
+	definition := syncjob.JobDefinition{
+		Kind: syncjob.JobKindMigration,
+		Options: syncjob.ExecutionOptions{
+			Content:             "both",
+			TargetTableStrategy: "smart",
+		},
+	}
+	config, err := buildDataSyncJobEngineConfig(
+		definition,
+		"run-implicit-strategy",
+		resolvedDataSyncJobEndpoint{},
+		resolvedDataSyncJobEndpoint{},
+		syncjob.TableMapping{
+			SourceTable:         "orders",
+			TargetTable:         "orders",
+			TargetTableStrategy: "existing_only",
+		},
+	)
+	if err != nil {
+		t.Fatalf("buildDataSyncJobEngineConfig returned error: %v", err)
+	}
+	if config.TargetTableStrategy != "smart" {
+		t.Fatalf("implicit migration strategy = %q, want smart", config.TargetTableStrategy)
+	}
+}
+
+func TestBuildDataSyncJobEngineConfigPreservesExplicitMappingStrategy(t *testing.T) {
+	definition := syncjob.JobDefinition{
+		Kind: syncjob.JobKindMigration,
+		Options: syncjob.ExecutionOptions{
+			Content:             "both",
+			TargetTableStrategy: "smart",
+		},
+	}
+	config, err := buildDataSyncJobEngineConfig(
+		definition,
+		"run-explicit-strategy",
+		resolvedDataSyncJobEndpoint{},
+		resolvedDataSyncJobEndpoint{},
+		syncjob.TableMapping{
+			SourceTable:                 "orders",
+			TargetTable:                 "orders",
+			TargetTableStrategy:         "existing_only",
+			TargetTableStrategyExplicit: true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("buildDataSyncJobEngineConfig returned error: %v", err)
+	}
+	if config.TargetTableStrategy != "existing_only" {
+		t.Fatalf("explicit mapping strategy = %q, want existing_only", config.TargetTableStrategy)
 	}
 }

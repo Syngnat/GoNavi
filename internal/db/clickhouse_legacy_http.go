@@ -132,9 +132,17 @@ func (c *clickHouseLegacyHTTPClient) Ping(ctx context.Context) error {
 	return nil
 }
 
+// errRowBudgetExhausted 在流式解码达到行预算时由受限 collector 返回，
+// 用于立即停止读取响应体，Query 侧将其转换为正常截断返回。
+var errRowBudgetExhausted = errors.New("row budget exhausted")
+
 func (c *clickHouseLegacyHTTPClient) Query(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
 	collector := &clickHouseLegacyHTTPCollector{}
-	if err := c.StreamQuery(ctx, query, collector); err != nil {
+	var consumer QueryStreamConsumer = collector
+	if budget := RowBudgetFromContext(ctx); budget != nil {
+		consumer = &clickHouseLegacyHTTPBudgetCollector{collector: collector, budget: budget}
+	}
+	if err := c.StreamQuery(ctx, query, consumer); err != nil && !errors.Is(err, errRowBudgetExhausted) {
 		return collector.rows, collector.columns, err
 	}
 	return collector.rows, collector.columns, nil
@@ -319,4 +327,26 @@ func (c *clickHouseLegacyHTTPCollector) SetColumns(columns []string) error {
 func (c *clickHouseLegacyHTTPCollector) ConsumeRow(row map[string]interface{}) error {
 	c.rows = append(c.rows, row)
 	return nil
+}
+
+// clickHouseLegacyHTTPBudgetCollector 在达到每结果集行数上限后停止消费，
+// 让流式解码循环提前退出并释放响应体。
+type clickHouseLegacyHTTPBudgetCollector struct {
+	collector *clickHouseLegacyHTTPCollector
+	budget    *RowBudget
+	consumed  int
+}
+
+func (c *clickHouseLegacyHTTPBudgetCollector) SetColumns(columns []string) error {
+	return c.collector.SetColumns(columns)
+}
+
+func (c *clickHouseLegacyHTTPBudgetCollector) ConsumeRow(row map[string]interface{}) error {
+	maxRows := c.budget.MaxRowsPerResult()
+	if maxRows > 0 && c.consumed >= maxRows {
+		c.budget.MarkTruncated()
+		return errRowBudgetExhausted
+	}
+	c.consumed++
+	return c.collector.ConsumeRow(row)
 }

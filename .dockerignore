@@ -9,6 +9,7 @@ bin
 build
 dist
 frontend/dist
+frontend/dist.zip
 node_modules
 frontend/node_modules
 tools/__pycache__

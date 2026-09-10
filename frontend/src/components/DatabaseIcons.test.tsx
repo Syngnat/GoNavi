@@ -25,6 +25,7 @@ const BRAND_ICON_CASES: Array<[string, string, string]> = [
   ['goldendb', 'GoldenDB', 'goldendb.ico'],
   ['highgo', 'HighGo', 'highgo.ico'],
   ['iris', 'InterSystems IRIS', 'iris.png'],
+  ['cache', 'InterSystems Caché', 'iris.png'],
   ['tdengine', 'TDengine', 'tdengine.ico'],
   ['iotdb', 'Apache IoTDB', 'iotdb.svg'],
   ['rocketmq', 'RocketMQ', 'rocketmq.png'],

@@ -31,6 +31,10 @@ type ContextBuildRequest struct {
 	WorkspaceReference *WorkspaceSnapshotReference
 	ConversationCursor string
 	ProviderState      json.RawMessage
+	// ContextWindowTokens is the provider's total token capacity. The output
+	// reservation is removed before projecting prompt context.
+	ContextWindowTokens  int
+	ReservedOutputTokens int
 }
 
 // ContextBuildResult contains both the full immutable transcript and the
@@ -117,6 +121,22 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 	if b.MaxTokens < 0 {
 		return ContextBuildResult{}, errors.New("context max tokens cannot be negative")
 	}
+	if input.ContextWindowTokens < 0 {
+		return ContextBuildResult{}, errors.New("provider context window cannot be negative")
+	}
+	if input.ReservedOutputTokens < 0 {
+		return ContextBuildResult{}, errors.New("reserved output tokens cannot be negative")
+	}
+	maxTokens := b.MaxTokens
+	if input.ContextWindowTokens > 0 {
+		providerPromptTokens := input.ContextWindowTokens - input.ReservedOutputTokens
+		if providerPromptTokens <= 0 && (len(input.Messages) > 0 || input.WorkspaceSnapshot != nil) {
+			return ContextBuildResult{}, fmt.Errorf("%w: provider output reservation leaves no prompt capacity", ErrContextLimit)
+		}
+		if providerPromptTokens > 0 && (maxTokens == 0 || providerPromptTokens < maxTokens) {
+			maxTokens = providerPromptTokens
+		}
+	}
 
 	transcript := cloneContextMessages(input.Messages)
 	tools := cloneContextTools(input.Tools)
@@ -155,7 +175,7 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 		workspaceSize := measureContextMessage(workspaceMessage, estimate)
 		baseBytes, baseTokens = workspaceSize.bytes, workspaceSize.tokens
 	}
-	if contextLimitExceeded(baseBytes, baseTokens, b.MaxBytes, b.MaxTokens) {
+	if contextLimitExceeded(baseBytes, baseTokens, b.MaxBytes, maxTokens) {
 		return ContextBuildResult{}, fmt.Errorf("%w: workspace context", ErrContextLimit)
 	}
 	selectedStart := len(transcript)
@@ -166,7 +186,7 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 		}
 		messageBytes := transcriptSizes[index].bytes
 		messageTokens := transcriptSizes[index].tokens
-		if contextLimitExceeded(projectedBytes+messageBytes, projectedTokens+messageTokens, b.MaxBytes, b.MaxTokens) {
+		if contextLimitExceeded(projectedBytes+messageBytes, projectedTokens+messageTokens, b.MaxBytes, maxTokens) {
 			break
 		}
 		selectedStart = index
@@ -181,7 +201,7 @@ func (b *DeterministicContextBuilder) Build(ctx context.Context, input ContextBu
 	metadata := ContextCompressionMetadata{
 		Applied:           selectedStart > 0,
 		MaxBytes:          b.MaxBytes,
-		MaxTokens:         b.MaxTokens,
+		MaxTokens:         maxTokens,
 		ProviderBytes:     projectedBytes,
 		ProviderTokens:    projectedTokens,
 		TranscriptBytes:   transcriptBytes,

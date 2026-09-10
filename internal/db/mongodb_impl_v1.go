@@ -40,6 +40,29 @@ type mongoV1ChangeCollection interface {
 	InsertMany(context.Context, []interface{}, ...*options.InsertManyOptions) (*mongo.InsertManyResult, error)
 }
 
+type mongoCursorDecoder interface {
+	Next(context.Context) bool
+	Decode(any) error
+	Err() error
+}
+
+type mongoIndexCursor interface {
+	mongoCursorDecoder
+	Close(context.Context) error
+}
+
+type mongoIndexMetadata struct {
+	Name   any    `bson:"name"`
+	Key    bson.D `bson:"key"`
+	Unique bool   `bson:"unique"`
+}
+
+var listMongoCollectionIndexes = listMongoIndexesFromCollection
+
+func listMongoIndexesFromCollection(ctx context.Context, collection *mongo.Collection) (mongoIndexCursor, error) {
+	return collection.Indexes().List(ctx)
+}
+
 type mongoProxyDialer struct {
 	proxyConfig connection.ProxyConfig
 }
@@ -1257,46 +1280,49 @@ func (m *MongoDBV1) GetIndexes(dbName, tableName string) ([]connection.IndexDefi
 	defer cancel()
 
 	collection := m.client.Database(targetDB).Collection(tableName)
-	cursor, err := collection.Indexes().List(ctx)
+	cursor, err := listMongoCollectionIndexes(ctx, collection)
 	if err != nil {
 		return nil, err
 	}
 	defer cursor.Close(ctx)
+	return decodeMongoIndexCursor(ctx, cursor)
+}
 
+func decodeMongoIndexCursor(ctx context.Context, cursor mongoCursorDecoder) ([]connection.IndexDefinition, error) {
 	var indexes []connection.IndexDefinition
+	indexNumber := 0
 	for cursor.Next(ctx) {
-		var idx bson.M
+		indexNumber++
+		var idx mongoIndexMetadata
 		if err := cursor.Decode(&idx); err != nil {
-			continue
+			return nil, fmt.Errorf("decode MongoDB index %d: %w", indexNumber, err)
 		}
-
-		name := fmt.Sprintf("%v", idx["name"])
-		unique := false
-		if u, ok := idx["unique"].(bool); ok {
-			unique = u
-		}
-
-		// Extract key fields
-		if key, ok := idx["key"].(bson.M); ok {
-			seq := 1
-			for field := range key {
-				nonUnique := 1
-				if unique {
-					nonUnique = 0
-				}
-				indexes = append(indexes, connection.IndexDefinition{
-					Name:       name,
-					ColumnName: field,
-					NonUnique:  nonUnique,
-					SeqInIndex: seq,
-					IndexType:  "BTREE",
-				})
-				seq++
-			}
-		}
+		indexes = append(indexes, buildMongoIndexDefinitions(idx)...)
 	}
 
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("iterate MongoDB indexes: %w", err)
+	}
 	return indexes, nil
+}
+
+func buildMongoIndexDefinitions(idx mongoIndexMetadata) []connection.IndexDefinition {
+	indexes := make([]connection.IndexDefinition, 0, len(idx.Key))
+	nonUnique := 1
+	if idx.Unique {
+		nonUnique = 0
+	}
+	name := fmt.Sprintf("%v", idx.Name)
+	for position, key := range idx.Key {
+		indexes = append(indexes, connection.IndexDefinition{
+			Name:       name,
+			ColumnName: key.Key,
+			NonUnique:  nonUnique,
+			SeqInIndex: position + 1,
+			IndexType:  "BTREE",
+		})
+	}
+	return indexes
 }
 
 func (m *MongoDBV1) GetForeignKeys(dbName, tableName string) ([]connection.ForeignKeyDefinition, error) {

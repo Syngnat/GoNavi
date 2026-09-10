@@ -15,7 +15,6 @@ import type { SupportedLanguage } from "../i18n/types";
 
 const baseState = {
   appearance: {
-    uiVersion: "legacy",
     dataTableFontSize: 14,
     dataTableFontSizeFollowGlobal: true,
     customMonoFontFamily: "",

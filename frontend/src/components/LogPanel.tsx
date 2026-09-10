@@ -27,7 +27,7 @@ const LogPanel: React.FC<LogPanelProps> = ({
     const theme = useStore(state => state.theme);
     const appearance = useStore(state => state.appearance);
     const darkMode = theme === 'dark';
-    const isV2Ui = appearance.uiVersion === 'v2';
+
     const resolvedAppearance = resolveAppearanceValues(appearance);
     const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
 
@@ -43,27 +43,13 @@ const LogPanel: React.FC<LogPanelProps> = ({
     const bgMain = getBg('#1d1d1d');
     const shellOpacity = darkMode ? Math.max(0.18, opacity * 0.82) : Math.max(0.28, opacity * 0.92);
     const shellOpacityStrong = darkMode ? Math.max(0.22, opacity * 0.9) : Math.max(0.34, opacity * 0.96);
-    const panelDividerColor = isV2Ui ? 'var(--gn-br-2)' : (darkMode
-        ? `rgba(255,255,255,${Math.max(0.04, opacity * 0.10)})`
-        : `rgba(0,0,0,${Math.max(0.04, opacity * 0.08)})`);
-    const panelMutedTextColor = isV2Ui
-        ? 'var(--gn-fg-4)'
-        : (darkMode ? 'rgba(255,255,255,0.62)' : 'rgba(0,0,0,0.58)');
-    const panelPrimaryTextColor = isV2Ui
-        ? 'var(--gn-fg-1)'
-        : (darkMode ? '#f5f7ff' : '#162033');
-    const panelShellBg = isV2Ui ? 'var(--gn-bg-panel)' : (darkMode
-        ? `linear-gradient(180deg, rgba(15,20,30,${shellOpacity}) 0%, rgba(9,13,22,${shellOpacityStrong}) 100%)`
-        : `linear-gradient(180deg, rgba(255,255,255,${shellOpacityStrong}) 0%, rgba(246,248,252,${shellOpacity}) 100%)`);
-    const panelAccentColor = isV2Ui ? 'var(--gn-accent)' : (darkMode ? '#ffd666' : '#1677ff');
-    const panelAccentSoftBg = isV2Ui
-        ? 'var(--gn-accent-soft)'
-        : (darkMode
-            ? `rgba(255,214,102,${Math.max(0.10, Math.min(0.18, opacity * 0.18))})`
-            : `rgba(24,144,255,${Math.max(0.08, Math.min(0.16, opacity * 0.16))})`);
-    const panelShadow = isV2Ui ? 'var(--gn-shadow-md)' : (darkMode
-        ? `0 12px 28px rgba(0,0,0,${Math.max(0.05, opacity * 0.18)})`
-        : `0 12px 24px rgba(15,23,42,${Math.max(0.02, opacity * 0.08)})`);
+    const panelDividerColor = 'var(--gn-br-2)';
+    const panelMutedTextColor = 'var(--gn-fg-4)';
+    const panelPrimaryTextColor = 'var(--gn-fg-1)';
+    const panelShellBg = 'var(--gn-bg-panel)';
+    const panelAccentColor = 'var(--gn-accent)';
+    const panelAccentSoftBg = 'var(--gn-accent-soft)';
+    const panelShadow = 'var(--gn-shadow-md)';
     const logScrollbarThumb = darkMode
         ? `rgba(255, 255, 255, ${Math.max(0.18, opacity * 0.34)})`
         : `rgba(0, 0, 0, ${Math.max(0.12, opacity * 0.26)})`;
@@ -193,9 +179,7 @@ const LogPanel: React.FC<LogPanelProps> = ({
                     display: 'flex',
                     flexDirection: 'column',
                     overflow: 'hidden',
-                    background: isV2Ui
-                        ? 'var(--gn-query-workbench-bg, var(--gn-bg-panel-2))'
-                        : undefined,
+                    background: 'var(--gn-query-workbench-bg, var(--gn-bg-panel-2))',
                 }}
             >
                 {executionError && (
@@ -251,8 +235,8 @@ const LogPanel: React.FC<LogPanelProps> = ({
     }
 
     return (
-        <div style={{ 
-            height, 
+        <div style={{
+            height,
             margin: 0,
             border: `1px solid ${panelDividerColor}`,
             borderRadius: 14,
@@ -283,8 +267,8 @@ const LogPanel: React.FC<LogPanelProps> = ({
             )}
 
             {/* Toolbar */}
-            <div style={{ 
-                padding: '10px 14px', 
+            <div style={{
+                padding: '10px 14px',
                 borderBottom: `1px solid ${panelDividerColor}`,
                 display: 'flex',
                 justifyContent: 'space-between',

@@ -50,6 +50,7 @@ const SIDEBAR_SCHEMA_DB_TYPES = new Set([
   "open-gauss",
   "sqlserver",
   "iris",
+  "cache",
   "oracle",
   "dameng",
   "duckdb",

@@ -1,0 +1,918 @@
+.gonavi-ai-observability {
+  --ai-observe-accent: #15a39a;
+  --ai-observe-accent-soft: color-mix(in srgb, var(--ai-observe-accent) 14%, transparent);
+  --ai-observe-warning: #d99017;
+  --ai-observe-danger: #de5b67;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding-bottom: 12px;
+  font-family: var(--gn-font-sans);
+}
+
+.gonavi-ai-observability-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gonavi-ai-observability-toolbar .ant-select {
+  min-width: 128px;
+}
+
+.gonavi-ai-observability-toolbar-spacer {
+  flex: 1;
+}
+
+.gonavi-ai-observability-coverage {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  color: var(--ai-observe-muted);
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
+.gonavi-ai-observability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.gonavi-ai-observability-card {
+  min-width: 0;
+  border: 1px solid var(--ai-observe-border);
+  border-radius: 10px;
+  background: var(--ai-observe-card);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--ai-observe-shadow) 8%, transparent);
+}
+
+.gonavi-ai-observability-metric {
+  position: relative;
+  overflow: hidden;
+  padding: 14px 15px;
+}
+
+.gonavi-ai-observability-metric::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  content: '';
+  background: var(--metric-color, var(--ai-observe-accent));
+}
+
+.gonavi-ai-observability-metric-label {
+  color: var(--ai-observe-muted);
+  font-size: var(--gn-font-size-sm, 12px);
+  line-height: 1.35;
+}
+
+.gonavi-ai-observability-metric-value {
+  display: block;
+  margin-top: 5px;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: clamp(17px, 2.2vw, 24px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+}
+
+.gonavi-ai-observability-metric-note {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--ai-observe-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-section {
+  padding: 14px;
+}
+
+.gonavi-ai-observability-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.gonavi-ai-observability-section-title {
+  margin: 0;
+  color: var(--ai-observe-title);
+  font-size: var(--gn-font-size, 13px);
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.gonavi-ai-observability-section-hint {
+  margin-top: 2px;
+  color: var(--ai-observe-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.gonavi-ai-observability-chart {
+  width: 100%;
+  height: 240px;
+}
+
+.gonavi-ai-observability-chart-large {
+  height: 280px;
+}
+
+.gonavi-ai-observability-chart-medium {
+  height: 270px;
+}
+
+.gonavi-ai-observability-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.75fr);
+  gap: 10px;
+}
+
+.gonavi-ai-observability-split-even {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gonavi-ai-observability-outcome-bar {
+  display: flex;
+  width: 100%;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ai-observe-muted) 11%, transparent);
+}
+
+.gonavi-ai-observability-outcome-bar > span {
+  min-width: 3px;
+}
+
+.gonavi-ai-observability-outcome-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.gonavi-ai-observability-outcome-legend > div {
+  display: grid;
+  grid-template-columns: 7px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ai-observe-muted);
+  font-size: 11px;
+}
+
+.gonavi-ai-observability-outcome-legend i,
+.gonavi-ai-observability-distribution-list i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.gonavi-ai-observability-outcome-legend strong,
+.gonavi-ai-observability-outcome-legend em {
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.gonavi-ai-observability-token-composition {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ai-observe-border);
+}
+
+.gonavi-ai-observability-token-composition > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  padding: 10px;
+  border: 1px solid var(--ai-observe-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ai-observe-card) 94%, var(--ai-observe-accent) 6%);
+}
+
+.gonavi-ai-observability-token-composition span,
+.gonavi-ai-observability-token-composition em {
+  color: var(--ai-observe-muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.gonavi-ai-observability-token-composition strong {
+  grid-row: span 2;
+  align-self: center;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gonavi-ai-observability-model-list {
+  display: grid;
+  gap: 11px;
+}
+
+.gonavi-ai-observability-model-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(120px, 2fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gonavi-ai-observability-model-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-model-track {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ai-observe-muted) 14%, transparent);
+}
+
+.gonavi-ai-observability-model-bar {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #15a39a, #4c7ff0);
+  transform-origin: left center;
+}
+
+.gonavi-ai-observability-model-value {
+  color: var(--ai-observe-muted);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gonavi-ai-observability-model-list-rich {
+  gap: 0;
+}
+
+.gonavi-ai-observability-model-row-rich {
+  display: grid;
+  grid-template-columns: 24px minmax(120px, 0.8fr) minmax(150px, 1.4fr) minmax(245px, 1.25fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ai-observe-border) 72%, transparent);
+}
+
+.gonavi-ai-observability-model-row-rich:last-child {
+  border-bottom: 0;
+}
+
+.gonavi-ai-observability-rank {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--ai-observe-accent) 12%, transparent);
+  color: var(--ai-observe-accent);
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.gonavi-ai-observability-model-identity {
+  display: grid;
+  min-width: 0;
+}
+
+.gonavi-ai-observability-model-identity strong {
+  overflow: hidden;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-model-identity span {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--ai-observe-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-model-track-rich {
+  display: flex;
+  height: 9px;
+}
+
+.gonavi-ai-observability-model-bar-input {
+  height: 100%;
+  background: #4c7ff0;
+}
+
+.gonavi-ai-observability-model-bar-output {
+  height: 100%;
+  background: #15a39a;
+}
+
+.gonavi-ai-observability-model-stats {
+  display: grid;
+  grid-template-columns: minmax(62px, 1fr) repeat(3, auto);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ai-observe-muted);
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.gonavi-ai-observability-model-stats strong {
+  color: var(--ai-observe-title);
+  font-size: 11px;
+}
+
+.gonavi-ai-observability-latency {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.gonavi-ai-observability-latency-cell {
+  padding: 12px;
+  border: 1px solid var(--ai-observe-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ai-observe-card) 92%, var(--ai-observe-accent) 8%);
+}
+
+.gonavi-ai-observability-latency-cell strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 17px;
+}
+
+.gonavi-ai-observability-latency-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 12px;
+}
+
+.gonavi-ai-observability-latency-metrics > div {
+  padding: 11px 12px;
+  border: 1px solid var(--ai-observe-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ai-observe-card) 93%, var(--ai-observe-accent) 7%);
+}
+
+.gonavi-ai-observability-latency-metrics span {
+  display: block;
+  color: var(--ai-observe-muted);
+  font-size: 10px;
+}
+
+.gonavi-ai-observability-latency-metrics strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gonavi-ai-observability-section-header-wrap {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.gonavi-ai-observability-dimension-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--ai-observe-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ai-observe-muted) 7%, transparent);
+}
+
+.gonavi-ai-observability-dimension-tabs button {
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--ai-observe-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.gonavi-ai-observability-dimension-tabs button[aria-selected='true'] {
+  background: var(--ai-observe-card);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--ai-observe-shadow) 10%, transparent);
+  color: var(--ai-observe-title);
+}
+
+.gonavi-ai-observability-dimension-tabs button:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ai-observe-accent) 38%, transparent);
+}
+
+.gonavi-ai-observability-distribution {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.62fr) minmax(300px, 1.38fr);
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.gonavi-ai-observability-donut {
+  position: relative;
+  width: 100%;
+  height: 230px;
+}
+
+.gonavi-ai-observability-donut > div:last-child {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  display: grid;
+  width: 88px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.gonavi-ai-observability-donut > div:last-child strong {
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 16px;
+}
+
+.gonavi-ai-observability-donut > div:last-child span {
+  margin-top: 2px;
+  color: var(--ai-observe-muted);
+  font-size: 10px;
+}
+
+.gonavi-ai-observability-distribution-list {
+  display: grid;
+  min-width: 0;
+}
+
+.gonavi-ai-observability-distribution-list > div {
+  display: grid;
+  grid-template-columns: 8px minmax(95px, 1fr) auto auto 54px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 3px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ai-observe-border) 72%, transparent);
+}
+
+.gonavi-ai-observability-distribution-list > div:last-child {
+  border-bottom: 0;
+}
+
+.gonavi-ai-observability-distribution-list span {
+  overflow: hidden;
+  color: var(--ai-observe-title);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-distribution-list em,
+.gonavi-ai-observability-distribution-list strong {
+  color: var(--ai-observe-muted);
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.gonavi-ai-observability-distribution-list strong {
+  color: var(--ai-observe-title);
+  font-size: 11px;
+}
+
+.gonavi-ai-observability-heatmap-scroll {
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.gonavi-ai-observability-heatmap {
+  display: grid;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.gonavi-ai-observability-heatmap-heading,
+.gonavi-ai-observability-heatmap-provider,
+.gonavi-ai-observability-heatmap-cell {
+  display: grid;
+  min-height: 42px;
+  align-content: center;
+  overflow: hidden;
+  padding: 6px 8px;
+  border: 1px solid var(--ai-observe-border);
+  border-radius: 6px;
+}
+
+.gonavi-ai-observability-heatmap-heading {
+  min-height: 34px;
+  color: var(--ai-observe-muted);
+  font-family: var(--gn-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-heatmap-provider {
+  color: var(--ai-observe-title);
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-heatmap-cell {
+  border-color: color-mix(in srgb, var(--ai-observe-border) 76%, transparent);
+  color: var(--ai-observe-title);
+  text-align: center;
+}
+
+.gonavi-ai-observability-heatmap-cell strong {
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gonavi-ai-observability-heatmap-cell span {
+  margin-top: 2px;
+  color: var(--ai-observe-muted);
+  font-size: 8px;
+}
+
+.gonavi-ai-observability-heatmap-scale {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--ai-observe-muted);
+  font-size: 9px;
+}
+
+.gonavi-ai-observability-heatmap-scale i {
+  width: 90px;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(21, 163, 154, 0.08), rgba(21, 163, 154, 0.74));
+}
+
+.gonavi-ai-observability-heatmap-scale em {
+  margin-left: 6px;
+  font-style: normal;
+}
+
+.gonavi-ai-observability-load-more {
+  display: flex;
+  justify-content: center;
+}
+
+.gonavi-ai-observability-empty-small {
+  min-height: 250px;
+}
+
+.gonavi-ai-observability-table-card {
+  display: flex;
+  min-height: 280px;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ai-observe-table-surface);
+}
+
+.gonavi-ai-settings-panel-request-events {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.gonavi-ai-settings-panel-request-events[hidden] {
+  display: none !important;
+}
+
+.gonavi-ai-settings-panel-request-events > div:first-child {
+  flex: 0 0 auto;
+}
+
+.gonavi-ai-settings-panel-request-events > .gonavi-ai-observability-request-events,
+.gonavi-ai-observability-request-events {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  gap: 10px;
+  padding-bottom: 0;
+}
+
+.gonavi-ai-observability-request-events .gonavi-ai-observability-toolbar {
+  flex: 0 0 auto;
+  padding-inline: 2px;
+}
+
+.gonavi-ai-observability-table-card .ant-table-wrapper {
+  display: flex;
+  height: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gonavi-ai-observability-table-card .ant-table-wrapper > .ant-spin-nested-loading,
+.gonavi-ai-observability-table-card .ant-table-wrapper > .ant-spin-nested-loading > .ant-spin-container,
+.gonavi-ai-observability-table-card .ant-table,
+.gonavi-ai-observability-table-card .ant-table-container {
+  height: 100%;
+  min-height: 0;
+  background: var(--ai-observe-table-surface) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-container {
+  display: flex;
+  flex-direction: column;
+}
+
+.gonavi-ai-observability-table-card .ant-table-header {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--ai-observe-border);
+  background: color-mix(in srgb, var(--ai-observe-muted) 8%, var(--ai-observe-table-surface)) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-body,
+.gonavi-ai-observability-table-card .ant-table-content,
+.gonavi-ai-observability-table-card .ant-table-placeholder {
+  min-height: 0;
+  flex: 1 1 auto;
+  background: var(--ai-observe-table-surface) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-thead > tr > th.ant-table-cell {
+  position: relative;
+  height: 38px;
+  padding: 0 12px !important;
+  border-bottom: 0 !important;
+  background: color-mix(in srgb, var(--ai-observe-muted) 8%, var(--ai-observe-table-surface)) !important;
+  color: color-mix(in srgb, var(--ai-observe-title) 82%, var(--ai-observe-muted)) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.035em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.gonavi-ai-observability-table-card .ant-table-thead > tr > th.ant-table-cell::before {
+  inset-inline-end: 0 !important;
+  height: 16px !important;
+  background-color: color-mix(in srgb, var(--ai-observe-muted) 18%, transparent) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-thead > tr > th.ant-table-column-has-sorters:hover {
+  background: color-mix(in srgb, var(--ai-observe-accent) 7%, var(--ai-observe-table-surface)) !important;
+  color: var(--ai-observe-title) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-thead > tr > th.ant-table-column-sort {
+  background: color-mix(in srgb, var(--ai-observe-muted) 8%, var(--ai-observe-table-surface)) !important;
+  box-shadow: inset 0 -2px 0 var(--ai-observe-accent);
+  color: var(--ai-observe-accent-text) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-column-sorters {
+  gap: 8px;
+}
+
+.gonavi-ai-observability-table-card .ant-table-column-sorter {
+  display: grid;
+  width: 18px;
+  height: 22px;
+  flex: 0 0 18px;
+  margin-inline-start: auto;
+  place-items: center;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--ai-observe-muted) 58%, transparent);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.gonavi-ai-observability-table-card .ant-table-column-has-sorters:hover .ant-table-column-sorter {
+  background: color-mix(in srgb, var(--ai-observe-accent) 10%, transparent);
+  color: var(--ai-observe-muted);
+}
+
+.gonavi-ai-observability-table-card .ant-table-column-sorter-up.active,
+.gonavi-ai-observability-table-card .ant-table-column-sorter-down.active {
+  color: var(--ai-observe-accent);
+}
+
+.gonavi-ai-observability-table-card .ant-table-tbody > tr > td.ant-table-cell {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--ai-observe-border) 78%, transparent) !important;
+  background: var(--ai-observe-table-surface) !important;
+  color: var(--ai-observe-title);
+  font-size: 12px;
+}
+
+.gonavi-ai-observability-table-card .ant-table-tbody > tr > td.ant-table-column-sort {
+  background: var(--ai-observe-table-surface) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-tbody > tr:hover > td.ant-table-cell {
+  background: color-mix(in srgb, var(--ai-observe-hover-subtle) 72%, var(--ai-observe-table-surface)) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-tbody > tr:hover > td.ant-table-column-sort {
+  background: color-mix(in srgb, var(--ai-observe-accent) 7%, var(--ai-observe-table-surface)) !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-cell-fix-left,
+.gonavi-ai-observability-table-card .ant-table-cell-fix-right {
+  background-clip: padding-box !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-cell-fix-left-last::after,
+.gonavi-ai-observability-table-card .ant-table-cell-fix-right-first::after {
+  box-shadow: none !important;
+}
+
+.gonavi-ai-observability-table-card .ant-table-tbody > tr > td.ant-table-cell-fix-left-last {
+  border-inline-end: 1px solid color-mix(in srgb, var(--ai-observe-muted) 14%, transparent);
+}
+
+.gonavi-ai-observability-table-card .ant-table-tbody > tr > td.ant-table-cell-fix-right-first {
+  border-inline-start: 1px solid color-mix(in srgb, var(--ai-observe-muted) 14%, transparent);
+}
+
+.gonavi-ai-observability-table-card .ant-table-body::-webkit-scrollbar,
+.gonavi-ai-observability-table-card .ant-table-content::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.gonavi-ai-observability-table-card .ant-table-body::-webkit-scrollbar-track,
+.gonavi-ai-observability-table-card .ant-table-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.gonavi-ai-observability-table-card .ant-table-body::-webkit-scrollbar-thumb,
+.gonavi-ai-observability-table-card .ant-table-content::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ai-observe-muted) 36%, transparent);
+  background-clip: padding-box;
+}
+
+.gonavi-ai-observability-table-primary {
+  color: var(--ai-observe-title);
+  font-weight: 600;
+}
+
+.gonavi-ai-observability-table-secondary {
+  margin-top: 2px;
+  color: var(--ai-observe-muted);
+  font-family: var(--gn-font-mono);
+  font-size: 10px;
+}
+
+.gonavi-ai-observability-table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-height: 36px;
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-top: 1px solid var(--ai-observe-border);
+  color: var(--ai-observe-muted);
+  font-size: 11px;
+}
+
+.gonavi-ai-observability-empty {
+  display: grid;
+  min-height: 210px;
+  place-items: center;
+}
+
+@media (max-width: 900px) {
+  .gonavi-ai-observability-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gonavi-ai-observability-split,
+  .gonavi-ai-observability-split-even {
+    grid-template-columns: 1fr;
+  }
+
+  .gonavi-ai-observability-model-row-rich {
+    grid-template-columns: 24px minmax(110px, 0.8fr) minmax(120px, 1.2fr);
+  }
+
+  .gonavi-ai-observability-model-stats {
+    grid-column: 2 / -1;
+  }
+
+  .gonavi-ai-observability-distribution {
+    grid-template-columns: 200px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 620px) {
+  .gonavi-ai-observability-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gonavi-ai-observability-toolbar .ant-select {
+    flex: 1 1 130px;
+  }
+
+  .gonavi-ai-observability-toolbar-spacer {
+    display: none;
+  }
+
+  .gonavi-ai-observability-chart {
+    height: 210px;
+  }
+
+  .gonavi-ai-observability-chart-large,
+  .gonavi-ai-observability-chart-medium {
+    height: 230px;
+  }
+
+  .gonavi-ai-observability-model-row {
+    grid-template-columns: minmax(90px, 1fr) minmax(80px, 1.4fr) auto;
+  }
+
+  .gonavi-ai-observability-token-composition,
+  .gonavi-ai-observability-latency-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .gonavi-ai-observability-model-row-rich {
+    grid-template-columns: 24px minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .gonavi-ai-observability-model-track-rich,
+  .gonavi-ai-observability-model-stats {
+    grid-column: 2 / -1;
+  }
+
+  .gonavi-ai-observability-distribution {
+    grid-template-columns: 1fr;
+  }
+
+  .gonavi-ai-observability-donut {
+    height: 210px;
+  }
+
+  .gonavi-ai-observability-distribution-list > div {
+    grid-template-columns: 8px minmax(75px, 1fr) auto 48px;
+  }
+
+  .gonavi-ai-observability-distribution-list em:nth-of-type(2) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gonavi-ai-observability-model-bar {
+    transition: none !important;
+  }
+}

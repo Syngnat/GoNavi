@@ -68,10 +68,11 @@ func (b MCPHTTPServerBundle) HasAny() bool {
 type ProviderBundle struct {
 	APIKey           string            `json:"apiKey,omitempty"`
 	SensitiveHeaders map[string]string `json:"sensitiveHeaders,omitempty"`
+	CLIEnv           map[string]string `json:"cliEnv,omitempty"`
 }
 
 func (b ProviderBundle) HasAny() bool {
-	return strings.TrimSpace(b.APIKey) != "" || len(b.SensitiveHeaders) > 0
+	return strings.TrimSpace(b.APIKey) != "" || len(b.SensitiveHeaders) > 0 || len(b.CLIEnv) > 0
 }
 
 type File struct {
@@ -393,6 +394,13 @@ func (s *Store) PutAIProvider(id string, bundle ProviderBundle) error {
 				cloned[key] = value
 			}
 			bundle.SensitiveHeaders = cloned
+		}
+		if len(bundle.CLIEnv) > 0 {
+			cloned := make(map[string]string, len(bundle.CLIEnv))
+			for key, value := range bundle.CLIEnv {
+				cloned[key] = value
+			}
+			bundle.CLIEnv = cloned
 		}
 		file.AIProviders[strings.TrimSpace(id)] = bundle
 	})

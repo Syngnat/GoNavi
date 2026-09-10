@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { I18nProvider } from '../../i18n/provider';
 import AIChatAttachmentStrip from './AIChatAttachmentStrip';
-import { buildOverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 
 vi.mock('../../i18n/runtime', () => ({
   syncLanguageRuntime: vi.fn(async () => undefined),
@@ -20,7 +19,6 @@ vi.mock('@ant-design/icons', async () => {
 });
 
 const renderAttachmentStrip = (
-  variant: 'legacy' | 'v2',
   attachments: Array<Record<string, unknown>>,
   preference: 'en-US' | 'zh-CN' = 'en-US',
 ) => renderToStaticMarkup(
@@ -32,21 +30,16 @@ const renderAttachmentStrip = (
     <AIChatAttachmentStrip
       attachments={attachments as any}
       onRemove={() => undefined}
-      overlayTheme={buildOverlayWorkbenchTheme(false)}
-      variant={variant}
     />
   </I18nProvider>,
 );
 
 const renderAttachmentStripWithoutProvider = (
-  variant: 'legacy' | 'v2',
   attachments: Array<Record<string, unknown>>,
 ) => renderToStaticMarkup(
   <AIChatAttachmentStrip
     attachments={attachments as any}
     onRemove={() => undefined}
-    overlayTheme={buildOverlayWorkbenchTheme(false)}
-    variant={variant}
   />,
 );
 
@@ -83,31 +76,19 @@ describe('AIChatAttachmentStrip i18n source guards', () => {
       mimeType: 'image/png',
     }];
 
-    const legacyFileMarkup = renderAttachmentStrip('legacy', fileAttachment);
-    const legacyImageMarkup = renderAttachmentStrip('legacy', imageAttachment);
-    const v2FileMarkup = renderAttachmentStrip('v2', fileAttachment);
-    const v2ImageMarkup = renderAttachmentStrip('v2', imageAttachment);
-    const zhLegacyFileMarkup = renderAttachmentStrip('legacy', fileAttachment, 'zh-CN');
-    const zhV2FileMarkup = renderAttachmentStrip('v2', fileAttachment, 'zh-CN');
-    const zhLegacyGenericMarkup = renderAttachmentStrip('legacy', genericAttachment, 'zh-CN');
-    const zhV2GenericMarkup = renderAttachmentStrip('v2', genericAttachment, 'zh-CN');
-    const zhLegacyImageNoPreviewMarkup = renderAttachmentStrip('legacy', imageWithoutPreviewAttachment, 'zh-CN');
-    const zhV2ImageNoPreviewMarkup = renderAttachmentStrip('v2', imageWithoutPreviewAttachment, 'zh-CN');
+    const fileMarkup = renderAttachmentStrip(fileAttachment);
+    const imageMarkup = renderAttachmentStrip(imageAttachment);
+    const zhFileMarkup = renderAttachmentStrip(fileAttachment, 'zh-CN');
+    const zhGenericMarkup = renderAttachmentStrip(genericAttachment, 'zh-CN');
+    const zhImageNoPreviewMarkup = renderAttachmentStrip(imageWithoutPreviewAttachment, 'zh-CN');
 
-    expect(legacyFileMarkup).toContain('aria-label="Remove attachment"');
-    expect(v2FileMarkup).toContain('aria-label="Remove attachment"');
-    expect(legacyImageMarkup).toContain('aria-label="Remove image"');
-    expect(v2ImageMarkup).toContain('aria-label="Remove image"');
-    expect(legacyImageMarkup).toContain('alt="Attached image 0"');
-    expect(v2ImageMarkup).toContain('alt="Attached image 0"');
-    expect(legacyFileMarkup).toContain('orders.csv');
-    expect(v2FileMarkup).toContain('orders.csv');
-    expect(zhLegacyFileMarkup).toContain('文本');
-    expect(zhV2FileMarkup).toContain('文本');
-    expect(zhLegacyGenericMarkup).toContain('文件');
-    expect(zhV2GenericMarkup).toContain('文件');
-    expect(zhLegacyImageNoPreviewMarkup).toContain('图片');
-    expect(zhV2ImageNoPreviewMarkup).toContain('图片');
+    expect(fileMarkup).toContain('aria-label="Remove attachment"');
+    expect(imageMarkup).toContain('aria-label="Remove image"');
+    expect(imageMarkup).toContain('alt="Attached image 0"');
+    expect(fileMarkup).toContain('orders.csv');
+    expect(zhFileMarkup).toContain('文本');
+    expect(zhGenericMarkup).toContain('文件');
+    expect(zhImageNoPreviewMarkup).toContain('图片');
   });
 
   it('falls back to English attachment labels without an i18n provider while preserving raw names', () => {
@@ -141,32 +122,21 @@ describe('AIChatAttachmentStrip i18n source guards', () => {
       mimeType: 'image/png',
     }];
 
-    expect(() => renderAttachmentStripWithoutProvider('legacy', fileAttachment)).not.toThrow();
-    expect(() => renderAttachmentStripWithoutProvider('v2', imageAttachment)).not.toThrow();
+    expect(() => renderAttachmentStripWithoutProvider(fileAttachment)).not.toThrow();
+    expect(() => renderAttachmentStripWithoutProvider(imageAttachment)).not.toThrow();
 
-    const legacyFileMarkup = renderAttachmentStripWithoutProvider('legacy', fileAttachment);
-    const legacyImageMarkup = renderAttachmentStripWithoutProvider('legacy', imageAttachment);
-    const v2FileMarkup = renderAttachmentStripWithoutProvider('v2', fileAttachment);
-    const v2ImageMarkup = renderAttachmentStripWithoutProvider('v2', imageAttachment);
-    const legacyGenericMarkup = renderAttachmentStripWithoutProvider('legacy', genericAttachment);
-    const v2GenericMarkup = renderAttachmentStripWithoutProvider('v2', genericAttachment);
-    const legacyImageNoPreviewMarkup = renderAttachmentStripWithoutProvider('legacy', imageWithoutPreviewAttachment);
-    const v2ImageNoPreviewMarkup = renderAttachmentStripWithoutProvider('v2', imageWithoutPreviewAttachment);
+    const fileMarkup = renderAttachmentStripWithoutProvider(fileAttachment);
+    const imageMarkup = renderAttachmentStripWithoutProvider(imageAttachment);
+    const genericMarkup = renderAttachmentStripWithoutProvider(genericAttachment);
+    const imageNoPreviewMarkup = renderAttachmentStripWithoutProvider(imageWithoutPreviewAttachment);
 
-    expect(legacyFileMarkup).toContain('aria-label="Remove attachment"');
-    expect(v2FileMarkup).toContain('aria-label="Remove attachment"');
-    expect(legacyImageMarkup).toContain('aria-label="Remove image"');
-    expect(v2ImageMarkup).toContain('aria-label="Remove image"');
-    expect(legacyImageMarkup).toContain('alt="Attached image 0"');
-    expect(v2ImageMarkup).toContain('alt="Attached image 0"');
-    expect(legacyFileMarkup).toContain('orders.csv');
-    expect(v2FileMarkup).toContain('orders.csv');
-    expect(legacyFileMarkup).toContain('Text');
-    expect(v2FileMarkup).toContain('Text');
-    expect(legacyGenericMarkup).toContain('File');
-    expect(v2GenericMarkup).toContain('File');
-    expect(legacyImageNoPreviewMarkup).toContain('Image');
-    expect(v2ImageNoPreviewMarkup).toContain('Image');
-    expect(legacyFileMarkup).not.toContain('ai_chat.input.attachment.remove_file');
+    expect(fileMarkup).toContain('aria-label="Remove attachment"');
+    expect(imageMarkup).toContain('aria-label="Remove image"');
+    expect(imageMarkup).toContain('alt="Attached image 0"');
+    expect(fileMarkup).toContain('orders.csv');
+    expect(fileMarkup).toContain('Text');
+    expect(genericMarkup).toContain('File');
+    expect(imageNoPreviewMarkup).toContain('Image');
+    expect(fileMarkup).not.toContain('ai_chat.input.attachment.remove_file');
   });
 });

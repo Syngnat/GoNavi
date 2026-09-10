@@ -88,6 +88,11 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.gn-message-workbench-body > * {
+  min-height: 0;
 }
 
 .gn-message-subscriptions {
@@ -246,6 +251,7 @@ button.gn-message-subscription-item,
 .gn-message-stream {
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   background:
@@ -268,27 +274,103 @@ button.gn-message-subscription-item,
 
 .gn-message-stream-toolbar .ant-input-search { width: min(300px, 38vw); }
 
-.gn-message-stream-list {
+.gn-message-stream-body {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 42%);
+}
+
+.gn-message-stream-list {
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 9px;
-  padding: 12px clamp(12px, 2.2vw, 28px) 32px;
+  gap: 6px;
+  padding: 10px 10px 20px;
+  overscroll-behavior: contain;
+}
+
+.gn-message-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 18px;
+  border-left: 1px solid var(--gn-br-1);
+  background: var(--gn-bg-panel);
+}
+
+.gn-message-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gn-message-detail-head > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gn-message-detail-head strong {
+  overflow: hidden;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-message-detail-time {
+  color: var(--gn-fg-4);
+  font-size: 11px;
+}
+
+.gn-message-detail pre {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--gn-br-1);
+  border-radius: 8px;
+  color: var(--gn-fg-2);
+  background: var(--gn-bg-panel-2);
+  font-family: var(--gn-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .gn-message-card {
   --gn-message-topic-color: var(--gn-accent);
-  width: min(860px, 92%);
+  width: 100%;
+  min-height: 52px;
+  flex: 0 0 auto;
   position: relative;
-  align-self: flex-start;
   overflow: hidden;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
   border: 1px solid var(--gn-br-1);
   border-radius: var(--gn-message-card-radius);
   background: color-mix(in srgb, var(--gn-bg-panel) 96%, transparent);
   box-shadow: var(--gn-shadow-sm);
+  cursor: pointer;
+}
+
+.gn-message-card.is-selected {
+  border-color: color-mix(in srgb, var(--gn-message-topic-color) 45%, var(--gn-br-1));
+  background: color-mix(in srgb, var(--gn-message-topic-color) 10%, var(--gn-bg-panel));
 }
 
 .gn-message-card::before {
@@ -300,7 +382,6 @@ button.gn-message-subscription-item,
 }
 
 .gn-message-card.published {
-  align-self: flex-end;
   border-color: color-mix(in srgb, var(--gn-accent) 25%, var(--gn-br-1));
   background: color-mix(in srgb, var(--gn-accent) 7%, var(--gn-bg-panel));
 }
@@ -335,6 +416,29 @@ button.gn-message-subscription-item,
 }
 
 .gn-message-card-head .ant-typography { flex: 0 0 auto; font-size: 10px; }
+
+.gn-message-payload-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-1);
+  font-family: var(--gn-font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-message-card-topic {
+  overflow: hidden;
+  padding: 0 13px 7px;
+  color: var(--gn-fg-4);
+  font-family: var(--gn-font-mono);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .gn-message-direction {
   flex: 0 0 auto;
@@ -531,6 +635,8 @@ textarea.gn-message-command-editor {
 @media (max-width: 840px) {
   .gn-message-workbench-header { align-items: flex-start; flex-direction: column; }
   .gn-message-workbench-body { grid-template-columns: minmax(180px, 34vw) minmax(0, 1fr); }
+  .gn-message-stream-body { grid-template-columns: 1fr; }
+  .gn-message-detail { border-left: none; border-top: 1px solid var(--gn-br-1); min-height: 220px; }
   .gn-message-card { width: 100%; }
   .gn-message-stream-toolbar { align-items: stretch; flex-direction: column; }
   .gn-message-stream-toolbar .ant-input-search { width: 100%; }

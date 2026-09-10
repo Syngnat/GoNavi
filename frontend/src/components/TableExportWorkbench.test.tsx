@@ -498,6 +498,29 @@ describe('TableExportWorkbench', () => {
     expect(renderer.root.findAllByType(Button).find((node) => (
       node.props.type === 'primary' && node.props.size === 'large'
     ))?.props.disabled).toBe(false);
+
+    const selectionCount = renderer.root.findByProps({ 'data-export-column-selection-count': 'true' });
+    expect(selectionCount.children.join('')).toBe('已选择 2 / 2 个字段');
+    await act(async () => {
+      renderer.root.findByProps({ 'data-export-columns-clear': 'true' }).props.onClick();
+      await Promise.resolve();
+    });
+    columnSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(columnSelect?.props.value).toEqual([]);
+    expect(renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ))?.props.disabled).toBe(true);
+
+    await act(async () => {
+      renderer.root.findByProps({ 'data-export-columns-select-all': 'true' }).props.onClick();
+      await Promise.resolve();
+    });
+    columnSelect = renderer.root.findAllByType(Select).find((node) => node.props.mode === 'multiple');
+    expect(columnSelect?.props.value).toEqual(['id', 'email']);
+    expect(renderer.root.findAllByType(Button).find((node) => (
+      node.props.type === 'primary' && node.props.size === 'large'
+    ))?.props.disabled).toBe(false);
+
     await act(async () => {
       columnSelect?.props.onChange(['id']);
       await Promise.resolve();

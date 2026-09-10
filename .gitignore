@@ -15,14 +15,15 @@ __pycache__/
 *.py[cod]
 
 dist/
+frontend/dist.zip
 .DS_Store
 .gemini-clipboard
 .env
 docker.*.env
 GoNavi-Wails
 GoNavi-Wails.exe
-optional-driver-agent
-optional-driver-agent.exe
+/optional-driver-agent
+/optional-driver-agent.exe
 .ace-tool/
 .superpowers/
 .claude/

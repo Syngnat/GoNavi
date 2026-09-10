@@ -19,6 +19,7 @@ import {
 import { isPostgresSchemaDialect } from '../../utils/connectionDriverType';
 import { buildMetadataIdentityKey } from '../../utils/metadataIdentity';
 import { appendTableAlias, resolveTableAliasSyntax } from '../../utils/sqlDialect';
+import { resolveSqlStatementPrefix } from '../../utils/sqlStatementSelection';
 import {
     readAgentRun,
     submitAgentInput,
@@ -50,6 +51,7 @@ export interface QueryEditorAiContext {
     port?: string | number;
     sourceType?: string;
     sqlDialect?: string;
+    tableAliasPrefix?: string;
     currentDb?: string;
     visibleDbs?: string[];
     tables?: CompletionTableMeta[];
@@ -237,13 +239,14 @@ export const resolveQueryEditorInlineRuntimeReadiness = (
 
 export const shouldRequestQueryEditorInlineCompletion = (
     snapshot: QueryEditorAiEditorSnapshot,
+    sqlDialect = '',
 ): boolean => {
-    if (!shouldAllowQueryEditorInlineMemoryCompletion(snapshot)) {
+    if (!shouldAllowQueryEditorInlineMemoryCompletion(snapshot, sqlDialect)) {
         return false;
     }
 
     const prefix = String(snapshot.prefix || '');
-    const currentStatement = getCurrentStatementPrefix(prefix);
+    const currentStatement = getCurrentStatementPrefix(prefix, sqlDialect);
     const trimmedStatement = currentStatement.trim();
     if (trimmedStatement.length < 3) {
         return false;
@@ -253,6 +256,7 @@ export const shouldRequestQueryEditorInlineCompletion = (
 
 export const shouldAllowQueryEditorInlineMemoryCompletion = (
     snapshot: QueryEditorAiEditorSnapshot,
+    sqlDialect = '',
 ): boolean => {
     const lineAfterCursor = String(snapshot.currentLineAfterCursor || '');
     if (lineAfterCursor.length > 0) {
@@ -260,7 +264,7 @@ export const shouldAllowQueryEditorInlineMemoryCompletion = (
     }
 
     const prefix = String(snapshot.prefix || '');
-    const currentStatement = getCurrentStatementPrefix(prefix);
+    const currentStatement = getCurrentStatementPrefix(prefix, sqlDialect);
     const trimmedStatement = currentStatement.trim();
     if (/[;)]\s*$/.test(trimmedStatement)) {
         return false;
@@ -337,16 +341,19 @@ export const resolveQueryEditorInlineMemoryInsertText = ({
     editorSnapshot,
     memoryEntries,
     sourceType,
+    sqlDialect,
 }: {
     editorSnapshot: QueryEditorAiEditorSnapshot;
     memoryEntries: QueryEditorInlineMemoryEntry[];
     sourceType?: string;
+    sqlDialect?: string;
 }): string => {
-    if (!shouldAllowQueryEditorInlineMemoryCompletion(editorSnapshot)) {
+    const dialect = sqlDialect || sourceType || '';
+    if (!shouldAllowQueryEditorInlineMemoryCompletion(editorSnapshot, dialect)) {
         return '';
     }
 
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, dialect);
     const normalizedStatementPrefix = normalizeInlineMemoryMatchText(statementPrefix);
     for (const entry of memoryEntries || []) {
         const candidateSql = normalizeInlineMemoryCandidateSql(entry?.sql || '');
@@ -356,8 +363,8 @@ export const resolveQueryEditorInlineMemoryInsertText = ({
         if (normalizedStatementPrefix && !normalizeInlineMemoryMatchText(candidateSql).startsWith(normalizedStatementPrefix)) {
             continue;
         }
-        const insertText = resolveInlineSqlInsertText(candidateSql, editorSnapshot.prefix);
-        const intent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+        const insertText = resolveInlineSqlInsertText(candidateSql, editorSnapshot.prefix, dialect);
+        const intent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot, dialect);
         return limitInlineInsertText(
             intent.intent === 'table_name' || intent.intent === 'column_name'
                 ? applyInlineMemoryObjectCase(insertText, intent.fragment, isPostgresSchemaDialect(sourceType || ''))
@@ -378,17 +385,17 @@ export const resolveQueryEditorInlineLocalCompletion = ({
     deferEmptySchemaCompletion?: boolean;
     autoAddTableAlias?: boolean;
 }): { handled: boolean; insertText: string } => {
-    if (!shouldRequestQueryEditorInlineCompletion(editorSnapshot)) {
+    const dialect = aiContext.sqlDialect || aiContext.sourceType || '';
+    if (!shouldRequestQueryEditorInlineCompletion(editorSnapshot, dialect)) {
         return {
             handled: true,
             insertText: '',
         };
     }
 
-    const dialect = aiContext.sqlDialect || aiContext.sourceType || '';
     const isTableAliasContext = isQueryEditorInlineTableAliasPending(editorSnapshot, dialect);
     const tableAliasInsertText = autoAddTableAlias
-        ? resolveDeterministicInlineTableAliasInsertText(editorSnapshot, dialect)
+        ? resolveDeterministicInlineTableAliasInsertText(editorSnapshot, dialect, aiContext.tableAliasPrefix)
         : '';
     if (tableAliasInsertText) {
         return {
@@ -406,7 +413,7 @@ export const resolveQueryEditorInlineLocalCompletion = ({
         };
     }
 
-    const inlineIntent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+    const inlineIntent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot, dialect);
     const deterministicCompletion = resolveDeterministicInlineSchemaCompletion(
         aiContext,
         editorSnapshot,
@@ -437,7 +444,7 @@ export const resolveQueryEditorInlineLocalCompletion = ({
         }
     }
 
-    return resolveDeterministicInlineSyntaxCompletion(editorSnapshot);
+    return resolveDeterministicInlineSyntaxCompletion(editorSnapshot, dialect);
 };
 
 const nextQueryEditorAgentRequestID = (): string => {
@@ -571,6 +578,7 @@ export const requestQueryEditorInlineCompletion = async ({
     editorSnapshot: QueryEditorAiEditorSnapshot;
     autoAddTableAlias?: boolean;
 }): Promise<string> => {
+    const dialect = aiContext.sqlDialect || aiContext.sourceType || '';
     const localCompletion = resolveQueryEditorInlineLocalCompletion({
         aiContext,
         editorSnapshot,
@@ -579,7 +587,7 @@ export const requestQueryEditorInlineCompletion = async ({
     if (localCompletion.handled) {
         return localCompletion.insertText;
     }
-    const inlineIntent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+    const inlineIntent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot, dialect);
     const readiness = await resolveQueryEditorInlineRuntimeReadiness(service);
     if (!service || !readiness.ready || !readiness.provider) {
         return '';
@@ -605,7 +613,7 @@ export const requestQueryEditorInlineCompletion = async ({
     }
 
     const sanitized = sanitizeSqlAssistantResponse(responseContent);
-    const insertText = resolveInlineSqlInsertText(sanitized, editorSnapshot.prefix);
+    const insertText = resolveInlineSqlInsertText(sanitized, editorSnapshot.prefix, dialect);
     if (inlineIntent.intent === 'table_name') {
         return limitInlineInsertText(resolveValidatedInlineTableAiInsertText(
             inlineAiContext,
@@ -636,7 +644,10 @@ export const shouldTriggerQueryEditorInlineObjectSuggestFallback = ({
     aiContext: QueryEditorAiContext;
     editorSnapshot: QueryEditorAiEditorSnapshot;
 }): boolean => {
-    const intent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+    const intent = resolveQueryEditorInlineCompletionIntentDetails(
+        editorSnapshot,
+        aiContext.sqlDialect || aiContext.sourceType || '',
+    );
     if (intent.intent === 'table_name') {
         return shouldAllowInlineTableAiFallback(aiContext, intent.fragment);
     }
@@ -898,14 +909,14 @@ export const sanitizeSqlAssistantResponse = (raw: string): string => {
     return text;
 };
 
-export const resolveInlineSqlInsertText = (generatedSql: string, prefix: string): string => {
+export const resolveInlineSqlInsertText = (generatedSql: string, prefix: string, sqlDialect = ''): string => {
     const generated = String(generatedSql || '').trimEnd();
     if (!generated.trim()) {
         return '';
     }
 
     const prefixText = String(prefix || '');
-    const statementPrefix = getCurrentStatementPrefix(prefixText);
+    const statementPrefix = getCurrentStatementPrefix(prefixText, sqlDialect);
     const candidates = [
         prefixText.slice(-INLINE_PREFIX_LIMIT),
         statementPrefix,
@@ -986,8 +997,8 @@ export const buildQueryEditorInlineCompletionContext = (
 ): QueryEditorAiContext => {
     const currentDb = String(context.currentDb || '').trim();
     const dialect = context.sqlDialect || context.sourceType || '';
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
-    const intent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, dialect);
+    const intent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot, dialect);
     const referencedTables = collectInlineTableReferences(statementPrefix, currentDb, context.visibleDbs || [], dialect);
 
     let nextContext: QueryEditorAiContext;
@@ -1488,8 +1499,9 @@ const collectCurrentDatabaseTables = (
 
 export const resolveQueryEditorInlineCompletionIntentDetails = (
     editorSnapshot: QueryEditorAiEditorSnapshot,
+    sqlDialect = '',
 ): QueryEditorInlineCompletionIntentDetails => {
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, sqlDialect);
     const tableMatch = statementPrefix.match(INLINE_TABLE_COMPLETION_RE);
     if (tableMatch) {
         const rawFragment = String(tableMatch[1] || '').trim();
@@ -1564,7 +1576,7 @@ const resolveInlineColumnOwnerReference = (
 
     const currentDb = String(context.currentDb || '').trim();
     const dialect = context.sqlDialect || context.sourceType || '';
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, dialect);
     const aliasMap = buildQueryEditorAliasMap(statementPrefix, currentDb, dialect);
     const qualifierSegments = splitQueryIdentifierPathSegments(qualifier, dialect);
     const qualifierKey = buildQueryEditorIdentifierIdentityKey(qualifierSegments, dialect);
@@ -1720,6 +1732,7 @@ const resolveValidatedInlineObjectCandidateInsertText = ({
     fragment,
     insertText,
     prefix,
+    sqlDialect,
     normalizer,
     safePattern,
     preserveCandidateCase = false,
@@ -1728,6 +1741,7 @@ const resolveValidatedInlineObjectCandidateInsertText = ({
     fragment: string;
     insertText: string;
     prefix: string;
+    sqlDialect?: string;
     normalizer: (value: string) => string;
     safePattern: RegExp;
     preserveCandidateCase?: boolean;
@@ -1759,6 +1773,7 @@ const resolveValidatedInlineObjectCandidateInsertText = ({
     return resolveInlineSqlInsertText(
         applyQueryEditorCompletionFragmentCase(matchedCandidate, fragment, preserveCandidateCase),
         prefix,
+        sqlDialect,
     );
 };
 
@@ -1804,8 +1819,9 @@ const resolveDeterministicInlineTableInsertText = (
 const resolveDeterministicInlineTableAliasInsertText = (
     editorSnapshot: QueryEditorAiEditorSnapshot,
     dialect?: string,
+    tableAliasPrefix?: string,
 ): string => {
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, dialect);
     if (!/\s$/.test(statementPrefix) || !isQueryEditorTableAliasCompletionContext(statementPrefix, dialect || '')) {
         return '';
     }
@@ -1814,7 +1830,12 @@ const resolveDeterministicInlineTableAliasInsertText = (
     if (!currentReference || currentReference.alias) {
         return '';
     }
-    const alias = buildQueryEditorTableSourceAlias(currentReference.tableIdent, statementPrefix, dialect || '');
+    const alias = buildQueryEditorTableSourceAlias(
+        currentReference.tableIdent,
+        statementPrefix,
+        dialect || '',
+        tableAliasPrefix,
+    );
     return appendTableAlias('', alias, dialect || '');
 };
 
@@ -1822,7 +1843,7 @@ export const isQueryEditorInlineTableAliasPending = (
     editorSnapshot: QueryEditorAiEditorSnapshot,
     dialect = '',
 ): boolean => {
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, dialect);
     if (!/\s$/.test(statementPrefix) || !isQueryEditorTableAliasCompletionContext(statementPrefix, dialect)) {
         return false;
     }
@@ -1855,6 +1876,7 @@ const resolveValidatedInlineTableAiInsertText = (
     fragment,
     insertText,
     prefix: editorSnapshot.prefix,
+    sqlDialect: context.sqlDialect || context.sourceType || '',
     normalizer: normalizeInlineIdentifierPath,
     safePattern: INLINE_TABLE_FRAGMENT_SAFE_RE,
     preserveCandidateCase: isPostgresSchemaDialect(context.sourceType || ''),
@@ -1871,6 +1893,7 @@ const resolveValidatedInlineColumnAiInsertText = (
     fragment,
     insertText,
     prefix: editorSnapshot.prefix,
+    sqlDialect: context.sqlDialect || context.sourceType || '',
     normalizer: stripInlineIdentifierQuotes,
     safePattern: INLINE_COLUMN_FRAGMENT_SAFE_RE,
     preserveCandidateCase: isPostgresSchemaDialect(context.sourceType || ''),
@@ -1901,7 +1924,10 @@ const resolveDeterministicInlineSchemaCompletion = (
     editorSnapshot: QueryEditorAiEditorSnapshot,
     intentDetails?: QueryEditorInlineCompletionIntentDetails,
 ): { handled: boolean; insertText: string } => {
-    const intent = intentDetails || resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+    const intent = intentDetails || resolveQueryEditorInlineCompletionIntentDetails(
+        editorSnapshot,
+        context.sqlDialect || context.sourceType || '',
+    );
     if (intent.intent === 'table_name') {
         return {
             handled: true,
@@ -1945,7 +1971,10 @@ export const resolveQueryEditorInlineCompletionEdit = ({
         editText: insertText,
         replacePrefixLength: 0,
     };
-    const intent = resolveQueryEditorInlineCompletionIntentDetails(editorSnapshot);
+    const intent = resolveQueryEditorInlineCompletionIntentDetails(
+        editorSnapshot,
+        aiContext.sqlDialect || aiContext.sourceType || '',
+    );
     if ((intent.intent !== 'table_name' && intent.intent !== 'column_name') || !intent.fragment) {
         return fallback;
     }
@@ -1996,8 +2025,9 @@ const buildKeywordSuffixInsertText = (statementPrefix: string, suffix: string): 
 
 const resolveDeterministicInlineSyntaxCompletion = (
     editorSnapshot: QueryEditorAiEditorSnapshot,
+    sqlDialect = '',
 ): { handled: boolean; insertText: string } => {
-    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix);
+    const statementPrefix = getCurrentStatementPrefix(editorSnapshot.prefix, sqlDialect);
     const trimmedStatement = statementPrefix.trim();
 
     if (!trimmedStatement) {
@@ -2136,11 +2166,9 @@ const isInlineCompletionScopedToKnownContext = (
     });
 };
 
-const getCurrentStatementPrefix = (prefix: string): string => {
-    const text = String(prefix || '');
-    const semicolonIndex = text.lastIndexOf(';');
-    return semicolonIndex >= 0 ? text.slice(semicolonIndex + 1) : text;
-};
+const getCurrentStatementPrefix = (prefix: string, sqlDialect = ''): string => (
+    resolveSqlStatementPrefix(prefix, sqlDialect)
+);
 
 const hasUnclosedBlockComment = (text: string): boolean =>
     String(text || '').lastIndexOf('/*') > String(text || '').lastIndexOf('*/');

@@ -9,6 +9,7 @@ import {
     quoteSqlIdentifierPart,
     resolveSqlDialect,
 } from '../../utils/sqlDialect';
+import { normalizeTableAliasPrefix } from '../../utils/tableAliasPrefix';
 import { extractQueryResultTableRef, type QueryResultTableRef } from '../../utils/queryResultTable';
 import { quoteIdentPart } from '../../utils/sql';
 import { splitSidebarQualifiedName } from '../../utils/sidebarLocate';
@@ -2989,12 +2990,18 @@ export const buildQueryEditorAliasMap = (
 };
 
 /**
- * 为 SQL 表源生成简短别名。仅使用表名本身的单词首字母，避免将数据库或 schema
- * 混入别名；同一语句中已使用的别名会依次追加数字。
+ * 为 SQL 表源生成短别名。配置有效自定义前缀时从 prefix0 连续编号；否则使用
+ * 表名单词首字母。同一语句中已使用的别名会避让冲突。
  */
-export const buildQueryEditorTableSourceAlias = (tableName: string, statementText: string, dbType = ''): string => {
+export const buildQueryEditorTableSourceAlias = (
+    tableName: string,
+    statementText: string,
+    dbType = '',
+    customPrefix = '',
+): string => {
+    const prefix = normalizeTableAliasPrefix(customPrefix);
     const table = getCompletionQualifiedNameLastPart(tableName);
-    const baseAlias = table
+    const baseAlias = prefix || table
         .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
         .split(/[^A-Za-z0-9$]+/)
         .filter((word) => /^[A-Za-z]/.test(word))
@@ -3007,6 +3014,14 @@ export const buildQueryEditorTableSourceAlias = (tableName: string, statementTex
             .map((reference) => String(reference.alias || '').trim().toLowerCase())
             .filter(Boolean),
     );
+    if (prefix) {
+        let suffix = 0;
+        while (usedAliases.has(`${prefix}${suffix}`.toLowerCase())) {
+            suffix += 1;
+        }
+        return `${prefix}${suffix}`;
+    }
+
     if (!usedAliases.has(baseAlias)) return baseAlias;
 
     let suffix = 2;
@@ -4332,6 +4347,20 @@ export const resolveQueryEditorNavigationDecorations = (
         endColumn: windowRange.end + 1,
         hoverMessage,
     }];
+};
+
+export const resolveNextQueryEditorTableLocateIndex = (
+    previous: { lineNumber: number; signature: string; index: number } | null | undefined,
+    lineNumber: number,
+    signature: string,
+    count: number,
+): number => {
+    if (count <= 0) return 0;
+    return previous
+        && previous.lineNumber === lineNumber
+        && previous.signature === signature
+        ? (previous.index + 1) % count
+        : 0;
 };
 
 export const dispatchQueryEditorSidebarLocate = (detail: Record<string, unknown>) => {

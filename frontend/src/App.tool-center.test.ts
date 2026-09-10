@@ -14,6 +14,14 @@ const sidebarSource = readFileSync(
   fileURLToPath(new globalThis.URL('./components/Sidebar.tsx', import.meta.url)),
   'utf8',
 );
+const driverWorkbenchSource = readFileSync(
+  fileURLToPath(new globalThis.URL('./components/DriverManagerWorkbench.tsx', import.meta.url)),
+  'utf8',
+);
+const driverModalSource = readFileSync(
+  fileURLToPath(new globalThis.URL('./components/DriverManagerModal.tsx', import.meta.url)),
+  'utf8',
+);
 
 describe('settings center tool entries', () => {
 
@@ -53,23 +61,22 @@ describe('settings center tool entries', () => {
 
     const appearanceEffectSource = appSource.slice(appearanceEffectStart, appearanceEffectEnd);
     expect(appearanceEffectSource).toContain('useLayoutEffect(() => {');
-    expect(appearanceEffectSource).toContain("document.body.setAttribute('data-ui-version', appearance.uiVersion);");
+    expect(appearanceEffectSource).toContain("document.body.setAttribute('data-ui-version', 'v2');");
   });
 
-  it('exposes toolbar button overrides from both V2 and legacy theme settings', () => {
-    expect(appSource.match(/<ToolbarButtonAppearanceSettings \/>/g)).toHaveLength(2);
+  it('exposes toolbar button overrides from the theme settings pane', () => {
+    expect(appSource.match(/<ToolbarButtonAppearanceSettings \/>/g)).toHaveLength(1);
 
-    const legacySettingsStart = appSource.indexOf('const renderThemeSettingsContentLegacy = () =>');
-    const legacySettingsEnd = appSource.indexOf(
-      'const renderThemeSettingsContent = () =>',
-      legacySettingsStart,
+    const settingsStart = appSource.indexOf('const renderThemeSettingsContentV2 =');
+    const settingsEnd = appSource.indexOf(
+      'const renderThemeSettingsContent =',
+      settingsStart,
     );
-    const legacySettingsSource = appSource.slice(legacySettingsStart, legacySettingsEnd);
+    const settingsSource = appSource.slice(settingsStart, settingsEnd);
 
-    expect(legacySettingsStart).toBeGreaterThanOrEqual(0);
-    expect(legacySettingsEnd).toBeGreaterThan(legacySettingsStart);
-    expect(legacySettingsSource).toContain("t('app.theme.toolbar_buttons.legacy_hint')");
-    expect(legacySettingsSource).toContain('<ToolbarButtonAppearanceSettings />');
+    expect(settingsStart).toBeGreaterThanOrEqual(0);
+    expect(settingsEnd).toBeGreaterThan(settingsStart);
+    expect(settingsSource).toContain('<ToolbarButtonAppearanceSettings />');
   });
 
   it('captures native window bounds before maximising and before the final quit flush', () => {
@@ -139,10 +146,111 @@ describe('settings center tool entries', () => {
     const dprCheckIndex = resizeHandlerSource.indexOf("scheduleDevicePixelRatioCheck('resize');");
   });
 
+  it('uses a persistent settings tree instead of a back-to-list drill-in', () => {
+    expect(appSource).toContain('<SettingsCenterTreeNav');
+    expect(appSource).toContain('buildSettingsCenterWorkbenchTab');
+    expect(appSource).toContain('SettingsCenterWorkbenchRegistrar');
+    expect(appSource).not.toMatch(/rootClassName=\{`gonavi-settings-center-modal/);
+    expect(appSource).toContain("return { key: 'language', group }");
+    expect(appSource).toContain("return { key: 'proxy', group }");
+    expect(appSource).toContain("return { key: 'data-root-application', group }");
+    expect(appSource).not.toContain('handleBackFromSettingsCenterPane');
+    expect(appSource).not.toContain('gonavi-settings-center-group-tab');
+    expect(appSource).not.toContain("t('common.back_to_settings')");
+    expect(appSource).toContain("key: `theme-${section.value}`");
+    expect(appSource).toContain('renderThemeSettingsContent({ hideSectionTabs: true })');
+    expect(appSource).toContain('AI_SETTINGS_NAV_ITEMS.map');
+    expect(appSource).toContain("key: `ai-${item.key}`");
+    expect(appSource).toContain("key: 'ai-providers-connected'");
+    expect(appSource).toContain("key: 'data-root-application'");
+    expect(appSource).toContain("key: 'data-root-agent'");
+    expect(appSource).toContain("key: 'data-root-saved-queries'");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'data-root-agent')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'data-root-saved-queries')");
+    expect(appSource).toContain('onProvidersViewChange={setAiSettingsProviderView}');
+    expect(appSource).toContain('onCloseHost={handleCancelSettingsCenterPane}');
+    expect(appSource).toContain("handleOpenToolCenterPane('workspace', 'drivers')");
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'drivers'");
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenDriverManagerWorkbench\(\);/);
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'export')");
+    expect(appSource).toContain("handleOpenToolCenterPane('config', 'connection-health')");
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'connection-health'");
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*handleOpenConnectionHealth\(\);/);
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('schemaCompare')");
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('dataCompare')");
+    expect(appSource).toContain("handleOpenDataSyncWorkbench('sync')");
+    expect(appSource).not.toContain('LazyDataSyncWorkbench');
+    expect(appSource).not.toMatch(/handleCancelSettingsCenterPane\(\);\s*addTab\(buildDataSyncWorkbenchTab/);
+    expect(appSource).toContain('hideSidebar');
+    expect(appSource).toContain('section={aiSettingsSection}');
+    expect(appSource).toContain("title: t('app.settings.entry.about.title')");
+    expect(appSource).toMatch(/key: 'about' as const,[\s\S]*?items: \[\],/);
+    expect(appSource).toContain('className="gonavi-about-link-grid"');
+    expect(appSource).toContain("className=\"gonavi-about-identity\"");
+    expect(appSource).not.toMatch(/className="gonavi-about-identity"[\s\S]*?<TagOutlined \/>[\s\S]*?aboutDisplayVersion/);
+    expect(appSource).not.toMatch(/className="gonavi-about-identity"[\s\S]*?UpCircleOutlined/);
+    expect(appSource).not.toContain("app.about.hero.update_available_version");
+    expect(appSource).toContain("t('app.about.version.current')");
+    expect(appSource).toContain("t('app.about.project.hualong.title')");
+    expect(appSource).toContain('https://api.hualong.online/');
+    expect(appSource).toContain('/sponsors/hualong-mark.png');
+    expect(appSource).toContain('gonavi-about-project-entry-logo');
+    expect(appSource).toContain("t('app.about.sponsors')");
+    expect(appCss).toContain('.gonavi-about-project-entry-logo');
+    expect(appSource).toContain('className="gonavi-about-download-source"');
+    expect(appCss).toMatch(/\.gonavi-about-link-grid\s*\{[^}]*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\)/);
+    expect(appSource).not.toContain('apismart');
+    expect(appSource).not.toContain("gridTemplateColumns: 'minmax(0, 1.15fr) minmax(260px, 0.85fr)'");
+    expect(appCss).toContain('grid-template-columns: 220px minmax(0, 1fr) !important;');
+  });
+
+  it('keeps connection import, export, and health checks inside settings panes', () => {
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'import'");
+    expect(appSource).toContain('<ConnectionImportSettingsPanel');
+    expect(appSource).toContain("setActiveSettingsCenterPane({ key: 'export', group: sourceGroup })");
+    expect(appSource).toMatch(/isConnectionPackageSettingsPaneKey\(activeSettingsCenterPane\.key\)[\s\S]*?<ConnectionPackagePasswordModal[\s\S]*?embedded/);
+    expect(appSource).toContain("activeSettingsCenterPane.key === 'connection-health'");
+    expect(appSource).toMatch(/activeSettingsCenterPane\.key === 'connection-health'[\s\S]*?<ConnectionHealthModal[\s\S]*?embedded/);
+    expect(appSource).not.toContain('isConnectionHealthModalOpen');
+
+    const toolCenterGroupsStart = appSource.indexOf('const toolCenterGroups:');
+    const importEntryStart = appSource.indexOf("key: 'import',", toolCenterGroupsStart);
+    const exportEntryStart = appSource.indexOf("key: 'export',", importEntryStart);
+    const importEntrySource = appSource.slice(importEntryStart, exportEntryStart);
+    expect(importEntrySource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(importEntrySource).not.toContain('handleImportConnections');
+
+    const titlebarImportStart = appSource.indexOf("if (spec.action === 'import-connections')");
+    const titlebarExportStart = appSource.indexOf("if (spec.action === 'export-connections')", titlebarImportStart);
+    const titlebarImportSource = appSource.slice(titlebarImportStart, titlebarExportStart);
+    expect(titlebarImportSource).toContain("handleOpenToolCenterPane('config', 'import')");
+    expect(titlebarImportSource).not.toContain('handleImportConnections');
+  });
+
   it('keeps button loading indicators animated when reduced motion is enabled', () => {
     expect(appCss).toMatch(
       /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.gonavi-settings-center-modal \.ant-btn-loading-icon \.anticon-spin \{[^}]*animation-duration: 1s !important;[^}]*animation-iteration-count: infinite !important;[^}]*\}/,
     );
+  });
+
+  it('switches mirrors in place from About and Driver Manager without navigating settings', () => {
+    const aboutStart = appSource.indexOf('className="gonavi-about-download-source"');
+    const aboutEnd = appSource.indexOf('</section>', aboutStart);
+    const aboutSource = appSource.slice(aboutStart, aboutEnd);
+    const driverPaneStart = appSource.indexOf("activeSettingsCenterPane.key === 'drivers'");
+    const driverPaneEnd = appSource.indexOf("activeSettingsCenterPane.key === 'snippet-settings'", driverPaneStart);
+    const driverPaneSource = appSource.slice(driverPaneStart, driverPaneEnd);
+
+    expect(aboutSource).toContain('getNextDownloadSource(downloadSource)');
+    expect(aboutSource).toContain('handleDownloadSourceChange');
+    expect(aboutSource).not.toContain('handleOpenDownloadSourceSettings');
+    expect(driverPaneSource).toContain('onSwitchDownloadSource');
+    expect(driverPaneSource).not.toContain("handleOpenSettingsCenterPane('services', 'download-source')");
+    expect(driverWorkbenchSource).toContain('handleSwitchDownloadSource');
+    expect(driverWorkbenchSource).not.toContain('requestDownloadSourceSettings');
+    expect(driverModalSource).toContain('onSwitchDownloadSource');
+    expect(driverModalSource).not.toContain('onOpenDownloadSourceSettings');
   });
 
   it('waits for the unsaved SQL confirmation before continuing an update install request', () => {

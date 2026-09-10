@@ -205,26 +205,6 @@
   line-height: 16px;
 }
 
-body[data-theme='light'] .gonavi-custom-theme-manager.is-legacy {
-  --gn-settings-fg: #162033;
-  --gn-settings-muted: rgba(16, 24, 40, 0.58);
-  --gn-settings-line: rgba(16, 24, 40, 0.10);
-  --gn-settings-card-bg: rgba(255, 255, 255, 0.74);
-  --gn-settings-chip-bg: rgba(16, 24, 40, 0.04);
-  --gn-settings-accent: #1677ff;
-  --gn-settings-accent-soft: rgba(24, 144, 255, 0.12);
-}
-
-body[data-theme='dark'] .gonavi-custom-theme-manager.is-legacy {
-  --gn-settings-fg: #f5f7ff;
-  --gn-settings-muted: rgba(255, 255, 255, 0.58);
-  --gn-settings-line: rgba(255, 255, 255, 0.10);
-  --gn-settings-card-bg: rgba(255, 255, 255, 0.035);
-  --gn-settings-chip-bg: rgba(255, 255, 255, 0.06);
-  --gn-settings-accent: #ffd666;
-  --gn-settings-accent-soft: rgba(255, 214, 102, 0.14);
-}
-
 .gonavi-custom-theme-file-input {
   display: none;
 }
@@ -269,16 +249,6 @@ body[data-theme='dark'] .gonavi-custom-theme-manager.is-legacy {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.gonavi-custom-theme-legacy-note {
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--gn-warn, #d97706) 28%, transparent);
-  border-radius: 9px;
-  background: var(--gn-warn-soft, rgba(245, 158, 11, 0.12));
-  color: var(--gn-settings-fg, var(--gn-fg-2, #334155));
-  font-size: 12px;
-  line-height: 1.5;
 }
 
 .gonavi-custom-theme-safety-note {

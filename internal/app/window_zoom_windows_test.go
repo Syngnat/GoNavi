@@ -76,6 +76,24 @@ func TestResetWebViewZoomFactorCallsPutZoomFactor(t *testing.T) {
 	}
 }
 
+func TestResetWebViewZoomFactorUnwrapsWailsDevServerFrontend(t *testing.T) {
+	chromium := &fakeChromium{}
+	window := &fakeWindow{}
+	ctx := context.WithValue(context.Background(), stringContextKey("frontend"), &fakeDevWebServer{
+		Frontend: &fakeFrontend{chromium: chromium, mainWindow: window},
+	})
+
+	if err := resetWebViewZoomFactor(ctx, 1.0); err != nil {
+		t.Fatalf("expected zoom reset to unwrap the wails dev frontend, got %v", err)
+	}
+	if got := window.invoked.Load(); got != 1 {
+		t.Fatalf("expected wrapped frontend reset to invoke the window once, got %d", got)
+	}
+	if got := chromium.called.Load(); got != 1 {
+		t.Fatalf("expected wrapped frontend PutZoomFactor called once, got %d", got)
+	}
+}
+
 func TestResetWebViewZoomFactorErrorsWhenChromiumFieldMissing(t *testing.T) {
 	type fakeFrontendWithoutChromium struct {
 		other string

@@ -1,6 +1,6 @@
 import Modal from './common/ResizableDraggableModal';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Form, InputNumber, Select, message } from 'antd';
+import { Button, Form, InputNumber, Select, message } from 'antd';
 import { ExportOutlined } from '@ant-design/icons';
 import { t } from '../i18n';
 
@@ -142,6 +142,104 @@ export const validateDataExportDialogValues = (
   return null;
 };
 
+export type DataExportColumnSelectProps = {
+  availableColumns: string[];
+  value: string[];
+  disabled?: boolean;
+  loading?: boolean;
+  onChange: (columns: string[]) => void;
+};
+
+export const DataExportColumnSelect: React.FC<DataExportColumnSelectProps> = ({
+  availableColumns,
+  value,
+  disabled = false,
+  loading = false,
+  onChange,
+}) => {
+  const normalizedColumns = useMemo(
+    () => resolveDataExportColumns(undefined, availableColumns) || [],
+    [availableColumns],
+  );
+  const selectedColumns = useMemo(() => {
+    const seen = new Set<string>();
+    return value
+      .map((column) => String(column ?? ''))
+      .filter((column) => {
+        if (!column.trim() || seen.has(column)) return false;
+        seen.add(column);
+        return true;
+      });
+  }, [value]);
+  const selectedColumnSet = useMemo(() => new Set(selectedColumns), [selectedColumns]);
+  const totalColumns = useMemo(
+    () => new Set([...normalizedColumns, ...selectedColumns]).size,
+    [normalizedColumns, selectedColumns],
+  );
+  const allSelected = normalizedColumns.length > 0
+    && normalizedColumns.every((column) => selectedColumnSet.has(column));
+
+  return (
+    <div data-export-column-selector="true">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          minHeight: 28,
+          marginBottom: 4,
+        }}
+      >
+        <span
+          data-export-column-selection-count="true"
+          aria-live="polite"
+          style={{ color: 'var(--ant-color-text-secondary, rgba(0,0,0,0.45))', fontSize: 12 }}
+        >
+          {t('data_export.dialog.field.columns_selected', {
+            selected: selectedColumns.length,
+            total: totalColumns,
+          })}
+        </span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <Button
+            type="text"
+            size="small"
+            data-export-columns-select-all="true"
+            disabled={disabled || loading || normalizedColumns.length === 0 || allSelected}
+            onClick={() => onChange(normalizedColumns)}
+          >
+            {t('data_export.action.select_all')}
+          </Button>
+          <Button
+            type="text"
+            size="small"
+            data-export-columns-clear="true"
+            disabled={disabled || loading || selectedColumns.length === 0}
+            onClick={() => onChange([])}
+          >
+            {t('data_export.action.clear')}
+          </Button>
+        </div>
+      </div>
+      <Select
+        aria-label={t('data_export.dialog.field.columns')}
+        style={{ width: '100%' }}
+        mode="multiple"
+        value={selectedColumns}
+        loading={loading}
+        disabled={disabled}
+        options={normalizedColumns.map((column) => ({ value: column, label: column }))}
+        placeholder={t('data_export.dialog.field.columns_placeholder')}
+        showSearch
+        optionFilterProp="label"
+        maxTagCount="responsive"
+        onChange={(columns) => onChange(resolveDataExportColumns(columns, normalizedColumns) || [])}
+      />
+    </div>
+  );
+};
+
 const DataExportDialogContent: React.FC<{
   scopeOptions: DataExportScopeOption[];
   availableColumns?: string[];
@@ -156,14 +254,6 @@ const DataExportDialogContent: React.FC<{
     availableColumns,
   ));
   const formatOptions = useMemo(() => resolveFormatOptions(allowInsertSql), [allowInsertSql]);
-  const columnOptions = useMemo(
-    () => (resolveDataExportColumns(undefined, availableColumns) || []).map((column) => ({
-      value: column,
-      label: column,
-    })),
-    [availableColumns],
-  );
-
   useEffect(() => {
     onChange(values);
   }, [onChange, values]);
@@ -209,11 +299,9 @@ const DataExportDialogContent: React.FC<{
             extra={t('data_export.dialog.field.columns_help')}
             style={{ marginBottom: 16 }}
           >
-            <Select
-              mode="multiple"
+            <DataExportColumnSelect
+              availableColumns={availableColumns}
               value={values.columns || []}
-              options={columnOptions}
-              maxTagCount="responsive"
               onChange={(columns) => setValues((prev) => ({
                 ...prev,
                 columns: resolveDataExportColumns(columns, availableColumns) || [],

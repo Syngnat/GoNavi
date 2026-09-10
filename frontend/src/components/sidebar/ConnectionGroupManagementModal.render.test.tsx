@@ -309,7 +309,7 @@ describe('ConnectionGroupManagementModal rendering', () => {
     const sortLabelSpans = sortControl.findByProps({ className: 'connection-group-management-sort-label' }).findAllByType('span');
     const sortLabelText = sortLabelSpans[sortLabelSpans.length - 1]?.children.find((child: unknown) => typeof child === 'string');
     expect(sortLabelText).toBe('排序');
-    expect(sortControl.findByType('select').props.options.map((option: { label: string }) => option.label)).toEqual(['名称', '添加时间']);
+    expect(sortControl.findByType('select').props.options.map((option: { label: string }) => option.label)).toEqual(['自定义', '名称', '添加时间']);
 
     const newGroup = root.findByProps({ className: 'connection-group-management-new-group' });
     expect(newGroup.props.type).toBe('primary');

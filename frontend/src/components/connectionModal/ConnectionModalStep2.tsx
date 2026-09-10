@@ -2736,6 +2736,7 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
         proxyPort: 1080,
         useHttpTunnel: false,
         httpTunnelPort: 8080,
+        httpTunnelEncodeBase64: true,
         timeout: 30,
         keepAliveEnabled: false,
         keepAliveIntervalMinutes: 240,
@@ -2851,14 +2852,6 @@ const ConnectionModalStep2: React.FC<ConnectionModalStep2Props> = (props) => {
           if (enabledHttpTunnel && form.getFieldValue("useProxy")) {
             form.setFieldValue("useProxy", false);
             setUseProxy(false);
-          }
-          if (enabledHttpTunnel) {
-            const currentPort = Number(
-              form.getFieldValue("httpTunnelPort") || 0,
-            );
-            if (!currentPort || currentPort <= 0) {
-              form.setFieldValue("httpTunnelPort", 8080);
-            }
           }
         }
         if (changed.type !== undefined) setDbType(changed.type);

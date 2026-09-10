@@ -124,7 +124,7 @@ func TestVerifyInstalledOptionalDriverAgentRevisionRejectsProbeFailure(t *testin
 	}
 }
 
-func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsStaleOceanBaseMySQLAgent(t *testing.T) {
+func TestVerifyRuntimeOptionalDriverAgentRevisionAllowsStaleOceanBaseMySQLAgent(t *testing.T) {
 	originalProbe := optionalDriverAgentMetadataProbe
 	t.Cleanup(func() {
 		optionalDriverAgentMetadataProbe = originalProbe
@@ -137,12 +137,12 @@ func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsStaleOceanBaseMySQLAgent
 	}
 
 	err := verifyRuntimeOptionalDriverAgentRevision(connection.ConnectionConfig{Type: "oceanbase"})
-	if err == nil {
-		t.Fatal("runtime revision mismatch must reject the stale agent")
+	if err != nil {
+		t.Fatalf("stale agent revision must not block connections, got error: %v", err)
 	}
 }
 
-func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsStaleOceanBaseOracleAgent(t *testing.T) {
+func TestVerifyRuntimeOptionalDriverAgentRevisionAllowsStaleOceanBaseOracleAgent(t *testing.T) {
 	originalProbe := optionalDriverAgentMetadataProbe
 	t.Cleanup(func() {
 		optionalDriverAgentMetadataProbe = originalProbe
@@ -158,12 +158,12 @@ func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsStaleOceanBaseOracleAgen
 		Type:             "oceanbase",
 		ConnectionParams: "protocol=oracle",
 	})
-	if err == nil {
-		t.Fatal("runtime revision mismatch must reject the stale agent")
+	if err != nil {
+		t.Fatalf("stale agent revision must not block connections, got error: %v", err)
 	}
 }
 
-func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsUnknownOceanBaseOracleAgent(t *testing.T) {
+func TestVerifyRuntimeOptionalDriverAgentRevisionAllowsUnknownOceanBaseOracleAgent(t *testing.T) {
 	originalProbe := optionalDriverAgentMetadataProbe
 	t.Cleanup(func() {
 		optionalDriverAgentMetadataProbe = originalProbe
@@ -176,12 +176,12 @@ func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsUnknownOceanBaseOracleAg
 		Type:              "oceanbase",
 		OceanBaseProtocol: "oracle",
 	})
-	if err == nil {
-		t.Fatal("runtime metadata probe failure must reject an unverified agent")
+	if err != nil {
+		t.Fatalf("unverified agent must not block connections, got error: %v", err)
 	}
 }
 
-func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsMetadataProbeFailure(t *testing.T) {
+func TestVerifyRuntimeOptionalDriverAgentRevisionAllowsMetadataProbeFailure(t *testing.T) {
 	originalProbe := optionalDriverAgentMetadataProbe
 	t.Cleanup(func() {
 		optionalDriverAgentMetadataProbe = originalProbe
@@ -191,8 +191,8 @@ func TestVerifyRuntimeOptionalDriverAgentRevisionRejectsMetadataProbeFailure(t *
 	}
 
 	err := verifyRuntimeOptionalDriverAgentRevision(connection.ConnectionConfig{Type: "sqlserver"})
-	if err == nil {
-		t.Fatal("runtime metadata probe failure must reject an unverified agent")
+	if err != nil {
+		t.Fatalf("unverified agent must not block connections, got error: %v", err)
 	}
 }
 
@@ -253,6 +253,7 @@ func optionalDriverAgentRevisionTestDrivers(t *testing.T) []string {
 		"opengauss",
 		"gaussdb",
 		"iris",
+		"cache",
 		"mongodb",
 		"tdengine",
 		"iotdb",

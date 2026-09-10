@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from './common/ResizableDraggableModal';
-import { Alert, Button, Checkbox, Empty, Space, Tag, Typography, message } from 'antd';
+import { Alert, Button, Empty, Space, Tag, Typography, message } from 'antd';
 import {
   CheckCircleFilled,
   CloseCircleFilled,
   DownloadOutlined,
+  InfoCircleOutlined,
   MinusCircleOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -22,9 +23,12 @@ import {
   type ConnectionHealthStatus,
 } from '../utils/connectionHealth';
 import { APP_FOREGROUND_MODAL_Z_INDEX } from '../utils/overlayZIndex';
+import ConnectionSelectionPanel from './ConnectionSelectionPanel';
+import './ConnectionToolSettings.css';
 
 type ConnectionHealthModalProps = {
   open: boolean;
+  embedded?: boolean;
   targetConnectionIds?: string[];
   onClose: () => void;
   zIndex?: number;
@@ -49,6 +53,7 @@ const reportFileName = () => {
 
 const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
   open,
+  embedded = false,
   targetConnectionIds = [],
   onClose,
   zIndex = APP_FOREGROUND_MODAL_Z_INDEX,
@@ -100,19 +105,6 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
     () => selectedConnectionIds.filter((id) => validConnectionIds.has(id)),
     [selectedConnectionIds, validConnectionIds],
   );
-  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-
-  const updateSelection = (ids: string[], selected: boolean) => {
-    setSelectedConnectionIds((current) => {
-      const next = new Set(current.filter((id) => validConnectionIds.has(id)));
-      ids.forEach((id) => {
-        if (!validConnectionIds.has(id)) return;
-        if (selected) next.add(id);
-        else next.delete(id);
-      });
-      return Array.from(next);
-    });
-  };
 
   const runHealthChecks = async () => {
     if (running || pendingRunStartRef.current || selectedIds.length === 0) return;
@@ -143,6 +135,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
       setRun(nextRun);
       setReports(nextRun.reports);
       if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+        activeRunIDRef.current = '';
         setRunning(false);
         setCancelling(false);
       }
@@ -179,6 +172,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
       setRun(nextRun);
       setReports(nextRun.reports);
       if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+        activeRunIDRef.current = '';
         setRunning(false);
         setCancelling(false);
       }
@@ -223,6 +217,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
         setRun(nextRun);
         setReports(nextRun.reports);
         if (nextRun.status === 'completed' || nextRun.status === 'cancelled') {
+          activeRunIDRef.current = '';
           setRunning(false);
           setCancelling(false);
         }
@@ -252,6 +247,17 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
     onClose();
   };
 
+  useEffect(() => () => {
+    const pendingStart = pendingRunStartRef.current;
+    if (pendingStart) pendingStart.cancelWhenStarted = true;
+    const runID = activeRunIDRef.current;
+    if (!runID || cancellingRunIDRef.current === runID) return;
+    const backend = (window as any).go?.app?.App;
+    if (typeof backend?.CancelSavedConnectionsHealthRun === 'function') {
+      void Promise.resolve(backend.CancelSavedConnectionsHealthRun(runID)).catch(() => undefined);
+    }
+  }, []);
+
   const exportReports = () => {
     if (reports.length === 0) return;
     const downloaded = downloadBrowserTextFile(
@@ -269,15 +275,8 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
   const renderCheck = (check: ConnectionHealthCheck) => (
     <div
       key={check.key}
+      className="gn-conn-tool-check"
       data-connection-health-check={check.key}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: 'minmax(140px, 1fr) auto',
-        gap: 8,
-        alignItems: 'start',
-        padding: '8px 0',
-        borderBottom: '1px solid var(--gn-border-color, #f0f0f0)',
-      }}
     >
       <div style={{ minWidth: 0 }}>
         <Space size={7} align="start">
@@ -285,7 +284,7 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
           <span>{t(`connection_health.check.${check.key}`)}</span>
         </Space>
         {(check.detail || check.recommendation) && (
-          <div style={{ marginTop: 4, marginLeft: 24, color: 'var(--gn-muted-text, #8c8c8c)', fontSize: 12 }}>
+          <div className="gn-conn-tool-check__detail">
             {check.detail || t(`connection_health.recommendation.${check.recommendation}`)}
           </div>
         )}
@@ -299,129 +298,138 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
     </div>
   );
 
+  const progressLabel = run
+    ? (run.status === 'cancelled'
+      ? t('connection_health.progress.cancelled', { remaining: run.remainingConnectionIds.length })
+      : run.status === 'cancelling'
+        ? t('connection_health.progress.cancelling')
+        : run.status === 'completed'
+          ? t('connection_health.progress.completed')
+          : t('connection_health.progress.running'))
+    : '';
+  const progressPercent = run && run.total > 0 ? Math.min(100, Math.round((run.completed / run.total) * 100)) : 0;
+  const actionButtons = (
+    <div className="gn-conn-tool-actions">
+      <Button icon={<DownloadOutlined />} disabled={reports.length === 0} onClick={exportReports}>
+        {t('connection_health.action.export')}
+      </Button>
+      <Button
+        danger
+        disabled={!running || !run || cancelling || run.status === 'cancelling'}
+        onClick={() => void cancelHealthChecks()}
+      >
+        {t('connection_health.action.cancel')}
+      </Button>
+      <Button
+        type="primary"
+        icon={<ReloadOutlined />}
+        loading={running}
+        disabled={selectedIds.length === 0 || connections.length === 0}
+        onClick={() => void runHealthChecks()}
+      >
+        {t('connection_health.action.run')}
+      </Button>
+    </div>
+  );
+
   return (
     <Modal
-      title={(
+      embedded={embedded}
+      rootClassName={embedded ? 'gn-conn-tool-embed' : undefined}
+      title={embedded ? null : (
         <Space size={10}>
           <SafetyCertificateOutlined />
           <span>{t('connection_health.title')}</span>
         </Space>
       )}
       open={open}
+      closable={embedded ? false : undefined}
       onCancel={handleClose}
-      width={860}
+      width={840}
       centered
-      zIndex={zIndex}
-      destroyOnHidden
-      footer={(
-        <Space>
-          <Button onClick={handleClose}>{t('connection_health.action.close')}</Button>
-          <Button icon={<DownloadOutlined />} disabled={reports.length === 0} onClick={exportReports}>
-            {t('connection_health.action.export')}
-          </Button>
-          <Button
-            danger
-            disabled={!running || !run || cancelling || run.status === 'cancelling'}
-            onClick={() => void cancelHealthChecks()}
-          >
-            {t('connection_health.action.cancel')}
-          </Button>
-          <Button
-            type="primary"
-            icon={<ReloadOutlined />}
-            loading={running}
-            disabled={selectedIds.length === 0 || connections.length === 0}
-            onClick={() => void runHealthChecks()}
-          >
-            {t('connection_health.action.run')}
-          </Button>
-        </Space>
+      zIndex={embedded ? undefined : zIndex}
+      destroyOnHidden={!embedded}
+      footer={embedded ? null : (
+        <Button onClick={handleClose}>{t('connection_health.action.close')}</Button>
       )}
     >
-      <div style={{ display: 'grid', gap: 16 }}>
-        <Alert type="info" showIcon message={t('connection_health.description')} />
-        {run && (
-          <>
-            <Alert
-              type={run.status === 'cancelled' ? 'warning' : 'info'}
-              showIcon
-              message={t('connection_health.progress.count', { completed: run.completed, total: run.total })}
-              description={run.status === 'cancelled'
-                ? t('connection_health.progress.cancelled', { remaining: run.remainingConnectionIds.length })
-                : run.status === 'cancelling'
-                  ? t('connection_health.progress.cancelling')
-                  : run.status === 'completed'
-                    ? t('connection_health.progress.completed')
-                    : t('connection_health.progress.running')}
-            />
-            {run.status === 'cancelled' && run.remainingConnectionIds.length > 0 && (
-              <div data-connection-health-remaining style={{ display: 'grid', gap: 6 }}>
-                <Typography.Text type="secondary">
-                  {t('connection_health.progress.remaining_title')}
-                </Typography.Text>
-                <Space size={[4, 4]} wrap>
-                  {run.remainingConnectionIds.map((connectionID) => {
-                    const connection = connections.find((item) => item.id === connectionID);
-                    const label = connection?.name ? `${connection.name} (${connectionID})` : connectionID;
-                    return <Tag key={connectionID}>{label}</Tag>;
-                  })}
-                </Space>
+      <div className="gn-conn-tool-page" data-connection-health-page="true">
+        <div className="gn-conn-tool-note">
+          <InfoCircleOutlined aria-hidden="true" />
+          <span>{t('connection_health.description')}</span>
+        </div>
+        <section className="gn-conn-tool-panel" aria-label={t('connection_health.selection.title')}>
+          <div className="gn-conn-tool-panel__body">
+            <header className="gn-conn-tool-panel__header">
+              <div>
+                <h3 className="gn-conn-tool-panel__title">{t('connection_health.selection.title')}</h3>
+                <p className="gn-conn-tool-panel__description">{t('app.tools.entry.connection_health.description')}</p>
               </div>
+              {actionButtons}
+            </header>
+            {connections.length === 0 ? (
+              <Empty description={t('connection_health.empty.connections')} />
+            ) : (
+              <ConnectionSelectionPanel
+                connections={connections.map((connection) => ({
+                  id: connection.id,
+                  name: connection.name,
+                  type: connection.config?.type,
+                }))}
+                groups={groups}
+                selectedIds={selectedIds}
+                disabled={running}
+                onChange={setSelectedConnectionIds}
+              />
             )}
-          </>
-        )}
-        {connections.length === 0 ? (
-          <Empty description={t('connection_health.empty.connections')} />
-        ) : (
-          <section aria-label={t('connection_health.selection.title')}>
-            <Typography.Text strong>{t('connection_health.selection.title')}</Typography.Text>
-            <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
-              <Checkbox
-                checked={selectedIds.length === connections.length}
-                indeterminate={selectedIds.length > 0 && selectedIds.length < connections.length}
-                onChange={(event) => updateSelection(connections.map((connection) => connection.id), event.target.checked)}
-              >
-                {t('connection_health.selection.all', { count: connections.length })}
-              </Checkbox>
-              {groups.map((group) => {
-                const selectedCount = group.connectionIds.filter((id) => selectedSet.has(id)).length;
-                return (
-                  <Checkbox
-                    key={group.id}
-                    checked={selectedCount === group.connectionIds.length}
-                    indeterminate={selectedCount > 0 && selectedCount < group.connectionIds.length}
-                    onChange={(event) => updateSelection(group.connectionIds, event.target.checked)}
-                  >
-                    {t('connection_health.selection.group', { name: group.name, count: group.connectionIds.length })}
-                  </Checkbox>
-                );
-              })}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 2 }}>
-                {connections.map((connection) => (
-                  <Checkbox
-                    key={connection.id}
-                    checked={selectedSet.has(connection.id)}
-                    onChange={(event) => updateSelection([connection.id], event.target.checked)}
-                  >
-                    {connection.name}
-                  </Checkbox>
-                ))}
+            {run ? (
+              <div className="gn-conn-tool-progress">
+                <div className="gn-conn-tool-progress__track">
+                  <div
+                    className={`gn-conn-tool-progress__bar${run.status === 'cancelled' ? ' is-warning' : ''}`}
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <div className="gn-conn-tool-progress__label">
+                  {t('connection_health.progress.count', { completed: run.completed, total: run.total })}
+                  {' · '}
+                  {progressLabel}
+                </div>
+                {run.status === 'cancelled' && run.remainingConnectionIds.length > 0 ? (
+                  <div data-connection-health-remaining style={{ display: 'grid', gap: 6 }}>
+                    <Typography.Text type="secondary">
+                      {t('connection_health.progress.remaining_title')}
+                    </Typography.Text>
+                    <Space size={[4, 4]} wrap>
+                      {run.remainingConnectionIds.map((connectionID) => {
+                        const connection = connections.find((item) => item.id === connectionID);
+                        const label = connection?.name ? `${connection.name} (${connectionID})` : connectionID;
+                        return <Tag key={connectionID}>{label}</Tag>;
+                      })}
+                    </Space>
+                  </div>
+                ) : null}
               </div>
-            </div>
-          </section>
-        )}
-        {error && <Alert type="error" showIcon message={error} />}
+            ) : null}
+            {error ? <Alert type="error" showIcon message={error} /> : null}
+            {!reports.length && !running && connections.length > 0 ? (
+              <p className="gn-conn-tool-hint">{t('connection_health.empty.reports')}</p>
+            ) : null}
+          </div>
+        </section>
         {reports.length > 0 ? (
-          <section aria-label={t('connection_health.results.title')}>
-            <Typography.Text strong>{t('connection_health.results.title')}</Typography.Text>
-            <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
+          <section className="gn-conn-tool-panel" aria-label={t('connection_health.results.title')}>
+            <div className="gn-conn-tool-panel__body">
+              <header className="gn-conn-tool-panel__header">
+                <h3 className="gn-conn-tool-panel__title">{t('connection_health.results.title')}</h3>
+              </header>
               {reports.map((report) => (
                 <div
                   key={report.connectionId}
+                  className="gn-conn-tool-report"
                   data-connection-health-report={report.connectionId}
-                  style={{ border: '1px solid var(--gn-border-color, #e8e8e8)', borderRadius: 8, padding: '10px 14px' }}
                 >
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                  <div className="gn-conn-tool-report__head">
                     <Space size={8}>
                       {statusIcon(report.overallStatus)}
                       <Typography.Text strong>{report.connectionName || report.connectionId}</Typography.Text>
@@ -432,15 +440,11 @@ const ConnectionHealthModal: React.FC<ConnectionHealthModalProps> = ({
                       {report.durationMs > 0 ? ` · ${report.durationMs} ms` : ''}
                     </Tag>
                   </div>
-                  <div style={{ marginTop: 8 }}>
-                    {report.checks.map(renderCheck)}
-                  </div>
+                  <div>{report.checks.map(renderCheck)}</div>
                 </div>
               ))}
             </div>
           </section>
-        ) : !running && connections.length > 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('connection_health.empty.reports')} />
         ) : null}
       </div>
     </Modal>

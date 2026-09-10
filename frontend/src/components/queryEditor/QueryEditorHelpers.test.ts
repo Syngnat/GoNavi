@@ -34,6 +34,7 @@ import {
     resolveQueryEditorHoverTarget,
     resolveQueryEditorMonacoLanguage,
     resolveQueryEditorNavigationTarget,
+    resolveNextQueryEditorTableLocateIndex,
     resolveQueryEditorNavigationDecorations,
     rewriteOracleSelectAllWithExpressions,
     selectUnqualifiedCompletionSynonyms,
@@ -43,6 +44,23 @@ import {
     splitQueryIdentifierPathSegments,
     splitTopLevelComma,
 } from './QueryEditorHelpers';
+
+describe('QueryEditor table locate cycle', () => {
+    it('advances in order and wraps at the end of a line', () => {
+        const signature = 'users\u0001orders\u0001items';
+        expect(resolveNextQueryEditorTableLocateIndex(null, 2, signature, 3)).toBe(0);
+        expect(resolveNextQueryEditorTableLocateIndex({ lineNumber: 2, signature, index: 0 }, 2, signature, 3)).toBe(1);
+        expect(resolveNextQueryEditorTableLocateIndex({ lineNumber: 2, signature, index: 1 }, 2, signature, 3)).toBe(2);
+        expect(resolveNextQueryEditorTableLocateIndex({ lineNumber: 2, signature, index: 2 }, 2, signature, 3)).toBe(0);
+    });
+
+    it('resets when the cursor line or references change', () => {
+        const previous = { lineNumber: 2, signature: 'users\u0001orders', index: 1 };
+        expect(resolveNextQueryEditorTableLocateIndex(previous, 3, previous.signature, 2)).toBe(0);
+        expect(resolveNextQueryEditorTableLocateIndex(previous, 2, 'users\u0001items', 2)).toBe(0);
+        expect(resolveNextQueryEditorTableLocateIndex(previous, 2, previous.signature, 0)).toBe(0);
+    });
+});
 
 describe('QueryEditor SELECT structure parsing', () => {
     it.each([
@@ -428,6 +446,22 @@ describe('QueryEditorHelpers qualified navigation (MySQL db.table + PG schema.ta
         expect(buildQueryEditorTableSourceAlias('code_query_record_zykj', '')).toBe('cqrz');
         expect(buildQueryEditorTableSourceAlias('public.system_user', 'SELECT * FROM system_user su')).toBe('su2');
         expect(buildQueryEditorTableSourceAlias('system_user', 'SELECT * FROM system_user su JOIN service_user su2')).toBe('su3');
+    });
+
+    it('uses a valid custom prefix with continuous case-insensitive numbering', () => {
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'mysql', 't')).toBe('t0');
+        expect(buildQueryEditorTableSourceAlias('service_user', 'SELECT * FROM system_user t0', 'mysql', 't')).toBe('t1');
+        expect(buildQueryEditorTableSourceAlias('audit_user', 'SELECT * FROM system_user t0 JOIN service_user t1', 'mysql', 't')).toBe('t2');
+        expect(buildQueryEditorTableSourceAlias('public.system_user', 'SELECT * FROM system_user T0', 'mysql', 't')).toBe('t1');
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'oracle', 'T')).toBe('T0');
+        expect(buildQueryEditorTableSourceAlias('service_user', 'SELECT * FROM system_user t0', 'oracle', 'T')).toBe('T1');
+        expect(buildQueryEditorTableSourceAlias('audit_user', 'SELECT * FROM system_user T0 JOIN service_user T1', 'oracle', 'T')).toBe('T2');
+    });
+
+    it('falls back to table-name aliases for disabled or invalid custom prefixes', () => {
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'mysql', '')).toBe('su');
+        expect(buildQueryEditorTableSourceAlias('system_user', '', 'mysql', '1invalid')).toBe('su');
+        expect(buildQueryEditorTableSourceAlias('system_user', 'SELECT * FROM system_user su', 'mysql', 'a'.repeat(25))).toBe('su2');
     });
 
     it('only permits table aliases for SELECT table sources', () => {

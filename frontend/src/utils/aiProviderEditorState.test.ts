@@ -26,10 +26,11 @@ describe('aiProviderEditorState', () => {
       presetModel: '',
       apiFormat: 'codex-cli',
       authMode: 'local-cli',
+      connectionMode: 'subscription',
     });
 
     expect(session.editingProvider?.authMode).toBe('local-cli');
-    expect(session.formValues).toMatchObject({ authMode: 'local-cli', apiKey: '' });
+    expect(session.formValues).toMatchObject({ authMode: 'local-cli', connectionMode: 'subscription', apiKey: '' });
   });
 
   it('starts edit flow with the target provider', () => {

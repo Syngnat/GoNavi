@@ -56,6 +56,29 @@ describe('applyQueryAutoLimit', () => {
     });
   });
 
+  it('places the Dameng limit before a trailing WITH UR clause', () => {
+    const sql = `SELECT DISTINCT
+  v.emp_id,
+  v.emp_name,
+  s.stru_order
+FROM pub_stru s, pub_emp_view_all v
+WHERE s.organ_id = v.emp_id
+  AND v.emp_id IN (
+    SELECT b.organ_id
+    FROM pub_organ_view a, pub_organ_role b
+    WHERE locate(',' || a.organ_id || ',', ',' || b.range_ids || ',') > 0
+  )
+ORDER BY s.stru_order WITH ur;`;
+
+    for (const [dbType, driver] of [['dameng', ''], ['custom', 'dm8']]) {
+      expect(applyQueryAutoLimit(sql, dbType, 500, driver)).toEqual({
+        sql: sql.replace(' WITH ur;', ' LIMIT 500 OFFSET 0 WITH ur;'),
+        applied: true,
+        maxRows: 500,
+      });
+    }
+  });
+
   it.each([
     ['sqlserver'],
     ['mssql'],
@@ -112,6 +135,35 @@ describe('applyQueryAutoLimit', () => {
       .toBe('SELECT * FROM (SELECT * FROM users LIMIT 10) t LIMIT 500');
   });
 
+  it('preserves an existing ORDER BY LIMIT OFFSET clause', () => {
+    const sql = 'SELECT id FROM users ORDER BY id LIMIT 20 OFFSET 40';
+    expect(applyQueryAutoLimit(sql, 'postgres', 500)).toEqual({
+      sql,
+      applied: false,
+      maxRows: 500,
+    });
+  });
+
+  it('limits GROUP BY and HAVING after the complete query', () => {
+    const sql = 'SELECT dept_id, COUNT(*) total FROM users GROUP BY dept_id HAVING COUNT(*) > 1 ORDER BY total DESC';
+    expect(applyQueryAutoLimit(sql, 'postgres', 500).sql)
+      .toBe(`${sql} LIMIT 500`);
+  });
+
+  it('ignores LIMIT text in block comments and compact PostgreSQL line comments', () => {
+    expect(applyQueryAutoLimit('SELECT id FROM users /* LIMIT 10 */ ORDER BY id', 'postgres', 500).sql)
+      .toBe('SELECT id FROM users /* LIMIT 10 */ ORDER BY id LIMIT 500');
+    expect(applyQueryAutoLimit('SELECT id FROM users --LIMIT 10', 'postgres', 500).sql)
+      .toBe('SELECT id FROM users LIMIT 500 --LIMIT 10');
+    expect(applyQueryAutoLimit('--preview\nSELECT id FROM users', 'postgres', 500).sql)
+      .toBe('--preview\nSELECT id FROM users LIMIT 500');
+  });
+
+  it('keeps compact double-minus expressions executable for MySQL', () => {
+    expect(applyQueryAutoLimit('SELECT 1--2 AS value', 'mysql', 500).sql)
+      .toBe('SELECT 1--2 AS value LIMIT 500');
+  });
+
   it('does not add another Oracle limit when Oracle SQL already limits rows', () => {
     expect(applyQueryAutoLimit('SELECT * FROM users WHERE ROWNUM <= 10', 'oracle', 500).applied)
       .toBe(false);
@@ -124,6 +176,14 @@ describe('applyQueryAutoLimit', () => {
 
     expect(applyQueryAutoLimit(sql, 'dameng', 5000)).toEqual({
       sql,
+      applied: false,
+      maxRows: 5000,
+    });
+  });
+
+  it('keeps WITH UR after an existing Dameng limit', () => {
+    expect(applyQueryAutoLimit('SELECT ID FROM USERS LIMIT 25 WITH UR;', 'dameng', 5000)).toEqual({
+      sql: 'SELECT ID FROM USERS LIMIT 25 WITH UR;',
       applied: false,
       maxRows: 5000,
     });

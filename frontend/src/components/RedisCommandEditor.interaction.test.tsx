@@ -11,7 +11,7 @@ const storeState = vi.hoisted((): any => ({
     config: { type: 'redis', host: '127.0.0.1', port: 6379 },
   }],
   theme: 'dark',
-  appearance: { enabled: true, opacity: 1, blur: 0, uiVersion: 'v2' },
+  appearance: { enabled: true, opacity: 1, blur: 0 },
 }));
 
 vi.mock('../store', () => ({

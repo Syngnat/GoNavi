@@ -6,12 +6,18 @@ import { useSidebarExternalSqlWorkflow } from './SidebarExternalSqlWorkflow';
 
 const mocks = vi.hoisted(() => ({
   uploadBrowserFile: vi.fn(),
+  selectSQLDirectory: vi.fn(),
   messageError: vi.fn(),
+  messageSuccess: vi.fn(),
   messageWarning: vi.fn(),
 }));
 
 vi.mock('../../utils/browserFileTransfer', () => ({
   uploadBrowserFile: mocks.uploadBrowserFile,
+}));
+
+vi.mock('../../../wailsjs/go/app/App', () => ({
+  SelectSQLDirectory: mocks.selectSQLDirectory,
 }));
 
 vi.mock('antd', async () => {
@@ -37,7 +43,7 @@ vi.mock('antd', async () => {
     message: {
       error: mocks.messageError,
       warning: mocks.messageWarning,
-      success: vi.fn(),
+      success: mocks.messageSuccess,
     },
   };
 });
@@ -49,6 +55,7 @@ vi.mock('../common/ResizableDraggableModal', () => ({
 describe('useSidebarExternalSqlWorkflow web file selection', () => {
   beforeEach(() => {
     mocks.uploadBrowserFile.mockReset();
+    mocks.selectSQLDirectory.mockReset();
     mocks.uploadBrowserFile.mockResolvedValue({
       filePath: 'web-sql-upload-token',
       name: 'seed.sql',
@@ -56,6 +63,7 @@ describe('useSidebarExternalSqlWorkflow web file selection', () => {
       fileSizeMB: '0.1',
     });
     mocks.messageError.mockReset();
+    mocks.messageSuccess.mockReset();
     mocks.messageWarning.mockReset();
   });
 
@@ -121,5 +129,58 @@ describe('useSidebarExternalSqlWorkflow web file selection', () => {
       sqlFileExecutionFileName: 'seed.sql',
       sqlFileExecutionFileSizeMB: '0.1',
     }));
+  });
+
+  it('opens only one native directory picker while a previous selection is pending', async () => {
+    let resolveSelection!: (value: any) => void;
+    mocks.selectSQLDirectory.mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    const saveExternalSQLDirectory = vi.fn();
+    const refreshGlobalExternalSQLRootNode = vi.fn(async () => undefined);
+    let workflow: ReturnType<typeof useSidebarExternalSqlWorkflow> | null = null;
+    const Harness = () => {
+      workflow = useSidebarExternalSqlWorkflow({
+        connections: [],
+        externalSQLDirectories: [],
+        activeTab: null,
+        connectionIds: [],
+        selectedNodesRef: { current: [] },
+        addTab: vi.fn(),
+        openDataImportWorkbench: vi.fn(),
+        saveExternalSQLDirectory,
+        deleteExternalSQLDirectory: vi.fn(),
+        updateRecentSQLFilePath: vi.fn(),
+        removeRecentSQLFilesByPath: vi.fn(),
+        moveRecentSQLFilesByDirectory: vi.fn(),
+        removeRecentSQLFilesByDirectory: vi.fn(),
+        refreshGlobalExternalSQLRootNode,
+        setExpandedKeys: vi.fn(),
+        setAutoExpandParent: vi.fn(),
+        getActiveContext: () => null,
+        isWebRuntime: false,
+      });
+      return null;
+    };
+
+    await act(async () => {
+      create(<Harness />);
+    });
+
+    const firstSelection = workflow!.handleAddExternalSQLDirectory({ type: 'external-sql-root' });
+    const duplicateSelection = workflow!.handleAddExternalSQLDirectory({ type: 'external-sql-root' });
+    expect(mocks.selectSQLDirectory).toHaveBeenCalledOnce();
+
+    resolveSelection({
+      success: true,
+      data: { path: 'C:\\sql', name: 'sql' },
+    });
+    await act(async () => {
+      await Promise.all([firstSelection, duplicateSelection]);
+    });
+
+    expect(saveExternalSQLDirectory).toHaveBeenCalledOnce();
+    expect(refreshGlobalExternalSQLRootNode).toHaveBeenCalledOnce();
+    expect(mocks.messageSuccess).toHaveBeenCalledOnce();
   });
 });

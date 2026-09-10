@@ -13,9 +13,10 @@ const mocks = vi.hoisted(() => ({
   },
   service: {
     AIGetProviders: vi.fn(), AIGetActiveProvider: vi.fn(), AIGetEditableProvider: vi.fn(),
-    AISetActiveProvider: vi.fn(), AISaveProvider: vi.fn(), AIDeleteProvider: vi.fn(), AITestProvider: vi.fn(),
+    AISetActiveProvider: vi.fn(), AISaveProvider: vi.fn(), AIDeleteProvider: vi.fn(), AITestProvider: vi.fn(), AIListProviderModels: vi.fn(),
     AIGetMCPClientInstallStatuses: vi.fn(), AIGetMCPServers: vi.fn(), AIListMCPTools: vi.fn(), AIGetMCPHTTPServerStatus: vi.fn(),
     AIGetRunPolicy: vi.fn(), AISaveRunPolicy: vi.fn(), AIGetAgentLedgerStatus: vi.fn(),
+    AIGetSafetyLevel: vi.fn(), AIGetResultMaskingSettings: vi.fn(), AISaveResultMaskingSettings: vi.fn(),
   },
   resolve: vi.fn(),
   messages: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   providerProps: {} as any,
   runPolicyProps: {} as any,
   sidebarProps: {} as any,
+  safetyProps: {} as any,
 }));
 
 vi.mock('antd', async () => {
@@ -44,10 +46,12 @@ vi.mock('../i18n/provider', async () => {
 vi.mock('../store', () => ({ useStore: (select: any) => select({ aiChatOpenMode: 'dock', setAIChatOpenMode: vi.fn() }) }));
 vi.mock('./ai/aiSettingsModalConfig', async (original) => ({ ...await original<object>(), waitForAIService: mocks.resolve }));
 vi.mock('./ai/AISettingsProvidersSection', () => ({ default: (props: any) => { mocks.providerProps = props; return null; } }));
+vi.mock('./ai/AISettingsAnalysisSection', () => ({ default: () => null }));
+vi.mock('./ai/AISettingsRequestEventsSection', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsSidebar', async (original) => ({ ...await original<object>(), default: (props: any) => { mocks.sidebarProps = props; return null; } }));
 vi.mock('./ai/AIBuiltinToolsCatalog', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsMCPSection', () => ({ default: () => null }));
-vi.mock('./ai/AISettingsSafetySection', () => ({ default: () => null }));
+vi.mock('./ai/AISettingsSafetySection', () => ({ default: (props: any) => { mocks.safetyProps = props; return null; } }));
 vi.mock('./ai/AISettingsContextSection', () => ({ default: () => null }));
 vi.mock('./ai/AISettingsRunPolicySection', () => ({ default: (props: any) => { mocks.runPolicyProps = props; return null; } }));
 vi.mock('./ai/AISettingsPromptsSection', () => ({ default: () => null }));
@@ -96,6 +100,8 @@ describe('AISettingsContent provider async behavior', () => {
     mocks.values = {};
     mocks.listeners.clear();
     mocks.runPolicyProps = {};
+    mocks.sidebarProps = undefined;
+    mocks.safetyProps = {};
     const publish = () => mocks.listeners.forEach((listener) => listener());
     mocks.form.resetFields.mockImplementation(() => { mocks.values = {}; publish(); });
     mocks.form.setFieldsValue.mockImplementation((patch) => { mocks.values = { ...mocks.values, ...patch }; publish(); });
@@ -130,6 +136,9 @@ describe('AISettingsContent provider async behavior', () => {
         policyWatchInterval: 500_000_000,
       },
     });
+    mocks.service.AIGetSafetyLevel.mockResolvedValue('readonly');
+    mocks.service.AIGetResultMaskingSettings.mockResolvedValue({ enabled: false, fullMaskFields: [], partialMaskFields: [] });
+    mocks.service.AISaveResultMaskingSettings.mockResolvedValue(undefined);
     mocks.service.AIGetAgentLedgerStatus.mockResolvedValue({ state: 'ready' });
     mocks.service.AISaveRunPolicy.mockImplementation(async (request) => ({
       schemaVersion: 1,
@@ -158,6 +167,88 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.providerProps.providers).toHaveLength(4);
     await act(async () => { mocks.sidebarProps.onSelectSection('providers'); });
     expect(mocks.service.AIGetMCPClientInstallStatuses).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the requested provider editor when launched from Manage models', async () => {
+    await mount(true, 'b');
+    expect(mocks.service.AIGetEditableProvider).toHaveBeenCalledWith('b');
+    expect(mocks.providerProps.editingProvider).toEqual(expect.objectContaining({ id: 'b' }));
+    expect(mocks.providerProps.isEditing).toBe(true);
+  });
+
+  it('loads result masking without silently replacing a failed read with empty rules', async () => {
+    mocks.service.AIGetResultMaskingSettings.mockRejectedValueOnce(new Error('invalid ai_config.json'));
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    expect(mocks.safetyProps.resultMaskingLoadError).toBe('invalid ai_config.json');
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(false);
+    await act(async () => { mocks.safetyProps.onSaveResultMasking(); });
+    expect(mocks.service.AISaveResultMaskingSettings).not.toHaveBeenCalled();
+  });
+
+  it('locks result masking while the service bridge resolves and fails closed when it is unavailable', async () => {
+    const bridge = deferred<any>();
+    mocks.resolve
+      .mockResolvedValueOnce(mocks.service)
+      .mockReturnValueOnce(bridge.promise);
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+      await Promise.resolve();
+    });
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(true);
+    bridge.resolve(mocks.service);
+    await flush();
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(false);
+
+    await act(async () => { renderer?.unmount(); });
+    renderer = undefined;
+    mocks.resolve
+      .mockResolvedValueOnce(mocks.service)
+      .mockResolvedValueOnce(null);
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    expect(mocks.safetyProps.resultMaskingLoadError).toBe('Failed to load masking rules');
+    expect(mocks.safetyProps.resultMaskingLoading).toBe(false);
+  });
+
+  it('keeps the result masking draft after save failure and locks editing while saving', async () => {
+    mocks.service.AIGetResultMaskingSettings.mockResolvedValueOnce({ enabled: true, fullMaskFields: ['phone'], partialMaskFields: ['email'] });
+    const pending = deferred<void>();
+    mocks.service.AISaveResultMaskingSettings.mockReturnValueOnce(pending.promise);
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    const draft = { enabled: true, fullMaskFields: ['phone', 'id_card'], partialMaskFields: ['email'] };
+    await act(async () => { mocks.safetyProps.onResultMaskingChange(draft); });
+    await act(async () => { mocks.safetyProps.onSaveResultMasking(); await Promise.resolve(); });
+    expect(mocks.safetyProps.resultMaskingSaving).toBe(true);
+    expect(mocks.service.AISaveResultMaskingSettings).toHaveBeenCalledWith(draft);
+    pending.reject(new Error('disk is read only'));
+    await flush();
+    expect(mocks.safetyProps.resultMaskingSaving).toBe(false);
+    expect(mocks.safetyProps.resultMaskingSaveError).toBe('disk is read only');
+    expect(mocks.safetyProps.resultMaskingSettings).toEqual(draft);
+    await act(async () => { mocks.safetyProps.onReloadResultMasking(); });
+    await flush();
+    expect(mocks.safetyProps.resultMaskingSaveError).toBe('');
+  });
+
+  it('saves disabled result masking while retaining configured rules', async () => {
+    mocks.service.AIGetResultMaskingSettings.mockResolvedValueOnce({ enabled: true, fullMaskFields: ['phone'], partialMaskFields: ['email'] });
+    await act(async () => {
+      renderer = create(<AISettingsContent active darkMode={false} overlayTheme={theme} section="safety" />);
+    });
+    await flush();
+    const disabledDraft = { enabled: false, fullMaskFields: ['phone'], partialMaskFields: ['email'] };
+    await act(async () => { mocks.safetyProps.onResultMaskingChange(disabledDraft); });
+    await act(async () => { mocks.safetyProps.onSaveResultMasking(); await Promise.resolve(); await Promise.resolve(); });
+    expect(mocks.service.AISaveResultMaskingSettings).toHaveBeenCalledWith(disabledDraft);
+    expect(mocks.messages.success).toHaveBeenCalled();
   });
 
   it('loads and saves the shared run policy lazily, retaining explicit zero limits', async () => {
@@ -391,14 +482,14 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.values.model).toBe('');
   });
 
-  it('preserves unmounted saved fields and explicitly clears effort when leaving a CLI preset', async () => {
+  it('clears removed provider fields and explicitly clears effort when leaving a CLI preset', async () => {
     mocks.service.AIGetEditableProvider.mockResolvedValue({ ...providers[0], maxTokens: 8192, temperature: 0.25, effort: 'high' });
     await mount(); await edit();
-    mocks.form.validateFields.mockResolvedValueOnce({ presetKey: 'codex', name: 'Renamed alias' });
+    mocks.form.validateFields.mockResolvedValueOnce({ presetKey: 'openai', name: 'Renamed alias' });
     await act(async () => { await mocks.providerProps.onSaveProvider(); });
-    expect(mocks.service.AISaveProvider.mock.calls[0][0]).toMatchObject({ maxTokens: 8192, temperature: 0.25, effort: 'high', name: 'Renamed alias' });
+    expect(mocks.service.AISaveProvider.mock.calls[0][0]).toMatchObject({ models: [], maxTokens: 0, contextWindow: 0, temperature: 0.25, effort: 'high', name: 'Renamed alias' });
     await edit();
-    await act(async () => { mocks.providerProps.onPresetChange('openai'); change({ apiKey: 'fixture-key' }); });
+    await act(async () => { mocks.providerProps.onAuthModeChange('api-key'); change({ apiKey: 'fixture-key' }); });
     mocks.form.validateFields.mockResolvedValueOnce({ presetKey: 'openai', apiKey: 'fixture-key' });
     await act(async () => { await mocks.providerProps.onSaveProvider(); });
     expect(mocks.service.AISaveProvider.mock.calls[1][0].effort).toBe('');
@@ -420,28 +511,48 @@ describe('AISettingsContent provider async behavior', () => {
     mocks.form.validateFields.mockReturnValueOnce(validation.promise);
     await act(async () => { void mocks.providerProps.onTestProvider(); });
     await act(async () => { mocks.providerProps.onCancelEdit(); });
-    await act(async () => { validation.resolve({ presetKey: 'codex' }); });
+    await act(async () => { validation.resolve({ presetKey: 'openai' }); });
     expect(mocks.service.AITestProvider).not.toHaveBeenCalled();
   });
 
-  it('does not open a duplicate CLI draft or convert another draft to an existing CLI', async () => {
+  it('keeps an OpenAI API draft when its Codex subscription already exists', async () => {
     await mount();
-    await act(async () => { await mocks.providerProps.onAddProvider('codex'); });
-    expect(mocks.providerProps.isEditing).toBe(false);
-    expect(mocks.messages.error).toHaveBeenCalledWith(expect.stringContaining('already added'));
     await act(async () => { await mocks.providerProps.onAddProvider('openai'); change({ name: 'API draft', apiKey: 'fixture-key' }); });
     const draft = { ...mocks.values };
-    await act(async () => { mocks.providerProps.onPresetChange('codex'); });
+    await act(async () => { mocks.providerProps.onAuthModeChange('local-cli'); });
     expect(mocks.values).toEqual(draft);
+    expect(mocks.messages.error).toHaveBeenCalledWith(expect.stringContaining('already added'));
     expect(mocks.service.AISaveProvider).not.toHaveBeenCalled();
     expect(mocks.service.AITestProvider).not.toHaveBeenCalled();
+  });
+
+  it('saves Codex subscription authentication through the OpenAI editor', async () => {
+    mocks.service.AIGetProviders.mockResolvedValue([]);
+    mocks.service.AIGetActiveProvider.mockResolvedValue('');
+    await mount();
+    await act(async () => { await mocks.providerProps.onAddProvider('openai'); });
+    expect(mocks.values).toMatchObject({
+      presetKey: 'openai', type: 'openai', authMode: 'api-key', baseUrl: 'https://api.openai.com/v1',
+    });
+    await act(async () => { mocks.providerProps.onAuthModeChange('local-cli'); });
+    expect(mocks.values).toMatchObject({
+      presetKey: 'openai', type: 'custom', apiFormat: 'codex-cli', authMode: 'local-cli', baseUrl: '', apiKey: '', model: '',
+    });
+    await act(async () => { await mocks.providerProps.onTestProvider(); });
+    expect(mocks.service.AITestProvider).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'custom', apiFormat: 'codex-cli', authMode: 'local-cli', baseUrl: '', apiKey: '', headers: {},
+    }));
+    await act(async () => { await mocks.providerProps.onSaveProvider(); });
+    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'custom', apiFormat: 'codex-cli', authMode: 'local-cli', baseUrl: '', apiKey: '', headers: {},
+    }));
   });
 
   it('rejects duplicate CLI payloads from stale form data before saving or checking', async () => {
     await mount();
     await act(async () => {
       await mocks.providerProps.onAddProvider();
-      change({ presetKey: 'codex', type: 'custom', apiFormat: 'codex-cli', authMode: 'local-cli' });
+      change({ presetKey: 'openai', type: 'custom', apiFormat: 'codex-cli', authMode: 'local-cli' });
     });
     await act(async () => { await mocks.providerProps.onSaveProvider(); await mocks.providerProps.onTestProvider(); });
     expect(mocks.service.AISaveProvider).not.toHaveBeenCalled();
@@ -493,23 +604,25 @@ describe('AISettingsContent provider async behavior', () => {
     }
   });
 
-  it.each<[string, ProviderEndpointType, string, string | undefined, string]>([
-    ['openai', 'openai-responses', 'openai', 'openai-responses', 'https://api.openai.com/v1'],
-    ['deepseek', 'openai', 'openai', 'openai', 'https://api.deepseek.com'],
-    ['deepseek', 'openai-responses', 'openai', 'openai-responses', 'https://api.deepseek.com'],
-    ['moonshot', 'anthropic', 'anthropic', undefined, 'https://api.moonshot.cn/anthropic'],
-    ['moonshot', 'openai', 'openai', undefined, 'https://api.moonshot.cn/v1'],
-    ['minimax', 'openai', 'openai', undefined, 'https://api.minimax.io/v1'],
-    ['minimax', 'anthropic', 'anthropic', undefined, 'https://api.minimax.io/anthropic'],
-    ['qwen-bailian', 'openai', 'openai', undefined, 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
-    ['qwen-bailian', 'anthropic', 'anthropic', undefined, 'https://dashscope.aliyuncs.com/apps/anthropic'],
-    ['qwen-coding-plan', 'cli', 'custom', 'claude-cli', 'https://coding.dashscope.aliyuncs.com/apps/anthropic'],
-    ['gemini', 'gemini', 'gemini', undefined, 'https://generativelanguage.googleapis.com'],
-    ['cursor', 'cursor-agent', 'custom', 'cursor-agent', 'https://api.cursor.com/v1'],
-  ])('tests and saves %s using the chosen %s endpoint', async (presetKey, endpoint, type, apiFormat, baseUrl) => {
+  it.each<[string, ProviderEndpointType, string, string | undefined, string, string, string]>([
+    ['openai', 'openai-responses', 'openai', 'openai-responses', 'https://api.openai.com/v1', 'openai', ''],
+    ['deepseek', 'openai', 'openai', 'openai', 'https://api.deepseek.com', 'deepseek', ''],
+    ['deepseek', 'openai-responses', 'openai', 'openai-responses', 'https://api.deepseek.com', 'deepseek', ''],
+    ['moonshot', 'anthropic', 'anthropic', undefined, 'https://api.moonshot.cn/anthropic', 'moonshot', ''],
+    ['moonshot', 'openai', 'openai', undefined, 'https://api.moonshot.cn/v1', 'moonshot', ''],
+    ['minimax', 'openai', 'openai', undefined, 'https://api.minimax.io/v1', 'minimax', ''],
+    ['minimax', 'anthropic', 'anthropic', undefined, 'https://api.minimax.io/anthropic', 'minimax', ''],
+    ['qwen-bailian', 'openai', 'openai', undefined, 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'qwen-bailian', 'bailian'],
+    ['qwen-bailian', 'anthropic', 'anthropic', undefined, 'https://dashscope.aliyuncs.com/apps/anthropic', 'qwen-bailian', 'bailian'],
+    ['qwen-bailian', 'cli', 'custom', 'claude-cli', 'https://coding.dashscope.aliyuncs.com/apps/anthropic', 'qwen-bailian', 'coding-plan'],
+    ['qwen-coding-plan', 'cli', 'custom', 'claude-cli', 'https://coding.dashscope.aliyuncs.com/apps/anthropic', 'qwen-bailian', 'coding-plan'],
+    ['volcengine-coding', 'openai', 'openai', undefined, 'https://ark.cn-beijing.volces.com/api/coding/v3', 'volcengine-ark', 'coding-plan'],
+    ['gemini', 'gemini', 'gemini', undefined, 'https://generativelanguage.googleapis.com', 'gemini', ''],
+    ['cursor', 'cursor-agent', 'custom', 'cursor-agent', 'https://api.cursor.com/v1', 'cursor', 'api'],
+  ])('tests and saves %s using the chosen %s endpoint', async (requestedPresetKey, endpoint, type, apiFormat, baseUrl, presetKey, connectionMode) => {
     await mount();
-    await act(async () => { await mocks.providerProps.onAddProvider(presetKey, endpoint); });
-    expect(mocks.values).toMatchObject({ presetKey, type, baseUrl });
+    await act(async () => { await mocks.providerProps.onAddProvider(requestedPresetKey, endpoint); });
+    expect(mocks.values).toMatchObject({ presetKey, connectionMode, type, baseUrl });
     await act(async () => { change({ apiKey: 'fixture-key', model: 'user-selected-model' }); });
     await act(async () => { await mocks.providerProps.onTestProvider(); });
     const expected = { type, apiFormat, baseUrl, model: 'user-selected-model', apiKey: 'fixture-key' };
@@ -519,22 +632,107 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.service.AISetActiveProvider).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['claude-subscription', 'anthropic', 'subscription', 'claude-cli'],
+    ['anthropic', 'anthropic', 'subscription', 'claude-cli'],
+    ['cursor-cli', 'cursor', 'local-cli', 'cursor-cli'],
+    ['cursor', 'cursor', 'local-cli', 'cursor-cli'],
+  ])('opens %s through a local CLI route inside the merged provider', async (requestedPresetKey, presetKey, connectionMode, apiFormat) => {
+    await mount();
+    await act(async () => { await mocks.providerProps.onAddProvider(requestedPresetKey, 'cli'); });
+    expect(mocks.values).toMatchObject({ presetKey, connectionMode, type: 'custom', apiFormat, authMode: 'local-cli', baseUrl: '' });
+    await act(async () => { change({ model: 'user-selected-model' }); });
+    await act(async () => { await mocks.providerProps.onTestProvider(); });
+    const expected = { type: 'custom', apiFormat, authMode: 'local-cli', baseUrl: '', model: 'user-selected-model', apiKey: '', headers: {} };
+    expect(mocks.service.AITestProvider).toHaveBeenCalledWith(expect.objectContaining(expected));
+    await act(async () => { await mocks.providerProps.onSaveProvider(); });
+    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining(expected));
+  });
+
+  it.each([
+    ['qwen-bailian', 'coding-plan', 'custom', 'claude-cli', 'https://coding.dashscope.aliyuncs.com/apps/anthropic'],
+    ['volcengine-ark', 'coding-plan', 'openai', 'openai', 'https://ark.cn-beijing.volces.com/api/coding/v3'],
+    ['anthropic', 'subscription', 'custom', 'claude-cli', ''],
+    ['cursor', 'local-cli', 'custom', 'cursor-cli', ''],
+  ])('switches the merged %s editor to its %s mode', async (presetKey, connectionMode, type, apiFormat, baseUrl) => {
+    await mount();
+    await act(async () => { await mocks.providerProps.onAddProvider(presetKey); });
+    await act(async () => { mocks.providerProps.onConnectionModeChange(connectionMode); });
+    expect(mocks.values).toMatchObject({ presetKey, connectionMode, type, apiFormat, baseUrl });
+  });
+
+  it('opens a custom OpenAI-compatible draft with the HuaLongAI API address', async () => {
+    await mount();
+    await act(async () => {
+      await mocks.providerProps.onApplyPartnerBaseUrl('https://api.hualong.online/v1', '華龍算力');
+    });
+    expect(mocks.values).toMatchObject({
+      presetKey: 'custom',
+      type: 'custom',
+      apiFormat: 'openai',
+      authMode: 'api-key',
+      name: '華龍算力',
+      baseUrl: 'https://api.hualong.online/v1',
+    });
+    expect(mocks.messages.success).toHaveBeenCalledWith('HuaLongAI API address applied');
+  });
+
+  it('copies the HuaLongAI promo code without showing a success message', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    await mount();
+    await act(async () => {
+      await mocks.providerProps.onCopyPartnerCode('GONAVI&HUALONG');
+    });
+    expect(writeText).toHaveBeenCalledWith('GONAVI&HUALONG');
+    expect(mocks.messages.success).not.toHaveBeenCalled();
+  });
+
+  it('syncs and normalizes models from the current unsaved API draft', async () => {
+    mocks.service.AIGetProviders.mockResolvedValue([]);
+    mocks.service.AIGetActiveProvider.mockResolvedValue('');
+    mocks.service.AIListProviderModels.mockResolvedValue({
+      success: true,
+      source: 'api',
+      models: [' model-b ', 'model-a', 'model-a'],
+    });
+    await mount();
+    await act(async () => { await mocks.providerProps.onApplyPartnerBaseUrl('https://api.hualong.online/v1', '華龍算力'); });
+    await act(async () => change({ apiKey: 'fixture-key' }));
+    let models: string[] = [];
+    await act(async () => { models = await mocks.providerProps.onSyncProviderModels(); });
+    expect(mocks.service.AIListProviderModels).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'custom', apiFormat: 'openai', authMode: 'api-key', name: '華龍算力',
+      baseUrl: 'https://api.hualong.online/v1', apiKey: 'fixture-key', models: [], maxTokens: 0, contextWindow: 0,
+    }));
+    expect(models).toEqual(['model-b', 'model-a']);
+    expect(mocks.messages.success).toHaveBeenLastCalledWith('Synced 2 models from upstream');
+  });
+
+  it('keeps upstream model sync failures visible', async () => {
+    mocks.service.AIListProviderModels.mockResolvedValue({ success: false, models: [], error: 'upstream denied this key' });
+    await mount();
+    await act(async () => { await mocks.providerProps.onAddProvider('openai'); change({ apiKey: 'fixture-key' }); });
+    await expect(mocks.providerProps.onSyncProviderModels()).rejects.toThrow('upstream denied this key');
+    expect(mocks.messages.error).toHaveBeenCalledWith('upstream denied this key');
+  });
+
   it('preserves vendor fields but invalidates a pending check when its endpoint changes', async () => {
     const pending = deferred<typeof passed>();
     mocks.service.AITestProvider.mockReturnValueOnce(pending.promise);
     await mount();
     await act(async () => { await mocks.providerProps.onAddProvider('minimax', 'anthropic'); });
-    await act(async () => { change({ baseUrl: 'https://api.minimaxi.com/anthropic', name: 'My model alias', model: 'pinned-model', models: ['favorite'], apiKey: 'fixture-key', maxTokens: 800, temperature: 0.2 }); });
+    await act(async () => { change({ baseUrl: 'https://api.minimaxi.com/anthropic', name: 'My model alias', model: 'pinned-model', models: ['favorite'], apiKey: 'fixture-key', maxTokens: 800, contextWindow: 32000, temperature: 0.2 }); });
     await act(async () => { void mocks.providerProps.onTestProvider(); });
     expect(mocks.providerProps.testing).toBe(true);
     await act(async () => { mocks.providerProps.onPresetChange('minimax', 'openai'); });
-    expect(mocks.values).toMatchObject({ type: 'openai', apiFormat: 'openai', baseUrl: 'https://api.minimaxi.com/v1', name: 'My model alias', model: 'pinned-model', models: ['favorite'], apiKey: 'fixture-key', maxTokens: 800, temperature: 0.2 });
+    expect(mocks.values).toMatchObject({ type: 'openai', apiFormat: 'openai', baseUrl: 'https://api.minimaxi.com/v1', name: 'My model alias', model: 'pinned-model', models: ['favorite'], apiKey: 'fixture-key', maxTokens: 800, contextWindow: 32000, temperature: 0.2 });
     await act(async () => { pending.resolve(passed); });
     expect(mocks.providerProps.testStatus).toBe('idle');
     expect(mocks.providerProps.testResult).toBeNull();
     expect(mocks.providerProps.testing).toBe(false);
     await act(async () => { await mocks.providerProps.onSaveProvider(); });
-    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ type: 'openai', baseUrl: 'https://api.minimaxi.com/v1', model: 'pinned-model', name: 'My model alias', maxTokens: 800, temperature: 0.2 }));
+    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ type: 'openai', baseUrl: 'https://api.minimaxi.com/v1', model: 'pinned-model', name: 'My model alias', models: [], maxTokens: 0, contextWindow: 0, temperature: 0.2 }));
   });
 
   it('retains a saved Bailian Chat endpoint instead of silently converting it to Messages', async () => {
@@ -565,7 +763,7 @@ describe('AISettingsContent provider async behavior', () => {
     await act(async () => { await mocks.providerProps.onSaveProviderAsCopy(); });
     const saved = mocks.service.AISaveProvider.mock.calls[0][0];
     expect(saved).toMatchObject({ name: 'Origin · Copy 2', model: 'default', inlineCompletionModel: 'sql', apiKey: 'fixture-key', headers: original.headers,
-      maxTokens: 1024, temperature: 0.2, customModels: ['mine', 'copy-model'], disabledModels: ['hidden', 'mine'] });
+      models: [], maxTokens: 0, contextWindow: 0, temperature: 0.2, customModels: ['mine', 'copy-model'], disabledModels: ['hidden', 'mine'] });
     expect(saved.id).toMatch(/^provider-/);
     expect(saved.id).not.toBe(original.id);
     expect(saved.secretRef).toBeUndefined();
@@ -609,7 +807,7 @@ describe('AISettingsContent provider async behavior', () => {
     }
     await act(async () => change({ disabledModels: ['hidden'] }));
     await act(async () => { await mocks.providerProps.onSaveProvider(); });
-    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ id: 'api', customModels: ['mine'], disabledModels: ['hidden'], maxTokens: 1024, temperature: 0.2, inlineCompletionModel: 'sql' }));
+    expect(mocks.service.AISaveProvider).toHaveBeenCalledWith(expect.objectContaining({ id: 'api', customModels: ['mine'], disabledModels: ['hidden'], models: [], maxTokens: 0, contextWindow: 0, temperature: 0.2, inlineCompletionModel: 'sql' }));
   });
 
   it('does not create a second record when input changes during the first save', async () => {
@@ -681,6 +879,26 @@ describe('AISettingsContent provider async behavior', () => {
     expect(mocks.providerProps.testStatus).toBe('idle');
     expect(mocks.providerProps.testResult).toBeNull();
     expect(mocks.service.AISaveProvider).not.toHaveBeenCalled();
+  });
+
+  it('hides the internal settings nav when hosted in the settings tree', async () => {
+    await act(async () => {
+      renderer = create(
+        <AISettingsContent
+          active
+          darkMode={false}
+          overlayTheme={theme}
+          hideSidebar
+          section="safety"
+          confirmationZIndex={25200}
+        />,
+      );
+    });
+    await flush();
+    expect(mocks.sidebarProps).toBeUndefined();
+    expect(renderer!.root.findByProps({ id: 'gonavi-ai-settings-panel-safety' }).props.hidden).toBe(false);
+    expect(renderer!.root.findByProps({ id: 'gonavi-ai-settings-panel-providers' }).props.hidden).toBe(true);
+    expect(renderer!.root.findByProps({ id: 'gonavi-ai-settings-panel-safety' }).props.role).toBeUndefined();
   });
 
   it('hides the provider panel instead of stacking it above other settings sections', async () => {

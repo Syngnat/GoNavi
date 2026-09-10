@@ -95,6 +95,25 @@ describe('AI run harness client', () => {
     ]);
   });
 
+  it('restores and aggregates encrypted message usage metadata', () => {
+    expect(toAIChatMessages({
+      messages: [
+        {
+          id: 'assistant-usage-1', runId: 'run-usage', role: 'assistant', content: 'first', createdAt: 1,
+          metadata: JSON.stringify({ usage: { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedTokens: 4 } }),
+        },
+        {
+          id: 'assistant-usage-2', runId: 'run-usage', role: 'assistant', content: 'second', createdAt: 2,
+          metadata: Array.from(new TextEncoder().encode(JSON.stringify({
+            usage: { promptTokens: 5, completionTokens: 3, totalTokens: 8, cachedTokens: 0 },
+          }))),
+        },
+      ],
+    })[0]).toMatchObject({
+      tokenUsage: { promptTokens: 15, completionTokens: 5, totalTokens: 20, cachedTokens: 4 },
+    });
+  });
+
   it('flattens nested shortcut bindings to the Go map[string]string contract', () => {
     expect(serializeShortcutOptionsForWorkspace({
       runQuery: {

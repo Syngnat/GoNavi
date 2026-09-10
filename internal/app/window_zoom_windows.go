@@ -90,19 +90,34 @@ func resolveWailsFrontendValue(ctx context.Context) (reflect.Value, error) {
 	}
 
 	frontendValue := reflect.ValueOf(frontendIface)
-	if frontendValue.Kind() == reflect.Ptr {
-		if frontendValue.IsNil() {
-			return reflect.Value{}, fmt.Errorf("wails frontend is nil")
+	for depth := 0; depth < 8; depth++ {
+		for frontendValue.IsValid() && (frontendValue.Kind() == reflect.Interface || frontendValue.Kind() == reflect.Ptr) {
+			if frontendValue.IsNil() {
+				return reflect.Value{}, fmt.Errorf("wails frontend is nil")
+			}
+			frontendValue = frontendValue.Elem()
 		}
-		frontendValue = frontendValue.Elem()
+		if !frontendValue.IsValid() || frontendValue.Kind() != reflect.Struct {
+			return reflect.Value{}, fmt.Errorf("wails frontend has unexpected kind %v", frontendValue.Kind())
+		}
+		if !frontendValue.CanAddr() {
+			return reflect.Value{}, fmt.Errorf("wails frontend is not addressable")
+		}
+
+		// In a production build, ctx["frontend"] is the platform Frontend
+		// itself. In `wails dev`, it is DevWebServer, which anonymously embeds
+		// frontend.Frontend and delegates to the same platform value. Unwrap the
+		// exported interface before looking for Windows-only private fields.
+		if frontendValue.FieldByName("chromium").IsValid() && frontendValue.FieldByName("mainWindow").IsValid() {
+			return frontendValue, nil
+		}
+		embeddedFrontend := frontendValue.FieldByName("Frontend")
+		if !embeddedFrontend.IsValid() {
+			return frontendValue, nil
+		}
+		frontendValue = embeddedFrontend
 	}
-	if !frontendValue.IsValid() || frontendValue.Kind() != reflect.Struct {
-		return reflect.Value{}, fmt.Errorf("wails frontend has unexpected kind %v", frontendValue.Kind())
-	}
-	if !frontendValue.CanAddr() {
-		return reflect.Value{}, fmt.Errorf("wails frontend is not addressable")
-	}
-	return frontendValue, nil
+	return reflect.Value{}, fmt.Errorf("wails frontend wrapper nesting exceeds supported depth")
 }
 
 func accessibleWailsFrontendField(frontendValue reflect.Value, fieldName string) (reflect.Value, error) {

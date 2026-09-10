@@ -92,7 +92,7 @@ const renderAIChatInput = (
       textColor="#162033"
       mutedColor="rgba(16,24,40,0.55)"
       overlayTheme={buildOverlayWorkbenchTheme(false)}
-      isV2Ui
+
       {...overrides}
     />
   </I18nProvider>,
@@ -127,32 +127,24 @@ const renderAIChatInputWithoutProvider = (
     textColor="#162033"
     mutedColor="rgba(16,24,40,0.55)"
     overlayTheme={buildOverlayWorkbenchTheme(false)}
-    isV2Ui
+
     {...overrides}
   />,
 );
 
 describe('AIChatInput i18n source guards', () => {
 
-  it('renders localized legacy and v2 placeholders in en-US with the dynamic shortcut label', () => {
-    const legacyMarkup = renderAIChatInput('en-US', {
-      isV2Ui: false,
-      sendShortcutBinding: { combo: 'Meta+Enter', enabled: true },
-      shortcutPlatform: 'mac',
-    });
-    const v2Markup = renderAIChatInput('en-US', {
-      isV2Ui: true,
+  it('renders the localized placeholder in en-US with the dynamic shortcut label', () => {
+    const markup = renderAIChatInput('en-US', {
       sendShortcutBinding: { combo: 'Meta+Enter', enabled: true },
       shortcutPlatform: 'mac',
     });
 
-    expect(legacyMarkup).toContain('placeholder="Type a message... (⌘↵ to send, Shift+Enter for newline, / for commands)"');
-    expect(v2Markup).toContain('placeholder="Type a message... ⌘↵ to send · / commands"');
+    expect(markup).toContain('placeholder="Type a message... ⌘↵ to send · / commands"');
   });
 
   it('renders the disabled shortcut placeholder copy instead of falling back to Enter', () => {
     const markup = renderAIChatInput('en-US', {
-      isV2Ui: false,
       sendShortcutBinding: { combo: 'Enter', enabled: false },
     });
 
@@ -161,53 +153,27 @@ describe('AIChatInput i18n source guards', () => {
   });
 
   it('renders localized connection context tooltips in en-US while preserving raw connection context', () => {
-    const legacyMarkup = renderAIChatInput('en-US', {
-      isV2Ui: false,
-      activeConnName: 'orders-db',
-      activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
-    });
-    const v2Markup = renderAIChatInput('en-US', {
-      isV2Ui: true,
+    const markup = renderAIChatInput('en-US', {
       activeConnName: 'orders-db',
       activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
     });
 
-    expect(legacyMarkup).toContain('data-tooltip-title="Current data query context"');
-    expect(v2Markup).toContain('data-tooltip-title="Current data query context"');
-    expect(legacyMarkup).toContain('orders-db');
-    expect(v2Markup).toContain('orders-db / analytics');
+    expect(markup).toContain('data-tooltip-title="Current data query context"');
+    expect(markup).toContain('orders-db / analytics');
   });
 
   it('renders localized memory usage tooltips in en-US while preserving the raw limit label', () => {
-    const legacyMarkup = renderAIChatInput('en-US', {
-      isV2Ui: false,
-      contextUsageChars: 12800,
-      maxContextChars: 32000,
-    });
-    const v2Markup = renderAIChatInput('en-US', {
-      isV2Ui: true,
+    const markup = renderAIChatInput('en-US', {
       contextUsageChars: 12800,
       maxContextChars: 32000,
     });
 
-    expect(legacyMarkup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
-    expect(v2Markup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
-    expect(legacyMarkup).toContain('12.8k / 32k');
-    expect(v2Markup).toContain('12.8k/32k');
+    expect(markup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
+    expect(markup).toContain('12.8k/32k');
   });
 
   it('falls back to English placeholders and tooltips without an i18n provider while preserving raw connection context', () => {
     expect(() => renderAIChatInputWithoutProvider({
-      isV2Ui: false,
-      activeConnName: 'orders-db',
-      activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
-      contextUsageChars: 12800,
-      maxContextChars: 32000,
-      sendShortcutBinding: { combo: 'Meta+Enter', enabled: true },
-      shortcutPlatform: 'mac',
-    })).not.toThrow();
-    expect(() => renderAIChatInputWithoutProvider({
-      isV2Ui: true,
       activeConnName: 'orders-db',
       activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
       contextUsageChars: 12800,
@@ -216,17 +182,7 @@ describe('AIChatInput i18n source guards', () => {
       shortcutPlatform: 'mac',
     })).not.toThrow();
 
-    const legacyMarkup = renderAIChatInputWithoutProvider({
-      isV2Ui: false,
-      activeConnName: 'orders-db',
-      activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
-      contextUsageChars: 12800,
-      maxContextChars: 32000,
-      sendShortcutBinding: { combo: 'Meta+Enter', enabled: true },
-      shortcutPlatform: 'mac',
-    });
-    const v2Markup = renderAIChatInputWithoutProvider({
-      isV2Ui: true,
+    const markup = renderAIChatInputWithoutProvider({
       activeConnName: 'orders-db',
       activeContext: { connectionId: 'conn-1', dbName: 'analytics' },
       contextUsageChars: 12800,
@@ -235,15 +191,10 @@ describe('AIChatInput i18n source guards', () => {
       shortcutPlatform: 'mac',
     });
 
-    expect(legacyMarkup).toContain('placeholder="Type a message... (⌘↵ to send, Shift+Enter for newline, / for commands)"');
-    expect(v2Markup).toContain('placeholder="Type a message... ⌘↵ to send · / commands"');
-    expect(legacyMarkup).toContain('data-tooltip-title="Current data query context"');
-    expect(v2Markup).toContain('data-tooltip-title="Current data query context"');
-    expect(legacyMarkup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
-    expect(v2Markup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
-    expect(legacyMarkup).toContain('orders-db / analytics');
-    expect(v2Markup).toContain('orders-db / analytics');
-    expect(legacyMarkup).not.toContain('ai_chat.input.placeholder');
-    expect(v2Markup).not.toContain('ai_chat.input.context.connection_tooltip');
+    expect(markup).toContain('placeholder="Type a message... ⌘↵ to send · / commands"');
+    expect(markup).toContain('data-tooltip-title="Current data query context"');
+    expect(markup).toContain('data-tooltip-title="Current session memory usage. Auto-compression starts when it reaches the 32k limit."');
+    expect(markup).toContain('orders-db / analytics');
+    expect(markup).not.toContain('ai_chat.input.context.connection_tooltip');
   });
 });

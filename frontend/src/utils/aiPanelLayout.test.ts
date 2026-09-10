@@ -11,7 +11,6 @@ import {
 describe('aiPanelLayout', () => {
   it('keeps the v2 AI panel docked while enough workbench width remains', () => {
     expect(shouldOverlayAIPanel({
-      isV2Ui: true,
       viewportWidth: 1440,
       sidebarWidth: 330,
       panelWidth: DEFAULT_AI_PANEL_WIDTH,
@@ -21,7 +20,6 @@ describe('aiPanelLayout', () => {
 
   it('switches the v2 AI panel to overlay mode when docking would crush the workbench', () => {
     expect(shouldOverlayAIPanel({
-      isV2Ui: true,
       viewportWidth: 825,
       sidebarWidth: 330,
       panelWidth: DEFAULT_AI_PANEL_WIDTH,
@@ -29,9 +27,8 @@ describe('aiPanelLayout', () => {
     })).toBe(true);
   });
 
-  it('also protects the legacy UI from being crushed by the AI panel', () => {
+  it('uses default dimensions to keep the workbench from being crushed by the AI panel', () => {
     expect(shouldOverlayAIPanel({
-      isV2Ui: false,
       viewportWidth: 825,
       sidebarWidth: 330,
     })).toBe(true);

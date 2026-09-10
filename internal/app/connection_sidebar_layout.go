@@ -204,7 +204,7 @@ func (r *connectionSidebarLayoutRepository) loadUnlocked() (connection.Connectio
 }
 
 func normalizeConnectionSidebarConnectionSortMode(value string, legacyValue string) string {
-	if value == "name" || value == "createdAt" {
+	if value == "manual" || value == "name" || value == "createdAt" {
 		return value
 	}
 	if legacyValue == "name" || legacyValue == "createdAt" {

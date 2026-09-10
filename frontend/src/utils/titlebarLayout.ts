@@ -9,6 +9,8 @@ export type TitleBarLayout = {
 
 const MIN_UI_SCALE = 0.8;
 const MAX_UI_SCALE = 1.25;
+const MIN_SIDEBAR_BUTTON_SCALE = 1;
+const MAX_SIDEBAR_BUTTON_SCALE = 1.8;
 
 export type TitlebarRuntimePlatform = 'darwin' | 'windows' | null;
 
@@ -103,13 +105,11 @@ export const resolveDocumentPlatform = (
  * reported its platform.
  */
 export const shouldDockCollapsedSidebarActionsInTitlebar = (
-  isV2Ui: boolean,
   runtimePlatform: string,
   navigatorPlatform: string,
   isWebRuntime = false,
 ): boolean => {
   return !isWebRuntime
-    && isV2Ui
     && resolveTitlebarRuntimePlatform(runtimePlatform, navigatorPlatform) !== null;
 };
 
@@ -121,22 +121,34 @@ const resolveUiScale = (uiScale: number): number => {
   return Math.min(MAX_UI_SCALE, Math.max(MIN_UI_SCALE, parsed));
 };
 
-/** Keep the normal titlebar compact; only reserve a second band for docked collapsed-sidebar actions. */
+const resolveSidebarButtonScale = (sidebarButtonScale: number): number => {
+  const parsed = Number(sidebarButtonScale);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  return Math.min(MAX_SIDEBAR_BUTTON_SCALE, Math.max(MIN_SIDEBAR_BUTTON_SCALE, parsed));
+};
+
+/** Keep the V2 titlebar comfortably clickable; only reserve a second band for docked collapsed-sidebar actions. */
 export const resolveTitleBarLayout = (
   uiScale: number,
-  isV2Ui: boolean,
   reserveCollapsedActionBand = false,
+  sidebarButtonScale = 1,
 ): TitleBarLayout => {
   const scale = resolveUiScale(uiScale);
+  const resolvedSidebarButtonScale = resolveSidebarButtonScale(sidebarButtonScale);
+  const titlebarBaseHeight = 36;
+  const actionBaseHeight = 30;
+  const dividerBaseHeight = 14;
   const compactLayout = {
-    height: Math.max(28, Math.round(32 * scale)),
-    actionHeight: Math.max(24, Math.round(26 * scale)),
-    dividerHeight: Math.max(10, Math.round(12 * scale)),
-    upperBandHeight: Math.max(28, Math.round(32 * scale)),
+    height: Math.max(28, Math.round(titlebarBaseHeight * scale)),
+    actionHeight: Math.max(24, Math.round(actionBaseHeight * scale)),
+    dividerHeight: Math.max(10, Math.round(dividerBaseHeight * scale)),
+    upperBandHeight: Math.max(28, Math.round(titlebarBaseHeight * scale)),
     emptyWorkbenchTopOffset: 0,
   };
 
-  if (!isV2Ui || !reserveCollapsedActionBand) {
+  if (!reserveCollapsedActionBand) {
     return compactLayout;
   }
 
@@ -144,7 +156,7 @@ export const resolveTitleBarLayout = (
   // docked collapsed-sidebar actions on desktop platforms.
   const upperBandBottom = 16 + (Math.max(26, compactLayout.actionHeight) / 2);
   const upperBandHeight = Math.ceil(upperBandBottom);
-  const collapsedActionBandHeight = 26 * scale;
+  const collapsedActionBandHeight = 26 * scale * resolvedSidebarButtonScale;
   const minimumTwoBandHeight = Math.ceil(
     upperBandHeight
     + 1 // visual separation between the rows

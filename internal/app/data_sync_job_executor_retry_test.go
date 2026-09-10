@@ -47,3 +47,26 @@ func TestExecuteDataSyncMappingWithRetryStopsOnUnknownWrite(t *testing.T) {
 		t.Fatalf("retry logs = %d, want 0", reporter.logs)
 	}
 }
+
+func TestExecuteDataSyncMappingWithRetryStopsOnPermanentSyntaxFailure(t *testing.T) {
+	reporter := &dataSyncRetryTestReporter{}
+	attempts := 0
+	cause := errors.New("Error -2007: syntax error near GENERATED")
+	definition := syncjob.JobDefinition{Options: syncjob.ExecutionOptions{
+		MaxRetries: 3,
+		SyncMode:   "insert_update",
+	}}
+	_, err := executeDataSyncMappingWithRetry(context.Background(), definition, reporter, func() (syncjob.ExecutionOutcome, error) {
+		attempts++
+		return syncjob.ExecutionOutcome{Resumable: true}, cause
+	})
+	if !errors.Is(err, cause) {
+		t.Fatalf("retry result error = %v, want %v", err, cause)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 for a permanent syntax failure", attempts)
+	}
+	if reporter.logs != 0 {
+		t.Fatalf("retry logs = %d, want 0", reporter.logs)
+	}
+}

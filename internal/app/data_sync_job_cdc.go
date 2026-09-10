@@ -54,7 +54,7 @@ func (a *App) DataSyncCDCAdapterList() connection.QueryResult {
 }
 
 func (a *App) DataSyncCDCProbe(connectionID, database, schema, _ string) connection.QueryResult {
-	endpoint, err := a.resolveDataSyncJobEndpoint(connectionID, database, schema)
+	endpoint, err := a.resolveDataSyncSavedEndpoint(connectionID, database, schema)
 	if err != nil {
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}

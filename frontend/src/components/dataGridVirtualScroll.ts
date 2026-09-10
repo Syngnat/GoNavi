@@ -30,26 +30,48 @@ const queryDataGridFixedCells = (root: ParentNode): NodeListOf<HTMLElement> => (
   root.querySelectorAll<HTMLElement>(DATA_GRID_FIXED_CELL_SELECTOR)
 );
 
+const DATA_GRID_COLUMN_VIRTUALIZATION_THRESHOLD = 16;
+
+export const shouldVirtualizeDataGridColumns = (columnCount: number): boolean => (
+  Number.isFinite(columnCount)
+  && Math.max(0, Math.floor(columnCount)) > DATA_GRID_COLUMN_VIRTUALIZATION_THRESHOLD
+);
+
+export const readDataGridVirtualInnerOffset = (inner: HTMLElement): number => {
+  const translated = Math.abs(Number.parseFloat(inner.style.translate));
+  if (Number.isFinite(translated)) {
+    return translated;
+  }
+  const legacyMargin = Math.abs(Number.parseFloat(inner.style.marginLeft));
+  return Number.isFinite(legacyMargin) ? legacyMargin : 0;
+};
+
+export const applyDataGridVirtualInnerOffset = (
+  inner: HTMLElement,
+  offset: number,
+): boolean => {
+  const normalized = normalizeHorizontalOffset(offset);
+  if (Math.abs(readDataGridVirtualInnerOffset(inner) - normalized) < 0.5) {
+    return false;
+  }
+  inner.style.translate = `${-normalized}px 0`;
+  return true;
+};
+
 /**
  * Keeps fixed cells visually pinned during a continuous horizontal preview.
- * Writing the inherited ancestor variable here would invalidate every cell in
- * the virtual body, so only the currently mounted fixed cells are touched.
+ * One inherited variable replaces a style write on every mounted fixed cell.
  */
 export const applyDataGridFixedCellPreviewOffset = (
-  root: ParentNode,
+  inner: HTMLElement,
   offset: number,
 ): number => {
-  const transform = `translate3d(${normalizeHorizontalOffset(offset)}px, 0, 0)`;
-  const cells = queryDataGridFixedCells(root);
-  cells.forEach((cell) => {
-    if (
-      cell.style.getPropertyValue('transform') !== transform
-      || cell.style.getPropertyPriority('transform') !== 'important'
-    ) {
-      cell.style.setProperty('transform', transform, 'important');
-    }
-  });
-  return cells.length;
+  const scrollVar = `${normalizeHorizontalOffset(offset)}px`;
+  if (inner.style.getPropertyValue('--gn-datagrid-h-scroll') === scrollVar) {
+    return 0;
+  }
+  inner.style.setProperty('--gn-datagrid-h-scroll', scrollVar);
+  return 1;
 };
 
 /**
@@ -105,10 +127,12 @@ export const calculateFixedVirtualRange = ({
       : 0;
   const clampedScrollTop = Math.max(0, Math.min(maxScrollTop, requestedScrollTop));
 
-  // rc-virtual-list keeps the item ending exactly at scrollTop in its range.
-  const start = Math.min(count - 1, Math.max(0, Math.ceil(clampedScrollTop / height) - 1));
-  // Keep the same additional cached row rendered by rc-virtual-list.
-  const end = Math.min(count - 1, Math.floor((clampedScrollTop + viewport) / height) + 1);
+  // Native scrolling can advance before React commits the next virtual
+  // window. Keep at least one viewport mounted on each side so a large wheel
+  // delta cannot expose the unmounted filler between two React frames.
+  const overscanRows = Math.max(6, Math.ceil(viewport / height));
+  const start = Math.min(count - 1, Math.max(0, Math.ceil(clampedScrollTop / height) - overscanRows));
+  const end = Math.min(count - 1, Math.floor((clampedScrollTop + viewport) / height) + overscanRows);
 
   return {
     scrollHeight,

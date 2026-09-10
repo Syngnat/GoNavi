@@ -7,6 +7,7 @@ export const singleHostUriSchemesByType: Record<string, string[]> = {
   oracle: ["oracle"],
   sqlserver: ["sqlserver"],
   iris: ["iris", "intersystems"],
+  cache: ["cache", "intersystems-cache", "intersystemscache"],
   redis: ["redis"],
   tdengine: ["tdengine"],
   iotdb: ["iotdb"],
@@ -175,6 +176,7 @@ export const supportsConnectionParamsForType = (type: string) =>
   type === "oracle" ||
   type === "sqlserver" ||
   type === "iris" ||
+  type === "cache" ||
   type === "clickhouse" ||
   type === "trino" ||
   type === "mongodb" ||

@@ -34,6 +34,7 @@ const TRANSACTION_BOUNDARIES: Record<string, TransactionBoundary> = {
   sqlite: DEFAULT_TRANSACTION_BOUNDARY,
   duckdb: DEFAULT_TRANSACTION_BOUNDARY,
   iris: DEFAULT_TRANSACTION_BOUNDARY,
+  cache: DEFAULT_TRANSACTION_BOUNDARY,
   oracle: {
     commit: 'COMMIT',
     rollback: 'ROLLBACK',

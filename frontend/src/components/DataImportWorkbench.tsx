@@ -734,6 +734,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
           minWidth: 0,
           minHeight: 0,
           gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)',
+          gridAutoRows: 'max-content',
           gap: 20,
           overflow: 'auto',
           padding: 24,
@@ -1119,6 +1120,7 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
           style={{
             minWidth: 0,
             minHeight: 420,
+            alignSelf: 'start',
             padding: 20,
             border: panelBorder,
             borderRadius: 8,
@@ -1176,7 +1178,10 @@ const DataImportWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
             />
           )}
         </section>
-        <div style={{ gridColumn: '1 / -1' }}>
+        <div
+          data-data-import-history-panel="true"
+          style={{ gridColumn: '1 / -1', minWidth: 0 }}
+        >
           <ImportJobHistoryPanel refreshToken={historyRefreshToken} />
         </div>
       </div>

@@ -492,3 +492,43 @@ func TestProviderModelTurnAdapterRejectsEmptyStream(t *testing.T) {
 		t.Fatalf("error = %v, want protocol empty-response error", err)
 	}
 }
+
+type usageAdapterProvider struct{}
+
+func (*usageAdapterProvider) Chat(context.Context, ai.ChatRequest) (*ai.ChatResponse, error) {
+	return nil, errors.New("unexpected non-stream call")
+}
+
+func (*usageAdapterProvider) ChatStream(_ context.Context, _ ai.ChatRequest, callback func(ai.StreamChunk)) error {
+	cached := 4
+	callback(ai.StreamChunk{
+		Content: "measured",
+		Done:    true,
+		Usage: &ai.TokenUsage{
+			PromptTokens:     10,
+			CompletionTokens: 3,
+			TotalTokens:      13,
+			CachedTokens:     &cached,
+		},
+	})
+	return nil
+}
+
+func (*usageAdapterProvider) Name() string    { return "usage" }
+func (*usageAdapterProvider) Validate() error { return nil }
+
+func TestProviderModelTurnAdapterPreservesStreamUsage(t *testing.T) {
+	adapter := NewProviderModelTurnAdapter(func(context.Context, ModelTurnRequest) (provider.Provider, error) {
+		return &usageAdapterProvider{}, nil
+	})
+	result, err := adapter.Execute(context.Background(), ModelTurnRequest{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Usage.PromptTokens != 10 || result.Usage.CompletionTokens != 3 || result.Usage.TotalTokens != 13 {
+		t.Fatalf("usage = %#v", result.Usage)
+	}
+	if result.Usage.CachedTokens == nil || *result.Usage.CachedTokens != 4 {
+		t.Fatalf("cached usage = %#v", result.Usage.CachedTokens)
+	}
+}

@@ -452,6 +452,57 @@ func TestSharedRuntimeInjectsRequestedBridgeWithoutBrowserAuthentication(t *test
 	}
 }
 
+func TestWebServerServesIndexFromProductionZipRoot(t *testing.T) {
+	assets := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte(`<html><body>production zip</body></html>`)},
+	}
+	server, err := New(context.Background(), fs.FS(assets), Options{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	t.Cleanup(server.shutdownTeardown)
+
+	recorder := httptest.NewRecorder()
+	server.routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusSeeOther {
+		t.Fatalf("unauthenticated root status = %d, want %d", recorder.Code, http.StatusSeeOther)
+	}
+
+	// The auth redirect is expected before the index for the normal server;
+	// inspect the resolved asset FS directly to prove the production layout was
+	// selected instead of the development frontend/dist fallback.
+	payload, err := fs.ReadFile(server.assets, "index.html")
+	if err != nil {
+		t.Fatalf("resolved production index is unavailable: %v", err)
+	}
+	if string(payload) != `<html><body>production zip</body></html>` {
+		t.Fatalf("resolved production index = %q", payload)
+	}
+}
+
+func TestSharedRuntimeServesIndexFromProductionZipRoot(t *testing.T) {
+	assets := fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte(`<html><body>production zip</body></html>`)},
+	}
+	shared, err := NewSharedRuntime(fs.FS(assets), appcore.NewWebApp(), aiservice.NewService(), SharedRuntimeOptions{
+		RuntimeBridgePath:   "/__gonavi/detached-runtime.js",
+		RuntimeBridgeScript: "window.detachedRuntime = true;",
+	})
+	if err != nil {
+		t.Fatalf("NewSharedRuntime returned error: %v", err)
+	}
+	t.Cleanup(shared.server.shutdownTeardown)
+
+	recorder := httptest.NewRecorder()
+	shared.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("production zip root status = %d, want %d; body=%q", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "production zip") {
+		t.Fatalf("production zip root body = %q", recorder.Body.String())
+	}
+}
+
 func TestEventHubEmitToOnlyQueuesForMatchingDetachedWindow(t *testing.T) {
 	hub := newEventHub()
 	first := hub.subscribe(" window-1 ")

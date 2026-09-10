@@ -2,11 +2,57 @@ package app
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"GoNavi-Wails/internal/connection"
 	proxytunnel "GoNavi-Wails/internal/proxy"
 )
+
+func TestResolveDialConfigWithProxy_PreservesNavicatMySQLTunnelURL(t *testing.T) {
+	raw := connection.ConnectionConfig{
+		Type:          "mysql",
+		Host:          "db.internal",
+		Port:          3307,
+		User:          "db-user",
+		Password:      "db-password",
+		UseHTTPTunnel: true,
+		HTTPTunnel: connection.HTTPTunnelConfig{
+			Host:     "HTTPS://gateway.example/private/ntunnel_mysql.php?token=kept",
+			User:     "web-user",
+			Password: "web-password",
+		},
+	}
+
+	got, err := resolveDialConfigWithProxy(raw)
+	if err != nil {
+		t.Fatalf("resolveDialConfigWithProxy returned error: %v", err)
+	}
+	if got.Host != raw.Host || got.Port != raw.Port {
+		t.Fatalf("database target = %s:%d, want %s:%d", got.Host, got.Port, raw.Host, raw.Port)
+	}
+	if !got.UseHTTPTunnel || got.HTTPTunnel != raw.HTTPTunnel {
+		t.Fatalf("Navicat tunnel config was not preserved: %#v", got.HTTPTunnel)
+	}
+	if got.UseProxy || got.Proxy != (connection.ProxyConfig{}) {
+		t.Fatalf("Navicat tunnel must not be converted to CONNECT proxy: enabled=%v config=%#v", got.UseProxy, got.Proxy)
+	}
+}
+
+func TestResolveDialConfigWithProxy_RejectsNavicatTunnelForUnsupportedDatabase(t *testing.T) {
+	_, err := resolveDialConfigWithProxy(connection.ConnectionConfig{
+		Type:          "postgres",
+		Host:          "db.internal",
+		Port:          5432,
+		UseHTTPTunnel: true,
+		HTTPTunnel: connection.HTTPTunnelConfig{
+			Host: "https://gateway.example/ntunnel_mysql.php",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "MySQL") {
+		t.Fatalf("expected a clear MySQL-only error, got %v", err)
+	}
+}
 
 func TestResolveDialConfigWithProxy_MongoKeepsTargetAddress(t *testing.T) {
 	hosts := []string{"10.20.30.40:27017", "10.20.30.41:27017"}
@@ -67,6 +113,14 @@ func TestResolveDialConfigWithProxy_MongoSRVKeepsTargetAddress(t *testing.T) {
 func TestDefaultPortByType_NacosProxyTargetUsesDefaultPort(t *testing.T) {
 	if got := defaultPortByType("nacos"); got != 8848 {
 		t.Fatalf("defaultPortByType(nacos) = %d, want 8848", got)
+	}
+}
+
+func TestDefaultPortByType_CacheAliasesUseSuperServerPort(t *testing.T) {
+	for _, dbType := range []string{"cache", "InterSystems Cache", "InterSystems Caché"} {
+		if got := defaultPortByType(dbType); got != 1972 {
+			t.Fatalf("defaultPortByType(%q) = %d, want 1972", dbType, got)
+		}
 	}
 }
 

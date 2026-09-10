@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildOrderBySQL, buildPaginatedSelectSQL, buildWhereSQL, quoteIdentPart, quoteQualifiedIdent, reverseOrderBySQL } from './sql';
+import { buildOrderBySQL, buildPaginatedSelectSQL, buildWhereSQL, quoteIdentPart, quoteQualifiedIdent, reverseOrderBySQL, splitTrailingIsolationClause } from './sql';
 
 describe('buildOrderBySQL', () => {
   it('does not sort Elasticsearch table previews by the _id fallback column', () => {
@@ -39,6 +39,16 @@ describe('buildPaginatedSelectSQL', () => {
 
     expect(buildPaginatedSelectSQL('dameng', baseSql, '', 5000, 0))
       .toBe(`${baseSql} LIMIT 5000 OFFSET 0`);
+  });
+
+  it.each(['UR', 'CS', 'RS', 'RR'])('keeps Dameng WITH %s after native pagination', (isolation) => {
+    expect(buildPaginatedSelectSQL('dameng', `SELECT * FROM users WITH ${isolation}`, '', 500, 0))
+      .toBe(`SELECT * FROM users LIMIT 500 OFFSET 0 WITH ${isolation}`);
+  });
+
+  it('does not treat trailing line-comment text as a Dameng isolation clause', () => {
+    const sql = 'SELECT * FROM users -- example WITH UR';
+    expect(splitTrailingIsolationClause(sql)).toEqual({ main: sql, tail: '' });
   });
 
   it('keeps the Oracle ROWNUM compatibility wrapper', () => {
@@ -87,6 +97,15 @@ describe('reverseOrderBySQL', () => {
 });
 
 describe('quoteQualifiedIdent', () => {
+  it.each([
+    ['public.users', 'public.users'],
+    ['"Sales"."User Accounts"', '"Sales"."User Accounts"'],
+    ['"audit.log"', '"audit.log"'],
+    ['"Orders"."User""s"', '"Orders"."User""s"'],
+  ])('quotes PostgreSQL metadata name %s without changing its segments', (input, expected) => {
+    expect(quoteQualifiedIdent('postgres', input)).toBe(expected);
+  });
+
   it('keeps the Apache IoTDB root node bare while quoting child path segments', () => {
     expect(quoteQualifiedIdent('iotdb', 'root.sg.d1'))
       .toBe('root.`sg`.`d1`');

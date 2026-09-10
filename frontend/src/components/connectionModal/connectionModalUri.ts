@@ -1418,6 +1418,9 @@ export const getUriPlaceholder = (dbType: string) => {
   if (dbType === "iris") {
     return "iris://user:pass@127.0.0.1:1972/USER";
   }
+  if (dbType === "cache") {
+    return "cache://user:pass@127.0.0.1:1972/USER";
+  }
   if (dbType === "opengauss") {
     return "opengauss://user:pass@127.0.0.1:5432/db_name";
   }
@@ -1454,6 +1457,7 @@ export const getConnectionParamsPlaceholder = (
     case "sqlserver":
       return "app name=GoNavi&packet size=32767";
     case "iris":
+    case "cache":
       return "timeout=30";
     case "clickhouse":
       return "max_execution_time=60&compress=lz4";

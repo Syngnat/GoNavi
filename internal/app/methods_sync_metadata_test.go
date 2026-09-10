@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +23,56 @@ func TestDataSyncMetadataMethodsRequireSavedConnectionIDs(t *testing.T) {
 			t.Fatalf("%s metadata request unexpectedly succeeded", name)
 		}
 	}
+}
+
+func TestDataSyncDatabaseListDoesNotLoadFingerprintKey(t *testing.T) {
+	inner := newFakeAppSecretStore()
+	store := &recordingSecretStore{inner: inner}
+	application := NewAppWithSecretStore(store)
+	application.configDir = t.TempDir()
+	if _, err := application.SaveConnection(connection.SavedConnectionInput{
+		ID:   "source",
+		Name: "Source",
+		Config: connection.ConnectionConfig{
+			ID:       "source",
+			Type:     "sqlite",
+			Database: filepath.Join(t.TempDir(), "empty.sqlite"),
+		},
+	}); err != nil {
+		t.Fatalf("save connection: %v", err)
+	}
+	store.gets = nil
+	store.puts = nil
+	_ = application.DataSyncDatabaseList("source")
+	for _, ref := range append(append([]string{}, store.gets...), store.puts...) {
+		if strings.Contains(ref, dataSyncFingerprintSecretKind) {
+			t.Fatalf("listing databases touched fingerprint key %q", ref)
+		}
+	}
+}
+
+type recordingSecretStore struct {
+	inner *fakeAppSecretStore
+	gets  []string
+	puts  []string
+}
+
+func (s *recordingSecretStore) Put(ref string, payload []byte) error {
+	s.puts = append(s.puts, ref)
+	return s.inner.Put(ref, payload)
+}
+
+func (s *recordingSecretStore) Get(ref string) ([]byte, error) {
+	s.gets = append(s.gets, ref)
+	return s.inner.Get(ref)
+}
+
+func (s *recordingSecretStore) Delete(ref string) error {
+	return s.inner.Delete(ref)
+}
+
+func (s *recordingSecretStore) HealthCheck() error {
+	return s.inner.HealthCheck()
 }
 
 func TestDataSyncCapabilityResolveUsesSavedConnectionsWithoutReturningSecrets(t *testing.T) {

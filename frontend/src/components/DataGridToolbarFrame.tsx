@@ -8,7 +8,6 @@ import {
   ConsoleSqlOutlined,
   CopyOutlined,
   DeleteOutlined,
-  DownOutlined,
   EditOutlined,
   ExportOutlined,
   FilterOutlined,
@@ -43,7 +42,6 @@ type GridSortInfo = {
 type ToolbarMenuKey = 'commit-mode' | 'query-copy';
 
 export interface DataGridToolbarFrameProps {
-  isV2Ui: boolean;
   tableName?: string;
   dbName?: string;
   translate?: (key: string, params?: Record<string, string | number>) => string;
@@ -57,8 +55,6 @@ export interface DataGridToolbarFrameProps {
   panelPaddingX: number;
   toolbarBottomPadding: number;
   filterTopPadding: number;
-  selectionAccentHex: string;
-  toolbarDividerColor: string;
   showFilter?: boolean;
   filterPanelRef?: React.RefObject<HTMLDivElement>;
   onReload?: () => void;
@@ -84,7 +80,6 @@ export interface DataGridToolbarFrameProps {
   canCopyQueryResult: boolean;
   prefersManualTotalCount: boolean;
   aiShortcutLabel: string;
-  legacyAiButtonStyle?: React.CSSProperties;
   paginationTotalCountLoading?: boolean;
   totalCountUnavailableLabel?: string;
   totalCountUnavailableReason?: string;
@@ -122,7 +117,6 @@ export interface DataGridToolbarFrameProps {
   onCommit: () => void;
   onPreviewChanges: () => void;
   onImport: () => void;
-  onCopyQueryResultCsv: () => void;
   onRequestAiInsight: () => void;
   onToggleTotalCount: () => void;
   onQuickWhereDraftChange: (value: string) => void;
@@ -149,7 +143,6 @@ export interface DataGridToolbarFrameProps {
 }
 
 const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
-  isV2Ui,
   tableName,
   dbName,
   translate: translateProp,
@@ -163,8 +156,6 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   panelPaddingX,
   toolbarBottomPadding,
   filterTopPadding,
-  selectionAccentHex,
-  toolbarDividerColor,
   showFilter,
   filterPanelRef,
   onReload,
@@ -189,7 +180,6 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   canCopyQueryResult,
   prefersManualTotalCount,
   aiShortcutLabel,
-  legacyAiButtonStyle,
   paginationTotalCountLoading,
   totalCountUnavailableLabel,
   totalCountUnavailableReason,
@@ -227,7 +217,6 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   onCommit,
   onPreviewChanges,
   onImport,
-  onCopyQueryResultCsv,
   onRequestAiInsight,
   onToggleTotalCount,
   onQuickWhereDraftChange,
@@ -262,8 +251,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   };
   const renderToolbarDivider = () => (
     <div
-      className={isV2Ui ? 'gn-v2-toolbar-divider' : undefined}
-      style={isV2Ui ? undefined : { width: 1, height: 18, background: toolbarDividerColor, margin: '0 2px', flexShrink: 0 }}
+      className="gn-v2-toolbar-divider"
       aria-hidden="true"
     />
   );
@@ -296,7 +284,6 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   const renderToolbarAction = ({
     label,
     tooltip = label,
-    legacyContent = label,
     disabledReason,
     dataGridAction,
     className,
@@ -304,24 +291,19 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
   }: Omit<ButtonProps, 'aria-label' | 'children'> & {
     label: string;
     tooltip?: React.ReactNode;
-    legacyContent?: React.ReactNode;
     disabledReason?: string;
     dataGridAction?: string;
   }) => {
     const resolvedClassName = [
-      isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined,
+      'gn-v2-data-grid-toolbar-action',
       className,
     ].filter(Boolean).join(' ') || undefined;
 
     const actionButton = (
-      <Button {...buttonProps} className={resolvedClassName} data-grid-action={dataGridAction} aria-label={label}>
-        {isV2Ui ? null : legacyContent}
-      </Button>
+      <Button {...buttonProps} className={resolvedClassName} data-grid-action={dataGridAction} aria-label={label} />
     );
-    const tooltipTitle = isV2Ui || disabledReason ? tooltip : undefined;
-
     return (
-      <Tooltip title={tooltipTitle}>
+      <Tooltip title={tooltip}>
         {buttonProps.disabled && disabledReason ? (
           <span
             role="button"
@@ -340,7 +322,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
 
   return (
     <div
-      className={isV2Ui ? 'gn-v2-data-grid-toolbar-frame' : undefined}
+      className="gn-v2-data-grid-toolbar-frame"
       style={{
         margin: `${panelOuterGap}px 0 ${panelOuterGap}px 0`,
         border: `1px solid ${panelFrameColor}`,
@@ -370,16 +352,14 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
           boxSizing: 'border-box',
         }}
       >
-        {isV2Ui && (
-          <>
+        <>
             <div className="gn-v2-data-grid-toolbar-title">
               <TableOutlined className="gn-v2-data-grid-icon" />
               <strong title={toolbarTitle}>{toolbarTitle}</strong>
               {dbName && <small title={dbName}>· {dbName}</small>}
             </div>
             {renderToolbarDivider()}
-          </>
-        )}
+        </>
         {onReload && (
           renderToolbarAction({
             label: translate('data_grid.toolbar.refresh'),
@@ -431,22 +411,19 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                 onClick: onDeleteSelected,
               })
             )}
-            {!isV2Ui && deleteTargetRowCount > 0 && <span style={{ fontSize: '12px', color: '#888' }}>{translate('data_grid.toolbar.selected_count', { count: deleteTargetRowCount })}</span>}
             {renderToolbarDivider()}
             <Tooltip title={cellSelectionActionLabel}>
               <Button
                 data-grid-cell-editor-action="true"
                 data-grid-cell-selection-action="true"
                 data-grid-action="cell-selection"
-                className={isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined}
+                className="gn-v2-data-grid-toolbar-action"
                 aria-label={cellSelectionModeLabel}
                 aria-pressed={cellEditMode}
                 icon={<SelectOutlined />}
                 type={cellEditMode ? 'primary' : 'default'}
                 onClick={onToggleCellEditMode}
-              >
-                {isV2Ui ? null : cellSelectionActionLabel}
-              </Button>
+              />
             </Tooltip>
             {hasCellContextActions && renderToolbarDivider()}
             {cellEditMode && selectedCellsSize > 0 && (
@@ -486,45 +463,29 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                   disabled: fillTemplateTargetRowCount === 0,
                   onClick: onPasteCopiedColumnsToSelectedRows,
                 })}
-                {!isV2Ui && <span style={{ fontSize: '12px', color: '#888' }}>
-                  {translate('data_grid.toolbar.copied_columns_count', { count: copiedCellPatchColumnCount })}
-                </span>}
               </>
             )}
             {renderToolbarDivider()}
             {renderToolbarAction({
               label: translate('data_grid.toolbar.commit_label'),
               tooltip: translate('data_grid.toolbar.commit', { count: pendingChangeCount }),
-              legacyContent: translate('data_grid.toolbar.commit', { count: pendingChangeCount }),
-              className: isV2Ui ? 'gn-v2-commit-button' : undefined,
+              className: 'gn-v2-commit-button',
               icon: <SaveOutlined />,
               type: 'primary',
               disabled: !hasChanges,
               onClick: onCommit,
             })}
-            {hasChanges && (isV2Ui ? (
-              renderToolbarAction({
+            {hasChanges && renderToolbarAction({
                 label: translate('data_grid.toolbar.preview_sql'),
                 icon: <ConsoleSqlOutlined />,
                 onClick: onPreviewChanges,
-              })
-            ) : (
-              <Dropdown menu={{ items: [{ key: 'preview-sql', label: translate('data_grid.toolbar.preview_sql_generate'), icon: <ConsoleSqlOutlined />, onClick: onPreviewChanges }] }}>
-                <Button
-                  aria-label={translate('data_grid.toolbar.preview_sql')}
-                  icon={<ConsoleSqlOutlined />}
-                >
-                  {translate('data_grid.toolbar.preview_sql')} <DownOutlined />
-                </Button>
-              </Dropdown>
-            ))}
+            })}
             {hasChanges && renderToolbarAction({
               label: translate('data_grid.toolbar.rollback'),
               icon: <UndoOutlined />,
               onClick: onResetPendingChanges,
             })}
-            {isV2Ui ? (
-              <Tooltip
+            <Tooltip
                 title={`${commitModeLabel} · ${translate('data_grid.toolbar.commit_mode.tooltip')}`}
                 open={openToolbarMenu === 'commit-mode' ? false : undefined}
               >
@@ -556,21 +517,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                     />
                   </Dropdown>
                 </span>
-              </Tooltip>
-            ) : (
-              <Tooltip title={translate('data_grid.toolbar.commit_mode.tooltip')}>
-                <Select
-                  size="small"
-                  value={dataEditCommitMode}
-                  onChange={onDataEditCommitModeChange}
-                  style={{ width: 118, flex: '0 0 auto' }}
-                  options={[
-                    { value: 'manual', label: translate('data_grid.toolbar.commit_mode.manual') },
-                    { value: 'auto', label: translate('data_grid.toolbar.commit_mode.auto') },
-                  ]}
-                />
-              </Tooltip>
-            )}
+            </Tooltip>
             {dataEditCommitMode === 'auto' && (
               <Select
                 size="small"
@@ -607,8 +554,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
         {isQueryResultExport && (
           <>
             {renderToolbarDivider()}
-            {isV2Ui ? (
-              <Tooltip
+            <Tooltip
                 title={translate('data_grid.toolbar.copy')}
                 open={openToolbarMenu === 'query-copy' ? false : undefined}
               >
@@ -632,36 +578,21 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
                     />
                   </Dropdown>
                 </span>
-              </Tooltip>
-            ) : (
-              <Dropdown menu={{ items: queryResultCopyMenu }} disabled={!canCopyQueryResult}>
-                <Button
-                  data-grid-query-copy-action="true"
-                  aria-label={translate('data_grid.toolbar.copy')}
-                  icon={<CopyOutlined />}
-                  disabled={!canCopyQueryResult}
-                  onClick={onCopyQueryResultCsv}
-                >
-                  {translate('data_grid.toolbar.copy')} <DownOutlined />
-                </Button>
-              </Dropdown>
-            )}
+            </Tooltip>
           </>
         )}
 
         {!canModifyData && selectedCellsSize > 0 && (
           <>
             {renderToolbarDivider()}
-            <Tooltip title={isV2Ui ? translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize }) : undefined}>
+            <Tooltip title={translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize })}>
               <Button
                 data-grid-copy-selection-action="true"
-                className={isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined}
+                className="gn-v2-data-grid-toolbar-action"
                 aria-label={translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize })}
                 icon={<CopyOutlined />}
                 onClick={onCopySelectedCellsToClipboard}
-              >
-                {isV2Ui ? null : translate('data_grid.toolbar.copy_selection', { count: selectedCellsSize })}
-              </Button>
+              />
             </Tooltip>
           </>
         )}
@@ -670,24 +601,11 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
           {renderToolbarDivider()}
           <Tooltip title={aiInsightTooltip}>
             <Button
-              className={isV2Ui ? 'gn-v2-data-grid-toolbar-action gn-v2-ai-insight-button' : undefined}
-              aria-label={isV2Ui ? translate('data_grid.toolbar.ai_insight_short') : translate('data_grid.toolbar.ai_insight')}
+              className="gn-v2-data-grid-toolbar-action gn-v2-ai-insight-button"
+              aria-label={translate('data_grid.toolbar.ai_insight_short')}
               icon={<RobotOutlined />}
-              style={legacyAiButtonStyle}
-              onMouseEnter={(event) => {
-                if (isV2Ui) return;
-                event.currentTarget.style.background = darkMode ? 'linear-gradient(135deg, rgba(16,185,129,0.25), rgba(16,185,129,0.1))' : 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))';
-                event.currentTarget.style.borderColor = '#10b981';
-              }}
-              onMouseLeave={(event) => {
-                if (isV2Ui) return;
-                event.currentTarget.style.background = darkMode ? 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05))' : 'linear-gradient(135deg, rgba(16,185,129,0.1), rgba(16,185,129,0.02))';
-                event.currentTarget.style.borderColor = darkMode ? 'rgba(16,185,129,0.3)' : 'rgba(16,185,129,0.4)';
-              }}
               onClick={onRequestAiInsight}
-            >
-              {isV2Ui ? null : <span>{translate('data_grid.toolbar.ai_insight')}</span>}
-            </Button>
+            />
           </Tooltip>
         </>
 
@@ -706,18 +624,14 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
               : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count_tooltip') : translate('data_grid.toolbar.count_total_tooltip'))}>
               <span style={{ display: 'inline-flex' }}>
                 <Button
-                  className={isV2Ui ? 'gn-v2-data-grid-toolbar-action' : undefined}
+                  className="gn-v2-data-grid-toolbar-action"
                   aria-label={totalCountUnavailableReason && !paginationTotalCountLoading
                     ? (totalCountUnavailableLabel || translate('data_grid.toolbar.count_total'))
                     : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total'))}
                   disabled={Boolean(totalCountUnavailableReason) && !paginationTotalCountLoading}
                   icon={paginationTotalCountLoading ? <CloseOutlined /> : <VerticalAlignBottomOutlined />}
                   onClick={onToggleTotalCount}
-                >
-                  {isV2Ui ? null : (totalCountUnavailableReason && !paginationTotalCountLoading
-                    ? (totalCountUnavailableLabel || translate('data_grid.toolbar.count_total'))
-                    : (paginationTotalCountLoading ? translate('data_grid.toolbar.cancel_count') : translate('data_grid.toolbar.count_total')))}
-                </Button>
+                />
               </span>
             </Tooltip>
           </>
@@ -729,7 +643,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
       {showFilter && (
         <div
           ref={filterPanelRef}
-          className={isV2Ui ? 'gn-v2-smart-filter-panel' : undefined}
+          className="gn-v2-smart-filter-panel"
           style={{
             padding: `${filterTopPadding}px ${panelPaddingX}px ${panelPaddingY}px ${panelPaddingX}px`,
             background: 'transparent',
@@ -758,7 +672,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
               style={{
                 flex: '0 0 auto',
                 minWidth: 0,
-                color: isV2Ui ? 'var(--gn-fg-3)' : selectionAccentHex,
+                color: 'var(--gn-fg-3)',
                 fontSize: 12,
                 fontWeight: 600,
                 lineHeight: '28px',
@@ -768,7 +682,7 @@ const DataGridToolbarFrame: React.FC<DataGridToolbarFrameProps> = ({
               {translate('data_grid.filter.manual_query_condition')}
             </span>
             <AutoComplete
-              className={isV2Ui ? 'gn-v2-smart-filter-manual-input' : undefined}
+              className="gn-v2-smart-filter-manual-input"
               value={quickWhereDraft}
               options={quickWhereSuggestionOptions}
               onChange={onQuickWhereDraftChange}

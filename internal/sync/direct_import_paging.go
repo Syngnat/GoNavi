@@ -141,10 +141,13 @@ func (s *SyncEngine) prepareDirectImportTargetColumnSet(config SyncConfig, res *
 			if !ok {
 				return nil, fmt.Errorf("自动补字段失败：未找到源字段定义 %s", colName)
 			}
-			alterSQL, err := buildAddColumnSQLForPair(sourceType, targetType, plan.TargetQueryTable, srcCol)
+			alterSQL, alterWarnings, err := buildAddColumnSQLForPair(sourceType, targetType, plan.TargetQueryTable, srcCol)
 			if err != nil {
 				s.appendLog(config.JobID, res, "error", fmt.Sprintf("  -> 自动补字段失败：字段=%s 错误=%v", colName, err))
 				return nil, fmt.Errorf("自动补字段失败：字段=%s: %w", colName, err)
+			}
+			for _, warning := range alterWarnings {
+				s.appendLog(config.JobID, res, "warn", "  -> "+warning)
 			}
 			if warning := relaxedNotNullAddColumnWarning(srcCol); warning != "" {
 				s.appendLog(config.JobID, res, "warn", "  -> "+warning)

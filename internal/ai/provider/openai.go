@@ -160,16 +160,21 @@ func (p *OpenAIProvider) Validate() error {
 
 // openAIChatRequest OpenAI API 请求体
 type openAIChatRequest struct {
-	Model       string              `json:"model"`
-	Messages    []openAIChatMessage `json:"messages"`
-	Temperature float64             `json:"temperature,omitempty"`
-	MaxTokens   int                 `json:"max_tokens,omitempty"`
-	Stream      bool                `json:"stream,omitempty"`
-	Tools       []ai.Tool           `json:"tools,omitempty"`
+	Model         string               `json:"model"`
+	Messages      []openAIChatMessage  `json:"messages"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	MaxTokens     int                  `json:"max_tokens,omitempty"`
+	Stream        bool                 `json:"stream,omitempty"`
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+	Tools         []ai.Tool            `json:"tools,omitempty"`
 	// ReasoningEffort OpenAI GPT/o 系列：none|minimal|low|medium|high|xhigh
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 	// Thinking DeepSeek 等 OpenAI 兼容接口的思考开关：{"type":"enabled"|"disabled"}
 	Thinking map[string]string `json:"thinking,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIChatMessage struct {
@@ -399,14 +404,42 @@ type openAIChatResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage openAIUsage `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
+}
+
+type openAIUsage struct {
+	PromptTokens       int `json:"prompt_tokens"`
+	CompletionTokens   int `json:"completion_tokens"`
+	TotalTokens        int `json:"total_tokens"`
+	PromptTokenDetails *struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details,omitempty"`
+	// A few OpenAI-compatible providers expose one of these fields directly.
+	CachedTokens         *int `json:"cached_tokens,omitempty"`
+	CacheReadInputTokens *int `json:"cache_read_input_tokens,omitempty"`
+}
+
+func normalizeOpenAIUsage(usage openAIUsage) ai.TokenUsage {
+	result := ai.TokenUsage{
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+	}
+	switch {
+	case usage.PromptTokenDetails != nil:
+		cached := usage.PromptTokenDetails.CachedTokens
+		result.CachedTokens = &cached
+	case usage.CachedTokens != nil:
+		cached := *usage.CachedTokens
+		result.CachedTokens = &cached
+	case usage.CacheReadInputTokens != nil:
+		cached := *usage.CacheReadInputTokens
+		result.CachedTokens = &cached
+	}
+	return result
 }
 
 // openAIStreamChunk SSE 流式响应片段
@@ -429,6 +462,7 @@ type openAIStreamChunk struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *openAIUsage `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -480,12 +514,8 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ai.ChatRequest) (*ai.Chat
 	return &ai.ChatResponse{
 		Content:          result.Choices[0].Message.Content,
 		ReasoningContent: result.Choices[0].Message.ReasoningContent,
-		TokensUsed: ai.TokenUsage{
-			PromptTokens:     result.Usage.PromptTokens,
-			CompletionTokens: result.Usage.CompletionTokens,
-			TotalTokens:      result.Usage.TotalTokens,
-		},
-		ToolCalls: result.Choices[0].Message.ToolCalls,
+		TokensUsed:       normalizeOpenAIUsage(result.Usage),
+		ToolCalls:        result.Choices[0].Message.ToolCalls,
 	}, nil
 }
 
@@ -503,12 +533,13 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 	}
 
 	body := openAIChatRequest{
-		Model:       p.config.Model,
-		Messages:    messages,
-		Temperature: temperature,
-		MaxTokens:   req.MaxTokens,
-		Stream:      true,
-		Tools:       req.Tools,
+		Model:         p.config.Model,
+		Messages:      messages,
+		Temperature:   temperature,
+		MaxTokens:     req.MaxTokens,
+		Stream:        true,
+		StreamOptions: &openAIStreamOptions{IncludeUsage: true},
+		Tools:         req.Tools,
 	}
 	p.applyThinkingToRequest(&body)
 
@@ -523,6 +554,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 
 	receivedContent := false
 	var activeToolCalls []ai.ToolCall
+	var streamUsage *ai.TokenUsage
 
 	scanner := bufio.NewScanner(respBody)
 	// 增大 scanner buffer，防止长行被截断
@@ -542,7 +574,7 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		}
 		data := strings.TrimPrefix(line, "data: ")
 		if data == "[DONE]" {
-			callback(ai.StreamChunk{Done: true})
+			callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 			return nil
 		}
 
@@ -553,6 +585,10 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		if chunk.Error != nil && chunk.Error.Message != "" {
 			callback(ai.StreamChunk{Error: fmt.Sprintf("API error: %s", chunk.Error.Message), Done: true})
 			return nil
+		}
+		if chunk.Usage != nil {
+			usage := normalizeOpenAIUsage(*chunk.Usage)
+			streamUsage = &usage
 		}
 		if len(chunk.Choices) > 0 {
 			choice := chunk.Choices[0]
@@ -598,11 +634,8 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 
 			if choice.FinishReason != nil {
 				if *choice.FinishReason == "tool_calls" {
-					callback(ai.StreamChunk{ToolCalls: activeToolCalls, Done: true})
-					return nil
+					callback(ai.StreamChunk{ToolCalls: activeToolCalls})
 				}
-				callback(ai.StreamChunk{Done: true})
-				return nil
 			}
 		}
 	}
@@ -617,13 +650,26 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, cal
 		return nil
 	}
 
-	callback(ai.StreamChunk{Done: true})
+	callback(ai.StreamChunk{Done: true, Usage: streamUsage})
 	return nil
 }
 
 func (p *OpenAIProvider) retryClientRejectedChatRequest(ctx context.Context, req ai.ChatRequest, body openAIChatRequest, err error) (io.ReadCloser, error) {
 	if !isHTTP400Error(err) {
 		return nil, err
+	}
+	if body.StreamOptions != nil {
+		// Usage reporting is optional. Preserve model capabilities by retrying
+		// without stream_options before removing tools or images from the request.
+		body.StreamOptions = nil
+		respBody, retryErr := p.doRequest(ctx, body)
+		if retryErr == nil {
+			return respBody, nil
+		}
+		if !isHTTP400Error(retryErr) {
+			return nil, retryErr
+		}
+		err = retryErr
 	}
 
 	if len(body.Tools) > 0 {
@@ -647,7 +693,10 @@ func (p *OpenAIProvider) retryClientRejectedChatRequest(ctx context.Context, req
 		if retryErr == nil {
 			return respBody, nil
 		}
-		return nil, retryErr
+		if !isHTTP400Error(retryErr) {
+			return nil, retryErr
+		}
+		err = retryErr
 	}
 
 	return nil, err

@@ -78,7 +78,19 @@ func ResolveMigrationCapability(sourceConfig connection.ConnectionConfig, target
 	capability.Planner = planner.Name()
 	capability.SupportLevel = planner.SupportLevel(ctx)
 	capability.CanExecute = capability.SupportLevel == MigrationSupportLevelFull || capability.SupportLevel == MigrationSupportLevelPartial
-	capability.SupportsAutoCreate = capability.SupportLevel == MigrationSupportLevelFull
+	// The legacy planner builds CREATE TABLE itself for MySQL->Oracle-like /
+	// SQL Server / SQLite targets, so Partial support still auto-creates there.
+	// Pass resolved types: custom drivers (e.g. Type=custom, Driver=dm) only
+	// become dameng after driver resolution, and the raw Type stays "custom".
+	capability.SupportsAutoCreate = capability.SupportLevel == MigrationSupportLevelFull ||
+		(planner.Name() == "generic-legacy-planner" && supportsAutoCreateMigration(sourceType, targetType))
+	// Doris/StarRocks 的建表必须带 key model 与 DISTRIBUTED BY 分桶定义，各条
+	// MySQL 系 planner 生成的普通 DDL 建表必失败。Full 级本来会无条件给出
+	// SupportsAutoCreate=true，这里统一收敛，避免 UI 承诺"将自动创建目标表"
+	// 之后在执行期才崩。这两个目标仍按"要求目标表已存在"处理。
+	if requiresDistributionClauseTarget(targetType) {
+		capability.SupportsAutoCreate = false
+	}
 	capability.SupportsAutoAddColumns = capability.CanExecute && (supportsAutoAddColumnsForPair(sourceType, targetType) ||
 		capability.Planner == "pglike-mysql-planner")
 	capability.RequiresExistingTarget = !capability.SupportsAutoCreate

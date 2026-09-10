@@ -143,6 +143,31 @@ func TestGetCacheKey_KeepConnectionParamsIsolation(t *testing.T) {
 	}
 }
 
+func TestGetCacheKey_KeepOracleCurrentSchemaIsolation(t *testing.T) {
+	base := connection.ConnectionConfig{
+		Type:     "oracle",
+		Host:     "oracle.local",
+		Port:     1521,
+		User:     "TEST",
+		Password: "secret",
+		Database: "ORCLPDB1",
+	}
+
+	pro := normalizeRunConfig(base, "PRO")
+	testSchema := normalizeRunConfig(base, "TEST")
+	quotedLowercasePro := normalizeRunConfig(base, "pro")
+
+	if getCacheKey(pro) == getCacheKey(testSchema) {
+		t.Fatal("expected selected Oracle schemas to use isolated connection pools")
+	}
+	if getCacheKey(pro) == getCacheKey(quotedLowercasePro) {
+		t.Fatal("expected exact-case Oracle schema names to use isolated connection pools")
+	}
+	if getConnectionReleaseMatchKey(pro) != getConnectionReleaseMatchKey(testSchema) {
+		t.Fatal("expected releasing the saved Oracle connection to match all schema pools")
+	}
+}
+
 func TestGetCacheKey_KeepClickHouseProtocolIsolation(t *testing.T) {
 	base := connection.ConnectionConfig{
 		Type:               "clickhouse",

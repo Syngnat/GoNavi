@@ -45,6 +45,7 @@ var optionalGoDrivers = map[string]struct{}{
 	"opengauss":     {},
 	"gaussdb":       {},
 	"iris":          {},
+	"cache":         {},
 	"mongodb":       {},
 	"tdengine":      {},
 	"iotdb":         {},
@@ -88,6 +89,8 @@ func normalizeRuntimeDriverType(driverType string) string {
 		return "goldendb"
 	case "intersystems", "intersystemsiris", "inter-systems-iris", "inter-systems":
 		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
+		return "cache"
 	case "elastic":
 		return "elasticsearch"
 	case "chromadb", "chroma-db":
@@ -153,6 +156,8 @@ func driverDisplayName(driverType string) string {
 		return "GaussDB"
 	case "iris":
 		return "InterSystems IRIS"
+	case "cache":
+		return "InterSystems Caché"
 	case "mongodb":
 		return "MongoDB"
 	case "tdengine":

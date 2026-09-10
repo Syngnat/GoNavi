@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	aiservice "GoNavi-Wails/internal/ai/service"
@@ -36,6 +37,16 @@ const (
 	// closed and must reconnect instead of retaining an unbounded queue.
 	eventSubscriberReliableQueueLimit = eventSubscriberQueueLimit * 2
 	eventStreamDataChunkBytes         = 256 << 10
+)
+
+// Shutdown deadlines are package variables so tests can shorten them.
+var (
+	// shutdownGraceTimeout bounds the graceful phase after the listener is
+	// closed: in-flight handlers may still finish normally within this window.
+	shutdownGraceTimeout = 5 * time.Second
+	// shutdownDrainTimeout bounds how long force-cancelled handlers may take
+	// to unwind before the deferred App resource teardown starts.
+	shutdownDrainTimeout = 5 * time.Second
 )
 
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
@@ -543,6 +554,89 @@ func unpackResults(results []reflect.Value) (any, error) {
 	}
 }
 
+// requestTracker counts in-flight HTTP handlers so Server.runHTTP can keep the
+// deferred App resource teardown ordered after the last handler has returned.
+type requestTracker struct {
+	mu      sync.Mutex
+	count   int
+	drained chan struct{}
+}
+
+func newRequestTracker() *requestTracker {
+	drained := make(chan struct{})
+	close(drained)
+	return &requestTracker{drained: drained}
+}
+
+func (t *requestTracker) begin() {
+	t.mu.Lock()
+	if t.count == 0 {
+		t.drained = make(chan struct{})
+	}
+	t.count++
+	t.mu.Unlock()
+}
+
+func (t *requestTracker) done() {
+	t.mu.Lock()
+	t.count--
+	if t.count == 0 {
+		close(t.drained)
+	}
+	t.mu.Unlock()
+}
+
+func (t *requestTracker) active() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.count
+}
+
+// wait blocks until every in-flight handler has returned or ctx expires and
+// reports how many handlers were still running. The re-check loop matters
+// because a handler can still begin after http.Server.Shutdown for a request
+// that was already being read, so a drained signal must never be trusted
+// without re-reading the counter.
+func (t *requestTracker) wait(ctx context.Context) int {
+	for {
+		t.mu.Lock()
+		count := t.count
+		drained := t.drained
+		t.mu.Unlock()
+		if count == 0 {
+			return 0
+		}
+		select {
+		case <-drained:
+		case <-ctx.Done():
+			return t.active()
+		}
+	}
+}
+
+func (t *requestTracker) waitDrain(timeout time.Duration) int {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return t.wait(ctx)
+}
+
+// withRequestLifecycle tracks each request as in-flight and derives its
+// context from the request's own context (so client disconnects still cancel
+// long-lived streams) while linking server-level cancellation into it, so a
+// shutdown can force handlers to unwind through r.Context() even when
+// http.Server.Shutdown no longer waits for them.
+func withRequestLifecycle(serveCtx context.Context, tracker *requestTracker, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		stopServerCancel := context.AfterFunc(serveCtx, cancel)
+		defer stopServerCancel()
+		tracker.begin()
+		defer tracker.done()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 type Server struct {
 	options       Options
 	assets        fs.FS
@@ -552,6 +646,9 @@ type Server struct {
 	events        *eventHub
 	invoker       *methodInvoker
 	auditHeavySem chan struct{}
+	// boundAddr records the actual listener address once runHTTP has bound
+	// the socket, which is observable by tests when Addr uses port zero.
+	boundAddr atomic.Value
 }
 
 // SharedRuntimeOptions configures the authenticated loopback runtime used by
@@ -583,9 +680,9 @@ func NewSharedRuntime(assetFS fs.FS, app *appcore.App, ai *aiservice.Service, op
 	if app == nil || ai == nil {
 		return nil, fmt.Errorf("shared App and AI service are required")
 	}
-	frontendFS, err := fs.Sub(assetFS, "frontend/dist")
+	frontendFS, err := resolveFrontendAssets(assetFS)
 	if err != nil {
-		return nil, fmt.Errorf("resolve frontend dist assets failed: %w", err)
+		return nil, err
 	}
 
 	bridgePath := strings.TrimSpace(options.RuntimeBridgePath)
@@ -733,9 +830,9 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 	if assetFS == nil {
 		return nil, fmt.Errorf("web assets are unavailable")
 	}
-	frontendFS, err := fs.Sub(assetFS, "frontend/dist")
+	frontendFS, err := resolveFrontendAssets(assetFS)
 	if err != nil {
-		return nil, fmt.Errorf("resolve frontend dist assets failed: %w", err)
+		return nil, err
 	}
 
 	events := newEventHub()
@@ -766,6 +863,25 @@ func New(ctx context.Context, assetFS fs.FS, options Options) (*Server, error) {
 	}, nil
 }
 
+// resolveFrontendAssets accepts both the production ZIP layout, where Vite's
+// output is stored at the FS root, and the development layout, where the
+// project root contains frontend/dist.
+func resolveFrontendAssets(assetFS fs.FS) (fs.FS, error) {
+	if info, err := fs.Stat(assetFS, "index.html"); err == nil {
+		if !info.IsDir() {
+			return assetFS, nil
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("resolve frontend index asset failed: %w", err)
+	}
+
+	frontendFS, err := fs.Sub(assetFS, "frontend/dist")
+	if err != nil {
+		return nil, fmt.Errorf("resolve frontend dist assets failed: %w", err)
+	}
+	return frontendFS, nil
+}
+
 func (s *Server) Run(ctx context.Context) error {
 	if s == nil {
 		return fmt.Errorf("web server is not initialized")
@@ -773,13 +889,23 @@ func (s *Server) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	return s.runHTTP(ctx, s.routes())
+}
 
-	defer s.ai.Shutdown()
-	defer s.app.Shutdown()
+// runHTTP owns the HTTP server lifecycle. The deferred resource teardown must
+// only start once every in-flight handler has returned or was explicitly
+// cancelled, otherwise live requests race closed databases and already
+// shut-down services.
+func (s *Server) runHTTP(ctx context.Context, handler http.Handler) error {
+	defer s.shutdownTeardown()
 
+	serveCtx, serveCancel := context.WithCancel(ctx)
+	defer serveCancel()
+
+	tracker := newRequestTracker()
 	httpServer := &http.Server{
 		Addr:              s.options.Addr,
-		Handler:           s.routes(),
+		Handler:           withRequestLifecycle(serveCtx, tracker, handler),
 		ReadHeaderTimeout: httpserverlimits.ReadHeaderTimeout,
 		ReadTimeout:       httpserverlimits.ReadTimeout,
 		WriteTimeout:      httpserverlimits.WriteTimeout,
@@ -790,7 +916,8 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	logger.Infof("GoNavi Web Server 启动：addr=%s", listener.Addr().String())
+	s.boundAddr.Store(listener.Addr().String())
+	logger.Infof("GoNavi Web Server 启动：addr=%s", listener.Addr())
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -802,19 +929,56 @@ func (s *Server) Run(ctx context.Context) error {
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
+		// Serve stopped accepting connections, but handlers already in flight
+		// must still be drained before the resources they use are released.
+		serveCancel()
+		if remaining := tracker.waitDrain(shutdownDrainTimeout); remaining > 0 {
+			logger.Warnf("Web Server 监听异常退出后仍有 %d 个请求未能在等待期内退出", remaining)
+		}
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		shutdownErr := httpServer.Shutdown(shutdownCtx)
-		serveErr := <-errCh
-		if shutdownErr != nil && !errors.Is(shutdownErr, http.ErrServerClosed) {
-			return shutdownErr
-		}
-		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			return serveErr
-		}
-		return nil
+		return s.shutdownHTTP(serveCtx, serveCancel, tracker, httpServer, errCh)
+	}
+}
+
+// shutdownHTTP stops the listener, gives in-flight handlers a bounded grace
+// period to finish normally, then force-cancels the survivors through their
+// request contexts and waits for them to unwind. It returns only after every
+// handler finished or was explicitly cancelled; the deferred App resource
+// teardown starts the moment this returns.
+func (s *Server) shutdownHTTP(serveCtx context.Context, serveCancel context.CancelFunc, tracker *requestTracker, httpServer *http.Server, errCh <-chan error) error {
+	graceCtx, graceCancel := context.WithTimeout(context.Background(), shutdownGraceTimeout)
+	defer graceCancel()
+	shutdownErr := httpServer.Shutdown(graceCtx)
+	if shutdownErr != nil && !errors.Is(shutdownErr, http.ErrServerClosed) {
+		logger.Warnf("Web Server 优雅关闭等待超时：%v；活跃请求 %d 个，已发送强制取消信号", shutdownErr, tracker.active())
+	}
+
+	// http.Server.Shutdown never cancels active handlers; server-level
+	// cancellation is delivered through each request's derived context.
+	serveCancel()
+	serveErr := <-errCh
+
+	remaining := tracker.waitDrain(shutdownDrainTimeout)
+	if remaining > 0 {
+		return fmt.Errorf("web server shutdown: %d request handler(s) still active after forced cancellation and drain timeout", remaining)
+	}
+	if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+		return serveErr
+	}
+	// A graceful-phase timeout is already logged above; handlers unwound
+	// after the explicit cancellation, so the shutdown itself succeeded.
+	return nil
+}
+
+// shutdownTeardown releases App-owned resources after the HTTP handlers are
+// done. Run defers it so teardown cannot race live requests.
+func (s *Server) shutdownTeardown() {
+	if s.app != nil {
+		s.app.Shutdown()
+	}
+	if s.ai != nil {
+		s.ai.Shutdown()
 	}
 }
 

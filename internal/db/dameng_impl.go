@@ -176,7 +176,7 @@ func (d *DamengDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (d *DamengDB) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -314,8 +314,7 @@ func (d *DamengDB) GetCreateStatement(dbName, tableName string) (string, error) 
 	}
 
 	if len(data) > 0 {
-		if val, ok := data[0]["DDL"]; ok {
-			ddl := fmt.Sprintf("%v", val)
+		if ddl := getDamengRowString(data[0], "DDL"); ddl != "" {
 			commentData, _, commentErr := d.Query(buildDamengTableCommentQuery(dbName, tableName))
 			if commentErr != nil {
 				logger.Warnf("达梦 GetCreateStatement 表注释元数据查询失败，已返回基础 DDL：%v", commentErr)
@@ -421,13 +420,6 @@ func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, ch
 		return fmt.Errorf("连接未打开")
 	}
 
-	tx, err := d.conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	transactionCommitted := false
-	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
-
 	quoteIdent := func(name string) string {
 		n := strings.TrimSpace(name)
 		n = strings.Trim(n, "\"")
@@ -445,6 +437,67 @@ func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, ch
 		qualifiedTable = fmt.Sprintf("%s.%s", quoteIdent(schema), quoteIdent(table))
 	} else {
 		qualifiedTable = quoteIdent(table)
+	}
+
+	identityColumns, identityColumnsErr := d.identityColumnsForApply(schema, table)
+	if identityColumnsErr != nil {
+		// 旧版达梦或受限账号可能无法访问 SYS.SYSCOLUMNS。元数据只用于
+		// 决定是否开启显式 identity 写入，不能因此阻断本来合法的普通 DML；
+		// 若调用方确实写入了 identity 值，数据库仍会返回明确的原始错误。
+		logger.Warnf("达梦 ApplyChanges 自增列元数据查询失败，将按普通 DML 继续：%v", identityColumnsErr)
+		identityColumns = nil
+	}
+	identityInsertNeeded := changesWriteDamengIdentityColumns(changes, identityColumns)
+	err = d.applyDamengChangesTransaction(ctx, qualifiedTable, changes, identityInsertNeeded)
+	if err == nil || identityInsertNeeded || IsWriteOutcomeUnknown(err) || !isDamengIdentityInsertError(err) {
+		return err
+	}
+	// 部分 DM8 版本/账号无法从 SYS.SYSCOLUMNS 读出 identity 标记。首批
+	// 显式写入因此可能漏开关；此时首个事务已回滚，针对明确的 identity
+	// 错误用新事务重放一次并强制开启开关。普通约束/网络错误不会走这里。
+	logger.Warnf("达梦检测到显式写入自增列但未识别到 identity 元数据，将回滚后重试并开启 IDENTITY_INSERT：%v", err)
+	return d.applyDamengChangesTransaction(ctx, qualifiedTable, changes, true)
+}
+
+func (d *DamengDB) applyDamengChangesTransaction(ctx context.Context, qualifiedTable string, changes connection.ChangeSet, identityInsertNeeded bool) (err error) {
+	quoteIdent := func(name string) string {
+		n := strings.TrimSpace(name)
+		n = strings.Trim(n, "\"")
+		n = strings.ReplaceAll(n, "\"", "\"\"")
+		if n == "" {
+			return "\"\""
+		}
+		return `"` + n + `"`
+	}
+
+	tx, err := d.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	transactionCommitted := false
+	defer func() { rollbackUnfinishedWriteTransaction(tx, transactionCommitted, &err) }()
+
+	identityInsertEnabled := false
+	disableIdentityInsert := func() error {
+		if !identityInsertEnabled {
+			return nil
+		}
+		if _, disableErr := tx.ExecContext(ctx, fmt.Sprintf("SET IDENTITY_INSERT %s OFF", qualifiedTable)); disableErr != nil {
+			return fmt.Errorf("关闭 IDENTITY_INSERT 失败：%w", disableErr)
+		}
+		identityInsertEnabled = false
+		return nil
+	}
+	defer func() {
+		if disableErr := disableIdentityInsert(); disableErr != nil && err == nil {
+			err = disableErr
+		}
+	}()
+	if identityInsertNeeded {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET IDENTITY_INSERT %s ON", qualifiedTable)); err != nil {
+			return fmt.Errorf("开启 IDENTITY_INSERT 失败：%w", err)
+		}
+		identityInsertEnabled = true
 	}
 
 	// 1. Deletes
@@ -523,11 +576,71 @@ func (d *DamengDB) ApplyChangesContext(ctx context.Context, tableName string, ch
 		}
 	}
 
+	if err := disableIdentityInsert(); err != nil {
+		return err
+	}
 	if err := commitWriteTransaction(tx); err != nil {
 		return err
 	}
 	transactionCommitted = true
 	return nil
+}
+
+func isDamengIdentityInsertError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "identity_insert") {
+		return true
+	}
+	return strings.Contains(text, "自增列") && strings.Contains(text, "指定列列表")
+}
+
+// identityColumnsForApply returns the target columns that require
+// IDENTITY_INSERT for explicit values. The metadata lookup happens before the
+// write transaction so its query cannot be scheduled onto the transaction's
+// pinned connection.
+func (d *DamengDB) identityColumnsForApply(schema, table string) (map[string]struct{}, error) {
+	columns, err := d.GetColumns(schema, table)
+	if err != nil {
+		return nil, err
+	}
+	identityColumns := make(map[string]struct{})
+	for _, column := range columns {
+		if strings.Contains(strings.ToLower(strings.TrimSpace(column.Extra)), "auto_increment") {
+			identityColumns[strings.ToLower(strings.TrimSpace(column.Name))] = struct{}{}
+		}
+	}
+	return identityColumns, nil
+}
+
+// changesWriteDamengIdentityColumns checks only written values. Identity keys
+// used in UPDATE predicates do not need IDENTITY_INSERT, while inserts and
+// identity assignments in SET clauses do.
+func changesWriteDamengIdentityColumns(changes connection.ChangeSet, identityColumns map[string]struct{}) bool {
+	if len(identityColumns) == 0 {
+		return false
+	}
+	containsIdentityColumn := func(values map[string]interface{}) bool {
+		for column := range values {
+			if _, ok := identityColumns[strings.ToLower(strings.TrimSpace(column))]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	for _, row := range changes.Inserts {
+		if containsIdentityColumn(row) {
+			return true
+		}
+	}
+	for _, update := range changes.Updates {
+		if containsIdentityColumn(update.Values) {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *DamengDB) GetAllColumns(dbName string) ([]connection.ColumnDefinitionWithTable, error) {

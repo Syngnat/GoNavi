@@ -22,6 +22,9 @@ type fakeIoTDBSession struct {
 	queryResults  map[string][]map[string]interface{}
 	execs         []string
 	queryTimeouts []int64
+	getObjectErrs map[string]error
+	isNullErrs    map[string]error
+	nextErr       error
 }
 
 func (f *fakeIoTDBSession) Close() error { return nil }
@@ -33,7 +36,13 @@ func (f *fakeIoTDBSession) Query(_ context.Context, sql string, timeoutMs *int64
 	}
 	f.queryTimeouts = append(f.queryTimeouts, timeout)
 	rows := f.queryResults[sql]
-	return &fakeIoTDBDataSet{rows: rows, columns: fakeIoTDBColumns(rows)}, nil
+	return &fakeIoTDBDataSet{
+		rows:          rows,
+		columns:       fakeIoTDBColumns(rows),
+		getObjectErrs: f.getObjectErrs,
+		isNullErrs:    f.isNullErrs,
+		nextErr:       f.nextErr,
+	}, nil
 }
 
 func (f *fakeIoTDBSession) Exec(_ context.Context, sql string) error {
@@ -42,12 +51,18 @@ func (f *fakeIoTDBSession) Exec(_ context.Context, sql string) error {
 }
 
 type fakeIoTDBDataSet struct {
-	rows    []map[string]interface{}
-	columns []string
-	index   int
+	rows          []map[string]interface{}
+	columns       []string
+	index         int
+	getObjectErrs map[string]error
+	isNullErrs    map[string]error
+	nextErr       error
 }
 
 func (f *fakeIoTDBDataSet) Next() (bool, error) {
+	if f.nextErr != nil {
+		return false, f.nextErr
+	}
 	if f.index >= len(f.rows) {
 		return false, nil
 	}
@@ -58,11 +73,17 @@ func (f *fakeIoTDBDataSet) Next() (bool, error) {
 func (f *fakeIoTDBDataSet) Close() error { return nil }
 
 func (f *fakeIoTDBDataSet) IsNull(columnName string) (bool, error) {
+	if err := f.isNullErrs[columnName]; err != nil {
+		return false, err
+	}
 	value, ok := f.currentRow()[columnName]
 	return !ok || value == nil, nil
 }
 
 func (f *fakeIoTDBDataSet) GetObject(columnName string) (interface{}, error) {
+	if err := f.getObjectErrs[columnName]; err != nil {
+		return nil, err
+	}
 	return f.currentRow()[columnName], nil
 }
 
@@ -331,5 +352,103 @@ func TestIoTDBLiveSmoke(t *testing.T) {
 	}
 	if got := rows[0]["root.gonavi_smoke.d1.status"]; got != "ok" {
 		t.Fatalf("unexpected status value: %#v rows=%#v columns=%#v", got, rows, columns)
+	}
+}
+
+func TestIoTDBQueryFailsWhenGetObjectReturnsError(t *testing.T) {
+	decodeErr := errors.New("decode failed")
+	session := &fakeIoTDBSession{
+		queryResults: map[string][]map[string]interface{}{
+			"SELECT temperature, status FROM root.sg.d1": {
+				{"temperature": 21.5, "status": "ok"},
+			},
+		},
+		getObjectErrs: map[string]error{
+			"status": decodeErr,
+		},
+	}
+	client := &IoTDBDB{session: session}
+
+	rows, columns, err := client.Query("SELECT temperature, status FROM root.sg.d1")
+	if err == nil {
+		t.Fatalf("expected GetObject error to fail the query, got rows=%#v columns=%#v", rows, columns)
+	}
+	if !errors.Is(err, decodeErr) {
+		t.Fatalf("query error lost GetObject cause: %v", err)
+	}
+	if !strings.Contains(err.Error(), `列 "status"`) {
+		t.Fatalf("query error missing column context: %v", err)
+	}
+	if rows != nil || columns != nil {
+		t.Fatalf("failed query should not return partial rows: rows=%#v columns=%#v", rows, columns)
+	}
+}
+
+func TestIoTDBQueryReturnsRealNullWhenIsNullSucceeds(t *testing.T) {
+	session := &fakeIoTDBSession{
+		queryResults: map[string][]map[string]interface{}{
+			"SELECT temperature, status FROM root.sg.d1": {
+				{"temperature": 21.5, "status": nil},
+			},
+		},
+		getObjectErrs: map[string]error{
+			"status": errors.New("should not read null column"),
+		},
+	}
+	client := &IoTDBDB{session: session}
+
+	rows, columns, err := client.Query("SELECT temperature, status FROM root.sg.d1")
+	if err != nil {
+		t.Fatalf("real NULL should not fail the query: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one row, got rows=%#v columns=%#v", rows, columns)
+	}
+	if rows[0]["temperature"] != 21.5 {
+		t.Fatalf("unexpected temperature: %#v", rows[0]["temperature"])
+	}
+	if _, exists := rows[0]["status"]; !exists {
+		t.Fatalf("missing status column: %#v", rows[0])
+	}
+	if rows[0]["status"] != nil {
+		t.Fatalf("expected real NULL status, got %#v", rows[0]["status"])
+	}
+}
+
+func TestScanIoTDBDataSetNilDataset(t *testing.T) {
+	rows, columns, err := scanIoTDBDataSet(nil)
+	if err != nil {
+		t.Fatalf("nil dataset should not error: %v", err)
+	}
+	if rows != nil || columns != nil {
+		t.Fatalf("nil dataset should return nil results, got rows=%#v columns=%#v", rows, columns)
+	}
+}
+
+func TestScanIoTDBDataSetNextError(t *testing.T) {
+	nextErr := errors.New("next failed")
+	_, _, err := scanIoTDBDataSet(&fakeIoTDBDataSet{
+		columns: []string{"status"},
+		rows:    []map[string]interface{}{{"status": "ok"}},
+		nextErr: nextErr,
+	})
+	if !errors.Is(err, nextErr) {
+		t.Fatalf("expected Next error, got %v", err)
+	}
+}
+
+func TestScanIoTDBDataSetIsNullErrorFallsBackToGetObject(t *testing.T) {
+	rows, columns, err := scanIoTDBDataSet(&fakeIoTDBDataSet{
+		columns: []string{"status"},
+		rows:    []map[string]interface{}{{"status": "ok"}},
+		isNullErrs: map[string]error{
+			"status": errors.New("isnull failed"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("IsNull error should fall back to GetObject: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["status"] != "ok" {
+		t.Fatalf("unexpected scan result: rows=%#v columns=%#v", rows, columns)
 	}
 }

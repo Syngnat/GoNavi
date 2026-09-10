@@ -487,7 +487,7 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
           t("connection.modal.network.httpTunnel.host"),
         )}
         <div className="gn-conn-f-ctrl gn-conn-f-inline">
-          <div className="gn-conn-w gn-conn-w-host">
+          <div className="gn-conn-w gn-conn-w-grow">
             <Form.Item
               name="httpTunnelHost"
               rules={[
@@ -502,32 +502,9 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
             >
               <Input
                 {...noAutoCapInputProps}
-                placeholder={t("connection.modal.example.or", {
-                  first: "tunnel.company.com",
-                  second: "127.0.0.1",
-                })}
-              />
-            </Form.Item>
-          </div>
-          <div className="gn-conn-w gn-conn-w-port">
-            <Form.Item
-              name="httpTunnelPort"
-              rules={[
-                {
-                  required: useHttpTunnel,
-                  message: t(
-                    "connection.modal.network.httpTunnel.portRequired",
-                  ),
-                },
-              ]}
-              style={{ marginBottom: 0 }}
-            >
-              <InputNumber
-                style={{ width: "100%" }}
-                controls={false}
-                min={1}
-                max={65535}
-                aria-label={t("connection.modal.field.port.label")}
+                placeholder={t(
+                  "connection.modal.network.httpTunnel.urlPlaceholder",
+                )}
               />
             </Form.Item>
           </div>
@@ -567,6 +544,20 @@ const ConnectionModalNetworkSecuritySection: React.FC<ConnectionModalNetworkSecu
         clearLabel: t("connection.modal.network.httpTunnel.clearPassword"),
         description: t("connection.modal.network.httpTunnel.savedDescription"),
       })}
+      <div className="gn-conn-check-line" style={{ paddingLeft: 0 }}>
+        <Form.Item
+          name="httpTunnelEncodeBase64"
+          valuePropName="checked"
+          style={{ marginBottom: 0 }}
+        >
+          <Checkbox className="gn-check">
+            {t("connection.modal.network.httpTunnel.encodeBase64")}
+          </Checkbox>
+        </Form.Item>
+      </div>
+      <div className="gn-conn-field-hint">
+        {t("connection.modal.network.httpTunnel.encodeBase64Hint")}
+      </div>
       <div className="gn-conn-field-hint">
         {t("connection.modal.network.httpTunnel.exclusiveHint")}
       </div>

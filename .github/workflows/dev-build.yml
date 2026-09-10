@@ -43,6 +43,7 @@ jobs:
           python3 tools/download-mirror-config.test.py
           python3 tools/package-driver-release-assets.test.py
           python3 tools/complete-driver-release-assets.test.py
+          python3 tools/verify-driver-agent-fingerprints.test.py
           python3 tools/cli-release-assets.test.py
           python3 tools/npm-cli-wrapper.test.py
           python3 tools/validate-npm-cli-package-version.test.py
@@ -73,16 +74,22 @@ jobs:
           set -euo pipefail
           mkdir -p frontend/dist
           printf '<!doctype html><title>GoNavi</title>\n' > frontend/dist/index.html
+          cp tools/stub-dist.zip frontend/dist.zip
           wails generate module
           node frontend/scripts/wails-frontend-install.mjs
           npm --prefix frontend run build
+          test -s frontend/dist.zip
 
       - name: Test frontend virtual scrolling
-        run: npm --prefix frontend test -- src/components/dataGridVirtualScroll.test.ts src/components/DataGrid.layout.test.tsx
+        run: npm --prefix frontend test -- src/components/dataGridVirtualScroll.test.ts src/components/virtualListNativeScroll.test.tsx src/components/DataGrid.layout.test.tsx
 
       - name: Pack frontend dist
         shell: bash
-        run: tar -cf frontend-dist.tar -C frontend/dist .
+        run: |
+          test -s frontend/dist.zip
+          # 注意 GNU tar 的 -C 是叠加语义,拆成两条命令避免相对路径踩坑
+          tar -cf frontend-dist.tar -C frontend/dist .
+          tar -rf frontend-dist.tar -C frontend dist.zip
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v6
@@ -579,6 +586,9 @@ jobs:
           test -s frontend-artifact/frontend-dist.tar
           tar -xf frontend-artifact/frontend-dist.tar -C frontend/dist
           test -s frontend/dist/index.html
+          # dist.zip 与 dist 内容一起打在 tar 里,移到 frontend/ 下供 go:embed
+          mv frontend/dist/dist.zip frontend/dist.zip
+          test -s frontend/dist.zip
 
       - name: Install WiX Toolset (Windows)
         if: contains(matrix.platform, 'windows')
@@ -836,7 +846,7 @@ jobs:
               open_gauss|open-gauss) echo "opengauss" ;;
               gaussdb|gauss_db|gauss-db) echo "gaussdb" ;;
               elastic|elasticsearch) echo "elasticsearch" ;;
-              mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|mongodb|tdengine|iotdb|clickhouse|trino)
+              mariadb|oceanbase|starrocks|sphinx|sqlserver|sqlite|duckdb|dameng|kingbase|highgo|vastbase|opengauss|gaussdb|iris|cache|mongodb|tdengine|iotdb|clickhouse|trino)
                 echo "$value"
                 ;;
               *)
@@ -1102,14 +1112,18 @@ jobs:
               exit 1
           }
 
-          Write-Host "ℹ️ 保留 Wails 原始 Windows EXE，避免可执行文件打包器增加杀毒软件误报。"
+          Write-Host "ℹ️ 便携版 EXE 采用 7z SFX 静默自解压（官方 LZMA SDK 7zSD.sfx，版本+SHA256 锁定，双击无感启动）。"
 
           $releaseRoot = (Resolve-Path -LiteralPath "..\\..").Path
           $licenseFile = (Resolve-Path -LiteralPath "..\\..\\LICENSE").Path
           $noticeFile = (Resolve-Path -LiteralPath "..\\..\\NOTICE").Path
 
-          Write-Host "📦 输出旧客户端兼容 EXE $portableExeName..."
-          Copy-Item -LiteralPath $finalExe -Destination (Join-Path $releaseRoot $portableExeName) -Force
+          Write-Host "📦 输出 7z SFX 便携版 EXE $portableExeName..."
+          $finalExePath = (Resolve-Path -LiteralPath $finalExe).Path
+          & (Join-Path $releaseRoot "tools\\make-portable-sfx.ps1") -SourceExe $finalExePath -OutputExe (Join-Path $releaseRoot $portableExeName) -LicenseFile $licenseFile -NoticeFile $noticeFile
+          if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $portableExeName))) {
+              throw "SFX 便携版 EXE 生成失败: $portableExeName"
+          }
 
           $portableDir = Join-Path $env:RUNNER_TEMP "gonavi-portable-$archName"
           if (Test-Path -LiteralPath $portableDir) {
@@ -1566,6 +1580,56 @@ jobs:
             exit 1
           fi
           sha256sum "${FILES[@]}" > SHA256SUMS
+
+      - name: Download canonical driver revision maps
+        if: steps.driver_assets.outputs.has_driver_assets == 'true' || needs.driver_agents.outputs.has_changes == 'false'
+        uses: actions/download-artifact@v7
+        with:
+          pattern: dev-canonical-driver-revision-map-*
+          path: canonical-driver-revision-maps
+
+      - name: Verify driver agent fingerprints (release gate)
+        if: steps.driver_assets.outputs.has_driver_assets == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 根治闸门：发布 zip 内 agent 自报指纹必须等于本提交的 canonical revision map，
+          # 否则客户端会拒绝所有预编译包并回退本地源码构建。
+          # 平台策略：linux 产物经 UPX 加壳无法静态扫描——amd64 在 runner 上运行时探测，
+          # arm64 无法在 x64 runner 执行而跳过（同源构建由 amd64 探测覆盖）；windows/darwin 未加壳走静态扫描。
+          # 校验器会递归展开 zip 成员与平台子目录。
+          python3 tools/verify-driver-agent-fingerprints.py binaries \
+            --release-assets-dir driver-release-assets \
+            --dynamic-probe linux/amd64 \
+            --skip-platform linux/arm64 \
+            --revision-map "darwin/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-darwin-amd64/driver_agent_revisions_gen.go" \
+            --revision-map "darwin/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-darwin-arm64/driver_agent_revisions_gen.go" \
+            --revision-map "linux/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-linux-amd64/driver_agent_revisions_gen.go" \
+            --revision-map "linux/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-linux-arm64/driver_agent_revisions_gen.go" \
+            --revision-map "windows/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-windows-amd64/driver_agent_revisions_gen.go" \
+            --revision-map "windows/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-windows-arm64/driver_agent_revisions_gen.go"
+
+      - name: Verify published driver revisions match map (release gate)
+        if: needs.driver_agents.outputs.has_changes == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 本次构建不重发驱动资产（复用已发布产物）时，已发布的 revision 必须仍然
+          # 等于最新 canonical map；否则客户端会集体回退本地构建，直接让构建失败。
+          manifest_path="$RUNNER_TEMP/published-driver-manifest.json"
+          manifest_url="https://github.com/Syngnat/GoNavi-DriverAgents/releases/download/dev-latest/GoNavi-DriverAgents-Manifest.json"
+          if ! curl --retry 3 --retry-delay 2 --retry-all-errors -fsSL "$manifest_url" -o "$manifest_path"; then
+            echo "⚠️ 已发布 driver release 没有 manifest（旧格式），跳过指纹比对"
+            exit 0
+          fi
+          python3 tools/verify-driver-agent-fingerprints.py published \
+            --manifest "$manifest_path" \
+            --revision-map "darwin/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-darwin-amd64/driver_agent_revisions_gen.go" \
+            --revision-map "darwin/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-darwin-arm64/driver_agent_revisions_gen.go" \
+            --revision-map "linux/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-linux-amd64/driver_agent_revisions_gen.go" \
+            --revision-map "linux/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-linux-arm64/driver_agent_revisions_gen.go" \
+            --revision-map "windows/amd64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-windows-amd64/driver_agent_revisions_gen.go" \
+            --revision-map "windows/arm64=canonical-driver-revision-maps/dev-canonical-driver-revision-map-windows-arm64/driver_agent_revisions_gen.go"
 
       - name: Generate Dev Version
         id: version

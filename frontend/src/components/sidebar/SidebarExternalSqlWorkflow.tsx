@@ -450,6 +450,7 @@ export const useSidebarExternalSqlWorkflow = ({
   getActiveContext,
   isWebRuntime = false,
 }: UseSidebarExternalSqlWorkflowOptions) => {
+  const externalSQLDirectorySelectionPendingRef = useRef(false);
   const [isExternalSQLFileModalOpen, setIsExternalSQLFileModalOpen] = useState(false);
   const [externalSQLFileForm] = Form.useForm();
   const [externalSQLFileModalMode, setExternalSQLFileModalMode] = useState<ExternalSQLFileModalMode>('create');
@@ -1086,46 +1087,56 @@ export const useSidebarExternalSqlWorkflow = ({
   };
 
   const handleAddExternalSQLDirectory = async (node: any) => {
+    if (externalSQLDirectorySelectionPendingRef.current) return;
+    externalSQLDirectorySelectionPendingRef.current = true;
     void node;
-    const currentDirectory = externalSQLDirectories[0]?.path || '';
-    const selection = await SelectSQLDirectory(currentDirectory);
-    if (!selection.success) {
-      if (selection.message !== '已取消') {
-        message.error(t('sidebar.message.select_sql_directory_failed', { error: selection.message }));
+    try {
+      const currentDirectory = externalSQLDirectories[0]?.path || '';
+      const selection = await SelectSQLDirectory(currentDirectory);
+      if (!selection.success) {
+        if (selection.message !== '已取消') {
+          message.error(t('sidebar.message.select_sql_directory_failed', { error: selection.message }));
+        }
+        return;
       }
-      return;
+
+      const payload = (selection.data && typeof selection.data === 'object') ? selection.data as Record<string, unknown> : {};
+      const path = String(payload.path || '').trim();
+      const name = String(payload.name || '').trim();
+      if (!path) {
+        message.error(t('sidebar.message.sql_directory_path_invalid'));
+        return;
+      }
+
+      const activeContext = getActiveContext();
+      const connectionId = String(activeContext?.connectionId || '').trim();
+      const dbName = String(activeContext?.dbName || '').trim();
+      const directoryId = buildExternalSQLDirectoryId(connectionId, dbName, path);
+      const nextDirectory: ExternalSQLDirectory = {
+        id: directoryId,
+        name: name || path.split(/[\\/]/).filter(Boolean).pop() || t('sidebar.sql_directory.default_name'),
+        path,
+        ...(connectionId ? { connectionId } : {}),
+        ...(dbName ? { dbName } : {}),
+        createdAt: Date.now(),
+      };
+      saveExternalSQLDirectory(nextDirectory);
+
+      const nextDirectories = [
+        ...externalSQLDirectories.filter((item) => item.id !== directoryId),
+        nextDirectory,
+      ];
+      setExpandedKeys((prev) => Array.from(new Set([...prev, 'external-sql-root'])));
+      setAutoExpandParent(false);
+      await refreshGlobalExternalSQLRootNode(false, nextDirectories);
+      message.success(t('sidebar.message.external_sql_directory_added'));
+    } catch (error) {
+      message.error(t('sidebar.message.select_sql_directory_failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    } finally {
+      externalSQLDirectorySelectionPendingRef.current = false;
     }
-
-    const payload = (selection.data && typeof selection.data === 'object') ? selection.data as Record<string, unknown> : {};
-    const path = String(payload.path || '').trim();
-    const name = String(payload.name || '').trim();
-    if (!path) {
-      message.error(t('sidebar.message.sql_directory_path_invalid'));
-      return;
-    }
-
-    const activeContext = getActiveContext();
-    const connectionId = String(activeContext?.connectionId || '').trim();
-    const dbName = String(activeContext?.dbName || '').trim();
-    const directoryId = buildExternalSQLDirectoryId(connectionId, dbName, path);
-    const nextDirectory: ExternalSQLDirectory = {
-      id: directoryId,
-      name: name || path.split(/[\\/]/).filter(Boolean).pop() || t('sidebar.sql_directory.default_name'),
-      path,
-      ...(connectionId ? { connectionId } : {}),
-      ...(dbName ? { dbName } : {}),
-      createdAt: Date.now(),
-    };
-    saveExternalSQLDirectory(nextDirectory);
-
-    const nextDirectories = [
-      ...externalSQLDirectories.filter((item) => item.id !== directoryId),
-      nextDirectory,
-    ];
-    setExpandedKeys((prev) => Array.from(new Set([...prev, 'external-sql-root'])));
-    setAutoExpandParent(false);
-    await refreshGlobalExternalSQLRootNode(false, nextDirectories);
-    message.success(t('sidebar.message.external_sql_directory_added'));
   };
 
   const handleRemoveExternalSQLDirectory = async (node: any) => {

@@ -142,7 +142,6 @@ describe('aiChatPanelDerivedState', () => {
       { id: '2', title: 'two', updatedAt: 2 },
     ]);
 
-    expect(resolveAIChatPanelMode(true, 'history')).toBe('history');
-    expect(resolveAIChatPanelMode(false, 'history')).toBe('chat');
+    expect(resolveAIChatPanelMode('history')).toBe('history');
   });
 });

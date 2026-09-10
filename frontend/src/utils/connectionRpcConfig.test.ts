@@ -316,6 +316,7 @@ describe('buildRpcConnectionConfig', () => {
       port: 8080,
       user: '',
       password: '',
+      encodeBase64: true,
     });
   });
 
@@ -366,8 +367,9 @@ describe('buildRpcConnectionConfig', () => {
       },
       useHttpTunnel: true,
       httpTunnel: {
-        host: '127.0.0.1',
+        host: 'https://gateway.example.com/ntunnel_mysql.php',
         port: '9000' as unknown as number,
+        encodeBase64: false,
       },
     } as any);
 
@@ -377,6 +379,7 @@ describe('buildRpcConnectionConfig', () => {
     expect(result.ssh?.hostKeyFingerprint).toBe('SHA256:pin');
     expect(result.proxy).toBeInstanceOf(connection.ProxyConfig);
     expect(result.httpTunnel).toBeInstanceOf(connection.HTTPTunnelConfig);
+    expect((result.httpTunnel as any)?.encodeBase64).toBe(false);
     expect(typeof (result as any).convertValues).toBe('function');
   });
 });

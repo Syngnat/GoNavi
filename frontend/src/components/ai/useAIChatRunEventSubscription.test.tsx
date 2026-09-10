@@ -229,6 +229,42 @@ describe('useAIChatRunEventSubscription', () => {
     await act(async () => renderer?.unmount());
   });
 
+  it('aggregates usage across provider turns without double-counting compatibility events', async () => {
+    let renderer: ReactTestRenderer | undefined;
+    await act(async () => {
+      renderer = create(<Harness />);
+    });
+
+    const firstUsage = { promptTokens: 10, completionTokens: 2, totalTokens: 12, cachedTokens: 4 };
+    const secondUsage = { promptTokens: 5, completionTokens: 3, totalTokens: 8, cachedTokens: 0 };
+    await emit(makeEvent(1, {
+      kind: 'model_completed',
+      payload: { text: 'first', usage: firstUsage },
+    }));
+    await emit(makeEvent(2, {
+      kind: 'usage',
+      payload: { usage: firstUsage },
+    }));
+    await emit(makeEvent(3, {
+      kind: 'model_completed',
+      payload: { text: 'second', usage: secondUsage },
+    }));
+    await emit(makeEvent(4, {
+      kind: 'usage',
+      payload: { usage: secondUsage },
+    }));
+
+    expect(useStore.getState().aiChatHistory[SESSION_ID][0]).toMatchObject({
+      tokenUsage: {
+        promptTokens: 15,
+        completionTokens: 5,
+        totalTokens: 20,
+        cachedTokens: 4,
+      },
+    });
+    await act(async () => renderer?.unmount());
+  });
+
   it('routes concurrent run deltas to their receipt-bound placeholders', async () => {
     useStore.setState({
       aiChatHistory: {

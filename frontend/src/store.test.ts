@@ -72,7 +72,6 @@ describe('store appearance persistence', () => {
     const { useStore } = await importStore();
     const appearance = useStore.getState().appearance;
 
-    expect(appearance.uiVersion).toBe('v2');
     expect(appearance.enabled).toBe(false);
     expect(appearance.opacity).toBe(0.75);
     expect(appearance.blur).toBe(6);
@@ -100,12 +99,55 @@ describe('store appearance persistence', () => {
     expect(appearance.customMonoFontFamily).toBeNull();
     expect(appearance.newQuerySqlTemplate).toBeNull();
     expect(appearance.autoAddTableAlias).toBe(true);
+    expect(appearance.customTableAliasPrefixEnabled).toBe(false);
+    expect(appearance.customTableAliasPrefix).toBe('');
     expect(appearance.tabDisplay).toEqual({
       layout: 'double',
       primaryElements: ['object'],
       secondaryElements: ['kind', 'connection', 'database'],
     });
   }, 30000);
+
+  it('persists a valid custom table alias prefix and discards invalid restored values', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().setAppearance({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: 'T$',
+    });
+    expect(useStore.getState().appearance).toMatchObject({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: 'T$',
+    });
+
+    vi.resetModules();
+    const reloaded = await importStore();
+    expect(reloaded.useStore.getState().appearance).toMatchObject({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: 'T$',
+    });
+
+    storage.setItem('lite-db-storage', JSON.stringify({
+      state: {
+        appearance: {
+          customTableAliasPrefixEnabled: true,
+          customTableAliasPrefix: '1invalid',
+        },
+      },
+      version: 21,
+    }));
+    vi.resetModules();
+    const invalid = await importStore();
+    expect(invalid.useStore.getState().appearance).toMatchObject({
+      customTableAliasPrefixEnabled: true,
+      customTableAliasPrefix: '',
+    });
+
+    invalid.useStore.getState().setAppearance({
+      customTableAliasPrefix: 'a'.repeat(25),
+    });
+    expect(invalid.useStore.getState().appearance.customTableAliasPrefix).toBe('');
+  });
 
   it('migrates the previous tab display default without overwriting custom settings', async () => {
     storage.setItem('lite-db-storage', JSON.stringify({
@@ -163,7 +205,6 @@ describe('store appearance persistence', () => {
     storage.setItem('lite-db-storage', JSON.stringify({
       state: {
         appearance: {
-          uiVersion: 'v2',
           dataTableFontSize: 18,
           dataTableFontSizeFollowGlobal: false,
         },
@@ -183,38 +224,6 @@ describe('store appearance persistence', () => {
     expect(persisted.version).toBe(21);
     expect(persisted.state.appearance.sqlEditorFontSize).toBe(17);
     expect(persisted.state.appearance.sqlEditorFontSizeFollowGlobal).toBe(false);
-  });
-
-  it('migrates an existing legacy UI selection to V2', async () => {
-    storage.setItem('lite-db-storage', JSON.stringify({
-      state: {
-        appearance: {
-          uiVersion: 'legacy',
-        },
-      },
-      version: 13,
-    }));
-
-    const { useStore } = await importStore();
-    expect(useStore.getState().appearance.uiVersion).toBe('v2');
-
-    const persisted = JSON.parse(storage.getItem('lite-db-storage') || '{}');
-    expect(persisted.version).toBe(21);
-    expect(persisted.state.appearance.uiVersion).toBe('v2');
-  });
-
-  it('keeps a legacy UI selection made after the V2 migration', async () => {
-    storage.setItem('lite-db-storage', JSON.stringify({
-      state: {
-        appearance: {
-          uiVersion: 'legacy',
-        },
-      },
-      version: 14,
-    }));
-
-    const { useStore } = await importStore();
-    expect(useStore.getState().appearance.uiVersion).toBe('legacy');
   });
 
   it('persists DataGrid appearance settings and restores them after reload', async () => {
@@ -913,6 +922,57 @@ describe('store appearance persistence', () => {
     });
   });
 
+  it('normalizes Navicat HTTP tunnel URL and base64 settings', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'navicat-http-tunnel',
+        name: 'Navicat HTTP tunnel',
+        config: {
+          id: 'navicat-http-tunnel',
+          type: 'mysql',
+          host: 'db.internal',
+          port: 3306,
+          user: 'root',
+          useHttpTunnel: true,
+          httpTunnel: {
+            host: ' https://gateway.example.com/mysql/ntunnel_mysql.php ',
+            port: 8080,
+            encodeBase64: false,
+          },
+        },
+      },
+      {
+        id: 'legacy-http-tunnel',
+        name: 'Legacy HTTP tunnel',
+        config: {
+          id: 'legacy-http-tunnel',
+          type: 'mysql',
+          host: 'db.internal',
+          port: 3306,
+          user: 'root',
+          useHttpTunnel: true,
+          httpTunnel: {
+            host: 'legacy-proxy.internal',
+            port: 3128,
+          },
+        },
+      },
+    ]);
+
+    expect(useStore.getState().connections[0]?.config.httpTunnel).toMatchObject({
+      host: 'https://gateway.example.com/mysql/ntunnel_mysql.php',
+      port: 8080,
+      encodeBase64: false,
+    });
+    expect(useStore.getState().connections[1]?.config.httpTunnel).toMatchObject({
+      host: 'legacy-proxy.internal',
+      port: 3128,
+      encodeBase64: true,
+    });
+  });
+
   it('preserves JVM Arthas diagnostic config when replacing saved connections', async () => {
     const { useStore } = await importStore();
 
@@ -1202,6 +1262,43 @@ describe('store appearance persistence', () => {
     expect(connections[0]?.config.type).toBe('iris');
     expect(connections[0]?.config.port).toBe(1972);
     expect(connections[1]?.config.type).toBe('iris');
+  });
+
+  it('keeps InterSystems Caché saved connections independent from IRIS', async () => {
+    const { useStore } = await importStore();
+
+    useStore.getState().replaceConnections([
+      {
+        id: 'cache-user',
+        name: 'Caché USER',
+        config: {
+          id: 'cache-user',
+          type: 'cache',
+          host: 'cache.local',
+          port: 1972,
+          user: '_SYSTEM',
+          database: 'USER',
+        },
+      },
+      {
+        id: 'cache-alias',
+        name: 'Caché Alias',
+        config: {
+          id: 'cache-alias',
+          type: 'InterSystems Caché',
+          host: 'cache-alias.local',
+          port: 1972,
+          user: '_SYSTEM',
+          database: 'APP',
+        },
+      },
+    ]);
+
+    const connections = useStore.getState().connections;
+    expect(connections[0]?.config.type).toBe('cache');
+    expect(connections[0]?.config.port).toBe(1972);
+    expect(connections[1]?.config.type).toBe('cache');
+    expect(connections.every((connection) => connection.config.type !== 'iris')).toBe(true);
   });
 
   it('normalizes saved connection type aliases without falling back to mysql', async () => {

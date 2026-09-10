@@ -3,6 +3,7 @@ import {
   buildDataSyncAnalysisFingerprint,
   buildInitialDataSyncTableOptions,
   buildDataSyncRequest,
+  resolveDataSyncTargetTableStrategy,
   validateDataSyncExecutionReadiness,
   validateDataSyncSelection,
 } from './dataSyncRequest';
@@ -38,6 +39,19 @@ describe('validateDataSyncSelection', () => {
       sourceQuery: 'select 1',
       syncContent: 'both',
     })).toBe('data_sync.validation.query_mode_data_only');
+  });
+});
+
+describe('resolveDataSyncTargetTableStrategy', () => {
+  it('uses smart during the supported migration capability transition', () => {
+    expect(resolveDataSyncTargetTableStrategy('existing_only', 'migration', 'table', true)).toBe('smart');
+  });
+
+  it('preserves explicit existing-only and non-migration contracts', () => {
+    expect(resolveDataSyncTargetTableStrategy('existing_only', 'migration', 'table', true, true)).toBe('existing_only');
+    expect(resolveDataSyncTargetTableStrategy('existing_only', 'migration', 'table', false)).toBe('existing_only');
+    expect(resolveDataSyncTargetTableStrategy('existing_only', 'sync', 'table', true)).toBe('existing_only');
+    expect(resolveDataSyncTargetTableStrategy('existing_only', 'migration', 'query', true)).toBe('existing_only');
   });
 });
 

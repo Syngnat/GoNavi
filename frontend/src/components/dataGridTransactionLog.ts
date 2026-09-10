@@ -26,6 +26,7 @@ const TRANSACTION_BOUNDARIES: Record<string, TransactionBoundary> = {
   sqlite: { begin: 'BEGIN', commit: 'COMMIT' },
   duckdb: { begin: 'BEGIN', commit: 'COMMIT' },
   iris: { begin: 'BEGIN', commit: 'COMMIT' },
+  cache: { begin: 'BEGIN', commit: 'COMMIT' },
   oracle: { commit: 'COMMIT' },
 };
 

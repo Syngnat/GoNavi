@@ -1,10 +1,11 @@
 import { resolveSqlDialect } from './sqlDialect';
-import { buildPaginatedSelectSQL } from './sql';
+import { buildPaginatedSelectSQL, splitTrailingIsolationClause } from './sql';
+import { isSqlDashLineCommentStart } from './sqlStatementSelection';
 
 const isWS = (ch: string) => ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r';
 const isWord = (ch: string) => /[A-Za-z0-9_]/.test(ch);
 
-export const getLeadingKeyword = (sql: string): string => {
+export const getLeadingKeyword = (sql: string, dbType = ''): string => {
   const text = (sql || '').replace(/\r\n/g, '\n');
   let inSingle = false;
   let inDouble = false;
@@ -17,7 +18,6 @@ export const getLeadingKeyword = (sql: string): string => {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const next = i + 1 < text.length ? text[i + 1] : '';
-    const prev = i > 0 ? text[i - 1] : '';
     const next2 = i + 2 < text.length ? text[i + 2] : '';
 
     if (!inSingle && !inDouble && !inBacktick) {
@@ -41,7 +41,7 @@ export const getLeadingKeyword = (sql: string): string => {
         inLineComment = true;
         continue;
       }
-      if (ch === '-' && next === '-' && (i === 0 || isWS(prev)) && (next2 === '' || isWS(next2))) {
+      if (ch === '-' && next === '-' && isSqlDashLineCommentStart(dbType, next2)) {
         i++;
         inLineComment = true;
         continue;
@@ -95,7 +95,7 @@ export const getLeadingKeyword = (sql: string): string => {
   return '';
 };
 
-export const splitSqlTail = (sql: string): { main: string; tail: string } => {
+export const splitSqlTail = (sql: string, dbType = ''): { main: string; tail: string } => {
   const text = (sql || '').replace(/\r\n/g, '\n');
   let inSingle = false;
   let inDouble = false;
@@ -109,7 +109,6 @@ export const splitSqlTail = (sql: string): { main: string; tail: string } => {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const next = i + 1 < text.length ? text[i + 1] : '';
-    const prev = i > 0 ? text[i - 1] : '';
     const next2 = i + 2 < text.length ? text[i + 2] : '';
 
     if (!inSingle && !inDouble && !inBacktick) {
@@ -143,7 +142,7 @@ export const splitSqlTail = (sql: string): { main: string; tail: string } => {
         inLineComment = true;
         continue;
       }
-      if (ch === '-' && next === '-' && (i === 0 || isWS(prev)) && (next2 === '' || isWS(next2))) {
+      if (ch === '-' && next === '-' && isSqlDashLineCommentStart(dbType, next2)) {
         i++;
         inLineComment = true;
         continue;
@@ -182,7 +181,7 @@ export const splitSqlTail = (sql: string): { main: string; tail: string } => {
   return { main: text.slice(0, mainEnd), tail: text.slice(mainEnd) };
 };
 
-export const findTopLevelKeyword = (sql: string, keyword: string): number => {
+export const findTopLevelKeyword = (sql: string, keyword: string, dbType = ''): number => {
   const text = sql;
   const kw = keyword.toLowerCase();
   let inSingle = false;
@@ -197,7 +196,6 @@ export const findTopLevelKeyword = (sql: string, keyword: string): number => {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     const next = i + 1 < text.length ? text[i + 1] : '';
-    const prev = i > 0 ? text[i - 1] : '';
     const next2 = i + 2 < text.length ? text[i + 2] : '';
 
     if (!inSingle && !inDouble && !inBacktick) {
@@ -221,7 +219,7 @@ export const findTopLevelKeyword = (sql: string, keyword: string): number => {
         inLineComment = true;
         continue;
       }
-      if (ch === '-' && next === '-' && (i === 0 || isWS(prev)) && (next2 === '' || isWS(next2))) {
+      if (ch === '-' && next === '-' && isSqlDashLineCommentStart(dbType, next2)) {
         i++;
         inLineComment = true;
         continue;
@@ -360,52 +358,57 @@ export const applyQueryAutoLimit = (
 ): { sql: string; applied: boolean; maxRows: number } => {
   if (!Number.isFinite(maxRows) || maxRows <= 0) return { sql, applied: false, maxRows };
   const normalizedType = String(resolveSqlDialect(dbType || 'mysql', driver)).toLowerCase();
-  const keyword = getLeadingKeyword(sql);
+  const keyword = getLeadingKeyword(sql, normalizedType);
   if (keyword !== 'select') return { sql, applied: false, maxRows };
 
-  const { main, tail } = splitSqlTail(sql);
+  const { main, tail } = splitSqlTail(sql, normalizedType);
   if (!main.trim()) return { sql, applied: false, maxRows };
+  const isolationStatement = normalizedType === 'dameng'
+    ? splitTrailingIsolationClause(main)
+    : { main, tail: '' };
+  const executableMain = isolationStatement.main;
+  const executableSql = `${executableMain}${isolationStatement.tail}${tail}`;
 
-  const fromPos = findTopLevelKeyword(main, 'from');
-  const limitPos = findTopLevelKeyword(main, 'limit');
-  if (limitPos >= 0 && (fromPos < 0 || limitPos > fromPos)) return { sql, applied: false, maxRows };
-  const fetchPos = findTopLevelKeyword(main, 'fetch');
-  if (fetchPos >= 0 && (fromPos < 0 || fetchPos > fromPos)) return { sql, applied: false, maxRows };
+  const fromPos = findTopLevelKeyword(executableMain, 'from', normalizedType);
+  const limitPos = findTopLevelKeyword(executableMain, 'limit', normalizedType);
+  if (limitPos >= 0 && (fromPos < 0 || limitPos > fromPos)) return { sql: executableSql, applied: false, maxRows };
+  const fetchPos = findTopLevelKeyword(executableMain, 'fetch', normalizedType);
+  if (fetchPos >= 0 && (fromPos < 0 || fetchPos > fromPos)) return { sql: executableSql, applied: false, maxRows };
 
   if (normalizedType === 'sqlserver' || normalizedType === 'mssql') {
-    const topPos = findTopLevelKeyword(main, 'top');
+    const topPos = findTopLevelKeyword(executableMain, 'top', normalizedType);
     if (topPos >= 0) return { sql, applied: false, maxRows };
-    const selectPos = findTopLevelKeyword(main, 'select');
+    const selectPos = findTopLevelKeyword(executableMain, 'select', normalizedType);
     if (selectPos < 0) return { sql, applied: false, maxRows };
     const afterSelect = selectPos + 'SELECT'.length;
-    const restAfterSelect = main.slice(afterSelect);
+    const restAfterSelect = executableMain.slice(afterSelect);
     const distinctMatch = restAfterSelect.match(/^(\s+DISTINCT\b)/i);
     const insertOffset = distinctMatch ? afterSelect + distinctMatch[1].length : afterSelect;
-    const nextMain = main.slice(0, insertOffset) + ` TOP ${maxRows}` + main.slice(insertOffset);
+    const nextMain = executableMain.slice(0, insertOffset) + ` TOP ${maxRows}` + executableMain.slice(insertOffset);
     return { sql: nextMain + tail, applied: true, maxRows };
   }
 
   if (normalizedType === 'oracle' || normalizedType === 'dameng') {
-    const rownumPos = findTopLevelKeyword(main, 'rownum');
-    if (rownumPos >= 0) return { sql, applied: false, maxRows };
-    const offsetPos = findTopLevelKeyword(main, 'offset');
-    if (offsetPos >= 0 && (fromPos < 0 || offsetPos > fromPos)) return { sql, applied: false, maxRows };
-    const forPos = findTopLevelKeyword(main, 'for');
-    if (forPos >= 0 && (fromPos < 0 || forPos > fromPos)) return { sql, applied: false, maxRows };
+    const rownumPos = findTopLevelKeyword(executableMain, 'rownum', normalizedType);
+    if (rownumPos >= 0) return { sql: executableSql, applied: false, maxRows };
+    const offsetPos = findTopLevelKeyword(executableMain, 'offset', normalizedType);
+    if (offsetPos >= 0 && (fromPos < 0 || offsetPos > fromPos)) return { sql: executableSql, applied: false, maxRows };
+    const forPos = findTopLevelKeyword(executableMain, 'for', normalizedType);
+    if (forPos >= 0 && (fromPos < 0 || forPos > fromPos)) return { sql: executableSql, applied: false, maxRows };
     // Oracle-compatible databases reject NEXTVAL/CURRVAL when the ROWNUM cap
     // moves the original SELECT into a subquery.
-    if (hasOracleSequencePseudoColumn(main)) return { sql, applied: false, maxRows };
+    if (hasOracleSequencePseudoColumn(executableMain)) return { sql: executableSql, applied: false, maxRows };
     return { sql: `${buildPaginatedSelectSQL(normalizedType, main, '', maxRows, 0)}${tail}`, applied: true, maxRows };
   }
 
-  const offsetPos = findTopLevelKeyword(main, 'offset');
-  const forPos = findTopLevelKeyword(main, 'for');
-  const lockPos = findTopLevelKeyword(main, 'lock');
+  const offsetPos = findTopLevelKeyword(executableMain, 'offset', normalizedType);
+  const forPos = findTopLevelKeyword(executableMain, 'for', normalizedType);
+  const lockPos = findTopLevelKeyword(executableMain, 'lock', normalizedType);
   const candidates = [offsetPos, forPos, lockPos]
     .filter(pos => pos >= 0 && (fromPos < 0 || pos > fromPos));
-  const insertAt = candidates.length > 0 ? Math.min(...candidates) : main.length;
-  const before = main.slice(0, insertAt).trimEnd();
-  const after = main.slice(insertAt).trimStart();
+  const insertAt = candidates.length > 0 ? Math.min(...candidates) : executableMain.length;
+  const before = executableMain.slice(0, insertAt).trimEnd();
+  const after = executableMain.slice(insertAt).trimStart();
   const nextMain = [before, `LIMIT ${maxRows}`, after].filter(Boolean).join(' ').trim();
   return { sql: nextMain + tail, applied: true, maxRows };
 };

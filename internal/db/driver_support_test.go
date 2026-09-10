@@ -88,6 +88,17 @@ func TestKingbaseRuntimeAliasesNormalizeToKingbase(t *testing.T) {
 	}
 }
 
+func TestCacheDatabaseAliasesKeepIndependentRuntimeIdentity(t *testing.T) {
+	for _, dbType := range []string{"cache", "Caché", "InterSystems Cache", "InterSystems Caché"} {
+		if got := normalizeDatabaseType(dbType); got != "cache" {
+			t.Fatalf("expected %q database alias to normalize to cache, got %q", dbType, got)
+		}
+		if got := normalizeRuntimeDriverType(dbType); got != "cache" {
+			t.Fatalf("expected %q runtime alias to normalize to cache, got %q", dbType, got)
+		}
+	}
+}
+
 func TestManagedDriverRequiresInstallMarker(t *testing.T) {
 	tmpDir := t.TempDir()
 	SetExternalDriverDownloadDirectory(tmpDir)
@@ -150,7 +161,7 @@ func TestNewCompatibleDriversAreOptionalAgentDrivers(t *testing.T) {
 	tmpDir := t.TempDir()
 	SetExternalDriverDownloadDirectory(tmpDir)
 
-	for _, driverType := range []string{"oceanbase", "opengauss", "open_gauss", "gaussdb", "gauss_db", "starrocks", "iris", "intersystems"} {
+	for _, driverType := range []string{"oceanbase", "opengauss", "open_gauss", "gaussdb", "gauss_db", "starrocks", "iris", "intersystems", "cache", "intersystems-cache"} {
 		if IsBuiltinDriver(driverType) {
 			t.Fatalf("%s 不应是免安装内置驱动", driverType)
 		}
@@ -256,7 +267,6 @@ func TestDriverRuntimeSupportStatusUsesCurrentLanguageForMissingOptionalDriverAg
 		t.Fatalf("expected English missing-agent reason %q, got %q", want, reason)
 	}
 }
-
 
 func TestResolveExternalDriverRootUsesCurrentLanguageForCreateDirectoryFailure(t *testing.T) {
 	SetBackendLanguage(i18n.LanguageEnUS)

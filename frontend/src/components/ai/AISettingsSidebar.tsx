@@ -2,11 +2,13 @@ import React from 'react';
 import {
   ApiOutlined,
   AppstoreOutlined,
+  BarChartOutlined,
   ControlOutlined,
   ExperimentOutlined,
   RobotOutlined,
   SafetyCertificateOutlined,
   ToolOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 
 import { t as catalogTranslate } from '../../i18n/catalog';
@@ -15,6 +17,8 @@ import type { OverlayWorkbenchTheme } from '../../utils/overlayWorkbenchTheme';
 
 export type AISettingsSectionKey =
   | 'providers'
+  | 'analysis'
+  | 'request_events'
   | 'safety'
   | 'context'
   | 'run_policy'
@@ -30,6 +34,8 @@ export const AI_SETTINGS_NAV_ITEMS: Array<{
   icon: React.ReactNode;
 }> = [
   { key: 'providers', titleKey: 'ai_settings.nav.providers.title', descriptionKey: 'ai_settings.nav.providers.description', icon: <ApiOutlined /> },
+  { key: 'analysis', titleKey: 'ai_settings.nav.analysis.title', descriptionKey: 'ai_settings.nav.analysis.description', icon: <BarChartOutlined /> },
+  { key: 'request_events', titleKey: 'ai_settings.nav.request_events.title', descriptionKey: 'ai_settings.nav.request_events.description', icon: <UnorderedListOutlined /> },
   { key: 'safety', titleKey: 'ai_settings.nav.safety.title', descriptionKey: 'ai_settings.nav.safety.description', icon: <SafetyCertificateOutlined /> },
   { key: 'context', titleKey: 'ai_settings.nav.context.title', descriptionKey: 'ai_settings.nav.context.description', icon: <RobotOutlined /> },
   { key: 'run_policy', titleKey: 'ai_settings.nav.run_policy.title', descriptionKey: 'ai_settings.nav.run_policy.description', icon: <ControlOutlined /> },

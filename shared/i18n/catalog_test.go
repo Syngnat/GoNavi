@@ -1,6 +1,11 @@
 package i18n
 
-import "testing"
+import (
+	"archive/zip"
+	"bytes"
+	"os"
+	"testing"
+)
 
 func TestResolveLanguagePreference(t *testing.T) {
 	tests := []struct {
@@ -82,4 +87,57 @@ func TestLocalizerFormatsParametersAndFallsBack(t *testing.T) {
 	if got := localizer.T("missing.key", nil); got != "missing.key" {
 		t.Fatalf("missing translation = %q, want key fallback", got)
 	}
+}
+
+// TestCatalogZipInSyncWithJSON 校验嵌入的 catalog.zip 与磁盘上的语言 JSON
+// 逐字节一致:改了 JSON 忘了 `go generate ./shared/i18n` 时在这里拦下。
+func TestCatalogZipInSyncWithJSON(t *testing.T) {
+	zipPayload, err := catalogZipFS.ReadFile("catalog.zip")
+	if err != nil {
+		t.Fatalf("读取 catalog.zip 失败: %v", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(zipPayload), int64(len(zipPayload)))
+	if err != nil {
+		t.Fatalf("解析 catalog.zip 失败: %v", err)
+	}
+
+	entries := make(map[string][]byte, len(supportedLanguageOrder))
+	for _, file := range reader.File {
+		payload, err := readFileFromZip(file)
+		if err != nil {
+			t.Fatalf("读取 zip 条目 %s 失败: %v", file.Name, err)
+		}
+		entries[file.Name] = payload
+	}
+	if len(entries) != len(supportedLanguageOrder) {
+		t.Fatalf("catalog.zip 应只含 %d 个语言文件,实际 %d 个", len(supportedLanguageOrder), len(entries))
+	}
+
+	for _, lang := range supportedLanguageOrder {
+		name := string(lang) + ".json"
+		disk, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("读取 %s 失败: %v", name, err)
+		}
+		zipped, ok := entries[name]
+		if !ok {
+			t.Fatalf("catalog.zip 缺少 %s", name)
+		}
+		if !bytes.Equal(disk, zipped) {
+			t.Errorf("%s 与 catalog.zip 内容不一致,请执行 go generate ./shared/i18n 重新生成", name)
+		}
+	}
+}
+
+func readFileFromZip(file *zip.File) ([]byte, error) {
+	rc, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer rc.Close()
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(rc); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

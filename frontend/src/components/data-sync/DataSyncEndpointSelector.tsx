@@ -44,6 +44,7 @@ const MetadataStatus: React.FC<{
 export const DataSyncEndpointSelector: React.FC<{
   role: 'source' | 'target';
   title: string;
+  hideLegend?: boolean;
   endpoint: DataSyncEndpointRef;
   connections: DataSyncMetadataResult<DataSyncSavedConnectionView>;
   connectionTree: DataSyncConnectionTreeItem[];
@@ -55,6 +56,7 @@ export const DataSyncEndpointSelector: React.FC<{
 }> = ({
   role,
   title,
+  hideLegend = false,
   endpoint,
   connections,
   connectionTree,
@@ -86,7 +88,7 @@ export const DataSyncEndpointSelector: React.FC<{
       data-endpoint-role={role}
       data-expanded={endpoint.connectionId ? 'true' : 'false'}
     >
-      <legend>
+      <legend className={hideLegend ? 'gn-data-sync-visually-hidden' : undefined}>
         <span>{title}</span>
         {endpoint.connectionId && endpoint.type ? (
           <span
@@ -113,7 +115,7 @@ export const DataSyncEndpointSelector: React.FC<{
         </label>
         {endpoint.connectionId ? (
           <>
-            <label className="gn-data-sync-field">
+            <label className="gn-data-sync-field" data-wide="true">
               <span>{t('editor.database')}</span>
               <select
                 className="gn-data-sync-control gn-data-sync-mono"
@@ -137,7 +139,7 @@ export const DataSyncEndpointSelector: React.FC<{
                 ))}
               </select>
             </label>
-            <label className="gn-data-sync-field">
+            <label className="gn-data-sync-field" data-wide="true">
               <span>{t('editor.schema')}</span>
               <input
                 className="gn-data-sync-control gn-data-sync-mono"

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-logo.png" width="128" alt="GoNavi Logo" />
+  <img src="https://origin-download.syngnat.top:8443/gonavi/brand-assets/v1/03-ribbon-graphite-glow.svg" width="128" alt="GoNavi Logo" />
 </p>
 
 <h1 align="center">GoNavi</h1>
@@ -207,7 +207,7 @@
 | | |
 |---|---|
 | **内置** | MySQL · GoldenDB · PostgreSQL · Oracle · Redis · Chroma · Qdrant · Milvus · RocketMQ · MQTT · Kafka · RabbitMQ |
-| **可选** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · 达梦 · 人大金仓 · 瀚高 · 海量 · openGauss · GaussDB · IRIS · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · Custom Driver/DSN |
+| **可选** | MariaDB · Doris · StarRocks · Sphinx · SQL Server · SQLite · DuckDB · OceanBase · 达梦 · 人大金仓 · 瀚高 · 海量 · openGauss · GaussDB · IRIS · Caché · MongoDB · TDengine · IoTDB · ClickHouse · Trino · Elasticsearch · Custom Driver/DSN |
 
 <details>
 <summary><b>完整能力矩阵</b></summary>
@@ -241,6 +241,7 @@
 | 国产数据库 | OpenGauss | 可选驱动代理 | 类 PostgreSQL 的库表浏览、SQL 查询、对象管理 |
 | 国产数据库 | GaussDB | 可选驱动代理 | 类 PostgreSQL 的库表浏览、SQL 查询、对象管理 |
 | 多模型数据库 | InterSystems IRIS | 可选驱动代理 | Namespace 浏览、SQL 查询、对象管理 |
+| 多模型数据库 | InterSystems Caché | 可选驱动代理 | Namespace 浏览、Caché SQL 查询、对象管理 |
 | 文档型 | MongoDB | 可选驱动代理 | 文档查询、集合浏览、连接管理 |
 | 时序 | TDengine | 可选驱动代理 | 时序库表浏览、查询分析 |
 | 时序 | Apache IoTDB | 可选驱动代理 | Storage Group / Device / Timeseries 浏览与查询 |

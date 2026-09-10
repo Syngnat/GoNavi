@@ -422,7 +422,7 @@ func (t *TrinoDB) QueryContext(ctx context.Context, query string) ([]map[string]
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (t *TrinoDB) Query(query string) ([]map[string]interface{}, []string, error) {

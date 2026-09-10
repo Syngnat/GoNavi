@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -838,8 +839,8 @@ func TestOpenAIProviderChatStreamRetriesWithoutToolsThenImagesOnHTTP400(t *testi
 	if err != nil {
 		t.Fatalf("expected stream fallback to succeed, got %v", err)
 	}
-	if requestCount != 3 {
-		t.Fatalf("expected 3 requests (with tools, without tools, without images), got %d", requestCount)
+	if requestCount != 4 {
+		t.Fatalf("expected 4 requests (without usage option, tools, then images), got %d", requestCount)
 	}
 	if len(chunks) < 2 {
 		t.Fatalf("expected content and done chunks, got %#v", chunks)
@@ -849,6 +850,84 @@ func TestOpenAIProviderChatStreamRetriesWithoutToolsThenImagesOnHTTP400(t *testi
 	}
 	if !chunks[len(chunks)-1].Done {
 		t.Fatalf("expected final done chunk, got %#v", chunks[len(chunks)-1])
+	}
+}
+
+func TestOpenAIProviderChatStreamIncludesAndPreservesUsageAfterFinishReason(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		streamOptions, _ := body["stream_options"].(map[string]any)
+		if streamOptions["include_usage"] != true {
+			t.Fatalf("expected stream usage request, got %#v", body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`data: {"choices":[{"delta":{"content":"pong"},"finish_reason":"stop"}]}`,
+			``,
+			`data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12,"prompt_tokens_details":{"cached_tokens":4}}}`,
+			``,
+			`data: [DONE]`,
+			``,
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	providerInstance, err := NewOpenAIProvider(ai.ProviderConfig{
+		Type: "custom", APIKey: "sk-test", BaseURL: server.URL, Model: "qwen-compatible",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var chunks []ai.StreamChunk
+	err = providerInstance.ChatStream(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	}, func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	final := chunks[len(chunks)-1]
+	if !final.Done || final.Usage == nil {
+		t.Fatalf("final chunk = %#v", final)
+	}
+	if final.Usage.PromptTokens != 10 || final.Usage.CompletionTokens != 2 || final.Usage.TotalTokens != 12 {
+		t.Fatalf("usage = %#v", final.Usage)
+	}
+	if final.Usage.CachedTokens == nil || *final.Usage.CachedTokens != 4 {
+		t.Fatalf("cached usage = %#v", final.Usage.CachedTokens)
+	}
+}
+
+func TestOpenAIProviderChatStreamFallsBackWhenStreamOptionsAreRejected(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte(`"stream_options"`)) {
+			http.Error(w, `{"error":{"message":"unknown parameter stream_options"}}`, http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"pong\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	providerInstance, err := NewOpenAIProvider(ai.ProviderConfig{
+		Type: "custom", APIKey: "sk-test", BaseURL: server.URL, Model: "legacy-compatible",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = providerInstance.ChatStream(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "ping"}},
+	}, func(ai.StreamChunk) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want stream_options retry", requests)
 	}
 }
 

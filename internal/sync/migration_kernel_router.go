@@ -49,6 +49,19 @@ type mongoToRelationalPlanner struct{}
 
 func buildSchemaMigrationPlan(config SyncConfig, tableName string, sourceDB db.Database, targetDB db.Database) (SchemaMigrationPlan, []connection.ColumnDefinition, []connection.ColumnDefinition, error) {
 	if hasExplicitSyncMappings(config) {
+		mapping, err := explicitSyncMappingForTable(config, tableName)
+		if err != nil {
+			return SchemaMigrationPlan{}, nil, nil, err
+		}
+		if isIdentitySyncObjectMapping(mapping) {
+			// Object renames have no field projection, so use the normal migration
+			// planner and supply only its target object override. This preserves
+			// auto-create, index creation, and cross-dialect type mapping.
+			plannerConfig := config
+			plannerConfig.Mappings = nil
+			plannerConfig.identityMappingTarget = mapping.Target
+			return buildSchemaMigrationPlan(plannerConfig, tableName, sourceDB, targetDB)
+		}
 		return buildMappedExistingTargetPlan(config, tableName, sourceDB, targetDB)
 	}
 	ctx := MigrationBuildContext{
@@ -59,9 +72,39 @@ func buildSchemaMigrationPlan(config SyncConfig, tableName string, sourceDB db.D
 	}
 	planner := resolveMigrationPlanner(ctx)
 	if planner == nil {
-		return buildSchemaMigrationPlanLegacy(config, tableName, sourceDB, targetDB)
+		plan, sourceCols, targetCols, err := buildSchemaMigrationPlanLegacy(config, tableName, sourceDB, targetDB)
+		return withDistributionClauseTargetGuard(config, plan), sourceCols, targetCols, err
 	}
-	return planner.BuildPlan(ctx)
+	plan, sourceCols, targetCols, err := planner.BuildPlan(ctx)
+	return withDistributionClauseTargetGuard(config, plan), sourceCols, targetCols, err
+}
+
+// withDistributionClauseTargetGuard 收口 Doris/StarRocks 目标的自动建表。
+//
+// 这两个目标的 CREATE TABLE 必须带 key model 与 DISTRIBUTED BY 分桶定义，而
+// isMySQLCoreType 把它们当作 MySQL 系可写目标，各条 MySQL 系 planner 会生成
+// 普通 MySQL DDL —— 下发即失败。
+//
+// 收口必须放在统一出口：AutoCreate 散落在十几个 planner 里各自赋值，逐个改必然
+// 漏。而且只改 capability 层不够 —— capability 只驱动 UI 与 preflight，plan 层
+// 仍会带着 AutoCreate=true 与 CreateTableSQL 进入执行期，等于把"UI 说能建、
+// 执行期报错"换成了"UI 说不能建、执行期照样建失败"，两层判定不一致的老毛病。
+func withDistributionClauseTargetGuard(config SyncConfig, plan SchemaMigrationPlan) SchemaMigrationPlan {
+	if !plan.AutoCreate || !requiresDistributionClauseTarget(resolveMigrationDBType(config.TargetConfig)) {
+		return plan
+	}
+	plan.AutoCreate = false
+	plan.CreateTableSQL = ""
+	// 文案按表是否存在区分：planner 路径可能带着 AutoCreate=true 与已存在的
+	// 目标表走到这里，统一写"目标表不存在"会误导。
+	if plan.TargetTableExists {
+		plan.PlannedAction = "目标为 Doris/StarRocks，使用已存在的目标表导入"
+	} else {
+		plan.PlannedAction = "目标表不存在，需先手工创建"
+	}
+	plan.Warnings = append(plan.Warnings,
+		"Doris/StarRocks 建表需要显式指定 key model 与 DISTRIBUTED BY 分桶定义，当前不支持自动建表；请先手工创建目标表后重试")
+	return dedupeSchemaMigrationPlan(plan)
 }
 
 func resolveMigrationPlanner(ctx MigrationBuildContext) MigrationPlanner {
@@ -440,7 +483,7 @@ func (mongoToRelationalPlanner) BuildPlan(ctx MigrationBuildContext) (SchemaMigr
 	plan.SourceSchema, plan.SourceTable = normalizeSyncSourceSchemaAndTable(ctx.Config, ctx.TableName)
 	plan.TargetSchema, plan.TargetTable = normalizeSyncTargetSchemaAndTable(ctx.Config, ctx.TableName)
 	plan.SourceQueryTable = qualifiedNameForQuery(sourceType, plan.SourceSchema, plan.SourceTable, ctx.TableName)
-	plan.TargetQueryTable = qualifiedNameForQuery(targetType, plan.TargetSchema, plan.TargetTable, ctx.TableName)
+	plan.TargetQueryTable = qualifiedTargetNameForQuery(targetType, plan.TargetSchema, plan.TargetTable)
 	plan.PlannedAction = "当前库对已进入迁移内核规划阶段，等待 schema 推断与目标方言生成器落地"
 	for _, issue := range inference.Issues {
 		msg := strings.TrimSpace(issue.Message)

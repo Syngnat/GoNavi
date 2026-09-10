@@ -169,3 +169,54 @@ func TestApplyDamengAutoIncrementColumns_MarksOnlyMatchedColumns(t *testing.T) {
 		t.Fatalf("非自增字段不应被标记: %+v", got[1])
 	}
 }
+
+// TestFormatDamengColumnTypePreservesNegativeScale 锁住达梦列类型的负 scale。
+// 达梦兼容 Oracle 语法，NUMBER(10,-2) 表示向左舍入到百位，丢掉负号会改变
+// 精度语义；scale 为 0 时仍按惯例省略小数位。
+func TestFormatDamengColumnTypePreservesNegativeScale(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		row  map[string]interface{}
+		want string
+	}{
+		{
+			name: "negative scale preserved",
+			row: map[string]interface{}{
+				"DATA_TYPE":      "NUMBER",
+				"DATA_PRECISION": 10,
+				"DATA_SCALE":     -2,
+			},
+			want: "NUMBER(10,-2)",
+		},
+		{
+			name: "zero scale omits scale",
+			row: map[string]interface{}{
+				"DATA_TYPE":      "NUMBER",
+				"DATA_PRECISION": 10,
+				"DATA_SCALE":     0,
+			},
+			want: "NUMBER(10)",
+		},
+		{
+			name: "positive scale kept",
+			row: map[string]interface{}{
+				"DATA_TYPE":      "NUMBER",
+				"DATA_PRECISION": 10,
+				"DATA_SCALE":     2,
+			},
+			want: "NUMBER(10,2)",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatDamengColumnType(tc.row); got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}

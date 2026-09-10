@@ -220,6 +220,66 @@ func TestQdrantSelectPassesWhereToScrollAndCount(t *testing.T) {
 	}
 }
 
+func TestQdrantSelectSingleWhereUsesOfficialFilterForScrollAndCount(t *testing.T) {
+	var bodies []map[string]interface{}
+	server := newMockQdrantServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/collections":
+			writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"collections": []interface{}{}}})
+		case r.Method == http.MethodPost && (strings.HasSuffix(r.URL.Path, "/points/scroll") || strings.HasSuffix(r.URL.Path, "/points/count")):
+			var body map[string]interface{}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			bodies = append(bodies, body)
+			if strings.HasSuffix(r.URL.Path, "/points/count") {
+				writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"count": 0}})
+			} else {
+				writeQdrantJSON(w, map[string]interface{}{"result": map[string]interface{}{"points": []interface{}{}}})
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	db := newTestQdrantDB(t, server.URL)
+
+	queries := []string{
+		`SELECT * FROM products WHERE category = 'book'`,
+		`SELECT COUNT(*) FROM products WHERE category = 'book'`,
+		`SELECT * FROM products WHERE price < 5`,
+		`SELECT COUNT(*) FROM products WHERE price < 5`,
+		`SELECT * FROM products WHERE id = 1`,
+		`SELECT COUNT(*) FROM products WHERE id = 1`,
+	}
+	for _, query := range queries {
+		if _, _, err := db.Query(query); err != nil {
+			t.Fatalf("Query(%q) failed: %v", query, err)
+		}
+	}
+	if len(bodies) != len(queries) {
+		t.Fatalf("expected %d Qdrant requests, got %#v", len(queries), bodies)
+	}
+	for i := 0; i < len(bodies); i += 2 {
+		scrollFilter, _ := bodies[i]["filter"].(map[string]interface{})
+		countFilter, _ := bodies[i+1]["filter"].(map[string]interface{})
+		if scrollFilter == nil || countFilter == nil {
+			t.Fatalf("missing filter in requests %#v", bodies[i:i+2])
+		}
+		if scrollFilter["must"] == nil {
+			t.Fatalf("single comparison filter = %#v, want must wrapper", scrollFilter)
+		}
+		if _, hasKey := scrollFilter["key"]; hasKey {
+			t.Fatalf("bare Condition leaked to Filter root: %#v", scrollFilter)
+		}
+		if _, hasID := scrollFilter["has_id"]; hasID {
+			t.Fatalf("bare has_id leaked to Filter root: %#v", scrollFilter)
+		}
+		scrollJSON, _ := json.Marshal(scrollFilter)
+		countJSON, _ := json.Marshal(countFilter)
+		if string(scrollJSON) != string(countJSON) {
+			t.Fatalf("scroll/count filters diverged: %s vs %s", scrollJSON, countJSON)
+		}
+	}
+}
+
 func TestQdrantSelectRejectsUnsupportedWhereWithoutDataRequest(t *testing.T) {
 	db := &QdrantDB{client: &http.Client{Transport: vectorWhereRoundTripFunc(func(*http.Request) (*http.Response, error) {
 		t.Fatal("unsupported WHERE must not make an HTTP request")

@@ -23,6 +23,7 @@ describe('empty workbench layout', () => {
     expect(css).toMatch(
       /\[data-empty-workbench='true'\]\[data-collapsed-sidebar-actions-docked='true'\]\[data-security-update-banner-visible='false'\][^{]+\.gn-v2-empty-eyebrow\s*\{[^}]*padding-left:\s*max\(/s,
     );
+    expect(css).toContain('(182px * var(--gn-ui-scale, 1) * var(--gn-sidebar-rail-scale, 1))');
     expect(css).toContain('--gn-v2-empty-hero-padding-inline-start: 30px;');
     expect(css).toContain('--gn-v2-empty-hero-padding-inline-start: 24px;');
     expect(css).toContain('--gn-v2-empty-hero-padding-inline-start: 16px;');

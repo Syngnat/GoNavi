@@ -109,7 +109,7 @@ func (d *DuckDB) QueryContext(ctx context.Context, query string) ([]map[string]i
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (d *DuckDB) Query(query string) ([]map[string]interface{}, []string, error) {

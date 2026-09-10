@@ -1,14 +1,10 @@
 import React, { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { Badge, Button } from 'antd';
+import { Button } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 
 import type { SavedConnection } from '../../types';
 import { t } from '../../i18n';
 import JVMModeBadge from '../jvm/JVMModeBadge';
-import { SIDEBAR_SQL_EDITOR_DRAG_MIME, encodeSidebarSqlEditorDragPayload } from '../../utils/sidebarSqlDrag';
-import {
-  resolveSidebarObjectDragText,
-} from '../sidebarCoreUtils';
 import type { SidebarConnectionState } from '../sidebarV2Utils';
 import {
   shouldHideSchemaPrefix,
@@ -22,24 +18,14 @@ import { normalizeOracleObjectCompileStatus } from './oracleObjectCompilation';
 
 type UseSidebarTitleRenderArgs = {
   connectionStates: Record<string, SidebarConnectionState>;
-  isV2Ui: boolean;
   renderV2TreeTitle: (node: any, hoverTitle: string, statusBadge: React.ReactNode) => React.ReactNode;
   handleAddExternalSQLDirectory: (node: any) => Promise<void>;
-  snapshotTreeSelectionBeforeDrag: () => void;
-  restoreTreeSelectionAfterDrag: () => void;
-  treeDragSelectSuppressUntilRef: MutableRefObject<number>;
-  setIsTreeDragging: Dispatch<SetStateAction<boolean>>;
 };
 
 export const useSidebarTitleRender = ({
   connectionStates,
-  isV2Ui,
   renderV2TreeTitle,
   handleAddExternalSQLDirectory,
-  snapshotTreeSelectionBeforeDrag,
-  restoreTreeSelectionAfterDrag,
-  treeDragSelectSuppressUntilRef,
-  setIsTreeDragging,
 }: UseSidebarTitleRenderArgs) => {
   const handleAddExternalSQLDirectoryRef = useRef(handleAddExternalSQLDirectory);
   handleAddExternalSQLDirectoryRef.current = handleAddExternalSQLDirectory;
@@ -51,16 +37,14 @@ export const useSidebarTitleRender = ({
     else if (connectionStates[node.key] === 'success') status = 'success';
     else if (connectionStates[node.key] === 'error') status = 'error';
   }
-  const legacyBadgeStatus = status === 'loading' ? 'processing' : status;
-
+  const showV2Status = status === 'success' || status === 'loading' || status === 'error';
   const statusBadge = node.type === 'connection' || node.type === 'database' ? (
-    isV2Ui
-      ? <span className={`gn-v2-tree-status is-${status}`} aria-hidden="true" />
-      : <Badge status={legacyBadgeStatus} style={{ marginLeft: 4, marginRight: 8 }} />
+    showV2Status
+        ? <span className={`gn-v2-tree-status is-${status}`} aria-hidden="true" />
+        : null
   ) : null;
 
   const displayTitle = resolveSidebarQueriesFolderTitle(node) ?? String(node.title ?? '');
-  const dragText = resolveSidebarObjectDragText(node);
   let hoverTitle = displayTitle;
   if (node.type === 'message-object' || node.type === 'table' || node.type === 'view' || node.type === 'materialized-view' || node.type === 'sequence' || node.type === 'package' || node.type === 'db-event') {
     const rawTableName = String(
@@ -102,16 +86,6 @@ export const useSidebarTitleRender = ({
   if (objectCompileStatusLabel) {
     hoverTitle = `${hoverTitle}\n${t('sidebar.object_status.tooltip', { status: objectCompileStatusLabel })}`;
   }
-  const objectCompileStatusBadge = !isV2Ui && objectCompileStatus ? (
-    <span
-      className={`gonavi-sidebar-object-status is-${objectCompileStatus.toLowerCase()}`}
-      data-sidebar-object-status={objectCompileStatus}
-      title={t('sidebar.object_status.tooltip', { status: objectCompileStatusLabel })}
-    >
-      {objectCompileStatusLabel}
-    </span>
-  ) : null;
-
   if (node.type === 'jvm-mode') {
     return (
       <span
@@ -163,50 +137,9 @@ export const useSidebarTitleRender = ({
     );
   }
 
-  if (isV2Ui) {
-    return renderV2TreeTitle(node, hoverTitle, statusBadge);
-  }
-
-  if (dragText) {
-    return (
-      <span
-        title={hoverTitle}
-        draggable
-        onDragStart={(event) => {
-          snapshotTreeSelectionBeforeDrag();
-          treeDragSelectSuppressUntilRef.current = Date.now() + 600;
-          setIsTreeDragging(true);
-          event.stopPropagation();
-          event.dataTransfer.effectAllowed = 'copy';
-          event.dataTransfer.setData('text/plain', dragText);
-          event.dataTransfer.setData(
-            SIDEBAR_SQL_EDITOR_DRAG_MIME,
-            encodeSidebarSqlEditorDragPayload({
-              text: dragText,
-              nodeType: node.type,
-              connectionId: String(node?.dataRef?.id || ''),
-              dbName: String(node?.dataRef?.dbName || ''),
-            }),
-          );
-        }}
-        onDragEnd={() => {
-          restoreTreeSelectionAfterDrag();
-          setIsTreeDragging(false);
-        }}
-      >
-        {statusBadge}{displayTitle}{objectCompileStatusBadge}
-      </span>
-    );
-  }
-
-  return <span title={hoverTitle}>{statusBadge}{displayTitle}{objectCompileStatusBadge}</span>;
+  return renderV2TreeTitle(node, hoverTitle, statusBadge);
 }, [
   connectionStates,
-  isV2Ui,
   renderV2TreeTitle,
-  restoreTreeSelectionAfterDrag,
-  setIsTreeDragging,
-  snapshotTreeSelectionBeforeDrag,
-  treeDragSelectSuppressUntilRef,
 ]);
 };

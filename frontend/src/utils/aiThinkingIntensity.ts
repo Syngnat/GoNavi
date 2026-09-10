@@ -1,4 +1,12 @@
 import type { AIProviderType } from '../types';
+import type { AIProviderConfig } from '../types';
+import type { CLIModelCatalog } from './aiProviderManagement';
+
+interface CLIThinkingCapability {
+  supportsEffort?: boolean;
+  effortValues?: string[];
+  defaultEffort?: string;
+}
 
 export type ThinkingIntensityProfile = 'openai' | 'anthropic' | 'deepseek' | 'gemini' | 'generic';
 
@@ -46,6 +54,54 @@ const GENERIC_OPTIONS: ThinkingIntensityOption[] = [
   { value: 'medium', labelKey: 'ai_settings.form.thinking_intensity.medium' },
   { value: 'high', labelKey: 'ai_settings.form.thinking_intensity.high' },
 ];
+
+const optionForValue = (value: string): ThinkingIntensityOption => ({
+  value,
+  labelKey: value === 'default'
+    ? 'ai_settings.form.effort_placeholder_empty'
+    : `ai_settings.form.thinking_intensity.${value}`,
+});
+
+export interface ProviderThinkingIntensityControl {
+  options: ThinkingIntensityOption[];
+  defaultValue: string;
+}
+
+export const resolveProviderThinkingIntensityControl = (
+  provider: Pick<AIProviderConfig, 'type' | 'authMode' | 'apiFormat' | 'model' | 'effort'> & { baseUrl?: string },
+  cliCapability?: CLIThinkingCapability,
+  catalog?: CLIModelCatalog | null,
+): ProviderThinkingIntensityControl => {
+  const isLocalCLI = String(provider.authMode || '').toLowerCase() === 'local-cli'
+    && String(provider.apiFormat || '').toLowerCase().endsWith('-cli');
+  if (isLocalCLI) {
+    const model = String(provider.model || catalog?.defaultModel || '').trim();
+    const modelCapability = model ? catalog?.modelCapabilities?.[model] : undefined;
+    const values = [...new Set((modelCapability?.effortValues || cliCapability?.effortValues || [])
+      .map((value) => String(value).trim().toLowerCase()).filter(Boolean))];
+    const configured = String(provider.effort || '').trim().toLowerCase();
+    const fallback = String(modelCapability?.defaultEffort || cliCapability?.defaultEffort || '').trim().toLowerCase();
+    return {
+      options: [optionForValue('default'), ...values.map(optionForValue)],
+      defaultValue: values.includes(configured) ? configured : (values.includes(fallback) ? fallback : 'default'),
+    };
+  }
+  const profile = resolveThinkingIntensityProfile(provider);
+  return {
+    options: resolveThinkingIntensityOptions(profile),
+    defaultValue: defaultThinkingIntensityForProfile(profile),
+  };
+};
+
+export const coerceThinkingIntensityForControl = (
+  value: string | undefined,
+  control: ProviderThinkingIntensityControl,
+): string => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return control.options.some((option) => option.value === normalized)
+    ? normalized
+    : control.defaultValue;
+};
 
 const getHostname = (raw?: string): string => {
   if (!raw) return '';

@@ -180,31 +180,46 @@ export const useAIWorkspaceSnapshot = ({
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
 
-  publishRef.current = () => {
+  // A lease heartbeat must resend the exact same revision and payload. The
+  // backend already treats that as an UPDATE of lease_expires_at; minting a
+  // new revision here would append the complete workspace every five seconds.
+  const latestSnapshotRef = useRef<WorkspaceSnapshotRequest | null>(null);
+
+  const publish = (contentChanged: boolean) => {
     if (!enabledRef.current) return;
     const service = getAIRunHarnessService();
     // Wails bindings can become available after the first React mount. The
     // scheduled renewal will retry publication without requiring a state edit.
     if (!service?.AIUpdateWorkspaceSnapshot) return;
-    nextRevision += 1;
-    const snapshot = buildDesktopWorkspaceSnapshot(
-      snapshotInputsRef.current as unknown as Record<string, any>,
-      nextRevision,
-      sourceIDRef.current,
-      sourceInstanceID,
-    );
+    const previous = latestSnapshotRef.current;
+    const needsNewRevision = contentChanged
+      || !previous
+      || previous.sourceId !== sourceIDRef.current
+      || previous.sourceInstanceId !== sourceInstanceID;
+    if (needsNewRevision) {
+      nextRevision += 1;
+      latestSnapshotRef.current = buildDesktopWorkspaceSnapshot(
+        snapshotInputsRef.current as unknown as Record<string, any>,
+        nextRevision,
+        sourceIDRef.current,
+        sourceInstanceID,
+      );
+    }
+    const snapshot = latestSnapshotRef.current;
+    if (!snapshot) return;
     void updateWorkspaceSnapshot(snapshot, service).catch((error) => {
       // Snapshot publication must never interrupt editor or chat input.
       console.warn('Failed to publish AI workspace snapshot', error);
     });
   };
+  publishRef.current = () => publish(false);
 
   // Context edits publish an updated full snapshot immediately. This effect
   // deliberately owns no timer: the lease cadence below remains stable while
   // the editor, tabs, or SQL log change.
   useEffect(() => {
     if (!enabled || !dependencyKey) return;
-    publishRef.current();
+    publish(true);
   }, [dependencyKey, enabled, sourceId]);
 
   useEffect(() => {

@@ -32,7 +32,6 @@ const storeState = vi.hoisted(() => ({
   ],
   theme: 'light',
   appearance: {
-    uiVersion: 'v2',
     enabled: true,
     opacity: 1,
     blur: 0,

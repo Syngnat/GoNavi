@@ -108,6 +108,8 @@ export type DataSyncTableMapping = {
   sourceObject: string;
   targetObject: string;
   targetMode: 'create_or_reuse' | 'existing_only';
+  /** True when the user explicitly required an existing target table. */
+  targetModeExplicit?: boolean;
   keyColumns: string[];
   watermark?: {
     column: string;
@@ -547,6 +549,116 @@ export const createDataSyncTableMapping = (
   fields: [],
 });
 
+/**
+ * 一次性迁移选表时的建表许可。能力快照未就绪（level=unknown，包括加载中
+ * 与解析失败）时必须返回 undefined，让 buildDataSyncMappingsFromSelection
+ * 回落到 kind=migration 的默认许可——后端预检会用真实连接重新判定
+ * SupportsAutoCreate，不会放走真正不支持的组合。
+ */
+export const migrationAllowTargetCreate = (
+  taskKind: DataSyncTaskKind,
+  capability: DataSyncRouteCapability,
+): boolean | undefined => {
+  if (taskKind !== 'migration') return false;
+  if (capability.level === 'unknown') return undefined;
+  return (
+    capability.canExecute &&
+    capability.supportsAutoCreate &&
+    capability.requiresExistingTarget !== true
+  );
+};
+
+/**
+ * 按能力快照自修复迁移映射的 targetMode。目标表元数据就绪且确认缺失时，
+ * 支持自动建表的迁移映射升为 create_or_reuse；能力不支持时收回该模式。
+ */
+export const repairMigrationTargetModes = (
+  mappings: DataSyncTableMapping[],
+  taskKind: DataSyncTaskKind,
+  capability: DataSyncRouteCapability,
+  targetObjects: DataSyncObjectMetadata[],
+  targetObjectsReady: boolean,
+  userSelectedTargetModeIds: ReadonlySet<string> = new Set(),
+): DataSyncTableMapping[] => {
+  if (taskKind !== 'migration' || capability.level === 'unknown') {
+    return mappings;
+  }
+  const supportsAutoCreate =
+    capability.canExecute &&
+    capability.supportsAutoCreate &&
+    capability.requiresExistingTarget !== true;
+  const existingTargetNames = new Set<string>();
+  const targetBaseNameCounts = new Map<string, number>();
+  const unqualifiedTargetBaseNameCounts = new Map<string, number>();
+  targetObjects
+    .filter((object) => object.kind !== 'view')
+    .forEach((object) => {
+      const fullName = normalizeMetadataName(object.name);
+      const baseName = normalizeMetadataName(metadataObjectBaseName(object.name));
+      if (fullName) existingTargetNames.add(fullName);
+      if (baseName) {
+        targetBaseNameCounts.set(
+          baseName,
+          (targetBaseNameCounts.get(baseName) || 0) + 1,
+        );
+        if (!object.name.trim().includes('.')) {
+          unqualifiedTargetBaseNameCounts.set(
+            baseName,
+            (unqualifiedTargetBaseNameCounts.get(baseName) || 0) + 1,
+          );
+        }
+      }
+    });
+  let changed = false;
+  const next = mappings.map((mapping) => {
+    if (mapping.targetMode === 'create_or_reuse' && !supportsAutoCreate) {
+      changed = true;
+      return {
+        ...mapping,
+        targetMode: 'existing_only' as const,
+        targetModeExplicit: undefined,
+      };
+    }
+    if (
+      mapping.targetMode === 'existing_only' &&
+      supportsAutoCreate &&
+      mapping.targetModeExplicit !== true &&
+      !userSelectedTargetModeIds.has(mapping.id) &&
+      mapping.targetObject.trim() !== '' &&
+      targetObjectsReady &&
+      !existingTargetNames.has(normalizeMetadataName(mapping.targetObject)) &&
+      (() => {
+        const baseName = normalizeMetadataName(
+          metadataObjectBaseName(mapping.targetObject),
+        );
+        const mappingIsQualified = mapping.targetObject.includes('.');
+        const matchingCount = mappingIsQualified
+          ? unqualifiedTargetBaseNameCounts.get(baseName) || 0
+          : targetBaseNameCounts.get(baseName) || 0;
+        return Boolean(baseName) && matchingCount === 0;
+      })()
+    ) {
+      changed = true;
+      return { ...mapping, targetMode: 'create_or_reuse' as const };
+    }
+    return mapping;
+  });
+  return changed ? next : mappings;
+};
+
+/** Clears target-mode choices that belonged to a previous endpoint route. */
+export const clearDataSyncTargetModeExplicitMarks = (
+  mappings: DataSyncTableMapping[],
+): DataSyncTableMapping[] => {
+  let changed = false;
+  const next = mappings.map((mapping) => {
+    if (mapping.targetModeExplicit !== true) return mapping;
+    changed = true;
+    return { ...mapping, targetModeExplicit: undefined };
+  });
+  return changed ? next : mappings;
+};
+
 const normalizeMetadataName = (value: string): string =>
   value.trim().toLowerCase();
 
@@ -783,6 +895,7 @@ const normalizeAtomicTargetType = (value: string): string => {
   if (['open_gauss', 'open-gauss'].includes(normalized)) return 'opengauss';
   if (['gauss_db', 'gauss-db'].includes(normalized)) return 'gaussdb';
   if (['intersystems', 'intersystemsiris', 'inter-systems', 'inter-systems-iris'].includes(normalized)) return 'iris';
+  if (['cache', 'caché', 'intersystems cache', 'intersystems caché', 'intersystems-cache', 'intersystems-caché', 'intersystemscache', 'intersystemscaché', 'inter-systems-cache', 'inter-systems-caché', 'intersystems-cache-database', 'cache-db', 'cachedb'].includes(normalized)) return 'iris';
   if (['dm', 'dm8'].includes(normalized)) return 'dameng';
   if (normalized === 'sqlite3') return 'sqlite';
   if (['goldendb', 'greatdb', 'gdb'].includes(normalized)) return 'mysql';

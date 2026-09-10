@@ -1331,6 +1331,7 @@
                     "opengauss":  "sql-postgres-compatible",
                     "gaussdb":  "sql-postgres-compatible",
                     "iris":  "sql-iris",
+                    "cache":  "sql-iris",
                     "mongodb":  "document-structure-readonly",
                     "tdengine":  "sql-tdengine",
                     "iotdb":  "sql-iotdb",

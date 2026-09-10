@@ -54,6 +54,20 @@ const resolveCustomDriverDialect = (driver: string): string => {
     case 'inter-systems':
     case 'inter-systems-iris':
       return 'iris';
+    case 'cache':
+    case 'caché':
+    case 'intersystems cache':
+    case 'intersystems caché':
+    case 'intersystems-cache':
+    case 'intersystems-caché':
+    case 'intersystemscache':
+    case 'intersystemscaché':
+    case 'inter-systems-cache':
+    case 'inter-systems-caché':
+    case 'intersystems-cache-database':
+    case 'cache-db':
+    case 'cachedb':
+      return 'iris';
     default:
       break;
   }
@@ -77,7 +91,7 @@ const resolveCustomDriverDialect = (driver: string): string => {
 export const resolveTableDataActionDBType = (type: string, driver?: string): string => {
   const normalizedType = String(type || '').trim().toLowerCase();
   if (normalizedType !== 'custom') {
-    return normalizedType;
+    return resolveCustomDriverDialect(normalizedType);
   }
   return resolveCustomDriverDialect(driver || '');
 };

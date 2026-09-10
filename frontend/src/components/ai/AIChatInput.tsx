@@ -18,6 +18,8 @@ import AIChatContextPreview from './AIChatContextPreview';
 import { noAutoCapInputProps } from '../../utils/inputAutoCap';
 import AIChatProviderModelSelect from './AIChatProviderModelSelect';
 import AIChatThinkingIntensitySelect from './AIChatThinkingIntensitySelect';
+import type { CLIModelCatalog } from '../../utils/aiProviderManagement';
+import type { CLIThinkingCapability } from './useAIChatRuntimeResources';
 import { buildAIChatReadinessSnapshot } from './aiChatReadiness';
 import { useAIChatContextBinding } from './useAIChatContextBinding';
 import { useAIChatDraftAttachments } from './useAIChatDraftAttachments';
@@ -40,6 +42,8 @@ interface AIChatInputProps {
     activeConnName: string;
     activeContext: { connectionId?: string | null; dbName?: string | null } | null;
     activeProvider: AIProviderConfig | null;
+    providers?: AIProviderConfig[];
+    providerModels?: Record<string, string[]>;
     dynamicModels: string[];
     loadingModels: boolean;
     sendShortcutBinding: ShortcutPlatformBinding;
@@ -47,9 +51,14 @@ interface AIChatInputProps {
     composerNotice?: AIComposerNotice | null;
     onComposerAction?: (actionKey: AIComposerNoticeAction) => void;
     onModelChange: (val: string) => void;
+    onProviderModelChange?: (providerId: string, model: string) => void;
+    onManageProvider?: (providerId: string) => void;
     onFetchModels: () => void;
+    onFetchProviderModels?: (providerId: string) => void;
     thinkingIntensity: string;
     onThinkingIntensityChange: (val: string) => void;
+    cliCapability?: CLIThinkingCapability;
+    cliCatalog?: CLIModelCatalog;
     textareaRef: React.RefObject<HTMLTextAreaElement>;
     darkMode: boolean;
     textColor: string;
@@ -57,17 +66,17 @@ interface AIChatInputProps {
     overlayTheme: OverlayWorkbenchTheme;
     contextUsageChars?: number;
     maxContextChars?: number;
-    isV2Ui?: boolean;
 }
 
 export const AIChatInput: React.FC<AIChatInputProps> = ({
     input, setInput, draftAttachments, setDraftAttachments, sending, dispatchMode = 'queue', hasActiveRun = false,
     onDispatchModeChange, onSend, onStop, handleKeyDown,
-    activeConnName, activeContext, activeProvider, dynamicModels, loadingModels,
+    activeConnName, activeContext, activeProvider, providers, providerModels, dynamicModels, loadingModels,
     sendShortcutBinding, shortcutPlatform = 'windows', composerNotice, onComposerAction,
-    onModelChange, onFetchModels, thinkingIntensity, onThinkingIntensityChange,
+    onModelChange, onProviderModelChange, onManageProvider, onFetchModels, onFetchProviderModels, thinkingIntensity, onThinkingIntensityChange,
+    cliCapability, cliCatalog,
     textareaRef, darkMode, textColor, mutedColor, overlayTheme,
-    contextUsageChars, maxContextChars, isV2Ui = false
+    contextUsageChars, maxContextChars
 }) => {
     const i18n = useOptionalI18n();
     const t = i18n?.t ?? ((key: string, params?: Record<string, string | number | boolean | null | undefined>) =>
@@ -188,175 +197,7 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
         ? handleComposerNoticeAction
         : undefined;
 
-    if (!isV2Ui) {
-        return (
-            <div className="ai-chat-input-area" style={{ borderTop: 'none', padding: '12px 16px 20px' }}>
-                <div className="ai-chat-input-wrapper" style={{
-                    borderColor: 'transparent',
-                    background: 'transparent',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'stretch',
-                    gap: 8,
-                    padding: '8px 4px 8px'
-                }}>
-                    <div className="ai-chat-input-preview-area" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        <AIChatContextPreview
-                            variant="legacy"
-                            activeContextItems={activeContextItems}
-                            contextExpanded={contextExpanded}
-                            darkMode={darkMode}
-                            textColor={textColor}
-                            onToggleExpanded={() => setContextExpanded(!contextExpanded)}
-                            onOpenContext={handleOpenContext}
-                            onRemoveContext={handleRemoveContextItem}
-                        />
-                        <AIChatAttachmentStrip
-                            variant="legacy"
-                            attachments={draftAttachments}
-                            overlayTheme={overlayTheme}
-                            onRemove={handleRemoveDraftAttachment}
-                        />
-                    </div>
-                    <AIChatComposerNotice
-                        composerNotice={composerNotice}
-                        darkMode={darkMode}
-                        textColor={textColor}
-                        mutedColor={mutedColor}
-                        onComposerNoticeAction={composerNoticeActionHandler}
-                    />
-                    {!composerNotice && !isComposerStatusDismissed && (
-                        <AIChatComposerStatus
-                            snapshot={composerReadiness}
-                            darkMode={darkMode}
-                            overlayTheme={overlayTheme}
-                            onAction={composerActionHandler}
-                            onDismiss={composerReadiness.ready ? handleDismissComposerStatus : undefined}
-                        />
-                    )}
-                    <div data-ai-chat-composer-input="true" style={{ position: 'relative' }}>
-                        <AISlashCommandMenu
-                            visible={showSlashMenu}
-                            commands={filteredSlashCmds}
-                            darkMode={darkMode}
-                            textColor={textColor}
-                            mutedColor={mutedColor}
-                            onSelect={handleSelectSlashCommand}
-                            style={{
-                                position: 'absolute', bottom: '100%', left: 0, right: 0, marginBottom: 4,
-                                background: darkMode ? '#2a2a2a' : '#fff',
-                                border: `1px solid ${darkMode ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
-                                borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 100,
-                                maxHeight: 220, overflowY: 'auto', padding: 4
-                            }}
-                        />
-                        <Input.TextArea
-                            onPaste={handlePasteImages}
-                            ref={textareaRef as any}
-                            value={input}
-                            onChange={(e) => handleComposerInputChange(e.target.value)}
-                            onKeyDown={handleKeyDown as any}
-                            placeholder={t('ai_chat.input.placeholder', { shortcut: sendShortcutLabel })}
-                            variant="borderless"
-                            autoSize={{ minRows: 3, maxRows: 8 }}
-                            autoComplete="off"
-                            {...noAutoCapInputProps}
-                            style={{ color: textColor, width: '100%', padding: 0, resize: 'none' }}
-                        />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                            {activeConnName && (
-                                <Tooltip title={connectionTooltipLabel}>
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: 4,
-                                        fontSize: 11, padding: '2px 8px', borderRadius: 12,
-                                        background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                                        color: overlayTheme.mutedText, cursor: 'default',
-                                        minWidth: 96, maxWidth: 200, overflow: 'hidden', flex: '1 1 auto',
-                                    }}>
-                                        <DatabaseOutlined style={{ fontSize: 10, flex: '0 0 auto' }} />
-                                        <span style={{ minWidth: 0, flex: '1 1 auto', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                            {activeConnName}{activeContext?.dbName ? ` / ${activeContext.dbName}` : ''}
-                                        </span>
-                                    </div>
-                                </Tooltip>
-                            )}
 
-                            <AIChatProviderModelSelect
-                                activeProvider={activeProvider}
-                                dynamicModels={dynamicModels}
-                                loadingModels={loadingModels}
-                                variant="legacy"
-                                onModelChange={onModelChange}
-                                onFetchModels={onFetchModels}
-                            />
-
-                            <AIChatThinkingIntensitySelect
-                                activeProvider={activeProvider}
-                                value={thinkingIntensity}
-                                variant="legacy"
-                                onChange={onThinkingIntensityChange}
-                            />
-
-                            {contextUsageChars !== undefined && maxContextChars !== undefined && (
-                                <Tooltip title={memoryTooltipLabel}>
-                                    <div style={{
-                                        display: 'flex', alignItems: 'center', gap: 4,
-                                        fontSize: 10, padding: '2px 6px', borderRadius: 12, border: '1px solid transparent',
-                                        background: contextUsageChars > maxContextChars * 0.8 ? (darkMode ? 'rgba(250, 173, 20, 0.1)' : 'rgba(250, 173, 20, 0.08)') : (darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
-                                        borderColor: contextUsageChars > maxContextChars * 0.8 ? 'rgba(250, 173, 20, 0.3)' : 'transparent',
-                                        color: contextUsageChars > maxContextChars * 0.8 ? '#faad14' : overlayTheme.mutedText, cursor: 'default',
-                                        transition: 'all 0.3s'
-                                    }}>
-                                        <span>🧠 {(contextUsageChars / 1000).toFixed(1)}k / {(maxContextChars / 1000).toFixed(0)}k</span>
-                                    </div>
-                                </Tooltip>
-                            )}
-                        </div>
-
-                        <AIChatComposerActions
-                            variant="legacy"
-                            input={input}
-                            draftAttachmentCount={draftAttachments.length}
-                            sending={sending}
-                            dispatchMode={dispatchMode}
-                            hasActiveRun={hasActiveRun}
-                            onDispatchModeChange={onDispatchModeChange}
-                            darkMode={darkMode}
-                            textColor={textColor}
-                            mutedColor={mutedColor}
-                            overlayTheme={overlayTheme}
-                            fileInputRef={fileInputRef}
-                            onAttachmentUpload={handleAttachmentUpload}
-                            onOpenContext={handleOpenContext}
-                            onSend={onSend}
-                            onStop={onStop}
-                        />
-                    </div>
-                </div>
-
-                <AIContextSelectorModal
-                    open={contextOpen}
-                    loading={contextLoading}
-                    confirmLoading={appendingContext}
-                    darkMode={darkMode}
-                    textColor={textColor}
-                    overlayTheme={overlayTheme}
-                    dbList={dbList}
-                    selectedDbName={selectedDbName}
-                    searchText={searchText}
-                    filteredTables={filteredTables}
-                    selectedTableKeys={selectedTableKeys}
-                    onCancel={() => setContextOpen(false)}
-                    onConfirm={handleAppendContext}
-                    onDbChange={handleDbChange}
-                    onSearchTextChange={setSearchText}
-                    onSelectedTableKeysChange={setSelectedTableKeys}
-                />
-            </div>
-        );
-    }
 
     return (
         <div className="ai-chat-input-area gn-v2-ai-composer" style={{ borderTop: 'none', padding: '12px 16px 20px' }}>
@@ -370,19 +211,14 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                 padding: '8px 4px 8px'
             }}>
                 <AIChatContextPreview
-                    variant="v2"
                     activeContextItems={activeContextItems}
                     contextExpanded={contextExpanded}
-                    darkMode={darkMode}
-                    textColor={textColor}
                     onToggleExpanded={() => setContextExpanded(!contextExpanded)}
                     onOpenContext={handleOpenContext}
                     onRemoveContext={handleRemoveContextItem}
                 />
                 <AIChatAttachmentStrip
-                    variant="v2"
                     attachments={draftAttachments}
-                    overlayTheme={overlayTheme}
                     onRemove={handleRemoveDraftAttachment}
                 />
                 <AIChatComposerNotice
@@ -430,16 +266,12 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                             style={{ color: textColor, width: '100%', padding: 0, resize: 'none' }}
                         />
                         <AIChatComposerActions
-                            variant="v2"
                             input={input}
                             draftAttachmentCount={draftAttachments.length}
                             sending={sending}
                             dispatchMode={dispatchMode}
                             hasActiveRun={hasActiveRun}
                             onDispatchModeChange={onDispatchModeChange}
-                            darkMode={darkMode}
-                            textColor={textColor}
-                            mutedColor={mutedColor}
                             overlayTheme={overlayTheme}
                             fileInputRef={fileInputRef}
                             onAttachmentUpload={handleAttachmentUpload}
@@ -465,17 +297,22 @@ export const AIChatInput: React.FC<AIChatInputProps> = ({
                     )}
                     <AIChatProviderModelSelect
                         activeProvider={activeProvider}
+                        providers={providers}
+                        providerModels={providerModels}
                         dynamicModels={dynamicModels}
                         loadingModels={loadingModels}
-                        variant="v2"
                         onModelChange={onModelChange}
+                        onProviderModelChange={onProviderModelChange}
+                        onManageProvider={onManageProvider}
                         onFetchModels={onFetchModels}
+                        onFetchProviderModels={onFetchProviderModels}
                     />
                     <AIChatThinkingIntensitySelect
                         activeProvider={activeProvider}
                         value={thinkingIntensity}
-                        variant="v2"
                         onChange={onThinkingIntensityChange}
+                        cliCapability={cliCapability}
+                        cliCatalog={cliCatalog}
                     />
                     {contextUsageChars !== undefined && maxContextChars !== undefined && (
                         <Tooltip title={memoryTooltipLabel}>

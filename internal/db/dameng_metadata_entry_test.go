@@ -161,3 +161,51 @@ func TestDamengMetadataEntrypointsTreatWhitespaceSchemaAsEmpty(t *testing.T) {
 		t.Fatalf("whitespace schema should use current-schema DDL query, got: %v", capture.queries)
 	}
 }
+
+func TestDamengGetCreateStatementAcceptsDriverConfiguredLowercaseColumnName(t *testing.T) {
+	t.Parallel()
+
+	// The DM Go driver exposes columnNameCase=lower and changes result-set
+	// labels accordingly. DBMS_METADATA.GET_DDL still returns the DDL value,
+	// so metadata lookup must not depend on a literal uppercase map key.
+	db := &DamengDB{conn: sql.OpenDB(damengLowercaseDDLConnector{})}
+	t.Cleanup(func() { _ = db.conn.Close() })
+
+	ddl, err := db.GetCreateStatement("GXCM", "SM_CHECK_RESULT_ITEM")
+	if err != nil {
+		t.Fatalf("GetCreateStatement returned error for lowercase DDL label: %v", err)
+	}
+	if ddl != `CREATE TABLE "GXCM"."SM_CHECK_RESULT_ITEM" ("ID" BIGINT)` {
+		t.Fatalf("unexpected DDL: %q", ddl)
+	}
+}
+
+type damengLowercaseDDLConnector struct{}
+
+func (damengLowercaseDDLConnector) Connect(context.Context) (driver.Conn, error) {
+	return damengLowercaseDDLConn{}, nil
+}
+
+func (damengLowercaseDDLConnector) Driver() driver.Driver { return damengMetadataDriver{} }
+
+type damengLowercaseDDLConn struct{}
+
+func (damengLowercaseDDLConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepared statements are not supported by this test driver")
+}
+
+func (damengLowercaseDDLConn) Close() error { return nil }
+
+func (damengLowercaseDDLConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("transactions are not supported by this test driver")
+}
+
+func (damengLowercaseDDLConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	if strings.Contains(query, "DBMS_METADATA.GET_DDL") {
+		return &damengMetadataRows{
+			columns: []string{"ddl"},
+			values:  [][]driver.Value{{`CREATE TABLE "GXCM"."SM_CHECK_RESULT_ITEM" ("ID" BIGINT)`}},
+		}, nil
+	}
+	return &damengMetadataRows{columns: []string{"table_comment"}}, nil
+}

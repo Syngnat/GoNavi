@@ -351,7 +351,7 @@ func TestOpenAIResponsesProviderChatStreamParsesTypedEvents(t *testing.T) {
 			``,
 			`data: {"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":1,"arguments":"{\"table\":\"orders\"}"}`,
 			``,
-			`data: {"type":"response.completed","response":{"id":"resp_stream","status":"completed","usage":{"input_tokens":5,"output_tokens":4,"total_tokens":9}}}`,
+			`data: {"type":"response.completed","response":{"id":"resp_stream","status":"completed","usage":{"input_tokens":5,"output_tokens":4,"total_tokens":9,"input_tokens_details":{"cached_tokens":2}}}}`,
 			``,
 		}, "\n")))
 	}))
@@ -391,6 +391,13 @@ func TestOpenAIResponsesProviderChatStreamParsesTypedEvents(t *testing.T) {
 	}
 	if len(chunks) == 0 || !chunks[len(chunks)-1].Done {
 		t.Fatalf("expected final done chunk, got %#v", chunks)
+	}
+	usage := chunks[len(chunks)-1].Usage
+	if usage == nil || usage.PromptTokens != 5 || usage.CompletionTokens != 4 || usage.TotalTokens != 9 {
+		t.Fatalf("expected final usage, got %#v", usage)
+	}
+	if usage.CachedTokens == nil || *usage.CachedTokens != 2 {
+		t.Fatalf("expected cached usage, got %#v", usage.CachedTokens)
 	}
 }
 
@@ -735,6 +742,118 @@ func TestOpenAIResponsesProviderSessionReplaysRawReasoningAndToolItems(t *testin
 	}
 	if second.Content != "The table has an id column." || len(nextState) == 0 || requestCount != 2 {
 		t.Fatalf("unexpected second response/state: response=%#v state=%s requests=%d", second, nextState, requestCount)
+	}
+}
+
+func TestOpenAIResponsesProviderStreamSessionAddsOnlyNewMultiToolOutputs(t *testing.T) {
+	requestCount := 0
+	var replayInputs [][]map[string]any
+	transport := responsesRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+		requestCount++
+		if r.URL.Path != "/responses" {
+			return nil, fmt.Errorf("DeepSeek Responses path = %q, want /responses", r.URL.Path)
+		}
+		var payload struct {
+			Input []map[string]any `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			return nil, err
+		}
+		body := `data: {"type":"response.completed","response":{"id":"resp_final","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}}
+
+`
+		if requestCount == 1 {
+			body = `data: {"type":"response.completed","response":{"id":"resp_tools","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Checking two probes."}]},{"type":"function_call","call_id":"call_a","name":"probe_a","arguments":"{}"},{"type":"function_call","call_id":"call_b","name":"probe_b","arguments":"{}"}]}}
+
+`
+		} else {
+			replayInputs = append(replayInputs, payload.Input)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Request:    r,
+		}, nil
+	})
+
+	providerInstance, err := NewOpenAIResponsesProvider(ai.ProviderConfig{
+		Type: "openai", APIFormat: "openai-responses", APIKey: "sk-test", BaseURL: "https://api.deepseek.com/v1", Model: "DeepSeek-V4-Flash-0731",
+	})
+	if err != nil {
+		t.Fatalf("create provider: %v", err)
+	}
+	providerInstance.(*OpenAIResponsesProvider).client = &http.Client{Transport: transport}
+	sessionProvider, ok := providerInstance.(SessionStreamProvider)
+	if !ok {
+		t.Fatalf("expected SessionStreamProvider, got %T", providerInstance)
+	}
+
+	var firstContent strings.Builder
+	var firstCalls []ai.ToolCall
+	state, err := sessionProvider.ChatStreamWithState(context.Background(), nil, ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "inspect"}},
+	}, func(chunk ai.StreamChunk) {
+		firstContent.WriteString(chunk.Content)
+		if len(chunk.ToolCalls) > 0 {
+			firstCalls = chunk.ToolCalls
+		}
+	})
+	if err != nil {
+		t.Fatalf("first response: %v", err)
+	}
+	if firstContent.String() != "Checking two probes." || len(firstCalls) != 2 || len(state) == 0 {
+		t.Fatalf("unexpected first response/state: content=%q calls=%#v state=%s", firstContent.String(), firstCalls, state)
+	}
+
+	decodedState, ok := decodeOpenAIResponsesSessionState(state)
+	if !ok || len(decodedState.MessageFingerprints) == 0 {
+		t.Fatalf("new state must track represented messages: %s", state)
+	}
+	legacyState, err := json.Marshal(openAIResponsesSessionState{Input: decodedState.Input})
+	if err != nil {
+		t.Fatalf("marshal legacy state: %v", err)
+	}
+
+	for _, replayState := range []json.RawMessage{state, legacyState} {
+		_, err = sessionProvider.ChatStreamWithState(context.Background(), replayState, ai.ChatRequest{
+			Messages: []ai.Message{
+				{Role: "user", Content: "inspect"},
+				{Role: "assistant", Content: firstContent.String(), ToolCalls: firstCalls},
+				{Role: "tool", ToolCallID: "call_a", Content: `{"ok":true}`},
+				{Role: "tool", ToolCallID: "call_b", Content: `{"ok":true}`},
+			},
+		}, func(ai.StreamChunk) {})
+		if err != nil {
+			t.Fatalf("replay response: %v", err)
+		}
+	}
+
+	if len(replayInputs) != 2 {
+		t.Fatalf("replay requests = %d, want current and legacy state", len(replayInputs))
+	}
+	for index, replayInput := range replayInputs {
+		messageCounts := map[string]int{}
+		callCounts := map[string]int{}
+		outputCounts := map[string]int{}
+		for _, item := range replayInput {
+			typeName, _ := item["type"].(string)
+			callID, _ := item["call_id"].(string)
+			switch typeName {
+			case "message":
+				role, _ := item["role"].(string)
+				messageCounts[role]++
+			case "function_call":
+				callCounts[callID]++
+			case "function_call_output":
+				outputCounts[callID]++
+			}
+		}
+		if len(replayInput) != 6 || messageCounts["user"] != 1 || messageCounts["assistant"] != 1 ||
+			callCounts["call_a"] != 1 || callCounts["call_b"] != 1 ||
+			outputCounts["call_a"] != 1 || outputCounts["call_b"] != 1 {
+			t.Fatalf("replay %d duplicated completed transcript items: input=%#v messages=%v calls=%v outputs=%v", index, replayInput, messageCounts, callCounts, outputCounts)
+		}
 	}
 }
 

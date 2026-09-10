@@ -341,20 +341,24 @@ func defaultAgentHarnessFactory(ctx context.Context, options AgentHarnessOptions
 	if err != nil {
 		return nil, err
 	}
+	agentDataRoot, err := appdata.ResolveAgentDataDirectory(root)
+	if err != nil {
+		return nil, err
+	}
 	runtimeConfig := options.Runtime.Normalize()
 	if err := runtimeConfig.Validate(); err != nil {
 		return nil, fmt.Errorf("validate agent runtime configuration: %w", err)
 	}
 	ledgerPath := strings.TrimSpace(options.LedgerPath)
 	if ledgerPath == "" {
-		ledgerPath = filepath.Join(root, "agent_runs.sqlite")
+		ledgerPath = filepath.Join(agentDataRoot, "agent_runs.sqlite")
 	} else if ledgerPath != ":memory:" && !strings.HasPrefix(ledgerPath, "file:") && !filepath.IsAbs(ledgerPath) {
 		// CLI invocations share the active data root. Resolve a relative
 		// --ledger path there so desktop and CLI callers do not accidentally
 		// create separate ledgers based on their current working directory.
-		ledgerPath = filepath.Join(root, ledgerPath)
+		ledgerPath = filepath.Join(agentDataRoot, ledgerPath)
 	}
-	ledgerOptions, err := agentLedgerOptions(root, options.KeyFile, nil)
+	ledgerOptions, err := agentLedgerOptions(agentDataRoot, options.KeyFile, nil)
 	if err != nil {
 		return nil, err
 	}

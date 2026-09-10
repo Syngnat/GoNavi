@@ -109,7 +109,7 @@ vi.mock('./ai/aiChatPanelDerivedState', () => ({
   calculateAIContextUsageChars: () => 0,
   collectAIChatContextTableNames: () => [],
   inferAIChatConnectionContext: () => ({}),
-  resolveAIChatPanelMode: (_isV2Ui: boolean, mode: string) => mode,
+  resolveAIChatPanelMode: (mode: string) => mode,
 }));
 vi.mock('./ai/aiChatReadiness', () => ({
   buildAIChatReadinessSnapshot: () => ({ status: 'ready' }),
@@ -148,9 +148,11 @@ vi.mock('./ai/useAIChatSessionState', () => ({
 vi.mock('../hooks/useWorkbenchTabs', () => ({ useWorkbenchTabs: () => [] }));
 vi.mock('../i18n/provider', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
 vi.mock('../utils/aiThinkingIntensity', () => ({
-  coerceThinkingIntensityForProfile: (value: string) => value,
-  defaultThinkingIntensityForProfile: () => 'medium',
-  resolveThinkingIntensityProfile: () => ({}),
+  coerceThinkingIntensityForControl: (value: string) => value || 'medium',
+  resolveProviderThinkingIntensityControl: () => ({
+    options: [{ value: 'medium', labelKey: 'medium' }],
+    defaultValue: 'medium',
+  }),
 }));
 
 const originalStore = useStore.getState();
@@ -228,7 +230,7 @@ describe('AIChatPanel agent run branch submission', () => {
       connections: [],
       activeTabId: null,
       sqlLogs: [],
-      appearance: { ...useStore.getState().appearance, uiVersion: 'v2' },
+      appearance: { ...useStore.getState().appearance },
     });
   });
 

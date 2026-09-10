@@ -18,16 +18,18 @@ const providerSecretKind = "ai-provider"
 type providerSecretBundle struct {
 	APIKey           string            `json:"apiKey,omitempty"`
 	SensitiveHeaders map[string]string `json:"sensitiveHeaders,omitempty"`
+	CLIEnv           map[string]string `json:"cliEnv,omitempty"`
 }
 
 func (b providerSecretBundle) hasAny() bool {
-	return strings.TrimSpace(b.APIKey) != "" || len(b.SensitiveHeaders) > 0
+	return strings.TrimSpace(b.APIKey) != "" || len(b.SensitiveHeaders) > 0 || len(b.CLIEnv) > 0
 }
 
 func mergeProviderSecretBundles(base, overlay providerSecretBundle) providerSecretBundle {
 	merged := providerSecretBundle{
 		APIKey:           base.APIKey,
 		SensitiveHeaders: cloneStringMap(base.SensitiveHeaders),
+		CLIEnv:           cloneStringMap(base.CLIEnv),
 	}
 	if strings.TrimSpace(overlay.APIKey) != "" {
 		merged.APIKey = overlay.APIKey
@@ -38,8 +40,17 @@ func mergeProviderSecretBundles(base, overlay providerSecretBundle) providerSecr
 		}
 		merged.SensitiveHeaders[key] = value
 	}
+	for key, value := range overlay.CLIEnv {
+		if merged.CLIEnv == nil {
+			merged.CLIEnv = make(map[string]string, len(overlay.CLIEnv))
+		}
+		merged.CLIEnv[key] = value
+	}
 	if len(merged.SensitiveHeaders) == 0 {
 		merged.SensitiveHeaders = nil
+	}
+	if len(merged.CLIEnv) == 0 {
+		merged.CLIEnv = nil
 	}
 	return merged
 }
@@ -47,8 +58,9 @@ func mergeProviderSecretBundles(base, overlay providerSecretBundle) providerSecr
 func splitProviderSecrets(cfg ai.ProviderConfig) (ai.ProviderConfig, providerSecretBundle) {
 	meta := cfg
 	meta.APIKey = ""
+	meta.CLIEnv = nil
 
-	bundle := providerSecretBundle{}
+	bundle := providerSecretBundle{CLIEnv: cloneStringMap(cfg.CLIEnv)}
 	if apiKey := strings.TrimSpace(cfg.APIKey); apiKey != "" {
 		bundle.APIKey = apiKey
 	}
@@ -89,6 +101,7 @@ func splitProviderSecrets(cfg ai.ProviderConfig) (ai.ProviderConfig, providerSec
 func mergeProviderSecrets(cfg ai.ProviderConfig, bundle providerSecretBundle) ai.ProviderConfig {
 	merged := cfg
 	merged.APIKey = bundle.APIKey
+	merged.CLIEnv = cloneStringMap(bundle.CLIEnv)
 
 	headers := cloneStringMap(cfg.Headers)
 	if len(bundle.SensitiveHeaders) > 0 {
@@ -118,6 +131,7 @@ func toDailyProviderBundle(bundle providerSecretBundle) dailysecret.ProviderBund
 	return dailysecret.ProviderBundle{
 		APIKey:           bundle.APIKey,
 		SensitiveHeaders: cloneStringMap(bundle.SensitiveHeaders),
+		CLIEnv:           cloneStringMap(bundle.CLIEnv),
 	}
 }
 
@@ -125,6 +139,7 @@ func fromDailyProviderBundle(bundle dailysecret.ProviderBundle) providerSecretBu
 	return providerSecretBundle{
 		APIKey:           bundle.APIKey,
 		SensitiveHeaders: cloneStringMap(bundle.SensitiveHeaders),
+		CLIEnv:           cloneStringMap(bundle.CLIEnv),
 	}
 }
 

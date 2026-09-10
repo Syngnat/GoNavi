@@ -81,7 +81,7 @@ GOEOF
   git -c user.name=GoNavi -c user.email=gonavi@example.test commit -q -m 'update shared database logic'
 
   actual="$(bash ./tools/detect-changed-driver-agents.sh --base "$base" --head HEAD)"
-  expected="mariadb,oceanbase,doris,starrocks,sphinx,sqlserver,sqlite,duckdb,dameng,kingbase,highgo,vastbase,opengauss,gaussdb,iris,mongodb,tdengine,iotdb,clickhouse,elasticsearch,trino"
+  expected="mariadb,oceanbase,doris,starrocks,sphinx,sqlserver,sqlite,duckdb,dameng,kingbase,highgo,vastbase,opengauss,gaussdb,iris,cache,mongodb,tdengine,iotdb,clickhouse,elasticsearch,trino"
   if [[ "$actual" != "$expected" ]]; then
     echo "expected shared internal/db source change to trigger all driver builds, got: ${actual:-<empty>}" >&2
     exit 1

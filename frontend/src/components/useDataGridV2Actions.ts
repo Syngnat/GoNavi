@@ -72,6 +72,7 @@ export const useDataGridV2Actions = (ctx: DataGridV2ActionsContext) => {
     handleSetNullForSelectedCells,
     handleCopyColumnData,
     handleCopyContextMenuFieldName,
+    handleOpenContextMenuCellEditor,
     handleOpenContextMenuRowEditor,
     handlePasteCopiedColumnsToSelectedRows,
     handlePasteCopiedRowsAsNew,
@@ -397,7 +398,7 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
       document.addEventListener('mousedown', onPointerDown);
       return () => document.removeEventListener('mousedown', onPointerDown);
   }, [cellEditMode, closeCellEditMode, isActive, isTableSurfaceActive, resetCellSelection, selectedCells.size]);
-  
+
   const getTargets = useCallback((clickedRecord: any) => {
       const selKeys = selectedRowKeysRef.current;
       const currentData = displayDataRef.current;
@@ -810,6 +811,10 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
           case 'edit-row':
               handleOpenContextMenuRowEditor();
               return;
+          case 'edit-cell':
+              handleOpenContextMenuCellEditor();
+              closeMenu();
+              return;
           case 'fill-selected':
               if (selectedRowKeys.length > 0 && record) {
                   handleBatchFillToSelected(record, cellContextMenu.dataIndex);
@@ -884,6 +889,7 @@ const handleV2ColumnHeaderContextMenuAction = useCallback((action: V2ColumnHeade
       handleCopyRowData,
       handleCopyUpdate,
       handleExportSelected,
+      handleOpenContextMenuCellEditor,
       handleOpenContextMenuRowEditor,
       handlePasteCopiedColumnsToSelectedRows,
       handlePasteCopiedRowsAsNew,

@@ -354,3 +354,34 @@ func prependPATHDirs(env []string, dirs ...string) []string {
 	}
 	return upsertEnv(env, "PATH", strings.Join(parts, string(os.PathListSeparator)))
 }
+
+func lookPathWithOverride(override string, lookPath func(string) (string, error)) func(string) (string, error) {
+	path := strings.TrimSpace(override)
+	if path == "" {
+		return lookPath
+	}
+	cleaned := filepath.Clean(path)
+	return func(string) (string, error) { return cleaned, nil }
+}
+
+func MergeProviderCLIEnv(env []string, extra map[string]string) []string {
+	if len(extra) == 0 {
+		return env
+	}
+	out := append([]string(nil), env...)
+	for key, value := range extra {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		prefix := key + "="
+		filtered := make([]string, 0, len(out))
+		for _, item := range out {
+			if !strings.HasPrefix(item, prefix) {
+				filtered = append(filtered, item)
+			}
+		}
+		out = append(filtered, prefix+value)
+	}
+	return out
+}

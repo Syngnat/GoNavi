@@ -23,7 +23,7 @@ SPEC.loader.exec_module(MODULE)
 class ValidateNpmCLIPackageVersionTests(unittest.TestCase):
     def test_current_package_matches_the_release_tag(self) -> None:
         package_json = ROOT / "npm" / "gonavi-cli" / "package.json"
-        self.assertEqual(MODULE.validate_package_version("v0.9.7", package_json), "0.9.7")
+        self.assertEqual(MODULE.validate_package_version("v0.9.8", package_json), "0.9.8")
 
     def test_rejects_version_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -33,7 +33,7 @@ class ValidateNpmCLIPackageVersionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with self.assertRaisesRegex(ValueError, "does not match stable tag"):
-                MODULE.validate_package_version("v0.9.7", package_json)
+                MODULE.validate_package_version("v0.9.8", package_json)
 
     def test_rejects_non_stable_tags(self) -> None:
         with self.assertRaisesRegex(ValueError, "stable tag must match"):
@@ -41,7 +41,7 @@ class ValidateNpmCLIPackageVersionTests(unittest.TestCase):
 
     def test_cli_reports_failure_for_invalid_tag(self) -> None:
         result = subprocess.run(
-            [sys.executable, str(SCRIPT), "--tag", "v0.9.7-rc1"],
+            [sys.executable, str(SCRIPT), "--tag", "v0.9.8-rc1"],
             text=True,
             capture_output=True,
             check=False,

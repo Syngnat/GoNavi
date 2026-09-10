@@ -23,7 +23,7 @@ interface FloatingAIChatWindowProps {
   darkMode: boolean;
   bgColor?: string;
   overlayTheme: OverlayWorkbenchTheme;
-  onOpenSettings: () => void;
+  onOpenSettings: (providerId?: string) => void;
   onRenderError?: (error: Error, errorInfo: React.ErrorInfo) => void;
   onRetryRender?: () => void;
   onRegisterTerminalGuard?: (guard: (() => Promise<boolean>) | null) => void;

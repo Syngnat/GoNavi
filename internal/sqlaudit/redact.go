@@ -15,7 +15,7 @@ var sqlQueryTypes = map[string]struct{}{
 	"oceanbase": {}, "doris": {}, "diros": {}, "starrocks": {}, "sphinx": {},
 	"postgres": {}, "postgresql": {}, "sqlserver": {}, "mssql": {}, "sqlite": {},
 	"duckdb": {}, "oracle": {}, "dameng": {}, "dm": {}, "kingbase": {}, "highgo": {},
-	"vastbase": {}, "opengauss": {}, "gaussdb": {}, "iris": {}, "intersystems": {},
+	"vastbase": {}, "opengauss": {}, "gaussdb": {}, "iris": {}, "cache": {},
 	"tdengine": {}, "iotdb": {}, "clickhouse": {}, "trino": {}, "custom": {},
 	"gonavi": {},
 }
@@ -188,6 +188,10 @@ func normalizeQueryType(dbType string) string {
 		return "qdrant"
 	case "milvusdb", "milvus-db":
 		return "milvus"
+	case "intersystems", "intersystems iris", "intersystemsiris", "inter-systems", "inter-systems-iris":
+		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
+		return "cache"
 	default:
 		return normalized
 	}

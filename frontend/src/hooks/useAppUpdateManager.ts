@@ -321,26 +321,16 @@ export const useAppUpdateManager = ({
   const updateDownloadMetaRef = useRef<UpdateDownloadResultData | null>(null);
   const updateNotifiedVersionRef = useRef<string | null>(null);
   const updateMutedVersionRef = useRef<string | null>(null);
-  const [isAboutOpen, setIsAboutOpen] = useState(false);
-  const isAboutOpenRef = useRef(false);
-
   const isUpdateCenterOpen = useCallback(() => {
-    return Boolean(updateCenterBridgeRef?.current?.isOpen?.() || isAboutOpenRef.current);
+    return Boolean(updateCenterBridgeRef?.current?.isOpen?.());
   }, [updateCenterBridgeRef]);
 
-  // 仅打开关于 UI；应用信息加载由 prepareAboutSurface / isAboutOpen effect 负责
   const openUpdateCenter = useCallback(() => {
-    if (updateCenterBridgeRef?.current?.open) {
-      updateCenterBridgeRef.current.open();
-      return;
-    }
-    // 兼容：未接线时回退旧版关于弹窗
-    setIsAboutOpen(true);
+    updateCenterBridgeRef?.current?.open?.();
   }, [updateCenterBridgeRef]);
 
   const closeUpdateCenter = useCallback(() => {
     updateCenterBridgeRef?.current?.close?.();
-    setIsAboutOpen(false);
   }, [updateCenterBridgeRef]);
 
   const [aboutLoading, setAboutLoading] = useState(false);
@@ -1238,17 +1228,6 @@ export const useAppUpdateManager = ({
   }, []);
 
   useEffect(() => {
-    isAboutOpenRef.current = isAboutOpen;
-  }, [isAboutOpen]);
-
-  useEffect(() => {
-    if (isAboutOpen) {
-      setAboutUpdateStatus(formatAboutUpdateStatus(lastUpdateInfo));
-      void loadAboutInfo();
-    }
-  }, [formatAboutUpdateStatus, isAboutOpen, lastUpdateInfo, loadAboutInfo]);
-
-  useEffect(() => {
     void loadUpdateChannel();
   }, [loadUpdateChannel]);
 
@@ -1412,7 +1391,6 @@ export const useAppUpdateManager = ({
     formatBytes,
     handleInstallFromProgress,
     hideUpdateDownloadProgress,
-    isAboutOpen,
     isBackgroundProgressForLatestUpdate,
     isCheckingForUpdates,
     isLatestUpdateDownloaded,
@@ -1424,7 +1402,6 @@ export const useAppUpdateManager = ({
     muteLatestUpdate,
     openDownloadedUpdateDirectory,
     prepareAboutSurface,
-    setIsAboutOpen,
     showUpdateDownloadProgress,
     updateChannel,
     updateDownloadProgress,

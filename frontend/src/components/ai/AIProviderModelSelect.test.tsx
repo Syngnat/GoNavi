@@ -89,6 +89,39 @@ describe('searchable model selection', () => {
     expect(select().props.open).toBe(false);
   });
 
+  it('confirms a toggle with a short-lived popover on that row instead of a footer line', async () => {
+    vi.useFakeTimers();
+    try {
+      const Harness = () => {
+        const [disabled, setDisabled] = React.useState<string[]>([]);
+        return <AIProviderModelSelect value="default" onChange={vi.fn()} label="Model" placeholder="Choose" customLabel="Use custom:" managementRequest={1}
+          options={['default', 'fast'].map((model) => ({ value: model, label: model }))}
+          management={{ defaultModel: 'default', disabledModels: disabled, completionModel: '', allowDefaultFallback: false,
+            copy: (key, params) => t('en-US', key, params), source: 'Saved catalog',
+            onToggle: (model, enabled) => setDisabled((previous) => enabled ? previous.filter((item) => item !== model) : [...previous, model]), onAdd: vi.fn() }} />;
+      };
+      await act(async () => { renderer = create(<Harness />); });
+      const openTooltips = () => renderer!.root.findAllByType(Tooltip as never).filter((tooltip) => tooltip.props.open === true);
+      expect(openTooltips()).toHaveLength(0);
+      expect(renderer!.root.findAll((node) => node.props?.className === 'gonavi-ai-model-management-foot')).toHaveLength(0);
+      await act(async () => renderer!.root.findByProps({ role: 'switch', 'aria-label': 'Enable fast' }).props.onClick());
+      const flash = openTooltips();
+      expect(flash).toHaveLength(1);
+      expect(flash[0].props.title).toBe('Disabled');
+      expect(flash[0].props.placement).toBe('left');
+      expect(flash[0].props.overlayClassName).toBe('gonavi-ai-provider-hint-overlay gonavi-ai-model-flash');
+      expect(flash[0].findByProps({ role: 'switch' }).props['aria-label']).toBe('Enable fast');
+      expect(renderer!.root.findByProps({ role: 'status' }).props.children).toBe('Disabled');
+      expect(renderer!.root.findAll((node) => node.type === 'div' && node.props.className?.startsWith('gonavi-ai-model-management-row') && node.props.className.includes('is-disabled'))).toHaveLength(1);
+      // The blocked default explains itself on its own row, replacing the earlier flash.
+      await act(async () => renderer!.root.findByProps({ role: 'switch', 'aria-label': 'Enable default' }).props.onClick());
+      expect(openTooltips().map((tooltip) => tooltip.props.title)).toEqual(['Choose another default model first']);
+      await act(async () => { vi.advanceTimersByTime(1600); });
+      expect(openTooltips()).toHaveLength(0);
+      expect(renderer!.root.findByProps({ role: 'status' }).props.children).toBe('');
+    } finally { vi.useRealTimers(); }
+  });
+
   // Hover hints used to be native `title` attributes: about a second to appear,
   // gone the instant the pointer moved. These now go through antd Tooltip so the
   // shared enter/leave timing applies.
@@ -111,9 +144,7 @@ describe('searchable model selection', () => {
     expect(renderer!.root.findByProps({ role: 'switch', 'aria-label': 'Enable default' }).props.title).toBeUndefined();
   });
 
-  // The popup opens above its trigger, so any height change shoves the whole panel
-  // up or down. Both tabs therefore render inside one reserved-height box.
-  it('renders both tabs inside a single reserved-height body so the popup cannot jump', async () => {
+  it('opens enable-management without a default-select tab and lets a short list size to content', async () => {
     const Harness: React.FC = () => {
       const [value, setValue] = React.useState('default');
       return <AIProviderModelSelect value={value} onChange={setValue}
@@ -123,22 +154,13 @@ describe('searchable model selection', () => {
           copy: (key, params) => t('en-US', key, params), source: 'Saved catalog', onToggle: vi.fn(), onAdd: vi.fn() }} />;
     };
     await act(async () => { renderer = create(<Harness />); });
-    const bodies = () => renderer!.root.findAllByProps({ className: 'gonavi-ai-model-management-body' });
-    const inactiveTab = () => renderer!.root.findAll((node) => node.type === 'button' && node.props['aria-pressed'] === false)[0];
-
-    expect(bodies()).toHaveLength(1);
-    expect(renderer!.root.findByType('select').props.listHeight).toBe(MODEL_MANAGEMENT_BODY_HEIGHT);
-    // The stylesheet reads the reserve from this variable, so the number is not duplicated.
+    const body = renderer!.root.findByProps({ className: 'gonavi-ai-model-management-body is-short' });
+    expect(body).toBeTruthy();
+    expect(renderer!.root.findAll((node) => node.type === 'button' && node.props['aria-pressed'] != null)).toHaveLength(0);
     expect(renderer!.root.findByProps({ role: 'dialog' }).props.style[MODEL_MANAGEMENT_BODY_HEIGHT_VAR])
       .toBe(`${MODEL_MANAGEMENT_BODY_HEIGHT}px`);
-
-    // Choosing a default rewrites the option list; the body must still be the only box.
     await act(async () => renderer!.root.findByProps({ 'aria-label': 'Set default: fast' }).props.onClick());
-    expect(bodies()).toHaveLength(1);
-
-    await act(async () => inactiveTab().props.onClick());
-    expect(bodies()).toHaveLength(1);
-    expect(renderer!.root.findByType('select').props.listHeight).toBe(MODEL_MANAGEMENT_BODY_HEIGHT);
+    expect(renderer!.root.findByProps({ className: 'gonavi-ai-model-management-body is-short' })).toBeTruthy();
   });
 
   // React.memo can only skip a row while its callbacks keep the same identity.
@@ -206,13 +228,9 @@ describe('searchable model selection', () => {
     expect(focus).not.toHaveBeenCalled();
     node.offsetWidth = 240;
     await act(async () => resize());
-    expect(focus).toHaveBeenCalledTimes(1);
-    expect(disconnect).toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
     await act(async () => renderer!.root.findByProps({ role: 'switch' }).props.onClick());
     await act(async () => renderer!.root.findByType('input').props.onChange({ target: { value: 'd' } }));
-    expect(focus).toHaveBeenCalledTimes(1);
-    await act(async () => renderer!.root.findByProps({ 'aria-label': 'Close' }).props.onClick());
-    await act(async () => renderer!.update(renderSelect(2)));
-    expect(focus).toHaveBeenCalledTimes(2);
+    expect(focus).not.toHaveBeenCalled();
   });
 });

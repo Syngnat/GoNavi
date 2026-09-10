@@ -63,6 +63,8 @@ export const NATIVE_DETACHED_HOST_EVENT_NAMES = [
   'gonavi:insert-sql-to-tab',
   'gonavi:jvm-apply-ai-plan',
   'gonavi:jvm-apply-diagnostic-plan',
+  'gonavi:open-download-source-settings',
+  'gonavi:open-global-proxy-settings',
   'gonavi:shortcut:toggle-ai-panel',
 ] as const;
 
@@ -104,6 +106,7 @@ export interface NativeDetachedWindowBootstrap {
 export interface NativeDetachedWindowActionPayload {
   id: string;
   kind: NativeDetachedWindowKind;
+  providerId?: string;
   revision?: number;
   rollbackAction?: 'attach' | 'hide' | 'close';
   storeState?: NativeDetachedStoreSnapshot;
@@ -1102,10 +1105,23 @@ export const hideCurrentNativeDetachedWindow = async (
 
 export const hideCurrentNativeDetachedWindowForAISettings = async (
   visibilityRevision: number,
+  providerId?: string,
 ): Promise<void> => {
-  const hideForAISettings = typeof window !== 'undefined'
-    ? (window as any).go?.nativewindow?.Control?.HideForAISettings
+  const control = typeof window !== 'undefined'
+    ? (window as any).go?.nativewindow?.Control
     : undefined;
+  const normalizedProviderId = String(providerId || '').trim();
+  const hideForProviderSettings = normalizedProviderId
+    ? control?.HideForAISettingsProvider
+    : undefined;
+  const hideForAISettings = control?.HideForAISettings;
+  if (typeof hideForProviderSettings === 'function') {
+    const result = await hideForProviderSettings(Math.trunc(visibilityRevision), normalizedProviderId);
+    if (result?.success === false) {
+      throw new Error(String(result.message || 'Failed to open AI provider settings from native window'));
+    }
+    return;
+  }
   if (typeof hideForAISettings !== 'function') {
     throw new Error('Native detached AI settings control is unavailable');
   }

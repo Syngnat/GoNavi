@@ -234,6 +234,10 @@ export function DBQueryAI(arg1, arg2, arg3) {
   return window['go']['app']['App']['DBQueryAI'](arg1, arg2, arg3);
 }
 
+export function DBQueryApplicationWithCancel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['App']['DBQueryApplicationWithCancel'](arg1, arg2, arg3, arg4);
+}
+
 export function DBQueryAudited(arg1, arg2, arg3, arg4) {
   return window['go']['app']['App']['DBQueryAudited'](arg1, arg2, arg3, arg4);
 }
@@ -604,6 +608,10 @@ export function GenerateQueryID() {
 
 export function GetAppInfo() {
   return window['go']['app']['App']['GetAppInfo']();
+}
+
+export function GetBrandIconDataURL(arg1) {
+  return window['go']['app']['App']['GetBrandIconDataURL'](arg1);
 }
 
 export function GetDataRootDirectoryInfo() {
@@ -1378,8 +1386,8 @@ export function SetUpdateChannel(arg1) {
   return window['go']['app']['App']['SetUpdateChannel'](arg1);
 }
 
-export function SetWindowTranslucency(arg1, arg2) {
-  return window['go']['app']['App']['SetWindowTranslucency'](arg1, arg2);
+export function SetWindowTranslucency(arg1, arg2, arg3) {
+  return window['go']['app']['App']['SetWindowTranslucency'](arg1, arg2, arg3);
 }
 
 export function Shutdown() {

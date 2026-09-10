@@ -384,7 +384,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
   const languagePreference = useStore(state => state.languagePreference);
   const language = resolveLanguage(languagePreference);
   const tr = useCallback((key: string, params?: I18nParams) => translate(key, params, language), [language]);
-  const isV2Ui = appearance?.uiVersion === 'v2';
+
   const fetchSeqRef = useRef(0);
   const countSeqRef = useRef(0);
   const countKeyRef = useRef<string>('');
@@ -425,7 +425,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
   });
 
   const [sortInfo, setSortInfo] = useState<Array<{ columnKey: string, order: string, enabled?: boolean }>>(initialViewerSnapshot.sortInfo);
-  
+
   const [showFilter, setShowFilter] = useState<boolean>(initialViewerSnapshot.showFilter);
   const [filterConditions, setFilterConditions] = useState<FilterCondition[]>(initialViewerSnapshot.conditions);
   const [quickWhereCondition, setQuickWhereCondition] = useState<string>(initialViewerSnapshot.quickWhereCondition);
@@ -647,8 +647,8 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
         return;
     }
 
-    const config = { 
-        ...conn.config, 
+    const config = {
+        ...conn.config,
         port: Number(conn.config.port),
         password: conn.config.password || "",
         database: conn.config.database || "",
@@ -1416,7 +1416,7 @@ const DataViewer: React.FC<{ tab: TabData; isActive?: boolean }> = React.memo(({
   }, [tab.id, tab.connectionId, tab.dbName, tab.tableName, tab.objectType, sortInfo, filterConditions, quickWhereCondition]); // Initial load and re-load on sort/filter
 
   return (
-    <div className={isV2Ui ? 'gn-v2-data-viewer' : undefined} style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, height: '100%', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div className="gn-v2-data-viewer" style={{ flex: '1 1 auto', minHeight: 0, minWidth: 0, height: '100%', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <DataGrid
           data={data}
           columnNames={columnNames}

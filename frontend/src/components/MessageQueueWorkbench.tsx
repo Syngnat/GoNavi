@@ -22,6 +22,7 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SendOutlined,
+  CopyOutlined,
 } from '@ant-design/icons';
 
 import { DBQuery } from '../../wailsjs/go/app/App';
@@ -52,6 +53,8 @@ const TOPIC_COLORS = ['#34c388', '#4f8cff', '#f59e0b', '#a78bfa', '#ef6b73', '#1
 const MAX_VISIBLE_MESSAGES = 1000;
 const MAX_SEEN_MESSAGE_IDENTITIES = MAX_VISIBLE_MESSAGES;
 const STREAM_LOOP_GAP_MS = 180;
+const MESSAGE_ROW_HEIGHT = 58;
+const MESSAGE_ROW_OVERSCAN = 12;
 
 type MessageDirection = 'received' | 'published';
 
@@ -75,8 +78,16 @@ type WorkbenchMessage = {
   direction: MessageDirection;
   destination: string;
   receivedAt: number;
+  preview: string;
   row: Record<string, any>;
 };
+
+const toWorkbenchMessage = (
+  partial: Omit<WorkbenchMessage, 'preview'>,
+): WorkbenchMessage => ({
+  ...partial,
+  preview: previewPayload(rowPayload(partial.row)),
+});
 
 type MessageQueueRuntimeContext = {
   connection: SavedConnection | null;
@@ -185,6 +196,14 @@ const prettyPayload = (value: unknown): string => {
   } catch {
     return String(value ?? '');
   }
+};
+
+const previewPayload = (value: unknown): string => {
+  const text = prettyPayload(value).trim();
+  if (!text) return '';
+  const firstLine = text.split('\n').find((line) => line.trim()) ?? text;
+  const collapsed = firstLine.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 140 ? `${collapsed.slice(0, 140)}…` : collapsed;
 };
 
 const rowMetadata = (
@@ -351,7 +370,7 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
     if (fresh.length === 0) return 0;
 
     const now = Date.now();
-    const additions = fresh.map((row, index): WorkbenchMessage => ({
+    const additions = fresh.map((row, index): WorkbenchMessage => toWorkbenchMessage({
       id: `${subscription.id}-${now}-${index}`,
       subscriptionId: subscription.id,
       direction: 'received',
@@ -697,6 +716,74 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
         || prettyPayload(rowPayload(item.row)).toLowerCase().includes(query);
     });
   }, [directionFilter, messages, searchText, selectedSubscriptionId]);
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const followLatestRef = useRef(true);
+  const lastFilteredMessageId = filteredMessages[filteredMessages.length - 1]?.id ?? null;
+  const selectedMessage = filteredMessages.find((item) => item.id === selectedMessageId)
+    ?? (followLatestRef.current ? filteredMessages[filteredMessages.length - 1] ?? null : null);
+
+  useEffect(() => {
+    if (!lastFilteredMessageId) {
+      setSelectedMessageId(null);
+      return;
+    }
+    setSelectedMessageId((current) => {
+      const stillVisible = current !== null && filteredMessages.some((item) => item.id === current);
+      if (followLatestRef.current || !stillVisible) {
+        return lastFilteredMessageId;
+      }
+      return current;
+    });
+  }, [filteredMessages, lastFilteredMessageId]);
+
+  const selectMessage = (item: WorkbenchMessage) => {
+    followLatestRef.current = item.id === lastFilteredMessageId;
+    setSelectedMessageId(item.id);
+  };
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const [listViewport, setListViewport] = useState({ height: 0, scrollTop: 0 });
+  useEffect(() => {
+    const element = listRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return undefined;
+    const sync = () => {
+      setListViewport((current) => (
+        current.height === element.clientHeight
+          ? current
+          : { ...current, height: element.clientHeight }
+      ));
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [filteredMessages.length]);
+  useEffect(() => {
+    if (!followLatestRef.current) return;
+    const element = listRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+    setListViewport((current) => ({ ...current, scrollTop: element.scrollTop }));
+  }, [lastFilteredMessageId]);
+  const windowedMessages = useMemo(() => {
+    const total = filteredMessages.length;
+    if (total === 0) {
+      return { start: 0, end: 0, items: filteredMessages, top: 0, bottom: 0 };
+    }
+    const viewportHeight = listViewport.height;
+    if (total <= 80 || viewportHeight <= 0) {
+      return { start: 0, end: total, items: filteredMessages, top: 0, bottom: 0 };
+    }
+    const start = Math.max(0, Math.floor(listViewport.scrollTop / MESSAGE_ROW_HEIGHT) - MESSAGE_ROW_OVERSCAN);
+    const visible = Math.ceil(viewportHeight / MESSAGE_ROW_HEIGHT) + MESSAGE_ROW_OVERSCAN * 2;
+    const end = Math.min(total, start + visible);
+    return {
+      start,
+      end,
+      items: filteredMessages.slice(start, end),
+      top: start * MESSAGE_ROW_HEIGHT,
+      bottom: (total - end) * MESSAGE_ROW_HEIGHT,
+    };
+  }, [filteredMessages, listViewport.height, listViewport.scrollTop]);
 
   if (!connection || !profile) {
     return (
@@ -754,27 +841,10 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
           </div>
         </div>
         <Space size={8} wrap>
-          {profile.type === 'kafka' && (
+          {(profile.type === 'kafka' || profile.type === 'rocketmq') && (
             <Button icon={<InboxOutlined />} onClick={() => { void openConsumerGroups(); }} loading={consumerGroupsLoading}>
               {t('message_queue_workbench.consumer_groups.action.open')}
             </Button>
-          )}
-          {profile.type === 'rocketmq' && (
-            <Tooltip title={t('message_queue_workbench.consumer_groups.error.rocketmq_unsupported')}>
-              <span
-                tabIndex={0}
-                aria-describedby="rocketmq-consumer-groups-unavailable"
-              >
-                <Button icon={<InboxOutlined />} disabled>
-                  {t('message_queue_workbench.consumer_groups.action.open')}
-                </Button>
-              </span>
-            </Tooltip>
-          )}
-          {profile.type === 'rocketmq' && (
-            <span id="rocketmq-consumer-groups-unavailable" className="gn-message-workbench-sr-only">
-              {t('message_queue_workbench.consumer_groups.error.rocketmq_unsupported')}
-            </span>
           )}
           <Button
             icon={<CodeOutlined />}
@@ -927,7 +997,19 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
             />
           </div>
 
-          <div className="gn-message-stream-list" role="log" aria-live="polite">
+          <div className="gn-message-stream-body">
+          <div
+            className="gn-message-stream-list"
+            role="log"
+            aria-live="polite"
+            ref={listRef}
+            onScroll={(event) => {
+              const scrollTop = event.currentTarget.scrollTop;
+              setListViewport((current) => (
+                current.scrollTop === scrollTop ? current : { ...current, scrollTop }
+              ));
+            }}
+          >
             {filteredMessages.length === 0 ? (
               <div className="gn-message-stream-empty">
                 <span className="gn-message-stream-radar" aria-hidden="true"><i /></span>
@@ -938,14 +1020,19 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
                   ? 'message_queue_workbench.message.waiting_description'
                   : 'message_queue_workbench.message.no_match_description')}</p>
               </div>
-            ) : filteredMessages.map((item) => {
-              const metadata = rowMetadata(item.row, t);
+            ) : (
+              <>
+                {windowedMessages.top > 0 ? <div style={{ height: windowedMessages.top, flex: '0 0 auto' }} aria-hidden="true" /> : null}
+                {windowedMessages.items.map((item) => {
               const subscription = subscriptions.find((candidate) => candidate.id === item.subscriptionId);
+              const selected = selectedMessage?.id === item.id;
               return (
                 <article
                   key={item.id}
-                  className={`gn-message-card ${item.direction}`}
+                  className={`gn-message-card ${item.direction}${selected ? ' is-selected' : ''}`}
                   style={{ '--gn-message-topic-color': subscription?.color || 'var(--gn-accent)' } as React.CSSProperties}
+                  onClick={() => selectMessage(item)}
+                  data-message-id={item.id}
                 >
                   <div className="gn-message-card-head">
                     <div>
@@ -954,27 +1041,78 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
                           ? 'message_queue_workbench.message.received'
                           : 'message_queue_workbench.message.published')}
                       </span>
-                      <strong>{item.destination}</strong>
+                      <strong className="gn-message-payload-preview">
+                        {item.preview || t('message_queue_workbench.message.empty_payload')}
+                      </strong>
                     </div>
                     <Text type="secondary">{rowTimestamp(item.row) || new Date(item.receivedAt).toLocaleTimeString()}</Text>
                   </div>
-                  {metadata.length > 0 && (
-                    <div className="gn-message-card-meta">
-                      {metadata.map(({ label, value }, index) => (
-                        <Tag key={`${label}-${index}`} bordered={false}>
-                          {label}: {typeof value === 'boolean'
-                            ? t(value
-                              ? 'message_consume.value.boolean.true'
-                              : 'message_consume.value.boolean.false')
-                            : String(value)}
-                        </Tag>
-                      ))}
-                    </div>
-                  )}
-                  <pre>{prettyPayload(rowPayload(item.row))}</pre>
+                  <div className="gn-message-card-topic" title={item.destination}>
+                    {item.destination}
+                  </div>
                 </article>
               );
-            })}
+                })}
+                {windowedMessages.bottom > 0 ? <div style={{ height: windowedMessages.bottom, flex: '0 0 auto' }} aria-hidden="true" /> : null}
+              </>
+            )}
+          </div>
+          {filteredMessages.length > 0 ? (
+            <aside className="gn-message-detail" aria-label={t('message_queue_workbench.message.detail_title')}>
+              {selectedMessage ? (() => {
+                const metadata = rowMetadata(selectedMessage.row, t);
+                const payloadText = prettyPayload(rowPayload(selectedMessage.row));
+                return (
+                  <>
+                    <div className="gn-message-detail-head">
+                      <div>
+                        <span className="gn-message-direction">
+                          {t(selectedMessage.direction === 'received'
+                            ? 'message_queue_workbench.message.received'
+                            : 'message_queue_workbench.message.published')}
+                        </span>
+                        <strong title={selectedMessage.destination}>{selectedMessage.destination}</strong>
+                      </div>
+                      <Tooltip title={t('message_queue_workbench.message.copy_payload')}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<CopyOutlined />}
+                          aria-label={t('message_queue_workbench.message.copy_payload')}
+                          onClick={() => {
+                            void navigator.clipboard.writeText(payloadText || '').then(() => {
+                              void message.success(t('message_queue_workbench.message.copied'));
+                            });
+                          }}
+                        />
+                      </Tooltip>
+                    </div>
+                    <div className="gn-message-detail-time">
+                      {rowTimestamp(selectedMessage.row) || new Date(selectedMessage.receivedAt).toLocaleTimeString()}
+                    </div>
+                    {metadata.length > 0 && (
+                      <div className="gn-message-card-meta">
+                        {metadata.map(({ label, value }, index) => (
+                          <Tag key={`${label}-${index}`} bordered={false}>
+                            {label}: {typeof value === 'boolean'
+                              ? t(value
+                                ? 'message_consume.value.boolean.true'
+                                : 'message_consume.value.boolean.false')
+                              : String(value)}
+                          </Tag>
+                        ))}
+                      </div>
+                    )}
+                    <pre>{payloadText || t('message_queue_workbench.message.empty_payload')}</pre>
+                  </>
+                );
+              })() : (
+                <div className="gn-message-stream-empty">
+                  <p>{t('message_queue_workbench.message.detail_empty')}</p>
+                </div>
+              )}
+            </aside>
+          ) : null}
           </div>
         </main>
       </div>
@@ -1047,14 +1185,14 @@ const MessageQueueWorkbench: React.FC<{ tab: TabData; isActive: boolean }> = ({ 
             // Commands for all current MQ publishers are JSON; preserve text if a
             // future driver introduces another format.
           }
-          setMessages((current) => [...current, {
+          setMessages((current) => [...current, toWorkbenchMessage({
             id: `message-published-${Date.now()}`,
             subscriptionId: activeSubscription?.id,
             direction: 'published' as const,
             destination: result.destination,
             receivedAt: Date.now(),
             row,
-          }].slice(-MAX_VISIBLE_MESSAGES));
+          })].slice(-MAX_VISIBLE_MESSAGES));
           void message.success(t('message_queue_workbench.message.publish_success', {
             destination: result.destination,
           }));

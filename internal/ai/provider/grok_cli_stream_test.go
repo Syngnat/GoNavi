@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -55,6 +56,16 @@ func TestGrokStreamChunkFromLine(t *testing.T) {
 	}
 }
 
+func TestGrokStreamUsageFromLine(t *testing.T) {
+	usage := grokStreamUsageFromLine([]byte(`{"type":"result","usage":{"input_tokens":10,"output_tokens":3,"total_tokens":13,"cached_input_tokens":4}}`))
+	if usage == nil || usage.PromptTokens != 10 || usage.CompletionTokens != 3 || usage.TotalTokens != 13 {
+		t.Fatalf("usage = %#v", usage)
+	}
+	if usage.CachedTokens == nil || *usage.CachedTokens != 4 {
+		t.Fatalf("cached usage = %#v", usage.CachedTokens)
+	}
+}
+
 func TestBuildGrokCLIArgsStreamingFormat(t *testing.T) {
 	args, err := buildGrokCLIArgsWithStream(ai.ProviderConfig{Model: "grok-4.6"}, "hi", true)
 	if err != nil {
@@ -95,6 +106,140 @@ func TestGrokCLIProviderChatStreamEmitsDeltasThenDone(t *testing.T) {
 	}
 	if len(chunks) != 3 || chunks[0].Thinking != "plan" || chunks[1].Content != "hello" || !chunks[2].Done {
 		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+}
+
+func TestGrokCLIProviderPreservesAPIKeyAuthenticationEnvironment(t *testing.T) {
+	restore := overrideGrokCLIForTest(t, "stream")
+	defer restore()
+
+	helperCommandContext := grokCommandContext
+	var modelCommand *exec.Cmd
+	grokCommandContext = func(ctx context.Context, path string, args ...string) *exec.Cmd {
+		command := helperCommandContext(ctx, path, args...)
+		modelCommand = command
+		return command
+	}
+	provider, err := NewGrokCLIProvider(ai.ProviderConfig{
+		AuthMode: "local-cli",
+		CLIEnv: map[string]string{
+			"XAI_API_KEY":      "xai-cli-key",
+			"XAI_API_BASE_URL": "https://api.example.invalid",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.ChatStream(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "hello"}},
+	}, func(ai.StreamChunk) {}); err != nil {
+		t.Fatal(err)
+	}
+	if modelCommand == nil {
+		t.Fatal("model command was not created")
+	}
+	if got := envValue(modelCommand.Env, "XAI_API_KEY"); got != "xai-cli-key" {
+		t.Fatalf("XAI_API_KEY = %q, want configured CLI authentication", got)
+	}
+	if got := envValue(modelCommand.Env, "XAI_API_BASE_URL"); got != "https://api.example.invalid" {
+		t.Fatalf("XAI_API_BASE_URL = %q, want configured CLI endpoint", got)
+	}
+}
+
+func TestGrokCLIProviderChatStreamKeepsLargePromptOutOfCommandLine(t *testing.T) {
+	originalLookPath := grokLookPath
+	originalCommand := grokCommandContext
+	t.Cleanup(func() {
+		grokLookPath = originalLookPath
+		grokCommandContext = originalCommand
+	})
+
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	largePrompt := strings.Repeat("large Windows prompt ", 4_000)
+	var capturedArgs []string
+	var promptFilePath string
+	var promptFileContent string
+	var promptFileMode os.FileMode
+	grokLookPath = func(string) (string, error) { return executable, nil }
+	grokCommandContext = func(ctx context.Context, _ string, args ...string) *exec.Cmd {
+		capturedArgs = append([]string(nil), args...)
+		for index, arg := range args {
+			if arg != "--prompt-file" || index+1 >= len(args) {
+				continue
+			}
+			promptFilePath = args[index+1]
+			content, readErr := os.ReadFile(promptFilePath)
+			if readErr != nil {
+				t.Fatalf("read prompt file: %v", readErr)
+			}
+			promptFileContent = string(content)
+			info, statErr := os.Stat(promptFilePath)
+			if statErr != nil {
+				t.Fatalf("stat prompt file: %v", statErr)
+			}
+			promptFileMode = info.Mode().Perm()
+		}
+		cmd := exec.CommandContext(ctx, executable, "-test.run=TestGrokCLIHelperProcess", "--")
+		cmd.Env = append(os.Environ(), "GO_WANT_GROK_HELPER=1", "GO_GROK_HELPER_MODE=stream")
+		return cmd
+	}
+
+	provider, _ := NewGrokCLIProvider(ai.ProviderConfig{AuthMode: "local-cli"})
+	if err := provider.ChatStream(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: largePrompt}},
+	}, func(ai.StreamChunk) {}); err != nil {
+		t.Fatal(err)
+	}
+	if promptFilePath == "" {
+		t.Fatalf("expected --prompt-file, got argv=%#v", capturedArgs)
+	}
+	if !strings.Contains(promptFileContent, largePrompt) {
+		t.Fatal("prompt file did not contain the complete prompt")
+	}
+	if promptFileMode != 0o600 {
+		t.Fatalf("prompt file permissions = %o, want 600", promptFileMode)
+	}
+	for _, arg := range capturedArgs {
+		if strings.Contains(arg, largePrompt) {
+			t.Fatal("large prompt must not be embedded in the process command line")
+		}
+	}
+	if _, err := os.Stat(promptFilePath); !os.IsNotExist(err) {
+		t.Fatalf("temporary prompt file was not removed: %v", err)
+	}
+}
+
+func TestGrokCLIStructuredErrorDetailFromBufferedError(t *testing.T) {
+	output := `{"type":"error","message":"Internal error: {\n  \"message\": \"API error (status 402 Payment Required): Grok Build usage balance exhausted\",\n  \"http_status\": 402\n}"}`
+	detail := grokCLIStructuredErrorDetail(output)
+	if detail != "API error (status 402 Payment Required): Grok Build usage balance exhausted" {
+		t.Fatalf("unexpected detail: %q", detail)
+	}
+}
+
+func TestGrokCLIProviderChatStreamReportsStructuredInternalError(t *testing.T) {
+	restore := overrideGrokCLIForTest(t, "balance-error")
+	defer restore()
+
+	provider, _ := NewGrokCLIProvider(ai.ProviderConfig{AuthMode: "local-cli"})
+	var chunks []ai.StreamChunk
+	if err := provider.ChatStream(context.Background(), ai.ChatRequest{
+		Messages: []ai.Message{{Role: "user", Content: "hello"}},
+	}, func(chunk ai.StreamChunk) { chunks = append(chunks, chunk) }); err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 || !chunks[0].Done {
+		t.Fatalf("expected one terminal error chunk, got %#v", chunks)
+	}
+	if !strings.Contains(chunks[0].Error, "402 Payment Required") ||
+		!strings.Contains(chunks[0].Error, "Grok Build usage balance exhausted") {
+		t.Fatalf("structured upstream detail was lost: %q", chunks[0].Error)
+	}
+	if strings.HasSuffix(chunks[0].Error, "Internal error: {") {
+		t.Fatalf("error was truncated to the first line: %q", chunks[0].Error)
 	}
 }
 
@@ -154,6 +299,15 @@ func TestGrokCLIHelperProcess(t *testing.T) {
 	switch os.Getenv("GO_GROK_HELPER_MODE") {
 	case "sleep":
 		time.Sleep(2 * time.Second)
+	case "balance-error":
+		detail := "Internal error: {\n  \"message\": \"API error (status 402 Payment Required): Grok Build usage balance exhausted\",\n  \"http_status\": 402\n}"
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"type":     "result",
+			"is_error": true,
+			"errors":   []string{detail},
+		})
+		_, _ = fmt.Fprintln(os.Stderr, "Error: "+detail)
+		os.Exit(1)
 	case "keepalive":
 		encoder := json.NewEncoder(os.Stdout)
 		_ = encoder.Encode(map[string]any{

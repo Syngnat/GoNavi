@@ -565,9 +565,9 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.ssh.description": "跳板机 / 堡垒机转发",
     "connection.modal.network.proxy.title": "代理",
     "connection.modal.network.proxy.description": "本地代理或网关转发",
-    "connection.modal.network.httpTunnel.title": "HTTP 隧道",
+    "connection.modal.network.httpTunnel.title": "Navicat HTTP 隧道",
     "connection.modal.network.httpTunnel.description":
-      "独立 HTTP CONNECT 路由",
+      "MySQL 兼容脚本隧道",
     "connection.modal.network.ssl.panelDescription":
       "为连接链路增加加密与证书校验控制，适合生产或跨网络访问。",
     "connection.modal.network.ssl.disabledHint":
@@ -672,27 +672,34 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.proxy.savedDescription":
       "当前已保存代理密码。留空表示继续沿用，输入新值表示替换。",
     "connection.modal.network.httpTunnel.panelDescription":
-      "与代理模式互斥，适合单独指定一条 HTTP CONNECT 隧道路由。",
+      "通过完整的 ntunnel_mysql.php URL 转发 MySQL 请求。",
     "connection.modal.network.httpTunnel.disabledHint":
-      "左侧勾选“HTTP 隧道”后，可在这里填写隧道目标与认证信息。",
-    "connection.modal.network.httpTunnel.host": "隧道主机",
-    "connection.modal.network.httpTunnel.hostRequired": "请输入隧道主机",
+      "左侧勾选后填写完整脚本 URL 与认证信息；当前仅支持 MySQL 兼容连接，标准 HTTP CONNECT 请使用 HTTP 代理。",
+    "connection.modal.network.httpTunnel.host": "HTTP 隧道 URL",
+    "connection.modal.network.httpTunnel.hostRequired":
+      "请输入完整的 HTTP 隧道 URL",
+    "connection.modal.network.httpTunnel.urlPlaceholder":
+      "例如：https://gateway.example.com/ntunnel_mysql.php",
     "connection.modal.network.httpTunnel.portRequired": "请输入隧道端口",
-    "connection.modal.network.httpTunnel.user": "隧道用户名（可选）",
-    "connection.modal.network.httpTunnel.password": "隧道密码（可选）",
-    "connection.modal.network.httpTunnel.retained": "已保存隧道密码",
+    "connection.modal.network.httpTunnel.user": "HTTP Basic 用户名（可选）",
+    "connection.modal.network.httpTunnel.password": "HTTP Basic 密码（可选）",
+    "connection.modal.network.httpTunnel.retained": "已保存 HTTP 隧道密码",
     "connection.modal.network.httpTunnel.clearPassword":
-      "清除已保存隧道密码",
+      "清除已保存 HTTP 隧道密码",
     "connection.modal.network.httpTunnel.savedDescription":
-      "当前已保存隧道密码。留空表示继续沿用，输入新值表示替换。",
+      "当前已保存 HTTP 隧道密码。留空表示继续沿用，输入新值表示替换。",
+    "connection.modal.network.httpTunnel.encodeBase64":
+      "Base64 编码查询内容",
+    "connection.modal.network.httpTunnel.encodeBase64Hint":
+      "对应 Navicat 的 encodeBase64 选项，默认开启。",
     "connection.modal.network.httpTunnel.exclusiveHint":
-      "与“使用代理”互斥，启用后将通过 HTTP CONNECT 建立独立隧道。",
+      "当前仅支持 MySQL 兼容连接。标准 HTTP CONNECT 代理请在“代理”中选择 HTTP 类型。",
     "connection.modal.validation.ssl.damengRequired":
       "达梦启用 SSL 时必须填写证书路径与私钥路径",
     "connection.modal.validation.ssl.clientPairRequired":
       "TLS 客户端证书与私钥路径需要同时填写",
     "connection.modal.validation.httpTunnel.hostRequired":
-      "HTTP 隧道主机不能为空",
+      "HTTP 隧道 URL 不能为空",
     "connection.modal.validation.httpTunnel.portRange":
       "HTTP 隧道端口必须在 1-65535 之间",
     "connection.modal.network.advanced.title": "高级连接",
@@ -781,6 +788,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.toolbar.removeAll": "删除所有驱动",
     "driver.modal.toolbar.openDirectory": "打开驱动目录",
     "driver.modal.toolbar.importDirectory": "导入驱动目录",
+    "driver.modal.toolbar.importDirectoryOverwrite": "导入并覆盖已安装",
     "driver.modal.batch.action.installAll": "安装所有驱动",
     "driver.modal.batch.action.reinstallUpdates": "重装需更新驱动",
     "driver.modal.batch.action.removeAll": "删除所有驱动",
@@ -822,7 +830,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.card.status.builtIn": "内置驱动，可直接连接。",
     "driver.modal.card.status.runtimeAvailable": "纯 Go 驱动已启用，可直接连接。",
     "driver.modal.card.status.needsUpdate":
-      "需要重装以应用驱动侧更新。",
+      "驱动组件有更新，建议重装以获得最新修复与兼容性改进；当前版本仍可正常使用。",
     "driver.modal.card.status.installedRevision":
       "已安装 revision {revision}。",
     "driver.modal.card.status.expectedRevision":
@@ -921,6 +929,25 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.confirm.removeAll.title": "删除所有已安装外置驱动？",
     "driver.modal.confirm.removeAll.content": "将移除 {count} 个外置驱动包，后续连接对应数据源前需要重新安装。",
     "driver.modal.confirm.removeAll.ok": "删除所有",
+    "driver.modal.confirm.remove.title": "移除该驱动？",
+    "driver.modal.confirm.remove.content": "将移除驱动「{name}」，后续连接对应数据源前需要重新安装。",
+    "driver.modal.confirm.remove.ok": "移除",
+    "driver.modal.confirm.reinstallInUse.title": "关闭正在使用的驱动并重装？",
+    "driver.modal.confirm.reinstallInUse.content":
+      "检测到该驱动有 {count} 个活动连接。继续重装会自动断开这些连接、终止正在执行的查询，并回滚尚未提交的事务；已保存的连接配置不会删除，重装后需要重新连接。",
+    "driver.modal.confirm.reinstallInUse.ok": "关闭连接并重装",
+    "driver.modal.card.downloading": "下载中 {percent}%",
+    "driver.modal.card.ready": "已就绪",
+    "driver.modal.hero.loaded": "已加载 {count} 个驱动",
+    "driver.modal.list.sortLabel": "排序方式",
+    "driver.modal.list.sortByName": "按名称",
+    "driver.modal.list.sortByStatus": "按状态",
+    "driver.modal.list.sortBySize": "按大小",
+    "driver.modal.list.sortByVersion": "按版本",
+    "driver.modal.batch.compactTitle": "正在安装驱动 {completed}/{total}",
+    "driver.modal.batch.cancelAll": "取消全部",
+    "driver.modal.batch.detail": "详情",
+    "driver.modal.batch.cancelUnsupported": "当前版本不支持取消单个下载任务",
   },
   "en-US": {
     "common.action.cancel": "Cancel",
@@ -1515,9 +1542,9 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.proxy.title": "Proxy",
     "connection.modal.network.proxy.description":
       "Local proxy or gateway forwarding",
-    "connection.modal.network.httpTunnel.title": "HTTP tunnel",
+    "connection.modal.network.httpTunnel.title": "Navicat HTTP tunnel",
     "connection.modal.network.httpTunnel.description":
-      "Dedicated HTTP CONNECT route",
+      "MySQL-compatible script tunnel",
     "connection.modal.network.ssl.panelDescription":
       "Add encryption and certificate validation controls to the connection path, suitable for production or cross-network access.",
     "connection.modal.network.ssl.disabledHint":
@@ -1627,29 +1654,35 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "connection.modal.network.proxy.savedDescription":
       "A saved proxy password exists. Leave blank to keep it, or enter a new value to replace it.",
     "connection.modal.network.httpTunnel.panelDescription":
-      "Mutually exclusive with proxy mode. Use this to specify a dedicated HTTP CONNECT tunnel route.",
+      "Forward MySQL requests through a complete ntunnel_mysql.php URL.",
     "connection.modal.network.httpTunnel.disabledHint":
-      "Select HTTP tunnel on the left to enter the tunnel target and authentication settings here.",
-    "connection.modal.network.httpTunnel.host": "Tunnel host",
+      "Select it to enter the complete script URL and authentication settings. This currently supports MySQL-compatible connections only; use an HTTP proxy for standard HTTP CONNECT.",
+    "connection.modal.network.httpTunnel.host": "HTTP tunnel URL",
     "connection.modal.network.httpTunnel.hostRequired":
-      "Enter the tunnel host",
+      "Enter the complete HTTP tunnel URL",
+    "connection.modal.network.httpTunnel.urlPlaceholder":
+      "For example: https://gateway.example.com/ntunnel_mysql.php",
     "connection.modal.network.httpTunnel.portRequired":
       "Enter the tunnel port",
-    "connection.modal.network.httpTunnel.user": "Tunnel username",
-    "connection.modal.network.httpTunnel.password": "Tunnel password",
-    "connection.modal.network.httpTunnel.retained": "saved tunnel password",
+    "connection.modal.network.httpTunnel.user": "HTTP Basic username",
+    "connection.modal.network.httpTunnel.password": "HTTP Basic password",
+    "connection.modal.network.httpTunnel.retained": "saved HTTP tunnel password",
     "connection.modal.network.httpTunnel.clearPassword":
-      "Clear saved tunnel password",
+      "Clear saved HTTP tunnel password",
     "connection.modal.network.httpTunnel.savedDescription":
-      "A saved tunnel password exists. Leave blank to keep it, or enter a new value to replace it.",
+      "A saved HTTP tunnel password exists. Leave blank to keep it, or enter a new value to replace it.",
+    "connection.modal.network.httpTunnel.encodeBase64":
+      "Base64-encode query content",
+    "connection.modal.network.httpTunnel.encodeBase64Hint":
+      "Matches Navicat's encodeBase64 option and is enabled by default.",
     "connection.modal.network.httpTunnel.exclusiveHint":
-      "Mutually exclusive with Use proxy. When enabled, an independent tunnel is created through HTTP CONNECT.",
+      "Currently supported for MySQL-compatible connections only. For a standard HTTP CONNECT proxy, choose HTTP under Proxy.",
     "connection.modal.validation.ssl.damengRequired":
       "Certificate and private key paths are required when Dameng SSL is enabled.",
     "connection.modal.validation.ssl.clientPairRequired":
       "TLS client certificate and private key paths must be provided together.",
     "connection.modal.validation.httpTunnel.hostRequired":
-      "HTTP tunnel host is required.",
+      "HTTP tunnel URL is required.",
     "connection.modal.validation.httpTunnel.portRange":
       "HTTP tunnel port must be between 1 and 65535.",
     "connection.modal.network.advanced.title": "Advanced connection",
@@ -1744,6 +1777,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.toolbar.removeAll": "Remove all drivers",
     "driver.modal.toolbar.openDirectory": "Open driver directory",
     "driver.modal.toolbar.importDirectory": "Import driver directory",
+    "driver.modal.toolbar.importDirectoryOverwrite": "Import and overwrite installed",
     "driver.modal.batch.action.installAll": "Install all drivers",
     "driver.modal.batch.action.reinstallUpdates": "Reinstall outdated drivers",
     "driver.modal.batch.action.removeAll": "Remove all drivers",
@@ -1785,7 +1819,7 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.card.status.builtIn": "Built-in driver, ready to connect.",
     "driver.modal.card.status.runtimeAvailable": "Pure Go driver is enabled and ready to connect.",
     "driver.modal.card.status.needsUpdate":
-      "Reinstall required to apply driver updates.",
+      "The driver component has an update. Reinstall to get the latest fixes and compatibility improvements; the current version still works.",
     "driver.modal.card.status.installedRevision":
       "installed revision {revision}.",
     "driver.modal.card.status.expectedRevision":
@@ -1884,5 +1918,24 @@ export const messages: Record<SupportedLanguage, Record<MessageKey, string>> = {
     "driver.modal.confirm.removeAll.title": "Remove all installed external drivers?",
     "driver.modal.confirm.removeAll.content": "This will remove {count} external driver packages. They must be reinstalled before connecting to the corresponding data sources again.",
     "driver.modal.confirm.removeAll.ok": "Remove all",
+    "driver.modal.confirm.remove.title": "Remove this driver?",
+    "driver.modal.confirm.remove.content": "This will remove the {name} driver. It must be reinstalled before connecting to its data source again.",
+    "driver.modal.confirm.remove.ok": "Remove",
+    "driver.modal.confirm.reinstallInUse.title": "Close active driver connections and reinstall?",
+    "driver.modal.confirm.reinstallInUse.content":
+      "This driver has {count} active connections. Continuing will disconnect them, stop running queries, and roll back uncommitted transactions. Saved connection settings are kept, but you must reconnect after reinstallation.",
+    "driver.modal.confirm.reinstallInUse.ok": "Disconnect and reinstall",
+    "driver.modal.card.downloading": "Downloading {percent}%",
+    "driver.modal.card.ready": "Ready",
+    "driver.modal.hero.loaded": "{count} drivers loaded",
+    "driver.modal.list.sortLabel": "Sort by",
+    "driver.modal.list.sortByName": "Name",
+    "driver.modal.list.sortByStatus": "Status",
+    "driver.modal.list.sortBySize": "Size",
+    "driver.modal.list.sortByVersion": "Version",
+    "driver.modal.batch.compactTitle": "Installing drivers {completed}/{total}",
+    "driver.modal.batch.cancelAll": "Cancel all",
+    "driver.modal.batch.detail": "Details",
+    "driver.modal.batch.cancelUnsupported": "Cancelling an individual driver download is not supported in this version",
   },
 };

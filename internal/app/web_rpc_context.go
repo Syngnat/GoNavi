@@ -11,7 +11,7 @@ import (
 )
 
 var requiredIssue1098WebRPCContextMethods = []string{
-	"DBQuery", "DBQueryWithCancel", "DBQueryMulti", "DBQueryAudited", "DBQueryAI", "DBQueryIsolated", "MySQLQuery",
+	"DBQuery", "DBQueryApplicationWithCancel", "DBQueryWithCancel", "DBQueryMulti", "DBQueryAudited", "DBQueryAI", "DBQueryIsolated", "MySQLQuery",
 	"DBGetDatabases", "DBGetTables", "DBGetViews", "DBGetObjects", "DBGetAllColumns", "DBGetColumns", "DBGetIndexes",
 	"DBGetForeignKeys", "DBGetDatabaseForeignKeys", "DBGetTriggers", "DBShowCreateTable", "DBTableExists",
 	"MySQLGetDatabases", "MySQLGetTables", "MySQLShowCreateTable", "MongoDiscoverMembers", "DBRefreshTableStats", "DiagnoseQuery",
@@ -36,6 +36,9 @@ func WebRPCContextHandlers(a *App) map[string]any {
 	return map[string]any{
 		"DBQuery": func(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
 			return a.dbQueryContext(ctx, config, dbName, query)
+		},
+		"DBQueryApplicationWithCancel": func(ctx context.Context, config connection.ConnectionConfig, dbName, query, queryID string) connection.QueryResult {
+			return a.dbQueryApplicationWithCancelContext(ctx, config, dbName, query, queryID)
 		},
 		"DBQueryWithCancel": func(ctx context.Context, config connection.ConnectionConfig, dbName, query, queryID string) connection.QueryResult {
 			return a.dbQueryWithCancelContext(ctx, config, dbName, query, queryID)
@@ -203,6 +206,13 @@ func WebRPCContextHandlers(a *App) map[string]any {
 func (a *App) dbQueryContext(ctx context.Context, config connection.ConnectionConfig, dbName, query string) connection.QueryResult {
 	return a.dbQueryWithCancel(config, dbName, query, "", dbQueryAuditOptions{
 		auditAll: a.webRuntime, auditWrites: true, source: "application_api", executionContext: ctx, synchronousConnectionWait: true,
+	})
+}
+
+func (a *App) dbQueryApplicationWithCancelContext(ctx context.Context, config connection.ConnectionConfig, dbName, query, queryID string) connection.QueryResult {
+	return a.dbQueryWithCancel(config, dbName, query, queryID, dbQueryAuditOptions{
+		auditAll: a.webRuntime, auditWrites: true, source: "application_api",
+		executionContext: ctx, synchronousConnectionWait: true,
 	})
 }
 

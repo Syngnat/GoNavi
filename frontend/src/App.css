@@ -444,102 +444,8 @@ body[data-theme='dark'] {
        在透明窗口环境下会显著加剧 GPU 负载 */
 }
 
-/* 暗色 + 透明：提升选中/焦点可读性，避免默认蓝色在半透明背景下发灰 */
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected,
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-tree .ant-tree-node-content-wrapper.ant-tree-node-selected:hover {
-    background: rgba(246, 196, 83, 0.24) !important;
-    color: rgba(255, 236, 179, 0.98) !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode:hover {
-    background: rgba(255, 255, 255, 0.05) !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
-body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
-    background: linear-gradient(90deg, rgba(246, 196, 83, 0.22), rgba(246, 196, 83, 0.08)) !important;
-    border: 1px solid rgba(246, 196, 83, 0.24) !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox-checked .ant-checkbox-inner {
-    background-color: #f6c453 !important;
-    border-color: #f6c453 !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox-indeterminate .ant-checkbox-inner::after {
-    background-color: #f6c453 !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox:hover .ant-checkbox-inner,
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-checkbox-wrapper:hover .ant-checkbox-inner {
-    border-color: #f6c453 !important;
-}
-
 .table-designer-shell .table-designer-cell-check .ant-checkbox-disabled.ant-checkbox-checked .ant-checkbox-inner::after {
     border-color: var(--gn-on-accent, #fff) !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-radio-checked .ant-radio-inner {
-    border-color: #f6c453 !important;
-    background-color: #f6c453 !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-radio-wrapper:hover .ant-radio-inner,
-/* 这两条是旧版 UI 的琥珀强调色，必须排除 v2：
-   v2 的强调色是绿色（v2-theme.css 的 --gn-accent 与 antd colorPrimary 均为绿），
-   而这里的选择器特异性更高（.ant-switch.ant-switch-checked 是两个类），
-   即便 v2-theme.css 后加载也会被这里压过，导致 v2 下的开关/单选显示成琥珀色。 */
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-radio:hover .ant-radio-inner {
-    border-color: #f6c453 !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-switch.ant-switch-checked {
-    background: #d8a93b !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody > tr.ant-table-row-selected > td,
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody .ant-table-row.ant-table-row-selected > .ant-table-cell {
-    background: rgba(246, 196, 83, 0.18) !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody > tr.ant-table-row-selected:hover > td,
-body[data-theme='dark']:not([data-ui-version='v2']) .ant-table-tbody .ant-table-row.ant-table-row-selected:hover > .ant-table-cell {
-    background: rgba(246, 196, 83, 0.26) !important;
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-    color: rgba(230, 234, 242, 0.9);
-}
-
-body[data-theme='dark']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
-    background: rgba(246, 196, 83, 0.16);
-    border-color: rgba(246, 196, 83, 0.3);
-    color: #f6c453;
-}
-
-body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode:hover {
-    background: rgba(15, 23, 42, 0.04) !important;
-}
-
-body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected,
-body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-tree .ant-tree-treenode.ant-tree-treenode-selected:hover {
-    color: rgba(15, 23, 42, 0.92) !important;
-    background: linear-gradient(90deg, rgba(22, 119, 255, 0.12), rgba(22, 119, 255, 0.04)) !important;
-    border: 1px solid rgba(22, 119, 255, 0.18) !important;
-}
-
-body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper {
-    background: rgba(255, 255, 255, 0.72);
-    border-color: rgba(15, 23, 42, 0.08);
-    color: rgba(51, 65, 85, 0.88);
-}
-
-body[data-theme='light']:not([data-ui-version='v2']) .redis-viewer-workbench .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
-    background: rgba(22, 119, 255, 0.1);
-    border-color: rgba(22, 119, 255, 0.22);
-    color: #1677ff;
 }
 
 /* 连接配置弹窗：滚动仅在弹窗 body 内部，不使用外层 wrap 滚动条 */
@@ -2560,7 +2466,7 @@ body[data-ui-version="v2"] .gn-conn-dense .gn-conn-mode-extra .ant-form-item {
     right: -5px;
     top: 50%;
     width: 1px;
-    height: 12px;
+    height: var(--gn-titlebar-divider-height, 14px);
     transform: translateY(-50%);
     background: color-mix(in srgb, var(--gn-br-2, rgba(15, 23, 42, 0.12)) 88%, transparent);
     pointer-events: none;
@@ -2589,21 +2495,66 @@ body[data-ui-version="v2"] .gn-v2-titlebar-right {
     height: 100%;
 }
 
+body[data-ui-version="v2"] .gn-v2-titlebar-system-actions {
+    display: inline-flex;
+    height: 100%;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 2px;
+    -webkit-app-region: no-drag;
+    --wails-draggable: no-drag;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn {
+    display: inline-flex;
+    width: var(--gn-titlebar-action-height, 30px);
+    min-width: var(--gn-titlebar-action-height, 30px);
+    height: var(--gn-titlebar-action-height, 30px) !important;
+    padding: 0 !important;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 7px;
+    color: var(--gn-fg-3, var(--ant-color-text-tertiary));
+    box-shadow: none;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn .anticon {
+    font-size: clamp(15px, calc(var(--gn-titlebar-action-height, 30px) * 0.533), 18px);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn:hover,
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn:focus-visible {
+    background: var(--gn-bg-hover);
+    color: var(--gn-fg-1);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn:focus-visible {
+    outline: 2px solid var(--gn-accent);
+    outline-offset: -2px;
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar-system-action.ant-btn.is-active {
+    background: color-mix(in srgb, var(--gn-accent) 14%, var(--gn-bg-active));
+    color: var(--gn-accent);
+    box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--gn-accent) 28%, transparent);
+}
+
 /* Primary: elevated capsule so "新建查询/连接" reads first */
 .gonavi-titlebar-primary-action {
     display: inline-flex;
     min-width: 0;
-    height: 26px;
-    padding: 0 9px;
+    height: var(--gn-titlebar-action-height, 30px);
+    padding: 0 10px;
     border: 0.5px solid color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 18%, transparent);
-    border-radius: 7px;
+    border-radius: 8px;
     background: color-mix(in srgb, var(--gn-accent, var(--ant-color-primary)) 9%, var(--gn-bg-panel, #fff));
     color: var(--gn-fg-2, var(--ant-color-text));
     align-items: center;
     justify-content: center;
-    gap: 5px;
+    gap: 0;
     font: inherit;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0;
@@ -2612,12 +2563,6 @@ body[data-ui-version="v2"] .gn-v2-titlebar-right {
     -webkit-app-region: no-drag;
     --wails-draggable: no-drag;
     transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
-}
-
-.gonavi-titlebar-primary-action .anticon {
-    flex: 0 0 auto;
-    font-size: 13px;
-    color: var(--gn-accent, var(--ant-color-primary));
 }
 
 .gonavi-titlebar-primary-action:hover,
@@ -2657,18 +2602,18 @@ body[data-ui-version="v2"] .gn-v2-titlebar-right {
 .gn-v2-titlebar-quick-action,
 .gn-v2-titlebar-quick-more {
     display: inline-flex;
-    height: var(--gn-titlebar-action-height, 26px);
+    height: var(--gn-titlebar-action-height, 30px);
     flex: 0 0 auto;
     align-items: center;
-    gap: 6px;
-    padding: 0 8px;
+    gap: 0;
+    padding: 0 9px;
     border: 0;
-    border-radius: 5px;
+    border-radius: 6px;
     background: transparent;
     color: var(--gn-fg-3, var(--ant-color-text-tertiary));
     cursor: pointer;
     font: inherit;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 550;
     line-height: 1;
     white-space: nowrap;
@@ -2687,22 +2632,10 @@ body[data-ui-version="v2"] .gn-v2-titlebar-right {
     outline: none;
 }
 
-.gn-v2-titlebar-quick-action .anticon,
-.gn-v2-titlebar-quick-more .anticon {
-    flex: 0 0 auto;
-    font-size: 13px;
-}
-
 body[data-ui-version="v2"] .gn-v2-titlebar-quick-action,
 body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
-    gap: 6px;
-    font-size: 12px;
-}
-
-body[data-ui-version="v2"] .gn-v2-titlebar-quick-action .anticon,
-body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .anticon {
-    font-size: 15px;
-    color: var(--gn-fg-4);
+    gap: 0;
+    font-size: 13px;
 }
 
 /* "更多" shows icon + label like other titlebar quick actions */
@@ -2718,7 +2651,7 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
     gap: 6px;
     width: auto;
     min-width: 0;
-    padding-inline: 8px;
+    padding-inline: 9px;
     border: 0;
     border-radius: 5px;
     margin-left: 0;
@@ -2739,12 +2672,29 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-labe
 }
 
 @media (max-width: 920px) {
-    .gn-v2-titlebar-quick-primary {
-        display: none;
+    .gn-v2-titlebar-quick-action {
+        width: auto;
+        min-width: 0;
+        padding-inline: 5px;
+        gap: 0;
+        justify-content: center;
+        font-size: 11px;
     }
 
     .gn-v2-titlebar-quick-more {
         padding-inline: 8px;
+    }
+
+    body[data-ui-version="v2"] .gonavi-titlebar-primary-actions {
+        margin-right: 6px;
+    }
+
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions,
+    .gn-v2-titlebar-quick-primary {
+        flex: 0 0 auto;
+        max-width: none;
+        overflow: visible;
     }
 }
 
@@ -2760,13 +2710,6 @@ body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .gn-v2-titlebar-quick-labe
     .gonavi-titlebar-primary-action {
         padding-inline: 6px;
     }
-}
-
-@media (max-width: 920px) {
-    body[data-ui-version="v2"] .gonavi-titlebar-primary-actions {
-        margin-right: 6px;
-    }
-
 }
 
 body[data-ui-version="v2"] .gn-v2-titlebar {
@@ -2803,8 +2746,8 @@ body[data-ui-version="v2"] .gn-v2-titlebar > .gn-v2-titlebar-right {
 body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked:not(.gn-v2-titlebar-native-mac) > .gonavi-titlebar-leading,
 body[data-ui-version="v2"] .gn-v2-titlebar-collapsed-docked:not(.gn-v2-titlebar-native-mac) > .gn-v2-titlebar-right {
     align-self: flex-start;
-    height: var(--gn-titlebar-collapsed-upper-height, 29px);
-    min-height: var(--gn-titlebar-collapsed-upper-height, 29px);
+    height: var(--gn-titlebar-collapsed-upper-height, 31px);
+    min-height: var(--gn-titlebar-collapsed-upper-height, 31px);
 }
 
 /* Native traffic lights keep a fixed vertical center while UI Scale changes the custom bar height. */
@@ -2826,26 +2769,16 @@ body[data-ui-version="v2"][data-platform='linux'] .gn-v2-titlebar > div:last-chi
     min-width: max(96px, calc(var(--gn-titlebar-action-height, 34px) * 3));
 }
 
-@media (max-width: 720px) {
-    body[data-ui-version="v2"] .gn-v2-titlebar-quick-actions-slot {
-        max-width: 180px;
-    }
-}
-
 @media (max-width: 420px) {
-    /* Leave room for native window controls while keeping every command reachable. */
+    /* Text-only titlebar actions stay readable instead of collapsing to empty icon buttons. */
     body[data-ui-version="v2"] .gonavi-titlebar-primary-action,
+    body[data-ui-version="v2"] .gn-v2-titlebar-quick-action,
     body[data-ui-version="v2"] .gn-v2-titlebar-quick-more {
-        width: 38px !important;
-        min-width: 38px !important;
-        padding-inline: 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        padding-inline: 4px !important;
         gap: 0 !important;
-        font-size: 0 !important;
-    }
-
-    body[data-ui-version="v2"] .gonavi-titlebar-primary-action .anticon,
-    body[data-ui-version="v2"] .gn-v2-titlebar-quick-more .anticon {
-        margin: 0;
+        font-size: 10px !important;
     }
 }
 
@@ -2872,89 +2805,447 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     min-height: 100% !important;
 }
 
+
+.titlebar-window-controls .titlebar-window-control-btn .anticon,
+.titlebar-window-controls .titlebar-window-control-btn svg {
+    width: 12px;
+    height: 12px;
+    font-size: 12px;
+    display: block;
+}
+
+.titlebar-window-controls .titlebar-window-control-restore-front {
+    fill: var(--gn-bg-panel-2, var(--ant-color-bg-container, #ffffff));
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls .titlebar-window-control-restore-front {
+    fill: var(--gn-bg-panel-2, #ffffff);
+}
+
+.titlebar-window-controls > .ant-btn.ant-btn-text:hover .titlebar-window-control-restore-front,
+.titlebar-window-controls > .ant-btn.ant-btn-text:focus-visible .titlebar-window-control-restore-front {
+    fill: color-mix(in srgb, var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06)) 100%, transparent);
+}
+
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.ant-btn-text:hover .titlebar-window-control-restore-front,
+body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-window-controls > .ant-btn.ant-btn-text:focus-visible .titlebar-window-control-restore-front {
+    fill: color-mix(in srgb, var(--gn-bg-panel-2, #ffffff) 88%, var(--ant-color-text, #000) 12%);
+}
+
+.titlebar-window-controls > .titlebar-close-btn.ant-btn-text:hover .titlebar-window-control-restore-front {
+    fill: #ff4d4f;
+}
+
 .titlebar-window-controls > .titlebar-close-btn.ant-btn-text:hover {
     background-color: #ff4d4f !important;
     color: #fff !important;
-}
-
-.driver-manager-modal .ant-modal-body {
-    background: var(--ant-color-bg-layout, #f5f5f5);
 }
 
 .driver-manager-shell {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    /* 双栏/单列断点跟随工作台自身宽度（内嵌页要扣掉应用侧栏，弹窗可拖拽调宽），
+       因此用容器查询而不是视口媒体查询。 */
+    container-type: inline-size;
 }
 
-.driver-manager-header {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 16px;
-    align-items: stretch;
-    padding: 14px 16px;
-    border: 1px solid rgba(5, 5, 5, 0.08);
-    border-radius: 8px;
-    background: var(--ant-color-bg-container, #fff);
+.driver-manager-page-sub {
+    color: var(--ant-color-text-secondary, rgba(5, 5, 5, 0.62));
+    font-size: 12px;
+    line-height: 1.5;
 }
 
-.driver-manager-heading {
+/* ── 批量操作条 ── */
+.driver-manager-bulkbar {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.driver-manager-bulkbar-primary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
     min-width: 0;
 }
 
-.driver-manager-stats {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(64px, 1fr));
-    gap: 8px;
-    min-width: 360px;
-}
-
-.driver-manager-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    justify-content: center;
-    min-height: 58px;
-    padding: 8px 10px;
-    border: 1px solid rgba(5, 5, 5, 0.08);
-    border-radius: 8px;
-    background: rgba(5, 5, 5, 0.02);
-}
-
-.driver-manager-stat span:first-child {
-    font-size: 20px;
-    font-weight: 700;
-    line-height: 1.2;
-}
-
-.driver-manager-stat-warning span:first-child {
-    color: #d48806;
-}
-
-.driver-manager-directory-panel {
-    border: 1px solid rgba(5, 5, 5, 0.08);
-    border-radius: 8px;
-    background: var(--ant-color-bg-container, #fff);
-}
-
-.driver-manager-toolbar {
+.driver-manager-bulkbar-dir {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* 设置中心内嵌：浅底工具条，不加描边，避免与设置内容区边框套边框 */
+.driver-manager-bulkbar.is-embedded-toolbar {
+    gap: 8px;
+    padding: 8px 4px;
+    border-radius: 0;
+    border: none;
+    background: transparent;
+    flex-wrap: nowrap;
+    align-items: center;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-primary,
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-bulkbar-dir {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .ant-btn {
+    font-weight: 500;
+}
+
+.driver-manager-bulkbar.is-embedded-toolbar .driver-manager-import-directory-dropdown {
+    flex-shrink: 0;
+}
+
+/* Mirror-source chip (Driver Manager + About) — accent bar + hover */
+.driver-manager-mirror-chip,
+.gonavi-about-download-source {
+    position: relative;
+    overflow: hidden;
+    transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+/* About：按内容确定宽度，字体放大或空间不足时允许换行。 */
+.gonavi-about-download-source {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+    margin-top: 10px;
+    padding: 6px 10px 6px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    box-sizing: border-box;
+}
+
+.gonavi-about-download-source-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+
+.gonavi-about-download-source-label,
+.gonavi-about-download-source-value {
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.gonavi-about-download-source-value {
+    font-weight: 600;
+}
+
+.gonavi-about-download-source-switch.ant-btn {
+    padding: 0;
+    height: auto;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* 弹窗内的镜像源条：无描边的浅底色条，仅保留左侧来源色条。 */
+.driver-manager-mirror-chip {
+    display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: rgba(5, 5, 5, 0.03);
 }
 
-.driver-manager-search {
-    min-width: 280px;
-    flex: 1 1 360px;
+.driver-manager-mirror-chip::before,
+.gonavi-about-download-source::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: #94a3b8;
 }
 
-.driver-manager-toolbar-actions {
-    justify-content: flex-end;
+.driver-manager-mirror-chip[data-download-source='cst']::before,
+.gonavi-about-download-source[data-download-source='cst']::before {
+    background: #f59e0b;
+}
+
+.driver-manager-mirror-chip[data-download-source='bero']::before,
+.gonavi-about-download-source[data-download-source='bero']::before {
+    background: #0ea5e9;
+}
+
+.driver-manager-mirror-chip[data-download-source='github']::before,
+.gonavi-about-download-source[data-download-source='github']::before {
+    background: #64748b;
+}
+
+.driver-manager-mirror-chip:hover,
+.gonavi-about-download-source:hover {
+    box-shadow: 0 3px 14px rgba(15, 23, 42, 0.09);
+}
+
+body[data-theme='dark'] .driver-manager-mirror-chip:hover,
+body[data-theme='dark'] .gonavi-about-download-source:hover {
+    box-shadow: 0 3px 16px rgba(0, 0, 0, 0.4);
+}
+
+.driver-manager-mirror-chip .ant-btn,
+.gonavi-about-download-source .ant-btn {
+    color: var(--ant-color-primary, #1677ff);
+}
+
+.driver-manager-mirror-chip.is-compact > .ant-btn,
+.gonavi-about-download-source > .ant-btn {
+    margin-left: auto;
+}
+
+/* 工具栏内嵌镜像源：为完整名称、切换按钮和加载图标保留空间。 */
+.driver-manager-mirror-chip.is-compact {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    width: max-content;
+    min-width: 0;
+    max-width: 100%;
+    gap: 8px;
+    min-height: 32px;
+    padding: 3px 12px 3px 14px;
+    margin-left: auto;
+    margin-right: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+.driver-manager-mirror-chip.is-compact::before {
+    border-radius: 8px 0 0 8px;
+}
+
+.driver-manager-mirror-chip.is-compact > .ant-btn {
+    flex-shrink: 0;
+}
+
+.driver-manager-list-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-list-head-left {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.driver-manager-list-search.is-in-head {
+    flex: 1 1 auto;
+    min-width: 140px;
+    max-width: none;
+    width: auto !important;
+}
+
+.driver-manager-list-search.is-in-head.ant-input-search {
+    flex: 1 1 auto !important;
+}
+
+.driver-manager-list-head-left {
+    flex: 0 0 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: visible;
+}
+
+.driver-manager-list-head-right {
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-search-row.is-embedded {
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    overflow: visible;
+}
+
+.driver-manager-list-search-row.is-embedded .ant-btn,
+.driver-manager-list-search-row-left .ant-btn {
+    height: 32px;
+}
+
+.driver-manager-list-search-row-left {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-search-row.is-embedded .driver-manager-list-search-row-left .ant-btn {
+    padding-inline: 12px;
+}
+
+.driver-manager-list-search-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.driver-manager-list-search-row .driver-manager-list-search {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* embedded search moved to list head */
+
+
+.driver-manager-list-search-row > .ant-btn,
+.driver-manager-list-search-row > .ant-tooltip-disabled-compatible-wrapper {
+    flex: 0 0 auto;
+}
+
+
+.driver-manager-directory-panel {
+    min-width: 0;
+}
+
+.driver-manager-filterbar {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    align-items: stretch;
+    flex: 0 0 auto;
+    min-width: 0;
+    overflow: visible;
+}
+
+.driver-manager-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    gap: 5px;
+    min-width: 0;
+    min-height: 32px;
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.62));
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 0.14s ease, color 0.14s ease;
+}
+
+.driver-manager-filter-chip:hover {
+    color: #1677ff;
+}
+
+.driver-manager-filter-chip.is-active {
+    background: rgba(22, 119, 255, 0.10);
+    color: #1677ff;
+    font-weight: 600;
+}
+
+.driver-manager-filter-chip-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(5, 5, 5, 0.06);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-manager-filter-chip.is-active .driver-manager-filter-chip-count {
+    background: rgba(22, 119, 255, 0.18);
+}
+
+.driver-manager-filter-chip[data-tone='needsUpdate'] .driver-manager-filter-chip-count {
+    color: #d48806;
+    font-weight: 600;
+}
+
+.driver-manager-net-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    background: #bfbfbf;
+}
+
+.driver-manager-net-dot-ok {
+    background: #52c41a;
+    box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.18);
+}
+
+.driver-manager-net-dot-warning {
+    background: #faad14;
+    box-shadow: 0 0 0 3px rgba(250, 173, 20, 0.18);
+}
+
+.driver-manager-net-dot-error {
+    background: #ff4d4f;
+    box-shadow: 0 0 0 3px rgba(255, 77, 79, 0.18);
+}
+
+.driver-manager-net-dot-checking {
+    background: #1677ff;
+    animation: driver-net-pulse 1.1s ease-in-out infinite;
+}
+
+
+.driver-manager-network-check-btn .ant-btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.driver-manager-network-check-btn .driver-manager-net-dot {
+    margin: 0;
+}
+
+.driver-manager-net-dot-idle {
+    background: #bfbfbf;
+}
+
+@keyframes driver-net-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}
+
+.driver-manager-net-text {
+    font-size: 12px;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
 }
 
 .driver-manager-batch-progress-panel {
@@ -2984,45 +3275,127 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     display: flex;
     justify-content: space-between;
     gap: 12px;
+    flex: 0 0 auto;
     min-height: 24px;
+}
+
+.driver-manager-list-head-sort.ant-select {
+    min-width: 96px;
+    font-size: 12px;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+}
+
+.driver-manager-list-head-sort .ant-select-selector {
+    padding-inline: 4px !important;
 }
 
 .driver-manager-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 2px;
+    min-height: 0;
 }
 
-.driver-manager-card {
-    border: 1px solid rgba(5, 5, 5, 0.08);
-    border-radius: 8px;
-    background: var(--ant-color-bg-container, #fff);
-    overflow: hidden;
-    container-name: driver-card;
-    container-type: inline-size;
-}
-
-.driver-manager-card-warning {
-    border-color: rgba(250, 173, 20, 0.35);
-}
-
-.driver-manager-card-ready {
-    border-color: rgba(82, 196, 26, 0.22);
-}
-
-.driver-manager-card-main {
+/* ── 双栏：左驱动清单 + 右详情面板 ── */
+.driver-manager-columns {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
-    gap: 16px 20px;
-    align-items: start;
-    padding: 16px;
+    grid-template-columns: minmax(300px, 440px) minmax(0, 1fr);
+    gap: 0;
+    align-items: stretch;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
-.driver-manager-card-info {
+.driver-manager-list-pane {
     display: flex;
     flex-direction: column;
     gap: 10px;
     min-width: 0;
+    min-height: 0;
+    padding-right: 16px;
+    border-right: 1px solid rgba(5, 5, 5, 0.06);
+}
+
+.driver-manager-list-search.ant-input-search {
+    flex: 0 0 auto;
+}
+
+.driver-manager-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s ease;
+}
+
+.driver-manager-list-item:hover {
+    background: rgba(5, 5, 5, 0.04);
+}
+
+.driver-manager-list-item.is-selected {
+    background: rgba(22, 119, 255, 0.10);
+}
+
+.driver-manager-list-item.is-selected .driver-manager-list-item-name {
+    color: #1677ff;
+    font-weight: 600;
+}
+
+.driver-manager-list-item-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.driver-manager-list-item-name {
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-manager-list-item-meta {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.55));
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-manager-detail {
+    min-width: 0;
+    min-height: 0;
+    padding-left: 24px;
+}
+
+.driver-manager-detail-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 720px;
+}
+
+.driver-manager-detail-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.driver-manager-detail-path {
+    font-size: 12px;
 }
 
 .driver-manager-title-row,
@@ -3035,11 +3408,12 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
 }
 
 .driver-manager-driver-name {
-    font-size: 16px;
+    font-size: 18px;
 }
 
 .driver-manager-meta-row {
-    row-gap: 4px;
+    row-gap: 6px;
+    gap: 12px;
 }
 
 .driver-manager-update-note {
@@ -3059,11 +3433,8 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     color: var(--ant-color-text-secondary);
 }
 
-.driver-manager-card-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-width: 0;
+.driver-manager-card-actions {
+    justify-content: flex-start;
 }
 
 .driver-manager-control-block {
@@ -3091,6 +3462,13 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     font-variant-numeric: tabular-nums;
 }
 
+.driver-manager-progress-side {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
 .driver-manager-control-label,
 .driver-manager-small-text {
     font-size: 12px;
@@ -3110,10 +3488,6 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
     line-height: 24px;
 }
 
-.driver-manager-card-actions {
-    justify-content: flex-end;
-}
-
 .driver-manager-card-actions .ant-btn {
     min-width: 88px;
 }
@@ -3121,11 +3495,160 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
 .driver-manager-footer-actions {
     width: 100%;
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
-/* The settings-center view is a compact driver workbench, not a stack of
-   standalone cards. Keep the full modal presentation above unchanged. */
+.driver-manager-net-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.driver-manager-footer-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+}
+
+/* ── Round 3 · mockup-alignment styles ──
+   Inline card progress replaces the action buttons while a download is
+   running (driver-manager-card-progress-active), and collapses to a
+   "ready + switch version" row when done (driver-manager-card-progress-done).
+   Hero shows the loaded count + a sort label sits in the list head, and the
+   top-level batch panel is replaced by the compact driver-manager-batch-bar. */
+
+.driver-manager-hero-subtitle-sep {
+  margin: 0 2px;
+  opacity: 0.5;
+}
+
+.driver-manager-card-progress-active {
+  gap: 6px;
+}
+
+.driver-manager-progress-lg.ant-progress-line {
+  margin: 0;
+}
+
+.driver-manager-progress-lg .ant-progress-bg {
+  height: 8px !important;
+}
+
+.driver-manager-card-progress-done {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.driver-manager-card-ready-text {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.driver-manager-version-block {
+  gap: 4px;
+  max-width: 460px;
+}
+
+.driver-manager-progress-error {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.driver-manager-list-head-left,
+.driver-manager-list-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.driver-manager-list-head-sort {
+  /* Follows the settings-center font scale when embedded; standalone keeps 12px. */
+  font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
+  white-space: nowrap;
+}
+
+/* Compact top-level batch progress bar (replaces the old panel). */
+.driver-manager-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(22, 119, 255, 0.08);
+}
+
+.driver-manager-batch-bar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(22, 119, 255, 0.14);
+  color: #1677ff;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.driver-manager-batch-bar-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.driver-manager-batch-bar-text .ant-typography {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.driver-manager-batch-bar-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 1 220px;
+  min-width: 140px;
+}
+
+.driver-manager-batch-bar-progress .ant-progress {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.driver-manager-batch-bar-percent {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.driver-manager-batch-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* The tab-hosted view follows the full driver-manager workbench preview.
+   It shares the modal's controls, but retains the panel, statistic cards,
+   filters, and individual driver cards instead of flattening them. */
 .driver-manager-embedded-layout {
     display: flex;
     flex-direction: column;
@@ -3138,236 +3661,160 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
 .driver-manager-embedded-layout > .driver-manager-shell.is-embedded {
     flex: 1 1 auto;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    padding-right: 6px;
+    overflow: hidden;
     overscroll-behavior: contain;
 }
 
 .driver-manager-shell.is-embedded {
-    gap: 10px;
+    gap: 14px;
     min-width: 0;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-header {
-    align-items: center;
-    padding: 0 2px 10px;
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-heading {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    font-family: var(--gn-font-sans);
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stats {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0;
-    min-width: 0;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stat {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 5px;
+.driver-manager-shell.is-embedded .driver-manager-columns {
+    flex: 1 1 auto;
     min-height: 0;
-    padding: 2px 10px;
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stat + .driver-manager-stat {
-    border-left: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08)) !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-stat span:first-child {
-    font-size: var(--gn-font-size, 14px);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel {
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .ant-alert {
-    border-inline: 0 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel.ant-collapse {
-    border-inline: 0 !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel .ant-collapse-header {
-    min-height: 36px;
-    padding: 7px 2px !important;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-    font-weight: 600;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel .ant-collapse-content-box {
-    padding: 2px 2px 10px !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-directory-panel code,
-.driver-manager-shell.is-embedded .driver-manager-directory-panel .ant-typography-copy {
-    font-family: var(--gn-font-mono);
-}
-
-.driver-manager-shell.is-embedded .driver-manager-toolbar {
-    gap: 8px;
-    padding: 2px 2px 10px;
-    border-bottom: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-search {
-    min-width: 220px;
-    flex-basis: 280px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-toolbar-actions {
-    gap: 6px !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-batch-progress-panel {
-    padding: 10px 2px;
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-list-head {
-    min-height: 20px;
-    padding-inline: 2px;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
 }
 
 .driver-manager-shell.is-embedded .driver-manager-list {
-    gap: 0;
-    border-top: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-card,
-.driver-manager-shell.is-embedded .driver-manager-card-warning,
-.driver-manager-shell.is-embedded .driver-manager-card-ready {
-    border-radius: 0;
-    background: transparent !important;
-    overflow: visible;
+.driver-manager-shell.is-embedded .driver-manager-detail {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-card-main {
-    grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
-    gap: 12px 20px;
-    padding: 12px 2px;
+/* 日志区吃掉详情栏剩余高度，正文保持内容高度。 */
+.driver-manager-shell.is-embedded .driver-manager-detail-body {
+    flex: 0 0 auto;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-card-info {
-    gap: 6px;
+.driver-manager-shell.is-embedded .driver-manager-log-section {
+    flex: 1 1 auto;
+    min-height: 160px;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-driver-name {
-    font-size: var(--gn-font-size, 14px);
+.driver-manager-shell.is-embedded .driver-manager-log-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
 }
 
-.driver-manager-shell.is-embedded .driver-manager-title-row {
-    gap: 6px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-title-row .ant-tag {
-    margin-inline-end: 0;
-    border-radius: 3px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-title-row code {
-    font-size: var(--gn-font-size-mono, var(--gn-font-size-xs, 11px));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-meta-row {
-    gap: 4px 12px;
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-    font-variant-numeric: tabular-nums;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-update-note {
-    gap: 2px;
-    padding: 4px 8px;
-    border-radius: 0;
-    background: transparent;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-muted-message {
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-control-label,
-.driver-manager-shell.is-embedded .driver-manager-small-text {
-    font-size: var(--gn-settings-font-secondary, var(--gn-font-size-sm, 12px));
-}
-
-.driver-manager-shell.is-embedded .driver-manager-card-controls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    gap: 8px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-control-block {
-    gap: 3px;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-card-actions {
-    grid-column: 1;
-    justify-content: flex-start;
-    gap: 6px !important;
-}
-
-.driver-manager-shell.is-embedded .driver-manager-card-actions .ant-btn {
-    min-width: 0;
+.driver-manager-shell.is-embedded .driver-manager-list-head {
+    min-height: 24px;
 }
 
 .driver-manager-embedded-layout > .driver-manager-footer-actions {
     flex: 0 0 auto;
-    padding-top: 10px;
-    border-top: 1px solid var(--ant-color-border-secondary, rgba(5, 5, 5, 0.08));
+    padding-top: 4px;
 }
 
-@container driver-card (max-width: 780px) {
-    .driver-manager-card-main,
-    .driver-manager-shell.is-embedded .driver-manager-card-main {
+.driver-manager-embedded-layout > .driver-manager-footer-actions.is-status-only {
+    border-top: none;
+    padding-top: 2px;
+    min-height: 0;
+}
+
+.driver-manager-embedded-layout > .driver-manager-footer-actions.is-status-only .driver-manager-net-text {
+    font-size: 12px;
+}
+
+/* ── 驱动日志：详情栏下方的常驻日志区 ── */
+.driver-manager-log-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    min-height: 120px;
+}
+
+.driver-manager-log-empty {
+    font-size: 12px;
+}
+
+.driver-manager-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 320px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 12px 14px;
+    background: rgba(5, 5, 5, 0.03);
+    border-radius: 8px;
+    font-family: var(--gn-font-mono, monospace);
+    font-size: 12px;
+    line-height: 1.8;
+}
+
+.driver-manager-log-line {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    min-width: 0;
+}
+
+.driver-manager-log-time {
+    flex: 0 0 auto;
+    color: var(--ant-color-text-tertiary, rgba(5, 5, 5, 0.45));
+    font-variant-numeric: tabular-nums;
+}
+
+.driver-manager-log-text {
+    min-width: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ant-color-text, rgba(5, 5, 5, 0.88));
+}
+
+.driver-manager-log-line.is-done .driver-manager-log-text {
+    color: #389e0d;
+}
+
+.driver-manager-log-line.is-error .driver-manager-log-text {
+    color: #cf1322;
+}
+
+@container (max-width: 960px) {
+    .driver-manager-columns {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .driver-manager-card-controls {
-        width: min(100%, 520px);
+    /* 嵌入态高度被压满：栈叠时列表行自适应、详情行吃掉剩余高度内部滚动，
+       避免隐式行被拉伸出大片空白。 */
+    .driver-manager-shell.is-embedded .driver-manager-columns {
+        grid-template-rows: auto minmax(0, 1fr);
     }
 
-    .driver-manager-card-actions {
-        justify-content: flex-start;
-    }
-}
-
-@media (max-width: 900px) {
-    .driver-manager-header,
-    .driver-manager-card-main {
-        grid-template-columns: 1fr;
+    .driver-manager-list-pane {
+        border-right: 0;
+        padding-right: 0;
     }
 
-    .driver-manager-stats {
-        min-width: 0;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .driver-manager-detail {
+        padding-left: 0;
     }
 
-    .driver-manager-card-actions {
-        justify-content: flex-start;
+    .driver-manager-shell.is-embedded .driver-manager-list {
+        max-height: 300px;
+    }
+
+    .driver-manager-batch-bar {
+        flex-wrap: wrap;
+    }
+
+    .driver-manager-batch-bar-progress {
+        flex-basis: 100%;
+        order: 3;
+    }
+
+    .driver-manager-batch-bar-actions {
+        margin-left: auto;
     }
 
     .driver-manager-batch-progress-header,
@@ -3375,25 +3822,87 @@ body[data-ui-version="v2"] .gn-v2-titlebar .titlebar-web-logout-btn {
         justify-content: flex-start;
     }
 
-    .driver-manager-shell.is-embedded .driver-manager-header,
-    .driver-manager-shell.is-embedded .driver-manager-card-main {
-        grid-template-columns: 1fr;
-    }
-
-    .driver-manager-shell.is-embedded .driver-manager-stats,
-    .driver-manager-shell.is-embedded .driver-manager-card-actions {
-        justify-content: flex-start;
+    .driver-manager-bulkbar-dir {
+        margin-left: 0;
     }
 }
 
-@media (max-width: 680px) {
-    .driver-manager-shell.is-embedded .driver-manager-card-controls {
-        grid-template-columns: 1fr;
-    }
+/* ── 驱动管理暗色适配 ──
+   扁平布局下几乎没有面板表面：var(--ant-*) 未启用 cssVar 时回退亮色，
+   暗色的次要文字、分隔线与浅色底改由 data-driver-theme='dark' /
+   body[data-theme='dark'] 覆盖。 */
+body[data-theme='dark'] .driver-manager-modal .ant-modal-body {
+    color: rgba(255, 255, 255, 0.88);
+}
 
-    .driver-manager-shell.is-embedded .driver-manager-card-actions {
-        grid-column: 1;
-    }
+body[data-theme='dark'] .driver-manager-log-list {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+body[data-theme='dark'] .driver-manager-log-time {
+    color: rgba(255, 255, 255, 0.45);
+}
+
+body[data-theme='dark'] .driver-manager-log-text {
+    color: rgba(255, 255, 255, 0.88);
+}
+
+body[data-theme='dark'] .driver-manager-log-line.is-done .driver-manager-log-text {
+    color: #95de64;
+}
+
+body[data-theme='dark'] .driver-manager-log-line.is-error .driver-manager-log-text {
+    color: #ff7875;
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-net-text,
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-control-label,
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-page-sub {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip[data-tone='needsUpdate'] .driver-manager-filter-chip-count {
+    color: #faad14;
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip {
+    color: rgba(255, 255, 255, 0.62);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip.is-active {
+    background: rgba(22, 119, 255, 0.22);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-filter-chip-count {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-pane {
+    border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-item.is-selected {
+    background: rgba(22, 119, 255, 0.24);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-list-item-meta {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-batch-bar {
+    background: rgba(22, 119, 255, 0.16);
+}
+
+.driver-manager-shell[data-driver-theme='dark'] .driver-manager-mirror-chip {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+body[data-theme='dark'] .driver-manager-embedded-layout > .driver-manager-footer-actions {
+    border-top-color: rgba(255, 255, 255, 0.10);
 }
 
 .security-update-action-btn.ant-btn,
@@ -3509,12 +4018,6 @@ body[data-theme='dark'] .gonavi-query-editor-ai-inline-ghost-overlay {
   color: rgba(203, 213, 225, 0.56);
 }
 
-/* Legacy sidebar resize bounds — mirror v2 .gn-v2-app-sider so Ant Design inline width locks do not collapse drag range. */
-body[data-ui-version="legacy"] .ant-layout-sider {
-  min-width: 232px !important;
-  max-width: min(960px, calc(100vw - 360px)) !important;
-}
-
 body[data-ui-version] .ant-layout-sider[data-sidebar-panel='true'] {
   --gonavi-sidebar-collapse-duration: 200ms;
 }
@@ -3541,14 +4044,12 @@ body[data-ui-version] .ant-layout-sider[data-sidebar-collapsed='true'] {
   border-right: 0 !important;
 }
 
-body[data-ui-version='legacy'] .ant-layout-sider[data-sidebar-collapsed='true'] [data-sidebar-content='true'],
 body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='true'] [data-sidebar-tree-panel='true'] {
   visibility: hidden;
   pointer-events: none;
   transition: visibility 0s linear var(--gonavi-sidebar-collapse-duration);
 }
 
-body[data-ui-version='legacy'] .ant-layout-sider[data-sidebar-collapsed='false'] [data-sidebar-content='true'],
 body[data-ui-version='v2'] .ant-layout-sider[data-sidebar-collapsed='false'] [data-sidebar-tree-panel='true'] {
   visibility: visible;
   transition: none;
@@ -3783,6 +4284,22 @@ body[data-theme='dark'] .gonavi-ai-provider-add:hover {
   --gn-settings-font-secondary: var(--gn-font-size-sm);
   --gn-settings-font-caption: var(--gn-settings-font-secondary);
   font-size: var(--gn-settings-font-body);
+}
+
+
+.gonavi-settings-center-workbench-host,
+.gonavi-settings-center-workbench {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gonavi-settings-center-workbench .gonavi-settings-center-layout {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
 }
 
 .gonavi-settings-center-modal code,
@@ -4127,7 +4644,7 @@ body[data-theme='dark'] .gonavi-settings-center-entry:hover {
 
 @media (max-width: 1120px) {
   .gonavi-settings-center-layout {
-    grid-template-columns: 176px minmax(0, 1fr) !important;
+    grid-template-columns: 220px minmax(0, 1fr) !important;
     gap: 12px !important;
   }
 
@@ -4657,12 +5174,149 @@ body[data-theme='dark'] .gonavi-ai-mcp-client-option.is-active {
 
 body .gonavi-about-pane {
   --gn-about-update-control-width: 200px;
+  --gn-about-label-width: 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 2px 4px;
+}
+
+body .gonavi-about-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+body .gonavi-about-identity img {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+body .gonavi-about-section {
+  display: grid;
+  grid-template-columns: var(--gn-about-label-width) minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+  min-width: 0;
+}
+
+body .gonavi-about-section-title {
+  grid-column: 1 / -1;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+body .gonavi-about-setting,
+body .gonavi-about-facts,
+body .gonavi-about-link-grid,
+body .gonavi-about-download-source {
+  grid-column: 1 / -1;
+}
+
+body .gonavi-about-setting {
+  display: grid;
+  grid-template-columns: subgrid;
+  row-gap: 2px;
+}
+
+body .gonavi-about-field,
+body .gonavi-about-fact {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+  min-height: 32px;
+}
+
+body .gonavi-about-field > :not(.gonavi-about-field-label) {
+  justify-self: start;
+  width: max-content;
+  max-width: 100%;
+}
+
+body .gonavi-about-field-control {
+  display: inline-flex;
+  justify-self: start;
+  width: max-content;
+  max-width: 100%;
+}
+
+body .gonavi-about-field-control .ant-switch {
+  flex: none;
+  width: 44px !important;
+  min-width: 44px !important;
+}
+
+body .gonavi-about-field-label {
+  box-sizing: border-box;
+  width: var(--gn-about-label-width);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+body .gonavi-about-field-hint {
+  grid-column: 2;
+  margin: 0;
+  padding: 0 0 2px;
+  line-height: 1.4;
+  font-size: var(--gn-font-size-sm, 12px);
+}
+
+body .gonavi-about-facts {
+  display: grid;
+  grid-template-columns: subgrid;
+  row-gap: 4px;
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+body .gonavi-about-fact {
+  min-height: 24px;
+}
+
+body .gonavi-about-link-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+body .gonavi-about-project-entry-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
+  border-radius: 6px;
+  background: #fff;
+}
+
+@media (max-width: 920px) {
+  body .gonavi-about-link-grid {
+    grid-template-columns: 1fr;
+  }
+
+  body .gonavi-about-section,
+  body .gonavi-about-setting,
+  body .gonavi-about-facts,
+  body .gonavi-about-field,
+  body .gonavi-about-fact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body .gonavi-about-field-hint {
+    grid-column: 1;
+  }
 }
 
 body .gonavi-about-update-channel.ant-segmented.ant-segmented {
-  width: var(--gn-about-update-control-width);
+  width: max-content;
   max-width: 100%;
-  justify-self: end;
+  justify-self: start;
   height: var(--gn-control-height, 32px) !important;
   padding: 2px !important;
   border: 1px solid rgba(15, 23, 42, 0.10) !important;
@@ -4674,7 +5328,7 @@ body .gonavi-about-update-channel.ant-segmented.ant-segmented {
 body .gonavi-about-auto-check-interval.ant-select {
   width: var(--gn-about-update-control-width);
   max-width: 100%;
-  justify-self: end;
+  justify-self: start;
 }
 
 body .gonavi-about-update-channel .ant-segmented-group {
@@ -4682,18 +5336,20 @@ body .gonavi-about-update-channel .ant-segmented-group {
 }
 
 body .gonavi-about-update-channel .ant-segmented-item {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
   border-radius: 4px !important;
 }
 
 body .gonavi-about-update-channel .ant-segmented-item-label {
   min-height: calc(var(--gn-control-height, 32px) - 6px) !important;
-  padding: 0 8px !important;
+  overflow: visible !important;
+  padding: 0 12px !important;
   color: rgba(15, 23, 42, 0.62) !important;
   font-size: var(--gn-font-size-sm, 12px) !important;
   font-weight: 600 !important;
   line-height: calc(var(--gn-control-height, 32px) - 6px) !important;
+  white-space: nowrap;
 }
 
 body .gonavi-about-update-channel .ant-segmented-item-selected,
@@ -4733,7 +5389,7 @@ body[data-theme='dark'] .gonavi-about-update-channel .ant-segmented-item-selecte
 /* ── 更新通道：选中项使用主题强调色实心胶囊 ──────────────
    原先深色下选中态是 rgba(30,41,59,.98)，与容器底 rgba(15,23,42,.55) 对比极低，
    选中状态几乎看不出来，且完全没有体现主题色。
-   --gn-accent 仅在 v2 下定义，因此这里限定 v2 作用域；旧版 UI 保留其自身的中性配色。
+   --gn-accent 由当前工作台主题定义，因此这里沿用稳定的 v2 样式作用域。
    ant-segmented-thumb 是切换时的滑动块，必须与选中项同色，否则动画期间会闪回灰底。
 
    注意选择器必须带上 .ant-segmented（即 .gonavi-about-update-channel.ant-segmented），
@@ -5238,193 +5894,6 @@ body[data-ui-version='v2'][data-theme='dark'] .gonavi-theme-settings .gonavi-set
   background: color-mix(in srgb, var(--gn-settings-accent) 22%, transparent) !important;
 }
 
-/* 界面版本预览：预览画布保留边界，选择项本身保持平面。 */
-body .gonavi-theme-settings .gonavi-settings-ui-version-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 12px;
-  row-gap: 0;
-  border-top: 1px solid var(--gn-settings-line);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-tile {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 9px 8px;
-  border: 0;
-  border-left: 3px solid transparent;
-  border-bottom: 1px solid var(--gn-settings-line);
-  border-radius: 0;
-  background: transparent;
-  color: var(--gn-settings-fg);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.12s ease, background-color 0.12s ease;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-tile:hover {
-  background: color-mix(in srgb, var(--gn-settings-fg) 4%, transparent);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-tile.is-active {
-  border-left-color: var(--gn-settings-accent);
-  box-shadow: none;
-  background: var(--gn-settings-accent-soft);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview {
-  position: relative;
-  flex: 0 0 94px;
-  width: 94px;
-  height: 52px;
-  overflow: hidden;
-  border-radius: 4px;
-  border: 1px solid var(--gn-settings-line);
-  background: #f1f5f9;
-}
-
-body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-ui-version-preview {
-  background: #0f172a;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview.is-legacy {
-  display: grid;
-  grid-template-columns: 34% 1fr;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview.is-v2 {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-side {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 8px 6px;
-  border-right: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-side {
-  border-right-color: rgba(255, 255, 255, 0.08);
-  background: rgba(30, 41, 59, 0.85);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview.is-v2 .uv-side {
-  align-items: center;
-  padding: 8px 3px;
-  background: linear-gradient(180deg, #16a34a 0%, #15803d 100%);
-  border-right: none;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.18);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview.is-v2 .uv-dot {
-  width: 7px;
-  height: 7px;
-  background: rgba(255, 255, 255, 0.88);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-main {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-bar {
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(15, 23, 42, 0.10);
-}
-
-body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-bar {
-  background: rgba(248, 250, 252, 0.12);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-bar.is-accent {
-  width: 42%;
-  background: color-mix(in srgb, var(--gn-settings-accent) 55%, rgba(15, 23, 42, 0.08));
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview.is-v2 .uv-bar.is-accent {
-  width: 48%;
-  background: color-mix(in srgb, var(--gn-settings-accent) 70%, #fff);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-cards {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 5px;
-  flex: 1;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-card {
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-}
-
-body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-ui-version-preview .uv-card {
-  background: rgba(30, 41, 59, 0.9);
-  border-color: rgba(255, 255, 255, 0.08);
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-preview.is-legacy .uv-card {
-  border-radius: 2px;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-meta {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: var(--gn-settings-font-body, var(--gn-font-size, 14px));
-  font-weight: 700;
-  line-height: 1.3;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-badge {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.06);
-  color: var(--gn-settings-muted);
-  font-size: var(--gn-font-size-sm, 12px);
-  font-weight: 700;
-}
-
-body .gonavi-theme-settings .gonavi-settings-ui-version-badge.is-new {
-  background: rgba(2, 132, 199, 0.12);
-  color: #0284c7;
-}
-
-body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-ui-version-badge {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-body[data-theme='dark'] .gonavi-theme-settings .gonavi-settings-ui-version-badge.is-new {
-  background: rgba(56, 189, 248, 0.18);
-  color: #7dd3fc;
-}
-
 /* 顶部分段：原生 button Tab（不依赖 antd Segmented） */
 body .gonavi-theme-settings .gonavi-settings-tabs {
   display: flex;
@@ -5678,4 +6147,60 @@ body .gonavi-theme-settings .gonavi-settings-row.is-control-only {
 
 body .gonavi-theme-settings .gonavi-settings-row.is-control-only .gonavi-settings-label {
   display: none;
+}
+
+
+/* Settings center workbench: flush scrollbar + refined thumb */
+.gonavi-settings-center-workbench-host,
+.gonavi-settings-center-modal {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--gn-fg-4, #6b7280) 55%, transparent) transparent;
+}
+.gonavi-settings-center-workbench-host .gonavi-settings-center-pane-scroll,
+.gonavi-settings-center-modal .gonavi-settings-center-pane-scroll,
+.gonavi-settings-center-workbench-host .gonavi-settings-center-layout,
+.gonavi-settings-center-modal .gonavi-settings-center-layout {
+  scrollbar-gutter: auto;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar,
+.gonavi-settings-center-modal ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-track,
+.gonavi-settings-center-modal ::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb,
+.gonavi-settings-center-modal ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--gn-fg-4, #6b7280) 42%, transparent);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+  min-height: 40px;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-thumb:hover,
+.gonavi-settings-center-modal ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--gn-accent, #16a34a) 55%, var(--gn-fg-4, #6b7280));
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.gonavi-settings-center-workbench-host ::-webkit-scrollbar-corner,
+.gonavi-settings-center-modal ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Compact IDEA-like settings chrome: no banner title, keep close only */
+.gonavi-settings-center-modal .ant-modal-header {
+  margin: 0 !important;
+  padding: 4px 12px 0 !important;
+  min-height: 0 !important;
+  border-bottom: none !important;
+}
+.gonavi-settings-center-modal .ant-modal-title {
+  display: none !important;
+}
+.gonavi-settings-center-modal .ant-modal-body {
+  padding-top: 0 !important;
 }

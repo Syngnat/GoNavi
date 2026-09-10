@@ -22,8 +22,7 @@ export const buildOverlayWorkbenchTheme = (
   darkMode: boolean,
   options?: {
     disableBackdropFilter?: boolean;
-    uiVersion?: 'legacy' | 'v2';
-    /** Resolve V2 surfaces from the document theme variables (used by native detached windows). */
+    /** Resolve surfaces from the document theme variables (used by native detached windows). */
     useThemeVariables?: boolean;
   },
 ): OverlayWorkbenchTheme => {
@@ -31,11 +30,7 @@ export const buildOverlayWorkbenchTheme = (
     darkMode ? 'blur(18px)' : 'none',
     options?.disableBackdropFilter ?? false,
   );
-  const uiVersion = options?.uiVersion ?? 'legacy';
-
-  // ─── v2 palette ──────────────────────────────────────────────
-  if (uiVersion === 'v2') {
-    if (options?.useThemeVariables) {
+  if (options?.useThemeVariables) {
       const fallback = darkMode
         ? {
             panel: '#161a21',
@@ -63,7 +58,7 @@ export const buildOverlayWorkbenchTheme = (
             hover: 'rgba(15,23,42,0.045)',
             selected: 'rgba(34, 197, 94, 0.10)',
           };
-      return {
+    return {
         isDark: darkMode,
         shellBg: `var(--gn-bg-panel, ${fallback.panel})`,
         shellBorder: `0.5px solid var(--gn-br-1, ${fallback.border1})`,
@@ -79,10 +74,10 @@ export const buildOverlayWorkbenchTheme = (
         selectedBg: `var(--gn-bg-selected, ${fallback.selected})`,
         selectedText: `var(--gn-accent-strong, ${fallback.accentStrong})`,
         divider: `var(--gn-br-1, ${fallback.border1})`,
-      };
-    }
-    if (darkMode) {
-      return {
+    };
+  }
+  if (darkMode) {
+    return {
         isDark: true,
         shellBg: 'linear-gradient(180deg, rgba(22, 26, 33, 0.96) 0%, rgba(12, 14, 18, 0.98) 100%)',
         shellBorder: '0.5px solid rgba(255,255,255,0.10)',
@@ -98,9 +93,9 @@ export const buildOverlayWorkbenchTheme = (
         selectedBg: 'rgba(34, 197, 94, 0.14)',
         selectedText: '#4ade80',
         divider: 'rgba(255,255,255,0.06)',
-      };
-    }
-    return {
+    };
+  }
+  return {
       isDark: false,
       shellBg: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(250,250,248,0.98) 100%)',
       shellBorder: '0.5px solid rgba(15,23,42,0.12)',
@@ -116,46 +111,6 @@ export const buildOverlayWorkbenchTheme = (
       selectedBg: 'rgba(34, 197, 94, 0.10)',
       selectedText: '#15803d',
       divider: 'rgba(15,23,42,0.08)',
-    };
-  }
-
-  // ─── legacy palette (existing behavior) ──────────────────────
-  if (darkMode) {
-    return {
-      isDark: true,
-      shellBg: 'linear-gradient(180deg, rgba(15, 15, 17, 0.96) 0%, rgba(11, 11, 13, 0.98) 100%)',
-      shellBorder: '1px solid rgba(255,255,255,0.08)',
-      shellShadow: '0 24px 56px rgba(0,0,0,0.34)',
-      shellBackdropFilter,
-      sectionBg: 'rgba(255,255,255,0.03)',
-      sectionBorder: '1px solid rgba(255,255,255,0.08)',
-      mutedText: 'rgba(255,255,255,0.5)',
-      titleText: '#f5f7ff',
-      iconBg: 'rgba(255,214,102,0.12)',
-      iconColor: '#ffd666',
-      hoverBg: 'rgba(255,214,102,0.10)',
-      selectedBg: 'rgba(255,214,102,0.14)',
-      selectedText: '#ffd666',
-      divider: 'rgba(255,255,255,0.08)',
-    };
-  }
-
-  return {
-    isDark: false,
-    shellBg: 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(246,248,252,0.98) 100%)',
-    shellBorder: '1px solid rgba(16,24,40,0.08)',
-    shellShadow: '0 18px 42px rgba(15,23,42,0.12)',
-    shellBackdropFilter,
-    sectionBg: 'rgba(255,255,255,0.84)',
-    sectionBorder: '1px solid rgba(16,24,40,0.08)',
-    mutedText: 'rgba(16,24,40,0.55)',
-    titleText: '#162033',
-    iconBg: 'rgba(24,144,255,0.1)',
-    iconColor: '#1677ff',
-    hoverBg: 'rgba(24,144,255,0.08)',
-    selectedBg: 'rgba(24,144,255,0.12)',
-    selectedText: '#1677ff',
-    divider: 'rgba(16,24,40,0.08)',
   };
 };
 

@@ -26,6 +26,7 @@ var connectionReadOnlySupportedTypes = map[string]struct{}{
 	"gaussdb":       {},
 	"highgo":        {},
 	"iris":          {},
+	"cache":         {},
 	"kingbase":      {},
 	"mariadb":       {},
 	"mongodb":       {},

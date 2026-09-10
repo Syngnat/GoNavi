@@ -62,7 +62,7 @@ export type BuiltinCustomThemePreset = CustomThemeDefinition & {
   };
 };
 
-const BUILTIN_THEME_REVISION = 2026072601;
+const BUILTIN_THEME_REVISION = 2026090604;
 
 /**
  * 主要操作按钮交互态的派生比例（强调色占比，其余混入面板底色）。
@@ -246,27 +246,46 @@ const mixHex = (accent: string, towards: string, ratio: number): string => {
   return `#${channel(0)}${channel(1)}${channel(2)}`;
 };
 
+const withWindowOpacity = (color: string): string => (
+  `color-mix(in srgb, ${color} var(--gn-window-opacity-percent, 100%), transparent)`
+);
+
+const readableDarkForeground = (level: 1 | 2 | 3 | 4 | 5): string => ({
+  1: '#ffffff',
+  2: '#f5f5f5',
+  3: '#e6e6e6',
+  4: '#d9d9d9',
+  5: '#cccccc',
+}[level]);
+
+const themeForeground = (palette: BuiltinThemePalette, level: 1 | 2 | 3 | 4 | 5): string => (
+  palette.mode === 'dark'
+    ? readableDarkForeground(level)
+    : palette[`fg${level}`]
+);
+
 const createBuiltinThemeCss = (id: string, palette: BuiltinThemePalette): string => `/* GoNavi built-in theme: ${id} */
 body[data-custom-theme],
 body[data-custom-theme][data-ui-version="v2"] {
   color-scheme: ${palette.mode};
-  --gn-bg-app: ${palette.app};
-  --gn-bg-chrome: ${palette.chrome};
-  --gn-bg-panel: ${palette.panel};
-  --gn-bg-panel-2: ${palette.panel2};
+  --gn-bg-app: ${withWindowOpacity(palette.app)};
+  --gn-bg-chrome: ${withWindowOpacity(palette.chrome)};
+  --gn-bg-titlebar: ${withWindowOpacity(palette.panel2)};
+  --gn-bg-panel: ${withWindowOpacity(palette.panel)};
+  --gn-bg-panel-2: ${withWindowOpacity(palette.panel2)};
   --gn-monaco-bg: var(--gn-bg-panel-2);
-  --gn-bg-input: ${palette.input};
-  --gn-bg-subtle: ${palette.panel2};
+  --gn-bg-input: ${withWindowOpacity(palette.input)};
+  --gn-bg-subtle: ${withWindowOpacity(palette.panel2)};
   --gn-bg-hover: ${palette.hover};
   --gn-bg-active: ${palette.active};
   --gn-bg-selected: ${palette.selected};
 
-  --gn-fg-1: ${palette.fg1};
-  --gn-fg-2: ${palette.fg2};
-  --gn-fg-3: ${palette.fg3};
-  --gn-fg-4: ${palette.fg4};
-  --gn-fg-5: ${palette.fg5};
-  --gn-text-muted: ${palette.fg4};
+  --gn-fg-1: ${themeForeground(palette, 1)};
+  --gn-fg-2: ${themeForeground(palette, 2)};
+  --gn-fg-3: ${themeForeground(palette, 3)};
+  --gn-fg-4: ${themeForeground(palette, 4)};
+  --gn-fg-5: ${themeForeground(palette, 5)};
+  --gn-text-muted: ${themeForeground(palette, 4)};
 
   --gn-br-1: ${palette.border1};
   --gn-br-2: ${palette.border2};
@@ -290,7 +309,7 @@ body[data-custom-theme][data-ui-version="v2"] {
   --gn-danger-strong: ${palette.dangerStrong};
   --gn-danger-strong-hover: ${palette.dangerHover};
   --gn-on-danger: ${palette.onDanger};
-  --gn-status-connected: ${palette.mode === 'dark' ? '#4ade80' : '#15803d'};
+  --gn-status-connected: ${palette.mode === 'dark' ? '#4ade80' : '#157d3c'};
   --gn-purple: ${palette.purple};
   --gn-purple-soft: ${palette.purpleSoft};
 
@@ -466,7 +485,7 @@ body[data-custom-theme][data-ui-version="v2"] .gn-v2-live-dot.is-live,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-rail-status.is-live,
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-tree-status.is-success::before {
   background: var(--gn-status-connected) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gn-status-connected) 22%, transparent) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-status-connected) 22%, transparent) !important;
 }
 
 body[data-custom-theme][data-ui-version="v2"] .gn-v2-live-dot.is-loading,
@@ -617,6 +636,169 @@ export const BUILTIN_CUSTOM_THEME_PRESETS: readonly BuiltinCustomThemePreset[] =
       kbdBg: '#e3ece7', kbdFg: '#2d3d37',
     },
   ),
+
+  createPreset(
+    'builtin-amber-ember',
+    'Amber Ember',
+    'app.theme.custom.preset.amber_ember.name',
+    'app.theme.custom.preset.amber_ember.description',
+    {
+      mode: 'dark', app: '#1c1814', chrome: '#221d18', panel: '#2a241e', panel2: '#322b24', input: '#1f1a16',
+      hover: 'rgba(232, 214, 188, 0.05)', active: 'rgba(232, 214, 188, 0.08)', selected: 'rgba(196, 148, 86, 0.16)',
+      fg1: '#ebe2d6', fg2: '#d5c9b8', fg3: '#b6a790', fg4: '#9a8b74', fg5: '#8f806b',
+      border1: 'rgba(232, 214, 188, 0.06)', border2: 'rgba(232, 214, 188, 0.11)', border3: 'rgba(232, 214, 188, 0.18)',
+      accent: '#c49456', accent2: '#b3844a', accentSoft: 'rgba(196, 148, 86, 0.16)', accentSoftHover: 'rgba(196, 148, 86, 0.24)', accentOutline: 'rgba(212, 168, 108, 0.40)', onAccent: '#23180e',
+      info: '#7eabbf', infoSoft: 'rgba(126, 171, 191, 0.15)', onInfo: '#102028', warn: '#d0a15a', warnSoft: 'rgba(208, 161, 90, 0.16)', danger: '#d48478', dangerStrong: '#aa5b51', dangerHover: '#9e564c', onDanger: '#ffffff', purple: '#a892b0', purpleSoft: 'rgba(168, 146, 176, 0.16)',
+      shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(232, 214, 188, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
+      kbdBg: '#3a322a', kbdFg: '#d5c9b8',
+    },
+  ),
+  createPreset(
+    'builtin-rose-graphite',
+    'Rose Graphite',
+    'app.theme.custom.preset.rose_graphite.name',
+    'app.theme.custom.preset.rose_graphite.description',
+    {
+      mode: 'dark', app: '#1a1719', chrome: '#201c1f', panel: '#272225', panel2: '#2e292c', input: '#1d191c',
+      hover: 'rgba(230, 214, 220, 0.05)', active: 'rgba(230, 214, 220, 0.08)', selected: 'rgba(184, 126, 146, 0.16)',
+      fg1: '#ebe3e6', fg2: '#d4c8cd', fg3: '#b5a6ad', fg4: '#978990', fg5: '#8c7f86',
+      border1: 'rgba(230, 214, 220, 0.06)', border2: 'rgba(230, 214, 220, 0.11)', border3: 'rgba(230, 214, 220, 0.18)',
+      accent: '#bb8195', accent2: '#b37b8f', accentSoft: 'rgba(184, 126, 146, 0.16)', accentSoftHover: 'rgba(184, 126, 146, 0.24)', accentOutline: 'rgba(200, 148, 166, 0.40)', onAccent: '#27141c',
+      info: '#7ea6bc', infoSoft: 'rgba(126, 166, 188, 0.15)', onInfo: '#102028', warn: '#c9a060', warnSoft: 'rgba(201, 160, 96, 0.16)', danger: '#d47d86', dangerStrong: '#b35a64', dangerHover: '#a34f58', onDanger: '#ffffff', purple: '#a18ab8', purpleSoft: 'rgba(161, 138, 184, 0.16)',
+      shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(230, 214, 220, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
+      kbdBg: '#372f33', kbdFg: '#d4c8cd',
+    },
+  ),
+  createPreset(
+    'builtin-pine-smoke',
+    'Pine Smoke',
+    'app.theme.custom.preset.pine_smoke.name',
+    'app.theme.custom.preset.pine_smoke.description',
+    {
+      mode: 'dark', app: '#161a17', chrome: '#1b211d', panel: '#222924', panel2: '#29312b', input: '#181e1a',
+      hover: 'rgba(206, 220, 208, 0.05)', active: 'rgba(206, 220, 208, 0.08)', selected: 'rgba(122, 158, 126, 0.16)',
+      fg1: '#e2ebe3', fg2: '#c8d4ca', fg3: '#a7b6aa', fg4: '#8a998d', fg5: '#7f8e82',
+      border1: 'rgba(206, 220, 208, 0.06)', border2: 'rgba(206, 220, 208, 0.11)', border3: 'rgba(206, 220, 208, 0.18)',
+      accent: '#7ca080', accent2: '#749778', accentSoft: 'rgba(122, 158, 126, 0.16)', accentSoftHover: 'rgba(122, 158, 126, 0.24)', accentOutline: 'rgba(142, 176, 146, 0.40)', onAccent: '#152018',
+      info: '#76a5b5', infoSoft: 'rgba(118, 165, 181, 0.15)', onInfo: '#0f2228', warn: '#c2a35f', warnSoft: 'rgba(194, 163, 95, 0.16)', danger: '#cd8078', dangerStrong: '#b05f58', dangerHover: '#9f544e', onDanger: '#ffffff', purple: '#958eaa', purpleSoft: 'rgba(149, 142, 170, 0.16)',
+      shadowSm: '0 1px 2px rgba(0, 0, 0, 0.20)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.28)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.38)', shadowCard: '0 0 0 0.5px rgba(206, 220, 208, 0.07), 0 1px 3px rgba(0, 0, 0, 0.22)',
+      kbdBg: '#303832', kbdFg: '#c8d4ca',
+    },
+  ),
+  createPreset(
+    'builtin-lilac-dusk',
+    'Lilac Dusk',
+    'app.theme.custom.preset.lilac_dusk.name',
+    'app.theme.custom.preset.lilac_dusk.description',
+    {
+      mode: 'dark', app: '#18161e', chrome: '#1e1b27', panel: '#262231', panel2: '#2d2939', input: '#1b1823',
+      hover: 'rgba(220, 212, 234, 0.05)', active: 'rgba(220, 212, 234, 0.08)', selected: 'rgba(156, 138, 196, 0.16)',
+      fg1: '#e8e4f0', fg2: '#d0cadc', fg3: '#b0a8c0', fg4: '#9289a4', fg5: '#877e99',
+      border1: 'rgba(220, 212, 234, 0.06)', border2: 'rgba(220, 212, 234, 0.11)', border3: 'rgba(220, 212, 234, 0.18)',
+      accent: '#9c8ac4', accent2: '#9583bd', accentSoft: 'rgba(156, 138, 196, 0.16)', accentSoftHover: 'rgba(156, 138, 196, 0.24)', accentOutline: 'rgba(172, 156, 208, 0.40)', onAccent: '#1c152c',
+      info: '#7ea8c4', infoSoft: 'rgba(126, 168, 196, 0.15)', onInfo: '#10202c', warn: '#c9a45f', warnSoft: 'rgba(201, 164, 95, 0.16)', danger: '#d48494', dangerStrong: '#af5b6c', dangerHover: '#a35363', onDanger: '#ffffff', purple: '#b09ad0', purpleSoft: 'rgba(176, 154, 208, 0.16)',
+      shadowSm: '0 1px 2px rgba(0, 0, 0, 0.22)', shadowMd: '0 4px 14px rgba(0, 0, 0, 0.30)', shadowLg: '0 12px 38px rgba(0, 0, 0, 0.40)', shadowCard: '0 0 0 0.5px rgba(220, 212, 234, 0.07), 0 1px 3px rgba(0, 0, 0, 0.24)',
+      kbdBg: '#342f40', kbdFg: '#d0cadc',
+    },
+  ),
+  createPreset(
+    'builtin-cloud-apricot',
+    'Cloud Apricot',
+    'app.theme.custom.preset.cloud_apricot.name',
+    'app.theme.custom.preset.cloud_apricot.description',
+    {
+      mode: 'light', app: '#f5efe8', chrome: '#ebe3d9', panel: '#fffcf8', panel2: '#f8f2ea', input: '#ffffff',
+      hover: 'rgba(74, 58, 48, 0.05)', active: 'rgba(74, 58, 48, 0.09)', selected: 'rgba(138, 74, 46, 0.14)',
+      fg1: '#2a231e', fg2: '#463a33', fg3: '#66574e', fg4: '#77675c', fg5: '#7b6b60',
+      border1: 'rgba(74, 58, 48, 0.08)', border2: 'rgba(74, 58, 48, 0.13)', border3: 'rgba(74, 58, 48, 0.20)',
+      accent: '#8a4a2e', accent2: '#6e3a24', accentSoft: '#f1e2d9', accentSoftHover: '#e8d4c8', accentOutline: 'rgba(138, 74, 46, 0.30)', onAccent: '#ffffff',
+      info: '#3f7398', infoSoft: '#ddeaf4', onInfo: '#ffffff', warn: '#9f6820', warnSoft: '#f2e5d0', danger: '#b94f4f', dangerStrong: '#a84040', dangerHover: '#923636', onDanger: '#ffffff', purple: '#7a628f', purpleSoft: '#ebe3f1',
+      shadowSm: '0 1px 2px rgba(74, 58, 48, 0.07)', shadowMd: '0 4px 14px rgba(74, 58, 48, 0.10)', shadowLg: '0 12px 36px rgba(74, 58, 48, 0.16)', shadowCard: '0 0 0 0.5px rgba(74, 58, 48, 0.10), 0 1px 3px rgba(74, 58, 48, 0.07)',
+      kbdBg: '#ece4da', kbdFg: '#463a33',
+    },
+  ),
+  createPreset(
+    'builtin-celadon-breeze',
+    'Celadon Breeze',
+    'app.theme.custom.preset.celadon_breeze.name',
+    'app.theme.custom.preset.celadon_breeze.description',
+    {
+      mode: 'light', app: '#eef3f8', chrome: '#e2ebf4', panel: '#f7fafc', panel2: '#eef4fa', input: '#ffffff',
+      hover: 'rgba(36, 64, 92, 0.05)', active: 'rgba(36, 64, 92, 0.09)', selected: 'rgba(47, 106, 146, 0.14)',
+      fg1: '#182433', fg2: '#2c3d50', fg3: '#4a6074', fg4: '#5b7184', fg5: '#5e7587',
+      border1: 'rgba(36, 64, 92, 0.08)', border2: 'rgba(36, 64, 92, 0.13)', border3: 'rgba(36, 64, 92, 0.20)',
+      accent: '#2f6a92', accent2: '#255878', accentSoft: '#dceaf3', accentSoftHover: '#cbe0ed', accentOutline: 'rgba(47, 106, 146, 0.30)', onAccent: '#ffffff',
+      info: '#3a7590', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6d668c', purpleSoft: '#e4e1ee',
+      shadowSm: '0 1px 2px rgba(36, 64, 92, 0.06)', shadowMd: '0 4px 14px rgba(36, 64, 92, 0.09)', shadowLg: '0 12px 36px rgba(36, 64, 92, 0.14)', shadowCard: '0 0 0 0.5px rgba(36, 64, 92, 0.10), 0 1px 3px rgba(36, 64, 92, 0.06)',
+      kbdBg: '#e2ebf3', kbdFg: '#2c3d50',
+    },
+  ),
+
+  createPreset(
+    'builtin-lilac-bloom',
+    'Lilac Bloom',
+    'app.theme.custom.preset.lilac_bloom.name',
+    'app.theme.custom.preset.lilac_bloom.description',
+    {
+      mode: 'light', app: '#f3f0f7', chrome: '#e9e4f0', panel: '#fbfafd', panel2: '#f4f0f8', input: '#ffffff',
+      hover: 'rgba(58, 48, 78, 0.05)', active: 'rgba(58, 48, 78, 0.09)', selected: 'rgba(106, 79, 140, 0.14)',
+      fg1: '#221c2c', fg2: '#3a3148', fg3: '#5a5068', fg4: '#6a6078', fg5: '#70667e',
+      border1: 'rgba(58, 48, 78, 0.08)', border2: 'rgba(58, 48, 78, 0.13)', border3: 'rgba(58, 48, 78, 0.20)',
+      accent: '#6a4f8c', accent2: '#57407a', accentSoft: '#ebe4f2', accentSoftHover: '#ddd3ea', accentOutline: 'rgba(106, 79, 140, 0.30)', onAccent: '#ffffff',
+      info: '#4a6f98', infoSoft: '#e0e8f2', onInfo: '#ffffff', warn: '#9a6828', warnSoft: '#f0e5d2', danger: '#b45464', dangerStrong: '#a04050', dangerHover: '#8c3646', onDanger: '#ffffff', purple: '#7a68a0', purpleSoft: '#ebe4f4',
+      shadowSm: '0 1px 2px rgba(58, 48, 78, 0.06)', shadowMd: '0 4px 14px rgba(58, 48, 78, 0.09)', shadowLg: '0 12px 36px rgba(58, 48, 78, 0.14)', shadowCard: '0 0 0 0.5px rgba(58, 48, 78, 0.10), 0 1px 3px rgba(58, 48, 78, 0.06)',
+      kbdBg: '#e9e4f0', kbdFg: '#3a3148',
+    },
+  ),
+  createPreset(
+    'builtin-sakura-haze',
+    'Sakura Haze',
+    'app.theme.custom.preset.sakura_haze.name',
+    'app.theme.custom.preset.sakura_haze.description',
+    {
+      mode: 'light', app: '#f8f0f2', chrome: '#f0e4e8', panel: '#fffafb', panel2: '#f9f1f3', input: '#ffffff',
+      hover: 'rgba(82, 48, 58, 0.05)', active: 'rgba(82, 48, 58, 0.09)', selected: 'rgba(160, 69, 104, 0.14)',
+      fg1: '#2a1c22', fg2: '#463038', fg3: '#685058', fg4: '#786068', fg5: '#7e666e',
+      border1: 'rgba(82, 48, 58, 0.08)', border2: 'rgba(82, 48, 58, 0.13)', border3: 'rgba(82, 48, 58, 0.20)',
+      accent: '#a04568', accent2: '#853753', accentSoft: '#f4e2e9', accentSoftHover: '#ebd3dd', accentOutline: 'rgba(160, 69, 104, 0.30)', onAccent: '#ffffff',
+      info: '#4a7398', infoSoft: '#e0eaf2', onInfo: '#ffffff', warn: '#9f6820', warnSoft: '#f2e5d0', danger: '#b84858', dangerStrong: '#a03848', dangerHover: '#8c3040', onDanger: '#ffffff', purple: '#84608c', purpleSoft: '#eee4f0',
+      shadowSm: '0 1px 2px rgba(82, 48, 58, 0.06)', shadowMd: '0 4px 14px rgba(82, 48, 58, 0.09)', shadowLg: '0 12px 36px rgba(82, 48, 58, 0.14)', shadowCard: '0 0 0 0.5px rgba(82, 48, 58, 0.10), 0 1px 3px rgba(82, 48, 58, 0.06)',
+      kbdBg: '#f0e4e8', kbdFg: '#463038',
+    },
+  ),
+  createPreset(
+    'builtin-silver-frost',
+    'Silver Frost',
+    'app.theme.custom.preset.silver_frost.name',
+    'app.theme.custom.preset.silver_frost.description',
+    {
+      mode: 'light', app: '#eef1f4', chrome: '#e3e7ec', panel: '#f7f9fb', panel2: '#eff2f5', input: '#ffffff',
+      hover: 'rgba(40, 52, 68, 0.05)', active: 'rgba(40, 52, 68, 0.09)', selected: 'rgba(61, 90, 128, 0.14)',
+      fg1: '#1a222c', fg2: '#2e3a48', fg3: '#4c5a68', fg4: '#5c6a78', fg5: '#62707e',
+      border1: 'rgba(40, 52, 68, 0.08)', border2: 'rgba(40, 52, 68, 0.13)', border3: 'rgba(40, 52, 68, 0.20)',
+      accent: '#3d5a80', accent2: '#314a6a', accentSoft: '#e0e7ef', accentSoftHover: '#d0dae6', accentOutline: 'rgba(61, 90, 128, 0.30)', onAccent: '#ffffff',
+      info: '#3a7090', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6a6688', purpleSoft: '#e4e2ee',
+      shadowSm: '0 1px 2px rgba(40, 52, 68, 0.06)', shadowMd: '0 4px 14px rgba(40, 52, 68, 0.09)', shadowLg: '0 12px 36px rgba(40, 52, 68, 0.14)', shadowCard: '0 0 0 0.5px rgba(40, 52, 68, 0.10), 0 1px 3px rgba(40, 52, 68, 0.06)',
+      kbdBg: '#e3e7ec', kbdFg: '#2e3a48',
+    },
+  ),
+  createPreset(
+    'builtin-sea-foam',
+    'Sea Foam',
+    'app.theme.custom.preset.sea_foam.name',
+    'app.theme.custom.preset.sea_foam.description',
+    {
+      mode: 'light', app: '#eaf6f8', chrome: '#dceef2', panel: '#f5fbfc', panel2: '#ebf5f7', input: '#ffffff',
+      hover: 'rgba(20, 72, 84, 0.05)', active: 'rgba(20, 72, 84, 0.09)', selected: 'rgba(14, 124, 134, 0.14)',
+      fg1: '#142830', fg2: '#28404a', fg3: '#466068', fg4: '#567078', fg5: '#5c7680',
+      border1: 'rgba(20, 72, 84, 0.08)', border2: 'rgba(20, 72, 84, 0.13)', border3: 'rgba(20, 72, 84, 0.20)',
+      accent: '#0d7983', accent2: '#0a6670', accentSoft: '#d5eef1', accentSoftHover: '#c2e5ea', accentOutline: 'rgba(14, 124, 134, 0.30)', onAccent: '#ffffff',
+      info: '#3a7590', infoSoft: '#dceaf0', onInfo: '#ffffff', warn: '#946628', warnSoft: '#efe4d2', danger: '#b4545c', dangerStrong: '#a2424b', dangerHover: '#8e3840', onDanger: '#ffffff', purple: '#6d668c', purpleSoft: '#e4e1ee',
+      shadowSm: '0 1px 2px rgba(20, 72, 84, 0.06)', shadowMd: '0 4px 14px rgba(20, 72, 84, 0.09)', shadowLg: '0 12px 36px rgba(20, 72, 84, 0.14)', shadowCard: '0 0 0 0.5px rgba(20, 72, 84, 0.10), 0 1px 3px rgba(20, 72, 84, 0.06)',
+      kbdBg: '#dceef2', kbdFg: '#28404a',
+    },
+  ),
+
 ] as const;
 
 const BUILTIN_CUSTOM_THEME_PRESET_MAP = new Map(

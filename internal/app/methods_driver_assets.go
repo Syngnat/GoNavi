@@ -15,6 +15,7 @@ import (
 	stdRuntime "runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"GoNavi-Wails/internal/db"
@@ -1180,16 +1181,77 @@ func copyOptionalDriverSupportFile(sourcePath, targetPath string) error {
 	return nil
 }
 
+func isDriverInstallFileBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch errno {
+		case 5, 32, 33: // ERROR_ACCESS_DENIED / SHARING_VIOLATION / LOCK_VIOLATION on Windows
+			return true
+		case syscall.EBUSY, syscall.ETXTBSY:
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	markers := []string{
+		"access is denied",
+		"being used by another process",
+		"sharing violation",
+		"text file busy",
+		"resource busy",
+		"ebusy",
+		"etxtbsy",
+	}
+	for _, marker := range markers {
+		if strings.Contains(msg, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func wrapDriverInstallReplaceError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var localized *localizedDriverBackendError
+	if errors.As(err, &localized) && localized != nil && strings.TrimSpace(localized.key) != "" {
+		return err
+	}
+	if isDriverInstallFileBusyError(err) {
+		return newLocalizedDriverBackendError("driver_manager.backend.error.agent_file_busy", nil, err)
+	}
+	return err
+}
+
+func wrapDriverInstallReplaceErrorOr(err error, fallbackKey string) error {
+	if err == nil {
+		return nil
+	}
+	wrapped := wrapDriverInstallReplaceError(err)
+	var localized *localizedDriverBackendError
+	if errors.As(wrapped, &localized) && localized != nil && strings.TrimSpace(localized.key) != "" {
+		return wrapped
+	}
+	key := strings.TrimSpace(fallbackKey)
+	if key == "" {
+		key = "driver_manager.backend.error.replace_agent_failed"
+	}
+	return newLocalizedDriverBackendError(key, nil, err)
+}
+
 func renameTempFileOverTarget(tempPath, targetPath string) error {
 	if err := os.Rename(tempPath, targetPath); err == nil {
 		return nil
 	} else {
 		firstErr := err
 		if removeErr := os.Remove(targetPath); removeErr != nil && !os.IsNotExist(removeErr) {
-			return firstErr
+			return wrapDriverInstallReplaceError(firstErr)
 		}
 		if retryErr := os.Rename(tempPath, targetPath); retryErr != nil {
-			return retryErr
+			return wrapDriverInstallReplaceError(retryErr)
 		}
 		return nil
 	}

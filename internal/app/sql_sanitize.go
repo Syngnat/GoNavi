@@ -360,6 +360,10 @@ func normalizeSQLClassifierDBType(dbType string) string {
 		return "kingbase"
 	case "milvusdb", "milvus-db":
 		return "milvus"
+	case "intersystems", "intersystemsiris", "inter-systems", "inter-systems-iris":
+		return "iris"
+	case "cache", "caché", "intersystems cache", "intersystems caché", "intersystems-cache", "intersystems-caché", "intersystemscache", "intersystemscaché", "inter-systems-cache", "inter-systems-caché", "intersystems-cache-database", "cache-db", "cachedb":
+		return "iris"
 	default:
 		return normalized
 	}

@@ -97,7 +97,7 @@ func TestRedactionBoundsStoredText(t *testing.T) {
 
 func TestRedactQueryUsesSQLLexerForSQLTypes(t *testing.T) {
 	query := "SELECT * FROM users WHERE password = 'sql-secret' AND id = 42"
-	for _, dbType := range []string{"mysql", "postgres", "sqlserver", "oracle", "clickhouse", "custom"} {
+	for _, dbType := range []string{"mysql", "postgres", "sqlserver", "oracle", "clickhouse", "custom", "cache", "Caché", "InterSystems Cache", "InterSystems Caché"} {
 		if got, want := RedactQuery(dbType, query), RedactSQL(query); got != want {
 			t.Fatalf("RedactQuery(%s)=%q, want SQL redaction %q", dbType, got, want)
 		}

@@ -4,7 +4,7 @@ import {
   buildConnectionTagParentOptions,
   buildConnectionTagSelectableConnections,
 } from './sidebar/SidebarEntityModals';
-import { buildSidebarLegacyNodeMenuItems } from './sidebar/sidebarLegacyNodeMenu';
+import { buildSidebarNodeMenuItems } from './sidebar/sidebarNodeMenu';
 
 describe('Sidebar nested group menu', () => {
   it('does not offer a group itself or its descendants as an editable parent', () => {
@@ -72,7 +72,7 @@ describe('Sidebar nested group menu', () => {
         childOrder: ['connection:host-1'],
       },
     };
-    const items = buildSidebarLegacyNodeMenuItems(node, {
+    const items = buildSidebarNodeMenuItems(node, {
       createTagForm,
       setRenameViewTarget,
       setIsCreateTagModalOpen,
@@ -119,12 +119,12 @@ describe('Sidebar nested group menu', () => {
       deleteQuery: vi.fn(),
     };
 
-    const rootItems = buildSidebarLegacyNodeMenuItems({ type: 'all-saved-queries' }, context) as any[];
+    const rootItems = buildSidebarNodeMenuItems({ type: 'all-saved-queries' }, context) as any[];
     const newGroup = rootItems.find((item) => item?.key === 'new-saved-query-group');
     newGroup.onClick();
     expect(openSavedQueryGroupModal).toHaveBeenCalledWith(null, null);
 
-    const groupItems = buildSidebarLegacyNodeMenuItems({
+    const groupItems = buildSidebarNodeMenuItems({
       type: 'saved-query-manual-group',
       dataRef: savedQueryGroups[0],
     }, context) as any[];
@@ -135,7 +135,7 @@ describe('Sidebar nested group menu', () => {
     editGroup.onClick();
     expect(openSavedQueryGroupModal).toHaveBeenLastCalledWith(savedQueryGroups[0]);
 
-    const queryItems = buildSidebarLegacyNodeMenuItems({
+    const queryItems = buildSidebarNodeMenuItems({
       type: 'saved-query',
       dataRef: {
         id: 'query-1',

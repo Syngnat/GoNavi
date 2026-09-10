@@ -361,6 +361,22 @@ describe('DataImportWorkbench', () => {
   it('renders the import job history panel', async () => {
     const renderer = await renderWorkbench();
 
+    const layout = renderer.root.findByProps({
+      'data-data-import-workbench-layout': 'true',
+    });
+    const preview = renderer.root.findByProps({
+      'data-data-import-preview-panel': 'true',
+    });
+    const history = renderer.root.findByProps({
+      'data-data-import-history-panel': 'true',
+    });
+
+    expect(layout.props.style.gridAutoRows).toBe('max-content');
+    expect(preview.props.style.alignSelf).toBe('start');
+    expect(history.props.style).toMatchObject({
+      gridColumn: '1 / -1',
+      minWidth: 0,
+    });
     expect(renderer.root.findByProps({
       'data-import-job-history-mock': 'true',
     })).toBeDefined();

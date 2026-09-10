@@ -340,6 +340,14 @@ describe('data sync task model', () => {
       ],
     });
     expect(canUseDataSyncRowErrorIsolation(safe)).toBe(true);
+    expect(canUseDataSyncRowErrorIsolation({
+      ...safe,
+      target: { ...safe.target, type: 'cache' },
+    })).toBe(true);
+    expect(canUseDataSyncRowErrorIsolation({
+      ...safe,
+      target: { ...safe.target, type: 'intersystems-cache' },
+    })).toBe(true);
     expect(
       canUseDataSyncRowErrorIsolation({
         ...safe,

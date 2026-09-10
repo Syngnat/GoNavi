@@ -3,8 +3,7 @@ import { showCountdownDangerConfirm } from './common/countdownDangerConfirm';
 import React, { useState, useEffect, useMemo, useCallback, useDeferredValue, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Input, Spin, Empty, Dropdown, message, Tooltip, Button } from 'antd';
-import type { MenuProps } from 'antd';
-import { TableOutlined, SearchOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined, ConsoleSqlOutlined, EditOutlined, CopyOutlined, SaveOutlined, DeleteOutlined, ExportOutlined, AppstoreOutlined, UnorderedListOutlined, WarningOutlined, CaretUpFilled, CaretDownFilled } from '@ant-design/icons';
+import { TableOutlined, SearchOutlined, ReloadOutlined, SortAscendingOutlined, DatabaseOutlined, AppstoreOutlined, UnorderedListOutlined, CaretUpFilled, CaretDownFilled } from '@ant-design/icons';
 import { buildSidebarTablePinKey, useStore, type TableOverviewViewMode } from '../store';
 import { DBGetTables, DBQuery, DBRefreshTableStats, DBShowCreateTable, DropTable, RenameTable } from '../../wailsjs/go/app/App';
 import type { TabData } from '../types';
@@ -283,7 +282,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const queryOptions = useStore(state => state.queryOptions);
     const setQueryOptions = useStore(state => state.setQueryOptions);
     const darkMode = theme === 'dark';
-    const isV2Ui = appearance.uiVersion === 'v2';
+
     const tableDoubleClickAction = appearance.tableDoubleClickAction === 'open-design' ? 'open-design' : 'open-data';
     const activeShortcutPlatform = getShortcutPlatform(isMacLikePlatform());
 
@@ -292,7 +291,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     const [searchText, setSearchText] = useState('');
     const [sortField, setSortField] = useState<SortField>('name');
     const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
-    const viewMode: ViewMode = queryOptions.tableOverviewViewMode || (isV2Ui ? 'card' : 'list');
+    const viewMode: ViewMode = queryOptions.tableOverviewViewMode || ('card');
     const setViewMode = useCallback((nextViewMode: ViewMode) => {
         setQueryOptions({ tableOverviewViewMode: nextViewMode });
     }, [setQueryOptions]);
@@ -446,7 +445,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
     );
 
     const openV2OverviewContextMenu = useCallback((event: React.MouseEvent, table: TableStatRow) => {
-        if (!isV2Ui) return;
+
         event.preventDefault();
         event.stopPropagation();
         const position = resolveOverviewContextMenuPosition(event.clientX, event.clientY);
@@ -458,7 +457,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             sourceY: event.clientY,
             maxHeight: position.maxHeight,
         });
-    }, [isV2Ui]);
+    }, [true]);
 
     useEffect(() => {
         if (!v2ContextMenu) return;
@@ -901,14 +900,11 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
 
     // --- Theme ---
     // v2 背景/边框/强调色交给 CSS token（跟自定义主题）；legacy 仍用 darkMode 近似色。
-    const cardBg = isV2Ui ? undefined : (darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)');
-    const cardHoverBg = darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)';
-    const cardBorder = isV2Ui ? undefined : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)');
-    const textPrimary = isV2Ui ? 'var(--gn-fg-1)' : (darkMode ? 'rgba(255,255,255,0.88)' : 'rgba(0,0,0,0.88)');
-    const textSecondary = isV2Ui ? 'var(--gn-fg-3)' : (darkMode ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)');
-    const textMuted = isV2Ui ? 'var(--gn-fg-4)' : (darkMode ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)');
-    const accentColor = isV2Ui ? 'var(--gn-accent)' : '#1677ff';
-    const containerBg = isV2Ui ? undefined : (darkMode ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.01)');
+    const textPrimary = 'var(--gn-fg-1)';
+    const textSecondary = 'var(--gn-fg-3)';
+    const textMuted = 'var(--gn-fg-4)';
+    const accentColor = 'var(--gn-accent)';
+    const containerBg = undefined;
 
     const toggleSort = (field: SortField) => {
         if (sortField === field) {
@@ -1087,44 +1083,6 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         />
     ), [activeShortcutPlatform, allowTruncate, connection?.id, handleV2TableContextMenuAction, metadataDialect, pinnedSidebarTables, schemaName, supportsCopyTable, tab.dbName]);
 
-    const buildLegacyTableContextMenuItems = useCallback((table: TableStatRow): MenuProps['items'] => [
-        { key: 'new-query', label: t('table_overview.menu.new_query'), icon: <ConsoleSqlOutlined />, onClick: () => openQueryForTable(table.name) },
-        { type: 'divider' },
-        {
-            key: 'design-table',
-            label: supportsDesignWrite ? t('table_overview.menu.design_table') : t('table_overview.menu.table_structure'),
-            icon: <EditOutlined />,
-            onClick: () => openDesign(table.name),
-        },
-        { key: 'copy-table-name', label: t('table_overview.menu.copy_table_name'), icon: <CopyOutlined />, onClick: () => handleCopyTableName(table.name) },
-        { key: 'copy-structure', label: t('table_overview.menu.copy_structure'), icon: <CopyOutlined />, onClick: () => handleCopyStructure(table.name) },
-        ...(supportsCopyTable ? [{ key: 'copy-table', label: t('table_copy.action.label'), icon: <CopyOutlined />, onClick: () => handleCopyTable(table.name) }] : []),
-        { key: 'backup-table', label: t('table_overview.menu.backup_table_sql'), icon: <SaveOutlined />, onClick: () => openTableSQLExportWorkbench(table.name, 'backup') },
-        { key: 'rename-table', label: t('table_overview.menu.rename_table'), icon: <EditOutlined />, onClick: () => handleRenameTable(table.name) },
-        { key: 'danger-zone', label: t('table_overview.menu.danger_operations'), icon: <WarningOutlined />, children: [
-            ...(allowTruncate ? [{ key: 'truncate-table', label: t('table_overview.menu.truncate_table'), danger: true, onClick: () => handleTableDataDangerAction(table.name, 'truncate') }] : []),
-            { key: 'clear-table', label: t('table_overview.menu.clear_table'), danger: true, onClick: () => handleTableDataDangerAction(table.name, 'clear') },
-            { key: 'drop-table', label: t('table_overview.menu.delete_table'), icon: <DeleteOutlined />, danger: true, onClick: () => handleDeleteTable(table.name) },
-        ]},
-        { type: 'divider' },
-        { key: 'export', label: t('table_overview.menu.export_table_data'), icon: <ExportOutlined />, onClick: () => openExportDialog(table.name, table.rows) },
-    ], [
-        allowTruncate,
-        handleCopyStructure,
-        handleCopyTable,
-        handleCopyTableName,
-        handleDeleteTable,
-        handleRenameTable,
-        handleTableDataDangerAction,
-        openExportDialog,
-        openDesign,
-        openQueryForTable,
-        openTableSQLExportWorkbench,
-        supportsDesignWrite,
-        supportsCopyTable,
-        t,
-    ]);
-
     const renderOverviewSectionTitle = (section: OverviewTableSection) => {
         const sectionTitle = section.kind === 'pinned'
             ? t('table_overview.section.pinned')
@@ -1132,7 +1090,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
 
         return (
             <div
-                className={isV2Ui ? 'gn-v2-table-overview-section-title' : undefined}
+                className={'gn-v2-table-overview-section-title'}
                 data-overview-table-section={section.kind}
                 style={{
                     display: 'flex',
@@ -1178,7 +1136,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
         if (items.length === 0) return null;
         return (
             <div
-                className={reserveMissing && isV2Ui ? 'gn-v2-table-card-timestamps' : undefined}
+                className={reserveMissing ? 'gn-v2-table-card-timestamps' : undefined}
                 style={{
                     display: 'flex',
                     flexDirection: reserveMissing ? 'column' : 'row',
@@ -1206,9 +1164,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                 maxWidth: '100%',
                                 padding: compact ? '1px 7px' : '2px 8px',
                                 borderRadius: 999,
-                                background: isV2Ui
-                                    ? 'var(--gn-bg-active)'
-                                    : (darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'),
+                                background: 'var(--gn-bg-active)',
                                 color: textSecondary,
                                 fontSize: compact ? 10 : 11,
                                 lineHeight: compact ? '16px' : '18px',
@@ -1224,36 +1180,29 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 ))}
             </div>
         );
-    }, [darkMode, formatOverviewTimestamp, isV2Ui, t, textPrimary, textSecondary]);
+    }, [darkMode, formatOverviewTimestamp, t, textPrimary, textSecondary]);
 
     const renderCardTableContent = (table: TableStatRow) => (
         <div
-            className={isV2Ui ? 'gn-v2-table-card' : undefined}
-            data-table-overview-card={isV2Ui ? table.name : undefined}
+            className="gn-v2-table-card"
+            data-table-overview-card={table.name}
             onDoubleClick={() => openTableByDefaultAction(table.name)}
-            onContextMenu={isV2Ui ? (event) => openV2OverviewContextMenu(event, table) : undefined}
+            onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
             style={{
-                ...(isV2Ui ? {} : {
-                    background: cardBg,
-                    border: `1px solid ${cardBorder}`,
-                }),
                 borderRadius: 10,
                 padding: '14px 16px',
-                height: isV2Ui ? '100%' : undefined,
-                minHeight: isV2Ui ? 0 : undefined,
-                maxHeight: isV2Ui ? '100%' : undefined,
-                boxSizing: isV2Ui ? 'border-box' : undefined,
-                overflow: isV2Ui ? 'hidden' : undefined,
-                display: isV2Ui ? 'flex' : undefined,
-                flexDirection: isV2Ui ? 'column' : undefined,
+                height: '100%',
+                minHeight: 0,
+                maxHeight: '100%',
+                boxSizing: 'border-box',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
                 cursor: 'pointer',
-                transition: isV2Ui ? undefined : 'all 0.15s ease',
                 userSelect: 'none',
             }}
-            onMouseEnter={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardHoverBg; (e.currentTarget as HTMLDivElement).style.borderColor = accentColor; }}
-            onMouseLeave={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardBg || ''; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder || ''; }}
         >
-            <div className={isV2Ui ? 'gn-v2-table-card-name' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
+            <div className="gn-v2-table-card-name" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
                 <TableOutlined style={{ fontSize: 14, color: accentColor }} />
                 <Tooltip title={getTableOverviewDisplayName(metadataDialect, table.name)} mouseEnterDelay={0.4}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, display: 'block' }}>
@@ -1261,14 +1210,13 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     </span>
                 </Tooltip>
             </div>
-            {(isV2Ui || table.comment) && (
-                <Tooltip title={table.comment || undefined} mouseEnterDelay={0.4}>
+            <Tooltip title={table.comment || undefined} mouseEnterDelay={0.4}>
                     <div
-                        className={isV2Ui ? 'gn-v2-table-card-comment' : undefined}
-                        data-table-overview-card-field={isV2Ui ? 'comment' : undefined}
+                        className="gn-v2-table-card-comment"
+                        data-table-overview-card-field="comment"
                         style={{
-                            minHeight: isV2Ui ? 19 : undefined,
-                            flexShrink: isV2Ui ? 0 : undefined,
+                            minHeight: 19,
+                            flexShrink: 0,
                             fontSize: 12,
                             color: textSecondary,
                             marginBottom: 10,
@@ -1279,15 +1227,13 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     >
                         {table.comment || '—'}
                     </div>
-                </Tooltip>
-            )}
-            {renderTableOverviewMetaBadges(table, false, isV2Ui)}
-            <div className={isV2Ui ? 'gn-v2-table-card-meta' : undefined} style={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 16, marginTop: isV2Ui ? 'auto' : undefined, flexShrink: isV2Ui ? 0 : undefined, fontSize: 12, color: textMuted }}>
+            </Tooltip>
+            {renderTableOverviewMetaBadges(table, false, true)}
+            <div className="gn-v2-table-card-meta" style={{ display: 'flex', alignItems: 'center', minWidth: 0, gap: 16, marginTop: 'auto', flexShrink: 0, fontSize: 12, color: textMuted }}>
                 <span title={t('table_overview.sort.rows')} style={{ minWidth: 52, flexShrink: 0, whiteSpace: 'nowrap' }}>📊 {formatRows(table.rows)}</span>
                 <span title={t('table_overview.metric.data_size')} style={{ minWidth: 72, flexShrink: 0, whiteSpace: 'nowrap' }}>💾 {formatSize(table.dataSize)}</span>
-                {(isV2Ui || table.engine) && (
-                    <span
-                        data-table-overview-card-field={isV2Ui ? 'engine' : undefined}
+                <span
+                        data-table-overview-card-field="engine"
                         title={`${t('table_overview.metric.engine')}: ${table.engine || '—'}`}
                         style={{
                             marginLeft: 'auto',
@@ -1299,63 +1245,39 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                         }}
                     >
                         {table.engine || '—'}
-                    </span>
-                )}
+                </span>
             </div>
-            {isV2Ui && (
-                <div className="gn-v2-table-size-bar">
+            <div className="gn-v2-table-size-bar">
                     <span style={{ width: `${Math.min(100, Math.max(4, maxCombinedSize > 0 && hasKnownTableSize(table) ? Math.round((getCombinedTableSize(table) / maxCombinedSize) * 100) : 4))}%` }} />
-                </div>
-            )}
+            </div>
         </div>
     );
 
-    const renderCardTable = (table: TableStatRow) => {
-        if (isV2Ui) {
-            return <React.Fragment key={table.name}>{renderCardTableContent(table)}</React.Fragment>;
-        }
-        return (
-            <Dropdown
-                key={table.name}
-                trigger={['contextMenu']}
-                menu={{ items: buildLegacyTableContextMenuItems(table) }}
-            >
-                {renderCardTableContent(table)}
-            </Dropdown>
-        );
-    };
+    const renderCardTable = (table: TableStatRow) => (
+        <React.Fragment key={table.name}>{renderCardTableContent(table)}</React.Fragment>
+    );
 
     const renderListTable = (table: TableStatRow) => {
         const combinedSize = getCombinedTableSize(table);
         const displayName = getTableOverviewDisplayName(metadataDialect, table.name);
         const sizeRatio = maxCombinedSize > 0 && hasKnownTableSize(table) ? combinedSize / maxCombinedSize : 0;
         const fillWidth = maxCombinedSize > 0 && hasKnownTableSize(table) ? `${Math.max(10, Math.round(sizeRatio * 100))}%` : '0%';
-        const fillColor = isV2Ui
-            ? 'var(--gn-accent-soft, rgba(34, 197, 94, 0.16))'
-            : (darkMode ? 'rgba(22,119,255,0.18)' : 'rgba(22,119,255,0.12)');
+        const fillColor = 'var(--gn-accent-soft, rgba(34, 197, 94, 0.16))';
         const rowSecondary = table.comment || (table.engine
             ? t('table_overview.row.engine_table', { engine: table.engine })
             : t('table_overview.row.open_hint'));
 
         const content = (
                 <div
-                    className={isV2Ui ? 'gn-v2-table-row' : undefined}
+                    className="gn-v2-table-row"
                     onDoubleClick={() => openTableByDefaultAction(table.name)}
-                    onContextMenu={isV2Ui ? (event) => openV2OverviewContextMenu(event, table) : undefined}
+                    onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
                     style={{
                         position: 'relative',
                         overflow: 'hidden',
-                        borderRadius: isV2Ui ? undefined : 10,
-                        ...(isV2Ui ? {} : {
-                            border: `1px solid ${cardBorder}`,
-                            background: cardBg,
-                        }),
                         cursor: 'pointer',
-                        transition: isV2Ui ? undefined : 'all 0.15s ease',
                         userSelect: 'none',
                     }}
-                    onMouseEnter={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardHoverBg; (e.currentTarget as HTMLDivElement).style.borderColor = accentColor; }}
-                    onMouseLeave={isV2Ui ? undefined : e => { (e.currentTarget as HTMLDivElement).style.background = cardBg || ''; (e.currentTarget as HTMLDivElement).style.borderColor = cardBorder || ''; }}
                 >
                     <div
                         style={{
@@ -1396,9 +1318,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                                             borderRadius: 999,
                                             fontSize: 11,
                                             color: textMuted,
-                                            background: isV2Ui
-                                                ? 'var(--gn-bg-active)'
-                                                : (darkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.04)'),
+                                            background: 'var(--gn-bg-active)',
                                         }}
                                     >
                                         {table.engine}
@@ -1436,19 +1356,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 </div>
         );
 
-        if (isV2Ui) {
-            return <React.Fragment key={table.name}>{content}</React.Fragment>;
-        }
-
-        return (
-            <Dropdown
-                key={table.name}
-                trigger={['contextMenu']}
-                menu={{ items: buildLegacyTableContextMenuItems(table) }}
-            >
-                {content}
-            </Dropdown>
-        );
+        return <React.Fragment key={table.name}>{content}</React.Fragment>;
     };
 
     const renderCompactSortHeader = (
@@ -1528,19 +1436,13 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                 role="row"
                 data-table-overview-row={table.name}
                 onDoubleClick={() => openTableByDefaultAction(table.name)}
-                onContextMenu={isV2Ui ? (event) => openV2OverviewContextMenu(event, table) : undefined}
+                onContextMenu={(event) => openV2OverviewContextMenu(event, table)}
                 style={{
                     display: 'grid',
                     alignItems: 'center',
                     minWidth: 1120,
                     minHeight: 32,
-                    ...(isV2Ui ? {
-                        cursor: 'pointer',
-                        userSelect: 'none',
-                    } : {
-                        borderBottom: `1px solid ${cardBorder}`,
-                        background: cardBg,
-                        color: textPrimary,
+                    ...({
                         cursor: 'pointer',
                         userSelect: 'none',
                     }),
@@ -1572,45 +1474,32 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
             </div>
         );
 
-        if (isV2Ui) {
-            return <React.Fragment key={table.name}>{content}</React.Fragment>;
-        }
-        return (
-            <Dropdown
-                key={table.name}
-                trigger={['contextMenu']}
-                menu={{ items: buildLegacyTableContextMenuItems(table) }}
-            >
-                {content}
-            </Dropdown>
-        );
+        return <React.Fragment key={table.name}>{content}</React.Fragment>;
     };
 
     if (loading) {
         return (
-            <div className={isV2Ui ? 'gn-table-overview gn-v2-table-overview gn-v2-table-overview-loading' : 'gn-table-overview'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: containerBg }}>
+            <div className="gn-table-overview gn-v2-table-overview gn-v2-table-overview-loading" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: containerBg }}>
                 <Spin size="large" tip={t('table_overview.status.loading_tables')} />
             </div>
         );
     }
 
     const viewSwitchBtnClass = (mode: ViewMode) => (
-        isV2Ui
-            ? `gn-v2-table-overview-view-switch-btn${viewMode === mode ? ' is-active' : ''}`
-            : undefined
+        `gn-v2-table-overview-view-switch-btn${viewMode === mode ? ' is-active' : ''}`
     );
 
     return (
-        <div className={isV2Ui ? 'gn-table-overview gn-v2-table-overview' : 'gn-table-overview'} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: containerBg, overflow: 'hidden' }}>
+        <div className="gn-table-overview gn-v2-table-overview" style={{ display: 'flex', flexDirection: 'column', height: '100%', background: containerBg, overflow: 'hidden' }}>
             {/* Toolbar */}
-            <div className={isV2Ui ? 'gn-table-overview-header gn-v2-table-overview-header' : 'gn-table-overview-header'} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexShrink: 0 }}>
-                <span className={isV2Ui ? 'gn-v2-table-overview-icon' : undefined}>
-                    <DatabaseOutlined style={{ fontSize: 16, color: isV2Ui ? undefined : accentColor }} />
+            <div className="gn-table-overview-header gn-v2-table-overview-header" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexShrink: 0 }}>
+                <span className="gn-v2-table-overview-icon">
+                    <DatabaseOutlined style={{ fontSize: 16 }} />
                 </span>
-                <span className={isV2Ui ? 'gn-v2-table-overview-title' : undefined} style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>
+                <span className={'gn-v2-table-overview-title'} style={{ fontSize: 14, fontWeight: 600, color: textPrimary }}>
                     {[tab.dbName, overviewSchemaName].filter(Boolean).join(' · ')}
                 </span>
-                <span className={isV2Ui ? 'gn-table-overview-summary gn-v2-table-overview-summary' : 'gn-table-overview-summary'} style={{ fontSize: 12, color: textMuted }}>
+                <span className={'gn-table-overview-summary gn-v2-table-overview-summary'} style={{ fontSize: 12, color: textMuted }}>
                     {renderToolbarSummary()}
                 </span>
                 <div style={{ flex: 1 }} />
@@ -1628,8 +1517,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     <Tooltip title={t('table_overview.tooltip.sort')}><SortAscendingOutlined style={{ fontSize: 16, color: textSecondary, cursor: 'pointer' }} /></Tooltip>
                 </Dropdown>
                 <div
-                    className={isV2Ui ? 'gn-v2-table-overview-view-switch' : undefined}
-                    style={isV2Ui ? undefined : { display: 'flex', gap: 2, padding: 2, borderRadius: 6, background: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
+                    className="gn-v2-table-overview-view-switch"
                 >
                     <Tooltip title={t('table_overview.tooltip.card_view')}>
                         <button
@@ -1639,13 +1527,6 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                             aria-label={t('table_overview.tooltip.card_view')}
                             aria-pressed={viewMode === 'card'}
                             onClick={() => setViewMode('card')}
-                            style={isV2Ui ? undefined : {
-                                width: 28, height: 24, padding: 0, border: 0, borderRadius: 5, cursor: 'pointer', transition: 'all 0.15s',
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: 'inherit',
-                                background: viewMode === 'card' ? (darkMode ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
-                                boxShadow: viewMode === 'card' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                color: viewMode === 'card' ? accentColor : textMuted,
-                            }}
                         >
                             <AppstoreOutlined style={{ fontSize: 14 }} />
                         </button>
@@ -1658,13 +1539,6 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                             aria-label={t('table_overview.tooltip.list_view')}
                             aria-pressed={viewMode === 'list'}
                             onClick={() => setViewMode('list')}
-                            style={isV2Ui ? undefined : {
-                                width: 28, height: 24, padding: 0, border: 0, borderRadius: 5, cursor: 'pointer', transition: 'all 0.15s',
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: 'inherit',
-                                background: viewMode === 'list' ? (darkMode ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
-                                boxShadow: viewMode === 'list' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                color: viewMode === 'list' ? accentColor : textMuted,
-                            }}
                         >
                             <UnorderedListOutlined style={{ fontSize: 14 }} />
                         </button>
@@ -1677,13 +1551,6 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                             aria-label={t('table_overview.tooltip.table_view')}
                             aria-pressed={viewMode === 'table'}
                             onClick={() => setViewMode('table')}
-                            style={isV2Ui ? undefined : {
-                                width: 28, height: 24, padding: 0, border: 0, borderRadius: 5, cursor: 'pointer', transition: 'all 0.15s',
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', font: 'inherit',
-                                background: viewMode === 'table' ? (darkMode ? 'rgba(255,255,255,0.12)' : '#fff') : 'transparent',
-                                boxShadow: viewMode === 'table' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                color: viewMode === 'table' ? accentColor : textMuted,
-                            }}
                         >
                             <TableOutlined style={{ fontSize: 14 }} />
                         </button>
@@ -1694,41 +1561,23 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
 
             {/* Content Area */}
             <div
-                className={isV2Ui ? 'gn-v2-table-overview-content' : undefined}
-                data-view-mode={isV2Ui ? viewMode : undefined}
-                style={isV2Ui ? {
+                className={'gn-v2-table-overview-content'}
+                data-view-mode={viewMode}
+                style={{
                     flex: 1,
                     minHeight: 0,
-                } : {
-                    flex: 1,
-                    minHeight: 0,
-                    overflow: viewMode === 'table' ? 'hidden' : 'auto',
-                    padding: '0 16px 16px 16px',
-                    display: viewMode === 'table' ? 'flex' : undefined,
-                    flexDirection: viewMode === 'table' ? 'column' : undefined,
                 }}
             >
                 {sortedFiltered.length > 0 && (isSearchPending || visibleOverview.hiddenCount > 0 || deferredSearchText.trim()) && (
                     <div
-                        className={isV2Ui ? 'gn-v2-table-overview-filter-bar' : undefined}
-                        style={isV2Ui ? {
+                        className={'gn-v2-table-overview-filter-bar'}
+                        style={{
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             gap: 12,
                             fontSize: 12,
                             flexShrink: 0,
-                        } : {
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 12,
-                            marginBottom: 10,
-                            padding: '8px 10px',
-                            borderRadius: 10,
-                            background: darkMode ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.025)',
-                            color: textMuted,
-                            fontSize: 12,
                         }}
                     >
                         <span>
@@ -1766,23 +1615,23 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                             ))}
                         </div>
                     ) : (
-                    <div className={isV2Ui ? 'gn-v2-table-overview-sections' : undefined}>
+                    <div className={'gn-v2-table-overview-sections'}>
                         {visibleTableSections.map((section) => (
-                            <section key={section.key} className={isV2Ui ? 'gn-v2-table-overview-section' : undefined}>
+                            <section key={section.key} className={'gn-v2-table-overview-section'}>
                                 {pinnedOverview.pinnedRows.length > 0 && renderOverviewSectionTitle(section)}
                                 {viewMode === 'card' ? (
-                                    <div className={isV2Ui ? 'gn-v2-table-card-grid' : undefined} style={{
+                                    <div className={'gn-v2-table-card-grid'} style={{
                                         display: 'grid',
                                         gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-                                        gridAutoRows: isV2Ui ? TABLE_OVERVIEW_CARD_HEIGHT : undefined,
+                                        gridAutoRows: TABLE_OVERVIEW_CARD_HEIGHT,
                                         gap: 12,
                                     }}>
                                         {section.rows.map(renderCardTable)}
                                     </div>
                                 ) : (
                                     <div
-                                        className={isV2Ui ? 'gn-v2-table-row-list' : undefined}
-                                        style={{ display: 'flex', flexDirection: 'column', gap: isV2Ui ? 0 : 10 }}
+                                        className={'gn-v2-table-row-list'}
+                                        style={{ display: 'flex', flexDirection: 'column', gap: 0 }}
                                     >
                                         {section.rows.map(renderListTable)}
                                     </div>
@@ -1803,7 +1652,7 @@ const TableOverview: React.FC<TableOverviewProps> = ({ tab }) => {
                     </div>
                 )}
             </div>
-            {isV2Ui && v2ContextMenu && v2ContextMenuTable && typeof document !== 'undefined' && createPortal(
+            {v2ContextMenu && v2ContextMenuTable && typeof document !== 'undefined' && createPortal(
                 <div
                     ref={v2ContextMenuPortalRef}
                     className="gn-v2-table-overview-context-menu-portal gn-v2-table-context-menu-popup"

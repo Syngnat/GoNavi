@@ -1,4 +1,5 @@
 type WindowsViewportScaleInput = {
+  /** Wails WindowGetSize returns device-independent pixels, not physical pixels. */
   windowWidth: number;
   innerWidth: number;
   devicePixelRatio: number;
@@ -20,7 +21,7 @@ export const computeWindowsViewportScaleRatio = ({
   ) {
     return 1;
   }
-  return (normalizedWindowWidth / normalizedDevicePixelRatio) / normalizedInnerWidth;
+  return normalizedWindowWidth / normalizedInnerWidth;
 };
 
 export const hasWindowsViewportScaleDrift = (

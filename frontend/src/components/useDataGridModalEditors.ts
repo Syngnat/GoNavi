@@ -28,6 +28,8 @@ export interface UseDataGridModalEditorsResult {
   cellEditorOpen: boolean;
   cellEditorValue: string;
   setCellEditorValue: React.Dispatch<React.SetStateAction<string>>;
+  cellEditorEscapeApplied: boolean;
+  setCellEditorEscapeApplied: React.Dispatch<React.SetStateAction<boolean>>;
   cellEditorIsJson: boolean;
   cellEditorMeta: DataGridCellEditorMeta | null;
   cellEditorApplyRef: React.MutableRefObject<((val: string) => void) | null>;
@@ -72,6 +74,7 @@ export const useDataGridModalEditors = ({
 }: UseDataGridModalEditorsParams): UseDataGridModalEditorsResult => {
   const [cellEditorOpen, setCellEditorOpen] = React.useState(false);
   const [cellEditorValue, setCellEditorValue] = React.useState('');
+  const [cellEditorEscapeApplied, setCellEditorEscapeApplied] = React.useState(false);
   const [cellEditorIsJson, setCellEditorIsJson] = React.useState(false);
   const [cellEditorMeta, setCellEditorMeta] = React.useState<DataGridCellEditorMeta | null>(null);
   const cellEditorApplyRef = React.useRef<((val: string) => void) | null>(null);
@@ -96,6 +99,7 @@ export const useDataGridModalEditors = ({
     setCellEditorOpen(false);
     setCellEditorMeta(null);
     setCellEditorValue('');
+    setCellEditorEscapeApplied(false);
     setCellEditorIsJson(false);
     cellEditorApplyRef.current = null;
   }, []);
@@ -122,6 +126,7 @@ export const useDataGridModalEditors = ({
 
     setCellEditorMeta({ record, dataIndex, title: titleText, readOnly });
     setCellEditorValue(text);
+    setCellEditorEscapeApplied(false);
     setCellEditorIsJson(isJson);
     setCellEditorOpen(true);
     cellEditorApplyRef.current = typeof onApplyValue === 'function' ? onApplyValue : null;
@@ -185,6 +190,8 @@ export const useDataGridModalEditors = ({
     cellEditorOpen,
     cellEditorValue,
     setCellEditorValue,
+    cellEditorEscapeApplied,
+    setCellEditorEscapeApplied,
     cellEditorIsJson,
     cellEditorMeta,
     cellEditorApplyRef,

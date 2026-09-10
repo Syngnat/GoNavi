@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -24,6 +25,8 @@ type MySQLDB struct {
 	conn                *sql.DB
 	pingTimeout         time.Duration
 	batchWritesEnabled  bool
+	navicatTunnel       bool
+	navicatTunnelClient *navicatMySQLTunnelClient
 	sshNetworkRegistrar func(connection.SSHConfig) (string, error)
 }
 
@@ -826,6 +829,8 @@ func resolveMySQLCredential(config connection.ConnectionConfig, addressIndex int
 
 func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 	m.batchWritesEnabled = false
+	m.navicatTunnel = false
+	m.navicatTunnelClient = nil
 	runConfig := applyMySQLURI(config)
 	addresses := collectMySQLAddresses(runConfig)
 	if len(addresses) == 0 {
@@ -843,6 +848,29 @@ func (m *MySQLDB) Connect(config connection.ConnectionConfig) error {
 		candidateConfig.Host = host
 		candidateConfig.Port = port
 		candidateConfig.User, candidateConfig.Password = resolveMySQLCredential(runConfig, index)
+		if candidateConfig.UseHTTPTunnel && isNavicatMySQLTunnelURL(candidateConfig.HTTPTunnel.Host) {
+			connector, connectorErr := newNavicatMySQLTunnelConnector(candidateConfig)
+			if connectorErr != nil {
+				errorDetails = append(errorDetails, fmt.Sprintf("%s Navicat HTTP 隧道配置失败: %v", address, connectorErr))
+				continue
+			}
+			db := sql.OpenDB(connector)
+			configureSQLConnectionPool(db, candidateConfig.Type)
+			timeout := getConnectTimeout(candidateConfig)
+			ctx, cancel := utils.ContextWithTimeout(timeout)
+			pingErr := db.PingContext(ctx)
+			cancel()
+			if pingErr != nil {
+				_ = db.Close()
+				errorDetails = append(errorDetails, fmt.Sprintf("%s [Navicat HTTP 隧道] 验证失败: %v", address, pingErr))
+				continue
+			}
+			m.conn = db
+			m.pingTimeout = timeout
+			m.navicatTunnel = true
+			m.navicatTunnelClient = connector.client
+			return nil
+		}
 
 		protocol, address, err := m.resolveProtocolAndAddress(candidateConfig)
 		if err != nil {
@@ -905,6 +933,14 @@ func (m *MySQLDB) SupportsBatchWrites() bool {
 	return m != nil && m.batchWritesEnabled
 }
 
+func (m *MySQLDB) SupportsBatchApply() bool {
+	return m != nil && !m.navicatTunnel
+}
+
+func (m *MySQLDB) SupportsSessionExecer() bool {
+	return m != nil && !m.navicatTunnel
+}
+
 func (m *MySQLDB) Close() error {
 	if m.conn != nil {
 		return m.conn.Close()
@@ -929,6 +965,9 @@ func (m *MySQLDB) QueryMulti(query string) ([]connection.ResultSetData, error) {
 	if m.conn == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
+	if m.navicatTunnel {
+		return m.QueryStatementsMultiContext(metadataContextFor(m), []string{query})
+	}
 	rows, err := m.conn.QueryContext(metadataContextFor(m), query)
 	if err != nil {
 		return nil, err
@@ -941,12 +980,31 @@ func (m *MySQLDB) QueryMultiContext(ctx context.Context, query string) ([]connec
 	if m.conn == nil {
 		return nil, fmt.Errorf("连接未打开")
 	}
+	if m.navicatTunnel {
+		return m.QueryStatementsMultiContext(ctx, []string{query})
+	}
 	rows, err := m.conn.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	return scanMultiRowsForDialect(rows, "mysql")
+	return scanMultiRowsForDialectContext(ctx, rows, "mysql")
+}
+
+func (m *MySQLDB) SupportsStatementBatchMultiResult() bool {
+	return m != nil && m.navicatTunnel && m.navicatTunnelClient != nil
+}
+
+func (m *MySQLDB) QueryStatementsMultiContext(ctx context.Context, statements []string) ([]connection.ResultSetData, error) {
+	if m == nil || !m.SupportsStatementBatchMultiResult() {
+		return nil, errors.New("当前 MySQL 连接不支持语句数组批量查询")
+	}
+	if err := validateNavicatMySQLTransactionBatch(statements); err != nil {
+		return nil, err
+	}
+	results, err := m.navicatTunnelClient.queryBatch(ctx, statements)
+	converted := navicatMySQLTunnelResultSets(results, RowBudgetFromContext(ctx))
+	return converted, err
 }
 
 func (m *MySQLDB) QueryContext(ctx context.Context, query string) ([]map[string]interface{}, []string, error) {
@@ -960,7 +1018,7 @@ func (m *MySQLDB) QueryContext(ctx context.Context, query string) ([]map[string]
 	}
 	defer rows.Close()
 
-	return scanRowsForDialect(rows, "mysql")
+	return scanRowsForDialectContext(ctx, rows, "mysql")
 }
 
 func (m *MySQLDB) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -990,6 +1048,9 @@ func (m *MySQLDB) ExecBatchContext(ctx context.Context, query string) (int64, er
 func (m *MySQLDB) OpenSessionExecer(ctx context.Context) (StatementExecer, error) {
 	if m.conn == nil {
 		return nil, fmt.Errorf("连接未打开")
+	}
+	if m.navicatTunnel {
+		return nil, navicatMySQLTunnelTransactionError()
 	}
 	conn, err := m.conn.Conn(ctx)
 	if err != nil {
@@ -1305,6 +1366,9 @@ func (m *MySQLDB) ApplyChanges(tableName string, changes connection.ChangeSet) e
 func (m *MySQLDB) ApplyChangesContext(ctx context.Context, tableName string, changes connection.ChangeSet) (err error) {
 	if m.conn == nil {
 		return fmt.Errorf("连接未打开")
+	}
+	if m.navicatTunnel {
+		return errors.New("Navicat HTTP 隧道不支持跨请求事务，无法保证数据网格批量修改的原子性")
 	}
 
 	columnTypeMap := m.loadColumnTypeMapContext(ctx, tableName)

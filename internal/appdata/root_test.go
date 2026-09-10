@@ -260,6 +260,71 @@ func TestSetConfiguredSavedQueryDirectoryRejectsFilePathWithoutChangingConfig(t 
 	}
 }
 
+func TestAgentDataDirectoryDefaultsToActiveRootAndSupportsOverride(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	activeRoot := filepath.Join(t.TempDir(), "gonavi-data")
+	if _, err := SetActiveRoot(activeRoot); err != nil {
+		t.Fatalf("SetActiveRoot: %v", err)
+	}
+	resolved, err := ResolveAgentDataDirectory(activeRoot)
+	if err != nil || resolved != activeRoot {
+		t.Fatalf("default agent data directory = %q, %v; want %q", resolved, err, activeRoot)
+	}
+
+	custom := filepath.Join(t.TempDir(), "agent-data")
+	if _, err := SetConfiguredAgentDataDirectory(custom); err != nil {
+		t.Fatalf("SetConfiguredAgentDataDirectory: %v", err)
+	}
+	resolved, err = ResolveAgentDataDirectory(activeRoot)
+	if err != nil || resolved != custom {
+		t.Fatalf("custom agent data directory = %q, %v; want %q", resolved, err, custom)
+	}
+
+	if _, err := SetConfiguredAgentDataDirectory(""); err != nil {
+		t.Fatalf("reset agent data directory: %v", err)
+	}
+	resolved, err = ResolveAgentDataDirectory(activeRoot)
+	if err != nil || resolved != activeRoot {
+		t.Fatalf("reset agent data directory = %q, %v; want %q", resolved, err, activeRoot)
+	}
+}
+
+func TestAgentDataDirectoryPreservesOtherBootstrapSettings(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("USERPROFILE", homeDir)
+
+	dataRoot := filepath.Join(t.TempDir(), "data")
+	logDir := filepath.Join(t.TempDir(), "logs")
+	savedDir := filepath.Join(t.TempDir(), "queries")
+	agentDir := filepath.Join(t.TempDir(), "agent")
+	if _, err := SetActiveRoot(dataRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetConfiguredLogDirectory(logDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetConfiguredSavedQueryDirectory(savedDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetConfiguredAgentDataDirectory(agentDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetConfiguredAgentDataDirectory(""); err != nil {
+		t.Fatal(err)
+	}
+
+	resolvedRoot, _ := ResolveActiveRoot()
+	resolvedLog, _ := ResolveConfiguredLogDirectory()
+	resolvedSaved, _ := ResolveConfiguredSavedQueryDirectory()
+	if resolvedRoot != dataRoot || resolvedLog != logDir || resolvedSaved != savedDir {
+		t.Fatalf("agent directory reset changed other settings: root=%q log=%q saved=%q", resolvedRoot, resolvedLog, resolvedSaved)
+	}
+}
+
 func TestSetConfiguredLogDirectoryRejectsFilePathWithoutChangingConfig(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)

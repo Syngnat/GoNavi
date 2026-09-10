@@ -674,3 +674,239 @@ func TestBuildCustomColumnDefinitionBuildsTypeFromLengthAndPrecision(t *testing.
 		t.Fatalf("expected decimal(10,2), got %q", amountCol.Type)
 	}
 }
+
+func openCustomMetadataTestDB(t *testing.T, columns []string, rows [][]driver.Value) *sql.DB {
+	t.Helper()
+	registerCustomGetTablesDriverOnce.Do(func() {
+		sql.Register(customGetTablesDriverName, customGetTablesDriver{})
+	})
+
+	copiedRows := make([][]driver.Value, len(rows))
+	for i, row := range rows {
+		copiedRows[i] = append([]driver.Value(nil), row...)
+	}
+
+	customGetTablesStateMu.Lock()
+	customGetTablesState.lastQuery = ""
+	customGetTablesState.columns = append([]string(nil), columns...)
+	customGetTablesState.rows = copiedRows
+	customGetTablesStateMu.Unlock()
+	t.Cleanup(func() {
+		customGetTablesStateMu.Lock()
+		customGetTablesState.lastQuery = ""
+		customGetTablesState.columns = nil
+		customGetTablesState.rows = nil
+		customGetTablesStateMu.Unlock()
+	})
+
+	conn, err := sql.Open(customGetTablesDriverName, "")
+	if err != nil {
+		t.Fatalf("open custom metadata test database: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
+}
+
+func customMetadataLastQuery() string {
+	customGetTablesStateMu.Lock()
+	defer customGetTablesStateMu.Unlock()
+	return customGetTablesState.lastQuery
+}
+
+func TestCustomDBGetColumnsQueryEscaping(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		driver      string
+		dbName      string
+		tableName   string
+		contains    []string
+		notContains []string
+		exact       string
+	}{
+		{
+			name:      "postgres schema and table single quotes",
+			driver:    "postgres",
+			dbName:    "tenant's",
+			tableName: "user's",
+			contains: []string{
+				"table_name = 'user''s'",
+				"table_schema = 'tenant''s'",
+			},
+			notContains: []string{
+				"table_name = 'user's'",
+				"table_schema = 'tenant's'",
+			},
+		},
+		{
+			name:      "kingbase schema and table single quotes",
+			driver:    "Kingbase",
+			dbName:    "schema'name",
+			tableName: "table'name",
+			contains: []string{
+				"table_name = 'table''name'",
+				"table_schema = 'schema''name'",
+			},
+		},
+		{
+			name:      "postgres empty schema uses public",
+			driver:    "postgres",
+			tableName: "orders",
+			contains: []string{
+				"table_name = 'orders'",
+				"table_schema = 'public'",
+			},
+			notContains: []string{"''"},
+		},
+		{
+			name:      "postgres normal names unchanged",
+			driver:    "postgres",
+			dbName:    "app",
+			tableName: "orders",
+			contains: []string{
+				"table_name = 'orders'",
+				"table_schema = 'app'",
+			},
+			notContains: []string{"''"},
+		},
+		{
+			name:      "mysql schema and table backticks",
+			driver:    "mysql",
+			dbName:    "db`name",
+			tableName: "we`ird",
+			exact:     "SHOW FULL COLUMNS FROM `db``name`.`we``ird`",
+		},
+		{
+			name:      "mysql table backticks without schema",
+			driver:    "MySQL",
+			tableName: "we`ird",
+			exact:     "SHOW FULL COLUMNS FROM `we``ird`",
+		},
+		{
+			name:      "mysql normal names with schema unchanged",
+			driver:    "mysql",
+			dbName:    "app",
+			tableName: "orders",
+			exact:     "SHOW FULL COLUMNS FROM `app`.`orders`",
+		},
+		{
+			name:      "mysql normal names without schema unchanged",
+			driver:    "mysql",
+			tableName: "orders",
+			exact:     "SHOW FULL COLUMNS FROM `orders`",
+		},
+		{
+			name:      "generic driver escapes table literal",
+			driver:    "sqlite",
+			dbName:    "ignored's",
+			tableName: "user's",
+			contains:  []string{"table_name = 'user''s'"},
+			notContains: []string{
+				"table_schema =",
+				"table_name = 'user's'",
+			},
+		},
+		{
+			name:        "generic driver keeps normal table name",
+			driver:      "sqlite",
+			tableName:   "orders",
+			contains:    []string{"table_name = 'orders'"},
+			notContains: []string{"table_schema =", "''"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := buildCustomColumnsQuery(tt.driver, tt.dbName, tt.tableName)
+			if tt.exact != "" && got != tt.exact {
+				t.Fatalf("buildCustomColumnsQuery()=%q, want %q", got, tt.exact)
+			}
+			for _, want := range tt.contains {
+				if !strings.Contains(got, want) {
+					t.Fatalf("expected %q in %q", want, got)
+				}
+			}
+			for _, blocked := range tt.notContains {
+				if strings.Contains(got, blocked) {
+					t.Fatalf("did not expect %q in %q", blocked, got)
+				}
+			}
+		})
+	}
+}
+
+func TestCustomDBGetColumnsEscapesIdentifiersInExecutedQuery(t *testing.T) {
+	tests := []struct {
+		name      string
+		driver    string
+		dbName    string
+		tableName string
+		contains  []string
+	}{
+		{
+			name:      "postgres",
+			driver:    "postgres",
+			dbName:    "tenant's",
+			tableName: "user's",
+			contains:  []string{"table_name = 'user''s'", "table_schema = 'tenant''s'"},
+		},
+		{
+			name:      "mysql",
+			driver:    "mysql",
+			dbName:    "db`name",
+			tableName: "we`ird",
+			contains:  []string{"SHOW FULL COLUMNS FROM `db``name`.`we``ird`"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conn := openCustomMetadataTestDB(t, []string{"column_name"}, nil)
+			if _, err := (&CustomDB{conn: conn, driver: tt.driver}).GetColumns(tt.dbName, tt.tableName); err != nil {
+				t.Fatalf("GetColumns returned error: %v", err)
+			}
+			got := customMetadataLastQuery()
+			if got != buildCustomColumnsQuery(tt.driver, tt.dbName, tt.tableName) {
+				t.Fatalf("executed query %q, want %q", got, buildCustomColumnsQuery(tt.driver, tt.dbName, tt.tableName))
+			}
+			for _, want := range tt.contains {
+				if !strings.Contains(got, want) {
+					t.Fatalf("expected %q in executed query %q", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestCustomDBGetColumnsReturnsQueryError(t *testing.T) {
+	_, err := (&CustomDB{}).GetColumns("public", "orders")
+	if err == nil {
+		t.Fatal("expected GetColumns to return a query error")
+	}
+}
+
+func TestCustomDBGetColumnsParsesMetadataRows(t *testing.T) {
+	conn := openCustomMetadataTestDB(t, []string{"column_name", "data_type", "is_nullable"}, [][]driver.Value{
+		{"id", "int", "NO"},
+	})
+
+	columns, err := (&CustomDB{conn: conn, driver: "postgres"}).GetColumns("public", "orders")
+	if err != nil {
+		t.Fatalf("GetColumns returned error: %v", err)
+	}
+	if len(columns) != 1 {
+		t.Fatalf("GetColumns returned %d columns, want 1", len(columns))
+	}
+	if columns[0].Name != "id" {
+		t.Fatalf("column name = %q, want id", columns[0].Name)
+	}
+	if columns[0].Type != "int" {
+		t.Fatalf("column type = %q, want int", columns[0].Type)
+	}
+	if columns[0].Nullable != "NO" {
+		t.Fatalf("column nullable = %q, want NO", columns[0].Nullable)
+	}
+}

@@ -242,6 +242,18 @@ func normalizeSyncSourceSchemaAndTable(config SyncConfig, tableName string) (str
 }
 
 func normalizeSyncTargetSchemaAndTable(config SyncConfig, tableName string) (string, string) {
+	if targetName := strings.TrimSpace(config.identityMappingTarget.Name); targetName != "" {
+		targetSchema := strings.TrimSpace(config.identityMappingTarget.Schema)
+		if targetSchema == "" {
+			targetSchema = strings.TrimSpace(config.TargetSchema)
+		}
+		return normalizeSchemaAndTableWithDefaultSchema(
+			config.TargetConfig.Type,
+			selectedSyncTargetDatabase(config),
+			targetSchema,
+			targetName,
+		)
+	}
 	targetSchema := strings.TrimSpace(config.TargetSchema)
 	if targetSchema == "" || strings.TrimSpace(config.SourceQuery) != "" {
 		return normalizeSchemaAndTableWithDefaultSchema(config.TargetConfig.Type, selectedSyncTargetDatabase(config), targetSchema, tableName)
@@ -307,4 +319,15 @@ func qualifiedNameForQuery(dbType string, schema string, table string, original 
 	default:
 		return rawTable
 	}
+}
+
+// qualifiedTargetNameForQuery derives a target-side query name strictly from
+// the resolved target object. A source table name may be schema-qualified and
+// must not leak into target DDL or DML for an identity object mapping.
+func qualifiedTargetNameForQuery(dbType string, schema string, table string) string {
+	// SQL Server and DuckDB carry schema-qualified names in table. Passing a
+	// separately composed schema.table value would accidentally add the
+	// database/catalog as a third component, so table is the target's original
+	// identifier here.
+	return qualifiedNameForQuery(dbType, schema, table, table)
 }

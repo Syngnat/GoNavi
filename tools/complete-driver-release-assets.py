@@ -29,6 +29,7 @@ DRIVERS = [
     "opengauss",
     "gaussdb",
     "iris",
+    "cache",
     "mongodb",
     "tdengine",
     "iotdb",

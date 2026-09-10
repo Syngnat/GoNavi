@@ -1,5 +1,17 @@
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+
+const dependencyPatchHash = createHash('sha256')
+const dependencyPatchesUrl = new URL('./patches/', import.meta.url)
+
+for (const patchFile of readdirSync(dependencyPatchesUrl).filter((name) => name.endsWith('.patch')).sort()) {
+  dependencyPatchHash.update(patchFile)
+  dependencyPatchHash.update(readFileSync(new URL(patchFile, dependencyPatchesUrl)))
+}
+
+const dependencyPatchFingerprint = dependencyPatchHash.digest('hex')
 
 const aiCodeHighlightDeps = [
   'react-syntax-highlighter/dist/esm/prism-light',
@@ -34,6 +46,14 @@ export default defineConfig({
     setupFiles: ['./src/test/setupI18nCatalogs.ts'],
   },
   optimizeDeps: {
+    // Vite only tracks the patches directory mtime. Editing an existing
+    // patch-package file does not update that mtime, so make its real content
+    // part of the dependency-optimizer hash and never serve a stale patch.
+    esbuildOptions: {
+      define: {
+        __GONAVI_DEPENDENCY_PATCH_FINGERPRINT__: JSON.stringify(dependencyPatchFingerprint),
+      },
+    },
     // Pre-bundle startup locale modules before Wails starts proxying the WebView.
     include: [
       'antd/locale/de_DE',

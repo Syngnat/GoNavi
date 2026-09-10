@@ -96,6 +96,8 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 		content       strings.Builder
 		reasoning     strings.Builder
 		toolCalls     []ai.ToolCall
+		usage         ai.TokenUsage
+		hasUsage      bool
 		firstSinkErr  error
 		firstChunkErr error
 	)
@@ -158,6 +160,10 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 		}
 		if len(chunk.ToolCalls) > 0 {
 			toolCalls = cloneAIToolCalls(chunk.ToolCalls)
+		}
+		if chunk.Usage != nil {
+			usage = *chunk.Usage
+			hasUsage = true
 		}
 		delta := ModelDelta{Text: chunk.Content, Reasoning: reasoningDelta}
 		if len(chunk.ToolCalls) > 0 {
@@ -228,6 +234,15 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 	text := content.String()
 	reasoningText := reasoning.String()
 	convertedToolCalls := toToolIntents(toolCalls)
+	resultUsage := Usage{}
+	if hasUsage {
+		resultUsage = Usage{
+			PromptTokens:     usage.PromptTokens,
+			CompletionTokens: usage.CompletionTokens,
+			TotalTokens:      usage.TotalTokens,
+			CachedTokens:     cloneIntPointer(usage.CachedTokens),
+		}
+	}
 	stateMu.Unlock()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ModelTurnResult{}, ctxErr
@@ -256,9 +271,18 @@ func (a *ProviderModelTurnAdapter) Execute(ctx context.Context, request ModelTur
 	}
 	result := ModelTurnResult{
 		Text: text, Reasoning: reasoningText,
-		ToolCalls: convertedToolCalls, ProviderState: cloneRaw(stream.state), Completed: true,
+		ToolCalls: convertedToolCalls, Usage: resultUsage,
+		ProviderState: cloneRaw(stream.state), Completed: true,
 	}
 	return result, nil
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 // providerChatOptions derives provider-facing options only from the immutable

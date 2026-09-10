@@ -378,7 +378,7 @@ func (k *KingbaseDB) QueryContext(ctx context.Context, query string) ([]map[stri
 	}
 	defer rows.Close()
 
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (k *KingbaseDB) QueryContextWithMessages(ctx context.Context, query string) ([]map[string]interface{}, []string, []string, error) {

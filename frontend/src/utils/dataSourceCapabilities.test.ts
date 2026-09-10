@@ -42,6 +42,18 @@ describe('dataSourceCapabilities', () => {
     });
   });
 
+  it('only shows relational object-kind filters for schema-capable SQL sources', () => {
+    expect(getDataSourceCapabilities({ type: 'postgres' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'mysql' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'clickhouse' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'duckdb' }).supportsRelationalObjectKindFilter).toBe(true);
+    expect(getDataSourceCapabilities({ type: 'nacos' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'redis' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'rabbitmq' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities({ type: 'elasticsearch' }).supportsRelationalObjectKindFilter).toBe(false);
+    expect(getDataSourceCapabilities(null).supportsRelationalObjectKindFilter).toBe(false);
+  });
+
   it('keeps MySQL on automatic total count mode', () => {
     expect(getDataSourceCapabilities({ type: 'mysql' })).toMatchObject({
       type: 'mysql',
@@ -197,6 +209,28 @@ describe('dataSourceCapabilities', () => {
     });
     expect(getDataSourceCapabilities({ type: 'custom', driver: 'intersystemsiris' })).toMatchObject({
       type: 'iris',
+      supportsQueryEditor: true,
+    });
+  });
+
+  it('keeps InterSystems Caché independent while reusing the IRIS SQL capability profile', () => {
+    expect(getDataSourceCapabilities({ type: 'cache' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+      supportsSqlQueryExport: true,
+      supportsCopyInsert: true,
+      forceReadOnlyQueryResult: false,
+    });
+    expect(getDataSourceCapabilities({ type: 'intersystems-cache' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+    });
+    expect(getDataSourceCapabilities({ type: 'InterSystems Caché' })).toMatchObject({
+      type: 'cache',
+      supportsQueryEditor: true,
+    });
+    expect(getDataSourceCapabilities({ type: 'custom', driver: 'cachedb' })).toMatchObject({
+      type: 'cache',
       supportsQueryEditor: true,
     });
   });

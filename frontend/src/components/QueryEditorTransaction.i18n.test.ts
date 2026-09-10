@@ -28,7 +28,6 @@ const requiredKeys = [
   'query_editor.transaction.status.auto_commit_countdown',
   'query_editor.transaction.status.auto_committing',
   'query_editor.transaction.action.commit',
-  'query_editor.transaction.action.commit_with_count',
   'query_editor.transaction.action.rollback',
 ];
 
@@ -44,10 +43,8 @@ describe('QueryEditor transaction i18n', () => {
       expect(`${settingsSource}\n${toolbarSource}`).toContain(key);
     }
 
-    for (const literal of settingsLegacyLiterals) {
-    }
-
-    for (const literal of toolbarLegacyLiterals) {
+    for (const literal of [...settingsLegacyLiterals, ...toolbarLegacyLiterals]) {
+      expect(`${settingsSource}\n${toolbarSource}`).not.toContain(`'${literal}'`);
     }
   });
 });

@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/zip-dist.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "postinstall": "patch-package --error-on-fail",
@@ -45,6 +45,7 @@
     "@types/react-test-renderer": "^18.0.7",
     "@types/uuid": "^9.0.7",
     "@vitejs/plugin-react": "^4.2.1",
+    "jsdom": "^26.1.0",
     "patch-package": "^8.0.1",
     "react-test-renderer": "^18.2.0",
     "typescript": "^5.2.2",

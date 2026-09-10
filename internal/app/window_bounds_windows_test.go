@@ -22,6 +22,10 @@ type fakeBoundsFrontend struct {
 	mainWindow *fakeWindow
 }
 
+type fakeDevWebServer struct {
+	Frontend any
+}
+
 type panicBoundsChromium struct{}
 
 func (*panicBoundsChromium) Resize() {
@@ -54,6 +58,27 @@ func TestRefreshWebViewBoundsCallsChromiumResizeOnWindowThread(t *testing.T) {
 	}
 	if got := chromium.resized.Load(); got != 1 {
 		t.Fatalf("expected Chromium.Resize called exactly once, got %d", got)
+	}
+}
+
+func TestRefreshWebViewBoundsUnwrapsWailsDevServerFrontend(t *testing.T) {
+	chromium := &fakeBoundsChromium{}
+	window := &fakeWindow{}
+	ctx := context.WithValue(context.Background(), stringContextKey("frontend"), &fakeDevWebServer{
+		Frontend: &fakeBoundsFrontend{
+			chromium:   chromium,
+			mainWindow: window,
+		},
+	})
+
+	if err := refreshWebViewBounds(ctx); err != nil {
+		t.Fatalf("expected bounds refresh to unwrap the wails dev frontend, got %v", err)
+	}
+	if got := window.invoked.Load(); got != 1 {
+		t.Fatalf("expected wrapped frontend refresh to invoke the window once, got %d", got)
+	}
+	if got := chromium.resized.Load(); got != 1 {
+		t.Fatalf("expected wrapped frontend Chromium.Resize called once, got %d", got)
 	}
 }
 

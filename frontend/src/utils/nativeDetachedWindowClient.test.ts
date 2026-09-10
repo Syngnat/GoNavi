@@ -359,7 +359,6 @@ describe('nativeDetachedWindowClient', () => {
 
   it('keeps main-window AI context sync separate from child-owned conversation state', () => {
     const appearance = {
-      uiVersion: 'v2',
       toolbarButtonColorOverrides: {
         query: {
           'button-bg': '#13579b',
@@ -399,7 +398,7 @@ describe('nativeDetachedWindowClient', () => {
       ...state,
       theme: 'dark',
       themePreference: 'dark',
-      appearance: { uiVersion: 'legacy' },
+      appearance: {  },
       fontSize: 12,
       uiScale: 0.9,
       activeTabId: queryTab.id,
@@ -782,6 +781,25 @@ describe('nativeDetachedWindowClient', () => {
     try {
       await hideCurrentNativeDetachedWindowForAISettings(13);
       expect(hideForAISettings).toHaveBeenCalledWith(13);
+    } finally {
+      if (previousWindowDescriptor) {
+        Object.defineProperty(globalThis, 'window', previousWindowDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'window');
+      }
+    }
+  });
+
+  it('passes the selected provider through the atomic native settings control', async () => {
+    const hideForAISettingsProvider = vi.fn(async () => ({ success: true }));
+    const previousWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { go: { nativewindow: { Control: { HideForAISettingsProvider: hideForAISettingsProvider } } } },
+    });
+    try {
+      await hideCurrentNativeDetachedWindowForAISettings(13, 'provider-grok');
+      expect(hideForAISettingsProvider).toHaveBeenCalledWith(13, 'provider-grok');
     } finally {
       if (previousWindowDescriptor) {
         Object.defineProperty(globalThis, 'window', previousWindowDescriptor);

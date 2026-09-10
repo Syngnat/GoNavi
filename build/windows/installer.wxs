@@ -42,7 +42,9 @@
                   Directory="ProgramMenuFolder"
                   Name="$(var.ProductName)"
                   WorkingDirectory="INSTALLFOLDER"
-                  Advertise="no" />
+                  Advertise="no">
+          <ShortcutProperty Key="System.AppUserModel.ID" Value="Syngnat.GoNavi" />
+        </Shortcut>
       </File>
       <File Id="GoNaviMsiInstallMarker"
             Source="$(var.InstallMarker)"
@@ -79,7 +81,9 @@
                 Name="$(var.ProductName)"
                 Target="[#GoNaviExe]"
                 WorkingDirectory="INSTALLFOLDER"
-                Advertise="no" />
+                Advertise="no">
+        <ShortcutProperty Key="System.AppUserModel.ID" Value="Syngnat.GoNavi" />
+      </Shortcut>
       <RegistryValue Root="HKLM"
                      Key="Software\Syngnat\$(var.RegistryKeyName)"
                      Name="DesktopShortcutInstalled"

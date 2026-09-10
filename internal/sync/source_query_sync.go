@@ -87,7 +87,7 @@ func resolveTargetQueryTable(config SyncConfig, tableName string) (string, strin
 		}
 		tableName = syncObjectRefIdentifier(mapping.Target)
 	}
-	targetQueryTable := qualifiedNameForQuery(targetType, targetSchema, targetTable, tableName)
+	targetQueryTable := qualifiedTargetNameForQuery(targetType, targetSchema, targetTable)
 	return targetType, targetSchema, targetTable, targetQueryTable
 }
 

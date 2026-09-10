@@ -18,7 +18,6 @@ export type PendingSqlEditorTransaction = {
 };
 
 type QueryEditorTransactionToolbarProps = {
-  isV2Ui: boolean;
   darkMode: boolean;
   transaction: PendingSqlEditorTransaction | null;
   autoCommitRemainingSeconds: number | null;
@@ -26,7 +25,6 @@ type QueryEditorTransactionToolbarProps = {
 };
 
 const QueryEditorTransactionToolbar: React.FC<QueryEditorTransactionToolbarProps> = ({
-  isV2Ui,
   darkMode,
   transaction,
   autoCommitRemainingSeconds,
@@ -46,18 +44,14 @@ const QueryEditorTransactionToolbar: React.FC<QueryEditorTransactionToolbarProps
       ? t('query_editor.transaction.status.auto_commit_countdown', { seconds: autoCommitRemainingSeconds })
       : t('query_editor.transaction.status.auto_committing')
     : null;
-  const commitLabel = isV2Ui
-    ? (
-      <>
+  const commitLabel = <>
         <span>{t('query_editor.transaction.action.commit')}</span>
         <span className="gn-v2-toolbar-kbd">{pendingCount}</span>
-      </>
-    )
-    : t('query_editor.transaction.action.commit_with_count', { count: pendingCount });
+      </>;
 
   return (
     <div
-      className={isV2Ui ? 'gn-v2-query-transaction-toolbar' : undefined}
+      className="gn-v2-query-transaction-toolbar"
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -72,7 +66,7 @@ const QueryEditorTransactionToolbar: React.FC<QueryEditorTransactionToolbarProps
         </span>
       ) : null}
       <Button
-        className={isV2Ui ? 'gn-v2-query-transaction-commit-button' : undefined}
+        className="gn-v2-query-transaction-commit-button"
         size="small"
         type="primary"
         onClick={() => onFinish('commit')}

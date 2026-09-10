@@ -26,7 +26,7 @@ func isDatabaseQueryInvoke(request invokeRequest) bool {
 		return false
 	}
 	switch strings.TrimSpace(request.Method) {
-	case "DBQuery", "DBQueryWithCancel", "DBQueryMulti":
+	case "DBQuery", "DBQueryApplicationWithCancel", "DBQueryWithCancel", "DBQueryMulti":
 		return true
 	default:
 		return false

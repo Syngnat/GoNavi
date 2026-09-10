@@ -23,7 +23,10 @@ const resolveEntryMode = (tab: TabData): DataSyncEntryMode => {
   return 'sync';
 };
 
-const DataSyncWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
+const DataSyncWorkbench: React.FC<{ tab: TabData; embedded?: boolean }> = ({
+  tab,
+  embedded = false,
+}) => {
   const connections = useStore((state) => state.connections);
   const connectionTags = useStore((state) => state.connectionTags);
   const sidebarRootOrder = useStore((state) => state.sidebarRootOrder);
@@ -83,7 +86,7 @@ const DataSyncWorkbench: React.FC<{ tab: TabData }> = ({ tab }) => {
         gateway={gateway}
         connectionTree={connectionTree}
         locale={i18n?.language}
-        onClose={handleClose}
+        onClose={embedded ? undefined : handleClose}
         workbenchTabId={tab.id}
       />
     </div>

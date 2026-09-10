@@ -19,6 +19,7 @@ func TestGrokCLIModelCheck(t *testing.T) {
 		missing, timeout, commandFailure, wantError bool
 	}{
 		{name: "model list", output: "You are logged in with grok.com.\n  * grok-test (default)\n  • grok-other"},
+		{name: "api key model list", output: "Auth method: API key (XAI_API_KEY)\n  * grok-test (default)\n  • grok-other"},
 		{name: "not installed", missing: true, wantError: true},
 		{name: "not logged in zero exit", output: "Not logged in. Run grok login.\n * grok-test", wantError: true},
 		{name: "empty output", wantError: true},

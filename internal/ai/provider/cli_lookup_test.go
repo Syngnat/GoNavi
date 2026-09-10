@@ -238,3 +238,32 @@ func writeExecutable(t *testing.T, path, body string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLookPathWithOverrideUsesExplicitPath(t *testing.T) {
+	resolved, err := lookPathWithOverride("/opt/custom/codex", func(string) (string, error) {
+		t.Fatal("lookup should not run when an override is set")
+		return "", exec.ErrNotFound
+	})("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != "/opt/custom/codex" {
+		t.Fatalf("got %q", resolved)
+	}
+}
+
+func TestMergeProviderCLIEnvOverridesMatchingKeys(t *testing.T) {
+	got := MergeProviderCLIEnv([]string{"PATH=/usr/bin", "FOO=old", "BAR=keep"}, map[string]string{"FOO": "new", "BAZ": "added"})
+	set := map[string]bool{}
+	for _, item := range got {
+		set[item] = true
+	}
+	for _, want := range []string{"PATH=/usr/bin", "BAR=keep", "FOO=new", "BAZ=added"} {
+		if !set[want] {
+			t.Fatalf("missing %q in %#v", want, got)
+		}
+	}
+	if set["FOO=old"] {
+		t.Fatalf("old FOO remained: %#v", got)
+	}
+}

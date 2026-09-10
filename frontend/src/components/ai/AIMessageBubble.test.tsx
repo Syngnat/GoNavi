@@ -18,6 +18,9 @@ const REQUIRED_MESSAGE_BUBBLE_KEYS = [
   'ai_chat.message.image_alt',
   'ai_chat.message.wait.connecting',
   'ai_chat.message.wait.generating',
+  'ai_chat.message.usage.input',
+  'ai_chat.message.usage.output',
+  'ai_chat.message.usage.cache_rate',
   'ai_chat.message.activity.title',
   'ai_chat.message.activity.kind.model',
   'ai_chat.message.activity.kind.tool',
@@ -252,5 +255,46 @@ describe('AIMessageBubble', () => {
   it('only renders Reload when the full conversation marks the assistant retry as safe', () => {
     expect(renderActionBar(true)).toContain('anticon-reload');
     expect(renderActionBar(false, true)).not.toContain('anticon-reload');
+  });
+
+  it('shows token metadata for every completed assistant reply', () => {
+    const markup = renderToStaticMarkup(
+      <AIMessageBubble
+        msg={{
+          id: 'assistant-usage',
+          role: 'assistant',
+          content: 'Measured reply',
+          timestamp: Date.now(),
+          tokenUsage: {
+            promptTokens: 1_000,
+            completionTokens: 250,
+            cachedTokens: 400,
+          },
+        }}
+        canRetry={false}
+        darkMode={false}
+        overlayTheme={buildOverlayWorkbenchTheme(false)}
+        textColor="#1f2937"
+        onEdit={() => {}}
+        onRetry={() => {}}
+        onDelete={() => {}}
+        toolResultsById={new Map()}
+      />,
+    );
+
+    expect(markup).toContain('Input');
+    expect(markup).toContain('1,000');
+    expect(markup).toContain('Output');
+    expect(markup).toContain('250');
+    expect(markup).toContain('Cache rate');
+    expect(markup).toContain('40%');
+  });
+
+  it('shows unavailable token metadata for providers that do not report usage', () => {
+    const markup = renderActionBar(false);
+    expect(markup).toContain('Input');
+    expect(markup).toContain('Output');
+    expect(markup).toContain('Cache rate');
+    expect((markup.match(/—/g) || [])).toHaveLength(3);
   });
 });

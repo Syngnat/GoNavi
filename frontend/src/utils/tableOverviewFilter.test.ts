@@ -26,6 +26,17 @@ describe('tableOverviewFilter', () => {
     expect(filtered[0].name).toBe('table_1199');
   });
 
+  it('matches table comments when the table name does not match', () => {
+    const indexed = buildTableOverviewSearchIndex([
+      { name: 'orders', comment: '客户订单', rows: 1, dataSize: 1, indexSize: 0 },
+      { name: 'users', comment: '用户信息', rows: 2, dataSize: 2, indexSize: 0 },
+    ]);
+
+    expect(filterAndSortTableOverviewRows(indexed, '订单', 'name', 'asc').map((item) => item.name)).toEqual([
+      'orders',
+    ]);
+  });
+
   it('filters schema-scoped rows by their displayed table names', () => {
     const indexed = buildTableOverviewSearchIndex([
       { name: 'reporting.reporting_summary', comment: '', rows: 1, dataSize: 1, indexSize: 0 },

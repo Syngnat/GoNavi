@@ -16,7 +16,7 @@ func (s *SyncEngine) syncTableSchema(config SyncConfig, res *SyncResult, sourceD
 	sourceType := resolveMigrationDBType(config.SourceConfig)
 	sourceSchema, sourceTable := normalizeSyncSourceSchemaAndTable(config, tableName)
 	targetSchema, targetTable := normalizeSyncTargetSchemaAndTable(config, tableName)
-	targetQueryTable := qualifiedNameForQuery(targetType, targetSchema, targetTable, tableName)
+	targetQueryTable := qualifiedTargetNameForQuery(targetType, targetSchema, targetTable)
 
 	// 1) 获取源表字段
 	sourceCols, err := sourceDB.GetColumns(sourceSchema, sourceTable)

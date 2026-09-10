@@ -3,14 +3,15 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Form, message as antdMessage } from 'antd';
 import { RobotOutlined } from '@ant-design/icons';
 import { v4 as uuidv4 } from 'uuid';
-import type { AIProviderConfig, AIProviderType, AISafetyLevel, AIContextLevel, AIUserPromptSettings, AIMCPServerConfig, AIMCPToolDescriptor, AIMCPHTTPServerStatus, AISkillConfig } from '../types';
+import type { AIProviderConfig, AIProviderType, AISafetyLevel, AIContextLevel, AIResultMaskingSettings, AIUserPromptSettings, AIMCPServerConfig, AIMCPToolDescriptor, AIMCPHTTPServerStatus, AISkillConfig } from '../types';
 import type { ai } from '../../wailsjs/go/models';
 import { getCLIConfigPrefill, normalizeProviderModels, parseProviderCheckResult, providerCopyName, providerDraftFingerprint, type ProviderCheckResult } from '../utils/aiProviderManagement';
 import { withAISettingsLeaveGuard, type AISettingsLeaveGuard } from '../utils/aiSettingsLeaveGuard';
 import { APP_STATIC_FEEDBACK_Z_INDEX_BASE } from '../utils/overlayZIndex';
-import { getProviderEndpointType, resolveProviderEndpointConnection, type ProviderEndpointType } from '../utils/aiProviderEndpoints';
+import { getProviderEndpointType, getProviderEndpointTypes, resolveProviderEndpointConnection, type ProviderEndpointType } from '../utils/aiProviderEndpoints';
 import {
     getSingletonCLIIdentity,
+    resolveProviderPresetModeKey,
     resolvePresetBaseURL,
     resolvePresetModelSelection,
     resolvePresetTransport,
@@ -21,6 +22,7 @@ import {
     isProviderSecretRequirementSatisfied,
     resolveProviderSecretDraft,
 } from '../utils/providerSecretDraft';
+import { recordFromRows, rowsFromRecord } from '../utils/aiProviderKeyValue';
 import { buildAddProviderEditorSession, buildClosedProviderEditorSession, buildEditProviderEditorSession, type ProviderEditorSession } from '../utils/aiProviderEditorState';
 import type { OverlayWorkbenchTheme } from '../utils/overlayWorkbenchTheme';
 import { useI18n } from '../i18n/provider';
@@ -33,6 +35,8 @@ import AISettingsSafetySection from './ai/AISettingsSafetySection';
 import AISettingsContextSection from './ai/AISettingsContextSection';
 import AISettingsRunPolicySection from './ai/AISettingsRunPolicySection';
 import AISettingsProvidersSection from './ai/AISettingsProvidersSection';
+import AISettingsAnalysisSection from './ai/AISettingsAnalysisSection';
+import AISettingsRequestEventsSection from './ai/AISettingsRequestEventsSection';
 import AISettingsPromptsSection from './ai/AISettingsPromptsSection';
 import AISettingsSkillsSection from './ai/AISettingsSkillsSection';
 import {
@@ -51,9 +55,11 @@ import {
     EMPTY_SKILL,
     PROVIDER_PRESETS,
     findPreset,
+    getProviderPresetMode,
     localizeProviderPreset,
     localizeProviderPresets,
     matchProviderPreset,
+    normalizeProviderPresetKey,
     waitForAIService,
 } from './ai/aiSettingsModalConfig';
 import { useStore } from '../store';
@@ -71,6 +77,12 @@ export interface AISettingsContentProps {
     darkMode: boolean;
     overlayTheme: OverlayWorkbenchTheme;
     focusProviderId?: string;
+    hideSidebar?: boolean;
+    section?: AISettingsSectionKey;
+    onSectionChange?: (section: AISettingsSectionKey) => void;
+    providersView?: 'workspace' | 'connected';
+    onProvidersViewChange?: (view: 'workspace' | 'connected') => void;
+    onCloseHost?: () => void;
     onBeforeExternalMCPUse?: () => Promise<void>;
     onLeaveGuardChange?: (guard: AISettingsLeaveGuard | null) => void;
     confirmationZIndex?: number;
@@ -92,6 +104,12 @@ const DEFAULT_MCP_HTTP_SERVER_DRAFT: AIMCPHTTPServerDraft = {
     path: DEFAULT_MCP_HTTP_SERVER_STATUS.path,
     authorizationHeader: '',
     schemaOnly: false,
+};
+
+const DEFAULT_AI_RESULT_MASKING_SETTINGS: AIResultMaskingSettings = {
+    enabled: false,
+    fullMaskFields: [],
+    partialMaskFields: [],
 };
 
 const buildMCPHTTPServerDraftFromStatus = (
@@ -119,7 +137,7 @@ const normalizeMCPHTTPAuthorizationToken = (value: string): string => {
     return withoutHeaderName.replace(/^Bearer\s+/i, '').trim();
 };
 
-export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
+export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, darkMode, overlayTheme, focusProviderId, hideSidebar = false, section, onSectionChange, providersView = 'workspace', onProvidersViewChange, onCloseHost, onBeforeExternalMCPUse, onLeaveGuardChange, confirmationZIndex = APP_STATIC_FEEDBACK_Z_INDEX_BASE }) => {
     const { t } = useI18n();
     const defaultMCPHTTPServerStatus = useMemo<AIMCPHTTPServerStatus>(() => ({
         ...DEFAULT_MCP_HTTP_SERVER_STATUS,
@@ -131,6 +149,11 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const [providersLoading, setProvidersLoading] = useState(false);
     const [providersLoadError, setProvidersLoadError] = useState('');
     const [safetyLevel, setSafetyLevel] = useState<AISafetyLevel>('readonly');
+    const [resultMaskingSettings, setResultMaskingSettings] = useState<AIResultMaskingSettings>(DEFAULT_AI_RESULT_MASKING_SETTINGS);
+    const [resultMaskingLoading, setResultMaskingLoading] = useState(false);
+    const [resultMaskingSaving, setResultMaskingSaving] = useState(false);
+    const [resultMaskingLoadError, setResultMaskingLoadError] = useState('');
+    const [resultMaskingSaveError, setResultMaskingSaveError] = useState('');
     const [contextLevel, setContextLevel] = useState<AIContextLevel>('schema_only');
     const [runPolicy, setRunPolicy] = useState<AIRunPolicy>(DEFAULT_AI_RUN_POLICY);
     const [runRuntime, setRunRuntime] = useState<AIRunRuntimeConfig>(DEFAULT_AI_RUN_RUNTIME_CONFIG);
@@ -156,7 +179,15 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const [providerDirty, setProviderDirty] = useState(false);
     const [builtinPrompts, setBuiltinPrompts] = useState<Record<string, string>>({});
     const [userPromptSettings, setUserPromptSettings] = useState<AIUserPromptSettings>(EMPTY_AI_USER_PROMPT_SETTINGS);
-    const [activeSection, setActiveSection] = useState<AISettingsSectionKey>('providers');
+    const isSectionControlled = section !== undefined;
+    const [internalSection, setInternalSection] = useState<AISettingsSectionKey>('providers');
+    const activeSection = isSectionControlled ? section : internalSection;
+    const applySection = useCallback((next: AISettingsSectionKey) => {
+        onSectionChange?.(next);
+        if (!isSectionControlled) {
+            setInternalSection(next);
+        }
+    }, [isSectionControlled, onSectionChange]);
     const [primaryPasswordVisible, setPrimaryPasswordVisible] = useState(false);
     const [form] = Form.useForm();
     const modalBodyRef = useRef<HTMLDivElement>(null);
@@ -171,6 +202,7 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     const providerLoadSequenceRef = useRef(0);
     const sectionLoadSequenceRef = useRef(0);
     const editorSessionRef = useRef(0);
+    const openedFocusProviderRef = useRef('');
     const configRevisionRef = useRef(0);
     const testRequestRef = useRef(0);
     const saveRunningRef = useRef(false);
@@ -278,12 +310,12 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         return null;
     }, []);
 
-    const copyTextToClipboard = useCallback(async (text: string, successMessage: string) => {
+    const copyTextToClipboard = useCallback(async (text: string, successMessage?: string) => {
         if (typeof navigator?.clipboard?.writeText !== 'function') {
             throw new Error(t('ai_settings.clipboard.error.unsupported'));
         }
         await navigator.clipboard.writeText(text);
-        void messageApi.success(successMessage);
+        if (successMessage) void messageApi.success(successMessage);
     }, [messageApi, t]);
 
     const {
@@ -339,11 +371,22 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
 
     // Each section owns its reads. Opening providers never starts MCP inspection.
     const loadConfig = useCallback(async () => {
-        if (activeSection === 'providers' || activeSection === 'tools') return;
+        if (activeSection === 'providers' || activeSection === 'tools' || activeSection === 'analysis' || activeSection === 'request_events') return;
         const sequence = ++sectionLoadSequenceRef.current;
-        const Service = await resolveAIService();
-        if (!Service) return;
         const isCurrent = () => mountedRef.current && sequence === sectionLoadSequenceRef.current;
+        if (activeSection === 'safety' && isCurrent()) {
+            setResultMaskingLoading(true);
+            setResultMaskingLoadError('');
+            setResultMaskingSaveError('');
+        }
+        const Service = await resolveAIService();
+        if (!Service) {
+            if (activeSection === 'safety' && isCurrent()) {
+                setResultMaskingLoadError(t('ai_settings.result_masking.load_failed'));
+                setResultMaskingLoading(false);
+            }
+            return;
+        }
         const callOrFallback = async <T,>(loader: (() => Promise<T> | undefined), fallback: T): Promise<T> => {
             try { return (await loader()) ?? fallback; }
             catch (error) { console.warn('[AI] settings load fallback', error); return fallback; }
@@ -351,7 +394,22 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         switch (activeSection) {
             case 'safety': {
                 const value = await callOrFallback<AISafetyLevel>(() => Service.AIGetSafetyLevel?.(), 'readonly');
-                if (isCurrent()) setSafetyLevel(value);
+                let masking: AIResultMaskingSettings | undefined;
+                let maskingError = '';
+                try {
+                    if (typeof Service.AIGetResultMaskingSettings !== 'function') {
+                        throw new Error(t('ai_settings.result_masking.load_failed'));
+                    }
+                    masking = await Service.AIGetResultMaskingSettings();
+                } catch (error: any) {
+                    maskingError = error?.message || String(error) || t('ai_settings.result_masking.load_failed');
+                }
+                if (isCurrent()) {
+                    setSafetyLevel(value);
+                    if (masking) setResultMaskingSettings({ ...DEFAULT_AI_RESULT_MASKING_SETTINGS, ...masking });
+                    setResultMaskingLoadError(maskingError);
+                    setResultMaskingLoading(false);
+                }
                 break;
             }
             case 'context': {
@@ -460,16 +518,6 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         }
     }, [active, resetMCPClientSelectionTouched]);
 
-    useEffect(() => {
-        if (!active || !focusProviderId) {
-            return;
-        }
-        if (!providers.some((provider) => provider.id === focusProviderId)) {
-            return;
-        }
-        setActiveSection('providers');
-    }, [active, focusProviderId, providers]);
-
     const applyProviderEditorSession = useCallback((session: ProviderEditorSession) => {
         editorSessionRef.current++;
         editedFieldsRef.current.clear();
@@ -536,25 +584,45 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         }
     }, [active, resetProviderEditorSession]);
     const handleAddProvider = (presetKey = 'openai', endpointType?: ProviderEndpointType) => withAISettingsLeaveGuard(confirmProviderLeave, () => {
-        const preset = findPreset(presetKey);
-        const connection = resolveProviderEndpointConnection(preset, endpointType || getProviderEndpointType({
-            type: preset.backendType, apiFormat: preset.fixedApiFormat || preset.defaultApiFormat,
+        const normalizedPresetKey = normalizeProviderPresetKey(presetKey);
+        const preset = findPreset(normalizedPresetKey);
+        const requestedMode = (presetKey !== normalizedPresetKey ? preset.modes?.find((mode) => mode.legacyPresetKey === presetKey) : undefined)
+            || (endpointType ? preset.modes?.find((mode) => getProviderEndpointTypes({ ...mode, key: `${preset.key}:${mode.key}` }).includes(endpointType)) : undefined)
+            || getProviderPresetMode(preset);
+        const connectionPreset = requestedMode || preset;
+        const connection = resolveProviderEndpointConnection(connectionPreset, endpointType || getProviderEndpointType({
+            type: connectionPreset.backendType, apiFormat: connectionPreset.fixedApiFormat || connectionPreset.defaultApiFormat,
         }) || 'openai');
         if (!connection) return;
-        const identity = getSingletonCLIIdentity({ type: preset.backendType, apiFormat: preset.fixedApiFormat, authMode: preset.authMode });
+        const identity = getSingletonCLIIdentity({ type: connectionPreset.backendType, apiFormat: connectionPreset.fixedApiFormat, authMode: connectionPreset.authMode });
         if (identity && providers.some((provider) => getSingletonCLIIdentity(provider) === identity)) {
             void messageApi.error(t('ai_settings.provider.duplicate_cli'));
             return;
         }
         applyProviderEditorSession(buildAddProviderEditorSession({
-            presetKey,
+            presetKey: normalizedPresetKey,
             presetBackendType: connection.type,
             presetBaseUrl: connection.baseUrl,
-            presetModel: preset.defaultModel,
-            presetModels: preset.models,
+            presetModel: connectionPreset.defaultModel || '',
             apiFormat: connection.apiFormat,
-            authMode: preset.authMode || 'api-key',
+            authMode: connectionPreset.authMode || 'api-key',
+            connectionMode: requestedMode?.key,
         }));
+    });
+
+    const handleApplyPartnerBaseUrl = (baseUrl: string, label: string) => withAISettingsLeaveGuard(confirmProviderLeave, () => {
+        const preset = findPreset('custom');
+        const session = buildAddProviderEditorSession({
+            presetKey: preset.key,
+            presetBackendType: preset.backendType,
+            presetBaseUrl: baseUrl,
+            presetModel: '',
+            apiFormat: 'openai',
+            authMode: 'api-key',
+        });
+        if (session.formValues) session.formValues = { ...session.formValues, name: label };
+        applyProviderEditorSession(session);
+        void messageApi.success(t('ai_settings.provider.partner.base_url_applied'));
     });
 
     const handleEditProvider = (p: AIProviderConfig) => withAISettingsLeaveGuard(confirmProviderLeave, async () => {
@@ -569,31 +637,55 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             if (!mountedRef.current || !activeRef.current || session !== editorSessionRef.current) return;
             // 尝试根据 baseUrl 和 type 推断 preset
             const matchedPreset = matchProviderPreset(editableProvider);
+            const matchedModeKey = resolveProviderPresetModeKey(matchedPreset, editableProvider);
+            const matchedConnection = getProviderPresetMode(matchedPreset, matchedModeKey) || matchedPreset;
+            const isOpenAICodexSubscription = matchedPreset.key === 'openai'
+                && getSingletonCLIIdentity(editableProvider) === 'codex-cli';
             const resolvedTransport = resolvePresetTransport({
                 presetKey: matchedPreset.key,
-                presetBackendType: matchedPreset.backendType,
-                presetFixedApiFormat: matchedPreset.fixedApiFormat,
-                presetDefaultApiFormat: matchedPreset.defaultApiFormat,
-                presetEndpoints: matchedPreset.endpoints,
+                presetBackendType: matchedConnection.backendType,
+                presetFixedApiFormat: matchedConnection.fixedApiFormat,
+                presetDefaultApiFormat: matchedConnection.defaultApiFormat,
+                presetEndpoints: matchedConnection.endpoints,
                 valuesBaseUrl: editableProvider.baseUrl,
                 valuesApiFormat: editableProvider.apiFormat,
                 valuesModel: editableProvider.model,
             });
+            const { models: _removedModels, maxTokens: _removedMaxTokens, contextWindow: _removedContextWindow, ...editableFields } = editableProvider;
             applyProviderEditorSession(buildEditProviderEditorSession({
                 provider: { ...editableProvider, presetKey: matchedPreset.key } as any,
                 formValues: {
-                    ...editableProvider,
-                    type: resolvedTransport.type,
-                    models: editableProvider.models || [],
+                    ...editableFields,
+                    type: isOpenAICodexSubscription ? 'custom' : resolvedTransport.type,
                     presetKey: matchedPreset.key,
-                    apiFormat: resolvedTransport.apiFormat || (resolvedTransport.type === 'custom' ? editableProvider.apiFormat || 'openai' : resolvedTransport.type),
-                    authMode: matchedPreset.authMode || editableProvider.authMode || 'api-key',
+                    connectionMode: matchedModeKey,
+                    apiFormat: isOpenAICodexSubscription
+                        ? 'codex-cli'
+                        : resolvedTransport.apiFormat || (resolvedTransport.type === 'custom' ? editableProvider.apiFormat || 'openai' : resolvedTransport.type),
+                    authMode: isOpenAICodexSubscription ? 'local-cli' : matchedConnection.authMode || editableProvider.authMode || 'api-key',
+                    headerRows: rowsFromRecord(editableProvider.headers),
+                    cliEnvRows: rowsFromRecord(editableProvider.cliEnv),
+                    cliPath: editableProvider.cliPath || '',
                 },
             }));
         } catch (e: any) {
             if (session === editorSessionRef.current && activeRef.current) void messageApi.error(e?.message || t('ai_settings.message.load_provider_failed'));
         }
     });
+
+    useEffect(() => {
+        const requestedProviderId = String(focusProviderId || '').trim();
+        if (!active || !requestedProviderId) {
+            openedFocusProviderRef.current = '';
+            return;
+        }
+        if (openedFocusProviderRef.current === requestedProviderId) return;
+        const requestedProvider = providers.find((provider) => provider.id === requestedProviderId);
+        if (!requestedProvider) return;
+        openedFocusProviderRef.current = requestedProviderId;
+        applySection('providers');
+        void handleEditProvider(requestedProvider);
+    }, [active, applySection, focusProviderId, handleEditProvider, providers]);
 
     const handleDeleteProvider = async (id: string) => {
         const session = editorSessionRef.current;
@@ -621,31 +713,39 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
     };
 
     const buildProviderPayload = (values: Record<string, any>, purpose: 'save' | 'test'): AIProviderConfig => {
-        // validateFields only returns mounted fields. Preserve stored options
-        // that have no editor control (for example maxTokens and temperature).
+        // validateFields only returns mounted fields. Removed controls must not
+        // leak legacy values back into a saved provider.
         values = { ...form.getFieldsValue(true), ...values };
-        const presetKey = values.presetKey || 'openai';
+        const { headerRows, cliEnvRows, models: _removedModels, maxTokens: _removedMaxTokens,
+            contextWindow: _removedContextWindow, ...formFields } = values;
+        const presetKey = normalizeProviderPresetKey(values.presetKey || 'openai');
         const preset = findPreset(presetKey);
-        const authMode = preset.authMode || 'api-key';
-        const { model, models } = resolvePresetModelSelection({
-            presetKey,
-            presetDefaultModel: preset.defaultModel,
-            presetModels: preset.models,
+        const selectedMode = getProviderPresetMode(preset, formFields.connectionMode);
+        const connectionPreset = selectedMode || preset;
+        const resolutionKey = selectedMode?.legacyPresetKey || presetKey;
+        const openAICodexSubscription = presetKey === 'openai' && formFields.authMode === 'local-cli';
+        const authMode = openAICodexSubscription || connectionPreset.authMode === 'local-cli'
+            ? 'local-cli'
+            : (formFields.authMode === 'bearer' ? 'bearer' : 'api-key');
+        const { model } = resolvePresetModelSelection({
+            presetKey: openAICodexSubscription ? 'codex' : resolutionKey,
+            presetDefaultModel: connectionPreset.defaultModel || '',
+            presetModels: connectionPreset.models || [],
             valuesModel: values.model,
-            customModels: values.models,
+            customModels: [],
         });
-        const baseUrl = resolvePresetBaseURL({
-            presetKey,
-            presetDefaultBaseUrl: preset.defaultBaseUrl,
-            presetEndpoints: preset.endpoints,
+        const baseUrl = openAICodexSubscription ? '' : resolvePresetBaseURL({
+            presetKey: resolutionKey,
+            presetDefaultBaseUrl: connectionPreset.defaultBaseUrl,
+            presetEndpoints: connectionPreset.endpoints,
             valuesBaseUrl: values.baseUrl,
         });
-        const transport = resolvePresetTransport({
-            presetKey,
-            presetBackendType: preset.backendType,
-            presetFixedApiFormat: preset.fixedApiFormat,
-            presetDefaultApiFormat: preset.defaultApiFormat,
-            presetEndpoints: preset.endpoints,
+        const transport = openAICodexSubscription ? { type: 'custom' as const, apiFormat: 'codex-cli' } : resolvePresetTransport({
+            presetKey: resolutionKey,
+            presetBackendType: connectionPreset.backendType,
+            presetFixedApiFormat: connectionPreset.fixedApiFormat,
+            presetDefaultApiFormat: connectionPreset.defaultApiFormat,
+            presetEndpoints: connectionPreset.endpoints,
             valuesBaseUrl: baseUrl,
             valuesApiFormat: values.apiFormat,
             valuesModel: model,
@@ -660,7 +760,7 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         });
         const payload = {
             ...editingProvider,
-            ...values,
+            ...formFields,
             ...transport,
             name: String(values.name || '').trim() ? values.name : localizeProviderPreset(preset, t).label,
             apiKey: secret.apiKey,
@@ -668,13 +768,17 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             authMode,
             baseUrl,
             model,
-            models,
+            models: [],
             disabledModels: normalizeProviderModels(values.disabledModels),
             customModels: normalizeProviderModels(values.customModels),
-            effort: String(values.effort || ''),
+            effort: authMode === 'local-cli' ? String(values.effort || '') : '',
             inlineCompletionModel: String(values.inlineCompletionModel || '').trim(),
-            maxTokens: Number.isFinite(Number(values.maxTokens)) ? Number(values.maxTokens) : 4096,
+            maxTokens: 0,
             temperature: Number.isFinite(Number(values.temperature)) ? Number(values.temperature) : 0.7,
+            contextWindow: 0,
+            headers: authMode === 'local-cli' ? {} : recordFromRows(headerRows),
+            cliPath: authMode === 'local-cli' ? String(values.cliPath || '').trim() : '',
+            cliEnv: authMode === 'local-cli' ? recordFromRows(cliEnvRows) : {},
         } as AIProviderConfig;
         if (payload.disabledModels?.includes(model) || (payload.inlineCompletionModel && payload.disabledModels?.includes(payload.inlineCompletionModel))) {
             throw new Error(t('ai_settings.models.required_disabled'));
@@ -802,6 +906,28 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             await Service?.AISetSafetyLevel?.(level);
             setSafetyLevel(level);
         } catch (e) { /* ignore */ }
+    };
+
+    const handleSaveResultMasking = async () => {
+        if (resultMaskingLoadError || resultMaskingSaving) return;
+        setResultMaskingSaving(true);
+        setResultMaskingSaveError('');
+        try {
+            const Service = await resolveAIService();
+            if (typeof Service?.AISaveResultMaskingSettings !== 'function') {
+                throw new Error(t('ai_settings.result_masking.save_failed'));
+            }
+            await Service.AISaveResultMaskingSettings(resultMaskingSettings);
+            if (mountedRef.current) void messageApi.success(t('ai_settings.result_masking.saved'));
+        } catch (error: any) {
+            const detail = error?.message || String(error) || t('ai_settings.result_masking.save_failed');
+            if (mountedRef.current) {
+                setResultMaskingSaveError(detail);
+                void messageApi.error(detail);
+            }
+        } finally {
+            if (mountedRef.current) setResultMaskingSaving(false);
+        }
     };
 
     const handleContextChange = async (level: AIContextLevel) => {
@@ -1097,21 +1223,60 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         }
     };
 
+    const handleSyncProviderModels = async (): Promise<string[]> => {
+        const session = editorSessionRef.current;
+        const revision = configRevisionRef.current;
+        const isCurrent = () => mountedRef.current && activeRef.current
+            && session === editorSessionRef.current && revision === configRevisionRef.current;
+        try {
+            await form.validateFields(['baseUrl', 'apiKey']);
+            if (!isCurrent()) return [];
+            const payload = buildProviderPayload({}, 'test');
+            const Service = await resolveAIService();
+            if (!isCurrent()) return [];
+            if (typeof Service?.AIListProviderModels !== 'function') throw new Error(t('ai_settings.message.bridge_unavailable'));
+            const response = await Service.AIListProviderModels(payload);
+            if (!isCurrent()) return [];
+            if (!response || response.success !== true) {
+                throw new Error(response?.error || t('ai_settings.models.sync_failed'));
+            }
+            const models = normalizeProviderModels(response.models);
+            if (!models.length) throw new Error(t('ai_settings.models.sync_empty'));
+            void messageApi.success(t('ai_settings.models.sync_success', { count: models.length }));
+            return models;
+        } catch (error: any) {
+            if (isCurrent() && !error?.errorFields) {
+                void messageApi.error(error?.message || t('ai_settings.models.sync_failed'));
+            }
+            throw error;
+        }
+    };
+
     const handlePresetChange = (presetKey: string, endpointType?: ProviderEndpointType) => {
-        const preset = findPreset(presetKey);
-        const samePreset = presetKey === form.getFieldValue('presetKey');
-        const connection = resolveProviderEndpointConnection(preset, endpointType || getProviderEndpointType({
-            type: preset.backendType, apiFormat: preset.fixedApiFormat || preset.defaultApiFormat,
+        const normalizedPresetKey = normalizeProviderPresetKey(presetKey);
+        const preset = findPreset(normalizedPresetKey);
+        const currentMode = normalizedPresetKey === form.getFieldValue('presetKey')
+            ? getProviderPresetMode(preset, form.getFieldValue('connectionMode'))
+            : undefined;
+        const requestedMode = (presetKey !== normalizedPresetKey ? preset.modes?.find((mode) => mode.legacyPresetKey === presetKey) : undefined)
+            || (currentMode && (!endpointType || getProviderEndpointTypes({ ...currentMode, key: `${preset.key}:${currentMode.key}` }).includes(endpointType)) ? currentMode : undefined)
+            || (endpointType ? preset.modes?.find((mode) => getProviderEndpointTypes({ ...mode, key: `${preset.key}:${mode.key}` }).includes(endpointType)) : undefined)
+            || getProviderPresetMode(preset);
+        const connectionPreset = requestedMode || preset;
+        const samePreset = normalizedPresetKey === normalizeProviderPresetKey(form.getFieldValue('presetKey'));
+        const sameConnectionMode = samePreset && requestedMode?.key === currentMode?.key;
+        const connection = resolveProviderEndpointConnection(connectionPreset, endpointType || getProviderEndpointType({
+            type: connectionPreset.backendType, apiFormat: connectionPreset.fixedApiFormat || connectionPreset.defaultApiFormat,
         }) || 'openai', samePreset ? form.getFieldValue('baseUrl') : undefined);
         if (!connection) return;
-        const identity = getSingletonCLIIdentity({ type: preset.backendType, apiFormat: preset.fixedApiFormat, authMode: preset.authMode });
+        const identity = getSingletonCLIIdentity({ type: connectionPreset.backendType, apiFormat: connectionPreset.fixedApiFormat, authMode: connectionPreset.authMode });
         if (identity && (!editingProvider?.id || getSingletonCLIIdentity(editingProvider) !== identity)
             && providers.some((provider) => provider.id !== editingProvider?.id && getSingletonCLIIdentity(provider) === identity)) {
             void messageApi.error(t('ai_settings.provider.duplicate_cli'));
             return;
         }
         invalidateProviderTest();
-        if (samePreset && endpointType) {
+        if (sameConnectionMode && endpointType) {
             // Changing protocol within one vendor keeps the user's alias,
             // credentials, model choices and generation settings intact.
             form.setFieldsValue(connection);
@@ -1120,25 +1285,128 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         }
         editedFieldsRef.current.delete('model');
         editedFieldsRef.current.delete('effort');
-        const authMode = preset.authMode || 'api-key';
-        const { model: presetModel, models: presetModels } = resolvePresetModelSelection({
-            presetKey,
-            presetDefaultModel: preset.defaultModel,
-            presetModels: preset.models,
-            customModels: preset.models,
+        const authMode = connectionPreset.authMode || 'api-key';
+        const resolutionKey = requestedMode?.legacyPresetKey || normalizedPresetKey;
+        const { model: presetModel } = resolvePresetModelSelection({
+            presetKey: resolutionKey,
+            presetDefaultModel: connectionPreset.defaultModel || '',
+            presetModels: connectionPreset.models || [],
+            customModels: connectionPreset.models || [],
         });
         form.setFieldsValue({
-            presetKey,
+            presetKey: normalizedPresetKey,
+            connectionMode: requestedMode?.key || '',
             ...connection,
             model: presetModel,
-            models: presetModels,
+            models: undefined,
             disabledModels: [],
             customModels: [],
             inlineCompletionModel: '',
             effort: undefined,
             authMode,
-            ...(authMode === 'local-cli' ? { apiKey: '' } : {}),
+            apiKey: '',
+            headerRows: [],
+            cliEnvRows: [],
+            cliPath: '',
+            contextWindow: undefined,
+            maxTokens: undefined,
         });
+        refreshProviderDirty();
+    };
+
+    const handleProviderConnectionModeChange = (modeKey: string) => {
+        const preset = findPreset(form.getFieldValue('presetKey') || 'openai');
+        const mode = getProviderPresetMode(preset, modeKey);
+        if (!mode) return;
+        const previousModeKey = resolveProviderPresetModeKey(preset, {
+            type: form.getFieldValue('type') || preset.backendType,
+            apiFormat: form.getFieldValue('apiFormat'),
+            authMode: form.getFieldValue('authMode'),
+            baseUrl: form.getFieldValue('baseUrl') || '',
+            apiKey: form.getFieldValue('apiKey'),
+            hasSecret: editingProvider?.hasSecret,
+            secretRef: editingProvider?.secretRef,
+        });
+        const endpointType = getProviderEndpointType({ type: mode.backendType, apiFormat: mode.fixedApiFormat || mode.defaultApiFormat }) || 'openai';
+        const connection = resolveProviderEndpointConnection(mode, endpointType);
+        if (!connection) return;
+        const identity = getSingletonCLIIdentity({ type: mode.backendType, apiFormat: mode.fixedApiFormat, authMode: mode.authMode });
+        if (identity && (!editingProvider?.id || getSingletonCLIIdentity(editingProvider) !== identity)
+            && providers.some((provider) => provider.id !== editingProvider?.id && getSingletonCLIIdentity(provider) === identity)) {
+            form.setFieldValue('connectionMode', previousModeKey);
+            void messageApi.error(t('ai_settings.provider.duplicate_cli'));
+            return;
+        }
+        invalidateProviderTest();
+        editedFieldsRef.current.delete('model');
+        editedFieldsRef.current.delete('effort');
+        const authMode = mode.authMode || 'api-key';
+        const { model } = resolvePresetModelSelection({
+            presetKey: mode.legacyPresetKey || preset.key,
+            presetDefaultModel: mode.defaultModel,
+            presetModels: mode.models,
+            customModels: mode.models,
+        });
+        const crossingLocalBoundary = authMode === 'local-cli' || form.getFieldValue('authMode') === 'local-cli';
+        form.setFieldsValue({
+            connectionMode: mode.key,
+            ...connection,
+            authMode,
+            model,
+            disabledModels: [],
+            customModels: [],
+            inlineCompletionModel: '',
+            effort: undefined,
+            ...(crossingLocalBoundary ? { apiKey: '', headerRows: [], cliPath: '', cliEnvRows: [] } : {}),
+        });
+        refreshProviderDirty();
+    };
+
+    const handleProviderAuthModeChange = (authMode: NonNullable<AIProviderConfig['authMode']>) => {
+        const presetKey = form.getFieldValue('presetKey') || 'openai';
+        invalidateProviderTest();
+        editedFieldsRef.current.add('authMode');
+        if (presetKey !== 'openai') {
+            form.setFieldValue('authMode', authMode);
+            refreshProviderDirty();
+            return;
+        }
+
+        if (authMode === 'local-cli') {
+            const identity = 'codex-cli';
+            if ((!editingProvider?.id || getSingletonCLIIdentity(editingProvider) !== identity)
+                && providers.some((provider) => provider.id !== editingProvider?.id && getSingletonCLIIdentity(provider) === identity)) {
+                form.setFieldValue('authMode', 'api-key');
+                void messageApi.error(t('ai_settings.provider.duplicate_cli'));
+                refreshProviderDirty();
+                return;
+            }
+            editedFieldsRef.current.delete('model');
+            editedFieldsRef.current.delete('effort');
+            form.setFieldsValue({
+                authMode: 'local-cli',
+                type: 'custom',
+                apiFormat: 'codex-cli',
+                baseUrl: '',
+                apiKey: '',
+                headerRows: [],
+                model: '',
+                effort: undefined,
+            });
+        } else {
+            const preset = findPreset('openai');
+            const connection = resolveProviderEndpointConnection(preset, 'openai');
+            form.setFieldsValue({
+                authMode: 'api-key',
+                type: connection?.type || 'openai',
+                apiFormat: connection?.apiFormat || 'openai',
+                baseUrl: connection?.baseUrl || preset.defaultBaseUrl,
+                cliPath: '',
+                cliEnvRows: [],
+                effort: undefined,
+                model: form.getFieldValue('model') || preset.defaultModel,
+            });
+        }
         refreshProviderDirty();
     };
 
@@ -1148,10 +1416,14 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
             <section
                 key={sectionKey}
                 id={`gonavi-ai-settings-panel-${sectionKey}`}
-                role="tabpanel"
-                aria-labelledby={`gonavi-ai-settings-tab-${sectionKey}`}
+                role={hideSidebar ? undefined : 'tabpanel'}
+                aria-labelledby={hideSidebar ? undefined : `gonavi-ai-settings-tab-${sectionKey}`}
                 hidden={activeSection !== sectionKey}
-                className={sectionKey === 'providers' ? 'gonavi-ai-settings-panel-providers' : undefined}
+                className={sectionKey === 'providers'
+                    ? 'gonavi-ai-settings-panel-providers'
+                    : sectionKey === 'request_events'
+                        ? 'gonavi-ai-settings-panel-request-events'
+                        : undefined}
             >
                 {sectionKey !== 'providers' && <div style={{ paddingBottom: 12, marginBottom: 2 }}>
                     <div style={{ marginTop: 3, fontSize: 'var(--gn-font-size-sm, 12px)', lineHeight: 1.55, color: overlayTheme.mutedText }}>
@@ -1167,21 +1439,26 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
         <div ref={modalBodyRef} className="ai-settings-body gonavi-ai-settings-flat" style={{ display: 'flex', gap: 16, padding: '0', height: '100%', minHeight: 0, overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
             {messageContextHolder}
             {modalContextHolder}
+            {hideSidebar ? null : (
             <AISettingsSidebar
                 activeSection={activeSection}
                 darkMode={darkMode}
                 overlayTheme={overlayTheme}
-                onSelectSection={(section) => {
-                    if (section !== activeSection) withAISettingsLeaveGuard(confirmProviderLeave, () => setActiveSection(section));
+                onSelectSection={(nextSection) => {
+                    if (nextSection !== activeSection) withAISettingsLeaveGuard(confirmProviderLeave, () => applySection(nextSection));
                 }}
             />
+            )}
             <div
                 ref={settingsContentScrollRef}
                 className="gonavi-ai-settings-content"
-                style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: activeSection === 'providers' ? 'hidden' : 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '0 6px 8px 0' }}
+                style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: activeSection === 'providers' || activeSection === 'request_events' ? 'hidden' : 'auto', overflowX: 'hidden', overscrollBehavior: 'contain', padding: '0 6px 8px 0' }}
             >
                 {renderSectionPanel('providers', (
                     <AISettingsProvidersSection
+                        treeHostedView={hideSidebar ? providersView : undefined}
+                        onOpenWorkspaceView={hideSidebar ? () => onProvidersViewChange?.('workspace') : undefined}
+                        onCloseHost={hideSidebar ? onCloseHost : undefined}
                         providers={providers}
                         activeProviderId={activeProviderId}
                         pendingProviderId={pendingProviderId}
@@ -1206,7 +1483,6 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                         overlayTheme={overlayTheme}
                         cardBg={cardBg}
                         cardBorder={cardBorder}
-                        inputBg={inputBg}
                         onPrimaryPasswordVisibleChange={setPrimaryPasswordVisible}
                         resolveProviderPreset={matchLocalizedProviderPreset}
                         resolvePresetByKey={findLocalizedPreset}
@@ -1216,11 +1492,34 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                         onSetActiveProvider={handleSetActive}
                         onCancelEdit={handleCancelProviderEdit}
                         onPresetChange={handlePresetChange}
+                        onConnectionModeChange={handleProviderConnectionModeChange}
+                        onCopyPartnerCode={(code) => copyTextToClipboard(code)}
+                        onApplyPartnerBaseUrl={handleApplyPartnerBaseUrl}
+                        onSyncProviderModels={handleSyncProviderModels}
+                        onAuthModeChange={handleProviderAuthModeChange}
                         onTestProvider={handleTestProvider}
                         onSaveProvider={() => handleSaveProvider()}
                         onSaveProviderAsCopy={() => handleSaveProvider('copy')}
                         saveMode={providerSaveMode}
                         dirty={providerDirty}
+                    />
+                ))}
+                {renderSectionPanel('analysis', (
+                    <AISettingsAnalysisSection
+                        active={active && activeSection === 'analysis'}
+                        providers={providers}
+                        overlayTheme={overlayTheme}
+                        cardBg={cardBg}
+                        cardBorder={cardBorder}
+                    />
+                ))}
+                {renderSectionPanel('request_events', (
+                    <AISettingsRequestEventsSection
+                        active={active && activeSection === 'request_events'}
+                        providers={providers}
+                        overlayTheme={overlayTheme}
+                        cardBg={cardBg}
+                        cardBorder={cardBorder}
                     />
                 ))}
                 {renderSectionPanel('safety', (
@@ -1231,6 +1530,14 @@ export const AISettingsContent: React.FC<AISettingsContentProps> = ({ active, da
                         cardBg={cardBg}
                         cardBorder={cardBorder}
                         onChange={handleSafetyChange}
+                        resultMaskingSettings={resultMaskingSettings}
+                        resultMaskingLoading={resultMaskingLoading}
+                        resultMaskingSaving={resultMaskingSaving}
+                        resultMaskingLoadError={resultMaskingLoadError}
+                        resultMaskingSaveError={resultMaskingSaveError}
+                        onResultMaskingChange={setResultMaskingSettings}
+                        onSaveResultMasking={() => void handleSaveResultMasking()}
+                        onReloadResultMasking={() => void loadConfig()}
                     />
                 ))}
                 {renderSectionPanel('context', (

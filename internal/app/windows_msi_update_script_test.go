@@ -72,6 +72,32 @@ func TestBuildWindowsMSIUpdatePowerShellScriptInstallsRelaunchesAndCleans(t *tes
 	}
 }
 
+func TestWindowsShortcutBrandIconDoesNotWriteUnsupportedWScriptAUMID(t *testing.T) {
+	script := windowsShortcutRepairPowerShellScript
+	if strings.Contains(script, `$shortcut.AppUserModelID`) {
+		t.Fatalf("WScript.Shell shortcuts do not support AppUserModelID; the icon save would be skipped:\n%s", script)
+	}
+	iconLocationIndex := strings.Index(script, `$shortcut.IconLocation = $wantedIconLocation`)
+	if iconLocationIndex < 0 || !strings.Contains(script[iconLocationIndex:], `$shortcut.Save()`) {
+		t.Fatalf("brand icon updates must save IconLocation changes:\n%s", script)
+	}
+	for _, token := range []string{
+		`function Set-GoNaviShortcutRelaunchProperties`,
+		`SHGetPropertyStoreFromParsingName`,
+		`GPS_READWRITE`,
+		`SetRelaunchProperties`,
+		`$isTaskbarShortcut`,
+		`Set-GoNaviShortcutRelaunchProperties -ShortcutPath $shortcutFile.FullName`,
+		`$useTaskbarPropertyStore`,
+		`repaired legacy taskbar pin properties`,
+		`continue`,
+	} {
+		if !strings.Contains(script, token) {
+			t.Fatalf("taskbar pin migration missing %q:\n%s", token, script)
+		}
+	}
+}
+
 func TestBuildWindowsMSILaunchCommandPreservesPathsInEnvironment(t *testing.T) {
 	context := windowsMSIUpdateLaunchContext{
 		SourcePath:           `C:\Users\tester\AppData\Local\GoNavi 100%\GoNavi-Installer.msi`,

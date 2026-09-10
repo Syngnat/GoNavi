@@ -331,7 +331,7 @@ func executePinnedExplainStatements(
 		text = defaultExplainBackendText
 	}
 	provider, ok := dbInst.(db.SessionExecerProvider)
-	if !ok {
+	if !ok || !runtimeSupportsSessionExecer(dbInst) {
 		return "", "", fmt.Errorf("%s", text("sql_analysis.backend.error.explain_query_not_implemented", map[string]any{"dbType": dbType}))
 	}
 	session, err := provider.OpenSessionExecer(ctx)

@@ -153,6 +153,7 @@ func TestResolveDDLDBType_CustomDriverAlias(t *testing.T) {
 		{name: "dm alias", driver: "dm8", want: "dameng"},
 		{name: "sqlite alias", driver: "sqlite3", want: "sqlite"},
 		{name: "iris alias", driver: "InterSystems IRIS", want: "iris"},
+		{name: "cache alias", driver: "InterSystems Caché", want: "iris"},
 	}
 
 	for _, tc := range testCases {
@@ -192,6 +193,20 @@ func TestResolveDDLDBType_IRISTypeAlias(t *testing.T) {
 
 	if got := resolveDDLDBType(connection.ConnectionConfig{Type: "InterSystemsIRIS"}); got != "iris" {
 		t.Fatalf("expected InterSystemsIRIS type alias to resolve to iris, got %q", got)
+	}
+}
+
+func TestResolveDDLDBType_CacheTypeAliasesUseIRISDialect(t *testing.T) {
+	t.Parallel()
+
+	for _, dbType := range []string{"cache", "Caché", "InterSystems Cache", "InterSystems Caché"} {
+		dbType := dbType
+		t.Run(dbType, func(t *testing.T) {
+			t.Parallel()
+			if got := resolveDDLDBType(connection.ConnectionConfig{Type: dbType}); got != "iris" {
+				t.Fatalf("expected %q type alias to use iris DDL dialect, got %q", dbType, got)
+			}
+		})
 	}
 }
 
@@ -801,5 +816,59 @@ func TestResolveCreateStatementWithFallback_FallbackWhenCreateStatementError(t *
 	}
 	if !strings.Contains(ddl, `CREATE TABLE "public"."orders"`) {
 		t.Fatalf("expected fallback DDL for postgres error path, got: %s", ddl)
+	}
+}
+
+func TestResolveCreateStatementWithFallback_DamengUsesColumnsWhenNativeDDLUnavailable(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		config connection.ConnectionConfig
+	}{
+		{name: "built-in", config: connection.ConnectionConfig{Type: "dameng"}},
+		{name: "custom dm8", config: connection.ConnectionConfig{Type: "custom", Driver: "dm8"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dbInst := &fakeCreateStatementDB{
+				createErr: errors.New("DBMS_METADATA.GET_DDL is unavailable"),
+				columns: []connection.ColumnDefinition{
+					{Name: "ID", Type: "BIGINT", Nullable: "NO", Key: "PRI", Extra: "auto_increment"},
+					{Name: "STATUS", Type: "VARCHAR2(32)", Nullable: "YES"},
+				},
+			}
+
+			ddl, err := resolveCreateStatementWithFallback(dbInst, tc.config, "GXCM", "SM_CHECK_RESULT_ITEM")
+			if err != nil {
+				t.Fatalf("resolveCreateStatementWithFallback() unexpected error: %v", err)
+			}
+			if !strings.Contains(ddl, `CREATE TABLE "GXCM"."SM_CHECK_RESULT_ITEM"`) {
+				t.Fatalf("expected Dameng fallback DDL with owner and table, got: %s", ddl)
+			}
+			if !strings.Contains(ddl, `"ID" BIGINT IDENTITY(1,1) NOT NULL`) || !strings.Contains(ddl, `PRIMARY KEY ("ID")`) {
+				t.Fatalf("expected Dameng fallback DDL to preserve identity and primary key metadata, got: %s", ddl)
+			}
+			if dbInst.columnsCalls != 1 {
+				t.Fatalf("expected Dameng fallback to load columns once, got %d", dbInst.columnsCalls)
+			}
+		})
+	}
+}
+
+func TestBuildFallbackCreateStatement_DamengDoesNotAddIdentityToNumber(t *testing.T) {
+	t.Parallel()
+
+	ddl, err := buildFallbackCreateStatement("dameng", "GXCM", "LEGACY_ITEMS", []connection.ColumnDefinition{
+		{Name: "ID", Type: "NUMBER(19)", Nullable: "NO", Extra: "auto_increment"},
+	})
+	if err != nil {
+		t.Fatalf("buildFallbackCreateStatement() unexpected error: %v", err)
+	}
+	if strings.Contains(ddl, "IDENTITY") {
+		t.Fatalf("Dameng NUMBER columns must not receive an illegal IDENTITY clause: %s", ddl)
 	}
 }

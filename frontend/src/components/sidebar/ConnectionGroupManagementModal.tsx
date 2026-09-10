@@ -91,6 +91,7 @@ const ConnectionGroupManagementModal: React.FC<Props> = ({ open, onClose, onOpen
   const ownerIds = useMemo(() => new Set(tags.flatMap((tag) => tag.connectionIds)), [tags]);
   const tagById = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags]);
   const sortConnections = (ids: string[], mode: ConnectionDisplaySortMode) => {
+    if (mode === 'manual') return [...ids];
     const manualIndex = new Map(ids.map((id, index) => [id, index]));
     return [...ids].sort((left, right) => {
       const a = connectionById.get(left); const b = connectionById.get(right);
@@ -354,7 +355,7 @@ const ConnectionGroupManagementModal: React.FC<Props> = ({ open, onClose, onOpen
                     <span>{t('connection.sidebar.management.sortLabel')}</span>
                   </span>
                 </Tooltip>
-                <Select aria-label={t('connection.sidebar.management.sort')} size="small" value={currentMode} className="connection-group-management-sort" options={[{ label: t('connection.sidebar.management.name'), value: 'name' }, { label: t('connection.sidebar.management.createdAt'), value: 'createdAt' }]} onChange={(value) => setConnectionSortMode(currentTag?.id || null, value as ConnectionDisplaySortMode)} />
+                <Select aria-label={t('connection.sidebar.management.sort')} size="small" value={currentMode} className="connection-group-management-sort" options={[{ label: t('connection.sidebar.management.manual'), value: 'manual' }, { label: t('connection.sidebar.management.name'), value: 'name' }, { label: t('connection.sidebar.management.createdAt'), value: 'createdAt' }]} onChange={(value) => setConnectionSortMode(currentTag?.id || null, value as ConnectionDisplaySortMode)} />
               </div>
             </Space>
           </div>

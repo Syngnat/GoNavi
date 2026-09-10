@@ -47,7 +47,6 @@ const storeState = vi.hoisted(() => ({
     enabled: true,
     opacity: 1,
     blur: 0,
-    uiVersion: 'v2',
     showDataTableVerticalBorders: false,
     dataTableDensity: 'comfortable',
   },
@@ -214,6 +213,7 @@ vi.mock('@ant-design/icons', () => {
     ReloadOutlined: Icon,
     ImportOutlined: Icon,
     ExportOutlined: Icon,
+    CompressOutlined: Icon,
     DownOutlined: Icon,
     PlusOutlined: Icon,
     DeleteOutlined: Icon,
@@ -1015,7 +1015,7 @@ describe('DataGrid DDL interactions', () => {
     setCurrentLanguage('zh-CN');
     storeState.queryOptions.showColumnComment = false;
     storeState.queryOptions.showColumnType = false;
-    storeState.appearance.uiVersion = 'legacy';
+
     storeState.connections[0].config.type = 'mysql';
     storeState.connections[0].config.database = 'main';
     storeState.dataEditTransactionOptions = {
@@ -1113,7 +1113,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('toggles one row when its row number cell is clicked', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [
       { [GONAVI_ROW_KEY]: 'row-1', id: 1 },
       { [GONAVI_ROW_KEY]: 'row-2', id: 2 },
@@ -1157,10 +1157,10 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
-  it.each(['legacy', 'v2'] as const)(
-    'opens the referenced table DDL from a %s query result',
-    async (uiVersion) => {
-      storeState.appearance.uiVersion = uiVersion;
+  it(
+    'opens the referenced table DDL from a query result',
+    async () => {
+
       backendApp.DBShowCreateTable.mockResolvedValueOnce({
         success: true,
         data: 'CREATE TABLE users (`id` bigint)',
@@ -1204,6 +1204,10 @@ describe('DataGrid DDL interactions', () => {
     backendApp.DBShowCreateTable.mockReturnValueOnce(new Promise((resolve) => {
       resolveFirstRequest = resolve;
     }));
+    backendApp.DBShowCreateTable.mockResolvedValueOnce({
+      success: true,
+      data: 'CREATE TABLE orders',
+    });
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -1245,10 +1249,10 @@ describe('DataGrid DDL interactions', () => {
     expect(renderer!.root.findAll((node) => node.props['data-modal-title'] === 'DDL - orders')).toHaveLength(0);
   });
 
-  it.each(['legacy', 'v2'] as const)(
-    'opens the referenced table when clicking a foreign-key column header in %s UI',
-    async (uiVersion) => {
-      storeState.appearance.uiVersion = uiVersion;
+  it(
+    'opens the referenced table when clicking a foreign-key column header',
+    async () => {
+
       backendApp.DBGetForeignKeys.mockResolvedValueOnce({
         success: true,
         data: [{
@@ -1435,8 +1439,7 @@ describe('DataGrid DDL interactions', () => {
     await act(async () => {
       renderer = create(
         <DataGridPageFind
-          isV2Ui
-          darkMode={false}
+
           pageFindText="Ada"
           normalizedPageFindText="ada"
           hasMatches
@@ -1472,7 +1475,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('opens the V2 current-page finder with Ctrl+F and closes it without duplicating the widget', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     Object.defineProperty(navigator, 'platform', {
       configurable: true,
       value: 'Win32',
@@ -1538,7 +1541,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('does not claim document-level Cmd+F for a query result without DataGrid focus', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     let renderer: ReactTestRenderer;
     await act(async () => {
       renderer = create(
@@ -1582,6 +1585,132 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('commits pending edits with Ctrl+S when the editable grid is focused', async () => {
+
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'Win32' });
+    backendApp.ApplyChanges.mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { deletes: [], updates: [], inserts: [] },
+    });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+
+    const saveListeners = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true)
+      .map(([_type, listener]) => listener as EventListener)
+      .filter(Boolean);
+    expect(saveListeners.length).toBeGreaterThan(0);
+    const eventTarget = { closest: (selector: string) => selector === '.data-grid-root' ? {} : null };
+    const event = {
+      key: 's', code: 'KeyS', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false,
+      isComposing: false, target: eventTarget,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+
+    await act(async () => {
+      saveListeners.forEach((listener) => listener(event));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(event.preventDefault).toHaveBeenCalledTimes(1);
+    expect(event.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+  });
+
+  it('commits pending edits with Meta+S on macOS and ignores save shortcuts outside or in read-only grids', async () => {
+
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+    backendApp.ApplyChanges.mockResolvedValue({ success: true, message: 'ok', data: { deletes: [], updates: [], inserts: [] } });
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'Ada' }]}
+          columnNames={['id', 'name']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+    await act(async () => {
+      renderer!.root.findByType(DataGridToolbarFrame).props.onAddRow();
+    });
+    await waitForEffects();
+    const saveListeners = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true)
+      .map(([_type, listener]) => listener as EventListener)
+      .filter(Boolean);
+    const eventTarget = { closest: (selector: string) => selector === '.data-grid-root' ? {} : null };
+    const metaEvent = {
+      key: 's', code: 'KeyS', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false,
+      isComposing: false, target: eventTarget,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    await act(async () => {
+      saveListeners.forEach((listener) => listener(metaEvent));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(metaEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(backendApp.ApplyChanges).toHaveBeenCalledTimes(1);
+    renderer!.unmount();
+
+    const readOnlyRenderer = create(
+      <DataGrid
+        data={[{ __gonavi_row_key__: 'row-1', id: 1 }]}
+        columnNames={['id']}
+        loading={false}
+        tableName="users"
+        dbName="main"
+        connectionId="conn-1"
+        readOnly
+      />,
+    );
+    await waitForEffects();
+    const registrationsBefore = vi.mocked(window.addEventListener).mock.calls.length;
+    const outsideEvent = {
+      key: 's', code: 'KeyS', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false,
+      isComposing: false, target: document.body,
+      preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    const keydownRegistrations = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true);
+    const latestListener = keydownRegistrations[keydownRegistrations.length - 1]?.[1] as EventListener | undefined;
+    latestListener?.(outsideEvent);
+    expect(vi.mocked(window.addEventListener).mock.calls.length).toBe(registrationsBefore);
+    expect(outsideEvent.preventDefault).not.toHaveBeenCalled();
+    readOnlyRenderer.unmount();
+  });
+
   it('does not treat page-find highlighting as a deletable cell selection', async () => {
     messageApi.info.mockResolvedValue(undefined);
     let renderer: ReactTestRenderer;
@@ -1603,6 +1732,20 @@ describe('DataGrid DDL interactions', () => {
     });
     await waitForEffects();
 
+    const shortcutListeners = vi.mocked(window.addEventListener).mock.calls
+      .filter(([type, _listener, options]) => type === 'keydown' && options === true)
+      .map(([_type, listener]) => listener as EventListener);
+    await act(async () => {
+      const invokeShortcut = (listener: EventListener, metaKey: boolean, ctrlKey: boolean) => listener({
+          key: 'f', code: 'KeyF', metaKey, ctrlKey, altKey: false, shiftKey: false,
+          isComposing: false, target: document.body,
+          preventDefault: vi.fn(), stopPropagation: vi.fn(), stopImmediatePropagation: vi.fn(),
+        } as unknown as KeyboardEvent);
+      shortcutListeners.forEach((listener) => {
+        invokeShortcut(listener, false, true);
+        invokeShortcut(listener, true, false);
+      });
+    });
     await act(async () => {
       renderer!.root.findByType(DataGridToolbarFrame).props.onToggleCellEditMode();
     });
@@ -1804,7 +1947,7 @@ describe('DataGrid DDL interactions', () => {
 
   it('opens the v2 column header context menu from table headers', async () => {
     setCurrentLanguage('en-US');
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.queryOptions.showColumnComment = true;
     storeState.queryOptions.showColumnType = true;
     backendApp.DBGetColumns.mockResolvedValueOnce({
@@ -1866,7 +2009,7 @@ describe('DataGrid DDL interactions', () => {
 
   it('applies ascending sort from the v2 column header context menu', async () => {
     setCurrentLanguage('zh-CN');
-    storeState.appearance.uiVersion = 'v2';
+
     const onSort = vi.fn();
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -1915,7 +2058,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('pins a read-only query-result column with an independent pin scope', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const columnPinScope = 'query-result:1a2b3c4d';
     const props = {
       data: [{ __gonavi_row_key__: 'row-1', id: 1, id_2: 2, order_id: 100 }],
@@ -2219,6 +2362,7 @@ describe('DataGrid DDL interactions', () => {
         selectedRowCount={3}
         selectedCellCount={4}
         canModifyData
+        canEditCell
         copiedRowCount={2}
         canPasteCopiedColumns
       />,
@@ -2229,6 +2373,7 @@ describe('DataGrid DDL interactions', () => {
     expect(content).toContain(t('data_grid.context_menu.current_row'));
     expect(content).toContain(t('data_grid.context_menu.copy_field_name'));
     expect(content).toContain(t('data_grid.context_menu.edit_section'));
+    expect(content).toContain(t('data_grid.context_menu.edit_cell_in_editor'));
     expect(content).toContain(t('data_grid.batch_fill.set_null'));
     expect(content).toContain(t('data_grid.batch_fill.set_null_selected'));
     expect(content).toContain(t('data_grid.context_menu.edit_row'));
@@ -2236,7 +2381,7 @@ describe('DataGrid DDL interactions', () => {
     expect(content).toContain(t('data_grid.context_menu.paste_row_as_new_count', { count: 2 }));
     expect(content).toContain(t('data_grid.context_menu.fill_to_selected_rows', { count: '3' }));
     expect(content).toContain(t('data_grid.context_menu.paste_copied_columns'));
-    ['未命名字段', '当前行', '当前单元格', '复制字段名称', '编辑', '设置为 NULL', '编辑本行', '复制本行为新增行', '粘贴为新增行', '填充到选中行', '将填充模板应用到此行'].forEach((rawSnippet) => {
+    ['未命名字段', '当前行', '当前单元格', '复制字段名称', '编辑', '在编辑器中打开', '设置为 NULL', '编辑本行', '复制本行为新增行', '粘贴为新增行', '填充到选中行', '将填充模板应用到此行'].forEach((rawSnippet) => {
       expect(content).not.toContain(rawSnippet);
     });
     renderer.unmount();
@@ -2276,7 +2421,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('opens the v2 cell context menu for table cells instead of the legacy inline menu', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -2326,8 +2471,68 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('opens a short non-JSON cell in the full editor from the v2 context menu', async () => {
+
+    const rawText = 'hello "GoNavi"';
+    const rows = [{ __gonavi_row_key__: 'row-1', id: 1, notes: rawText }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id', 'notes']}
+          loading={false}
+          tableName="users"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const notesColumn = testRenderState.latestColumns.find((column) => column.key === 'notes');
+    const cellProps = notesColumn.onCell(rows[0]);
+    const contextTarget = createRenderedCellTarget('row-1', 'notes');
+    await act(async () => {
+      cellProps.onContextMenu({
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+        clientX: 160,
+        clientY: 120,
+        currentTarget: contextTarget,
+        target: contextTarget,
+      });
+    });
+
+    const openEditorButton = findButton(renderer!, t('data_grid.context_menu.edit_cell_in_editor'));
+    expect(openEditorButton).toBeTruthy();
+    await act(async () => {
+      openEditorButton.props.onClick({ preventDefault: vi.fn(), stopPropagation: vi.fn() });
+    });
+
+    const editor = renderer!.root.findByProps({
+      'data-modal-title': t('data_grid.cell_editor.title_with_column', { column: 'notes' }),
+    });
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(rawText);
+    expect(editor.findByProps({ 'data-grid-cell-editor-escape': 'true' })).toBeTruthy();
+    expect(editor.findByProps({ 'data-grid-cell-editor-unescape': 'true' })).toBeTruthy();
+
+    await act(async () => {
+      editor.findByProps({ 'data-grid-cell-editor-escape': 'true' }).props.onClick();
+    });
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe('hello \\"GoNavi\\"');
+
+    await act(async () => {
+      findButton(renderer!, t('common.save')).props.onClick();
+    });
+    expect(testRenderState.latestTableProps.dataSource[0].notes).toBe('hello \\"GoNavi\\"');
+    renderer!.unmount();
+  });
+
   it('opens the complete cell value in a read-only viewer on double-click', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const fullValue = `${'A long query-result segment. '.repeat(12)}END-OF-CELL-VALUE`;
     const rows = [{ __gonavi_row_key__: 'row-1', payload: fullValue }];
 
@@ -2392,8 +2597,60 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('formats JSON in a protected read-only cell viewer without enabling save', async () => {
+    const compactJson = '{"billType":"YDApp","data":{"items":[{"count":100}]}}';
+    const formattedJson = JSON.stringify(JSON.parse(compactJson), null, 2);
+    const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: compactJson }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id', 'payload']}
+          loading={false}
+          tableName="orders"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+          readOnly
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const doubleClickSurface = renderer!.root.findAll(
+      (node) => typeof node.props.onDoubleClickCapture === 'function',
+    )[0];
+    await act(async () => {
+      doubleClickSurface.props.onDoubleClickCapture({
+        target: createRenderedCellTarget('row-1', 'payload'),
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      });
+    });
+
+    const viewer = renderer!.root.findByProps({
+      'data-modal-title': t('data_grid.cell_viewer.title_with_column', { column: 'payload' }),
+    });
+    const formatButton = viewer.findByProps({ 'data-grid-cell-editor-format': 'true' });
+    expect(viewer.findByProps({ 'data-monaco-editor': 'true' }).props['data-read-only']).toBe('true');
+    expect(viewer.findByProps({ 'data-grid-cell-editor-compact-json': 'true' })).toBeTruthy();
+    expect(viewer.findAllByProps({ 'data-grid-cell-editor-escape': 'true' })).toHaveLength(0);
+    expect(viewer.findAllByProps({ 'data-grid-cell-editor-unescape': 'true' })).toHaveLength(0);
+    expect(viewer.findAll((node) => node.type === 'button' && textContent(node).includes(t('common.save')))).toHaveLength(0);
+
+    await act(async () => {
+      formatButton.props.onClick();
+    });
+
+    expect(textContent(viewer.findByProps({ 'data-monaco-editor': 'true' }))).toBe(formattedJson);
+    expect(testRenderState.latestTableProps.dataSource[0].payload).toBe(compactJson);
+    renderer!.unmount();
+  });
+
   it('formats a writable JSON cell from the toolbar before saving the draft', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const compactJson = '{"billType":"YDApp","data":{"items":[{"count":100}]}}';
     const formattedJson = JSON.stringify(JSON.parse(compactJson), null, 2);
     const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: compactJson }];
@@ -2429,6 +2686,13 @@ describe('DataGrid DDL interactions', () => {
     const editor = renderer!.root.findByProps({ 'data-modal-title': editorTitle });
     const toolbar = editor.findByProps({ 'data-grid-cell-editor-toolbar': 'true' });
     const formatButton = toolbar.findByProps({ 'data-grid-cell-editor-format': 'true' });
+    const compactButton = toolbar.findByProps({ 'data-grid-cell-editor-compact-json': 'true' });
+    const escapeButton = toolbar.findByProps({ 'data-grid-cell-editor-escape': 'true' });
+    const unescapeButton = toolbar.findByProps({ 'data-grid-cell-editor-unescape': 'true' });
+    expect(formatButton.props.icon).toBeTruthy();
+    expect(compactButton.props.icon).toBeTruthy();
+    expect(escapeButton.props.icon).toBeTruthy();
+    expect(unescapeButton.props.icon).toBeTruthy();
     expect(formatButton.props.disabled).not.toBe(true);
     expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(compactJson);
 
@@ -2440,6 +2704,36 @@ describe('DataGrid DDL interactions', () => {
     expect(testRenderState.latestTableProps.dataSource[0].payload).toBe(compactJson);
 
     await act(async () => {
+      escapeButton.props.onClick();
+    });
+
+    const escapedFormattedJson = formattedJson
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(escapedFormattedJson);
+    expect(escapedFormattedJson.split('\n')).toHaveLength(formattedJson.split('\n').length);
+    expect(escapedFormattedJson).not.toContain('\\n');
+    expect(testRenderState.latestTableProps.dataSource[0].payload).toBe(compactJson);
+    expect(editor.findByProps({ 'data-grid-cell-editor-escape': 'true' }).props.disabled).toBe(true);
+    expect(editor.findByProps({ 'data-grid-cell-editor-format': 'true' }).props.disabled).toBe(true);
+    expect(editor.findByProps({ 'data-grid-cell-editor-compact-json': 'true' }).props.disabled).toBe(true);
+
+    await act(async () => {
+      editor.findByProps({ 'data-grid-cell-editor-escape': 'true' }).props.onClick();
+    });
+
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(escapedFormattedJson);
+
+    await act(async () => {
+      unescapeButton.props.onClick();
+    });
+
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(formattedJson);
+    expect(editor.findByProps({ 'data-grid-cell-editor-escape': 'true' }).props.disabled).not.toBe(true);
+    expect(editor.findByProps({ 'data-grid-cell-editor-format': 'true' }).props.disabled).not.toBe(true);
+    expect(editor.findByProps({ 'data-grid-cell-editor-compact-json': 'true' }).props.disabled).not.toBe(true);
+
+    await act(async () => {
       findButton(renderer!, t('common.save')).props.onClick();
     });
 
@@ -2447,8 +2741,128 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
+  it('compacts a writable JSON cell without changing the row before saving', async () => {
+
+    const payload = { billType: 'YDApp', data: { items: [{ count: 100 }] } };
+    const formattedJson = JSON.stringify(payload, null, 2);
+    const compactJson = JSON.stringify(payload);
+    const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: formattedJson }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id', 'payload']}
+          loading={false}
+          tableName="orders"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const doubleClickSurface = renderer!.root.findAll(
+      (node) => typeof node.props.onDoubleClickCapture === 'function',
+    )[0];
+    await act(async () => {
+      doubleClickSurface.props.onDoubleClickCapture({
+        target: createRenderedCellTarget('row-1', 'payload'),
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      });
+    });
+
+    const editor = renderer!.root.findByProps({
+      'data-modal-title': t('data_grid.cell_editor.title_with_column', { column: 'payload' }),
+    });
+    const compactButton = editor.findByProps({ 'data-grid-cell-editor-compact-json': 'true' });
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(formattedJson);
+
+    await act(async () => {
+      compactButton.props.onClick();
+    });
+
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(compactJson);
+    expect(testRenderState.latestTableProps.dataSource[0].payload).toBe(formattedJson);
+
+    await act(async () => {
+      findButton(renderer!, t('common.save')).props.onClick();
+    });
+
+    expect(testRenderState.latestTableProps.dataSource[0].payload).toBe(compactJson);
+    renderer!.unmount();
+  });
+
+  it('escapes and unescapes a writable text cell from the editor toolbar', async () => {
+
+    const rawText = 'line 1\n"quoted"\\path\tend';
+    const escapedText = 'line 1\n\\"quoted\\"\\\\path\tend';
+    const rows = [{ __gonavi_row_key__: 'row-1', id: 1, notes: rawText }];
+
+    let renderer: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(
+        <DataGrid
+          data={rows}
+          columnNames={['id', 'notes']}
+          loading={false}
+          tableName="orders"
+          dbName="main"
+          connectionId="conn-1"
+          pkColumns={['id']}
+        />,
+      );
+    });
+    await waitForEffects();
+
+    const doubleClickSurface = renderer!.root.findAll(
+      (node) => typeof node.props.onDoubleClickCapture === 'function',
+    )[0];
+    await act(async () => {
+      doubleClickSurface.props.onDoubleClickCapture({
+        target: createRenderedCellTarget('row-1', 'notes'),
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      });
+    });
+
+    const editor = renderer!.root.findByProps({
+      'data-modal-title': t('data_grid.cell_editor.title_with_column', { column: 'notes' }),
+    });
+    const escapeButton = editor.findByProps({ 'data-grid-cell-editor-escape': 'true' });
+    const unescapeButton = editor.findByProps({ 'data-grid-cell-editor-unescape': 'true' });
+    expect(editor.findAllByProps({ 'data-grid-cell-editor-format': 'true' })).toHaveLength(0);
+    expect(editor.findAllByProps({ 'data-grid-cell-editor-compact-json': 'true' })).toHaveLength(0);
+
+    await act(async () => {
+      escapeButton.props.onClick();
+    });
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(escapedText);
+    expect(testRenderState.latestTableProps.dataSource[0].notes).toBe(rawText);
+
+    await act(async () => {
+      unescapeButton.props.onClick();
+    });
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(rawText);
+
+    await act(async () => {
+      escapeButton.props.onClick();
+    });
+    expect(textContent(editor.findByProps({ 'data-monaco-editor': 'true' }))).toBe(escapedText);
+
+    await act(async () => {
+      findButton(renderer!, t('common.save')).props.onClick();
+    });
+
+    expect(testRenderState.latestTableProps.dataSource[0].notes).toBe(escapedText);
+    renderer!.unmount();
+  });
+
   it('preserves spaced and empty quoted column aliases when resolving a read-only cell', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const columnNames = [' payload ', ''];
     const expectedValues: Record<string, string> = {
       ' payload ': 'value under a spaced alias',
@@ -2495,7 +2909,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('preserves raw MongoDB strings and nested values in the read-only viewer', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.connections[0].config.type = 'mongodb';
     const merchantId = '5a7fb5b93560e06a6e1e4950';
     const payload = {
@@ -2550,7 +2964,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('opens non-writable projected cells in the viewer while the result remains editable', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [{
       __gonavi_row_key__: 'row-1',
       id: 1,
@@ -2604,7 +3018,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('shows a pending edited value when the field later becomes read-only', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'original value' }];
     const writableEditLocator = {
       strategy: 'primary-key' as const,
@@ -2685,7 +3099,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('marks the whole cell only after an inline edit becomes pending', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'original value' }];
 
     let renderer: ReactTestRenderer;
@@ -2777,7 +3191,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('keeps a pending MongoDB value in the viewer after the field becomes read-only', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.connections[0].config.type = 'mongodb';
     const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'original MongoDB value' }];
     const writableEditLocator = {
@@ -2858,7 +3272,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('keeps a batch-filled MongoDB draft after another cell edit creates a full-row patch', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.connections[0].config.type = 'mongodb';
     messageApi.info.mockResolvedValue(undefined);
     const rows = [{
@@ -2986,7 +3400,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('closes an open cell editor without exposing its draft when permissions change', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const writableEditLocator = {
       strategy: 'primary-key' as const,
       columns: ['id'],
@@ -3083,7 +3497,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('renders only null as SQL NULL in the read-only cell viewer', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [
       { __gonavi_row_key__: 'row-null', payload: null },
       { __gonavi_row_key__: 'row-undefined' },
@@ -3127,7 +3541,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('closes the read-only cell viewer when the grid becomes inactive', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const props = {
       data: [{ __gonavi_row_key__: 'row-1', payload: 'old result value' }],
       columnNames: ['payload'],
@@ -3170,7 +3584,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('closes the read-only cell viewer when the data reference refreshes', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const initialData = [{ __gonavi_row_key__: 'row-1', payload: 'old result value' }];
     const props = {
       columnNames: ['payload'],
@@ -3218,7 +3632,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('hides the cell viewer immediately when the data-source context changes', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [{ __gonavi_row_key__: 'row-1', payload: 'value from the previous table' }];
     const props = {
       data: rows,
@@ -3261,7 +3675,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('rejects a stale cell editor save after the result data refreshes', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const initialData = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'old line one\nold line two' }];
     const refreshedData = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'fresh line one\nfresh line two' }];
     const props = {
@@ -3316,7 +3730,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('rejects a stale cell editor save after the data-source context changes', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'old line one\nold line two' }];
     const props = {
       data: rows,
@@ -3373,7 +3787,7 @@ describe('DataGrid DDL interactions', () => {
   it.each(['data refresh', 'inactive result', 'permission loss'] as const)(
     'rejects a pending virtual inline save after %s',
     async (scenario) => {
-      storeState.appearance.uiVersion = 'v2';
+
       const initialData = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'old value' }];
       const refreshedData = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'fresh value' }];
       const writableEditLocator = {
@@ -3474,7 +3888,7 @@ describe('DataGrid DDL interactions', () => {
   );
 
   it('ignores an old inline blur after reopening the same virtual cell', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const rows = [{ __gonavi_row_key__: 'row-1', id: 1, payload: 'old value' }];
     const props = {
       data: rows,
@@ -3544,7 +3958,7 @@ describe('DataGrid DDL interactions', () => {
 
   it('ignores old datetime save and close timers after reopening the same virtual cell', async () => {
     vi.useFakeTimers();
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValue({
       success: true,
       data: [
@@ -3618,7 +4032,7 @@ describe('DataGrid DDL interactions', () => {
 
   it('keeps a virtual datetime editor open while the picker briefly blurs during panel navigation', async () => {
     vi.useFakeTimers();
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValue({
       success: true,
       data: [
@@ -3697,7 +4111,7 @@ describe('DataGrid DDL interactions', () => {
 
   it('keeps a virtual date editor open during panel navigation and preserves its original time on save', async () => {
     vi.useFakeTimers();
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValue({
       success: true,
       data: [
@@ -3770,7 +4184,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('opens a refreshed row value without waiting for passive effects', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     const initialData = [{ __gonavi_row_key__: 'row-1', payload: 'old result value' }];
     const refreshedData = [{ __gonavi_row_key__: 'row-1', payload: 'fresh result value' }];
     const props = {
@@ -4037,7 +4451,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('copies loaded column data from the v2 column header context menu', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -4080,7 +4494,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('copies row and column data from the v2 cell context menu', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -4155,7 +4569,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('copies the current row for paste and pastes it as a new row from the v2 cell context menu', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
 
     let renderer: ReactTestRenderer;
     await act(async () => {
@@ -4228,7 +4642,7 @@ describe('DataGrid DDL interactions', () => {
 
   it('auto commits pending table edits with the query result connection params override', async () => {
     vi.useFakeTimers();
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.dataEditTransactionOptions = {
       commitMode: 'auto',
       autoCommitDelayMs: 3000,
@@ -4348,7 +4762,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('switches the v2 footer object tab into the embedded designer view', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValueOnce({
       success: true,
       data: [
@@ -4383,7 +4797,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('opens the embedded object designer from an initial v2 table view request', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValueOnce({
       success: true,
       data: [
@@ -4416,7 +4830,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('notifies deferred data loading only after leaving the embedded object designer', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValueOnce({
       success: true,
       data: [
@@ -4455,54 +4869,8 @@ describe('DataGrid DDL interactions', () => {
     renderer!.unmount();
   });
 
-  it('returns to the legacy table view when v2-only footer views are active during UI switch', async () => {
-    storeState.appearance.uiVersion = 'v2';
-
-    let renderer: ReactTestRenderer;
-    await act(async () => {
-      renderer = create(
-        <DataGrid
-          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'alpha' }]}
-          columnNames={['id', 'name']}
-          loading={false}
-          tableName="users"
-          dbName="main"
-          connectionId="conn-1"
-        />,
-      );
-    });
-    await waitForEffects();
-
-    await act(async () => {
-      findButton(renderer!, '对象设计').props.onClick();
-    });
-    expect(textContent(renderer!.root)).toContain('SCHEMA DESIGNER');
-
-    storeState.appearance.uiVersion = 'legacy';
-    await act(async () => {
-      renderer!.update(
-        <DataGrid
-          data={[{ __gonavi_row_key__: 'row-1', id: 1, name: 'alpha' }]}
-          columnNames={['id', 'name']}
-          loading={false}
-          tableName="users"
-          dbName="main"
-          connectionId="conn-1"
-        />,
-      );
-    });
-    await waitForEffects();
-
-    const content = textContent(renderer!.root);
-    expect(content).not.toContain('SCHEMA DESIGNER');
-    expect(content).not.toContain('gn-v2-data-grid-fields-view');
-    expect(content).toContain('数据预览');
-    expect(content).toContain('结果视图');
-    expect(findButton(renderer!, '字段信息')).toBeTruthy();
-  });
-
   it('keeps the v2 fields tab as read-only field info for views', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBGetColumns.mockResolvedValueOnce({
       success: true,
       data: [
@@ -4543,7 +4911,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('renders the v2 footer DDL view with the Monaco SQL editor', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBShowCreateTable.mockResolvedValueOnce({
       success: true,
       data: 'CREATE TABLE users (`id` bigint)',
@@ -4579,7 +4947,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('formats DuckDB DDL into readable multiline SQL in the v2 view', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     storeState.connections[0].config.type = 'duckdb';
     backendApp.DBShowCreateTable.mockResolvedValueOnce({
       success: true,
@@ -4616,7 +4984,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('opens the v2 DDL view as a right sidebar while keeping the table visible', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBShowCreateTable.mockResolvedValueOnce({
       success: true,
       data: 'CREATE TABLE users (`id` bigint)',
@@ -4750,7 +5118,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('keeps the v2 DDL view open on the next table and reloads that table DDL', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBShowCreateTable
       .mockResolvedValueOnce({ success: true, data: 'CREATE TABLE users (`id` bigint)' })
       .mockResolvedValueOnce({ success: true, data: 'CREATE TABLE orders (`id` bigint)' });
@@ -4813,7 +5181,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('returns a query result to data preview when a fresh table view request arrives', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBShowCreateTable
       .mockResolvedValueOnce({
         success: true,
@@ -4909,7 +5277,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('keeps the v2 DDL sidebar open when switching to another table tab instance', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     let resolveOrdersRequest: (value: any) => void = () => {};
     backendApp.DBShowCreateTable
       .mockResolvedValueOnce({ success: true, data: 'CREATE TABLE users (`id` bigint)' })
@@ -4989,7 +5357,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('keeps the v2 DDL sidebar open when activating an already mounted table tab', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     let resolveOrdersRequest: (value: any) => void = () => {};
     backendApp.DBShowCreateTable
       .mockResolvedValueOnce({ success: true, data: 'CREATE TABLE users (`id` bigint)' })
@@ -5070,7 +5438,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('hides the v2 DDL view when clicking the active footer action and reopens with the last layout', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBShowCreateTable
       .mockResolvedValueOnce({ success: true, data: 'CREATE TABLE users (`id` bigint)' })
       .mockResolvedValueOnce({ success: true, data: 'CREATE TABLE users (`id` bigint)' });
@@ -5118,7 +5486,7 @@ describe('DataGrid DDL interactions', () => {
   });
 
   it('previews and commits the v2 DDL sidebar width after dragging the separator', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
     backendApp.DBShowCreateTable.mockResolvedValueOnce({
       success: true,
       data: 'CREATE TABLE users (`id` bigint)',

@@ -89,9 +89,9 @@ interface QueryEditorResultsPanelProps {
     executionError: string;
     sqlLogCount: number;
     darkMode: boolean;
-    isV2Ui: boolean;
     currentDb: string;
     currentConnectionId: string;
+    maxRows?: number;
     dataPreviewRequest?: { resultKey: string; requestId: string } | null;
     toggleShortcutLabel: string;
     onActiveResultKeyChange: (key: string) => void;
@@ -153,9 +153,9 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     executionError,
     sqlLogCount,
     darkMode,
-    isV2Ui,
     currentDb,
     currentConnectionId,
+    maxRows,
     dataPreviewRequest,
     toggleShortcutLabel,
     onActiveResultKeyChange,
@@ -379,7 +379,6 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         }
     }, [onOpenResultInWindow, resolveResultTabTitle]);
 
-    const shouldShowSqlLogTab = isV2Ui;
     const logTabCountLabel = sqlLogCount > 999 ? '999+' : String(sqlLogCount);
     const hideTooltipTitle = toggleShortcutLabel
         ? t('query_editor.results_panel.tooltip.hide_with_shortcut', { shortcut: toggleShortcutLabel })
@@ -387,7 +386,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
     const resolvedActiveResultKey = resolveEffectiveActiveResultKey(
         resultSets,
         activeResultKey,
-        shouldShowSqlLogTab,
+        true,
     );
 
     const handleMessageTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -479,12 +478,10 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         <Tooltip title={hideTooltipTitle}>
             <Button
                 aria-label={t('query_editor.results_panel.aria.hide')}
-                className={isV2Ui ? 'gn-v2-data-grid-toolbar-action gn-v2-query-result-toolbar-hide' : undefined}
+            className="gn-v2-data-grid-toolbar-action gn-v2-query-result-toolbar-hide"
                 icon={<EyeInvisibleOutlined />}
                 onClick={onHide}
-            >
-                {!isV2Ui && <span>{t('query_editor.results_panel.action.hide')}</span>}
-            </Button>
+            />
         </Tooltip>
     );
 
@@ -537,8 +534,8 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
             <Dropdown
                 menu={{ items: buildResultTabMenuItems(rs.key, idx) }}
                 trigger={['contextMenu']}
-                rootClassName={isV2Ui ? 'gn-v2-tab-context-menu-popup' : undefined}
-                popupRender={(menu) => renderV2ActionMenuPopup(menu, isV2Ui, {
+                rootClassName={'gn-v2-tab-context-menu-popup'}
+                popupRender={(menu) => renderV2ActionMenuPopup(menu, true, {
                     title: rs.resultType === 'message'
                         ? t('query_editor.results_panel.tab.message', { index: idx + 1 })
                         : t('query_editor.results_panel.tab.result', { index: idx + 1 }),
@@ -547,6 +544,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
             >
                 <div
                     className={`query-result-tab-label${onOpenResultInWindow ? ' is-detachable' : ''}${draggingResultKey === rs.key ? ' is-dragging-detach' : ''}`}
+                    data-query-result-tab="true"
                     title={onOpenResultInWindow ? t('query_editor.results_panel.menu.open_in_window') : undefined}
                     onContextMenu={(event) => event.preventDefault()}
                     onMouseDown={(event) => {
@@ -563,7 +561,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     onPointerDown={(event) => handleResultTabPointerDown(event, rs.key)}
                 >
                     <Tooltip title={rs.sql}>
-                        <span className="query-result-tab-text">
+                        <span className="query-result-tab-text" data-query-result-tab-title="true">
                             {rs.resultType === 'elasticsearch' && rs.requestLabel
                                 ? rs.requestLabel
                                 : rs.resultType === 'message'
@@ -577,10 +575,10 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                         </Tooltip>
                     ) : null}
                     {(() => {
-                        if (rs.resultType === 'message') return <span className="query-result-tab-count">i</span>;
-                        if (isAffectedRowsResult(rs)) return <span className="query-result-tab-count">✓</span>;
+                        if (rs.resultType === 'message') return <span className="query-result-tab-count" data-query-result-tab-count="true">i</span>;
+                        if (isAffectedRowsResult(rs)) return <span className="query-result-tab-count" data-query-result-tab-count="true">✓</span>;
                         if (!Array.isArray(rs.rows)) return null;
-                        return <span className="query-result-tab-count">{rs.rows.length}</span>;
+                        return <span className="query-result-tab-count" data-query-result-tab-count="true">{rs.rows.length}</span>;
                     })()}
                     <Tooltip title={t('query_editor.result.close')}>
                         <span
@@ -601,7 +599,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         children: (() => {
             if (rs.resultType === 'message') {
                 return (
-                    <div className={isV2Ui ? 'gn-v2-query-success' : undefined} style={{
+                    <div className="gn-v2-query-success" style={{
                         flex: 1, minHeight: 0, display: 'flex', justifyContent: 'flex-start', flexDirection: 'column', gap: 12,
                         padding: 24, color: '#666', userSelect: 'text', alignItems: 'stretch', overflow: 'hidden',
                     }}>
@@ -682,7 +680,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                 const affected = Number(rs.rows[0]?.affectedRows ?? 0);
                 const messageText = Array.isArray(rs.messages) ? rs.messages.join('\n') : '';
                 return (
-                    <div className={isV2Ui ? 'gn-v2-query-success' : undefined} style={{
+                    <div className="gn-v2-query-success" style={{
                         flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8,
                         color: '#666', userSelect: 'text',
                     }}>
@@ -729,6 +727,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                         ddlTableName={rs.ddlTableName}
                         connectionId={rs.executionConnectionId || currentConnectionId}
                         connectionParamsOverride={rs.executionConnectionParams}
+                        queryMaxRows={rs.page ? maxRows : undefined}
                         initialViewMode={dataPreviewRequest?.resultKey === rs.key ? 'table' : undefined}
                         initialViewModeRequestId={dataPreviewRequest?.resultKey === rs.key ? dataPreviewRequest.requestId : undefined}
                         initialViewModeScope={dataPreviewRequest?.resultKey === rs.key ? 'local' : undefined}
@@ -765,8 +764,7 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
         })(),
     }));
 
-    const logTabItem = shouldShowSqlLogTab
-        ? {
+    const logTabItem = {
             key: QUERY_EDITOR_SQL_LOG_TAB_KEY,
             label: (
                 <Tooltip title={t('log_panel.title')}>
@@ -784,9 +782,8 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     onDiagnoseExecutionError={executionError ? onDiagnoseExecutionError : undefined}
                 />
             ),
-        }
-        : null;
-    const tabItems = logTabItem ? [logTabItem, ...resultTabItems] : resultTabItems;
+        };
+    const tabItems = [logTabItem, ...resultTabItems];
     const activeResultSet = resultSets.find((rs) => rs.key === resolvedActiveResultKey) || null;
     const activeResultUsesDataGrid = Boolean(activeResultSet && activeResultSet.resultType !== 'message' && !isAffectedRowsResult(activeResultSet));
 
@@ -856,16 +853,16 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
               .query-result-panel-tab-actions { display: inline-flex; flex-direction: row; align-items: center; gap: 4px; }
               .query-result-tabs .ant-tabs-extra-content .query-result-panel-tab-action { width: 28px; min-width: 28px; height: 28px !important; min-height: 28px !important; padding: 0 !important; display: inline-flex; align-items: center; justify-content: center; }
             `}</style>
-            <div data-gonavi-close-shortcut-scope="result" className={isV2Ui ? 'gn-v2-query-results' : undefined} style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div data-gonavi-close-shortcut-scope="result" className="gn-v2-query-results" style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                 {tabItems.length > 0 ? (
                     <Tabs className="query-result-tabs" activeKey={resolvedActiveResultKey} onChange={onActiveResultKeyChange} animated={false} style={{ flex: 1, minHeight: 0 }} tabBarExtraContent={tabsExtraContent} items={tabItems} />
                 ) : executionError ? (
                     <>
-                        <div className={isV2Ui ? 'query-result-panel-header gn-v2-query-result-panel-header' : 'query-result-panel-header'}>
+                        <div className="query-result-panel-header gn-v2-query-result-panel-header">
                             <span className="query-result-panel-header-title">{t('query_editor.results_panel.panel.title')}</span>
                             {hideButton}
                         </div>
-                        <div className={isV2Ui ? 'gn-v2-query-error' : undefined} style={{ flex: 1, minHeight: 0, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, background: darkMode ? '#1e1e1e' : '#fafafa', overflow: 'auto' }}>
+                        <div className="gn-v2-query-error" style={{ flex: 1, minHeight: 0, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, background: darkMode ? '#1e1e1e' : '#fafafa', overflow: 'auto' }}>
                             <div style={{ color: '#ff4d4f', fontWeight: 'bold', fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <CloseOutlined />
                                 <span>{t('query_editor.result.execution_failed')}</span>
@@ -882,17 +879,15 @@ const QueryEditorResultsPanel: React.FC<QueryEditorResultsPanelProps> = ({
                     </>
                 ) : (
                     <>
-                        <div className={isV2Ui ? 'query-result-panel-header gn-v2-query-result-panel-header' : 'query-result-panel-header'}>
+                        <div className="query-result-panel-header gn-v2-query-result-panel-header">
                             <span className="query-result-panel-header-title">{t('query_editor.results_panel.panel.title')}</span>
                             {hideButton}
                         </div>
-                        <div className={isV2Ui ? 'gn-v2-query-empty' : undefined} style={{ flex: 1, minHeight: 0 }}>
-                            {isV2Ui && (
-                                <div>
+                        <div className="gn-v2-query-empty" style={{ flex: 1, minHeight: 0 }}>
+                            <div>
                                     <strong>{t('query_editor.empty_state.title')}</strong>
                                     <span>{t('query_editor.empty_state.description')}</span>
-                                </div>
-                            )}
+                            </div>
                         </div>
                     </>
                 )}

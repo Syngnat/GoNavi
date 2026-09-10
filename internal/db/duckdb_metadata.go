@@ -136,6 +136,12 @@ func buildDuckDBColumnDefinitions(rows []map[string]interface{}, constraintRows 
 		if defaultVal := strings.TrimSpace(duckDBRowString(row, "column_default")); defaultVal != "" && defaultVal != "<nil>" {
 			def := defaultVal
 			column.Default = &def
+			// DuckDB 的 SERIAL 类型实际是整数列 + nextval 序列默认值，
+			// information_schema 不回显 serial 类型名。与 pg_metadata 的
+			// nextval 处理保持一致，否则跨库迁移时自增语义在源侧就丢失。
+			if strings.HasPrefix(strings.ToLower(def), "nextval(") {
+				column.Extra = "auto_increment"
+			}
 		}
 		columns = append(columns, column)
 	}

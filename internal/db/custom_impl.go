@@ -102,7 +102,7 @@ func (c *CustomDB) QueryContext(ctx context.Context, query string) ([]map[string
 	}
 	defer rows.Close()
 
-	return scanRowsForDialect(rows, c.scanDialect())
+	return scanRowsForDialectContext(ctx, rows, c.scanDialect())
 }
 
 func (c *CustomDB) Query(query string) ([]map[string]interface{}, []string, error) {
@@ -298,29 +298,7 @@ func (c *CustomDB) GetCreateStatement(dbName, tableName string) (string, error) 
 }
 
 func (c *CustomDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefinition, error) {
-	// ANSI Standard
-	// SELECT column_name, data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = '...'
-
-	schema := "public"
-	if dbName != "" {
-		schema = dbName
-	}
-
-	query := fmt.Sprintf(`SELECT column_name, data_type, character_maximum_length, numeric_precision, numeric_scale, is_nullable, column_default
-		FROM information_schema.columns
-		WHERE table_name = '%s'`, tableName)
-
-	// Adjust for schema if likely supported
-	if c.driver == "postgres" || c.driver == "kingbase" {
-		query += fmt.Sprintf(" AND table_schema = '%s'", schema)
-	} else if c.driver == "mysql" {
-		query = fmt.Sprintf("SHOW FULL COLUMNS FROM `%s`", tableName)
-		if dbName != "" {
-			query = fmt.Sprintf("SHOW FULL COLUMNS FROM `%s`.`%s`", dbName, tableName)
-		}
-	}
-
-	data, _, err := c.Query(query)
+	data, _, err := c.Query(buildCustomColumnsQuery(c.driver, dbName, tableName))
 	if err != nil {
 		return nil, err
 	}
@@ -330,6 +308,33 @@ func (c *CustomDB) GetColumns(dbName, tableName string) ([]connection.ColumnDefi
 		columns = append(columns, buildCustomColumnDefinition(row))
 	}
 	return columns, nil
+}
+
+func buildCustomColumnsQuery(driver, dbName, tableName string) string {
+	driverName := strings.ToLower(strings.TrimSpace(driver))
+	schema := "public"
+	if dbName != "" {
+		schema = dbName
+	}
+
+	if driverName == "mysql" {
+		if dbName != "" {
+			return fmt.Sprintf(
+				"SHOW FULL COLUMNS FROM `%s`.`%s`",
+				escapeMySQLBacktickIdent(dbName),
+				escapeMySQLBacktickIdent(tableName),
+			)
+		}
+		return fmt.Sprintf("SHOW FULL COLUMNS FROM `%s`", escapeMySQLBacktickIdent(tableName))
+	}
+
+	query := fmt.Sprintf(`SELECT column_name, data_type, character_maximum_length, numeric_precision, numeric_scale, is_nullable, column_default
+		FROM information_schema.columns
+		WHERE table_name = '%s'`, escapePGLikeMetadataLiteral(tableName))
+	if driverName == "postgres" || driverName == "kingbase" {
+		query += fmt.Sprintf(" AND table_schema = '%s'", escapePGLikeMetadataLiteral(schema))
+	}
+	return query
 }
 
 func buildCustomColumnDefinition(row map[string]interface{}) connection.ColumnDefinition {

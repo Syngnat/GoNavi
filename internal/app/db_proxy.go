@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,18 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		tunnelHost := strings.TrimSpace(config.HTTPTunnel.Host)
 		if tunnelHost == "" {
 			return connection.ConnectionConfig{}, fmt.Errorf("%s", defaultAppText("db.backend.error.http_tunnel_host_required", nil))
+		}
+		if isNavicatHTTPTunnelURL(tunnelHost) {
+			if !supportsNavicatMySQLTunnel(config) {
+				return connection.ConnectionConfig{}, fmt.Errorf("Navicat HTTP 隧道当前仅支持 MySQL 兼容连接")
+			}
+			if config.UseSSH {
+				return connection.ConnectionConfig{}, fmt.Errorf("Navicat HTTP 隧道不能与 SSH 隧道同时启用")
+			}
+			config.HTTPTunnel.Host = tunnelHost
+			config.UseProxy = false
+			config.Proxy = connection.ProxyConfig{}
+			return config, nil
 		}
 		tunnelPort := config.HTTPTunnel.Port
 		if tunnelPort <= 0 {
@@ -88,7 +101,7 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 		return config, nil
 	}
 
-	normalizedType := strings.ToLower(strings.TrimSpace(config.Type))
+	normalizedType := normalizeDriverType(config.Type)
 	if normalizedType == "nacos" {
 		// Nacos is HTTP-based and must keep its remote authority for the Host
 		// header and TLS SNI/certificate verification. Its transport dials the
@@ -145,6 +158,23 @@ func resolveDialConfigWithProxy(raw connection.ConnectionConfig) (connection.Con
 	config.UseProxy = false
 	config.Proxy = connection.ProxyConfig{}
 	return config, nil
+}
+
+func isNavicatHTTPTunnelURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Scheme, "http") || strings.EqualFold(parsed.Scheme, "https")
+}
+
+func supportsNavicatMySQLTunnel(config connection.ConnectionConfig) bool {
+	switch strings.ToLower(strings.TrimSpace(config.Type)) {
+	case "", "mysql", "goldendb", "greatdb", "gdb":
+		return true
+	default:
+		return false
+	}
 }
 
 type hostPort struct {
@@ -235,10 +265,10 @@ func formatHostPort(host string, port int) string {
 }
 
 func defaultPortByType(driverType string) int {
-	switch strings.ToLower(strings.TrimSpace(driverType)) {
+	switch normalizeDriverType(driverType) {
 	case "mysql", "mariadb":
 		return 3306
-	case "goldendb", "greatdb", "gdb":
+	case "goldendb":
 		return 1523
 	case "oceanbase":
 		return 2881
@@ -272,7 +302,7 @@ func defaultPortByType(driverType string) int {
 		return 8080
 	case "highgo":
 		return 5866
-	case "iris":
+	case "iris", "cache":
 		return 1972
 	case "chroma":
 		return 8000

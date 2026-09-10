@@ -73,3 +73,24 @@ func cloneProviderBinding(binding *ProviderBinding) *ProviderBinding {
 	copy.Config = bytes.Clone(binding.Config)
 	return &copy
 }
+
+// providerContextLimits extracts only the provider limits needed by the
+// context builder. The complete binding remains opaque to the harness and is
+// still passed unchanged to the host adapter for execution.
+func providerContextLimits(binding ProviderBinding) (contextWindowTokens int, reservedOutputTokens int, err error) {
+	validated, err := binding.Validate()
+	if err != nil {
+		return 0, 0, fmt.Errorf("%w: %v", ErrProviderBindingCorrupt, err)
+	}
+	var limits struct {
+		ContextWindow int `json:"contextWindow"`
+		MaxTokens     int `json:"maxTokens"`
+	}
+	if err := json.Unmarshal(validated.Config, &limits); err != nil {
+		return 0, 0, fmt.Errorf("%w: decode provider context limits: %v", ErrProviderBindingCorrupt, err)
+	}
+	if limits.ContextWindow < 0 || limits.MaxTokens < 0 {
+		return 0, 0, fmt.Errorf("%w: provider context limits cannot be negative", ErrProviderBindingCorrupt)
+	}
+	return limits.ContextWindow, limits.MaxTokens, nil
+}

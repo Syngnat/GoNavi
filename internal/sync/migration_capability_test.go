@@ -53,22 +53,23 @@ func TestResolveMigrationCapability_PostgresToKingbaseUsesSameFamilyPlanner(t *t
 	}
 }
 
-func TestResolveMigrationCapability_OracleToSQLServerUsesExistingTargetCompatibilityMode(t *testing.T) {
+func TestResolveMigrationCapability_OracleToSQLServerSupportsLegacyAutoCreate(t *testing.T) {
 	got := ResolveMigrationCapability(
 		connection.ConnectionConfig{Type: "oracle"},
 		connection.ConnectionConfig{Type: "sqlserver"},
 	)
 	want := MigrationCapability{
-		SourceType:             "oracle",
-		TargetType:             "sqlserver",
-		SourceModel:            MigrationDataModelRelational,
-		TargetModel:            MigrationDataModelRelational,
-		Planner:                "generic-legacy-planner",
-		SupportLevel:           MigrationSupportLevelPartial,
-		CanExecute:             true,
-		SupportsAutoCreate:     false,
-		SupportsAutoAddColumns: false,
-		RequiresExistingTarget: true,
+		SourceType:   "oracle",
+		TargetType:   "sqlserver",
+		SourceModel:  MigrationDataModelRelational,
+		TargetModel:  MigrationDataModelRelational,
+		Planner:      "generic-legacy-planner",
+		SupportLevel: MigrationSupportLevelPartial,
+		CanExecute:   true,
+		// legacy 互转层按目标方言生成 CREATE TABLE / ADD COLUMN，oracle->sqlserver 已可自动建表补列。
+		SupportsAutoCreate:     true,
+		SupportsAutoAddColumns: true,
+		RequiresExistingTarget: false,
 		SupportsMutations:      true,
 	}
 

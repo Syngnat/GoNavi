@@ -425,7 +425,7 @@ func (r *scanRowsDuplicateRows) Next(dest []driver.Value) error {
 func TestScanRowsReturnsSecondRowScanErrorWithPartialResults(t *testing.T) {
 	rows := openScanRowsErrorRows(t)
 
-	data, columns, err := scanRowsWithScanner(rows, []string{"id"}, &scanRowsErrorScanner{failAt: 2}, false)
+	data, columns, _, err := scanRowsWithScanner(rows, []string{"id"}, &scanRowsErrorScanner{failAt: 2}, false, nil)
 	if !errors.Is(err, errScanRowsTest) {
 		t.Fatalf("scanRows error = %v, want wrapped scan error", err)
 	}

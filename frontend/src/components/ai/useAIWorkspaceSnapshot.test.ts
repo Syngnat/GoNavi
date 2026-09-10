@@ -169,10 +169,14 @@ describe('useAIWorkspaceSnapshot lease renewal', () => {
     expect(service.AIUpdateWorkspaceSnapshot).toHaveBeenCalledTimes(2);
     await act(async () => { vi.advanceTimersByTime(1); });
     expect(service.AIUpdateWorkspaceSnapshot).toHaveBeenCalledTimes(3);
-    expect(service.AIUpdateWorkspaceSnapshot.mock.lastCall?.[0]).toEqual(expect.objectContaining({
-      revision: 3,
+    const changedSnapshot = service.AIUpdateWorkspaceSnapshot.mock.calls[1]?.[0];
+    const heartbeatSnapshot = service.AIUpdateWorkspaceSnapshot.mock.lastCall?.[0];
+    expect(heartbeatSnapshot).toEqual(expect.objectContaining({
+      revision: 2,
       activeContext: expect.objectContaining({ connectionId: 'updated' }),
     }));
+    expect(heartbeatSnapshot).toEqual(changedSnapshot);
+    expect(heartbeatSnapshot?.capturedAt).toBe(changedSnapshot?.capturedAt);
   });
 
   it('rebuilds the timer after a policy change event and rejects an invalid runtime tuple to defaults', async () => {

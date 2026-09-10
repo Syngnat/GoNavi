@@ -27,7 +27,6 @@ const storeState = vi.hoisted(() => ({
     enabled: true,
     opacity: 1,
     blur: 0,
-    uiVersion: 'v1' as 'v1' | 'v2',
   },
 }));
 
@@ -244,7 +243,7 @@ describe('RedisViewer tree interactions', () => {
         },
       },
     ];
-    storeState.appearance.uiVersion = 'v1';
+
     redisBackend.RedisScanKeys.mockResolvedValue({
       success: true,
       data: {
@@ -650,9 +649,9 @@ describe('RedisViewer tree interactions', () => {
     });
     await flushEffects();
 
-    const header = renderer!.root.findByProps({ className: 'redis-key-detail-header' });
-    const top = renderer!.root.findByProps({ className: 'redis-key-detail-top' });
-    const viewMode = renderer!.root.findByProps({ className: 'redis-key-view-mode' });
+    const header = renderer!.root.find((node) => String(node.props.className || '').split(/\s+/).includes('redis-key-detail-header'));
+    const top = renderer!.root.find((node) => String(node.props.className || '').split(/\s+/).includes('redis-key-detail-top'));
+    const viewMode = renderer!.root.find((node) => String(node.props.className || '').split(/\s+/).includes('redis-key-view-mode'));
     const summary = renderer!.root.findByProps({ className: 'redis-key-detail-summary' });
     const identity = renderer!.root.findByProps({ className: 'redis-key-detail-identity' });
     const metadata = renderer!.root.findByProps({ className: 'redis-key-detail-metadata' });
@@ -684,7 +683,7 @@ describe('RedisViewer tree interactions', () => {
   });
 
   it('keeps the V2 value grid mounted while refresh and key switches are pending', async () => {
-    storeState.appearance.uiVersion = 'v2';
+
 
     let renderer: ReactTestRenderer;
     await act(async () => {

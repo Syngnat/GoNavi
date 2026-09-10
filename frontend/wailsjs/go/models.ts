@@ -224,7 +224,10 @@ export namespace ai {
 	    customModels?: string[];
 	    apiFormat?: string;
 	    headers?: Record<string, string>;
-	    maxTokens: number;
+	    maxTokens?: number;
+	    contextWindow?: number;
+	    cliPath?: string;
+	    cliEnv?: Record<string, string>;
 	    temperature: number;
 	    thinkingIntensity?: string;
 	    effort?: string;
@@ -251,9 +254,28 @@ export namespace ai {
 	        this.apiFormat = source["apiFormat"];
 	        this.headers = source["headers"];
 	        this.maxTokens = source["maxTokens"];
+	        this.contextWindow = source["contextWindow"];
+	        this.cliPath = source["cliPath"];
+	        this.cliEnv = source["cliEnv"];
 	        this.temperature = source["temperature"];
 	        this.thinkingIntensity = source["thinkingIntensity"];
 	        this.effort = source["effort"];
+	    }
+	}
+	export class ResultMaskingSettings {
+	    enabled: boolean;
+	    fullMaskFields: string[];
+	    partialMaskFields: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ResultMaskingSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.fullMaskFields = source["fullMaskFields"];
+	        this.partialMaskFields = source["partialMaskFields"];
 	    }
 	}
 	export class SafetyResult {
@@ -315,6 +337,81 @@ export namespace ai {
 	        this.jvm = source["jvm"];
 	        this.jvmDiagnostic = source["jvmDiagnostic"];
 	    }
+	}
+
+}
+
+export namespace aiservice {
+	
+	export class AgentDataDirectoryInfo {
+	    directory: string;
+	    defaultDirectory: string;
+	    source: string;
+	    restartRequired: boolean;
+	    stats: runharness.LedgerStorageStats;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentDataDirectoryInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.directory = source["directory"];
+	        this.defaultDirectory = source["defaultDirectory"];
+	        this.source = source["source"];
+	        this.restartRequired = source["restartRequired"];
+	        this.stats = this.convertValues(source["stats"], runharness.LedgerStorageStats);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class AgentDataMaintenanceResult {
+	    info: AgentDataDirectoryInfo;
+	    maintenance: runharness.LedgerMaintenanceResult;
+	
+	    static createFrom(source: any = {}) {
+	        return new AgentDataMaintenanceResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.info = this.convertValues(source["info"], AgentDataDirectoryInfo);
+	        this.maintenance = this.convertValues(source["maintenance"], runharness.LedgerMaintenanceResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -1896,6 +1993,7 @@ export namespace connection {
 	    port: number;
 	    user?: string;
 	    password?: string;
+	    encodeBase64?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new HTTPTunnelConfig(source);
@@ -1907,6 +2005,7 @@ export namespace connection {
 	        this.port = source["port"];
 	        this.user = source["user"];
 	        this.password = source["password"];
+	        this.encodeBase64 = source["encodeBase64"];
 	    }
 	}
 	export class ProxyConfig {
@@ -3274,6 +3373,68 @@ export namespace runharness {
 	        this.command = source["command"];
 	    }
 	}
+	export class LedgerStorageStats {
+	    fileBytes: number;
+	    walBytes: number;
+	    allocatedBytes: number;
+	    freeBytes: number;
+	    sessionCount: number;
+	    runCount: number;
+	    snapshotCount: number;
+	    activeRunCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LedgerStorageStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fileBytes = source["fileBytes"];
+	        this.walBytes = source["walBytes"];
+	        this.allocatedBytes = source["allocatedBytes"];
+	        this.freeBytes = source["freeBytes"];
+	        this.sessionCount = source["sessionCount"];
+	        this.runCount = source["runCount"];
+	        this.snapshotCount = source["snapshotCount"];
+	        this.activeRunCount = source["activeRunCount"];
+	    }
+	}
+	export class LedgerMaintenanceResult {
+	    before: LedgerStorageStats;
+	    after: LedgerStorageStats;
+	    removedSnapshots: number;
+	    removedSessions: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LedgerMaintenanceResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.before = this.convertValues(source["before"], LedgerStorageStats);
+	        this.after = this.convertValues(source["after"], LedgerStorageStats);
+	        this.removedSnapshots = source["removedSnapshots"];
+	        this.removedSessions = source["removedSessions"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class LedgerStatus {
 	    state: string;
 	    message?: string;
@@ -3288,6 +3449,7 @@ export namespace runharness {
 	        this.message = source["message"];
 	    }
 	}
+	
 	export class Message {
 	    id: string;
 	    sessionId: string;
@@ -3301,8 +3463,7 @@ export namespace runharness {
 	    toolCallId?: string;
 	    toolCalls?: number[];
 	    metadata?: number[];
-	    // Go type: time
-	    createdAt: any;
+	    createdAt: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -3322,7 +3483,7 @@ export namespace runharness {
 	        this.toolCallId = source["toolCallId"];
 	        this.toolCalls = source["toolCalls"];
 	        this.metadata = source["metadata"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.createdAt = source["createdAt"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -3379,8 +3540,7 @@ export namespace runharness {
 	    sequence: number;
 	    runRevision: number;
 	    attempt: number;
-	    // Go type: time
-	    timestamp: any;
+	    timestamp: string;
 	    kind: string;
 	    resultingState: string;
 	    payload?: number[];
@@ -3398,29 +3558,11 @@ export namespace runharness {
 	        this.sequence = source["sequence"];
 	        this.runRevision = source["runRevision"];
 	        this.attempt = source["attempt"];
-	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.timestamp = source["timestamp"];
 	        this.kind = source["kind"];
 	        this.resultingState = source["resultingState"];
 	        this.payload = source["payload"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class RunPolicy {
 	    defaultDispatchMode: string;
@@ -3569,14 +3711,11 @@ export namespace runharness {
 	    revision: number;
 	    attempt: number;
 	    nextSequence: number;
-	    // Go type: time
-	    ownerExpiresAt?: any;
+	    ownerExpiresAt?: string;
 	    checkpointId?: string;
 	    terminalReason?: string;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
+	    createdAt: string;
+	    updatedAt: string;
 	    activeDurationMs: number;
 	    policy: RunPolicy;
 	    provider?: string;
@@ -3609,11 +3748,11 @@ export namespace runharness {
 	        this.revision = source["revision"];
 	        this.attempt = source["attempt"];
 	        this.nextSequence = source["nextSequence"];
-	        this.ownerExpiresAt = this.convertValues(source["ownerExpiresAt"], null);
+	        this.ownerExpiresAt = source["ownerExpiresAt"];
 	        this.checkpointId = source["checkpointId"];
 	        this.terminalReason = source["terminalReason"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
 	        this.activeDurationMs = source["activeDurationMs"];
 	        this.policy = this.convertValues(source["policy"], RunPolicy);
 	        this.provider = source["provider"];
@@ -3714,10 +3853,8 @@ export namespace runharness {
 	    branchFromMessageId?: string;
 	    branchFromSequence?: number;
 	    archived: boolean;
-	    // Go type: time
-	    createdAt: any;
-	    // Go type: time
-	    updatedAt: any;
+	    createdAt: string;
+	    updatedAt: string;
 	    runs?: RunSnapshot[];
 	    messages?: Message[];
 	
@@ -3735,8 +3872,8 @@ export namespace runharness {
 	        this.branchFromMessageId = source["branchFromMessageId"];
 	        this.branchFromSequence = source["branchFromSequence"];
 	        this.archived = source["archived"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
-	        this.updatedAt = this.convertValues(source["updatedAt"], null);
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
 	        this.runs = this.convertValues(source["runs"], RunSnapshot);
 	        this.messages = this.convertValues(source["messages"], Message);
 	    }
@@ -3866,8 +4003,7 @@ export namespace runharness {
 	    id?: string;
 	    statement?: string;
 	    status?: string;
-	    // Go type: time
-	    createdAt?: any;
+	    createdAt?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceSQLActivity(source);
@@ -3878,26 +4014,8 @@ export namespace runharness {
 	        this.id = source["id"];
 	        this.statement = source["statement"];
 	        this.status = source["status"];
-	        this.createdAt = this.convertValues(source["createdAt"], null);
+	        this.createdAt = source["createdAt"];
 	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class WorkspaceTab {
 	    id: string;
@@ -3929,8 +4047,7 @@ export namespace runharness {
 	    sourceId: string;
 	    sourceInstanceId: string;
 	    revision: number;
-	    // Go type: time
-	    capturedAt: any;
+	    capturedAt: string;
 	    contentHash: string;
 	    activeContext?: Record<string, any>;
 	    tabs?: WorkspaceTab[];
@@ -3957,7 +4074,7 @@ export namespace runharness {
 	        this.sourceId = source["sourceId"];
 	        this.sourceInstanceId = source["sourceInstanceId"];
 	        this.revision = source["revision"];
-	        this.capturedAt = this.convertValues(source["capturedAt"], null);
+	        this.capturedAt = source["capturedAt"];
 	        this.contentHash = source["contentHash"];
 	        this.activeContext = source["activeContext"];
 	        this.tabs = this.convertValues(source["tabs"], WorkspaceTab);
@@ -4529,6 +4646,7 @@ export namespace syncjob {
 	    targetSchema?: string;
 	    targetTable: string;
 	    targetTableStrategy?: string;
+	    targetTableStrategyExplicit?: boolean;
 	    filter?: string;
 	    keyColumns?: string[];
 	    columns?: ColumnMapping[];
@@ -4546,6 +4664,7 @@ export namespace syncjob {
 	        this.targetSchema = source["targetSchema"];
 	        this.targetTable = source["targetTable"];
 	        this.targetTableStrategy = source["targetTableStrategy"];
+	        this.targetTableStrategyExplicit = source["targetTableStrategyExplicit"];
 	        this.filter = source["filter"];
 	        this.keyColumns = source["keyColumns"];
 	        this.columns = this.convertValues(source["columns"], ColumnMapping);

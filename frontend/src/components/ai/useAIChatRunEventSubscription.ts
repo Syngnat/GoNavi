@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import { EventsOn } from '../../../wailsjs/runtime';
 import { useStore } from '../../store';
-import type { AIChatMessage, AIChatRunActivity, AIToolCall } from '../../types';
+import type { AIChatMessage, AIChatRunActivity, AIChatTokenUsage, AIToolCall } from '../../types';
 import {
   createRunPendingMessageId,
   getAIRunHarnessService,
@@ -31,6 +31,8 @@ import {
   type AIRunToolIntent,
   type AIRunToolPayload,
   type AIRunTerminalPayload,
+  type AIRunUsage,
+  type AIRunUsagePayload,
 } from './aiRunEventProjection';
 import { projectAIRunActivities } from './aiRunActivityTimeline';
 
@@ -68,6 +70,10 @@ interface ProjectedRun {
   modelReasoning: string;
   /** A completed model turn already contributes to this run's single UI row. */
   hasCompletedModelTurn: boolean;
+  tokenUsage?: AIChatTokenUsage;
+  usageEventSequences: Set<number>;
+  /** Prevent the immediately following compatibility usage event from double-counting. */
+  lastModelCompletedHadUsage: boolean;
   toolIntents: Map<string, AIRunToolIntent>;
   /** Redacted process steps, kept even when the transient assistant row moves. */
   runActivities: AIChatRunActivity[];
@@ -110,6 +116,8 @@ const createProjectedRun = (): ProjectedRun => ({
   modelText: '',
   modelReasoning: '',
   hasCompletedModelTurn: false,
+  lastModelCompletedHadUsage: false,
+  usageEventSequences: new Set(),
   toolIntents: new Map(),
   runActivities: [],
   lastNotifiedRevision: -1,
@@ -280,6 +288,7 @@ const ensureAssistantMessage = (
   if (pending) {
     options.updateAIChatMessage(event.sessionId, messageId, { runId: event.runId });
     if (pending.runActivities?.length) run.runActivities = pending.runActivities;
+    if (pending.tokenUsage) run.tokenUsage = { ...pending.tokenUsage };
     if (hasVisibleAssistantContent(pending)) {
       if (pending.loading) {
         run.modelText = String(pending.content || '');
@@ -435,6 +444,44 @@ const appendModelTurn = (completed: string, currentTurn: string): string => {
   return `${completed.trimEnd()}\n\n${currentTurn.trimStart()}`;
 };
 
+const hasTokenUsage = (usage: AIRunUsage | AIChatTokenUsage | undefined): boolean => Boolean(
+  usage && (
+    usage.promptTokens !== undefined
+    || usage.completionTokens !== undefined
+    || usage.totalTokens !== undefined
+    || usage.cachedTokens !== undefined
+  ),
+);
+
+const addTokenUsage = (
+  existing: AIChatTokenUsage | undefined,
+  incoming: AIRunUsage,
+): AIChatTokenUsage => {
+  const merged: AIChatTokenUsage = { ...(existing || {}) };
+  for (const key of ['promptTokens', 'completionTokens', 'totalTokens', 'cachedTokens'] as const) {
+    if (incoming[key] === undefined) continue;
+    merged[key] = (merged[key] || 0) + incoming[key];
+  }
+  return merged;
+};
+
+const projectRunTokenUsage = (
+  event: AIRunEvent,
+  run: ProjectedRun,
+  options: UseAIChatRunEventSubscriptionOptions,
+  usage: AIRunUsage | undefined,
+): boolean => {
+  if (!hasTokenUsage(usage)) return false;
+  if (run.usageEventSequences.has(event.sequence)) return true;
+  run.usageEventSequences.add(event.sequence);
+  run.tokenUsage = addTokenUsage(run.tokenUsage, usage || {});
+  const messageId = activityMessageIdFor(event, run);
+  if (messageId) {
+    options.updateAIChatMessage(event.sessionId, messageId, { tokenUsage: run.tokenUsage });
+  }
+  return true;
+};
+
 const mergeToolCalls = (
   existing: AIToolCall[] | undefined,
   incoming: AIToolCall[],
@@ -587,7 +634,11 @@ const applyAIRunControlProjection = (
       notifyRunState(event, options, run);
       return;
     case 'model_completed':
-      rememberToolIntents(run, payloadObject<AIRunModelCompletedPayload>(event));
+      {
+        const payload = payloadObject<AIRunModelCompletedPayload>(event);
+        rememberToolIntents(run, payload);
+        run.lastModelCompletedHadUsage = projectRunTokenUsage(event, run, options, payload.usage);
+      }
       notifyRunState(event, options, run);
       return;
     case 'tool': {
@@ -639,7 +690,16 @@ const applyAIRunControlProjection = (
       notifyRunState(event, options, run);
       options.onRunTerminal?.(event.runId, event.sessionId);
       return;
-    case 'usage':
+    case 'usage': {
+      if (!run.lastModelCompletedHadUsage) {
+        const payload = payloadObject<AIRunUsagePayload>(event);
+        projectRunTokenUsage(event, run, options, payload.usage);
+      }
+      run.usageEventSequences.add(event.sequence);
+      run.lastModelCompletedHadUsage = true;
+      notifyRunState(event, options, run);
+      return;
+    }
     case 'checkpoint':
       // Checkpoints carry state-only transitions such as interrupted and
       // awaiting_workspace. Replay must rebuild those controls even though
@@ -726,6 +786,14 @@ const applyAIRunReplayEvent = (
         rememberToolIntents(run, payloadObject<AIRunModelDeltaPayload>(pending));
       }
       rememberToolIntents(run, payload);
+      const durableMessage = activityMessageIdFor(event, run)
+        ? findMessage(event.sessionId, run.assistantMessageId)
+        : undefined;
+      if (!hasTokenUsage(durableMessage?.tokenUsage)) {
+        projectRunTokenUsage(event, run, options, payload.usage);
+      }
+      run.lastModelCompletedHadUsage = hasTokenUsage(payload.usage)
+        || hasTokenUsage(durableMessage?.tokenUsage);
       const toolCalls = normalizeToolCalls(payload);
       // Tool intents are needed for approval cards, but all model turns in a
       // run belong to the same assistant UI row.
@@ -827,6 +895,7 @@ const applyAIRunEvent = (
       run.hasCompletedModelTurn = true;
       patch.content = run.completedModelText || current?.content || '';
       if (run.completedModelReasoning) patch.reasoning_content = run.completedModelReasoning;
+      run.lastModelCompletedHadUsage = projectRunTokenUsage(event, run, options, payload.usage);
       const toolCalls = normalizeToolCalls(payload);
       if (toolCalls.length > 0) {
         patch.tool_calls = mergeToolCalls(current?.tool_calls, toolCalls);
@@ -896,9 +965,16 @@ const applyAIRunEvent = (
     case 'terminal':
       applyTerminal(event, run, options);
       return;
-    case 'usage':
+    case 'usage': {
+      if (!run.lastModelCompletedHadUsage) {
+        const payload = payloadObject<AIRunUsagePayload>(event);
+        projectRunTokenUsage(event, run, options, payload.usage);
+      }
+      run.usageEventSequences.add(event.sequence);
+      run.lastModelCompletedHadUsage = true;
       notifyRunState(event, options, run);
       return;
+    }
     case 'checkpoint':
       recordRunActivity(event, run, options);
       notifyRunState(event, options, run);

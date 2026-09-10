@@ -67,6 +67,24 @@ type newestOnlyContextBuilder struct {
 	compression ContextCompressionMetadata
 }
 
+type frozenWindowContextBuilder struct {
+	mu    sync.Mutex
+	input ContextBuildRequest
+}
+
+func (b *frozenWindowContextBuilder) Build(ctx context.Context, input ContextBuildRequest) (ContextBuildResult, error) {
+	b.mu.Lock()
+	b.input = input
+	b.mu.Unlock()
+	return (&DeterministicContextBuilder{EstimateTokens: func(Message) int { return 3 }}).Build(ctx, input)
+}
+
+func (b *frozenWindowContextBuilder) limits() (int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.input.ContextWindowTokens, b.input.ReservedOutputTokens
+}
+
 func (b *newestOnlyContextBuilder) Build(ctx context.Context, input ContextBuildRequest) (ContextBuildResult, error) {
 	maxBytes := 0
 	if len(input.Messages) > 0 {
@@ -204,6 +222,60 @@ func TestHarnessContextCompressionDisablesProviderToolsAndPreservesLedgerTranscr
 	}
 	if !completed.Compression.Applied || completed.Compression.OmittedMessageCount < len(history) {
 		t.Fatalf("persisted compression = %#v, want historical omission metadata", completed.Compression)
+	}
+}
+
+func TestHarnessContextWindowUsesFrozenProviderBinding(t *testing.T) {
+	model := &contextHarnessModel{result: ModelTurnResult{Text: "bounded answer", Completed: true}}
+	builder := &frozenWindowContextBuilder{}
+	harness, ledger := newContextBuilderHarness(t, model, nil, builder)
+
+	session, err := ledger.CreateSession(context.Background(), CreateSessionRequest{SessionID: "frozen-window-session"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []Message{
+		{ID: "oldest", SessionID: session.ID, Role: "user", Content: "oldest"},
+		{ID: "recent", SessionID: session.ID, Role: "assistant", Content: "recent"},
+	} {
+		if _, err := ledger.AppendMessage(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	current, err := ledger.GetSession(context.Background(), session.ID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := NewProviderBinding("provider-a", map[string]any{
+		"id": "provider-a", "contextWindow": 8, "maxTokens": 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := AgentInputRequest{
+		RequestID: "frozen-window-request", SessionID: session.ID, Content: "newest",
+		ExpectedRevision: current.Revision,
+	}
+	if err := input.SetProviderBinding(binding); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := harness.SubmitInput(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	read := waitContractRun(t, harness, receipt.RunID, func(run RunSnapshot) bool { return run.State.Terminal() })
+	if read.Run.State != RunStateCompleted {
+		t.Fatalf("run state = %s, want completed", read.Run.State)
+	}
+	if contextWindow, reserved := builder.limits(); contextWindow != 8 || reserved != 2 {
+		t.Fatalf("builder limits = (%d, %d), want frozen binding (8, 2)", contextWindow, reserved)
+	}
+	request, ok := model.latestRequest()
+	if !ok {
+		t.Fatal("provider was not called")
+	}
+	if got := messageIDs(request.Messages); len(got) != 2 || got[0] != "recent" || request.Messages[1].Content != "newest" {
+		t.Fatalf("provider projection = %#v, want recent and newest messages", request.Messages)
 	}
 }
 

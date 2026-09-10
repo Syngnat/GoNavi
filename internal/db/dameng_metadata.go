@@ -260,6 +260,8 @@ func buildDamengIndexesQuery(dbName, tableName string) string {
 			JOIN user_indexes i ON i.index_name = c.index_name
 			WHERE c.table_name = '%s'
 			  AND c.column_name IS NOT NULL
+			  AND c.column_name NOT LIKE 'SYS_NC%%$'
+			  AND i.index_type NOT LIKE 'FUNCTION-BASED%%'
 			ORDER BY c.index_name, c.column_position`, upperTableName)
 	}
 
@@ -269,6 +271,8 @@ func buildDamengIndexesQuery(dbName, tableName string) string {
 		WHERE c.table_owner = '%s'
 		  AND c.table_name = '%s'
 		  AND c.column_name IS NOT NULL
+		  AND c.column_name NOT LIKE 'SYS_NC%%$'
+		  AND i.index_type NOT LIKE 'FUNCTION-BASED%%'
 		ORDER BY c.index_name, c.column_position`, upperDBName, upperTableName)
 }
 
@@ -385,7 +389,11 @@ func formatDamengColumnType(row map[string]interface{}) string {
 		precision, hasPrecision := getDamengRowInt(row, "DATA_PRECISION", "NUMERIC_PRECISION")
 		if hasPrecision && precision > 0 {
 			scale, hasScale := getDamengRowInt(row, "DATA_SCALE", "NUMERIC_SCALE")
-			if hasScale && scale > 0 {
+			// 负 scale 必须保留，理由同 Oracle：达梦兼容 Oracle 语法，
+			// NUMBER(10,-2) 同样表示向左舍入到百位，丢掉负号会改变精度语义。
+			// 跨方言迁移时由归一层按目标方言决定是否折算
+			// （见 targetSupportsNegativeDecimalScale，达梦属于原生支持的一侧）。
+			if hasScale && scale != 0 {
 				return fmt.Sprintf("%s(%d,%d)", dataType, precision, scale)
 			}
 			return fmt.Sprintf("%s(%d)", dataType, precision)

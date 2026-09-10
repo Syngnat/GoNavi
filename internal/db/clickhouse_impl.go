@@ -988,7 +988,7 @@ func (c *ClickHouseDB) QueryContext(ctx context.Context, query string) ([]map[st
 		return nil, nil, err
 	}
 	defer rows.Close()
-	return scanRows(rows)
+	return scanRowsContext(ctx, rows)
 }
 
 func (c *ClickHouseDB) Query(query string) ([]map[string]interface{}, []string, error) {

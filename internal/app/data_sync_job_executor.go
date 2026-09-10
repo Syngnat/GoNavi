@@ -437,6 +437,9 @@ func executeDataSyncMappingWithRetry(ctx context.Context, definition syncjob.Job
 			result.Resumable = false
 			return result, err
 		}
+		if dataSyncJobMappingErrorIsPermanent(err) {
+			return result, err
+		}
 		if attempt == maxAttempts || ctx.Err() != nil {
 			return result, err
 		}
@@ -466,6 +469,19 @@ func executeDataSyncMappingWithRetry(ctx context.Context, definition syncjob.Job
 
 func dataSyncJobMappingRetrySafe(definition syncjob.JobDefinition) bool {
 	return !strings.EqualFold(strings.TrimSpace(definition.Options.SyncMode), "insert_only")
+}
+
+// dataSyncJobMappingErrorIsPermanent recognizes errors that can never improve
+// by replaying a mapping. In particular, retrying malformed target DDL merely
+// repeats a database parser failure and obscures the actionable error.
+func dataSyncJobMappingErrorIsPermanent(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "syntax") ||
+		strings.Contains(message, "语法") ||
+		strings.Contains(message, "error -2007")
 }
 
 func (executor appDataSyncJobExecutor) executeOneMapping(ctx context.Context, runID string, kind syncjob.JobKind, config syncbackend.SyncConfig, reporter syncjob.RunReporter) (syncjob.ExecutionOutcome, error) {
@@ -538,7 +554,7 @@ func buildDataSyncJobEngineConfig(definition syncjob.JobDefinition, runID string
 		BatchSize:           definition.Options.BatchSize,
 		RowErrorPolicy:      string(definition.Options.ErrorPolicy),
 		AutoAddColumns:      definition.AutoAddColumnsEnabled(),
-		TargetTableStrategy: firstNonEmptySyncJob(mapping.TargetTableStrategy, definition.Options.TargetTableStrategy),
+		TargetTableStrategy: dataSyncJobEffectiveTargetTableStrategy(definition, mapping),
 		CreateIndexes:       definition.Options.CreateIndexes,
 		TableOptions: map[string]syncbackend.TableOptions{
 			sourceTable: {
@@ -570,15 +586,18 @@ func buildDataSyncJobEngineConfig(definition syncjob.JobDefinition, runID string
 		}
 		return config, nil
 	}
-	if dataSyncJobMappingNeedsExplicitProjection(definition, mapping) {
+	needsExplicitProjection := dataSyncJobMappingNeedsExplicitProjection(definition, mapping)
+	if needsExplicitProjection || dataSyncJobMappingNeedsIdentityObjectRemap(mapping) {
 		engineMapping, err := buildEngineObjectMapping(mapping)
 		if err != nil {
 			return syncbackend.SyncConfig{}, err
 		}
 		config.Mappings = []syncbackend.SyncObjectMapping{engineMapping}
-		config.AutoAddColumns = false
-		config.CreateIndexes = false
-		config.TargetTableStrategy = "existing_only"
+		if needsExplicitProjection {
+			config.AutoAddColumns = false
+			config.CreateIndexes = false
+			config.TargetTableStrategy = "existing_only"
+		}
 		// Schema-only mapped tasks still need the migration planner to see
 		// missing source columns. Data mappings keep the historical fail-closed
 		// behavior for explicit projections.
@@ -606,11 +625,10 @@ func dataSyncJobMappingNeedsExplicitProjection(definition syncjob.JobDefinition,
 	// 恰好就是源表主键元数据，二者等价；若因 KeyColumns 降级为显式投影，
 	// 引擎会强制关闭 AutoAddColumns，导致目标缺列永远不被补齐（issue #1014）。
 	structureMigration := definition.Kind == syncjob.JobKindMigration &&
-		dataSyncJobMigrationAllowsSchemaChanges(definition) &&
-		strings.EqualFold(strings.TrimSpace(mapping.SourceTable), strings.TrimSpace(mapping.TargetTable))
+		dataSyncJobMigrationAllowsSchemaChanges(definition)
 	if len(mapping.Columns) > 0 ||
 		(len(mapping.KeyColumns) > 0 && !structureMigration) ||
-		!strings.EqualFold(strings.TrimSpace(mapping.SourceTable), strings.TrimSpace(mapping.TargetTable)) {
+		(!strings.EqualFold(strings.TrimSpace(mapping.SourceTable), strings.TrimSpace(mapping.TargetTable)) && !structureMigration) {
 		return true
 	}
 
@@ -626,6 +644,34 @@ func dataSyncJobMappingNeedsExplicitProjection(definition syncjob.JobDefinition,
 	// mappings are intentionally rejected by the sync engine for schema/both
 	// content, so only structure-capable migration tasks may omit the mapping.
 	return !(definition.Kind == syncjob.JobKindMigration && dataSyncJobMigrationAllowsSchemaChanges(definition))
+}
+
+// dataSyncJobMappingNeedsIdentityObjectRemap reports the one kind of object
+// mapping that remains compatible with the migration planner: source and
+// target have different names, but the columns are still copied verbatim.
+// The planner needs this object mapping to create the requested target name;
+// it is deliberately not an explicit field projection.
+func dataSyncJobMappingNeedsIdentityObjectRemap(mapping syncjob.TableMapping) bool {
+	return strings.TrimSpace(mapping.SourceTable) != strings.TrimSpace(mapping.TargetTable)
+}
+
+// dataSyncJobEffectiveTargetTableStrategy preserves the task-level strategy for
+// implicit structure migrations. Older saved definitions may contain a mapping
+// level existing_only value even though the task itself was configured for
+// smart/auto_create; treating that stale value as authoritative blocks valid
+// MySQL -> Dameng (and other cross-dialect) auto-create plans.
+func dataSyncJobEffectiveTargetTableStrategy(definition syncjob.JobDefinition, mapping syncjob.TableMapping) string {
+	mappingStrategy := firstNonEmptySyncJob(mapping.TargetTableStrategy)
+	taskStrategy := firstNonEmptySyncJob(definition.Options.TargetTableStrategy)
+	if mapping.TargetTableStrategyExplicit && mappingStrategy != "" {
+		return mappingStrategy
+	}
+	if mappingStrategy == "existing_only" &&
+		taskStrategy != "" && taskStrategy != "existing_only" &&
+		!dataSyncJobMappingNeedsExplicitProjection(definition, mapping) {
+		return taskStrategy
+	}
+	return firstNonEmptySyncJob(mappingStrategy, taskStrategy)
 }
 
 func dataSyncJobMigrationAllowsSchemaChanges(definition syncjob.JobDefinition) bool {

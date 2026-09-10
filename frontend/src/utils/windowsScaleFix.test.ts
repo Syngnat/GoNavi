@@ -6,24 +6,24 @@ import {
 } from './windowsScaleFix';
 
 describe('windowsScaleFix', () => {
-  it('treats matching window and viewport metrics as stable', () => {
+  it.each([1, 1.25, 1.5, 2])('treats Wails DIP metrics as stable at %sx DPI', (devicePixelRatio) => {
     const ratio = computeWindowsViewportScaleRatio({
-      windowWidth: 1920,
+      windowWidth: 1280,
       innerWidth: 1280,
-      devicePixelRatio: 1.5,
+      devicePixelRatio,
     });
 
     expect(ratio).toBeCloseTo(1, 5);
     expect(hasWindowsViewportScaleDrift({
-      windowWidth: 1920,
+      windowWidth: 1280,
       innerWidth: 1280,
-      devicePixelRatio: 1.5,
+      devicePixelRatio,
     })).toBe(false);
   });
 
   it('detects zoom drift from viewport width mismatch', () => {
     expect(hasWindowsViewportScaleDrift({
-      windowWidth: 1920,
+      windowWidth: 1280,
       innerWidth: 1100,
       devicePixelRatio: 1.5,
     })).toBe(true);

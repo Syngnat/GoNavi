@@ -55,7 +55,7 @@ func scanSQLServerRowsWithMessages(ctx context.Context, rows *sql.Rows, retmsg *
 				allMessages = append(allMessages, text)
 			}
 		case sqlexp.MsgNext:
-			data, cols, err := scanRows(rows)
+			data, cols, truncated, err := scanRowsForDialectWithPreview(rows, "", true, RowBudgetFromContext(ctx))
 			if err != nil {
 				return resultSets, messages, err
 			}
@@ -66,10 +66,15 @@ func scanSQLServerRowsWithMessages(ctx context.Context, rows *sql.Rows, retmsg *
 				cols = []string{}
 			}
 			resultSets = append(resultSets, connection.ResultSetData{
-				Rows:     data,
-				Columns:  cols,
-				Messages: append([]string(nil), messages...),
+				Rows:      data,
+				Columns:   cols,
+				Messages:  append([]string(nil), messages...),
+				Truncated: truncated,
 			})
+			if truncated {
+				// 达到行预算：停止读取，剩余结果集与消息不再消费。
+				return resultSets, allMessages, nil
+			}
 			messages = nil
 		case sqlexp.MsgRowsAffected:
 			resultSets = append(resultSets, connection.ResultSetData{
@@ -711,6 +716,8 @@ JOIN [%s].sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.colum
 JOIN [%s].sys.tables t ON i.object_id = t.object_id
 JOIN [%s].sys.schemas s ON t.schema_id = s.schema_id
 WHERE s.name = '%s' AND t.name = '%s' AND i.name IS NOT NULL
+  AND i.is_primary_key = 0
+  AND ic.is_included_column = 0
 ORDER BY i.name, ic.key_ordinal`,
 		safeDB, safeDB, safeDB, safeDB, safeDB, esc(schema), esc(table))
 

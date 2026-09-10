@@ -1,0 +1,272 @@
+.gn-conn-tool-page {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  width: min(100%, 880px);
+  padding: 8px 4px 20px;
+}
+
+.gn-conn-tool-embed.gn-embedded-modal {
+  height: auto;
+  max-height: 100%;
+}
+
+.gn-conn-tool-embed .gn-embedded-modal-body {
+  overflow: auto;
+}
+
+.gn-conn-tool-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--gn-accent, #15803d) 18%, var(--gn-br-2, rgba(15, 23, 42, 0.1)));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 7%, var(--gn-bg-panel, #fff));
+  color: var(--gn-fg-2, var(--ant-color-text));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-conn-tool-note .anticon {
+  margin-top: 2px;
+  color: var(--gn-accent, #15803d);
+}
+
+.gn-conn-tool-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--gn-bg-panel, #fff) 94%, transparent);
+  box-shadow: var(--gn-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.06));
+}
+
+.gn-conn-tool-panel__body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px 18px;
+}
+
+.gn-conn-tool-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.gn-conn-tool-panel__title {
+  margin: 0;
+  color: var(--gn-fg-1, var(--ant-color-text));
+  font-size: 15px;
+  font-weight: 680;
+  line-height: 1.3;
+}
+
+.gn-conn-tool-panel__description {
+  margin: 4px 0 0;
+  color: var(--gn-fg-4, var(--ant-color-text-secondary));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-conn-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.gn-conn-tool-hint {
+  margin: 0;
+  color: var(--gn-fg-4, var(--ant-color-text-secondary));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.gn-conn-tool-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.gn-conn-tool-progress__track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gn-conn-tool-progress__bar {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gn-accent, #15803d);
+  transition: width 160ms ease;
+}
+
+.gn-conn-tool-progress__bar.is-warning {
+  background: #d48806;
+}
+
+.gn-conn-tool-progress__label {
+  color: var(--gn-fg-4, var(--ant-color-text-secondary));
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.gn-conn-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.gn-conn-picker__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gn-conn-picker__summary {
+  color: var(--gn-fg-4, var(--ant-color-text-secondary));
+  font-size: 12px;
+}
+
+.gn-conn-picker__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gn-conn-picker__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--gn-br-2, rgba(15, 23, 42, 0.12));
+  border-radius: 999px;
+  background: var(--gn-bg-input, var(--gn-bg-panel, #fff));
+  color: var(--gn-fg-2, var(--ant-color-text));
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.gn-conn-picker__group:hover {
+  border-color: color-mix(in srgb, var(--gn-accent, #15803d) 35%, var(--gn-br-2, transparent));
+}
+
+.gn-conn-picker__group.is-selected {
+  border-color: color-mix(in srgb, var(--gn-accent, #15803d) 45%, var(--gn-br-2, transparent));
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 10%, var(--gn-bg-panel, #fff));
+}
+
+.gn-conn-picker__group.is-partial {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--gn-accent, #15803d) 40%, var(--gn-br-2, transparent));
+}
+
+.gn-conn-picker__group-count {
+  color: var(--gn-fg-5, var(--ant-color-text-tertiary));
+  font-variant-numeric: tabular-nums;
+}
+
+.gn-conn-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: min(360px, 46vh);
+  overflow: auto;
+  padding: 2px;
+}
+
+.gn-conn-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+  border-radius: 10px;
+  background: var(--gn-bg-input, var(--gn-bg-panel, #fff));
+  cursor: pointer;
+}
+
+.gn-conn-picker__item:hover {
+  border-color: color-mix(in srgb, var(--gn-accent, #15803d) 28%, var(--gn-br-1, transparent));
+}
+
+.gn-conn-picker__item.is-selected {
+  border-color: color-mix(in srgb, var(--gn-accent, #15803d) 38%, var(--gn-br-1, transparent));
+  background: color-mix(in srgb, var(--gn-accent, #15803d) 8%, var(--gn-bg-panel, #fff));
+}
+
+.gn-conn-picker__item.is-disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.gn-conn-picker__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-fg-1, var(--ant-color-text));
+  font-size: 13px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gn-conn-picker__type {
+  margin-left: auto;
+  color: var(--gn-fg-5, var(--ant-color-text-tertiary));
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.gn-conn-tool-options {
+  display: grid;
+  gap: 10px;
+  padding-top: 2px;
+  border-top: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gn-conn-tool-report {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+  border-radius: 10px;
+  background: var(--gn-bg-input, var(--gn-bg-panel, #fff));
+}
+
+.gn-conn-tool-report__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gn-conn-tool-check {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gn-br-1, rgba(15, 23, 42, 0.08));
+}
+
+.gn-conn-tool-check:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.gn-conn-tool-check__detail {
+  margin-top: 4px;
+  margin-left: 24px;
+  color: var(--gn-fg-4, var(--ant-color-text-secondary));
+  font-size: 12px;
+  line-height: 1.45;
+}

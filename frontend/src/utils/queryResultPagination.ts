@@ -1,4 +1,4 @@
-import { buildOrderBySQL, buildPaginatedSelectSQL } from './sql';
+import { buildOrderBySQL, buildPaginatedSelectSQL, splitTrailingIsolationClause } from './sql';
 import { findTopLevelKeyword, getLeadingKeyword, splitSqlTail } from './queryAutoLimit';
 import { resolveSqlDialect } from './sqlDialect';
 
@@ -52,42 +52,50 @@ const normalizeSqlForComparison = (sql: string): string => (
     .toLowerCase()
 );
 
-const parseTopLevelLimit = (sql: string): LimitInfo | null => {
-  const { main } = splitSqlTail(sql);
-  const limitPos = findTopLevelKeyword(main, 'limit');
+const normalizePaginationStatement = (sql: string, dialect = ''): string => {
+  const main = splitSqlTail(sql, dialect).main.trim();
+  return main;
+};
+
+const parseTopLevelLimit = (sql: string, dialect = ''): LimitInfo | null => {
+  const main = normalizePaginationStatement(sql, dialect);
+  const statement = dialect === 'dameng'
+    ? splitTrailingIsolationClause(main)
+    : { main, tail: '' };
+  const limitPos = findTopLevelKeyword(statement.main, 'limit', dialect);
   if (limitPos < 0) return null;
-  const fromPos = findTopLevelKeyword(main, 'from');
+  const fromPos = findTopLevelKeyword(statement.main, 'from', dialect);
   if (fromPos >= 0 && limitPos < fromPos) return null;
 
-  const beforeLimit = main.slice(0, limitPos).trimEnd();
-  const limitClause = main.slice(limitPos).trim();
+  const baseSql = `${statement.main.slice(0, limitPos).trimEnd()}${statement.tail}`;
+  const limitClause = statement.main.slice(limitPos).trim();
   const mysqlOffsetLimit = limitClause.match(/^limit\s+(\d+)\s*,\s*(\d+)$/i);
   if (mysqlOffsetLimit) {
     const offset = normalizePositiveInteger(mysqlOffsetLimit[1]);
     const limit = normalizePositiveInteger(mysqlOffsetLimit[2]);
-    return limit > 0 ? { baseSql: beforeLimit, limit, offset } : null;
+    return limit > 0 ? { baseSql, limit, offset } : null;
   }
 
   const limitOffset = limitClause.match(/^limit\s+(\d+)\s+offset\s+(\d+)$/i);
   if (limitOffset) {
     const limit = normalizePositiveInteger(limitOffset[1]);
     const offset = normalizePositiveInteger(limitOffset[2]);
-    return limit > 0 ? { baseSql: beforeLimit, limit, offset } : null;
+    return limit > 0 ? { baseSql, limit, offset } : null;
   }
 
   const simpleLimit = limitClause.match(/^limit\s+(\d+)$/i);
   if (simpleLimit) {
     const limit = normalizePositiveInteger(simpleLimit[1]);
-    return limit > 0 ? { baseSql: beforeLimit, limit, offset: 0 } : null;
+    return limit > 0 ? { baseSql, limit, offset: 0 } : null;
   }
 
   return null;
 };
 
-const stripExplicitLimitForExport = (sql: string): string => {
-  const parsed = parseTopLevelLimit(sql);
+const stripExplicitLimitForExport = (sql: string, dialect = ''): string => {
+  const parsed = parseTopLevelLimit(sql, dialect);
   if (parsed?.baseSql) return parsed.baseSql;
-  return splitSqlTail(sql).main.trim();
+  return normalizePaginationStatement(sql, dialect);
 };
 
 const wasLimitAppliedByQueryEditorCap = (
@@ -102,15 +110,15 @@ const wasLimitAppliedByQueryEditorCap = (
   if (!executed || !exportable) return false;
   if (normalizeSqlForComparison(executed) === normalizeSqlForComparison(exportable)) return false;
 
-  const exportBaseSql = stripExplicitLimitForExport(exportable);
-  if (normalizeSqlForComparison(stripExplicitLimitForExport(executed)) === normalizeSqlForComparison(exportBaseSql)) {
+  const dialect = resolveSqlDialect(dbType || 'mysql', driver || '');
+  const exportBaseSql = stripExplicitLimitForExport(exportable, dialect);
+  if (normalizeSqlForComparison(stripExplicitLimitForExport(executed, dialect)) === normalizeSqlForComparison(exportBaseSql)) {
     return true;
   }
 
   const pageSize = normalizePositiveInteger(fallbackPageSize);
-  if (pageSize <= 0 || getLeadingKeyword(exportBaseSql) !== 'select') return false;
+  if (pageSize <= 0 || getLeadingKeyword(exportBaseSql, dialect) !== 'select') return false;
 
-  const dialect = resolveSqlDialect(dbType || 'mysql', driver || '');
   const queryEditorCappedSql = buildPaginatedSelectSQL(dialect, exportBaseSql, '', pageSize, 0);
   return normalizeSqlForComparison(executed) === normalizeSqlForComparison(queryEditorCappedSql);
 };
@@ -124,13 +132,15 @@ const resolveWrappedBaseSql = (dbType: string, baseSql: string): string => {
   return `SELECT * FROM (${base}) AS __gonavi_query_page__`;
 };
 
-export const buildQueryResultCountSql = (baseSql: string): string => {
-  const mainSql = splitSqlTail(String(baseSql || '')).main.trim();
+export const buildQueryResultCountSql = (baseSql: string, dbType = ''): string => {
+  const dialect = resolveSqlDialect(dbType || '');
+  const mainSql = splitSqlTail(String(baseSql || ''), dialect).main.trim();
   if (!mainSql) return '';
-  const orderByPos = findTopLevelKeyword(mainSql, 'order by');
-  const countBaseSql = (orderByPos >= 0 ? mainSql.slice(0, orderByPos) : mainSql).trim();
+  const statement = splitTrailingIsolationClause(mainSql);
+  const orderByPos = findTopLevelKeyword(statement.main, 'order by', dialect);
+  const countBaseSql = (orderByPos >= 0 ? statement.main.slice(0, orderByPos) : statement.main).trim();
   if (!countBaseSql) return '';
-  return `SELECT COUNT(*) AS __gonavi_total__ FROM (${countBaseSql}) __gonavi_query_count__`;
+  return `SELECT COUNT(*) AS __gonavi_total__ FROM (${countBaseSql}) __gonavi_query_count__${statement.tail}`;
 };
 
 export const parseQueryResultTotalCount = (row: unknown): number | null => {
@@ -163,21 +173,27 @@ export const buildQueryResultPageSql = (params: {
   sortInfo?: Array<{ columnKey: string; order: string; enabled?: boolean }>;
 }): string => {
   const pageSize = normalizePositiveInteger(params.pageSize);
-  if (pageSize <= 0) return String(params.baseSql || '').trim();
-  const page = Math.max(1, Math.floor(Number(params.page) || 1));
-  const limit = params.lookahead ? pageSize + 1 : pageSize;
-  const offset = (page - 1) * pageSize;
   const dialect = resolveSqlDialect(params.dbType || 'mysql', params.driver || '', {
     oceanBaseProtocol: params.oceanBaseProtocol || '',
   });
   const orderBySql = buildOrderBySQL(dialect, params.sortInfo || []);
+  const statement = dialect === 'dameng'
+    ? splitTrailingIsolationClause(params.baseSql)
+    : { main: params.baseSql, tail: '' };
+  if (pageSize <= 0) {
+    if (!orderBySql) return String(params.baseSql || '').trim();
+    return `${resolveWrappedBaseSql(dialect, statement.main)}${orderBySql}${statement.tail}`;
+  }
+  const page = Math.max(1, Math.floor(Number(params.page) || 1));
+  const limit = params.lookahead ? pageSize + 1 : pageSize;
+  const offset = (page - 1) * pageSize;
   return buildPaginatedSelectSQL(
     dialect,
-    resolveWrappedBaseSql(dialect, params.baseSql),
+    resolveWrappedBaseSql(dialect, statement.main),
     orderBySql,
     limit,
     offset,
-  );
+  ) + statement.tail;
 };
 
 export const resolveQueryResultPaginationTotal = (params: {
@@ -213,10 +229,10 @@ export const createInitialQueryResultPagination = (params: {
   fallbackPageSize?: number;
 }): QueryResultPaginationState | undefined => {
   const executedSql = String(params.executedSql || '').trim();
-  if (!executedSql || getLeadingKeyword(executedSql) !== 'select') return undefined;
-
-  const explicitLimit = parseTopLevelLimit(executedSql);
-  const mainSql = splitSqlTail(executedSql).main.trim();
+  const dialect = resolveSqlDialect(params.dbType || 'mysql', params.driver || '');
+  if (!executedSql || getLeadingKeyword(executedSql, dialect) !== 'select') return undefined;
+  const explicitLimit = parseTopLevelLimit(executedSql, dialect);
+  const mainSql = normalizePaginationStatement(executedSql, dialect);
   const fallbackPageSize = normalizePositiveInteger(params.fallbackPageSize);
   const returnedRowCount = Math.max(0, Math.floor(Number(params.returnedRowCount) || 0));
   const pageSize = explicitLimit?.limit || fallbackPageSize || returnedRowCount;
@@ -228,9 +244,9 @@ export const createInitialQueryResultPagination = (params: {
   if (current <= 1 && returnedRowCount < pageSize) return undefined;
 
   const exportSql = String(params.exportSql || '').trim();
-  const exportAllSql = exportSql && getLeadingKeyword(exportSql) === 'select'
-    ? stripExplicitLimitForExport(exportSql)
-    : stripExplicitLimitForExport(executedSql);
+  const exportAllSql = exportSql && getLeadingKeyword(exportSql, dialect) === 'select'
+    ? stripExplicitLimitForExport(exportSql, dialect)
+    : stripExplicitLimitForExport(executedSql, dialect);
   const autoLimitCap = current === 1 && wasLimitAppliedByQueryEditorCap(
     executedSql,
     exportSql,

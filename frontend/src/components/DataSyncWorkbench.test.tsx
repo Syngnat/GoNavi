@@ -87,6 +87,11 @@ describe('DataSyncWorkbench', () => {
     expect(requestCloseWorkbenchTabs).toHaveBeenCalledWith([tab.id]);
   });
 
+  it('keeps the host tab when the workbench is embedded in settings', () => {
+    const renderer = TestRenderer.create(<DataSyncWorkbench embedded tab={tab} />);
+    expect(renderer.root.findByProps({ 'data-data-sync-shell': 'true' }).props.onClose).toBeUndefined();
+  });
+
   it('maps data compare mode without setting migration content', () => {
     const dataCompareTab: TabData = {
       ...tab,

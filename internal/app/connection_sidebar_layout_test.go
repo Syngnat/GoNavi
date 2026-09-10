@@ -160,6 +160,58 @@ func TestConnectionSidebarLayoutPersistsLegacyTagCreatedAtAndRootConnectionSortM
 	}
 }
 
+func TestConnectionSidebarLayoutPersistsManualConnectionOrder(t *testing.T) {
+	application := newConnectionSidebarLayoutTestApp(t)
+	for _, id := range []string{"conn-a", "conn-b"} {
+		saveConnectionSidebarLayoutTestConnection(t, application, id)
+	}
+
+	initialized, err := application.BootstrapConnectionSidebarLayout(connection.ConnectionSidebarLayoutInput{
+		ConnectionTags: []connection.ConnectionTag{{
+			ID:                 "tag-manual",
+			Name:               "Manual",
+			ConnectionIDs:      []string{"conn-b"},
+			ChildOrder:         []string{"connection:conn-b"},
+			ConnectionSortMode: "manual",
+		}},
+		SidebarRootOrder:       []string{"connection:conn-a", "tag:tag-manual"},
+		RootConnectionSortMode: "manual",
+	})
+	if err != nil {
+		t.Fatalf("BootstrapConnectionSidebarLayout: %v", err)
+	}
+	if initialized.RootConnectionSortMode != "manual" || initialized.ConnectionTags[0].ConnectionSortMode != "manual" {
+		t.Fatalf("manual connection sort was normalized away: %+v", initialized)
+	}
+
+	restarted := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	restarted.configDir = application.configDir
+	loaded, err := restarted.LoadConnectionSidebarLayout()
+	if err != nil {
+		t.Fatalf("LoadConnectionSidebarLayout: %v", err)
+	}
+	if loaded.RootConnectionSortMode != "manual" || loaded.ConnectionTags[0].ConnectionSortMode != "manual" {
+		t.Fatalf("manual connection sort did not survive restart: %+v", loaded)
+	}
+}
+
+func TestConnectionSidebarLayoutDoesNotTreatLegacyManualGroupOrderAsManualConnectionOrder(t *testing.T) {
+	application := newConnectionSidebarLayoutTestApp(t)
+	layoutPath := filepath.Join(application.configDir, connectionSidebarLayoutFileName)
+	legacy := []byte(`{"version":1,"revision":2,"connectionTags":[{"id":"legacy-tag","name":"Legacy","connectionIds":[],"sortMode":"manual"}],"sidebarRootOrder":["tag:legacy-tag"],"rootSortMode":"manual"}`)
+	if err := os.WriteFile(layoutPath, legacy, 0o644); err != nil {
+		t.Fatalf("write legacy layout: %v", err)
+	}
+
+	loaded, err := application.LoadConnectionSidebarLayout()
+	if err != nil {
+		t.Fatalf("LoadConnectionSidebarLayout: %v", err)
+	}
+	if loaded.RootConnectionSortMode != "createdAt" || loaded.ConnectionTags[0].ConnectionSortMode != "createdAt" {
+		t.Fatalf("legacy manual group order leaked into connection order: %+v", loaded)
+	}
+}
+
 func TestLoadConnectionSidebarLayoutMissingIsReadOnly(t *testing.T) {
 	application := newConnectionSidebarLayoutTestApp(t)
 	saveConnectionSidebarLayoutTestConnection(t, application, "conn-local")

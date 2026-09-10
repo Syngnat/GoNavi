@@ -9,7 +9,6 @@ import Editor, { type OnMount } from './MonacoEditor';
 import {
     isMacLikePlatform,
     normalizeBlurForPlatform,
-    normalizeOpacityForPlatform,
     resolveAppearanceValues,
 } from '../utils/appearance';
 import { buildRedisWorkbenchTheme } from './redisViewerWorkbenchTheme';
@@ -67,7 +66,7 @@ function parseRedisScriptBlocks(script: string): string[] {
 
         for (let j = 0; j < line.length; j++) {
             const char = line[j];
-            
+
             if (isEscaping) {
                 isEscaping = false;
                 currentBlock += char;
@@ -117,20 +116,19 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
     const tr = (key: string, params?: I18nParams) => t(key, params, i18nLanguage);
     const connection = connections.find(c => c.id === connectionId);
     const darkMode = theme === 'dark';
-    const isV2Ui = appearance.uiVersion === 'v2';
+
     const resolvedAppearance = resolveAppearanceValues(appearance);
-    const opacity = normalizeOpacityForPlatform(resolvedAppearance.opacity);
     const blur = normalizeBlurForPlatform(resolvedAppearance.blur);
     const disableLocalBackdropFilter = isMacLikePlatform();
     const workbenchTheme = useMemo(
-        () => buildRedisWorkbenchTheme({ darkMode, opacity, blur, disableBackdropFilter: disableLocalBackdropFilter }),
-        [blur, darkMode, disableLocalBackdropFilter, opacity, appearance.uiVersion],
+        () => buildRedisWorkbenchTheme({ darkMode, blur, disableBackdropFilter: disableLocalBackdropFilter }),
+        [blur, darkMode, disableLocalBackdropFilter],
     );
 
     const [command, setCommand] = useState('');
     const [results, setResults] = useState<CommandResult[]>([]);
     const [loading, setLoading] = useState(false);
-    
+
     // UI Layout state
     const [editorHeight, setEditorHeight] = useState(250);
     const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
@@ -142,7 +140,7 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
     } | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const resultsEndRef = useRef<HTMLDivElement>(null);
-    
+
     const editorRef = useRef<any>(null);
 
     const getConfig = useCallback(() => {
@@ -183,17 +181,17 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
 
         if (!(window as any).__redisCompletionRegistered) {
             (window as any).__redisCompletionRegistered = true;
-            
+
             const redisCommands = [
-                "APPEND", "AUTH", "BGREWRITEAOF", "BGSAVE", "BITCOUNT", "BITFIELD", "BITOP", 
+                "APPEND", "AUTH", "BGREWRITEAOF", "BGSAVE", "BITCOUNT", "BITFIELD", "BITOP",
                 "BITPOS", "BLPOP", "BRPOP", "BRPOPLPUSH", "BZMPOP", "BZPOPMIN", "BZPOPMAX",
                 "CLIENT", "CLUSTER", "COMMAND", "CONFIG", "DBSIZE", "DEBUG", "DECR", "DECRBY",
                 "DEL", "DISCARD", "DUMP", "ECHO", "EVAL", "EVALSHA", "EXEC", "EXISTS", "EXPIRE",
                 "EXPIREAT", "EXPIRETIME", "FLUSHALL", "FLUSHDB", "GEOADD", "GEODIST", "GEOHASH",
                 "GEOPOS", "GEORADIUS", "GEORADIUSBYMEMBER", "GEOSEARCH", "GEOSEARCHSTORE",
-                "GET", "GETBIT", "GETDEL", "GETEX", "GETRANGE", "GETSET", "HDEL", "HELLO", 
-                "HEXISTS", "HGET", "HGETALL", "HINCRBY", "HINCRBYFLOAT", "HKEYS", "HLEN", 
-                "HMGET", "HMSET", "HSCAN", "HSET", "HSETNX", "HSTRLEN", "HVALS", "INCR", 
+                "GET", "GETBIT", "GETDEL", "GETEX", "GETRANGE", "GETSET", "HDEL", "HELLO",
+                "HEXISTS", "HGET", "HGETALL", "HINCRBY", "HINCRBYFLOAT", "HKEYS", "HLEN",
+                "HMGET", "HMSET", "HSCAN", "HSET", "HSETNX", "HSTRLEN", "HVALS", "INCR",
                 "INCRBY", "INCRBYFLOAT", "INFO", "KEYS", "LASTSAVE", "LCS", "LINDEX", "LINSERT",
                 "LLEN", "LMOVE", "LMPOP", "LPOP", "LPOS", "LPUSH", "LPUSHX", "LRANGE", "LREM",
                 "LSET", "LTRIM", "MEMORY", "MGET", "MIGRATE", "MODULE", "MONITOR", "MOVE", "MSET",
@@ -215,7 +213,7 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
                 "ZREMRANGEBYSCORE", "ZREVRANGE", "ZREVRANGEBYLEX", "ZREVRANGEBYSCORE", "ZREVRANK",
                 "ZSCAN", "ZSCORE", "ZUNION", "ZUNIONSTORE"
             ];
-            
+
             monaco.languages.registerCompletionItemProvider('redis', {
                 provideCompletionItems: (model: any, position: any) => {
                     const word = model.getWordUntilPosition(position);
@@ -244,7 +242,7 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
         if (!config) return;
 
         let cmdToExecute = '';
-        
+
         // 1. 获取用户是否有高亮选中的文本
         const selection = editorRef.current?.getSelection();
         if (selection && !selection.isEmpty()) {
@@ -301,7 +299,7 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
         setResults(prev => [...prev, ...newResults]);
         setLoading(false);
     };
-    
+
     // Auto scroll to bottom when new results arrive
     useEffect(() => {
         if (resultsEndRef.current) {
@@ -396,15 +394,15 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
         }
         const delta = e.clientY - dragRef.current.startY;
         let newHeight = dragRef.current.startHeight + delta;
-        
+
         // 限制输入区高度，避免拖拽后压缩掉底部输出区。
         newHeight = clampRedisCommandEditorHeight(
             newHeight,
             containerRef.current?.clientHeight,
         );
-        
+
         setEditorHeight(newHeight);
-        
+
         // 更新编辑器布局
         if (editorRef.current) {
             editorRef.current.layout();
@@ -509,13 +507,13 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
             </div>
 
             {/* Resizer Handle */}
-            <div 
+            <div
                 className="horizontal-resizer"
                 data-redis-command-resizer="true"
                 onMouseDown={handleDragStart}
-                style={{ 
+                style={{
                     height: REDIS_COMMAND_RESIZER_HEIGHT,
-                    cursor: 'row-resize', 
+                    cursor: 'row-resize',
                     background: workbenchTheme.panelBgStrong,
                     borderTop: workbenchTheme.panelBorder,
                     borderBottom: workbenchTheme.panelBorder,
@@ -573,7 +571,7 @@ const RedisCommandEditor: React.FC<RedisCommandEditorProps> = ({ connectionId, r
                                     {item.command}
                                     <span style={{ color: workbenchTheme.textMuted, fontSize: 11, marginLeft: 12, fontWeight: 'normal' }}>[{item.durationMs}ms]</span>
                                 </div>
-                                
+
                                 <div style={{ paddingLeft: 20 }}>
                                     {item.error ? (
                                         <div style={{ color: '#f14c4c', whiteSpace: 'pre-wrap' }}>

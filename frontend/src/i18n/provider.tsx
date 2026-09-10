@@ -32,15 +32,16 @@ export const I18nProvider: React.FC<{
   const [readyLanguage, setReadyLanguage] = useState<SupportedLanguage | null>(() =>
     hasCatalog(language) ? language : null,
   );
+  // Keep the current tree on screen while a newly selected catalog loads.
+  // Returning null here unmounted the whole client and caused a visible flash.
+  const displayLanguage = hasCatalog(language) ? language : readyLanguage;
 
   useEffect(() => {
-    let active = true;
     if (hasCatalog(language)) {
-      setReadyLanguage(language);
-      return () => {
-        active = false;
-      };
+      setReadyLanguage((current) => (current === language ? current : language));
+      return;
     }
+    let active = true;
     void loadCatalog(language).then(() => {
       if (active) setReadyLanguage(language);
     });
@@ -50,22 +51,20 @@ export const I18nProvider: React.FC<{
   }, [language]);
 
   useEffect(() => {
-    if (readyLanguage === language) {
-      void syncLanguageRuntime(language);
-    }
-  }, [language, readyLanguage]);
+    void syncLanguageRuntime(language);
+  }, [language]);
 
   const value = useMemo<I18nContextValue>(
     () => ({
-      language,
+      language: displayLanguage ?? language,
       preference,
       setPreference: onPreferenceChange,
-      t: (key, params) => translate(key, params, language),
+      t: (key, params) => translate(key, params, displayLanguage ?? language),
     }),
-    [language, onPreferenceChange, preference],
+    [displayLanguage, language, onPreferenceChange, preference],
   );
 
-  if (readyLanguage !== language) return null;
+  if (!displayLanguage) return null;
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 };
 

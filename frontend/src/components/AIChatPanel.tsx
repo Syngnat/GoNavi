@@ -65,9 +65,8 @@ import { useAIChatSessionState } from './ai/useAIChatSessionState';
 import { useWorkbenchTabs } from '../hooks/useWorkbenchTabs';
 import { useI18n } from '../i18n/provider';
 import {
-    coerceThinkingIntensityForProfile,
-    defaultThinkingIntensityForProfile,
-    resolveThinkingIntensityProfile,
+    coerceThinkingIntensityForControl,
+    resolveProviderThinkingIntensityControl,
 } from '../utils/aiThinkingIntensity';
 
 interface AIChatPanelProps {
@@ -75,7 +74,7 @@ interface AIChatPanelProps {
     darkMode: boolean;
     bgColor?: string;
     onClose: () => void;
-    onOpenSettings?: () => void;
+    onOpenSettings?: (providerId?: string) => void;
     onWidthChange?: (width: number) => void;
     overlayTheme: OverlayWorkbenchTheme;
     /** dock：侧栏；detached：独立浮动窗内 */
@@ -148,17 +147,34 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const [historyOpen, setHistoryOpen] = useState(false);
     const [activePanelMode, setActivePanelMode] = useState<'chat' | 'insights' | 'history'>('chat');
     const [composerNoticeState, setComposerNoticeState] = useState<AIComposerNoticeDescriptor | null>(null);
-    const [thinkingIntensity, setThinkingIntensity] = useState('medium');
+    const [thinkingIntensity, setThinkingIntensity] = useState('');
     const {
         activeProvider,
+        cliCapabilities,
         composerNotice: runtimeComposerNotice,
         dynamicModels,
         fetchDynamicModels,
+        fetchProviderModels,
         handleComposerAction,
         handleModelChange,
+        handleProviderModelChange,
         handleOpenSettingsFromPanel,
         loadingModels,
+        providers,
+        providerModels,
+        providerCatalogs,
     } = useAIChatRuntimeResources({ onOpenSettings });
+    const activeCLICapability = useMemo(() => (cliCapabilities || []).find((capability) =>
+        capability.apiFormat === String(activeProvider?.apiFormat || '').trim()), [activeProvider?.apiFormat, cliCapabilities]);
+    const activeCLIModelCatalog = activeProvider ? providerCatalogs?.[activeProvider.id] : undefined;
+    const thinkingControl = useMemo(() => activeProvider
+        ? resolveProviderThinkingIntensityControl(activeProvider, activeCLICapability, activeCLIModelCatalog)
+        : null, [
+            activeProvider?.id, activeProvider?.type, activeProvider?.authMode, activeProvider?.apiFormat,
+            activeProvider?.baseUrl, activeProvider?.model, activeProvider?.effort,
+            activeCLICapability, activeCLIModelCatalog,
+        ]);
+    const thinkingProviderIdRef = useRef('');
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -183,7 +199,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     const sqlLogs = useStore(state => state.sqlLogs);
     const setAIActiveSessionId = useStore(state => state.setAIActiveSessionId);
     const aiPanelVisible = useStore(state => state.aiPanelVisible);
-    const isV2Ui = appearance.uiVersion === 'v2';
+
     const activeShortcutPlatform = getShortcutPlatform(isMacLikePlatform());
     const {
         ghostRef,
@@ -194,7 +210,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         panelWidth,
     } = useAIChatPanelResize({
         width,
-        isV2Ui,
         onWidthChange,
     });
     const aiChatSendShortcutBinding = useStore(state => resolveShortcutBinding(
@@ -254,30 +269,20 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         }
     }, [runtimeComposerNotice]);
 
-    // 切换供应商/模型时，将思考强度钳制到当前体系合法档位。
+    // 切换供应商/模型时，将思考强度钳制到当前供应商和模型真实支持的档位。
     useEffect(() => {
-        if (!activeProvider) {
-            return;
-        }
-        const profile = resolveThinkingIntensityProfile({
-            type: activeProvider.type,
-            apiFormat: activeProvider.apiFormat,
-            baseUrl: activeProvider.baseUrl,
-            model: activeProvider.model,
-        });
+        if (!activeProvider || !thinkingControl) return;
+        const providerChanged = thinkingProviderIdRef.current !== activeProvider.id;
+        thinkingProviderIdRef.current = activeProvider.id;
         setThinkingIntensity((current) => {
-            const next = coerceThinkingIntensityForProfile(
-                current || defaultThinkingIntensityForProfile(profile),
-                profile,
-            );
-            return next;
+            if (providerChanged || !current) return thinkingControl.defaultValue;
+            if (current === 'default' && activeProvider.effort
+                && thinkingControl.options.some((option) => option.value === activeProvider.effort)) {
+                return activeProvider.effort;
+            }
+            return coerceThinkingIntensityForControl(current, thinkingControl);
         });
-    }, [
-        activeProvider?.type,
-        activeProvider?.apiFormat,
-        activeProvider?.baseUrl,
-        activeProvider?.model,
-    ]);
+    }, [activeProvider?.id, activeProvider?.effort, thinkingControl]);
 
     const getConnectionName = useCallback(() => {
         let connectionId = activeContext?.connectionId;
@@ -1044,8 +1049,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
         [orderedAISessions, t],
     );
     const effectivePanelMode = useMemo(
-        () => resolveAIChatPanelMode(isV2Ui, activePanelMode),
-        [activePanelMode, isV2Ui],
+        () => resolveAIChatPanelMode(activePanelMode),
+        [activePanelMode],
     );
 
     const handleComposerActionWithNoticeReset = useCallback((actionKey: 'open-settings' | 'reload-models') => {
@@ -1063,7 +1068,7 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
     return (
         <div
             ref={panelRef}
-            className={`ai-chat-panel${isV2Ui ? ' gn-v2-ai-panel' : ''}${isDetachedPresentation ? ' is-detached' : ''}`}
+            className={`ai-chat-panel gn-v2-ai-panel${isDetachedPresentation ? ' is-detached' : ''}`}
             aria-busy={interactionDisabled}
             style={{
                 width: isDetachedPresentation ? '100%' : panelWidth,
@@ -1101,14 +1106,9 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 mutedColor={mutedColor}
                 textColor={textColor}
                 overlayTheme={overlayTheme}
-                isV2Ui={isV2Ui}
                 presentation={presentation}
                 onHistoryClick={() => {
-                    if (isV2Ui) {
-                        setActivePanelMode('history');
-                    } else {
-                        setHistoryOpen(true);
-                    }
+                    setActivePanelMode('history');
                 }}
                 onClear={() => {
                     handleCreateSession();
@@ -1121,7 +1121,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 sessionTitle={currentSessionTitle}
                 activeMode={effectivePanelMode}
                 onModeChange={(mode) => {
-                    if (!isV2Ui) return;
                     setActivePanelMode(mode);
                     if (mode === 'history') {
                         setHistoryOpen(false);
@@ -1140,7 +1139,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 quickActionBorder={quickActionBorder}
                 showScrollBottom={showScrollBottom}
                 contextTableNames={contextTableNames}
-                isV2Ui={isV2Ui}
                 insights={aiInsights}
                 sessions={panelHistorySessions}
                 activeSessionId={sid}
@@ -1195,6 +1193,8 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 activeConnName={activeConnName}
                 activeContext={activeContext}
                 activeProvider={activeProvider}
+                providers={providers}
+                providerModels={providerModels}
                 dynamicModels={dynamicModels}
                 loadingModels={loadingModels}
                 sendShortcutBinding={aiChatSendShortcutBinding}
@@ -1202,9 +1202,17 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 composerNotice={composerNotice}
                 onComposerAction={handleComposerActionWithNoticeReset}
                 onModelChange={handleModelChangeWithNoticeReset}
+                onProviderModelChange={(providerId, model) => {
+                    setComposerNoticeState(null);
+                    void handleProviderModelChange(providerId, model);
+                }}
+                onManageProvider={handleOpenSettingsFromPanel}
                 onFetchModels={fetchDynamicModels}
+                onFetchProviderModels={fetchProviderModels}
                 thinkingIntensity={thinkingIntensity}
                 onThinkingIntensityChange={setThinkingIntensity}
+                cliCapability={activeCLICapability}
+                cliCatalog={activeCLIModelCatalog}
                 textareaRef={textareaRef}
                 darkMode={darkMode}
                 textColor={textColor}
@@ -1212,7 +1220,6 @@ export const AIChatPanel: React.FC<AIChatPanelProps> = ({
                 overlayTheme={overlayTheme}
                 contextUsageChars={contextUsageChars}
                 maxContextChars={getDynamicMaxContextChars(activeProvider?.model)}
-                isV2Ui={isV2Ui}
             />
 
             <AIHistoryDrawer

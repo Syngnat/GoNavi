@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	gitea.com/kingbase/gokb v0.0.0-20201021123113-29bd62a876c3
 	gitee.com/chunanyong/dm v1.8.22
+	github.com/BurntSushi/toml v1.1.0
 	github.com/ClickHouse/clickhouse-go/v2 v2.43.0
 	github.com/HuaweiCloudDeveloper/gaussdb-go v1.0.0-rc1
 	github.com/apache/iotdb-client-go v1.3.7

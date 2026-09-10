@@ -230,6 +230,9 @@ func normalizeUsage(usage Usage) (Usage, error) {
 	if usage.PromptTokens < 0 || usage.CompletionTokens < 0 || usage.TotalTokens < 0 {
 		return Usage{}, errors.New("token usage cannot be negative")
 	}
+	if usage.CachedTokens != nil && *usage.CachedTokens < 0 {
+		return Usage{}, errors.New("cached token usage cannot be negative")
+	}
 	maxInt := int(^uint(0) >> 1)
 	if usage.PromptTokens > maxInt-usage.CompletionTokens {
 		return Usage{}, errors.New("token usage overflows integer range")

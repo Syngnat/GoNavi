@@ -77,6 +77,69 @@ func TestDeterministicContextBuilderUsesInjectedTokenEstimator(t *testing.T) {
 	}
 }
 
+func TestDeterministicContextBuilderAppliesProviderContextWindow(t *testing.T) {
+	messages := []Message{
+		{ID: "old", Sequence: 1, Role: "user", Content: "old"},
+		{ID: "new", Sequence: 2, Role: "user", Content: "new"},
+	}
+	builder := &DeterministicContextBuilder{EstimateTokens: func(Message) int { return 3 }}
+	result, err := builder.Build(context.Background(), ContextBuildRequest{
+		Run:                  RunSnapshot{ID: "run-1", SessionID: "session-1", Policy: DefaultRunPolicy()},
+		Messages:             messages,
+		ContextWindowTokens:  8,
+		ReservedOutputTokens: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Compression.Applied || result.Compression.MaxTokens != 6 {
+		t.Fatalf("context window was not applied: %#v", result.Compression)
+	}
+	if len(result.Request.Messages) != 2 || result.Request.Messages[0].ID != "old" {
+		t.Fatalf("exact-fit context should retain both messages: %#v", result.Request.Messages)
+	}
+
+	result, err = builder.Build(context.Background(), ContextBuildRequest{
+		Run:                  RunSnapshot{ID: "run-2", SessionID: "session-1", Policy: DefaultRunPolicy()},
+		Messages:             messages,
+		ContextWindowTokens:  7,
+		ReservedOutputTokens: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compression.Applied || len(result.Request.Messages) != 1 || result.Request.Messages[0].ID != "new" {
+		t.Fatalf("provider context window should trim the oldest message: %#v %#v", result.Compression, result.Request.Messages)
+	}
+}
+
+func TestDeterministicContextBuilderUsesSmallestConfiguredTokenLimit(t *testing.T) {
+	message := []Message{{ID: "new", Role: "user", Content: "new"}}
+	for _, test := range []struct {
+		name          string
+		builderLimit  int
+		contextWindow int
+		reserved      int
+		want          int
+	}{
+		{name: "builder smaller", builderLimit: 4, contextWindow: 10, reserved: 2, want: 4},
+		{name: "provider smaller", builderLimit: 10, contextWindow: 6, reserved: 2, want: 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			builder := &DeterministicContextBuilder{MaxTokens: test.builderLimit, EstimateTokens: func(Message) int { return 1 }}
+			result, err := builder.Build(context.Background(), ContextBuildRequest{
+				Messages: message, ContextWindowTokens: test.contextWindow, ReservedOutputTokens: test.reserved,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Compression.MaxTokens != test.want {
+				t.Fatalf("effective token limit = %d, want %d", result.Compression.MaxTokens, test.want)
+			}
+		})
+	}
+}
+
 func TestDeterministicContextBuilderMeasuresEachMessageOnceAndIsolatesEstimator(t *testing.T) {
 	messages := []Message{{ID: "m-1", Role: "user", Content: "one", Images: []string{"image"}}}
 	calls := 0

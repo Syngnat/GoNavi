@@ -1373,6 +1373,22 @@ func TestIRISDriverDefinitionUsesOptionalAgent(t *testing.T) {
 	}
 }
 
+func TestCacheDriverDefinitionUsesIndependentOptionalAgent(t *testing.T) {
+	definition, ok := resolveDriverDefinition("cache")
+	if !ok {
+		t.Fatal("expected cache driver definition")
+	}
+	if definition.Name != "InterSystems Caché" || definition.PinnedVersion != "0.2.1" {
+		t.Fatalf("unexpected cache definition: %#v", definition)
+	}
+	if driverGoModulePathMap["cache"] != "github.com/caretdev/go-irisnative" {
+		t.Fatalf("unexpected cache module path: %q", driverGoModulePathMap["cache"])
+	}
+	if got, err := optionalDriverBuildTags("cache", ""); err != nil || got != "gonavi_cache_driver" {
+		t.Fatalf("unexpected cache build tag=%q err=%v", got, err)
+	}
+}
+
 func TestElasticsearchDriverDefinitionUsesOptionalAgent(t *testing.T) {
 	definition, ok := resolveDriverDefinition("elasticsearch")
 	if !ok {
@@ -1593,20 +1609,21 @@ func TestGaussDBDriverDefinitionUsesOptionalAgent(t *testing.T) {
 
 func TestBuildOptionalDriverInstallPlanMessagePrefersDirectThenBundle(t *testing.T) {
 	message := buildOptionalDriverInstallPlanMessage(zhCNDriverProgressText(t), "SQL Server", "1.9.6", false, false, false, false, 1, 2)
-	if !strings.Contains(message, "先尝试 1 个预编译直链") {
-		t.Fatalf("expected direct-download hint, got %q", message)
+	// 安装计划文案已精简为统一短句，不再区分直链/总包路径细节
+	if !strings.Contains(message, "准备安装 SQL Server 驱动代理（版本 1.9.6）") {
+		t.Fatalf("expected localized install plan message, got %q", message)
 	}
-	if !strings.Contains(message, "失败后转入 2 个驱动总包源") {
-		t.Fatalf("expected bundle fallback hint, got %q", message)
+	if strings.Contains(message, "driver_manager.progress.plan") {
+		t.Fatalf("expected localized plan message instead of raw key, got %q", message)
 	}
 }
 
 func TestBuildOptionalDriverFallbackProgressMessageReportsBundleFallback(t *testing.T) {
 	message := buildOptionalDriverFallbackProgressMessage(zhCNDriverProgressText(t), "SQL Server", 1, 2, false)
-	if !strings.Contains(message, "预编译直链未命中") {
+	if !strings.Contains(message, "预编译直链不可用") {
 		t.Fatalf("expected direct miss hint, got %q", message)
 	}
-	if !strings.Contains(message, "转入驱动总包兜底") {
+	if !strings.Contains(message, "尝试驱动总包") {
 		t.Fatalf("expected bundle fallback hint, got %q", message)
 	}
 }
@@ -1614,12 +1631,12 @@ func TestBuildOptionalDriverFallbackProgressMessageReportsBundleFallback(t *test
 func TestOptionalDriverProgressNewCatalogKeysResolve(t *testing.T) {
 	text := zhCNDriverProgressText(t)
 	plan := buildOptionalDriverInstallPlanMessage(text, "SQL Server", "1.9.6", false, false, true, false, 1, 2)
-	if !strings.Contains(plan, "开发态使用本地源码构建") || strings.Contains(plan, "driver_manager.progress.plan.require_source_first") {
+	if strings.Contains(plan, "driver_manager.progress.plan.require_source_first") || !strings.Contains(plan, "准备安装 SQL Server 驱动代理（版本 1.9.6）") {
 		t.Fatalf("expected localized require-source-first plan message, got %q", plan)
 	}
 
 	prebuilt := text("driver_manager.progress.download_prebuilt_package", map[string]any{"name": "SQL Server"})
-	if !strings.Contains(prebuilt, "下载预编译 SQL Server 驱动包") {
+	if !strings.Contains(prebuilt, "正在下载预编译包") {
 		t.Fatalf("expected localized prebuilt package progress, got %q", prebuilt)
 	}
 
@@ -2085,11 +2102,11 @@ func TestLocalizedDriverNeedsUpdateTextsUseCurrentLanguage(t *testing.T) {
 	app.SetLanguage("en-US")
 
 	reason, message := app.localizedDriverNeedsUpdateTexts("rev-old", "rev-new", 3)
-	if !strings.Contains(reason, "Reinstall required to apply driver updates.") {
+	if !strings.Contains(reason, "The driver component has an update.") {
 		t.Fatalf("expected English update reason, got %q", reason)
 	}
-	if !strings.Contains(reason, "installed revision rev-old.") || !strings.Contains(reason, "expected revision rev-new.") {
-		t.Fatalf("expected English revision detail, got %q", reason)
+	if strings.Contains(reason, "rev-old") || strings.Contains(reason, "rev-new") || strings.Contains(reason, "revision") {
+		t.Fatalf("expected reason without revision detail, got %q", reason)
 	}
 	if !strings.Contains(message, "Affects 3 saved connections") {
 		t.Fatalf("expected affected-connections detail, got %q", message)
@@ -2325,7 +2342,7 @@ func TestInstallOptionalDriverAgentFromLocalPathSupportsMongoV1DirectoryImport(t
 	writeSelfExecutable(t, filepath.Join(platformDir, assetName))
 
 	installRoot := filepath.Join(t.TempDir(), "drivers")
-	meta, err := installOptionalDriverAgentFromLocalPath(definition, packageRoot, installRoot, "1.17.4")
+	meta, err := installOptionalDriverAgentFromLocalPath(nil, definition, packageRoot, installRoot, "1.17.4")
 	if err != nil {
 		t.Fatalf("expected mongodb v1 directory import to succeed, got %v", err)
 	}
@@ -2354,7 +2371,7 @@ func TestInstallOptionalDriverAgentFromLocalPathSupportsMongoV1ZipImport(t *test
 	writeZipWithSelfExecutable(t, zipPath, filepath.ToSlash(filepath.Join(optionalDriverBundlePlatformDir(runtime.GOOS), assetName)))
 
 	installRoot := filepath.Join(t.TempDir(), "drivers")
-	meta, err := installOptionalDriverAgentFromLocalPath(definition, zipPath, installRoot, "1.17.4")
+	meta, err := installOptionalDriverAgentFromLocalPath(nil, definition, zipPath, installRoot, "1.17.4")
 	if err != nil {
 		t.Fatalf("expected mongodb v1 zip import to succeed, got %v", err)
 	}

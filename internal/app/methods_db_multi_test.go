@@ -1196,6 +1196,66 @@ func TestDBQueryMultiTransactionalKeepsDMLTransactionOpenUntilCommit(t *testing.
 	}
 }
 
+func TestDBQueryMultiTransactionalCancellationRollsBackWithoutLeavingPendingTransaction(t *testing.T) {
+	originalNewDatabaseFunc := newDatabaseFunc
+	t.Cleanup(func() {
+		newDatabaseFunc = originalNewDatabaseFunc
+	})
+
+	statement := "UPDATE users SET active = 0 WHERE id = 1"
+	execStarted := make(chan string, 2)
+	fakeDB := &fakeBatchWriteDB{
+		execDelay:   map[string]time.Duration{statement: 10 * time.Second},
+		execStarted: execStarted,
+	}
+	newDatabaseFunc = func(dbType string) (db.Database, error) {
+		return fakeDB, nil
+	}
+
+	app := NewAppWithSecretStore(secretstore.NewUnavailableStore("test"))
+	config := connection.ConnectionConfig{Type: "mysql", Host: "127.0.0.1", Port: 3306, User: "root"}
+	resultCh := make(chan connection.QueryResult, 1)
+	go func() {
+		resultCh <- app.DBQueryMultiTransactional(config, "main", statement, "tx-close-before-result")
+	}()
+
+	for _, expected := range []string{"START TRANSACTION", statement} {
+		select {
+		case executed := <-execStarted:
+			if executed != expected {
+				t.Fatalf("executed statement = %q, want %q", executed, expected)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for %q", expected)
+		}
+	}
+
+	if cancelled := app.CancelQuery("tx-close-before-result"); !cancelled.Success {
+		t.Fatalf("CancelQuery failed: %#v", cancelled)
+	}
+	select {
+	case result := <-resultCh:
+		if result.Success || result.TransactionID != "" || result.TransactionPending {
+			t.Fatalf("cancelled transaction must not become pending: %#v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("managed transaction did not stop after cancellation")
+	}
+
+	app.sqlTransactionMu.Lock()
+	pendingCount := len(app.sqlTransactions)
+	app.sqlTransactionMu.Unlock()
+	if pendingCount != 0 {
+		t.Fatalf("cancelled transaction left %d pending entries", pendingCount)
+	}
+	if fakeDB.session == nil || !fakeDB.session.closed {
+		t.Fatal("cancelled transaction session was not closed")
+	}
+	if got := fakeDB.execQueries[len(fakeDB.execQueries)-1]; got != "ROLLBACK" {
+		t.Fatalf("final transaction statement = %q, want ROLLBACK", got)
+	}
+}
+
 func TestDBQueryMultiTransactionalKeepsSQLServerBeginEndBlockOpenUntilRollback(t *testing.T) {
 	installFakeOptionalDriverRuntime(t)
 	originalNewDatabaseFunc := newDatabaseFunc
@@ -2856,6 +2916,30 @@ func TestDBQueryMultiNormalizesSQLServerSelectAffectedRowsPairsByStatement(t *te
 	for idx, want := range wantStatementIndexes {
 		if got := resultSets[idx].StatementIndex; got != want {
 			t.Fatalf("result set %d statementIndex = %d, want %d; all results: %#v", idx, got, want, resultSets)
+		}
+	}
+}
+
+func TestNormalizeNativeResultStatementIndexesAssignsMySQLSelectPrefix(t *testing.T) {
+	statements := []string{"SELECT phone AS mobile FROM users", "WITH active AS (SELECT phone FROM users) SELECT phone FROM active"}
+	results := []connection.ResultSetData{{Columns: []string{"mobile"}, Truncated: true}}
+
+	normalizeNativeResultStatementIndexes("mysql", statements, results)
+
+	if results[0].StatementIndex != 1 {
+		t.Fatalf("truncated MySQL prefix statementIndex = %d, want 1", results[0].StatementIndex)
+	}
+}
+
+func TestNormalizeNativeResultStatementIndexesDoesNotGuessMySQLProcedureResults(t *testing.T) {
+	statements := []string{"CALL get_users()", "SELECT phone AS mobile FROM users"}
+	results := []connection.ResultSetData{{Columns: []string{"id"}}, {Columns: []string{"mobile"}}}
+
+	normalizeNativeResultStatementIndexes("mysql", statements, results)
+
+	for idx, result := range results {
+		if result.StatementIndex != 0 {
+			t.Fatalf("ambiguous MySQL result set %d received guessed statementIndex=%d: %#v", idx, result.StatementIndex, results)
 		}
 	}
 }

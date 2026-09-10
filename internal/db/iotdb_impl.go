@@ -556,8 +556,7 @@ func scanIoTDBDataSet(ds iotdbDataSet) ([]map[string]interface{}, []string, erro
 			}
 			value, err := ds.GetObject(column)
 			if err != nil {
-				row[column] = nil
-				continue
+				return nil, nil, fmt.Errorf("读取 IoTDB 列 %q 失败：%w", column, err)
 			}
 			row[column] = normalizeIoTDBValue(value)
 		}

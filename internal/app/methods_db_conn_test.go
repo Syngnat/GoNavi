@@ -252,6 +252,30 @@ func TestFormatConnSummary_Proxy(t *testing.T) {
 	}
 }
 
+func TestFormatConnSummary_RedactsHTTPTunnelURLSecrets(t *testing.T) {
+	cfg := connection.ConnectionConfig{
+		Type:          "mysql",
+		Host:          "db.internal",
+		Port:          3306,
+		UseHTTPTunnel: true,
+		HTTPTunnel: connection.HTTPTunnelConfig{
+			Host: "https://url-user:url-password@gateway.example/private/ntunnel_mysql.php?token=secret#fragment",
+			Port: 8080,
+			User: "basic-user",
+		},
+	}
+
+	got := formatConnSummary(cfg)
+	if !strings.Contains(got, "HTTP隧道=https://gateway.example/private/ntunnel_mysql.php") {
+		t.Fatalf("formatConnSummary missing sanitized tunnel endpoint: %q", got)
+	}
+	for _, secret := range []string{"url-user", "url-password", "token=secret", "fragment"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("formatConnSummary leaked %q: %q", secret, got)
+		}
+	}
+}
+
 func TestFormatConnSummary_DefaultTimeout(t *testing.T) {
 	cfg := connection.ConnectionConfig{
 		Type: "mysql",

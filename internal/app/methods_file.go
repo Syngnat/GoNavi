@@ -1284,6 +1284,16 @@ func (a *App) SelectSQLFileForExecution() connection.QueryResult {
 }
 
 func (a *App) SelectSQLDirectory(currentDir string) connection.QueryResult {
+	restoreFocus, focusGuardErr := suspendWailsWebViewFocus(a.ctx)
+	if focusGuardErr != nil {
+		logger.Warnf("安装 SQL 目录选择焦点保护失败：%v", focusGuardErr)
+	} else {
+		defer func() {
+			if err := restoreFocus(); err != nil {
+				logger.Warnf("恢复 SQL 目录选择焦点处理失败：%v", err)
+			}
+		}()
+	}
 	selection, err := runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
 		Title:            a.appText("file.backend.dialog.select_sql_directory", nil),
 		DefaultDirectory: normalizeDirectoryDialogPath(currentDir),
@@ -1686,7 +1696,7 @@ func isSQLFileBatchableWriteStatement(dbType string, stmt string) bool {
 }
 
 func sqlFileBatchTransactionSQL(dbType string) (beginSQL string, commitSQL string, rollbackSQL string, ok bool) {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeSQLClassifierDBType(dbType) {
 	case "mysql", "mariadb", "diros", "starrocks", "sphinx", "oceanbase":
 		return "START TRANSACTION", "COMMIT", "ROLLBACK", true
 	case "sqlserver":
@@ -2102,7 +2112,7 @@ func executeSQLFileBatchWithOutcome(ctx context.Context, execer sqlFileStatement
 
 func isSQLFileSingleTransactionDialectSupported(dbType string) bool {
 	switch normalizeSQLClassifierDBType(dbType) {
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris", "sqlserver", "oracle", "dameng":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris", "cache", "sqlserver", "oracle", "dameng":
 		return true
 	default:
 		return false
@@ -2122,7 +2132,7 @@ func sqlFileSingleTransactionSQL(dbType string) (beginSQL string, commitSQL stri
 	switch normalizeSQLClassifierDBType(dbType) {
 	case "sqlserver":
 		return "BEGIN TRANSACTION", "COMMIT TRANSACTION", "ROLLBACK TRANSACTION", true
-	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris":
+	case "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlite", "duckdb", "iris", "cache":
 		return "BEGIN", "COMMIT", "ROLLBACK", true
 	default:
 		return "", "", "", false
@@ -2210,7 +2220,7 @@ func executeSQLFileSingleTransactionStream(ctx context.Context, dbInst db.Databa
 			return result, errors.New("single-transaction SQL-file execution requires a driver-backed transaction handle for this database type")
 		}
 		provider, ok := dbInst.(db.SessionExecerProvider)
-		if !ok {
+		if !ok || !runtimeSupportsSessionExecer(dbInst) {
 			return result, errors.New("single-transaction SQL-file execution requires a pinned database session")
 		}
 		session, err := provider.OpenSessionExecer(ctx)
@@ -2410,7 +2420,7 @@ func executeSQLFileStream(ctx context.Context, dbInst db.Database, reader io.Rea
 		supportsBatch = false
 		batcher = nil
 	}
-	if provider, ok := dbInst.(db.SessionExecerProvider); ok {
+	if provider, ok := dbInst.(db.SessionExecerProvider); ok && runtimeSupportsSessionExecer(dbInst) {
 		sessionExecer, err := provider.OpenSessionExecer(ctx)
 		if err != nil {
 			return result, err
@@ -3467,7 +3477,7 @@ func (a *App) executeSQLFileWithStatementLimitPolicyContextWithPolicy(parent con
 		}
 	}
 	if requirePinnedSession {
-		if _, ok := dbInst.(db.SessionExecerProvider); !ok {
+		if !runtimeSupportsSessionExecer(dbInst) {
 			return connection.QueryResult{
 				Success: false,
 				Data:    buildSQLFileExecutionPayload(0, 0, "failed"),
@@ -4956,7 +4966,7 @@ func (a *App) ApplyChanges(config connection.ConnectionConfig, dbName, tableName
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
-	if applier, ok := dbInst.(db.BatchApplier); ok {
+	if applier, ok := dbInst.(db.BatchApplier); ok && runtimeSupportsBatchApply(dbInst) {
 		targetTableName := resolveChangeTargetTableName(config, dbName, tableName)
 		preview := buildChangePreview(dbInst, config, targetTableName, changes)
 		err := applier.ApplyChanges(targetTableName, changes)
@@ -5972,7 +5982,7 @@ const (
 )
 
 func supportsTruncateTableForDBType(dbType string) bool {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeSQLClassifierDBType(dbType) {
 	case "mysql", "mariadb", "oceanbase", "starrocks", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "iris", "oracle", "dameng", "clickhouse", "duckdb":
 		return true
 	default:
@@ -8021,7 +8031,7 @@ const (
 )
 
 func resolveSQLInsertExportMode(dbType string) sqlInsertExportMode {
-	switch strings.ToLower(strings.TrimSpace(dbType)) {
+	switch normalizeSQLClassifierDBType(dbType) {
 	case "mysql", "mariadb", "oceanbase", "diros", "starrocks", "sphinx", "postgres", "kingbase", "highgo", "vastbase", "opengauss", "gaussdb", "sqlserver", "sqlite", "duckdb", "clickhouse", "iris":
 		return sqlInsertExportModeMultiValues
 	case "oracle", "dameng":
@@ -8302,7 +8312,7 @@ func streamQueryDataForExportWithContext(ctx context.Context, dbInst db.Database
 		return streamer.StreamQueryContext(ctx, query, consumer)
 	}
 
-	if provider, ok := dbInst.(db.SessionExecerProvider); ok {
+	if provider, ok := dbInst.(db.SessionExecerProvider); ok && runtimeSupportsSessionExecer(dbInst) {
 		session, err := provider.OpenSessionExecer(ctx)
 		if err != nil {
 			logger.Warnf("导出流式会话打开失败，回退到缓冲导出：type=%s err=%v", strings.TrimSpace(config.Type), err)

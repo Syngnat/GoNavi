@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   blurToFilter,
@@ -9,6 +9,10 @@ import {
 } from './appearance';
 
 describe('appearance helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('falls back to opaque non-blurred appearance when disabled', () => {
     expect(resolveAppearanceValues({ enabled: false, opacity: 0.3, blur: 12 })).toEqual({ opacity: 1, blur: 0 });
   });
@@ -19,6 +23,14 @@ describe('appearance helpers', () => {
 
   it('caps opacity at full opacity upper bound', () => {
     expect(normalizeOpacityForPlatform(2)).toBe(1);
+  });
+
+  it('keeps macOS opacity changes anchored to the opaque end of the slider', () => {
+    vi.stubGlobal('navigator', { platform: 'MacIntel', userAgent: 'Macintosh' });
+
+    expect(normalizeOpacityForPlatform(0.95)).toBeCloseTo(0.97);
+    expect(normalizeOpacityForPlatform(0.35)).toBeCloseTo(0.61);
+    expect(normalizeOpacityForPlatform(1)).toBe(1);
   });
 
   it('never returns negative blur and formats blur filter correctly', () => {

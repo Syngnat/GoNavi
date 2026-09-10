@@ -118,6 +118,7 @@ func TestStorePutGetDeleteAIProviderSecret(t *testing.T) {
 		SensitiveHeaders: map[string]string{
 			"Authorization": "Bearer test",
 		},
+		CLIEnv: map[string]string{"PRIVATE_TOKEN": "cli-test"},
 	}
 	if err := store.PutAIProvider("openai-main", bundle); err != nil {
 		t.Fatalf("PutAIProvider returned error: %v", err)
@@ -130,7 +131,7 @@ func TestStorePutGetDeleteAIProviderSecret(t *testing.T) {
 	if !ok {
 		t.Fatal("expected provider bundle to exist")
 	}
-	if got.APIKey != "sk-test" || got.SensitiveHeaders["Authorization"] != "Bearer test" {
+	if got.APIKey != "sk-test" || got.SensitiveHeaders["Authorization"] != "Bearer test" || got.CLIEnv["PRIVATE_TOKEN"] != "cli-test" {
 		t.Fatalf("unexpected provider bundle: %#v", got)
 	}
 
