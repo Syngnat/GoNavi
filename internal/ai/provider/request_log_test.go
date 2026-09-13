@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -92,5 +93,28 @@ func TestRedactAIUpstreamLogTextSanitizesErrorMessages(t *testing.T) {
 	}
 	if !strings.Contains(got, "[REDACTED]") {
 		t.Fatalf("expected redacted placeholder, got %s", got)
+	}
+}
+
+func TestFormatAIUpstreamCLIOutputLogTruncatesAndRedacts(t *testing.T) {
+	if got := formatAIUpstreamCLIOutputLog("   \n\t"); got != "" {
+		t.Fatalf("blank output must stay empty, got %q", got)
+	}
+
+	raw := "Bearer abcdefghijklmnopqrstuvwxyz " + strings.Repeat("x", aiUpstreamCLIOutputLogLimit+100)
+	got := formatAIUpstreamCLIOutputLog(raw)
+	if strings.Contains(got, "Bearer abcdefghijklmnopqrstuvwxyz") {
+		t.Fatalf("raw CLI output secrets must be redacted, got %q", got[:80])
+	}
+	if !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("expected redaction placeholder, got %q", got[:80])
+	}
+	wantMarker := fmt.Sprintf("...[truncated %d chars]", len(raw)-aiUpstreamCLIOutputLogLimit)
+	if !strings.Contains(got, wantMarker) {
+		t.Fatalf("expected truncation marker %q for %d chars, got tail %q", wantMarker, len(raw), got[len(got)-40:])
+	}
+	// 截断标记必须只有一条：内部脱敏自带的二次截断会叠加出难读的双标记。
+	if count := strings.Count(got, "[truncated"); count != 1 {
+		t.Fatalf("expected exactly one truncation marker, got %d in tail %q", count, got[len(got)-80:])
 	}
 }

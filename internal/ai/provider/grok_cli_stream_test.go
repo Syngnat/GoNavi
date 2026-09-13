@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -199,7 +202,9 @@ func TestGrokCLIProviderChatStreamKeepsLargePromptOutOfCommandLine(t *testing.T)
 	if !strings.Contains(promptFileContent, largePrompt) {
 		t.Fatal("prompt file did not contain the complete prompt")
 	}
-	if promptFileMode != 0o600 {
+	// Windows 的 NTFS 不保存 POSIX 权限位，os.Stat 恒报 0666；0600 仅在
+	// Unix 上可断言（实测 HEAD 在 Windows 上也失败，属平台差异而非回归）。
+	if runtime.GOOS != "windows" && promptFileMode != 0o600 {
 		t.Fatalf("prompt file permissions = %o, want 600", promptFileMode)
 	}
 	for _, arg := range capturedArgs {
@@ -324,6 +329,43 @@ func TestGrokCLIHelperProcess(t *testing.T) {
 			"type":  "content_block_delta",
 			"delta": map[string]string{"type": "text_delta", "text": "hello"},
 		})
+	case "cancelled":
+		grokHelperBumpCounter()
+		encodeCancelledTurnResult(os.Stdout)
+		os.Exit(0)
+	case "cancel-once-then-ok":
+		grokHelperBumpCounter()
+		if grokHelperAttemptCount() == 1 {
+			encodeCancelledTurnResult(os.Stdout)
+			os.Exit(0)
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"type":  "content_block_delta",
+			"delta": map[string]string{"type": "text_delta", "text": "hello"},
+		})
+		os.Exit(0)
+	case "cancel-after-content":
+		grokHelperBumpCounter()
+		encoder := json.NewEncoder(os.Stdout)
+		_ = encoder.Encode(map[string]any{
+			"type":  "content_block_delta",
+			"delta": map[string]string{"type": "text_delta", "text": "hello"},
+		})
+		encodeCancelledTurnResult(os.Stdout)
+		os.Exit(0)
+	case "buffered-cancel-once-then-ok":
+		grokHelperBumpCounter()
+		encoder := json.NewEncoder(os.Stdout)
+		if grokHelperAttemptCount() == 1 {
+			_ = encoder.Encode(map[string]any{"text": "", "thought": "", "stopReason": "cancelled"})
+			os.Exit(0)
+		}
+		_ = encoder.Encode(map[string]any{"text": "done", "thought": "why", "stopReason": "end_turn"})
+		os.Exit(0)
+	case "buffered-cancelled":
+		grokHelperBumpCounter()
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"text": "", "thought": "", "stopReason": "cancelled"})
+		os.Exit(0)
 	default:
 		encoder := json.NewEncoder(os.Stdout)
 		_ = encoder.Encode(map[string]any{
@@ -335,6 +377,36 @@ func TestGrokCLIHelperProcess(t *testing.T) {
 			"delta": map[string]string{"type": "text_delta", "text": "hello"},
 		})
 	}
+}
+
+// encodeCancelledTurnResult 复刻 grok CLI 取消回合的真实形态：终止 result 行
+// 携带 errors:["cancelled"] 与 stop_reason，退出码为 0——grok 失败时并不非零退出。
+func encodeCancelledTurnResult(writer io.Writer) {
+	_ = json.NewEncoder(writer).Encode(map[string]any{
+		"type":        "result",
+		"is_error":    true,
+		"errors":      []string{"cancelled"},
+		"stop_reason": "cancelled",
+	})
+}
+
+// grokHelperAttemptCount 读取测试传入的计数文件；取消类模式用它区分
+// 第 1 次尝试（应失败）与重试（应成功）。
+func grokHelperAttemptCount() int {
+	data, err := os.ReadFile(os.Getenv("GO_GROK_HELPER_COUNTER"))
+	if err != nil {
+		return 0
+	}
+	count, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+	return count
+}
+
+func grokHelperBumpCounter() {
+	path := os.Getenv("GO_GROK_HELPER_COUNTER")
+	if path == "" {
+		return
+	}
+	_ = os.WriteFile(path, []byte(strconv.Itoa(grokHelperAttemptCount()+1)), 0o600)
 }
 
 func overrideGrokCLIForTest(t *testing.T, mode string) func() {

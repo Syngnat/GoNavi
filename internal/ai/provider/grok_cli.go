@@ -87,6 +87,13 @@ type grokCLIResult struct {
 	Usage    ai.TokenUsage
 }
 
+// errGrokCLIUpstreamCancelled 标记 grok 的推理请求在回合中途被连接层中止。
+// grok 自身日志（unified.jsonl）中的形态是 shell.turn.inference_failed
+// {kind:"api", status_code:null, is_retryable:false, message:"request cancelled"}：
+// 没有 HTTP 状态码，CLI 判定不可重试并直接放弃本回合，退出码仍为 0。
+// 该故障是瞬时性的（网络波动、代理断流、上游过载），GoNavi 据此自动重试一次。
+var errGrokCLIUpstreamCancelled = errors.New("上游推理请求在回合中途被取消")
+
 // GrokCLIProvider 通过本机 Grok CLI 当前认证（OAuth 或 API key）提供对话与 SQL 生成。
 type GrokCLIProvider struct {
 	config ai.ProviderConfig
@@ -164,46 +171,66 @@ func (p *GrokCLIProvider) ChatStream(ctx context.Context, req ai.ChatRequest, ca
 }
 
 func (p *GrokCLIProvider) stream(ctx context.Context, req ai.ChatRequest, callback func(ai.StreamChunk)) error {
+	emitted, err := p.streamAttempt(ctx, req, callback)
+	if err == nil || emitted || !shouldRetryGrokCLITurn(ctx, err) {
+		return err
+	}
+	// 已经吐过内容的流不能重试（会把已展示的内容重说一遍）；
+	// 只有干净失败的取消才值得再跑一次。
+	logger.Infof("GrokCLI 推理请求被上游取消且尚未输出内容，自动重试 1 次")
+	_, retryErr := p.streamAttempt(ctx, req, callback)
+	return retryErr
+}
+
+func (p *GrokCLIProvider) streamAttempt(ctx context.Context, req ai.ChatRequest, callback func(ai.StreamChunk)) (emitted bool, err error) {
 	ctx, watchdog := startCLIIdleWatchdog(ctx, cliStreamIdleTimeout, cliStreamMaxTimeout)
 	defer watchdog.Close()
 
 	command, err := resolveGrokCLICommand(runtime.GOOS, lookPathWithOverride(p.config.CLIPath, grokLookPath))
 	if err != nil {
-		return err
+		return false, err
 	}
 	prompt := buildPrompt(req.Messages)
 	promptFile, cleanupPromptFile, err := createGrokCLIPromptFile(prompt)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer cleanupPromptFile()
 	args, err := buildGrokCLIArgsWithStream(p.config, promptFile, true)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	cmd := newGrokCLICommand(ctx, command, args...)
 	cmd.Env = MergeProviderCLIEnv(EnrichCLICommandPATH(cmd.Environ(), command), p.config.CLIEnv)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("create Grok CLI stdout pipe failed: %w", err)
+		return false, fmt.Errorf("create Grok CLI stdout pipe failed: %w", err)
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	requestLog := logAIUpstreamRequestStart(p.Name(), "CLI", "grok://cli", buildGrokCLIRequestLogBody(args, prompt, p.config, req))
 	var requestErr error
-	defer func() { logAIUpstreamRequestFinish(requestLog, 0, requestErr) }()
+	// failureOutput 在进程结束后才有值；defer 闭包按引用读取，用户主动取消
+	// 之外的所有失败都会把 CLI 原始输出落日志——失败详情可能只有一个协议词，
+	// 没有原始输出就没有诊断现场。
+	var failureOutput string
+	defer func() {
+		if requestErr != nil && !errors.Is(requestErr, context.Canceled) {
+			logAIUpstreamCLIOutput(requestLog, failureOutput)
+		}
+		logAIUpstreamRequestFinish(requestLog, 0, requestErr)
+	}()
 
 	if err := cmd.Start(); err != nil {
 		requestErr = fmt.Errorf("start Grok CLI failed: %w", err)
-		return requestErr
+		return false, requestErr
 	}
 	if cmd.Process != nil {
 		logger.Infof("GrokCLI 请求进程已启动：requestId=%s pid=%d", requestLog.id, cmd.Process.Pid)
 	}
 
-	emitted := false
 	var streamUsage *ai.TokenUsage
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
@@ -234,39 +261,44 @@ func (p *GrokCLIProvider) stream(ctx context.Context, req ai.ChatRequest, callba
 	stdoutText := combined.String()
 	stderrText := stderr.String()
 	combined.WriteString(stderrText)
+	failureOutput = combined.String()
 
 	if watchdog.TimedOut() || isClaudeCLITimeout(ctx, waitErr) {
 		requestErr = watchdog.TimeoutError("Grok CLI")
-		return requestErr
+		return emitted, requestErr
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
 		requestErr = context.Canceled
-		return requestErr
+		return emitted, requestErr
 	}
 	capability, _ := LookupCLICapability("grok-cli")
 	if rejection := capability.InspectRejection(combined.String()); rejection != nil {
 		requestErr = rejection
-		return requestErr
+		return emitted, requestErr
 	}
 	if detail := grokCLIStructuredErrorDetail(stdoutText); detail != "" {
-		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
-		return requestErr
+		requestErr = grokCLIExecutionError(detail)
+		return emitted, requestErr
+	}
+	if grokCLITerminalCancelled(stdoutText) {
+		requestErr = grokCLIExecutionError("cancelled")
+		return emitted, requestErr
 	}
 	if scanErr != nil {
 		requestErr = fmt.Errorf("read Grok CLI stream failed: %w", scanErr)
-		return requestErr
+		return emitted, requestErr
 	}
 	if waitErr != nil && !emitted {
 		detail := grokCLIExecutionFailureDetail(stdoutText, stderrText, waitErr)
-		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
-		return requestErr
+		requestErr = grokCLIExecutionError(detail)
+		return emitted, requestErr
 	}
 	if !emitted {
 		requestErr = fmt.Errorf("Grok CLI returned no streamed content")
-		return requestErr
+		return emitted, requestErr
 	}
 	callback(ai.StreamChunk{Done: true, Usage: streamUsage})
-	return nil
+	return emitted, nil
 }
 
 func grokStreamChunkFromLine(raw []byte) (thinking, content string) {
@@ -340,6 +372,16 @@ func stringFromJSON(value any) string {
 }
 
 func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIResult, error) {
+	result, err := p.runAttempt(ctx, req)
+	if !shouldRetryGrokCLITurn(ctx, err) {
+		return result, err
+	}
+	// 缓冲路径没有已展示的增量输出，取消后重试不会有重复内容。
+	logger.Infof("GrokCLI 推理请求被上游取消，自动重试 1 次")
+	return p.runAttempt(ctx, req)
+}
+
+func (p *GrokCLIProvider) runAttempt(ctx context.Context, req ai.ChatRequest) (grokCLIResult, error) {
 	ctx, cancel := ensureClaudeCLITimeout(ctx, grokCLIRequestTimeout)
 	defer cancel()
 
@@ -372,11 +414,18 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 		buildGrokCLIRequestLogBody(args, prompt, p.config, req),
 	)
 	var requestErr error
+	// 与 streamAttempt 相同：失败时把 CLI 原始输出落日志，用户主动取消除外。
+	var failureOutput string
 	defer func() {
+		if requestErr != nil && !errors.Is(requestErr, context.Canceled) {
+			logAIUpstreamCLIOutput(requestLog, failureOutput)
+		}
 		logAIUpstreamRequestFinish(requestLog, 0, requestErr)
 	}()
 
 	runErr := cmd.Run()
+	combined := stdout.String() + "\n" + stderr.String()
+	failureOutput = combined
 	if errors.Is(ctx.Err(), context.Canceled) && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		requestErr = context.Canceled
 		return grokCLIResult{}, requestErr
@@ -386,8 +435,6 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 		return grokCLIResult{}, requestErr
 	}
 
-	combined := stdout.String() + "\n" + stderr.String()
-
 	// 关键：grok 在参数被拒、被限流或 max-turns 终止时【退出码仍为 0】，
 	// 错误只出现在输出里。因此必须先做输出判定，不能依赖 runErr。
 	capability, _ := LookupCLICapability("grok-cli")
@@ -396,7 +443,11 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 		return grokCLIResult{}, requestErr
 	}
 	if detail := grokCLIStructuredErrorDetail(stdout.String()); detail != "" {
-		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
+		requestErr = grokCLIExecutionError(detail)
+		return grokCLIResult{}, requestErr
+	}
+	if grokCLITerminalCancelled(stdout.String()) {
+		requestErr = grokCLIExecutionError("cancelled")
 		return grokCLIResult{}, requestErr
 	}
 
@@ -404,9 +455,14 @@ func (p *GrokCLIProvider) run(ctx context.Context, req ai.ChatRequest) (grokCLIR
 	if parseErr != nil {
 		detail := grokCLIExecutionFailureDetail(stdout.String(), stderr.String(), runErr)
 		if detail == "" {
-			detail = parseErr.Error()
+			requestErr = fmt.Errorf("Grok CLI execution failed: %s", parseErr)
+			return grokCLIResult{}, requestErr
 		}
-		requestErr = fmt.Errorf("Grok CLI execution failed: %s", detail)
+		requestErr = grokCLIExecutionError(detail)
+		return grokCLIResult{}, requestErr
+	}
+	if strings.EqualFold(strings.TrimSpace(parsed.stopReason), "cancelled") {
+		requestErr = grokCLIExecutionError("cancelled")
 		return grokCLIResult{}, requestErr
 	}
 
@@ -534,6 +590,50 @@ func grokCLIExecutionFailureDetail(stdout string, stderr string, fallback error)
 		return fallback.Error()
 	}
 	return ""
+}
+
+// grokCLIExecutionError 把 CLI 输出里的失败详情包装成最终错误。
+// 裸 "cancelled" 只是 grok 的 stopReason 枚举值，原样展示给用户无从理解，
+// 换成可操作的提示并标记可重试；其余详情保持逐字透传（如 402 余额报错）。
+func grokCLIExecutionError(detail string) error {
+	switch strings.ToLower(strings.TrimSpace(detail)) {
+	case "cancelled", "canceled", "request cancelled":
+		return fmt.Errorf("Grok CLI execution failed: %w（多为网络波动、代理断流或上游过载），请重新发送重试", errGrokCLIUpstreamCancelled)
+	}
+	return fmt.Errorf("Grok CLI execution failed: %s", detail)
+}
+
+// grokCLITerminalCancelled 识别终止 result 行声明的 "cancelled" stop reason。
+// 官方文档把 errors[] 放在错误子类型上，但 stop reason 是回合级权威信号，
+// 即使上游漏发 errors[] 也能据此判定本回合没有完成。键的大小写在两种输出
+// 格式间不一致（stop_reason / stopReason），两个都认。
+func grokCLITerminalCancelled(output string) bool {
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		var event struct {
+			Type            string `json:"type"`
+			StopReason      string `json:"stop_reason"`
+			StopReasonCamel string `json:"stopReason"`
+		}
+		if err := json.Unmarshal(bytes.TrimSpace(scanner.Bytes()), &event); err != nil {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(event.Type), "result") {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(event.StopReason), "cancelled") ||
+			strings.EqualFold(strings.TrimSpace(event.StopReasonCamel), "cancelled") {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldRetryGrokCLITurn 判定一次失败的尝试是否值得自动重试：
+// 仅限上游取消哨兵，且父 context 仍然存活（用户主动停止绝不重跑）。
+func shouldRetryGrokCLITurn(ctx context.Context, err error) bool {
+	return err != nil && ctx.Err() == nil && errors.Is(err, errGrokCLIUpstreamCancelled)
 }
 
 func buildGrokCLIArgs(config ai.ProviderConfig, promptFile string) ([]string, error) {

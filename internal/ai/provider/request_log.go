@@ -15,6 +15,8 @@ import (
 const (
 	aiUpstreamStringPreviewLimit = 4096
 	aiUpstreamBodyPreviewLimit   = 24000
+	// aiUpstreamCLIOutputLogLimit 限制失败日志保留的 CLI 原始输出长度。
+	aiUpstreamCLIOutputLogLimit = 4096
 )
 
 var (
@@ -93,6 +95,37 @@ func logAIUpstreamRequestFinish(handle aiUpstreamRequestLogHandle, statusCode in
 		handle.endpoint,
 		duration,
 	)
+}
+
+// logAIUpstreamCLIOutput 在本地 CLI 调用失败时保留其原始输出。
+// 失败详情可能只是一个协议词（例如 stopReason 枚举 "cancelled"），
+// 没有原始输出就没有诊断现场，因此失败日志必须带走完整输出（截断+脱敏）。
+func logAIUpstreamCLIOutput(handle aiUpstreamRequestLogHandle, output string) {
+	if formatted := formatAIUpstreamCLIOutputLog(output); formatted != "" {
+		logger.Warnf("AI 上游 CLI 原始输出：requestId=%s output=%s", handle.id, formatted)
+	}
+}
+
+// formatAIUpstreamCLIOutputLog 截断并脱敏 CLI 原始输出；空输出返回空串，
+// 由调用方跳过日志。先截断再脱敏：RedactAIUpstreamLogText 内部对超过
+// aiUpstreamStringPreviewLimit 的文本还会再截一次并追加自己的标记，
+// 把超长文本压回阈值内可避免两条截断标记叠加。
+func formatAIUpstreamCLIOutputLog(output string) string {
+	trimmed := strings.TrimSpace(output)
+	if trimmed == "" {
+		return ""
+	}
+	truncatedChars := 0
+	text := trimmed
+	if len(text) > aiUpstreamCLIOutputLogLimit {
+		text = text[:aiUpstreamCLIOutputLogLimit]
+		truncatedChars = len(trimmed) - aiUpstreamCLIOutputLogLimit
+	}
+	text = RedactAIUpstreamLogText(text)
+	if truncatedChars > 0 {
+		text += fmt.Sprintf("...[truncated %d chars]", truncatedChars)
+	}
+	return text
 }
 
 func formatAIUpstreamRequestLogBody(body any) string {
