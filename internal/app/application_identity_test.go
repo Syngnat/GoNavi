@@ -27,6 +27,11 @@ func TestWindowsApplicationUserModelIDForIconPathRotatesOnlyForBrandICO(t *testi
 			`C:\icons\gonavi-brand-ABCDEF0123456789ABCDEF12.ico`,
 			"Syngnat.GoNavi.Icon.abcdef0123456789abcdef12",
 		},
+		{
+			"forward slashed path rotates the same way",
+			`C:/icons/gonavi-brand-deadbeef01.ico`,
+			"Syngnat.GoNavi.Icon.deadbeef01",
+		},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

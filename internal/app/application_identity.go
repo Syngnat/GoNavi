@@ -1,7 +1,6 @@
 package app
 
 import (
-	"path/filepath"
 	"strings"
 )
 
@@ -22,8 +21,16 @@ const (
 // group to render the new icon instead of serving the bitmap cached under the
 // previous identity. Paths outside the brand-icon scheme keep the base
 // identity.
+//
+// 文件名提取同时识别 \ 与 /：不能用 filepath.Base——Linux 上反斜杠是普通字符，
+// 整条 Windows 路径会被当成一个文件名，轮换判定随宿主 OS 漂移（CI 全量套件
+// 曾因此在 Linux 连红）。AUMID 虽是 Windows 概念，但解析逻辑必须跨平台确定。
 func windowsApplicationUserModelIDForIconPath(iconPath string) string {
-	name := strings.TrimSuffix(filepath.Base(filepath.Clean(iconPath)), ".ico")
+	name := iconPath
+	if index := strings.LastIndexAny(name, `\/`); index >= 0 {
+		name = name[index+1:]
+	}
+	name = strings.TrimSuffix(name, ".ico")
 	if !strings.HasPrefix(name, windowsApplicationUserModelIDIconPrefix) {
 		return windowsApplicationUserModelID
 	}
