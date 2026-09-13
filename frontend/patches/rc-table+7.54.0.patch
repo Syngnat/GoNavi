@@ -1,5 +1,5 @@
 diff --git a/node_modules/rc-table/es/VirtualTable/BodyGrid.js b/node_modules/rc-table/es/VirtualTable/BodyGrid.js
-index 42dcde8..559732c 100644
+index 42dcde8..b43edae 100644
 --- a/node_modules/rc-table/es/VirtualTable/BodyGrid.js
 +++ b/node_modules/rc-table/es/VirtualTable/BodyGrid.js
 @@ -6,11 +6,12 @@ import * as React from 'react';
@@ -33,7 +33,7 @@ index 42dcde8..559732c 100644
 +    listItemColumnVirtual = _useContext2.listItemColumnVirtual,
      getComponent = _useContext2.getComponent,
      onTablePropScroll = _useContext2.onScroll;
-
+ 
    // =========================== Ref ============================
    var listRef = React.useRef();
 +  var lastForwardedXRef = React.useRef(0);
@@ -51,7 +51,7 @@ index 42dcde8..559732c 100644
 +    columnVirtualWindowRef.current = nextWindow;
 +    return nextWindow;
 +  };
-
+ 
    // =========================== Data ===========================
    var flattenData = useFlattenRecords(data, childrenColumnName, expandedKeys, getRowKey);
 @@ -49,6 +70,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
@@ -68,7 +68,31 @@ index 42dcde8..559732c 100644
    React.useEffect(function () {
      columnsWidth.forEach(function (_ref2) {
        var _ref3 = _slicedToArray(_ref2, 2),
-@@ -110,10 +138,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -71,11 +99,21 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     Object.defineProperty(obj, 'scrollLeft', {
+       get: function get() {
+         var _listRef$current3;
+-        return ((_listRef$current3 = listRef.current) === null || _listRef$current3 === void 0 ? void 0 : _listRef$current3.getScrollInfo().x) || 0;
++        var list = listRef.current;
++        if (listItemHorizontalOffsetComposited) {
++          return ((_listRef$current3 = list === null || list === void 0 ? void 0 : list.getScrollElement()) === null || _listRef$current3 === void 0 ? void 0 : _listRef$current3.scrollLeft) || 0;
++        }
++        return (list === null || list === void 0 ? void 0 : list.getScrollInfo().x) || 0;
+       },
+       set: function set(value) {
+         var _listRef$current4;
+-        (_listRef$current4 = listRef.current) === null || _listRef$current4 === void 0 || _listRef$current4.scrollTo({
++        var list = listRef.current;
++        if (listItemHorizontalOffsetComposited) {
++          var _list$getScrollElemen;
++          var element = list === null || list === void 0 ? void 0 : list.getScrollElement();
++          if (((_list$getScrollElemen = element === null || element === void 0 ? void 0 : element.scrollLeft) !== null && _list$getScrollElemen !== void 0 ? _list$getScrollElemen : 0) === value) return;
++        }
++        (_listRef$current4 = list) === null || _listRef$current4 === void 0 || _listRef$current4.scrollTo({
+           left: value
+         });
+       }
+@@ -110,10 +148,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      return 1;
    };
    var extraRender = function extraRender(info) {
@@ -83,10 +107,10 @@ index 42dcde8..559732c 100644
 -      offsetY = info.offsetY;
 +      offsetY = info.offsetY,
 +      offsetX = info.offsetX;
-
+ 
      // Do nothing if no data
      if (end < 0) {
-@@ -198,6 +232,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -198,6 +242,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
          style: {
            top: -offsetY + sizeInfo.top
          },
@@ -94,7 +118,7 @@ index 42dcde8..559732c 100644
          extra: true,
          getHeight: getHeight
        });
-@@ -239,6 +274,9 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -239,6 +284,9 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      className: tblPrefixCls,
      height: scrollY,
      itemHeight: listItemHeight || 24,
@@ -104,7 +128,7 @@ index 42dcde8..559732c 100644
      data: flattenData,
      itemKey: function itemKey(item) {
        return getRowKey(item.record);
-@@ -249,6 +287,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -249,6 +297,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      onVirtualScroll: function onVirtualScroll(_ref4) {
        var _listRef$current7;
        var x = _ref4.x;
@@ -113,7 +137,7 @@ index 42dcde8..559732c 100644
        onScroll({
          currentTarget: (_listRef$current7 = listRef.current) === null || _listRef$current7 === void 0 ? void 0 : _listRef$current7.nativeElement,
          scrollLeft: x
-@@ -262,6 +302,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -262,6 +312,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        data: item,
        rowKey: rowKey,
        index: index,
@@ -232,7 +256,7 @@ index c760819..99983a6 100644
 +      expandContent: expandContent
 +    });
    }
-
+ 
    // ========================== Render ==========================
 @@ -71,12 +96,7 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
      rowStyle.position = 'absolute';
@@ -355,13 +379,13 @@ index 0000000..42da2eb
 +export declare function resolveColumnVirtualWindow(previousWindow: ColumnVirtualWindow | null, metrics: ColumnVirtualWindowMetrics): ColumnVirtualWindow;
 diff --git a/node_modules/rc-table/es/VirtualTable/columnVirtualWindow.js b/node_modules/rc-table/es/VirtualTable/columnVirtualWindow.js
 new file mode 100644
-index 0000000..caa7aab
+index 0000000..02ba3ef
 --- /dev/null
 +++ b/node_modules/rc-table/es/VirtualTable/columnVirtualWindow.js
 @@ -0,0 +1,28 @@
-+var DEFAULT_LEADING_OVERSCAN_WIDTH = 320;
-+var DEFAULT_TRAILING_OVERSCAN_WIDTH = 512;
-+var DEFAULT_RETENTION_BUFFER_WIDTH = 96;
++var DEFAULT_LEADING_OVERSCAN_WIDTH = 640;
++var DEFAULT_TRAILING_OVERSCAN_WIDTH = 960;
++var DEFAULT_RETENTION_BUFFER_WIDTH = 512;
 +
 +var normalizeNonNegativeNumber = function normalizeNonNegativeNumber(value, fallback) {
 +  return Number.isFinite(value) && value >= 0 ? value : fallback;
@@ -419,7 +443,7 @@ index 31fe8e0..f408cda 100644
  export type ForwardGenericVirtualTable = (<RecordType>(props: TableProps<RecordType> & React.RefAttributes<Reference>) => React.ReactElement) & {
      displayName?: string;
 diff --git a/node_modules/rc-table/es/VirtualTable/index.js b/node_modules/rc-table/es/VirtualTable/index.js
-index fb00e9b..9a9f85f 100644
+index fb00e9b..bbbb9fd 100644
 --- a/node_modules/rc-table/es/VirtualTable/index.js
 +++ b/node_modules/rc-table/es/VirtualTable/index.js
 @@ -27,6 +27,10 @@ function VirtualTable(props, ref) {
@@ -446,7 +470,7 @@ index fb00e9b..9a9f85f 100644
      };
 -  }, [sticky, scrollY, listItemHeight, getComponent, onInternalScroll]);
 +  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemNativeScrollbarControlled, listItemHorizontalOffsetComposited, listItemColumnVirtual, getComponent, onInternalScroll]);
-
+ 
    // ========================== Render ==========================
    return /*#__PURE__*/React.createElement(StaticContext.Provider, {
 diff --git a/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js b/node_modules/rc-table/es/hooks/useColumns/useWidthColumns.js
@@ -463,7 +487,7 @@ index 9bfe1b6..4ce1549 100644
      if (scrollWidth && scrollWidth > 0) {
 @@ -32,7 +33,6 @@ export default function useWidthColumns(flattenColumns, scrollWidth, clientWidth
        });
-
+ 
        // Fill width
 -      var maxFitWidth = Math.max(scrollWidth, clientWidth);
        var restWidth = Math.max(maxFitWidth - totalWidth, missWidthCount);
@@ -478,7 +502,7 @@ index 9bfe1b6..4ce1549 100644
  }
 \ No newline at end of file
 diff --git a/node_modules/rc-table/lib/VirtualTable/BodyGrid.js b/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
-index dee2539..cfe31f7 100644
+index dee2539..648083b 100644
 --- a/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
 +++ b/node_modules/rc-table/lib/VirtualTable/BodyGrid.js
 @@ -14,13 +14,14 @@ var React = _interopRequireWildcard(require("react"));
@@ -514,7 +538,7 @@ index dee2539..cfe31f7 100644
 +    listItemColumnVirtual = _useContext2.listItemColumnVirtual,
      getComponent = _useContext2.getComponent,
      onTablePropScroll = _useContext2.onScroll;
-
+ 
    // =========================== Ref ============================
    var listRef = React.useRef();
 +  var lastForwardedXRef = React.useRef(0);
@@ -531,7 +555,7 @@ index dee2539..cfe31f7 100644
 +    columnVirtualWindowRef.current = nextWindow;
 +    return nextWindow;
 +  };
-
+ 
    // =========================== Data ===========================
    var flattenData = (0, _useFlattenRecords.default)(data, childrenColumnName, expandedKeys, getRowKey);
 @@ -59,6 +79,13 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
@@ -548,7 +572,31 @@ index dee2539..cfe31f7 100644
    React.useEffect(function () {
      columnsWidth.forEach(function (_ref2) {
        var _ref3 = (0, _slicedToArray2.default)(_ref2, 2),
-@@ -120,10 +147,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -81,11 +108,21 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+     Object.defineProperty(obj, 'scrollLeft', {
+       get: function get() {
+         var _listRef$current3;
+-        return ((_listRef$current3 = listRef.current) === null || _listRef$current3 === void 0 ? void 0 : _listRef$current3.getScrollInfo().x) || 0;
++        var list = listRef.current;
++        if (listItemHorizontalOffsetComposited) {
++          return ((_listRef$current3 = list === null || list === void 0 ? void 0 : list.getScrollElement()) === null || _listRef$current3 === void 0 ? void 0 : _listRef$current3.scrollLeft) || 0;
++        }
++        return (list === null || list === void 0 ? void 0 : list.getScrollInfo().x) || 0;
+       },
+       set: function set(value) {
+         var _listRef$current4;
+-        (_listRef$current4 = listRef.current) === null || _listRef$current4 === void 0 || _listRef$current4.scrollTo({
++        var list = listRef.current;
++        if (listItemHorizontalOffsetComposited) {
++          var _list$getScrollElemen;
++          var element = list === null || list === void 0 ? void 0 : list.getScrollElement();
++          if (((_list$getScrollElemen = element === null || element === void 0 ? void 0 : element.scrollLeft) !== null && _list$getScrollElemen !== void 0 ? _list$getScrollElemen : 0) === value) return;
++        }
++        (_listRef$current4 = list) === null || _listRef$current4 === void 0 || _listRef$current4.scrollTo({
+           left: value
+         });
+       }
+@@ -120,10 +157,16 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      return 1;
    };
    var extraRender = function extraRender(info) {
@@ -563,10 +611,10 @@ index dee2539..cfe31f7 100644
 -      offsetY = info.offsetY;
 +      offsetY = info.offsetY,
 +      offsetX = info.offsetX;
-
+ 
      // Do nothing if no data
      if (end < 0) {
-@@ -208,6 +241,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -208,6 +251,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
          style: {
            top: -offsetY + sizeInfo.top
          },
@@ -574,7 +622,7 @@ index dee2539..cfe31f7 100644
          extra: true,
          getHeight: getHeight
        });
-@@ -249,6 +283,9 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -249,6 +293,9 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      className: tblPrefixCls,
      height: scrollY,
      itemHeight: listItemHeight || 24,
@@ -584,7 +632,7 @@ index dee2539..cfe31f7 100644
      data: flattenData,
      itemKey: function itemKey(item) {
        return getRowKey(item.record);
-@@ -259,6 +296,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -259,6 +306,8 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
      onVirtualScroll: function onVirtualScroll(_ref4) {
        var _listRef$current7;
        var x = _ref4.x;
@@ -593,7 +641,7 @@ index dee2539..cfe31f7 100644
        onScroll({
          currentTarget: (_listRef$current7 = listRef.current) === null || _listRef$current7 === void 0 ? void 0 : _listRef$current7.nativeElement,
          scrollLeft: x
-@@ -272,6 +311,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
+@@ -272,6 +321,7 @@ var Grid = /*#__PURE__*/React.forwardRef(function (props, ref) {
        data: item,
        rowKey: rowKey,
        index: index,
@@ -703,7 +751,7 @@ index e1275fb..e9162bd 100644
 +      expandContent: expandContent
 +    });
    }
-
+ 
    // ========================== Render ==========================
 @@ -81,12 +106,7 @@ var BodyLine = /*#__PURE__*/React.forwardRef(function (props, ref) {
      rowStyle.position = 'absolute';
@@ -826,7 +874,7 @@ index 0000000..42da2eb
 +export declare function resolveColumnVirtualWindow(previousWindow: ColumnVirtualWindow | null, metrics: ColumnVirtualWindowMetrics): ColumnVirtualWindow;
 diff --git a/node_modules/rc-table/lib/VirtualTable/columnVirtualWindow.js b/node_modules/rc-table/lib/VirtualTable/columnVirtualWindow.js
 new file mode 100644
-index 0000000..a78579d
+index 0000000..cefc1f2
 --- /dev/null
 +++ b/node_modules/rc-table/lib/VirtualTable/columnVirtualWindow.js
 @@ -0,0 +1,32 @@
@@ -836,9 +884,9 @@ index 0000000..a78579d
 +  value: true
 +});
 +exports.resolveColumnVirtualWindow = resolveColumnVirtualWindow;
-+var DEFAULT_LEADING_OVERSCAN_WIDTH = 320;
-+var DEFAULT_TRAILING_OVERSCAN_WIDTH = 512;
-+var DEFAULT_RETENTION_BUFFER_WIDTH = 96;
++var DEFAULT_LEADING_OVERSCAN_WIDTH = 640;
++var DEFAULT_TRAILING_OVERSCAN_WIDTH = 960;
++var DEFAULT_RETENTION_BUFFER_WIDTH = 512;
 +var normalizeNonNegativeNumber = function normalizeNonNegativeNumber(value, fallback) {
 +  return Number.isFinite(value) && value >= 0 ? value : fallback;
 +};
@@ -894,7 +942,7 @@ index 31fe8e0..f408cda 100644
  export type ForwardGenericVirtualTable = (<RecordType>(props: TableProps<RecordType> & React.RefAttributes<Reference>) => React.ReactElement) & {
      displayName?: string;
 diff --git a/node_modules/rc-table/lib/VirtualTable/index.js b/node_modules/rc-table/lib/VirtualTable/index.js
-index 8e31a9b..f3c8bc1 100644
+index 8e31a9b..58f4808 100644
 --- a/node_modules/rc-table/lib/VirtualTable/index.js
 +++ b/node_modules/rc-table/lib/VirtualTable/index.js
 @@ -38,6 +38,10 @@ function VirtualTable(props, ref) {
@@ -921,7 +969,7 @@ index 8e31a9b..f3c8bc1 100644
      };
 -  }, [sticky, scrollY, listItemHeight, getComponent, onInternalScroll]);
 +  }, [sticky, scrollY, listItemHeight, listItemHeightFixed, listItemNativeScrollbarControlled, listItemHorizontalOffsetComposited, listItemColumnVirtual, getComponent, onInternalScroll]);
-
+ 
    // ========================== Render ==========================
    return /*#__PURE__*/React.createElement(_context.StaticContext.Provider, {
 diff --git a/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js b/node_modules/rc-table/lib/hooks/useColumns/useWidthColumns.js
@@ -938,7 +986,7 @@ index 9c6b738..d17f335 100644
      if (scrollWidth && scrollWidth > 0) {
 @@ -42,7 +43,6 @@ function useWidthColumns(flattenColumns, scrollWidth, clientWidth) {
        });
-
+ 
        // Fill width
 -      var maxFitWidth = Math.max(scrollWidth, clientWidth);
        var restWidth = Math.max(maxFitWidth - totalWidth, missWidthCount);

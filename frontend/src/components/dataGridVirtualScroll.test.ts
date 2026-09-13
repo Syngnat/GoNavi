@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   applyDataGridFixedCellPreviewOffset,
-  applyDataGridVirtualInnerOffset,
   calculateFixedVirtualRange,
   commitDataGridFixedCellOffset,
+  coversFixedVirtualRange,
   createDataGridIdleCommitScheduler,
   createDataGridVisualFrameGuard,
   readDataGridVirtualInnerOffset,
@@ -56,10 +56,11 @@ describe('fixed cell horizontal preview', () => {
     expect(first.style.removeProperty).toHaveBeenCalledWith('transform');
     expect(second.style.removeProperty).toHaveBeenCalledWith('transform');
   });
+
 });
 
 describe('virtual body horizontal offset', () => {
-  it('uses compositor translate and keeps a marginLeft fallback for stale DOM', () => {
+  it('reads a stale compositor offset before falling back to marginLeft', () => {
     const style = {
       translate: '',
       marginLeft: '-240px',
@@ -67,10 +68,8 @@ describe('virtual body horizontal offset', () => {
     const inner = { style } as unknown as HTMLElement;
 
     expect(readDataGridVirtualInnerOffset(inner)).toBe(240);
-    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(true);
-    expect(style.translate).toBe('-640px 0');
+    style.translate = '-640px 0';
     expect(readDataGridVirtualInnerOffset(inner)).toBe(640);
-    expect(applyDataGridVirtualInnerOffset(inner, 640)).toBe(false);
   });
 });
 
@@ -222,6 +221,12 @@ describe('calculateFixedVirtualRange', () => {
     const jumpedVisibleRow = previousVisibleRow - 24;
 
     expect(previousRange.start).toBeLessThanOrEqual(jumpedVisibleRow);
+  });
+
+  it('keeps a safety buffer before treating the current window as covering a native jump', () => {
+    expect(coversFixedVirtualRange({ start: 10, end: 40 }, 28, 280, 392)).toBe(true);
+    expect(coversFixedVirtualRange({ start: 10, end: 40 }, 28, 280, 280)).toBe(false);
+    expect(coversFixedVirtualRange({ start: 10, end: 40 }, 28, 280, 840)).toBe(false);
   });
 });
 

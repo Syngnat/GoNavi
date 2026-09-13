@@ -1711,8 +1711,9 @@ describe('Sidebar locate toolbar', () => {
     expect(treePatch).toContain('itemHeightResolver?: (item: TreeDataType, index: number) => number;');
     expect(virtualListPatch).toContain('fixedItemOffsets[startMid + 1] >= fixedOffsetTop');
     expect(virtualListPatch).toContain('var nativeVerticalScroll = !!(inVirtual && (itemHeightFixed || !!fixedItemOffsets));');
-    expect(virtualListPatch).toContain('var fixedStartIndex = Math.max(0, startLow - 6);');
-    expect(virtualListPatch).toContain('var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + 6);');
+    expect(virtualListPatch).toContain('var resolverOverscanRows = 6;');
+    expect(virtualListPatch).toContain('var fixedStartIndex = Math.max(0, startLow - resolverOverscanRows);');
+    expect(virtualListPatch).toContain('var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + resolverOverscanRows);');
     expect(virtualListPatch).toContain('useScrollTo(componentRef, mergedData, heights, itemHeight');
     expect(virtualListPatch).toContain('fixedItemOffsets, itemHeightFixed');
   });

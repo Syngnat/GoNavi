@@ -16,6 +16,22 @@ export interface DataGridHorizontalWheelIntentOptions {
   shiftKey: boolean;
 }
 
+export interface DataGridNativeHorizontalWheelOptions extends DataGridHorizontalWheelIntentOptions {
+  nativeHorizontalEnabled: boolean;
+}
+
+export interface DataGridNativeHorizontalWheelDispatchOptions {
+  delta: number;
+  currentScrollLeft: number;
+  maxScrollLeft: number;
+}
+
+export interface DataGridHorizontalRangeCommitOptions {
+  nextOffset: number;
+  lastCommittedOffset: number;
+  thresholdPx: number;
+}
+
 export interface ExternalHorizontalScrollInnerWidthOptions {
   tableScrollWidth: number;
   trackInset: number;
@@ -243,4 +259,38 @@ export const resolveDataGridHorizontalWheelDelta = ({
   }
 
   return safeDeltaX;
+};
+
+export const shouldLetNativeHorizontalWheelPass = ({
+  deltaX,
+  deltaY,
+  shiftKey,
+  nativeHorizontalEnabled,
+}: DataGridNativeHorizontalWheelOptions): boolean => {
+  if (!nativeHorizontalEnabled || shiftKey) {
+    return false;
+  }
+  return resolveDataGridHorizontalWheelDelta({ deltaX, deltaY, shiftKey: false }) !== 0;
+};
+
+export const resolveNativeHorizontalWheelScrollLeft = ({
+  delta,
+  currentScrollLeft,
+  maxScrollLeft,
+}: DataGridNativeHorizontalWheelDispatchOptions): number => {
+  const safeDelta = Number.isFinite(delta) ? delta : 0;
+  const safeCurrent = Number.isFinite(currentScrollLeft) ? Math.max(0, currentScrollLeft) : 0;
+  const safeMax = Number.isFinite(maxScrollLeft) ? Math.max(0, maxScrollLeft) : 0;
+  return Math.max(0, Math.min(safeMax, safeCurrent + safeDelta));
+};
+
+export const shouldCommitVirtualHorizontalRange = ({
+  nextOffset,
+  lastCommittedOffset,
+  thresholdPx,
+}: DataGridHorizontalRangeCommitOptions): boolean => {
+  const safeNext = Number.isFinite(nextOffset) ? nextOffset : 0;
+  const safeLast = Number.isFinite(lastCommittedOffset) ? lastCommittedOffset : 0;
+  const safeThreshold = Number.isFinite(thresholdPx) ? Math.max(0, thresholdPx) : 0;
+  return Math.abs(safeNext - safeLast) >= safeThreshold;
 };

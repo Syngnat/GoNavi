@@ -11,39 +11,56 @@ index c38d9c9..d7c40e6 100644
      children: React.ReactNode;
      onInnerResize?: () => void;
 diff --git a/node_modules/rc-virtual-list/es/Filler.js b/node_modules/rc-virtual-list/es/Filler.js
-index be305c7..043e921 100644
+index be305c7..0d15772 100644
 --- a/node_modules/rc-virtual-list/es/Filler.js
 +++ b/node_modules/rc-virtual-list/es/Filler.js
-@@ -11,6 +11,7 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+@@ -11,6 +11,8 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
    var height = _ref.height,
      offsetY = _ref.offsetY,
      offsetX = _ref.offsetX,
 +    horizontalOffsetComposited = _ref.horizontalOffsetComposited,
++    scrollWidth = _ref.scrollWidth,
      children = _ref.children,
      prefixCls = _ref.prefixCls,
      onInnerResize = _ref.onInnerResize,
-@@ -29,9 +30,14 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+@@ -27,11 +29,20 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+     outerStyle = {
+       height: height,
        position: 'relative',
-       overflow: 'hidden'
+-      overflow: 'hidden'
++      overflow: horizontalOffsetComposited ? 'visible' : 'hidden'
      };
 -    innerStyle = _objectSpread(_objectSpread({}, innerStyle), {}, _defineProperty(_defineProperty(_defineProperty(_defineProperty(_defineProperty({
-+    innerStyle = _objectSpread(_objectSpread({}, innerStyle), {}, _defineProperty(_defineProperty(_defineProperty(_defineProperty({
-       transform: "translateY(".concat(offsetY, "px)")
+-      transform: "translateY(".concat(offsetY, "px)")
 -    }, rtl ? 'marginRight' : 'marginLeft', -offsetX), "position", 'absolute'), "left", 0), "right", 0), "top", 0));
-+    }, "position", 'absolute'), "left", 0), "right", 0), "top", 0));
 +    if (horizontalOffsetComposited) {
-+      innerStyle.translate = "".concat(rtl ? offsetX : -offsetX, "px 0");
++      innerStyle = _objectSpread(_objectSpread({}, innerStyle), {}, {
++        transform: "translateY(".concat(offsetY, "px)")
++      });
++      if (scrollWidth) {
++        innerStyle.width = "".concat(scrollWidth, "px");
++      }
 +    } else {
-+      innerStyle[rtl ? 'marginRight' : 'marginLeft'] = -offsetX;
++      innerStyle = _objectSpread(_objectSpread({}, innerStyle), {}, _defineProperty(_defineProperty(_defineProperty(_defineProperty(_defineProperty({
++        transform: "translateY(".concat(offsetY, "px)")
++      }, "position", 'absolute'), "left", 0), "right", 0), "top", 0), rtl ? 'marginRight' : 'marginLeft', -offsetX));
 +    }
    }
    return /*#__PURE__*/React.createElement("div", {
      style: outerStyle
 diff --git a/node_modules/rc-virtual-list/es/List.d.ts b/node_modules/rc-virtual-list/es/List.d.ts
-index c517366..dff8397 100644
+index c517366..a6ddca3 100644
 --- a/node_modules/rc-virtual-list/es/List.d.ts
 +++ b/node_modules/rc-virtual-list/es/List.d.ts
-@@ -20,6 +20,14 @@ export interface ListProps<T> extends Omit<React.HTMLAttributes<any>, 'children'
+@@ -11,6 +11,7 @@ export type ScrollConfig = ScrollTarget | ScrollPos;
+ export type ScrollTo = (arg?: number | ScrollConfig | null) => void;
+ export type ListRef = {
+     nativeElement: HTMLDivElement;
++    getScrollElement: () => HTMLDivElement | null;
+     scrollTo: ScrollTo;
+     getScrollInfo: () => ScrollInfo;
+ };
+@@ -20,6 +21,14 @@ export interface ListProps<T> extends Omit<React.HTMLAttributes<any>, 'children'
      data: T[];
      height?: number;
      itemHeight?: number;
@@ -59,7 +76,7 @@ index c517366..dff8397 100644
      fullHeight?: boolean;
      itemKey: React.Key | ((item: T) => React.Key);
 diff --git a/node_modules/rc-virtual-list/es/List.js b/node_modules/rc-virtual-list/es/List.js
-index 2926056..c282fa2 100644
+index 2926056..8094502 100644
 --- a/node_modules/rc-virtual-list/es/List.js
 +++ b/node_modules/rc-virtual-list/es/List.js
 @@ -4,7 +4,7 @@ import _objectSpread from "@babel/runtime/helpers/esm/objectSpread2";
@@ -100,7 +117,7 @@ index 2926056..c282fa2 100644
 +    }
 +    return offsets;
 +  }, [mergedData, itemHeight, itemHeightResolver]);
-
+ 
    // ================================ Height ================================
 -  var _useHeights = useHeights(getKey, null, null),
 +  var _useHeights = useHeights(getKey, null, null, fixedHeightEnabled),
@@ -108,7 +125,7 @@ index 2926056..c282fa2 100644
      setInstanceRef = _useHeights2[0],
      collectHeight = _useHeights2[1],
 @@ -74,15 +92,23 @@ export function RawList(props, ref) {
-
+ 
    // ================================= MISC =================================
    var useVirtual = !!(virtual !== false && height && itemHeight);
 -  var containerHeight = React.useMemo(function () {
@@ -133,7 +150,16 @@ index 2926056..c282fa2 100644
    var componentRef = useRef();
    var fillerInnerRef = useRef();
    var containerRef = useRef();
-@@ -159,6 +185,82 @@ export function RawList(props, ref) {
+@@ -101,6 +127,8 @@ export function RawList(props, ref) {
+     _useState6 = _slicedToArray(_useState5, 2),
+     scrollMoving = _useState6[0],
+     setScrollMoving = _useState6[1];
++  var nativeScrollPendingTopRef = useRef(null);
++  var nativeScrollFlushScheduledRef = useRef(false);
+   var onScrollbarStartMove = function onScrollbarStartMove() {
+     setScrollMoving(true);
+   };
+@@ -159,6 +187,75 @@ export function RawList(props, ref) {
            offset: undefined
          };
        }
@@ -150,9 +176,9 @@ index 2926056..c282fa2 100644
 +        }
 +        var fixedMaxScrollTop = Math.max(0, fixedScrollHeight - height);
 +        var fixedOffsetTop = Math.max(0, Math.min(fixedMaxScrollTop, offsetTop));
-+        // Keep at least one viewport mounted on each side so a large native
-+        // scroll delta cannot expose the filler before React commits.
-+        var fixedOverscanRows = controlledNativeVerticalScroll && scrollMoving ? 2 : Math.max(6, Math.ceil(height / itemHeight));
++        // Keep one viewport mounted on each side so native compositor
++        // scrolling can move before React commits the next window.
++        var fixedOverscanRows = Math.max(6, Math.ceil(height / itemHeight));
 +        var fixedStartIndex = Math.min(fixedDataLen - 1, Math.max(0, Math.ceil(fixedOffsetTop / itemHeight) - fixedOverscanRows));
 +        var fixedEndIndex = Math.min(fixedDataLen - 1, Math.floor((fixedOffsetTop + height) / itemHeight) + fixedOverscanRows);
 +        return {
@@ -185,12 +211,8 @@ index 2926056..c282fa2 100644
 +            startLow = startMid + 1;
 +          }
 +        }
-+        // Keep six rows around the viewport so native scrolling cannot expose
-+        // an empty strip before the next virtual-window commit.
-+        var fixedStartIndex = Math.max(0, startLow - 6);
-+        if (controlledNativeVerticalScroll && scrollMoving) {
-+          fixedStartIndex = Math.max(0, startLow - 2);
-+        }
++        var resolverOverscanRows = 6;
++        var fixedStartIndex = Math.max(0, startLow - resolverOverscanRows);
 +        var fixedViewportBottom = fixedOffsetTop + height;
 +        var endLow = fixedStartIndex;
 +        var endHigh = fixedDataLen;
@@ -202,10 +224,7 @@ index 2926056..c282fa2 100644
 +            endLow = endMid + 1;
 +          }
 +        }
-+        var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + 6);
-+        if (controlledNativeVerticalScroll && scrollMoving) {
-+          fixedEndIndex = Math.min(fixedDataLen - 1, endLow + 2);
-+        }
++        var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + resolverOverscanRows);
 +        return {
 +          scrollHeight: fixedScrollHeight,
 +          start: fixedStartIndex,
@@ -216,16 +235,16 @@ index 2926056..c282fa2 100644
        var itemTop = 0;
        var startIndex;
        var startOffset;
-@@ -201,7 +303,7 @@ export function RawList(props, ref) {
+@@ -201,7 +298,7 @@ export function RawList(props, ref) {
          end: endIndex,
          offset: startOffset
        };
 -    }, [inVirtual, useVirtual, offsetTop, mergedData, heightUpdatedMark, height]),
-+    }, [inVirtual, useVirtual, offsetTop, mergedData, heightUpdatedMark, height, fixedItemOffsets, itemHeight, itemHeightFixed, controlledNativeVerticalScroll, scrollMoving]),
++    }, [inVirtual, useVirtual, offsetTop, mergedData, heightUpdatedMark, height, fixedItemOffsets, itemHeight, itemHeightFixed]),
      scrollHeight = _React$useMemo.scrollHeight,
      start = _React$useMemo.start,
      end = _React$useMemo.end,
-@@ -213,6 +315,10 @@ export function RawList(props, ref) {
+@@ -213,6 +310,10 @@ export function RawList(props, ref) {
    // Which will make scroll jump.
    // Let's sync scroll top to avoid jump
    React.useLayoutEffect(function () {
@@ -236,16 +255,54 @@ index 2926056..c282fa2 100644
      var changedRecord = heights.getRecord();
      if (changedRecord.size === 1) {
        var recordKey = Array.from(changedRecord.keys())[0];
-@@ -232,7 +338,7 @@ export function RawList(props, ref) {
+@@ -232,7 +333,7 @@ export function RawList(props, ref) {
        }
      }
      heights.resetRecord();
 -  }, [scrollHeight]);
 +  }, [scrollHeight, fixedHeightEnabled, heightUpdatedMark]);
-
+ 
    // ================================= Size =================================
    var _React$useState = React.useState({
-@@ -303,6 +409,15 @@ export function RawList(props, ref) {
+@@ -296,6 +397,37 @@ export function RawList(props, ref) {
+       }
+     }
+   });
++  var nativeWindowCoversViewport = function nativeWindowCoversViewport(nextScrollTop) {
++    if (!itemHeightFixed || !itemHeight) {
++      return false;
++    }
++    var currentRange = rangeRef.current;
++    if (!currentRange || currentRange.end < currentRange.start) {
++      return false;
++    }
++    var startTop = Math.max(0, currentRange.start) * itemHeight;
++    var endBottom = (currentRange.end + 1) * itemHeight;
++    var safety = itemHeight * 2;
++    var leadingCovered = currentRange.start <= 0 || startTop + safety <= nextScrollTop;
++    var trailingCovered = endBottom - safety >= nextScrollTop + height;
++    return leadingCovered && trailingCovered;
++  };
++  var flushPendingNativeScrollTop = function flushPendingNativeScrollTop() {
++    nativeScrollFlushScheduledRef.current = false;
++    var pendingTop = nativeScrollPendingTopRef.current;
++    nativeScrollPendingTopRef.current = null;
++    if (pendingTop !== null && pendingTop !== offsetTop) {
++      setOffsetTop(keepInRange(pendingTop));
++    }
++  };
++  var scheduleNativeScrollTop = function scheduleNativeScrollTop(nextScrollTop) {
++    nativeScrollPendingTopRef.current = nextScrollTop;
++    if (nativeScrollFlushScheduledRef.current) {
++      return;
++    }
++    nativeScrollFlushScheduledRef.current = true;
++    requestAnimationFrame(flushPendingNativeScrollTop);
++  };
+   function onScrollBar(newScrollOffset, horizontal) {
+     var newOffset = newScrollOffset;
+     if (horizontal) {
+@@ -303,6 +435,20 @@ export function RawList(props, ref) {
          setOffsetLeft(newOffset);
        });
        triggerScroll();
@@ -253,33 +310,54 @@ index 2926056..c282fa2 100644
 +      var controlledOffset = keepInRange(newOffset);
 +      // The custom thumb can jump across the full list in one frame. Mount the
 +      // destination rows first, then move the browser-owned scroll position.
-+      flushSync(function () {
-+        setOffsetTop(controlledOffset);
-+      });
++      if (!nativeWindowCoversViewport(controlledOffset)) {
++        nativeScrollPendingTopRef.current = null;
++        flushSync(function () {
++          setOffsetTop(controlledOffset);
++        });
++      } else {
++        scheduleNativeScrollTop(controlledOffset);
++      }
 +      componentRef.current.scrollTop = controlledOffset;
 +      triggerScroll();
      } else {
        syncScrollTop(newOffset);
      }
-@@ -312,7 +427,16 @@ export function RawList(props, ref) {
+@@ -312,12 +458,31 @@ export function RawList(props, ref) {
    function onFallbackScroll(e) {
      var newScrollTop = e.currentTarget.scrollTop;
      if (newScrollTop !== offsetTop) {
 -      syncScrollTop(newScrollTop);
 +      if (nativeVerticalScroll) {
-+        // WebKit may paint the composited scroll position before React commits
-+        // the next window. Commit rows before returning from the native event,
-+        // but never write scrollTop back while the browser owns scrolling.
-+        flushSync(function () {
-+          setOffsetTop(keepInRange(newScrollTop));
-+        });
++        // Keep native compositor scrolling when the current window already
++        // covers the destination. Only flushSync when a distant jump would
++        // otherwise expose the empty filler.
++        var alignedTop = keepInRange(newScrollTop);
++        if (!nativeWindowCoversViewport(alignedTop)) {
++          nativeScrollPendingTopRef.current = null;
++          flushSync(function () {
++            setOffsetTop(alignedTop);
++          });
++        } else {
++          scheduleNativeScrollTop(alignedTop);
++        }
 +      } else {
 +        syncScrollTop(newScrollTop);
 +      }
      }
-
+ 
      // Trigger origin onScroll
-@@ -388,6 +512,9 @@ export function RawList(props, ref) {
+     onScroll === null || onScroll === void 0 || onScroll(e);
+-    triggerScroll();
++    // Native horizontal scrolling already reports its real position through
++    // the DOM event. Do not mirror every pixel into offsetLeft state.
++    if (!(itemHorizontalOffsetComposited && newScrollTop === offsetTop)) {
++      triggerScroll();
++    }
+   }
+   var keepInHorizontalRange = function keepInHorizontalRange(nextOffsetLeft) {
+     var tmpOffsetLeft = nextOffsetLeft;
+@@ -388,6 +553,9 @@ export function RawList(props, ref) {
        }
      }
      var componentEle = componentRef.current;
@@ -289,16 +367,16 @@ index 2926056..c282fa2 100644
      componentEle.addEventListener('wheel', onRawWheel, {
        passive: false
      });
-@@ -402,7 +529,7 @@ export function RawList(props, ref) {
+@@ -402,7 +570,7 @@ export function RawList(props, ref) {
        componentEle.removeEventListener('DOMMouseScroll', onFireFoxScroll);
        componentEle.removeEventListener('MozMousePixelScroll', onMozMousePixelScroll);
      };
 -  }, [useVirtual, isScrollAtTop, isScrollAtBottom]);
 +  }, [useVirtual, isScrollAtTop, isScrollAtBottom, nativeVerticalScroll]);
-
+ 
    // Sync scroll left
    useLayoutEffect(function () {
-@@ -423,7 +550,7 @@ export function RawList(props, ref) {
+@@ -423,10 +591,13 @@ export function RawList(props, ref) {
    };
    var _scrollTo = useScrollTo(componentRef, mergedData, heights, itemHeight, getKey, function () {
      return collectHeight(true);
@@ -307,33 +385,56 @@ index 2926056..c282fa2 100644
    React.useImperativeHandle(ref, function () {
      return {
        nativeElement: containerRef.current,
-@@ -457,7 +584,7 @@ export function RawList(props, ref) {
++      getScrollElement: function getScrollElement() {
++        return componentRef.current;
++      },
+       getScrollInfo: getVirtualScrollInfo,
+       scrollTo: function scrollTo(config) {
+         function isPosScroll(arg) {
+@@ -435,7 +606,11 @@ export function RawList(props, ref) {
+         if (isPosScroll(config)) {
+           // Scroll X
+           if (config.left !== undefined) {
+-            setOffsetLeft(keepInHorizontalRange(config.left));
++            var nextOffsetLeft = keepInHorizontalRange(config.left);
++            setOffsetLeft(nextOffsetLeft);
++            if (itemHorizontalOffsetComposited && componentRef.current && Math.abs(componentRef.current.scrollLeft - nextOffsetLeft) > 0.5) {
++              componentRef.current.scrollLeft = nextOffsetLeft;
++            }
+           }
+ 
+           // Scroll Y
+@@ -457,7 +632,7 @@ export function RawList(props, ref) {
    }, [start, end, mergedData]);
-
+ 
    // ================================ Extra =================================
 -  var getSize = useGetSize(mergedData, getKey, heights, itemHeight);
 +  var getSize = useGetSize(mergedData, getKey, heights, itemHeight, fixedItemOffsets, itemHeightFixed);
    var extraContent = extraRender === null || extraRender === void 0 ? void 0 : extraRender({
      start: start,
      end: end,
-@@ -474,7 +601,7 @@ export function RawList(props, ref) {
+@@ -474,9 +649,9 @@ export function RawList(props, ref) {
    if (height) {
      componentStyle = _objectSpread(_defineProperty({}, fullHeight ? 'height' : 'maxHeight', height), ScrollStyle);
      if (useVirtual) {
 -      componentStyle.overflowY = 'hidden';
 +      componentStyle.overflowY = nativeVerticalScroll ? 'auto' : 'hidden';
        if (scrollWidth) {
-         componentStyle.overflowX = 'hidden';
+-        componentStyle.overflowX = 'hidden';
++        componentStyle.overflowX = itemHorizontalOffsetComposited ? 'auto' : 'hidden';
        }
-@@ -499,6 +626,7 @@ export function RawList(props, ref) {
+       if (scrollMoving) {
+         componentStyle.pointerEvents = 'none';
+@@ -499,6 +674,8 @@ export function RawList(props, ref) {
      className: "".concat(prefixCls, "-holder"),
      style: componentStyle,
      ref: componentRef,
 +    "data-virtual-scrollbar-controlled": controlledNativeVerticalScroll ? 'true' : undefined,
++    "data-horizontal-scroll-native": itemHorizontalOffsetComposited ? 'true' : undefined,
      onScroll: onFallbackScroll,
      onMouseEnter: delayHideScrollBar
    }, /*#__PURE__*/React.createElement(Filler, {
-@@ -506,13 +634,14 @@ export function RawList(props, ref) {
+@@ -506,13 +683,14 @@ export function RawList(props, ref) {
      height: scrollHeight,
      offsetX: offsetLeft,
      offsetY: fillerOffset,
@@ -349,6 +450,15 @@ index 2926056..c282fa2 100644
      ref: verticalScrollBarRef,
      prefixCls: prefixCls,
      scrollOffset: offsetTop,
+@@ -526,7 +704,7 @@ export function RawList(props, ref) {
+     style: styles === null || styles === void 0 ? void 0 : styles.verticalScrollBar,
+     thumbStyle: styles === null || styles === void 0 ? void 0 : styles.verticalScrollBarThumb,
+     showScrollBar: showScrollBar
+-  }), inVirtual && scrollWidth > size.width && /*#__PURE__*/React.createElement(ScrollBar, {
++  }), inVirtual && scrollWidth > size.width && !itemHorizontalOffsetComposited && /*#__PURE__*/React.createElement(ScrollBar, {
+     ref: horizontalScrollBarRef,
+     prefixCls: prefixCls,
+     scrollOffset: offsetLeft,
 diff --git a/node_modules/rc-virtual-list/es/hooks/useGetSize.d.ts b/node_modules/rc-virtual-list/es/hooks/useGetSize.d.ts
 index adc0bea..e35a75d 100644
 --- a/node_modules/rc-virtual-list/es/hooks/useGetSize.d.ts
@@ -494,7 +604,7 @@ index e7958f9..962039a 100644
          index = syncState.index,
 @@ -39,30 +41,40 @@ export default function useScrollTo(containerRef, data, heights, itemHeight, get
          var mergedAlign = targetAlign || originAlign;
-
+ 
          // Get top & bottom
 -        var stackTop = 0;
          var itemTop = 0;
@@ -522,7 +632,7 @@ index e7958f9..962039a 100644
 +            stackTop = itemBottom;
 +          }
          }
-
+ 
          // Check if need sync height (visible range has item not record height)
 -        var leftHeight = mergedAlign === 'top' ? offset : height - offset;
 -        for (var _i = maxLen; _i >= 0; _i -= 1) {
@@ -550,10 +660,10 @@ index e7958f9..962039a 100644
 +            }
            }
          }
-
+ 
 @@ -90,7 +102,7 @@ export default function useScrollTo(containerRef, data, heights, itemHeight, get
          }
-
+ 
          // One more time for sync
 -        if (targetTop !== syncState.lastTop) {
 +        if (!fixedItemOffsets && !itemHeightFixed && targetTop !== syncState.lastTop) {
@@ -573,39 +683,56 @@ index c38d9c9..d7c40e6 100644
      children: React.ReactNode;
      onInnerResize?: () => void;
 diff --git a/node_modules/rc-virtual-list/lib/Filler.js b/node_modules/rc-virtual-list/lib/Filler.js
-index 38f5192..b60d122 100644
+index 38f5192..eed6bcc 100644
 --- a/node_modules/rc-virtual-list/lib/Filler.js
 +++ b/node_modules/rc-virtual-list/lib/Filler.js
-@@ -19,6 +19,7 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+@@ -19,6 +19,8 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
    var height = _ref.height,
      offsetY = _ref.offsetY,
      offsetX = _ref.offsetX,
 +    horizontalOffsetComposited = _ref.horizontalOffsetComposited,
++    scrollWidth = _ref.scrollWidth,
      children = _ref.children,
      prefixCls = _ref.prefixCls,
      onInnerResize = _ref.onInnerResize,
-@@ -37,9 +38,14 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+@@ -35,11 +37,20 @@ var Filler = /*#__PURE__*/React.forwardRef(function (_ref, ref) {
+     outerStyle = {
+       height: height,
        position: 'relative',
-       overflow: 'hidden'
+-      overflow: 'hidden'
++      overflow: horizontalOffsetComposited ? 'visible' : 'hidden'
      };
 -    innerStyle = (0, _objectSpread3.default)((0, _objectSpread3.default)({}, innerStyle), {}, (0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)({
-+    innerStyle = (0, _objectSpread3.default)((0, _objectSpread3.default)({}, innerStyle), {}, (0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)({
-       transform: "translateY(".concat(offsetY, "px)")
+-      transform: "translateY(".concat(offsetY, "px)")
 -    }, rtl ? 'marginRight' : 'marginLeft', -offsetX), "position", 'absolute'), "left", 0), "right", 0), "top", 0));
-+    }, "position", 'absolute'), "left", 0), "right", 0), "top", 0));
 +    if (horizontalOffsetComposited) {
-+      innerStyle.translate = "".concat(rtl ? offsetX : -offsetX, "px 0");
++      innerStyle = (0, _objectSpread3.default)((0, _objectSpread3.default)({}, innerStyle), {}, {
++        transform: "translateY(".concat(offsetY, "px)")
++      });
++      if (scrollWidth) {
++        innerStyle.width = "".concat(scrollWidth, "px");
++      }
 +    } else {
-+      innerStyle[rtl ? 'marginRight' : 'marginLeft'] = -offsetX;
++      innerStyle = (0, _objectSpread3.default)((0, _objectSpread3.default)({}, innerStyle), {}, (0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)((0, _defineProperty2.default)({
++        transform: "translateY(".concat(offsetY, "px)")
++      }, "position", 'absolute'), "left", 0), "right", 0), "top", 0), rtl ? 'marginRight' : 'marginLeft', -offsetX));
 +    }
    }
    return /*#__PURE__*/React.createElement("div", {
      style: outerStyle
 diff --git a/node_modules/rc-virtual-list/lib/List.d.ts b/node_modules/rc-virtual-list/lib/List.d.ts
-index c517366..dff8397 100644
+index c517366..a6ddca3 100644
 --- a/node_modules/rc-virtual-list/lib/List.d.ts
 +++ b/node_modules/rc-virtual-list/lib/List.d.ts
-@@ -20,6 +20,14 @@ export interface ListProps<T> extends Omit<React.HTMLAttributes<any>, 'children'
+@@ -11,6 +11,7 @@ export type ScrollConfig = ScrollTarget | ScrollPos;
+ export type ScrollTo = (arg?: number | ScrollConfig | null) => void;
+ export type ListRef = {
+     nativeElement: HTMLDivElement;
++    getScrollElement: () => HTMLDivElement | null;
+     scrollTo: ScrollTo;
+     getScrollInfo: () => ScrollInfo;
+ };
+@@ -20,6 +21,14 @@ export interface ListProps<T> extends Omit<React.HTMLAttributes<any>, 'children'
      data: T[];
      height?: number;
      itemHeight?: number;
@@ -621,7 +748,7 @@ index c517366..dff8397 100644
      fullHeight?: boolean;
      itemKey: React.Key | ((item: T) => React.Key);
 diff --git a/node_modules/rc-virtual-list/lib/List.js b/node_modules/rc-virtual-list/lib/List.js
-index f0cb64d..9e2e2bd 100644
+index f0cb64d..680e403 100644
 --- a/node_modules/rc-virtual-list/lib/List.js
 +++ b/node_modules/rc-virtual-list/lib/List.js
 @@ -32,7 +32,7 @@ var _useScrollDrag = _interopRequireDefault(require("./hooks/useScrollDrag"));
@@ -662,7 +789,7 @@ index f0cb64d..9e2e2bd 100644
 +    }
 +    return offsets;
 +  }, [mergedData, itemHeight, itemHeightResolver]);
-
+ 
    // ================================ Height ================================
 -  var _useHeights = (0, _useHeights3.default)(getKey, null, null),
 +  var _useHeights = (0, _useHeights3.default)(getKey, null, null, fixedHeightEnabled),
@@ -670,7 +797,7 @@ index f0cb64d..9e2e2bd 100644
      setInstanceRef = _useHeights2[0],
      collectHeight = _useHeights2[1],
 @@ -83,15 +101,23 @@ function RawList(props, ref) {
-
+ 
    // ================================= MISC =================================
    var useVirtual = !!(virtual !== false && height && itemHeight);
 -  var containerHeight = React.useMemo(function () {
@@ -695,7 +822,16 @@ index f0cb64d..9e2e2bd 100644
    var componentRef = (0, _react.useRef)();
    var fillerInnerRef = (0, _react.useRef)();
    var containerRef = (0, _react.useRef)();
-@@ -168,6 +194,82 @@ function RawList(props, ref) {
+@@ -110,6 +136,8 @@ function RawList(props, ref) {
+     _useState6 = (0, _slicedToArray2.default)(_useState5, 2),
+     scrollMoving = _useState6[0],
+     setScrollMoving = _useState6[1];
++  var nativeScrollPendingTopRef = (0, _react.useRef)(null);
++  var nativeScrollFlushScheduledRef = (0, _react.useRef)(false);
+   var onScrollbarStartMove = function onScrollbarStartMove() {
+     setScrollMoving(true);
+   };
+@@ -168,6 +196,75 @@ function RawList(props, ref) {
            offset: undefined
          };
        }
@@ -712,9 +848,9 @@ index f0cb64d..9e2e2bd 100644
 +        }
 +        var fixedMaxScrollTop = Math.max(0, fixedScrollHeight - height);
 +        var fixedOffsetTop = Math.max(0, Math.min(fixedMaxScrollTop, offsetTop));
-+        // Keep at least one viewport mounted on each side so a large native
-+        // scroll delta cannot expose the filler before React commits.
-+        var fixedOverscanRows = controlledNativeVerticalScroll && scrollMoving ? 2 : Math.max(6, Math.ceil(height / itemHeight));
++        // Keep one viewport mounted on each side so native compositor
++        // scrolling can move before React commits the next window.
++        var fixedOverscanRows = Math.max(6, Math.ceil(height / itemHeight));
 +        var fixedStartIndex = Math.min(fixedDataLen - 1, Math.max(0, Math.ceil(fixedOffsetTop / itemHeight) - fixedOverscanRows));
 +        var fixedEndIndex = Math.min(fixedDataLen - 1, Math.floor((fixedOffsetTop + height) / itemHeight) + fixedOverscanRows);
 +        return {
@@ -747,12 +883,8 @@ index f0cb64d..9e2e2bd 100644
 +            startLow = startMid + 1;
 +          }
 +        }
-+        // Keep six rows around the viewport so native scrolling cannot expose
-+        // an empty strip before the next virtual-window commit.
-+        var fixedStartIndex = Math.max(0, startLow - 6);
-+        if (controlledNativeVerticalScroll && scrollMoving) {
-+          fixedStartIndex = Math.max(0, startLow - 2);
-+        }
++        var resolverOverscanRows = 6;
++        var fixedStartIndex = Math.max(0, startLow - resolverOverscanRows);
 +        var fixedViewportBottom = fixedOffsetTop + height;
 +        var endLow = fixedStartIndex;
 +        var endHigh = fixedDataLen;
@@ -764,10 +896,7 @@ index f0cb64d..9e2e2bd 100644
 +            endLow = endMid + 1;
 +          }
 +        }
-+        var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + 6);
-+        if (controlledNativeVerticalScroll && scrollMoving) {
-+          fixedEndIndex = Math.min(fixedDataLen - 1, endLow + 2);
-+        }
++        var fixedEndIndex = Math.min(fixedDataLen - 1, endLow + resolverOverscanRows);
 +        return {
 +          scrollHeight: fixedScrollHeight,
 +          start: fixedStartIndex,
@@ -778,16 +907,16 @@ index f0cb64d..9e2e2bd 100644
        var itemTop = 0;
        var startIndex;
        var startOffset;
-@@ -210,7 +312,7 @@ function RawList(props, ref) {
+@@ -210,7 +307,7 @@ function RawList(props, ref) {
          end: endIndex,
          offset: startOffset
        };
 -    }, [inVirtual, useVirtual, offsetTop, mergedData, heightUpdatedMark, height]),
-+    }, [inVirtual, useVirtual, offsetTop, mergedData, heightUpdatedMark, height, fixedItemOffsets, itemHeight, itemHeightFixed, controlledNativeVerticalScroll, scrollMoving]),
++    }, [inVirtual, useVirtual, offsetTop, mergedData, heightUpdatedMark, height, fixedItemOffsets, itemHeight, itemHeightFixed]),
      scrollHeight = _React$useMemo.scrollHeight,
      start = _React$useMemo.start,
      end = _React$useMemo.end,
-@@ -222,6 +324,10 @@ function RawList(props, ref) {
+@@ -222,6 +319,10 @@ function RawList(props, ref) {
    // Which will make scroll jump.
    // Let's sync scroll top to avoid jump
    React.useLayoutEffect(function () {
@@ -798,16 +927,54 @@ index f0cb64d..9e2e2bd 100644
      var changedRecord = heights.getRecord();
      if (changedRecord.size === 1) {
        var recordKey = Array.from(changedRecord.keys())[0];
-@@ -241,7 +347,7 @@ function RawList(props, ref) {
+@@ -241,7 +342,7 @@ function RawList(props, ref) {
        }
      }
      heights.resetRecord();
 -  }, [scrollHeight]);
 +  }, [scrollHeight, fixedHeightEnabled, heightUpdatedMark]);
-
+ 
    // ================================= Size =================================
    var _React$useState = React.useState({
-@@ -312,6 +418,15 @@ function RawList(props, ref) {
+@@ -305,6 +406,37 @@ function RawList(props, ref) {
+       }
+     }
+   });
++  var nativeWindowCoversViewport = function nativeWindowCoversViewport(nextScrollTop) {
++    if (!itemHeightFixed || !itemHeight) {
++      return false;
++    }
++    var currentRange = rangeRef.current;
++    if (!currentRange || currentRange.end < currentRange.start) {
++      return false;
++    }
++    var startTop = Math.max(0, currentRange.start) * itemHeight;
++    var endBottom = (currentRange.end + 1) * itemHeight;
++    var safety = itemHeight * 2;
++    var leadingCovered = currentRange.start <= 0 || startTop + safety <= nextScrollTop;
++    var trailingCovered = endBottom - safety >= nextScrollTop + height;
++    return leadingCovered && trailingCovered;
++  };
++  var flushPendingNativeScrollTop = function flushPendingNativeScrollTop() {
++    nativeScrollFlushScheduledRef.current = false;
++    var pendingTop = nativeScrollPendingTopRef.current;
++    nativeScrollPendingTopRef.current = null;
++    if (pendingTop !== null && pendingTop !== offsetTop) {
++      setOffsetTop(keepInRange(pendingTop));
++    }
++  };
++  var scheduleNativeScrollTop = function scheduleNativeScrollTop(nextScrollTop) {
++    nativeScrollPendingTopRef.current = nextScrollTop;
++    if (nativeScrollFlushScheduledRef.current) {
++      return;
++    }
++    nativeScrollFlushScheduledRef.current = true;
++    requestAnimationFrame(flushPendingNativeScrollTop);
++  };
+   function onScrollBar(newScrollOffset, horizontal) {
+     var newOffset = newScrollOffset;
+     if (horizontal) {
+@@ -312,6 +444,20 @@ function RawList(props, ref) {
          setOffsetLeft(newOffset);
        });
        triggerScroll();
@@ -815,33 +982,54 @@ index f0cb64d..9e2e2bd 100644
 +      var controlledOffset = keepInRange(newOffset);
 +      // The custom thumb can jump across the full list in one frame. Mount the
 +      // destination rows first, then move the browser-owned scroll position.
-+      (0, _reactDom.flushSync)(function () {
-+        setOffsetTop(controlledOffset);
-+      });
++      if (!nativeWindowCoversViewport(controlledOffset)) {
++        nativeScrollPendingTopRef.current = null;
++        (0, _reactDom.flushSync)(function () {
++          setOffsetTop(controlledOffset);
++        });
++      } else {
++        scheduleNativeScrollTop(controlledOffset);
++      }
 +      componentRef.current.scrollTop = controlledOffset;
 +      triggerScroll();
      } else {
        syncScrollTop(newOffset);
      }
-@@ -321,7 +436,16 @@ function RawList(props, ref) {
+@@ -321,12 +467,31 @@ function RawList(props, ref) {
    function onFallbackScroll(e) {
      var newScrollTop = e.currentTarget.scrollTop;
      if (newScrollTop !== offsetTop) {
 -      syncScrollTop(newScrollTop);
 +      if (nativeVerticalScroll) {
-+        // WebKit may paint the composited scroll position before React commits
-+        // the next window. Commit rows before returning from the native event,
-+        // but never write scrollTop back while the browser owns scrolling.
-+        (0, _reactDom.flushSync)(function () {
-+          setOffsetTop(keepInRange(newScrollTop));
-+        });
++        // Keep native compositor scrolling when the current window already
++        // covers the destination. Only flushSync when a distant jump would
++        // otherwise expose the empty filler.
++        var alignedTop = keepInRange(newScrollTop);
++        if (!nativeWindowCoversViewport(alignedTop)) {
++          nativeScrollPendingTopRef.current = null;
++          (0, _reactDom.flushSync)(function () {
++            setOffsetTop(alignedTop);
++          });
++        } else {
++          scheduleNativeScrollTop(alignedTop);
++        }
 +      } else {
 +        syncScrollTop(newScrollTop);
 +      }
      }
-
+ 
      // Trigger origin onScroll
-@@ -397,6 +521,9 @@ function RawList(props, ref) {
+     onScroll === null || onScroll === void 0 || onScroll(e);
+-    triggerScroll();
++    // Native horizontal scrolling already reports its real position through
++    // the DOM event. Do not mirror every pixel into offsetLeft state.
++    if (!(itemHorizontalOffsetComposited && newScrollTop === offsetTop)) {
++      triggerScroll();
++    }
+   }
+   var keepInHorizontalRange = function keepInHorizontalRange(nextOffsetLeft) {
+     var tmpOffsetLeft = nextOffsetLeft;
+@@ -397,6 +562,9 @@ function RawList(props, ref) {
        }
      }
      var componentEle = componentRef.current;
@@ -851,16 +1039,16 @@ index f0cb64d..9e2e2bd 100644
      componentEle.addEventListener('wheel', onRawWheel, {
        passive: false
      });
-@@ -411,7 +538,7 @@ function RawList(props, ref) {
+@@ -411,7 +579,7 @@ function RawList(props, ref) {
        componentEle.removeEventListener('DOMMouseScroll', onFireFoxScroll);
        componentEle.removeEventListener('MozMousePixelScroll', onMozMousePixelScroll);
      };
 -  }, [useVirtual, isScrollAtTop, isScrollAtBottom]);
 +  }, [useVirtual, isScrollAtTop, isScrollAtBottom, nativeVerticalScroll]);
-
+ 
    // Sync scroll left
    (0, _useLayoutEffect.default)(function () {
-@@ -432,7 +559,7 @@ function RawList(props, ref) {
+@@ -432,10 +600,13 @@ function RawList(props, ref) {
    };
    var _scrollTo = (0, _useScrollTo.default)(componentRef, mergedData, heights, itemHeight, getKey, function () {
      return collectHeight(true);
@@ -869,33 +1057,56 @@ index f0cb64d..9e2e2bd 100644
    React.useImperativeHandle(ref, function () {
      return {
        nativeElement: containerRef.current,
-@@ -466,7 +593,7 @@ function RawList(props, ref) {
++      getScrollElement: function getScrollElement() {
++        return componentRef.current;
++      },
+       getScrollInfo: getVirtualScrollInfo,
+       scrollTo: function scrollTo(config) {
+         function isPosScroll(arg) {
+@@ -444,7 +615,11 @@ function RawList(props, ref) {
+         if (isPosScroll(config)) {
+           // Scroll X
+           if (config.left !== undefined) {
+-            setOffsetLeft(keepInHorizontalRange(config.left));
++            var nextOffsetLeft = keepInHorizontalRange(config.left);
++            setOffsetLeft(nextOffsetLeft);
++            if (itemHorizontalOffsetComposited && componentRef.current && Math.abs(componentRef.current.scrollLeft - nextOffsetLeft) > 0.5) {
++              componentRef.current.scrollLeft = nextOffsetLeft;
++            }
+           }
+ 
+           // Scroll Y
+@@ -466,7 +641,7 @@ function RawList(props, ref) {
    }, [start, end, mergedData]);
-
+ 
    // ================================ Extra =================================
 -  var getSize = (0, _useGetSize.useGetSize)(mergedData, getKey, heights, itemHeight);
 +  var getSize = (0, _useGetSize.useGetSize)(mergedData, getKey, heights, itemHeight, fixedItemOffsets, itemHeightFixed);
    var extraContent = extraRender === null || extraRender === void 0 ? void 0 : extraRender({
      start: start,
      end: end,
-@@ -483,7 +610,7 @@ function RawList(props, ref) {
+@@ -483,9 +658,9 @@ function RawList(props, ref) {
    if (height) {
      componentStyle = (0, _objectSpread3.default)((0, _defineProperty2.default)({}, fullHeight ? 'height' : 'maxHeight', height), ScrollStyle);
      if (useVirtual) {
 -      componentStyle.overflowY = 'hidden';
 +      componentStyle.overflowY = nativeVerticalScroll ? 'auto' : 'hidden';
        if (scrollWidth) {
-         componentStyle.overflowX = 'hidden';
+-        componentStyle.overflowX = 'hidden';
++        componentStyle.overflowX = itemHorizontalOffsetComposited ? 'auto' : 'hidden';
        }
-@@ -508,6 +635,7 @@ function RawList(props, ref) {
+       if (scrollMoving) {
+         componentStyle.pointerEvents = 'none';
+@@ -508,6 +683,8 @@ function RawList(props, ref) {
      className: "".concat(prefixCls, "-holder"),
      style: componentStyle,
      ref: componentRef,
 +    "data-virtual-scrollbar-controlled": controlledNativeVerticalScroll ? 'true' : undefined,
++    "data-horizontal-scroll-native": itemHorizontalOffsetComposited ? 'true' : undefined,
      onScroll: onFallbackScroll,
      onMouseEnter: delayHideScrollBar
    }, /*#__PURE__*/React.createElement(_Filler.default, {
-@@ -515,13 +643,14 @@ function RawList(props, ref) {
+@@ -515,13 +692,14 @@ function RawList(props, ref) {
      height: scrollHeight,
      offsetX: offsetLeft,
      offsetY: fillerOffset,
@@ -911,6 +1122,15 @@ index f0cb64d..9e2e2bd 100644
      ref: verticalScrollBarRef,
      prefixCls: prefixCls,
      scrollOffset: offsetTop,
+@@ -535,7 +713,7 @@ function RawList(props, ref) {
+     style: styles === null || styles === void 0 ? void 0 : styles.verticalScrollBar,
+     thumbStyle: styles === null || styles === void 0 ? void 0 : styles.verticalScrollBarThumb,
+     showScrollBar: showScrollBar
+-  }), inVirtual && scrollWidth > size.width && /*#__PURE__*/React.createElement(_ScrollBar.default, {
++  }), inVirtual && scrollWidth > size.width && !itemHorizontalOffsetComposited && /*#__PURE__*/React.createElement(_ScrollBar.default, {
+     ref: horizontalScrollBarRef,
+     prefixCls: prefixCls,
+     scrollOffset: offsetLeft,
 diff --git a/node_modules/rc-virtual-list/lib/hooks/useGetSize.d.ts b/node_modules/rc-virtual-list/lib/hooks/useGetSize.d.ts
 index adc0bea..e35a75d 100644
 --- a/node_modules/rc-virtual-list/lib/hooks/useGetSize.d.ts
@@ -1036,7 +1256,7 @@ index 707bf35..e233388 100644
 +++ b/node_modules/rc-virtual-list/lib/hooks/useScrollTo.js
 @@ -16,7 +16,7 @@ var _rcUtil = require("rc-util");
  /* eslint-disable no-param-reassign */
-
+ 
  var MAX_TIMES = 10;
 -function useScrollTo(containerRef, data, heights, itemHeight, getKey, collectHeight, syncScrollTop, triggerFlash) {
 +function useScrollTo(containerRef, data, heights, itemHeight, getKey, collectHeight, syncScrollTop, triggerFlash, fixedItemOffsets, itemHeightFixed) {
@@ -1056,7 +1276,7 @@ index 707bf35..e233388 100644
          index = syncState.index,
 @@ -48,30 +50,40 @@ function useScrollTo(containerRef, data, heights, itemHeight, getKey, collectHei
          var mergedAlign = targetAlign || originAlign;
-
+ 
          // Get top & bottom
 -        var stackTop = 0;
          var itemTop = 0;
@@ -1084,7 +1304,7 @@ index 707bf35..e233388 100644
 +            stackTop = itemBottom;
 +          }
          }
-
+ 
          // Check if need sync height (visible range has item not record height)
 -        var leftHeight = mergedAlign === 'top' ? offset : height - offset;
 -        for (var _i = maxLen; _i >= 0; _i -= 1) {
@@ -1112,10 +1332,10 @@ index 707bf35..e233388 100644
 +            }
            }
          }
-
+ 
 @@ -99,7 +111,7 @@ function useScrollTo(containerRef, data, heights, itemHeight, getKey, collectHei
          }
-
+ 
          // One more time for sync
 -        if (targetTop !== syncState.lastTop) {
 +        if (!fixedItemOffsets && !itemHeightFixed && targetTop !== syncState.lastTop) {

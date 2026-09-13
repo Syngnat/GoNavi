@@ -255,6 +255,7 @@ describe('resolver-based native virtual scrolling', () => {
 
     const compositedInner = renderList(true);
     expect(compositedInner?.style.marginLeft).toBe('');
-    expect(compositedInner?.style.translate).toBe('-120px 0');
+    expect(compositedInner?.style.translate).toBe('');
+    expect(compositedInner?.style.width).toBe('600px');
   });
 });

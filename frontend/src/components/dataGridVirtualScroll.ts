@@ -46,18 +46,6 @@ export const readDataGridVirtualInnerOffset = (inner: HTMLElement): number => {
   return Number.isFinite(legacyMargin) ? legacyMargin : 0;
 };
 
-export const applyDataGridVirtualInnerOffset = (
-  inner: HTMLElement,
-  offset: number,
-): boolean => {
-  const normalized = normalizeHorizontalOffset(offset);
-  if (Math.abs(readDataGridVirtualInnerOffset(inner) - normalized) < 0.5) {
-    return false;
-  }
-  inner.style.translate = `${-normalized}px 0`;
-  return true;
-};
-
 /**
  * Keeps fixed cells visually pinned during a continuous horizontal preview.
  * One inherited variable replaces a style write on every mounted fixed cell.
@@ -94,6 +82,26 @@ export const commitDataGridFixedCellOffset = (
     }
   });
   return cells.length;
+};
+
+export const coversFixedVirtualRange = (
+  range: Pick<FixedVirtualRange, 'start' | 'end'>,
+  itemHeight: number,
+  viewportHeight: number,
+  scrollTop: number,
+): boolean => {
+  const height = Number.isFinite(itemHeight) ? Math.max(0, itemHeight) : 0;
+  const viewport = Number.isFinite(viewportHeight) ? Math.max(0, viewportHeight) : 0;
+  if (height <= 0) {
+    return true;
+  }
+  const requestedScrollTop = Number.isFinite(scrollTop) ? Math.max(0, scrollTop) : 0;
+  const safety = height * 2;
+  const startTop = Math.max(0, range.start) * height;
+  const endBottom = (Math.max(range.start, range.end) + 1) * height;
+  const leadingCovered = range.start <= 0 || startTop + safety <= requestedScrollTop;
+  const trailingCovered = endBottom - safety >= requestedScrollTop + viewport;
+  return leadingCovered && trailingCovered;
 };
 
 /**

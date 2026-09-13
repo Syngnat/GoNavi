@@ -29,18 +29,18 @@ describe('rc-table stable column virtual window', () => {
       viewportWidth: 1000,
     });
     const retainedWindow = resolveColumnVirtualWindow(initialWindow, {
-      offsetX: 300,
+      offsetX: 400,
       viewportWidth: 1000,
     });
     const shiftedWindow = resolveColumnVirtualWindow(retainedWindow, {
-      offsetX: 450,
+      offsetX: 480,
       viewportWidth: 1000,
     });
 
     expect(retainedWindow).toBe(initialWindow);
     expect(shiftedWindow).not.toBe(initialWindow);
-    expect(shiftedWindow.start).toBeLessThanOrEqual(450);
-    expect(shiftedWindow.end).toBeGreaterThanOrEqual(1450);
+    expect(shiftedWindow.start).toBeLessThanOrEqual(480);
+    expect(shiftedWindow.end).toBeGreaterThanOrEqual(1480);
   });
 
   it('ships the stable window helper in the install-time rc-table patch', () => {
@@ -50,6 +50,7 @@ describe('rc-table stable column virtual window', () => {
     );
 
     expect(patch).toContain('resolveColumnVirtualWindow');
+    expect(patch).toContain('DEFAULT_RETENTION_BUFFER_WIDTH = 512');
     expect(patch).toContain('columnVirtualWindowRef');
     expect(patch).toContain('columnVirtualWindow: resolveBodyLineColumnVirtualWindow(itemProps.offsetX)');
     expect(patch).toContain('React.memo(BodyLine, bodyLinePropsAreEqual)');

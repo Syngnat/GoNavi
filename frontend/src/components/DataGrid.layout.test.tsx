@@ -2027,6 +2027,33 @@ describe('DataGrid layout', () => {
     expect(source).not.toContain('virtualRowHeightMeasurement');
   });
 
+  it('keeps native horizontal scrolling outside the post-commit visual guard', () => {
+    const source = readDataGridSource();
+    const virtualColumnSource = source.slice(
+      source.indexOf('const virtualListItemColumnVirtual ='),
+      source.indexOf('const tableComponents ='),
+    );
+    const visualSyncSource = source.slice(
+      source.indexOf('const syncVirtualHorizontalVisualOffset = useCallback'),
+      source.indexOf('virtualHorizontalPostCommitFrameHandlerRef.current ='),
+    );
+    const postCommitSource = source.slice(
+      source.indexOf('const scheduleVirtualHorizontalPostCommit = useCallback'),
+      source.indexOf('const applyVirtualHorizontalOffset = useCallback'),
+    );
+    const externalScrollSource = source.slice(
+      source.indexOf('const applyExternalScrollToTableTargets = useCallback'),
+      source.indexOf('const handleExternalHorizontalScrollPointerDown = useCallback'),
+    );
+
+    expect(virtualColumnSource).toContain('&& !isMacLike');
+    expect(virtualColumnSource).toContain('&& shouldVirtualizeDataGridColumns(displayColumnNames.length);');
+    expect(visualSyncSource).toContain('virtualHorizontalPostCommitGuardRef.current?.cancel();');
+    expect(visualSyncSource).toContain('virtualHorizontalPreviewActiveRef.current = false;');
+    expect(postCommitSource).toContain('virtualListItemHorizontalOffsetComposited) return;');
+    expect(externalScrollSource).toContain("horizontalSyncSourceRef.current === 'table'");
+  });
+
   it('keeps overflowing table column references stable across viewport-only resizes', () => {
     const source = readDataGridSource();
 

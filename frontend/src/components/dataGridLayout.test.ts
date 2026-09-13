@@ -8,6 +8,9 @@ import {
   resolveExternalHorizontalScrollMetrics,
   resolveDataGridColumnQuickFindScrollLeft,
   resolveDataGridHorizontalWheelDelta,
+  resolveNativeHorizontalWheelScrollLeft,
+  shouldCommitVirtualHorizontalRange,
+  shouldLetNativeHorizontalWheelPass,
 } from './dataGridLayout';
 
 describe('dataGridLayout helpers', () => {
@@ -167,5 +170,56 @@ describe('dataGridLayout helpers', () => {
       deltaY: 20,
       shiftKey: true,
     })).toBe(20);
+  });
+
+  it('lets native compositor horizontal wheel pass on Mac-like virtual tables', () => {
+    expect(shouldLetNativeHorizontalWheelPass({
+      deltaX: 18,
+      deltaY: 3,
+      shiftKey: false,
+      nativeHorizontalEnabled: true,
+    })).toBe(true);
+
+    expect(shouldLetNativeHorizontalWheelPass({
+      deltaX: 18,
+      deltaY: 3,
+      shiftKey: true,
+      nativeHorizontalEnabled: true,
+    })).toBe(false);
+
+    expect(shouldLetNativeHorizontalWheelPass({
+      deltaX: 18,
+      deltaY: 3,
+      shiftKey: false,
+      nativeHorizontalEnabled: false,
+    })).toBe(false);
+  });
+
+  it('applies native horizontal wheel deltas onto the holder scrollLeft', () => {
+    expect(resolveNativeHorizontalWheelScrollLeft({
+      delta: 48,
+      currentScrollLeft: 120,
+      maxScrollLeft: 800,
+    })).toBe(168);
+
+    expect(resolveNativeHorizontalWheelScrollLeft({
+      delta: 48,
+      currentScrollLeft: 780,
+      maxScrollLeft: 800,
+    })).toBe(800);
+  });
+
+  it('commits the virtual column window before the retained overscan is exhausted', () => {
+    expect(shouldCommitVirtualHorizontalRange({
+      nextOffset: 480,
+      lastCommittedOffset: 0,
+      thresholdPx: 480,
+    })).toBe(true);
+
+    expect(shouldCommitVirtualHorizontalRange({
+      nextOffset: 400,
+      lastCommittedOffset: 0,
+      thresholdPx: 480,
+    })).toBe(false);
   });
 });
