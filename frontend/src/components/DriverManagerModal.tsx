@@ -2592,7 +2592,7 @@ const DriverManagerModal: React.FC<{
             className="driver-manager-mirror-chip"
             data-download-source={downloadSource}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div className="driver-manager-mirror-chip-copy">
               <span
                 aria-hidden="true"
                 style={{
@@ -2603,14 +2603,15 @@ const DriverManagerModal: React.FC<{
                   flexShrink: 0,
                 }}
               />
-              <span style={{ color: driverManagerTheme.mutedText, fontSize: 13, whiteSpace: 'nowrap' }}>
+              <span className="driver-manager-mirror-chip-label" style={{ color: driverManagerTheme.mutedText, fontSize: 13 }}>
                 {t('driver_manager.mirror_source.label')}
               </span>
-              <span style={{ color: driverManagerTheme.titleText, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
+              <span className="driver-manager-mirror-chip-source" title={t(downloadSourceMeta.labelKey)} style={{ color: driverManagerTheme.titleText, fontSize: 13, fontWeight: 600 }}>
                 {t(downloadSourceMeta.labelKey)}
               </span>
             </div>
             <Button
+              className="driver-manager-mirror-chip-switch"
               type="link"
               size="small"
               onClick={onSwitchDownloadSource}
@@ -2789,23 +2790,26 @@ const DriverManagerModal: React.FC<{
                     className="driver-manager-mirror-chip is-compact"
                     data-download-source={downloadSource}
                   >
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 999,
-                        background: darkMode ? downloadSourceMeta.darkDot : downloadSourceMeta.lightDot,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <span style={{ color: driverManagerTheme.mutedText, fontSize: 13, whiteSpace: 'nowrap' }}>
-                      {t('driver_manager.mirror_source.label')}
-                    </span>
-                    <span style={{ color: driverManagerTheme.titleText, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                      {t(downloadSourceMeta.labelKey)}
-                    </span>
+                    <div className="driver-manager-mirror-chip-copy">
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: darkMode ? downloadSourceMeta.darkDot : downloadSourceMeta.lightDot,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span className="driver-manager-mirror-chip-label" style={{ color: driverManagerTheme.mutedText, fontSize: 13 }}>
+                        {t('driver_manager.mirror_source.label')}
+                      </span>
+                      <span className="driver-manager-mirror-chip-source" title={t(downloadSourceMeta.labelKey)} style={{ color: driverManagerTheme.titleText, fontSize: 13, fontWeight: 600 }}>
+                        {t(downloadSourceMeta.labelKey)}
+                      </span>
+                    </div>
                     <Button
+                      className="driver-manager-mirror-chip-switch"
                       type="link"
                       size="small"
                       onClick={onSwitchDownloadSource}

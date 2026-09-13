@@ -3007,6 +3007,32 @@ body[data-theme='dark'] .gonavi-about-download-source:hover {
     color: var(--ant-color-primary, #1677ff);
 }
 
+/* Keep the mirror chip content-driven while allowing safe truncation in narrow toolbars. */
+.driver-manager-mirror-chip-copy {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 0 1 auto;
+}
+
+.driver-manager-mirror-chip-label {
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.driver-manager-mirror-chip-source {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.driver-manager-mirror-chip-switch.ant-btn {
+    flex-shrink: 0;
+}
+
 .driver-manager-mirror-chip.is-compact > .ant-btn,
 .gonavi-about-download-source > .ant-btn {
     margin-left: auto;

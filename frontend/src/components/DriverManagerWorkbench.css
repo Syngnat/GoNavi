@@ -49,13 +49,24 @@
 .preview-settings-source.ant-btn {
   display: flex;
   min-width: 0;
+  max-width: 100%;
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
+  overflow: hidden;
   color: var(--driver-manager-workbench-muted);
 }
 
+.preview-settings-source-name {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .preview-settings-source-action {
+  flex: 0 0 auto;
   color: var(--driver-manager-workbench-primary);
 }
 

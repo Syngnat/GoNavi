@@ -115,7 +115,7 @@ export default function DriverManagerWorkbench({
             aria-label={`${t('driver_manager.mirror_source.label')}: ${t(`app.download_source.option.${downloadSource}`)}. ${t('driver_manager.mirror_source.switch')}`}
           >
             <span className="preview-settings-source-dot" data-download-source={downloadSource} aria-hidden="true" />
-            <span>{t(`app.download_source.option.${downloadSource}`)}</span>
+            <span className="preview-settings-source-name" title={t(`app.download_source.option.${downloadSource}`)}>{t(`app.download_source.option.${downloadSource}`)}</span>
             <span className="preview-settings-source-action">{t('driver_manager.mirror_source.switch')}</span>
           </Button>
         </header>
