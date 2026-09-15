@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/esconsole"
@@ -1127,28 +1129,112 @@ func (e *ElasticsearchDB) ApplyChangesContext(ctx context.Context, tableName str
 		return MarkWriteOutcomeUnknown(fmt.Errorf("解析 ES 批量操作响应失败，写入状态未知：%w", err))
 	}
 	if hasErrors, ok := result["errors"].(bool); ok && hasErrors {
-		if items, ok := result["items"].([]interface{}); ok {
-			for _, item := range items {
-				itemMap, ok := item.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				for _, op := range itemMap {
-					opMap, ok := op.(map[string]interface{})
-					if !ok {
-						continue
-					}
-					if errMap, ok := opMap["error"].(map[string]interface{}); ok {
-						reason, _ := errMap["reason"].(string)
-						return fmt.Errorf("ES 批量操作部分失败：%s", reason)
-					}
-				}
-			}
-		}
-		return fmt.Errorf("ES 批量操作部分失败")
+		err := elasticsearchBulkPartialFailure(result)
+		logger.Warnf("%s", err.Error())
+		return err
 	}
 
 	logger.Infof("ES 批量操作完成：索引=%s 删除=%d 更新=%d 新增=%d",
 		indexName, len(changes.Deletes), len(changes.Updates), len(changes.Inserts))
 	return nil
+}
+
+const (
+	maxElasticsearchBulkFailureDetails      = 20
+	maxElasticsearchBulkFailureIDRunes      = 128
+	maxElasticsearchBulkFailureReasonRunes  = 200
+	maxElasticsearchBulkFailureMessageRunes = 4 * 1024
+)
+
+func elasticsearchBulkPartialFailure(result map[string]interface{}) error {
+	items, _ := result["items"].([]interface{})
+	successCount := 0
+	failureCount := 0
+	details := make([]string, 0, maxElasticsearchBulkFailureDetails)
+	for index, raw := range items {
+		itemMap, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		opName, opMap := elasticsearchBulkItemOp(itemMap)
+		if opMap == nil {
+			continue
+		}
+		errMap, hasError := opMap["error"].(map[string]interface{})
+		if !hasError {
+			successCount++
+			continue
+		}
+		failureCount++
+		if len(details) < maxElasticsearchBulkFailureDetails {
+			details = append(details, formatElasticsearchBulkFailureDetail(index, opName, opMap, errMap))
+		}
+	}
+	if failureCount == 0 {
+		return fmt.Errorf("ES 批量操作部分失败")
+	}
+	message := fmt.Sprintf("ES 批量操作部分失败：成功 %d 条，失败 %d 条：%s",
+		successCount, failureCount, strings.Join(details, "; "))
+	if omitted := failureCount - len(details); omitted > 0 {
+		message += fmt.Sprintf("；其余 %d 条省略", omitted)
+	}
+	return fmt.Errorf("%s", truncateElasticsearchBulkFailureMessage(
+		sanitizeElasticsearchBulkFailureText(message),
+		maxElasticsearchBulkFailureMessageRunes,
+	))
+}
+
+func elasticsearchBulkItemOp(item map[string]interface{}) (string, map[string]interface{}) {
+	for opName, raw := range item {
+		opMap, ok := raw.(map[string]interface{})
+		if ok {
+			return opName, opMap
+		}
+	}
+	return "", nil
+}
+
+func formatElasticsearchBulkFailureDetail(index int, opName string, opMap, errMap map[string]interface{}) string {
+	id := sanitizeElasticsearchBulkFailureText(fmt.Sprintf("%v", opMap["_id"]))
+	if id == "" || id == "<nil>" {
+		id = fmt.Sprintf("#%d", index+1)
+	}
+	id = truncateElasticsearchBulkFailureMessage(id, maxElasticsearchBulkFailureIDRunes)
+	reason, _ := errMap["reason"].(string)
+	if sanitizeElasticsearchBulkFailureText(reason) == "" {
+		reason, _ = errMap["type"].(string)
+	}
+	reason = sanitizeElasticsearchBulkFailureText(reason)
+	if reason == "" {
+		reason = "unknown error"
+	}
+	reason = truncateElasticsearchBulkFailureMessage(reason, maxElasticsearchBulkFailureReasonRunes)
+	opName = sanitizeElasticsearchBulkFailureText(opName)
+	if opName == "" {
+		return fmt.Sprintf("id=%s (%s)", id, reason)
+	}
+	return fmt.Sprintf("%s id=%s (%s)", opName, id, reason)
+}
+
+func sanitizeElasticsearchBulkFailureText(value string) string {
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, value))
+}
+
+func truncateElasticsearchBulkFailureMessage(value string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+	runes := []rune(value)
+	if maxRunes == 1 {
+		return "…"
+	}
+	return string(runes[:maxRunes-1]) + "…"
 }
