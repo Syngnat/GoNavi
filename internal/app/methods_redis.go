@@ -15,10 +15,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"GoNavi-Wails/internal/connection"
 	"GoNavi-Wails/internal/logger"
 	"GoNavi-Wails/internal/redis"
+	"GoNavi-Wails/internal/sqlaudit"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -1192,11 +1194,49 @@ func (a *App) RedisExecuteCommand(config connection.ConnectionConfig, command st
 
 	result, err := client.ExecuteCommand(args)
 	if err != nil {
-		logger.Error(err, "RedisExecuteCommand 执行失败：command=%s", command)
+		logger.Error(nil, "%s", redisExecuteCommandFailureLogMessage(err, command))
 		return connection.QueryResult{Success: false, Message: err.Error()}
 	}
 
 	return connection.QueryResult{Success: true, Data: result}
+}
+
+func redisExecuteCommandFailureLogMessage(err error, command string) string {
+	return fmt.Sprintf("RedisExecuteCommand 执行失败：command=%s；错误链：%s",
+		redactRedisCommandForLog(command),
+		sqlaudit.RedactError(logger.ErrorChain(err)))
+}
+
+func redactRedisCommandForLog(command string) string {
+	redacted := strings.TrimSpace(sqlaudit.RedactQuery("redis", command))
+	if redacted != "" {
+		return redacted
+	}
+	if verb := redisCommandVerbForLog(command); verb != "" {
+		return verb
+	}
+	return "[redacted]"
+}
+
+func redisCommandVerbForLog(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return ""
+	}
+	first := trimmed
+	if index := strings.IndexFunc(trimmed, unicode.IsSpace); index >= 0 {
+		first = trimmed[:index]
+	}
+	if first == "" || first[0] == '\'' || first[0] == '"' {
+		return ""
+	}
+	for _, r := range first {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return ""
+	}
+	return strings.ToUpper(first)
 }
 
 // parseRedisCommand parses a Redis command string into arguments
