@@ -289,6 +289,32 @@ func TestRecoveryControlRetryWithSameRequestIDIsIdempotent(t *testing.T) {
 	}
 	defer harness.Close()
 
+	// ControlRun starts a recovery worker as a side effect, and that worker
+	// acquires the run lease: the acquisition advances the revision and, once
+	// leased, fences out empty-token writes entirely. A live worker therefore
+	// races the forced projection below (the CI flake this test hit: the
+	// worker's lease landed between the read and the fenced write). The
+	// idempotency contract under test lives in the Ledger — the durable
+	// receipt, the single recovery checkpoint, and the tool settlement — and
+	// none of it needs a live worker, so pin a quiescent placeholder execution
+	// to make startWorker a no-op. With no concurrent writer, the run stays
+	// unleased and the fenced transition below is deterministic.
+	placeholder := &runExecution{
+		// done is intentionally never closed; nothing waits on a quiescent
+		// execution, and Close() only joins workers registered with wg.
+		runID:                  run.ID,
+		sessionID:              run.SessionID,
+		ctx:                    context.Background(),
+		cancel:                 func() {},
+		done:                   make(chan struct{}),
+		wake:                   make(chan struct{}, 1),
+		controlClaims:          make(map[string]struct{}),
+		staleWorkspaceCommands: make(map[string]struct{}),
+	}
+	harness.mu.Lock()
+	harness.runs[run.ID] = placeholder
+	harness.mu.Unlock()
+
 	request := RunControlRequest{
 		RequestID: "recovery-idempotent-request", RunID: run.ID, CallID: "write-1",
 		Action: ControlMarkCompleted, ExpectedRevision: run.Revision,
@@ -297,14 +323,10 @@ func TestRecoveryControlRetryWithSameRequestIDIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ControlRun starts a worker after recovery. Acquiring its lease may advance
-	// the live revision before this test can force a later projection, so read
-	// the current run instead of reusing first.Revision.
-	live, err := ledger.GetRun(ctx, run.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	advanced, err := ledger.TransitionRun(ctx, run.ID, live.State, RunStateAwaitingWorkspace, live.Revision, "")
+	// The placeholder keeps the run quiescent, so the receipt projection is
+	// still the live one: fence the forced transition on the receipt's own
+	// revision instead of re-reading.
+	advanced, err := ledger.TransitionRun(ctx, run.ID, first.State, RunStateAwaitingWorkspace, first.Revision, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,10 +351,11 @@ func TestRecoveryControlRetryWithSameRequestIDIsIdempotent(t *testing.T) {
 	if second.ID != first.ID {
 		t.Fatalf("retry returned a different run: first=%#v second=%#v", first, second)
 	}
-	// ControlRun starts a worker after recovery. Acquiring its lease may advance
-	// the run revision between the two calls, so revision equality is not an
-	// idempotency guarantee. The recovery checkpoint and tool settlement are the
-	// durable boundaries that must remain exactly-once.
+	// In production a recovery worker may advance the revision between the two
+	// calls (this test intentionally keeps that worker out of scope), so
+	// idempotency is asserted through the durable boundaries that must remain
+	// exactly-once — the recovery checkpoint and the tool settlement — rather
+	// than through snapshot equality on the replayed receipt.
 	var recoveryEvents int
 	if err := ledger.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE run_id=? AND kind=?`, run.ID, EventCheckpoint).Scan(&recoveryEvents); err != nil {
 		t.Fatal(err)
