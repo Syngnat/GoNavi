@@ -80,6 +80,10 @@ import {
   type SqlEditorTypographySettings,
 } from "./utils/sqlEditorTypography";
 import {
+  DEFAULT_HIGHLIGHT_CURRENT_SQL_STATEMENT,
+  sanitizeHighlightCurrentSqlStatement,
+} from "./utils/sqlEditorStatementHighlightSetting";
+import {
   normalizeOceanBaseProtocol,
   resolveOceanBaseProtocolFromConfig,
   resolveOceanBaseProtocolFromQueryText,
@@ -221,6 +225,7 @@ export interface AppearanceSettings
   autoAddTableAlias: boolean;
   customTableAliasPrefixEnabled: boolean;
   customTableAliasPrefix: string;
+  highlightCurrentSqlStatement: boolean;
   tabDisplay: TabDisplaySettings;
   redisDbAliases: RedisDbAliasMap;
 }
@@ -251,6 +256,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   autoAddTableAlias: true,
   customTableAliasPrefixEnabled: false,
   customTableAliasPrefix: '',
+  highlightCurrentSqlStatement: DEFAULT_HIGHLIGHT_CURRENT_SQL_STATEMENT,
   tabDisplay: DEFAULT_TAB_DISPLAY_SETTINGS,
   redisDbAliases: DEFAULT_REDIS_DB_ALIASES,
   ...DEFAULT_DATA_GRID_DISPLAY_SETTINGS,
@@ -3375,6 +3381,9 @@ const sanitizeAppearance = (
       appearance.customTableAliasPrefixEnabled === true,
     customTableAliasPrefix: normalizeTableAliasPrefix(
       appearance.customTableAliasPrefix,
+    ),
+    highlightCurrentSqlStatement: sanitizeHighlightCurrentSqlStatement(
+      appearance.highlightCurrentSqlStatement,
     ),
     tabDisplay: version < TAB_DISPLAY_DEFAULT_MIGRATION_VERSION
       && isLegacyDefaultTabDisplaySettings(appearance.tabDisplay)

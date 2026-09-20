@@ -3548,6 +3548,8 @@
   "app.theme.table_alias.custom_prefix.placeholder": "例: t",
   "app.theme.table_alias.custom_prefix.title": "表別名のカスタム接頭辞",
   "app.theme.table_alias.title": "表別名を自動追加",
+  "app.theme.sql_statement_highlight": "現在の SQL 文をハイライト",
+  "app.theme.sql_statement_highlight_hint": "ホバーするとテーマ色で文全体を枠表示します。実行ショートカットは1回目でハイライト、2回目で実行します。ツールバーの再生ボタンはすぐ実行します。",
   "app.theme.startup_window.hint": "* 変更は次回起動時に有効になります",
   "app.theme.startup_window.maximised": "起動時に最大化",
   "app.theme.startup_window.title": "起動ウィンドウ",

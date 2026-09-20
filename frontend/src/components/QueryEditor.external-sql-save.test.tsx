@@ -138,6 +138,7 @@ const storeState = vi.hoisted(() => ({
     customTableAliasPrefixEnabled: false,
     customTableAliasPrefix: '',
     queryTableCtrlClickAction: 'open-design' as 'open-design' | 'locate',
+    highlightCurrentSqlStatement: false,
   },
   sqlFormatOptions: { keywordCase: 'upper' as const },
   setSqlFormatOptions: vi.fn(),
@@ -968,6 +969,7 @@ describe('QueryEditor external SQL save', () => {
     });
     setCurrentLanguage('zh-CN');
     storeState.languagePreference = 'zh-CN';
+    storeState.appearance.highlightCurrentSqlStatement = false;
     storeState.shortcutOptions.runQuery.mac = { enabled: false, combo: '' };
     storeState.shortcutOptions.runQuery.windows = { enabled: false, combo: '' };
     storeState.shortcutOptions.selectCurrentStatement.mac = { enabled: false, combo: '' };
@@ -16327,6 +16329,7 @@ WHERE GRANTEE = 'APPUSER';`;
   });
 
   it('runs the statement at the cursor end from the keyboard shortcut when nothing is selected', async () => {
+    storeState.appearance.highlightCurrentSqlStatement = true;
     storeState.shortcutOptions.runQuery.mac = { enabled: true, combo: 'Meta+Enter' };
     storeState.shortcutOptions.runQuery.windows = { enabled: true, combo: 'Ctrl+Enter' };
     backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
@@ -16382,6 +16385,16 @@ WHERE GRANTEE = 'APPUSER';`;
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     };
+
+    await act(async () => {
+      windowListeners.keydown?.forEach((listener) => listener(event));
+      for (let i = 0; i < 6; i += 1) {
+        await Promise.resolve();
+      }
+    });
+
+    // The first press only highlights the statement under the cursor.
+    expect(backendApp.DBQueryMultiTransactional).not.toHaveBeenCalled();
 
     await act(async () => {
       windowListeners.keydown?.forEach((listener) => listener(event));

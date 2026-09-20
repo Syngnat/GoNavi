@@ -86,6 +86,7 @@ const storeState = vi.hoisted(() => ({
     dataTableFontSizeFollowGlobal: true,
     sqlEditorFontSize: null as number | null,
     sqlEditorFontSizeFollowGlobal: true,
+    highlightCurrentSqlStatement: false,
   },
   sqlFormatOptions: { keywordCase: 'upper' as 'upper' | 'lower' },
   setSqlFormatOptions: vi.fn(),
@@ -893,6 +894,7 @@ describe('QueryEditor external SQL save', () => {
     });
     setCurrentLanguage('zh-CN');
     storeState.languagePreference = 'zh-CN';
+    storeState.appearance.highlightCurrentSqlStatement = false;
     storeState.shortcutOptions.runQuery.mac = { enabled: false, combo: '' };
     storeState.shortcutOptions.runQuery.windows = { enabled: false, combo: '' };
     storeState.shortcutOptions.selectCurrentStatement.mac = { enabled: false, combo: '' };
@@ -2430,6 +2432,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('runs the cursor SQL from the run shortcut when nothing is selected', async () => {
+    storeState.appearance.highlightCurrentSqlStatement = true;
     storeState.shortcutOptions.runQuery.mac = { enabled: true, combo: 'Meta+Enter' };
     storeState.shortcutOptions.runQuery.windows = { enabled: true, combo: 'Ctrl+Enter' };
     const windowListeners: Record<string, ((event?: any) => void)[]> = {};
@@ -2464,6 +2467,18 @@ describe('QueryEditor external SQL save', () => {
     const event = createRunShortcutEvent();
     await act(async () => {
       windowListeners.keydown?.forEach((listener) => listener(event));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // The first press only highlights the statement under the cursor.
+    expect(backendApp.DBQueryMulti).not.toHaveBeenCalled();
+
+    const runEvent = createRunShortcutEvent();
+    await act(async () => {
+      windowListeners.keydown?.forEach((listener) => listener(runEvent));
     });
     await act(async () => {
       await Promise.resolve();

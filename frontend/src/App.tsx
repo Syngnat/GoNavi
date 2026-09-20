@@ -64,6 +64,7 @@ import {
 } from './brand/macDockIcon';
 import CustomThemeManager from './components/settings/CustomThemeManager';
 import ToolbarButtonAppearanceSettings from './components/settings/ToolbarButtonAppearanceSettings';
+import { WorkspaceSqlStatementHighlightRow } from './components/settings/WorkspaceSqlStatementHighlightRow';
 import SettingsCenterTreeNav, {
   findSettingsCenterTreeItem,
 } from './components/settings/SettingsCenterTreeNav';
@@ -7763,6 +7764,7 @@ function App() {
                               {renderThemeSettingsSection(
                                   t('app.theme.data_table.title'),
                                   <>
+                                      <WorkspaceSqlStatementHighlightRow />
                                       {renderThemeSettingsRow({
                                           label: t('app.theme.data_table.vertical_borders'),
                                           hint: t('app.theme.data_table.vertical_borders_hint'),

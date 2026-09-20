@@ -3548,6 +3548,8 @@
   "app.theme.table_alias.custom_prefix.placeholder": "Например: t",
   "app.theme.table_alias.custom_prefix.title": "Пользовательский префикс псевдонима таблицы",
   "app.theme.table_alias.title": "Автоматически добавлять псевдонимы таблиц",
+  "app.theme.sql_statement_highlight": "Подсвечивать текущий SQL-оператор",
+  "app.theme.sql_statement_highlight_hint": "При наведении рамка цвета темы охватывает весь оператор. Горячая клавиша запуска сначала подсвечивает, со второго нажатия выполняет; кнопка на панели запускает сразу.",
   "app.theme.startup_window.hint": "* Вступает в силу при следующем запуске",
   "app.theme.startup_window.maximised": "Разворачивать окно при запуске",
   "app.theme.startup_window.title": "Окно запуска",

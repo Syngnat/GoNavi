@@ -1,0 +1,22 @@
+.gonavi-query-editor-statement-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 3;
+}
+
+.gonavi-query-editor-statement-frame polygon {
+  fill: transparent;
+  stroke: color-mix(in srgb, var(--gn-accent) 82%, transparent);
+  stroke-width: 1;
+  stroke-linejoin: miter;
+  stroke-miterlimit: 2;
+}
+
+.gonavi-query-editor-statement-frame.is-armed polygon {
+  fill: color-mix(in srgb, var(--gn-accent) 16%, transparent);
+  stroke: color-mix(in srgb, var(--gn-accent) 92%, transparent);
+}

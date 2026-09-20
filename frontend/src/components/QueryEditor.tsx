@@ -199,6 +199,7 @@ import QueryEditorToolbar, {
 import { useQueryEditorExecutionLifecycle } from './queryEditor/useQueryEditorExecutionLifecycle';
 import { useQueryEditorSqlErrorLocator } from './queryEditor/useQueryEditorSqlErrorLocator';
 import { useQueryEditorErrorDiagnose } from './queryEditor/useQueryEditorErrorDiagnose';
+import { useQueryEditorStatementHighlight } from './queryEditor/useQueryEditorStatementHighlight';
 import { resolveQueryEditorAiConnectionHost } from './queryEditor/queryEditorAiContext';
 import { injectQueryEditorAiPromptWithContext } from './queryEditor/queryEditorAiPromptInject';
 import { useAiSqlInsertToTabListener } from './queryEditor/queryEditorAiSqlInsert';
@@ -2271,6 +2272,21 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       ),
       [connections, currentConnectionId],
   );
+  const highlightCurrentSqlStatement = useStore(
+      (state) => state.appearance.highlightCurrentSqlStatement !== false,
+  );
+  const { tryArmOrRunFromShortcut } = useQueryEditorStatementHighlight({
+      editorRef,
+      enabled: highlightCurrentSqlStatement,
+      isActive,
+      isRunning: loading,
+      isElasticsearchMode,
+      dbType: resolveSqlDialect(
+          String(currentConnectionConfig?.type || ''),
+          String(currentConnectionConfig?.driver || ''),
+          { oceanBaseProtocol: currentConnectionConfig?.oceanBaseProtocol },
+      ),
+  });
   const [elasticsearchServerMajor, setElasticsearchServerMajor] = useState(0);
   useEffect(() => {
       setElasticsearchServerMajor(0);
@@ -11570,6 +11586,9 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
   }, []);
 
   const handleRunSelectedShortcut = async () => {
+      if (tryArmOrRunFromShortcut() === 'arm') {
+          return;
+      }
       await handleRun();
   };
 

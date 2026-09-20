@@ -3548,6 +3548,8 @@
   "app.theme.table_alias.custom_prefix.placeholder": "For example: t",
   "app.theme.table_alias.custom_prefix.title": "Custom table alias prefix",
   "app.theme.table_alias.title": "Auto-add Table Aliases",
+  "app.theme.sql_statement_highlight": "Highlight current SQL statement",
+  "app.theme.sql_statement_highlight_hint": "Hover outlines the full statement in the theme color. The run shortcut highlights first and executes on the second press; the toolbar play button still runs immediately.",
   "app.theme.startup_window.hint": "* Takes effect on next startup",
   "app.theme.startup_window.maximised": "Maximize on startup",
   "app.theme.startup_window.title": "Startup Window",

@@ -3548,6 +3548,8 @@
   "app.theme.table_alias.custom_prefix.placeholder": "例如：t",
   "app.theme.table_alias.custom_prefix.title": "自訂表別名前綴",
   "app.theme.table_alias.title": "自動新增表別名",
+  "app.theme.sql_statement_highlight": "醒目提示目前 SQL 語句",
+  "app.theme.sql_statement_highlight_hint": "滑鼠懸停時以主題色框出完整語句。執行快捷鍵第一次只醒目提示識別到的語句，第二次才執行；工具列播放按鈕仍立即執行。",
   "app.theme.startup_window.hint": "* 修改后下次启动生效",
   "app.theme.startup_window.maximised": "啟動時最大化",
   "app.theme.startup_window.title": "启动視窗",

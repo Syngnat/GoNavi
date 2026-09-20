@@ -3548,6 +3548,8 @@
   "app.theme.table_alias.custom_prefix.placeholder": "Zum Beispiel: t",
   "app.theme.table_alias.custom_prefix.title": "Benutzerdefiniertes Tabellenalias-Präfix",
   "app.theme.table_alias.title": "Tabellenaliase automatisch hinzufügen",
+  "app.theme.sql_statement_highlight": "Aktuelle SQL-Anweisung hervorheben",
+  "app.theme.sql_statement_highlight_hint": "Beim Zeigen umrahmt die Theme-Farbe die gesamte Anweisung. Das Ausführen-Kürzel hebt zuerst hervor und führt beim zweiten Drücken aus; die Play-Schaltfläche führt sofort aus.",
   "app.theme.startup_window.hint": "* Wird beim nächsten Start wirksam",
   "app.theme.startup_window.maximised": "Beim Start maximieren",
   "app.theme.startup_window.title": "Startfenster",
