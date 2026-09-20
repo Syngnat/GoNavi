@@ -967,7 +967,7 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const handleRunSource = sliceBetween(
       source,
-      "const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "const handleRun = async (runScope: QueryEditorRunScope = 'default', runOptions?: { skipParamsGate?: boolean }) => {",
       "  const handleCancel = async () => {",
     );
     const handleCancelSource = sliceBetween(
@@ -997,7 +997,7 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const handleRunSource = sliceBetween(
       source,
-      "const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "const handleRun = async (runScope: QueryEditorRunScope = 'default', runOptions?: { skipParamsGate?: boolean }) => {",
       "  const handleCancel = async () => {",
     );
 
@@ -1023,7 +1023,7 @@ describe("i18n catalog", () => {
     const source = readQueryEditorSource();
     const handleRunSource = sliceBetween(
       source,
-      "const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "const handleRun = async (runScope: QueryEditorRunScope = 'default', runOptions?: { skipParamsGate?: boolean }) => {",
       "  const handleCancel = async () => {",
     );
 
@@ -1044,7 +1044,7 @@ describe("i18n catalog", () => {
     const handleReloadSource = sliceBetween(
       source,
       "  const handleReloadResult = async (",
-      "  const handleRun = async (runScope: QueryEditorRunScope = 'default') => {",
+      "  const handleRun = async (runScope: QueryEditorRunScope = 'default', runOptions?: { skipParamsGate?: boolean }) => {",
     );
 
     for (const language of SUPPORTED_LANGUAGES) {
