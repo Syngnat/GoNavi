@@ -1,3 +1,5 @@
+import { isSqlStatementStartBoundary } from './sqlStatementBoundary';
+
 export interface SqlStatementRange {
   start: number;
   end: number;
@@ -339,6 +341,14 @@ const isPlsqlControlEnd = (text: string, tokenEnd: number): boolean => (
   ['if', 'loop', 'case'].includes(nextSqlSignificantToken(text, tokenEnd))
 );
 
+const isAtSqlLineStart = (text: string, index: number): boolean => {
+  for (let pos = index - 1; pos >= 0; pos--) {
+    if (text[pos] === '\n') return true;
+    if (!isHorizontalWhitespace(text[pos])) return false;
+  }
+  return true;
+};
+
 const trimStatementRange = (sql: string, start: number, end: number, dbType = ''): SqlStatementRange | null => {
   let nextStart = Math.max(0, start);
   let nextEnd = Math.min(sql.length, Math.max(start, end));
@@ -385,12 +395,22 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
   let plsqlCaseDepth = 0;
   let skipNextPlsqlCaseEndToken = false;
   let justClosedPLSQLBlock = false;
+  let parenDepth = 0;
+  let lastSignificantToken = '';
+  let lastSignificantChar = '';
+  let lastSignificantEnd = 0;
 
   const push = (end: number) => {
     const range = trimStatementRange(text, statementStart, end, dbType);
     if (range) {
       ranges.push(range);
     }
+  };
+
+  const markSignificant = (ch: string, end: number, token = '') => {
+    lastSignificantToken = token;
+    lastSignificantChar = ch;
+    lastSignificantEnd = end;
   };
 
   for (let index = 0; index < text.length; index++) {
@@ -402,6 +422,7 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
       if (text.startsWith(dollarTag, index)) {
         index += dollarTag.length - 1;
         dollarTag = null;
+        markSignificant('$', index + 1);
       }
       continue;
     }
@@ -435,7 +456,10 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
         index++;
         continue;
       }
-      if (ch === '"') inDouble = false;
+      if (ch === '"') {
+        inDouble = false;
+        markSignificant(ch, index + 1);
+      }
       continue;
     }
 
@@ -445,7 +469,10 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
         index++;
         continue;
       }
-      if (ch === '`') inBacktick = false;
+      if (ch === '`') {
+        inBacktick = false;
+        markSignificant(ch, index + 1);
+      }
       continue;
     }
 
@@ -455,7 +482,10 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
         index++;
         continue;
       }
-      if (ch === ']') inBracket = false;
+      if (ch === ']') {
+        inBracket = false;
+        markSignificant(ch, index + 1);
+      }
       continue;
     }
 
@@ -508,18 +538,22 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
 
     if (!inDouble && !inBacktick && ch === "'") {
       inSingle = !inSingle;
+      markSignificant(ch, index + 1);
       continue;
     }
     if (!inSingle && !inBacktick && ch === '"') {
       inDouble = !inDouble;
+      markSignificant(ch, index + 1);
       continue;
     }
     if (!inSingle && !inDouble && ch === '`') {
       inBacktick = !inBacktick;
+      markSignificant(ch, index + 1);
       continue;
     }
     if (bracketIdentifiers && !inSingle && !inDouble && !inBacktick && ch === '[') {
       inBracket = true;
+      markSignificant(ch, index + 1);
       continue;
     }
 
@@ -529,6 +563,23 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
         tokenEnd++;
       }
       const token = text.slice(index, tokenEnd).toLowerCase();
+      // Scripts that omit `;` still break into statements at a dialect keyword
+      // that can only open a new statement.
+      if (plsqlDepth === 0 && lastSignificantEnd > statementStart && isSqlStatementStartBoundary({
+        token,
+        dbType,
+        atLineStart: isAtSqlLineStart(text, index),
+        parenDepth,
+        previousToken: lastSignificantToken,
+        previousChar: lastSignificantChar,
+        pendingHeadToken: nextSqlSignificantToken(text, statementStart),
+      })) {
+        push(lastSignificantEnd);
+        statementStart = lastSignificantEnd;
+        parenDepth = 0;
+        justClosedPLSQLBlock = false;
+      }
+      markSignificant(text[tokenEnd - 1], tokenEnd, token);
       if (token === 'case' && plsqlDepth > 0) {
         if (skipNextPlsqlCaseEndToken) {
           skipNextPlsqlCaseEndToken = false;
@@ -581,8 +632,18 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
       }
       push(justClosedPLSQLBlock ? index + 1 : index);
       statementStart = index + 1;
+      parenDepth = 0;
       justClosedPLSQLBlock = false;
       continue;
+    }
+
+    if (!inSingle && !inDouble && !inBacktick && !inBracket && !isWhitespace(ch)) {
+      if (ch === '(') {
+        parenDepth++;
+      } else if (ch === ')') {
+        parenDepth = Math.max(0, parenDepth - 1);
+      }
+      markSignificant(ch, index + 1);
     }
   }
 
