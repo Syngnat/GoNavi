@@ -80,9 +80,8 @@ import {
   type SqlEditorTypographySettings,
 } from "./utils/sqlEditorTypography";
 import {
-  DEFAULT_HIGHLIGHT_CURRENT_SQL_STATEMENT,
-  sanitizeHighlightCurrentSqlStatement,
-} from "./utils/sqlEditorStatementHighlightSetting";
+  createSqlStatementHighlightSlice, resolvePersistedSqlStatementHighlightSettings, type SqlStatementHighlightSlice,
+} from "./store/sqlStatementHighlightSlice";
 import {
   normalizeOceanBaseProtocol,
   resolveOceanBaseProtocolFromConfig,
@@ -225,7 +224,6 @@ export interface AppearanceSettings
   autoAddTableAlias: boolean;
   customTableAliasPrefixEnabled: boolean;
   customTableAliasPrefix: string;
-  highlightCurrentSqlStatement: boolean;
   tabDisplay: TabDisplaySettings;
   redisDbAliases: RedisDbAliasMap;
 }
@@ -256,7 +254,6 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   autoAddTableAlias: true,
   customTableAliasPrefixEnabled: false,
   customTableAliasPrefix: '',
-  highlightCurrentSqlStatement: DEFAULT_HIGHLIGHT_CURRENT_SQL_STATEMENT,
   tabDisplay: DEFAULT_TAB_DISPLAY_SETTINGS,
   redisDbAliases: DEFAULT_REDIS_DB_ALIASES,
   ...DEFAULT_DATA_GRID_DISPLAY_SETTINGS,
@@ -1990,7 +1987,7 @@ export interface SqlEditorPendingTransactionState {
   executionDurationMs?: number;
 }
 
-interface AppState {
+export interface AppState extends SqlStatementHighlightSlice {
   connections: SavedConnection[];
   connectionTags: ConnectionTag[];
   sidebarRootOrder: string[];
@@ -3382,9 +3379,6 @@ const sanitizeAppearance = (
     customTableAliasPrefix: normalizeTableAliasPrefix(
       appearance.customTableAliasPrefix,
     ),
-    highlightCurrentSqlStatement: sanitizeHighlightCurrentSqlStatement(
-      appearance.highlightCurrentSqlStatement,
-    ),
     tabDisplay: version < TAB_DISPLAY_DEFAULT_MIGRATION_VERSION
       && isLegacyDefaultTabDisplaySettings(appearance.tabDisplay)
       ? sanitizeTabDisplaySettings(DEFAULT_TAB_DISPLAY_SETTINGS)
@@ -3630,6 +3624,7 @@ const PERSISTED_STATE_DEPENDENCY_KEYS = [
   "brandIconId",
   "languagePreference",
   "appearance",
+  "sqlStatementHighlight",
   "uiScale",
   "fontSize",
   "startupFullscreen",
@@ -3692,6 +3687,7 @@ const buildPersistedStateProjection = (
     brandIconId: sanitizeBrandIconIdLocal(state.brandIconId),
     languagePreference: state.languagePreference,
     appearance: state.appearance,
+    sqlStatementHighlight: state.sqlStatementHighlight,
     uiScale: state.uiScale,
     fontSize: state.fontSize,
     startupFullscreen: state.startupFullscreen,
@@ -3834,6 +3830,7 @@ export const useStore = create<AppState>()(
       brandIconId: "03",
       languagePreference: DEFAULT_LANGUAGE_PREFERENCE,
       appearance: { ...DEFAULT_APPEARANCE },
+      ...createSqlStatementHighlightSlice((update) => set((state) => update(state))),
       uiScale: DEFAULT_UI_SCALE,
       fontSize: DEFAULT_FONT_SIZE,
       startupFullscreen: DEFAULT_STARTUP_FULLSCREEN,
@@ -6318,6 +6315,7 @@ export const useStore = create<AppState>()(
           state.languagePreference,
         );
         nextState.appearance = sanitizeAppearance(state.appearance, version);
+        nextState.sqlStatementHighlight = resolvePersistedSqlStatementHighlightSettings(state.sqlStatementHighlight, state.appearance);
         nextState.uiScale = sanitizeUiScale(state.uiScale);
         nextState.fontSize = sanitizeFontSize(state.fontSize);
         nextState.startupFullscreen = sanitizeStartupFullscreen(
@@ -6466,6 +6464,7 @@ export const useStore = create<AppState>()(
             state.languagePreference,
           ),
           appearance: sanitizeAppearance(state.appearance, PERSIST_VERSION),
+          sqlStatementHighlight: resolvePersistedSqlStatementHighlightSettings(state.sqlStatementHighlight, state.appearance),
           uiScale: sanitizeUiScale(state.uiScale),
           fontSize: sanitizeFontSize(state.fontSize),
           startupFullscreen: sanitizeStartupFullscreen(state.startupFullscreen),

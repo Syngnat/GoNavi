@@ -86,7 +86,10 @@ const storeState = vi.hoisted(() => ({
     dataTableFontSizeFollowGlobal: true,
     sqlEditorFontSize: null as number | null,
     sqlEditorFontSizeFollowGlobal: true,
+  },
+  sqlStatementHighlight: {
     highlightCurrentSqlStatement: false,
+    confirmSqlStatementRun: false,
   },
   sqlFormatOptions: { keywordCase: 'upper' as 'upper' | 'lower' },
   setSqlFormatOptions: vi.fn(),
@@ -636,7 +639,7 @@ const findEditorAction = (id: string) =>
     .reverse()
     .find((action: any) => action?.id === id);
 
-const createRunShortcutEvent = () => {
+const createRunShortcutEvent = (repeat = false) => {
   const isMacRuntime = /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform || ''} ${navigator.userAgent || ''}`);
   return {
     ctrlKey: !isMacRuntime,
@@ -644,9 +647,11 @@ const createRunShortcutEvent = () => {
     altKey: false,
     shiftKey: false,
     key: 'Enter',
+    repeat,
     target: null,
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
+    stopImmediatePropagation: vi.fn(),
   };
 };
 
@@ -894,7 +899,8 @@ describe('QueryEditor external SQL save', () => {
     });
     setCurrentLanguage('zh-CN');
     storeState.languagePreference = 'zh-CN';
-    storeState.appearance.highlightCurrentSqlStatement = false;
+    storeState.sqlStatementHighlight.highlightCurrentSqlStatement = false;
+    storeState.sqlStatementHighlight.confirmSqlStatementRun = false;
     storeState.shortcutOptions.runQuery.mac = { enabled: false, combo: '' };
     storeState.shortcutOptions.runQuery.windows = { enabled: false, combo: '' };
     storeState.shortcutOptions.selectCurrentStatement.mac = { enabled: false, combo: '' };
@@ -2432,7 +2438,7 @@ describe('QueryEditor external SQL save', () => {
   });
 
   it('runs the cursor SQL from the run shortcut when nothing is selected', async () => {
-    storeState.appearance.highlightCurrentSqlStatement = true;
+    storeState.sqlStatementHighlight.highlightCurrentSqlStatement = true;
     storeState.shortcutOptions.runQuery.mac = { enabled: true, combo: 'Meta+Enter' };
     storeState.shortcutOptions.runQuery.windows = { enabled: true, combo: 'Ctrl+Enter' };
     const windowListeners: Record<string, ((event?: any) => void)[]> = {};
@@ -2464,21 +2470,17 @@ describe('QueryEditor external SQL save', () => {
     });
     backendApp.DBQueryMulti.mockClear();
 
+    const repeatEvent = createRunShortcutEvent(true);
+    await act(async () => {
+      windowListeners.keydown?.forEach((listener) => listener(repeatEvent));
+    });
+    expect(repeatEvent.preventDefault).toHaveBeenCalled();
+    expect(repeatEvent.stopImmediatePropagation).toHaveBeenCalled();
+    expect(backendApp.DBQueryMulti).not.toHaveBeenCalled();
+
     const event = createRunShortcutEvent();
     await act(async () => {
       windowListeners.keydown?.forEach((listener) => listener(event));
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    // The first press only highlights the statement under the cursor.
-    expect(backendApp.DBQueryMulti).not.toHaveBeenCalled();
-
-    const runEvent = createRunShortcutEvent();
-    await act(async () => {
-      windowListeners.keydown?.forEach((listener) => listener(runEvent));
     });
     await act(async () => {
       await Promise.resolve();

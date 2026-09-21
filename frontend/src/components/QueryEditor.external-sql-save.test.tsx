@@ -138,7 +138,10 @@ const storeState = vi.hoisted(() => ({
     customTableAliasPrefixEnabled: false,
     customTableAliasPrefix: '',
     queryTableCtrlClickAction: 'open-design' as 'open-design' | 'locate',
+  },
+  sqlStatementHighlight: {
     highlightCurrentSqlStatement: false,
+    confirmSqlStatementRun: false,
   },
   sqlFormatOptions: { keywordCase: 'upper' as const },
   setSqlFormatOptions: vi.fn(),
@@ -969,7 +972,8 @@ describe('QueryEditor external SQL save', () => {
     });
     setCurrentLanguage('zh-CN');
     storeState.languagePreference = 'zh-CN';
-    storeState.appearance.highlightCurrentSqlStatement = false;
+    storeState.sqlStatementHighlight.highlightCurrentSqlStatement = false;
+    storeState.sqlStatementHighlight.confirmSqlStatementRun = false;
     storeState.shortcutOptions.runQuery.mac = { enabled: false, combo: '' };
     storeState.shortcutOptions.runQuery.windows = { enabled: false, combo: '' };
     storeState.shortcutOptions.selectCurrentStatement.mac = { enabled: false, combo: '' };
@@ -16249,6 +16253,8 @@ WHERE GRANTEE = 'APPUSER';`;
   });
 
   it('uses Monaco active selection position when run button focus drifts onto a blank line', async () => {
+    storeState.sqlStatementHighlight.highlightCurrentSqlStatement = true;
+    storeState.sqlStatementHighlight.confirmSqlStatementRun = true;
     backendApp.DBQueryMulti.mockResolvedValueOnce({
       success: true,
       data: [{ columns: ['b'], rows: [{ b: 2 }] }],
@@ -16329,21 +16335,25 @@ WHERE GRANTEE = 'APPUSER';`;
   });
 
   it('runs the statement at the cursor end from the keyboard shortcut when nothing is selected', async () => {
-    storeState.appearance.highlightCurrentSqlStatement = true;
+    storeState.sqlStatementHighlight.highlightCurrentSqlStatement = true;
+    storeState.sqlStatementHighlight.confirmSqlStatementRun = true;
     storeState.shortcutOptions.runQuery.mac = { enabled: true, combo: 'Meta+Enter' };
     storeState.shortcutOptions.runQuery.windows = { enabled: true, combo: 'Ctrl+Enter' };
     backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
       success: true,
       data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
     });
-    const windowListeners: Record<string, ((event?: any) => void)[]> = {};
+    const windowListeners: Record<string, ((event?: Event) => void)[]> = {};
     vi.stubGlobal('window', {
-      addEventListener: vi.fn((type: string, listener: (event?: any) => void) => {
+      addEventListener: vi.fn((type: string, listener: (event?: Event) => void) => {
         windowListeners[type] ||= [];
         windowListeners[type].push(listener);
       }),
       removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
+      dispatchEvent: vi.fn((event: Event) => {
+        windowListeners[event.type]?.forEach((listener) => listener(event));
+        return true;
+      }),
       setTimeout,
       clearTimeout,
       requestAnimationFrame: vi.fn((callback: FrameRequestCallback) => {
@@ -16353,7 +16363,6 @@ WHERE GRANTEE = 'APPUSER';`;
       cancelAnimationFrame: vi.fn(),
       innerHeight: 900,
     });
-
     let renderer: ReactTestRenderer;
     await act(async () => {
       renderer = create(<QueryEditor tab={createTab({
@@ -16374,43 +16383,27 @@ WHERE GRANTEE = 'APPUSER';`;
       listener({ position: editorState.position });
     });
 
-    const isMacRuntime = /(Mac|iPhone|iPad|iPod)/i.test(`${navigator.platform || ''} ${navigator.userAgent || ''}`);
-    const event = {
-      ctrlKey: !isMacRuntime,
-      metaKey: isMacRuntime,
-      altKey: false,
-      shiftKey: false,
-      key: 'Enter',
-      target: null,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-    };
+    const runAction = findEditorAction('gonavi.runQuery');
 
     await act(async () => {
-      windowListeners.keydown?.forEach((listener) => listener(event));
-      for (let i = 0; i < 6; i += 1) {
-        await Promise.resolve();
-      }
+      await runAction.run();
     });
 
-    // The first press only highlights the statement under the cursor.
+    // Confirmation mode frames the statement without running on the first press.
     expect(backendApp.DBQueryMultiTransactional).not.toHaveBeenCalled();
 
     await act(async () => {
-      windowListeners.keydown?.forEach((listener) => listener(event));
-      for (let i = 0; i < 6; i += 1) {
-        await Promise.resolve();
-      }
+      await runAction.run();
     });
 
-    expect(event.preventDefault).toHaveBeenCalled();
-    expect(event.stopPropagation).toHaveBeenCalled();
-    expect(backendApp.DBQueryMultiTransactional).toHaveBeenCalledWith(
-      expect.anything(),
-      'main',
-      "UPDATE uk_user SET email = NULL WHERE email = 'liuzhen@mail.chat5188.com'",
-      'query-1',
-    );
+    await vi.waitFor(() => {
+      expect(backendApp.DBQueryMultiTransactional).toHaveBeenCalledWith(
+        expect.anything(),
+        'main',
+        "UPDATE uk_user SET email = NULL WHERE email = 'liuzhen@mail.chat5188.com'",
+        'query-1',
+      );
+    });
     expect(String(backendApp.DBQueryMultiTransactional.mock.calls[0][2])).not.toContain('SELECT * FROM uk_back_corp');
     expect(messageApi.info).not.toHaveBeenCalledWith('没有可选择的 SQL 语句。');
 

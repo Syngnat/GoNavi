@@ -2272,12 +2272,12 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       ),
       [connections, currentConnectionId],
   );
-  const highlightCurrentSqlStatement = useStore(
-      (state) => state.appearance.highlightCurrentSqlStatement !== false,
-  );
-  const { tryArmOrRunFromShortcut } = useQueryEditorStatementHighlight({
+  const highlightCurrentSqlStatement = useStore((state) => state.sqlStatementHighlight?.highlightCurrentSqlStatement !== false);
+  const confirmSqlStatementRun = useStore((state) => state.sqlStatementHighlight?.confirmSqlStatementRun === true);
+  const { runFromShortcut } = useQueryEditorStatementHighlight({
       editorRef,
       enabled: highlightCurrentSqlStatement,
+      requireConfirm: confirmSqlStatementRun,
       isActive,
       isRunning: loading,
       isElasticsearchMode,
@@ -11585,12 +11585,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       pendingRunAfterSchemaLoadRef.current = false;
   }, []);
 
-  const handleRunSelectedShortcut = async () => {
-      if (tryArmOrRunFromShortcut() === 'arm') {
-          return;
-      }
-      await handleRun();
-  };
+  const handleRunSelectedShortcut = () => runFromShortcut(handleRun);
 
   const handleCancel = async () => {
     const finishCancelledRun = () => {
@@ -11692,6 +11687,11 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
           if (!isShortcutMatch(event, binding.combo)) {
               return;
           }
+          if (event.repeat) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+              return;
+          }
           const editorHasFocus = !!editorRef.current?.hasTextFocus?.();
           const targetNode = resolveEventTargetNode(event.target);
           if (!shouldHandleQueryEditorRunShortcutFallback({
@@ -11711,7 +11711,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
       return () => {
           window.removeEventListener('keydown', handleRunShortcut, true);
       };
-  }, [isActive, runQueryShortcutBinding, handleRun]);
+  }, [isActive, runQueryShortcutBinding, handleRun, handleRunSelectedShortcut]);
 
   // Re-register Monaco internal keybinding when runQuery shortcut changes
   useEffect(() => {

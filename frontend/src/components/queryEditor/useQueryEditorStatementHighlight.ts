@@ -56,6 +56,8 @@ type StatementHighlightModel = {
 type UseQueryEditorStatementHighlightArgs = {
   editorRef: { current: StatementHighlightEditor | null };
   enabled: boolean;
+  /** When off, the run shortcut highlights and executes in the same press. */
+  requireConfirm: boolean;
   isActive: boolean;
   isRunning: boolean;
   isElasticsearchMode: boolean;
@@ -194,6 +196,7 @@ const paintStatementFrame = (
 const bindStatementHighlightEditor = ({
   editor,
   getDbType,
+  getCanInteract,
   getCanPaint,
   refs,
   onOverlay,
@@ -201,6 +204,7 @@ const bindStatementHighlightEditor = ({
 }: {
   editor: StatementHighlightEditor;
   getDbType: () => string;
+  getCanInteract: () => boolean;
   getCanPaint: () => boolean;
   refs: OverlayRefs;
   onOverlay: (overlay: SVGSVGElement | null) => void;
@@ -208,7 +212,7 @@ const bindStatementHighlightEditor = ({
 }): Array<{ dispose: () => void }> => {
   const paint = () => onOverlay(paintStatementFrame(editor, refs, getCanPaint()));
   const handleMouseMove = (event: { target?: { position?: { lineNumber: number; column: number } | null } }) => {
-    if (!getCanPaint() || refs.armedKey) {
+    if (!getCanInteract() || refs.armedKey) {
       return;
     }
     refs.hoverRange = resolveRangeAtPosition(editor, event.target?.position || null, getDbType());
@@ -255,7 +259,7 @@ const bindStatementHighlightEditor = ({
   if (editor.onMouseDown) disposables.push(editor.onMouseDown(handleMouseDown));
   if (editor.onDidScrollChange) disposables.push(editor.onDidScrollChange(paint));
   if (editor.onDidChangeModelContent) disposables.push(editor.onDidChangeModelContent(handleContentChange));
-  if (editor.onDidChangeCursorPosition) disposables.push(editor.onDidChangeCursorPosition(paint));
+  if (editor.onDidChangeCursorPosition) disposables.push(editor.onDidChangeCursorPosition(handleContentChange));
   if (editor.onKeyDown) disposables.push(editor.onKeyDown(handleEscape));
   disposables.push({ dispose: () => host?.removeEventListener('mouseleave', handleMouseLeave) });
   paint();
@@ -265,6 +269,7 @@ const bindStatementHighlightEditor = ({
 export const useQueryEditorStatementHighlight = ({
   editorRef,
   enabled,
+  requireConfirm,
   isActive,
   isRunning,
   isElasticsearchMode,
@@ -274,22 +279,31 @@ export const useQueryEditorStatementHighlight = ({
   const armedKeyRef = useRef<string | null>(null);
   const armedRangeRef = useRef<SqlStatementRange | null>(null);
   const hoverRangeRef = useRef<SqlStatementRange | null>(null);
+  const wasRunningRef = useRef(false);
   const dbTypeRef = useRef(dbType);
+  const isRunningRef = useRef(isRunning);
   dbTypeRef.current = dbType;
+  isRunningRef.current = isRunning;
   const featureOn = enabled && isActive && !isElasticsearchMode;
-  const canPaint = featureOn && !isRunning;
+  const canPaint = featureOn && (!isRunning || Boolean(armedRangeRef.current));
 
-  const snapshotRefs = (): OverlayRefs => ({
+  const snapshotRefs = useCallback((): OverlayRefs => ({
     overlay: overlayRef.current,
     armedKey: armedKeyRef.current,
     armedRange: armedRangeRef.current,
     hoverRange: hoverRangeRef.current,
-  });
+  }), []);
 
   const clearArmed = useCallback(() => {
     armedKeyRef.current = null;
     armedRangeRef.current = null;
   }, []);
+
+  const clearShortcutRunHighlight = useCallback(() => {
+    clearArmed();
+    hoverRangeRef.current = null;
+    overlayRef.current = paintStatementFrame(editorRef.current, snapshotRefs(), false);
+  }, [clearArmed, editorRef, snapshotRefs]);
 
   const tryArmOrRunFromShortcut = useCallback((): RunShortcutAction => {
     const editor = editorRef.current;
@@ -298,31 +312,53 @@ export const useQueryEditorStatementHighlight = ({
       return 'run';
     }
     const range = resolveRangeAtPosition(editor, editor?.getPosition?.() || null, dbTypeRef.current);
+    const hasSelection = editorHasNonEmptySelection(editor);
     const action = resolveRunShortcutAction({
       enabled: true,
-      hasSelection: editorHasNonEmptySelection(editor),
+      requireConfirm,
+      hasSelection,
       statementKey: range ? buildStatementHighlightKey(range) : null,
       armedKey: armedKeyRef.current,
     });
-    if (action === 'arm' && range) {
+    // Frame the resolved statement even when it runs right away, so a single
+    // press still shows which statement was picked.
+    if (range && !hasSelection) {
       armedKeyRef.current = buildStatementHighlightKey(range);
       armedRangeRef.current = range;
       hoverRangeRef.current = null;
       overlayRef.current = paintStatementFrame(editor, snapshotRefs(), true);
-      return 'arm';
+      return action;
     }
     clearArmed();
     overlayRef.current = paintStatementFrame(editor, snapshotRefs(), false);
     return 'run';
-  }, [clearArmed, editorRef, featureOn]);
+  }, [clearArmed, editorRef, featureOn, requireConfirm, snapshotRefs]);
+
+  const runFromShortcut = useCallback(async (
+    run: () => void | Promise<void>,
+  ) => {
+    if (tryArmOrRunFromShortcut() === 'arm') {
+      return;
+    }
+    try {
+      await run();
+    } finally {
+      clearShortcutRunHighlight();
+    }
+  }, [clearShortcutRunHighlight, tryArmOrRunFromShortcut]);
 
   useEffect(() => {
+    const runCompleted = wasRunningRef.current && !isRunning;
+    wasRunningRef.current = isRunning;
+    if (runCompleted) {
+      clearArmed();
+    }
     if (!canPaint) {
       hoverRangeRef.current = null;
       clearArmed();
     }
     overlayRef.current = paintStatementFrame(editorRef.current, snapshotRefs(), canPaint);
-  }, [canPaint, clearArmed, editorRef]);
+  }, [canPaint, clearArmed, editorRef, isRunning]);
 
   useEffect(() => {
     if (!featureOn) {
@@ -346,7 +382,8 @@ export const useQueryEditorStatementHighlight = ({
       disposables = bindStatementHighlightEditor({
         editor,
         getDbType: () => dbTypeRef.current,
-        getCanPaint: () => canPaint,
+        getCanInteract: () => featureOn && !isRunningRef.current,
+        getCanPaint: () => featureOn && (!isRunningRef.current || Boolean(armedRangeRef.current)),
         refs: {
           get overlay() { return overlayRef.current; },
           set overlay(value) { overlayRef.current = value; },
@@ -383,5 +420,5 @@ export const useQueryEditorStatementHighlight = ({
     };
   }, [canPaint, clearArmed, editorRef, featureOn]);
 
-  return { tryArmOrRunFromShortcut };
+  return { runFromShortcut, tryArmOrRunFromShortcut };
 };

@@ -30,59 +30,44 @@ describe('resolveHighlightableStatementRange', () => {
 
 describe('resolveRunShortcutAction', () => {
   const statementKey = '10:20:SELECT 1;';
-
-  it('runs immediately when the feature is disabled', () => {
-    expect(resolveRunShortcutAction({
-      enabled: false,
+  const action = (overrides: Partial<Parameters<typeof resolveRunShortcutAction>[0]> = {}) => (
+    resolveRunShortcutAction({
+      enabled: true,
+      requireConfirm: true,
       hasSelection: false,
       statementKey,
       armedKey: null,
-    })).toBe('run');
+      ...overrides,
+    })
+  );
+
+  it('runs immediately when the feature is disabled', () => {
+    expect(action({ enabled: false })).toBe('run');
   });
 
   it('runs immediately when the editor has a selection', () => {
-    expect(resolveRunShortcutAction({
-      enabled: true,
-      hasSelection: true,
-      statementKey,
-      armedKey: null,
-    })).toBe('run');
+    expect(action({ hasSelection: true })).toBe('run');
   });
 
-  it('arms on the first shortcut press', () => {
-    expect(resolveRunShortcutAction({
-      enabled: true,
-      hasSelection: false,
-      statementKey,
-      armedKey: null,
-    })).toBe('arm');
+  it('runs on a single press when confirmation is off', () => {
+    expect(action({ requireConfirm: false })).toBe('run');
+    expect(action({ requireConfirm: false, armedKey: statementKey })).toBe('run');
+  });
+
+  it('arms on the first shortcut press when confirmation is on', () => {
+    expect(action()).toBe('arm');
   });
 
   it('runs on the second shortcut press for the same statement', () => {
-    expect(resolveRunShortcutAction({
-      enabled: true,
-      hasSelection: false,
-      statementKey,
-      armedKey: statementKey,
-    })).toBe('run');
+    expect(action({ armedKey: statementKey })).toBe('run');
   });
 
   it('re-arms when the caret moves to another statement', () => {
-    expect(resolveRunShortcutAction({
-      enabled: true,
-      hasSelection: false,
-      statementKey: '30:40:SELECT 2;',
-      armedKey: statementKey,
-    })).toBe('arm');
+    expect(action({ statementKey: '30:40:SELECT 2;', armedKey: statementKey })).toBe('arm');
   });
 
   it('runs when no statement can be identified', () => {
-    expect(resolveRunShortcutAction({
-      enabled: true,
-      hasSelection: false,
-      statementKey: null,
-      armedKey: null,
-    })).toBe('run');
+    expect(action({ statementKey: null })).toBe('run');
   });
 });
 

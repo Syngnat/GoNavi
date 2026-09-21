@@ -5,21 +5,37 @@ import { useStore } from '../../store';
 
 export const WorkspaceSqlStatementHighlightRow = () => {
   const { t } = useI18n();
-  const enabled = useStore((state) => state.appearance.highlightCurrentSqlStatement !== false);
-  const setAppearance = useStore((state) => state.setAppearance);
+  const enabled = useStore((state) => state.sqlStatementHighlight.highlightCurrentSqlStatement);
+  const confirmRun = useStore((state) => state.sqlStatementHighlight.confirmSqlStatementRun);
+  const setHighlightSettings = useStore((state) => state.setSqlStatementHighlightSettings);
 
   return (
-    <div className="gonavi-settings-row">
-      <div>
-        <div className="gonavi-settings-label">{t('app.theme.sql_statement_highlight')}</div>
-        <div className="gonavi-settings-label-hint">{t('app.theme.sql_statement_highlight_hint')}</div>
+    <>
+      <div className="gonavi-settings-row">
+        <div>
+          <div className="gonavi-settings-label">{t('app.theme.sql_statement_highlight')}</div>
+          <div className="gonavi-settings-label-hint">{t('app.theme.sql_statement_highlight_hint')}</div>
+        </div>
+        <div className="gonavi-settings-control">
+          <Switch
+            checked={enabled}
+            onChange={(checked) => setHighlightSettings({ highlightCurrentSqlStatement: checked })}
+          />
+        </div>
       </div>
-      <div className="gonavi-settings-control">
-        <Switch
-          checked={enabled}
-          onChange={(checked) => setAppearance({ highlightCurrentSqlStatement: checked })}
-        />
+      <div className="gonavi-settings-row">
+        <div>
+          <div className="gonavi-settings-label">{t('app.theme.sql_statement_run_confirm')}</div>
+          <div className="gonavi-settings-label-hint">{t('app.theme.sql_statement_run_confirm_hint')}</div>
+        </div>
+        <div className="gonavi-settings-control">
+          <Switch
+            checked={confirmRun}
+            disabled={!enabled}
+            onChange={(checked) => setHighlightSettings({ confirmSqlStatementRun: checked })}
+          />
+        </div>
       </div>
-    </div>
+    </>
   );
 };

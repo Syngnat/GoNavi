@@ -53,11 +53,14 @@ export const resolveHighlightableStatementRange = (
 
 export const resolveRunShortcutAction = ({
   enabled,
+  requireConfirm,
   hasSelection,
   statementKey,
   armedKey,
 }: {
   enabled: boolean;
+  /** When off, the shortcut highlights and executes in the same press. */
+  requireConfirm: boolean;
   hasSelection: boolean;
   statementKey: string | null;
   armedKey: string | null;
@@ -65,7 +68,7 @@ export const resolveRunShortcutAction = ({
   if (!enabled || hasSelection || !statementKey) {
     return 'run';
   }
-  if (armedKey === statementKey) {
+  if (!requireConfirm || armedKey === statementKey) {
     return 'run';
   }
   return 'arm';

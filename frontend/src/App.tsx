@@ -5742,7 +5742,7 @@ function App() {
               return;
           }
 
-          if (event.repeat && matchedAction === 'toggleAIPanel') {
+          if (event.repeat && (matchedAction === 'toggleAIPanel' || matchedAction === 'runQuery')) {
               event.preventDefault();
               event.stopImmediatePropagation();
               return;
@@ -5753,7 +5753,7 @@ function App() {
 
           switch (matchedAction) {
               case 'runQuery':
-                  window.dispatchEvent(new CustomEvent('gonavi:run-active-query'));
+                  window.dispatchEvent(new CustomEvent('gonavi:run-active-query', { detail: { requireSelection: true } }));
                   break;
               case 'focusSidebarSearch':
                   handleFocusSidebarSearch();
