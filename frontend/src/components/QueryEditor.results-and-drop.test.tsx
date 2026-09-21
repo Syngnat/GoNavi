@@ -1275,11 +1275,8 @@ describe('QueryEditor external SQL save', () => {
     await act(async () => {
       await findButton(renderer!, '运行').props.onClick();
     });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
 
+    await vi.waitFor(() => expect(backendApp.DBQueryMulti).toHaveBeenCalled());
     const executedSql = String(backendApp.DBQueryMulti.mock.calls[0][2]);
     expect(executedSql).toContain('CREATE OR REPLACE PROCEDURE cproc_tzhssr_order2sale_A1');
     expect(executedSql).toContain('p_msg_out OUT NVARCHAR2');
@@ -1381,11 +1378,8 @@ describe('QueryEditor external SQL save', () => {
     await act(async () => {
       await findButton(renderer!, '运行').props.onClick();
     });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
 
+    await vi.waitFor(() => expect(backendApp.DBQueryMulti).toHaveBeenCalled());
     const executedSql = String(backendApp.DBQueryMulti.mock.calls[0][2]);
     expect(executedSql).toContain('CREATE OR REPLACE PROCEDURE cproc_tzhssr_order2sale_A1');
     expect(executedSql).toContain('p_msg_out OUT NVARCHAR2');

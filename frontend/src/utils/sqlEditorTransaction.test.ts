@@ -137,6 +137,12 @@ describe('sqlEditorTransaction', () => {
     ])).toBe(false);
   });
 
+  it('keeps stored program definitions on the plain execution path', () => {
+    expect(shouldUseSqlEditorManagedTransactionForType('oracle', [
+      'CREATE OR REPLACE PROCEDURE demo AS BEGIN NULL; END;',
+    ])).toBe(false);
+  });
+
   it.each([
     ['trino', 'UPDATE hive.default.orders SET status = \'done\''],
     ['tdengine', 'INSERT INTO meters(ts, current) VALUES (NOW, 10.2)'],

@@ -7603,7 +7603,9 @@ describe('QueryEditor external SQL save', () => {
     backendApp.DBGetDatabases.mockResolvedValue({ success: true, data: [{ Database: 'main' }] });
     backendApp.DBGetTables.mockResolvedValue({ success: true, data: [{ Tables_in_main: 'users' }] });
     backendApp.DBGetAllColumns.mockResolvedValue({ success: true, data: [] });
-    backendApp.DBQueryMulti.mockRejectedValueOnce(new Error('connection closed after execution'));
+    backendApp.DBQueryMulti.mockRejectedValueOnce(
+      new Error('connection closed after execution'),
+    );
 
     let renderer!: ReactTestRenderer;
     await act(async () => {
@@ -7621,13 +7623,14 @@ describe('QueryEditor external SQL save', () => {
 
     await act(async () => {
       await findButton(renderer, '运行').props.onClick();
-      for (let i = 0; i < 4; i += 1) await Promise.resolve();
     });
 
-    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'gonavi:sidebar-database-refresh',
-    }));
-    expect(textContent(renderer.toJSON())).toContain('connection closed after execution');
+    await vi.waitFor(() => {
+      expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'gonavi:sidebar-database-refresh',
+      }));
+      expect(textContent(renderer.toJSON())).toContain('connection closed after execution');
+    });
     renderer.unmount();
   });
 
@@ -7839,12 +7842,14 @@ describe('QueryEditor external SQL save', () => {
       await findButton(renderer, '运行').props.onClick();
     });
 
-    expect(backendApp.DBQueryAudited).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'mysql' }),
-      'main',
-      triggerRollbackSql,
-      'table_designer',
-    );
+    await vi.waitFor(() => {
+      expect(backendApp.DBQueryAudited).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'mysql' }),
+        'main',
+        triggerRollbackSql,
+        'table_designer',
+      );
+    });
     const refreshEvents = (window.dispatchEvent as any).mock.calls.filter(
       ([event]: any[]) => event?.type === 'gonavi:sidebar-database-refresh',
     );
@@ -7921,12 +7926,14 @@ describe('QueryEditor external SQL save', () => {
       await findButton(renderer, '运行').props.onClick();
     });
 
-    expect(backendApp.DBQueryAudited).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'postgres' }),
-      'main',
-      triggerRollbackSql,
-      'table_designer',
-    );
+    await vi.waitFor(() => {
+      expect(backendApp.DBQueryAudited).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'postgres' }),
+        'main',
+        triggerRollbackSql,
+        'table_designer',
+      );
+    });
     renderer.unmount();
   });
 
@@ -15523,12 +15530,15 @@ WHERE GRANTEE = 'APPUSER';`;
     await act(async () => {
       await findButton(renderer!, '运行').props.onClick();
     });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
 
-    expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(expect.anything(), 'ORCLPDB1', expectedPlsql, 'query-1');
+    await vi.waitFor(() => {
+      expect(backendApp.DBQueryMulti).toHaveBeenCalledWith(
+        expect.anything(),
+        'ORCLPDB1',
+        expectedPlsql,
+        'query-1',
+      );
+    });
     expect(String(backendApp.DBQueryMulti.mock.calls[0][2])).not.toContain('/;');
     renderer?.unmount();
   });
