@@ -1982,6 +1982,8 @@ export interface SqlEditorPendingTransactionState {
   dbName?: string;
   statements?: string[];
   executionDurationMs?: number;
+  /** 事务所属连接；提交前按它做生产环境确认，见 PendingSqlEditorTransaction。 */
+  connectionId?: string;
 }
 
 interface AppState {

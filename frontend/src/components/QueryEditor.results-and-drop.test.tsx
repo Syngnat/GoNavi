@@ -1082,6 +1082,90 @@ describe('QueryEditor external SQL save', () => {
     renderer?.unmount();
   });
 
+  it('warns that a write executed without a managed transaction cannot be rolled back', async () => {
+    // DDL 在后端 shouldUseManagedSQLTransaction 中不算可托管写操作，
+    // 会以 autocommit 直接落地：必须显式告知不可撤销。
+    backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'DROP TABLE tmp_table;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    expect(storeState.sqlEditorPendingTransactions['tab-1']).toBeUndefined();
+    renderer?.unmount();
+  });
+
+  it('does not warn about rollback for a write inside a managed transaction', async () => {
+    backendApp.DBQueryMultiTransactional.mockResolvedValueOnce({
+      success: true,
+      transactionId: 'tx-managed',
+      transactionPending: true,
+      data: [{ columns: ['affectedRows'], rows: [{ affectedRows: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'DELETE FROM users WHERE id = 1;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    expect(storeState.sqlEditorPendingTransactions['tab-1']).toMatchObject({ id: 'tx-managed' });
+    renderer?.unmount();
+  });
+
+  it('does not warn about rollback for a pure read', async () => {
+    backendApp.DBQueryMulti.mockResolvedValueOnce({
+      success: true,
+      data: [{ columns: ['id'], rows: [{ id: 1 }] }],
+    });
+
+    let renderer!: ReactTestRenderer;
+    await act(async () => {
+      renderer = create(<QueryEditor tab={createTab({ query: 'SELECT * FROM users;' })} />);
+    });
+
+    await act(async () => {
+      await findButton(renderer!, '运行').props.onClick();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(messageApi.warning).not.toHaveBeenCalledWith(
+      expect.stringContaining('无法通过回滚撤销'),
+      expect.anything(),
+    );
+    renderer?.unmount();
+  });
+
   it('runs a connection-scoped SQLite query without requiring a database name', async () => {
     storeState.connections[0].config.type = 'sqlite';
     storeState.connections[0].config.database = '';

@@ -9,6 +9,19 @@ import { t as catalogTranslate } from '../i18n/catalog';
 const storeState = vi.hoisted(() => ({
   setSqlEditorPendingTransaction: vi.fn(),
   addSqlLog: vi.fn(),
+  connections: [] as Array<{ id: string; name: string; environmentType?: string; config: Record<string, unknown> }>,
+}));
+
+const productionRisk = vi.hoisted(() => ({
+  confirmProductionRisk: vi.fn(),
+  // 与真实实现同构：只有"生产环境且未配置任何保护"才需要确认。
+  // 用真实判定而非恒真 stub，否则"开发连接不弹窗"这类回归会被 mock 掩盖。
+  requiresProductionRiskConfirmation: vi.fn(
+    (connection: { environmentType?: string; config?: { protection?: unknown } } | null | undefined) => (
+      String(connection?.environmentType || '').trim().toLowerCase() === 'production'
+      && !(connection?.config as any)?.protection
+    ),
+  ),
 }));
 
 const backendApp = vi.hoisted(() => ({
@@ -19,17 +32,26 @@ const backendApp = vi.hoisted(() => ({
 const messageApi = vi.hoisted(() => ({
   error: vi.fn(),
   success: vi.fn(),
+  warning: vi.fn(),
 }));
 
-vi.mock('../store', () => ({
-  useStore: (selector: (state: typeof storeState) => unknown) => selector(storeState),
-}));
+// useStore 既是 selector 调用（订阅 setter），也被 getState() 用于按需读连接列表，
+// 两者都要支持，否则 mock 与真实 store 的差异会掩盖提交前的连接解析。
+vi.mock('../store', () => {
+  const useStore = (selector: (state: typeof storeState) => unknown) => selector(storeState);
+  useStore.getState = () => storeState;
+  return { useStore };
+});
+
+vi.mock('../utils/productionRiskConfirm', () => productionRisk);
 
 vi.mock('../../wailsjs/go/app/App', () => backendApp);
 
 vi.mock('antd', () => ({
   message: messageApi,
 }));
+
+const TEST_CONNECTION_ID = 'conn-1';
 
 const createPendingTransaction = (overrides: Partial<PendingSqlEditorTransaction> = {}): PendingSqlEditorTransaction => ({
   id: 'tx-1',
@@ -41,6 +63,7 @@ const createPendingTransaction = (overrides: Partial<PendingSqlEditorTransaction
   dbName: 'main',
   statements: ["UPDATE users SET name = 'new' WHERE id = 1"],
   executionDurationMs: 29,
+  connectionId: TEST_CONNECTION_ID,
   ...overrides,
 });
 
@@ -67,10 +90,19 @@ describe('useSqlEditorTransactionController', () => {
     renderer = null;
     storeState.setSqlEditorPendingTransaction.mockReset();
     storeState.addSqlLog.mockReset();
+    storeState.connections = [{
+      id: TEST_CONNECTION_ID,
+      name: 'local-mysql',
+      environmentType: 'development',
+      config: { type: 'mysql', host: '127.0.0.1', port: 3306 },
+    }];
     backendApp.DBCommitTransactionWithTrigger.mockReset();
     backendApp.DBRollbackTransactionWithTrigger.mockReset();
     messageApi.error.mockReset();
     messageApi.success.mockReset();
+    messageApi.warning.mockReset();
+    productionRisk.confirmProductionRisk.mockReset();
+    productionRisk.confirmProductionRisk.mockResolvedValue(true);
     backendApp.DBCommitTransactionWithTrigger.mockResolvedValue({ success: true, message: '事务已提交' });
     backendApp.DBRollbackTransactionWithTrigger.mockResolvedValue({ success: true, message: '事务已回滚' });
   });
@@ -236,6 +268,127 @@ describe('useSqlEditorTransactionController', () => {
       status: 'error',
       message: 'SQLSTATE 40001 serialization failure',
     }));
+  });
+
+  it('keeps the transaction open when production confirmation is declined', async () => {
+    productionRisk.confirmProductionRisk.mockResolvedValue(false);
+    renderController();
+
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction({
+        connectionId: 'conn-production',
+      }));
+    });
+    storeState.connections = [{
+      id: 'conn-production',
+      name: 'prod-mysql',
+      environmentType: 'production',
+      config: { type: 'mysql', host: '10.0.0.1', port: 3306 },
+    }];
+
+    await act(async () => {
+      await controller?.finishPendingSqlTransaction('commit', 'manual');
+    });
+
+    // 被拒后数据库侧事务仍然打开，本地状态必须原样保留，
+    // 否则 UI 不再显示提交/回滚入口，而事务还持着锁。
+    expect(backendApp.DBCommitTransactionWithTrigger).not.toHaveBeenCalled();
+    expect(controller?.pendingSqlTransaction).not.toBeNull();
+    expect(controller?.pendingSqlTransaction?.id).toBe('tx-1');
+    expect(storeState.setSqlEditorPendingTransaction).toHaveBeenLastCalledWith('tab-1', expect.objectContaining({ id: 'tx-1' }));
+  });
+
+  it('gates the commit on the connection captured when the transaction opened', async () => {
+    renderController();
+
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction({
+        connectionId: 'conn-production',
+      }));
+    });
+    storeState.connections = [{
+      id: 'conn-production',
+      name: 'prod-mysql',
+      environmentType: 'production',
+      config: { type: 'mysql', host: '10.0.0.1', port: 3306 },
+    }];
+
+    await act(async () => {
+      await controller?.finishPendingSqlTransaction('commit', 'manual');
+    });
+
+    expect(productionRisk.confirmProductionRisk).toHaveBeenCalledWith(expect.objectContaining({
+      connection: expect.objectContaining({ id: 'conn-production', name: 'prod-mysql' }),
+    }));
+  });
+
+  it('does not gate rollback on production confirmation', async () => {
+    renderController();
+
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction({
+        connectionId: 'conn-production',
+      }));
+    });
+    storeState.connections = [{
+      id: 'conn-production',
+      name: 'prod-mysql',
+      environmentType: 'production',
+      config: { type: 'mysql', host: '10.0.0.1', port: 3306 },
+    }];
+
+    await act(async () => {
+      await controller?.finishPendingSqlTransaction('rollback', 'manual');
+    });
+
+    // 回滚是撤销操作，加门禁只会让用户更难从生产环境退出。
+    expect(productionRisk.confirmProductionRisk).not.toHaveBeenCalled();
+    expect(backendApp.DBRollbackTransactionWithTrigger).toHaveBeenCalledWith('tx-1', 'manual');
+  });
+
+  it('downgrades to manual commit when an automatic commit is declined', async () => {
+    productionRisk.confirmProductionRisk.mockResolvedValue(false);
+    renderController();
+
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction({
+        connectionId: 'conn-production',
+        commitMode: 'auto',
+        autoCommitDelayMs: 0,
+      }));
+    });
+    storeState.connections = [{
+      id: 'conn-production',
+      name: 'prod-mysql',
+      environmentType: 'production',
+      config: { type: 'mysql', host: '10.0.0.1', port: 3306 },
+    }];
+
+    await act(async () => {
+      await controller?.finishPendingSqlTransaction('commit', 'auto');
+    });
+
+    // 不能停在"自动提交中"：倒计时已清、提交按钮须可用，由用户显式决定。
+    expect(backendApp.DBCommitTransactionWithTrigger).not.toHaveBeenCalled();
+    expect(controller?.pendingSqlTransaction?.commitMode).toBe('manual');
+    expect(controller?.pendingSqlTransaction?.autoCommitDueAt).toBeNull();
+  });
+
+  it('fails closed when the transaction connection can no longer be resolved', async () => {
+    renderController({ translate });
+
+    await act(async () => {
+      controller?.activatePendingSqlTransaction(createPendingTransaction({
+        connectionId: 'conn-deleted',
+      }));
+      await controller?.finishPendingSqlTransaction('commit', 'manual');
+    });
+
+    // 连接查不到时不得放行：confirmProductionRisk 对 null 会直接返回 true，
+    // 走它的 null 分支等于让不可解析的连接绕过生产确认。
+    expect(productionRisk.confirmProductionRisk).not.toHaveBeenCalled();
+    expect(backendApp.DBCommitTransactionWithTrigger).not.toHaveBeenCalled();
+    expect(messageApi.error).toHaveBeenLastCalledWith('Connection not found.');
   });
 
   it('keeps an unknown transaction finish outcome visible to the user', async () => {

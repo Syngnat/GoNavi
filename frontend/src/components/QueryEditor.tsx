@@ -10591,7 +10591,10 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
         return;
     }
 
-    if (findPotentiallyMutatingConnectionStatements(conn.config, executableSQL).length > 0) {
+    // 写操作判定要复用同一结果：生产确认和"不可撤销"提示必须基于同一判断，
+    // 各算一遍会在边界 SQL 上出现"确认了却没提示"或反之的漂移。
+    const mutatingStatements = findPotentiallyMutatingConnectionStatements(conn.config, executableSQL);
+    if (mutatingStatements.length > 0) {
         const approved = await confirmProductionRisk({
             connection: conn,
             action: translate('connection.production_risk.action.execute_sql'),
@@ -11284,6 +11287,14 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                 return;
             }
 
+            // 有写操作、后端却没返回 transactionPending，说明本次是以 autocommit 落地的
+            // （DDL / TRUNCATE / CALL / 存储过程 / 非事务数据源，见后端 shouldUseManagedSQLTransaction）。
+            // 前端自己的 useManagedTransaction 判定比后端宽松，直接采信它会把 DDL 误报成"已托管"，
+            // 所以这里以后端的实际响应为准。必须显式告知，不能静默假装已保护（§3.2 验收 3）。
+            if (res.success && mutatingStatements.length > 0 && !res.transactionPending) {
+                message.warning(translate('query_editor.transaction.message.executed_without_transaction'), 6);
+            }
+
             if (res.transactionPending && res.transactionId) {
                 const transactionId = String(res.transactionId);
                 if (useManagedTransaction) {
@@ -11297,6 +11308,7 @@ const QueryEditor: React.FC<{ tab: TabData; isActive?: boolean }> = ({ tab, isAc
                         dbName: executionDbName,
                         statements: sourceStatements,
                         executionDurationMs: duration,
+                        connectionId: currentConnectionId,
                     });
                 } else {
                     appendPendingSqlTransactionExecution({

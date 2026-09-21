@@ -15,6 +15,12 @@ export type PendingSqlEditorTransaction = {
   dbName?: string;
   statements?: string[];
   executionDurationMs?: number;
+  /**
+   * 事务所属连接。提交前要按它做生产环境确认，必须在开启事务时捕获，
+   * 不能提交时再读当前连接 —— 用户可能在事务挂起期间切到别的连接，
+   * 那样校验的是另一个连接的属性（可能恰好是生产库，也可能恰好不是）。
+   */
+  connectionId?: string;
 };
 
 type QueryEditorTransactionToolbarProps = {
