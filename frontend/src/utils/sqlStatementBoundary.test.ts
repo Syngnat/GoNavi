@@ -39,13 +39,36 @@ describe('resolveSqlStatementStartKeywords', () => {
     expect(resolveSqlStatementStartKeywords('oracle').has('comment')).toBe(true);
     expect(resolveSqlStatementStartKeywords('postgres').has('comment')).toBe(true);
   });
+
+  it('dialect specific START is only available in PG and Oracle', () => {
+    // `START TRANSACTION` — `start` is not a universal statement opener.
+    expect(resolveSqlStatementStartKeywords('postgres').has('start')).toBe(true);
+    expect(resolveSqlStatementStartKeywords('oracle').has('start')).toBe(true);
+    expect(resolveSqlStatementStartKeywords('mysql').has('start')).toBe(false);
+    expect(resolveSqlStatementStartKeywords('sqlite').has('start')).toBe(false);
+  });
+
+  it('does not expose LOCK as a universal statement opener', () => {
+    // `LOCK IN SHARE MODE` is a clause, not a standalone statement.
+    expect(resolveSqlStatementStartKeywords('mysql').has('lock')).toBe(false);
+    expect(resolveSqlStatementStartKeywords('postgres').has('lock')).toBe(false);
+    expect(resolveSqlStatementStartKeywords('sqlserver').has('lock')).toBe(false);
+  });
+
+  it('caches results for repeated calls with the same dbType', () => {
+    const first = resolveSqlStatementStartKeywords('mysql');
+    const second = resolveSqlStatementStartKeywords('mysql');
+    expect(first).toBe(second);
+  });
 });
 
 describe('isSqlStatementStartBoundary', () => {
   it('opens a new statement for a line leading keyword', () => {
-    expect(boundary({})).toBe(true);
-    expect(boundary({ token: 'alter', previousToken: 'int', previousChar: 't' })).toBe(true);
-    expect(boundary({ token: 'drop', previousToken: 'users', previousChar: 's' })).toBe(true);
+    // Default pendingHeadToken is 'select', but a new SELECT after SELECT
+    // is a fresh statement, so we override pendingHeadToken to ''.
+    expect(boundary({ previousToken: '', pendingHeadToken: '' })).toBe(true);
+    expect(boundary({ token: 'alter', previousToken: 'users', previousChar: 's', pendingHeadToken: '' })).toBe(true);
+    expect(boundary({ token: 'drop', previousToken: 'users', previousChar: 's', pendingHeadToken: '' })).toBe(true);
   });
 
   it('ignores keywords that are not at the start of a line', () => {
@@ -59,6 +82,14 @@ describe('isSqlStatementStartBoundary', () => {
   it('only splits on keywords the dialect can start a statement with', () => {
     expect(boundary({ token: 'pragma', dbType: 'mysql', previousToken: 'x', previousChar: 'x' })).toBe(false);
     expect(boundary({ token: 'pragma', dbType: 'sqlite', previousToken: 'x', previousChar: 'x' })).toBe(true);
+  });
+
+  // Regression: previously CLAUSE_TRAILER_TOKENS did not include desc/asc.
+  // `ORDER BY id DESC\nSELECT 1` must not split on the leading DESC.
+  it('keeps DESC attached to an ordering clause', () => {
+    expect(boundary({ token: 'desc', pendingHeadToken: 'select', previousChar: 'c' })).toBe(false);
+    expect(boundary({ token: 'desc', pendingHeadToken: 'desc', previousChar: 'c' })).toBe(true);
+    expect(boundary({ token: 'asc', pendingHeadToken: 'select', previousChar: 'c' })).toBe(false);
   });
 
   it('keeps the statement open when the previous token cannot end it', () => {
@@ -91,13 +122,61 @@ describe('isSqlStatementStartBoundary', () => {
     expect(boundary({ token: 'set', pendingHeadToken: 'set', previousChar: '1' })).toBe(true);
   });
 
-  it('keeps DESC attached to an ordering clause', () => {
-    expect(boundary({ token: 'desc', pendingHeadToken: 'select', previousChar: 'a' })).toBe(false);
-    expect(boundary({ token: 'desc', pendingHeadToken: 'desc', previousChar: 'a' })).toBe(true);
-  });
-
   it('allows a statement to follow COMMIT or ROLLBACK', () => {
     expect(boundary({ previousToken: 'commit', previousChar: 't', pendingHeadToken: 'commit' })).toBe(true);
     expect(boundary({ previousToken: 'rollback', previousChar: 'k', pendingHeadToken: 'rollback' })).toBe(true);
+  });
+
+  // #1 SQL Server WITH (NOLOCK) — `with` after `select` must not split.
+  it('keeps WITH attached to a SELECT (SQL Server table hints)', () => {
+    expect(boundary({ token: 'with', pendingHeadToken: 'select', previousChar: ')' })).toBe(false);
+    expect(boundary({ token: 'with', pendingHeadToken: 'select', previousChar: 'n' })).toBe(false);
+    // But `WITH` after a non-blocking previous statement can start a new CTE.
+    expect(boundary({ token: 'with', pendingHeadToken: 'rollback', previousChar: 'k' })).toBe(true);
+  });
+
+  // #3/#4 Absorption: INSERT/UPDATE/DELETE/MERGE can consume a following SELECT.
+  it('keeps DELETE attached to a following SELECT', () => {
+    expect(boundary({ token: 'select', pendingHeadToken: 'delete', previousChar: ')' })).toBe(false);
+  });
+
+  it('keeps UPDATE attached to a following SELECT', () => {
+    expect(boundary({ token: 'select', pendingHeadToken: 'update', previousChar: ')' })).toBe(false);
+  });
+
+  it('keeps MERGE attached to a following SELECT', () => {
+    expect(boundary({ token: 'select', pendingHeadToken: 'merge', previousChar: ')' })).toBe(false);
+  });
+
+  it('keeps INSERT attached to a following SELECT', () => {
+    expect(boundary({ token: 'select', pendingHeadToken: 'insert', previousChar: ')' })).toBe(false);
+  });
+
+  // #6 LOCK is not a standalone statement — it is part of LOCK IN SHARE MODE.
+  it('does not split on LOCK after a complete expression', () => {
+    expect(boundary({ token: 'lock', dbType: 'mysql', previousChar: '1' })).toBe(false);
+  });
+
+  // #7 START is only a statement starter in PG/Oracle.
+  it('only splits on START in PG and Oracle', () => {
+    expect(boundary({ token: 'start', dbType: 'postgres', previousChar: '1' })).toBe(true);
+    expect(boundary({ token: 'start', dbType: 'oracle', previousChar: '1' })).toBe(true);
+    expect(boundary({ token: 'start', dbType: 'mysql', previousChar: '1' })).toBe(false);
+  });
+
+  // #9 REPLACE INTO ... SET should keep SET attached.
+  it('keeps SET attached to REPLACE', () => {
+    expect(boundary({ token: 'set', pendingHeadToken: 'replace', previousChar: 'e' })).toBe(false);
+  });
+
+  // #2 Multi-line ALTER — tokens like RENAME/COLUMN should not end a statement.
+  it('keeps ALTER ... RENAME on the same statement', () => {
+    expect(boundary({ token: 'rename', previousToken: 'column', previousChar: 'n', pendingHeadToken: 'alter' })).toBe(false);
+    expect(boundary({ token: 'column', previousToken: 'rename', previousChar: 'n', pendingHeadToken: 'alter' })).toBe(false);
+  });
+
+  // #2 Multi-line ALTER — a column identifier before RENAME is a clean break.
+  it('splits before ALTER when the previous statement ended', () => {
+    expect(boundary({ token: 'alter', previousToken: 'id', previousChar: '1', pendingHeadToken: 'select' })).toBe(true);
   });
 });

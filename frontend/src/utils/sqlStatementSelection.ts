@@ -1,4 +1,13 @@
-import { isSqlStatementStartBoundary } from './sqlStatementBoundary';
+import { isOracleLikeDialect, resolveSqlDialect } from './sqlDialect';
+import {
+  isSqlStatementStartBoundary,
+  NEEDS_BODY_HEADS,
+  QUERY_BODY_TOKENS,
+  QUERY_SOURCE_HEADS,
+  BLOCKING_HEADS,
+  STANDALONE_STATEMENT_HEADS,
+  STATEMENT_TERMINAL_TOKENS,
+} from './sqlStatementBoundary';
 
 export interface SqlStatementRange {
   start: number;
@@ -12,6 +21,8 @@ export interface SqlExecutionSelection {
   sql: string;
   source: SqlExecutionSelectionSource;
 }
+
+const DELETE_RETURNING_OK = new Set(['delete', 'update', 'merge']);
 
 const isWhitespace = (ch: string): boolean => (
   ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f'
@@ -399,6 +410,39 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
   let lastSignificantToken = '';
   let lastSignificantChar = '';
   let lastSignificantEnd = 0;
+  // True when the current pending statement's body is considered closed
+  // (e.g. `INSERT INTO t VALUES (...)` finished, `SELECT ... ORDER BY id DESC`
+  // completed).  After this point a line-leading start keyword opens a brand
+  // new statement — never absorbed.
+  let pendingBodyComplete = true;
+  // Track the head keyword of the pending statement so the boundary check
+  // doesn't have to re-peek `nextSqlSignificantToken` for every candidate.
+  let pendingHeadToken = '';
+  // Set to `values`/`set`/`on`/`returning` when the body paren that was just
+  // closed was opened by that keyword.  Used in isSqlStatementStartBoundary to
+  // distinguish `INSERT VALUES (1)\nSELECT` (body paren closed → INSERT is done,
+  // SELECT is fresh) from `INSERT INTO t (a)\nSELECT` (column list → SELECT
+  // continues INSERT).
+  let bodyClosedBy = '';
+  // True once the SELECT/WITH head has consumed at least one select-list item
+  // (so the bare `SELECT 1\n` shape is recognised as complete on newline).
+  let selectListItemSeen = false;
+  // Set to true when a UNION/INTERSECT/EXCEPT operator has just been seen.
+  // While true, a line-leading SELECT on the next line is the next part of
+  // the set chain (not a fresh statement).
+  let pendingSetOp = false;
+  // Track which keyword each open paren level was opened by. Used to decide
+  // whether a closing `)` ends the VALUES body (which closes the statement)
+  // or just the column list (which keeps the statement open for SELECT).
+  // Each entry is the keyword that triggered the `(`, or '' when none.
+  const parenOpeners: string[] = [];
+  // When the parser sees `VALUES`/`SET`/`ON` followed by `(`, remember which
+  // body keyword we're opening so the matching `)` can mark pendingBodyComplete.
+  let bodyOpenerPending = '';
+  // True once a SET assignment clause has been seen for the pending DML head.
+  // Used to mark the body complete when the assignment ends on a new line
+  // (e.g. `UPDATE t SET a = 1\nUPDATE t2 SET b = 2`).
+  let setClauseSeen = false;
 
   const push = (end: number) => {
     const range = trimStatementRange(text, statementStart, end, dbType);
@@ -413,6 +457,13 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
     lastSignificantEnd = end;
   };
 
+  // Initialise pendingBodyComplete from the head of the script.  If the first
+  // statement starts with a NEEDS_BODY_HEADS keyword (SELECT/INSERT/...) the
+  // body is open until the VALUES list / WHERE clause / etc. closes.  If the
+  // first statement is standalone (SAVEPOINT/SET .../CALL/...) the body is
+  // already considered complete.
+  pendingHeadToken = nextSqlSignificantToken(text, 0);
+  pendingBodyComplete = !NEEDS_BODY_HEADS.has(pendingHeadToken);
   for (let index = 0; index < text.length; index++) {
     const ch = text[index];
     const next = index + 1 < text.length ? text[index + 1] : '';
@@ -495,6 +546,26 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
         inBlockComment = true;
         continue;
       }
+      // Oracle PL/SQL uses `/` on its own line to terminate BEGIN...END blocks.
+      // Trigger for Oracle when we are inside a PL/SQL block or when the text
+      // up to the slash contains BEGIN (indicating a block).
+      if (ch === '/' && isOracleLikeDialect(resolveSqlDialect(dbType))) {
+        const slashLineEnd = resolveStandaloneSqlSlashLineEnd(text, index);
+        if (slashLineEnd !== null) {
+          // Only treat as a terminator if we're inside a PL/SQL block OR the
+          // statement started with BEGIN (indicating a block).
+          if (plsqlDepth > 0 || text.slice(statementStart, index).includes('BEGIN')) {
+            push(index);
+            statementStart = slashLineEnd < text.length && text[slashLineEnd] === '\n'
+              ? slashLineEnd + 1
+              : slashLineEnd;
+            parenDepth = 0;
+            index = slashLineEnd;
+            justClosedPLSQLBlock = false;
+            continue;
+          }
+        }
+      }
       if ((justClosedPLSQLBlock || !text.slice(statementStart, index).trim()) && ch === '/') {
         const slashLineEnd = resolveStandaloneSqlSlashLineEnd(text, index);
         if (slashLineEnd !== null) {
@@ -502,6 +573,9 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
           statementStart = slashLineEnd < text.length && text[slashLineEnd] === '\n'
             ? slashLineEnd + 1
             : slashLineEnd;
+          // The slash itself terminates a statement; any parenthesis opened
+          // inside the previous block cannot still be open.
+          parenDepth = 0;
           index = slashLineEnd;
           justClosedPLSQLBlock = false;
           continue;
@@ -565,19 +639,114 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
       const token = text.slice(index, tokenEnd).toLowerCase();
       // Scripts that omit `;` still break into statements at a dialect keyword
       // that can only open a new statement.
-      if (plsqlDepth === 0 && lastSignificantEnd > statementStart && isSqlStatementStartBoundary({
+      // Oracle hierarchical queries: `SELECT ... START WITH ... CONNECT BY ...`
+      // is one statement. When we are in Oracle and the current token is
+      // `start` after a SELECT head, peek ahead to see if `CONNECT BY` follows
+      // in the remaining script (before any other statement-start keyword),
+      // and `start` is followed by `with`. If so, skip the boundary check
+      // entirely.
+      const lookAheadForConnectBy = (): boolean => {
+        if (!isOracleLikeDialect(resolveSqlDialect(dbType))) return false;
+        if (token !== 'start') return false;
+        if (nextSqlSignificantToken(text, statementStart) !== 'select') return false;
+        if (nextSqlSignificantToken(text, tokenEnd) !== 'with') return false;
+        // Search the remainder for `connect by` separated by whitespace.
+        const rest = text.slice(tokenEnd);
+        return /\bconnect\s+by\b/i.test(rest);
+      };
+      const oracleConnectByAhead = lookAheadForConnectBy();
+      const boundaryCheck = !oracleConnectByAhead
+        && plsqlDepth === 0 && lastSignificantEnd > statementStart && isSqlStatementStartBoundary({
         token,
         dbType,
         atLineStart: isAtSqlLineStart(text, index),
         parenDepth,
         previousToken: lastSignificantToken,
         previousChar: lastSignificantChar,
-        pendingHeadToken: nextSqlSignificantToken(text, statementStart),
-      })) {
+        pendingHeadToken,
+        pendingBodyComplete,
+        bodyClosedBy,
+        pendingSetOp,
+      });
+      if (boundaryCheck) {
         push(lastSignificantEnd);
         statementStart = lastSignificantEnd;
         parenDepth = 0;
+        parenOpeners.length = 0;
+        pendingHeadToken = token;
+        pendingBodyComplete = !NEEDS_BODY_HEADS.has(token);
+        bodyOpenerPending = '';
+        bodyClosedBy = '';
+        selectListItemSeen = false;
+        setClauseSeen = false;
+        pendingSetOp = false;
         justClosedPLSQLBlock = false;
+      } else if (lastSignificantEnd <= statementStart) {
+        // Still accumulating the same statement — keep the body state as-is.
+      } else if (token === 'union' || token === 'intersect' || token === 'except' || token === 'minus') {
+        // Set operators: a following SELECT on the next line is the next part
+        // of the chain, not a fresh statement.
+        pendingSetOp = true;
+        selectListItemSeen = true;
+      } else if (pendingHeadToken === 'select' || pendingHeadToken === 'with') {
+        // Track that the SELECT/WITH select-list has at least one item.
+        selectListItemSeen = true;
+        // Set-operator trailers (ALL/DISTINCT) continue the UNION chain — do
+        // not reset pendingSetOp.  Anything else resets it.
+        if (token !== 'all' && token !== 'distinct') {
+          pendingSetOp = false;
+        }
+      }
+      // Track when the pending statement's body completes. For most DML heads the body
+      // is closed by a value-list paren after `VALUES`/`SET`/`ON CONFLICT (...)`.
+      // We use the per-depth opener stack recorded at the `(` to decide whether
+      // the closing `)` was a body-paren close (complete) or a column-list close
+      // (still waiting for the body).  DELETE/INSERT/UPDATE RETURNING clauses without
+      // parens are handled separately by BLOCKING_HEADS (pendingBodyComplete stays false
+      // so the subsequent SELECT can be absorbed by the preceding head).
+      if (token === 'set' || token === 'on' || token === 'values') {
+        // SET/VALUES opens a body clause only when followed by `(`.  Without
+        // `(`, the keyword is just a normal assignment clause; do NOT mark
+        // bodyOpenerPending so the statement can still terminate at the next
+        // newline.
+        // Peek past whitespace/comments for the next significant char.
+        const nextCharIdx = skipSqlWhitespaceAndComments(text, tokenEnd);
+        const nextChar = nextCharIdx < text.length ? text[nextCharIdx] : '';
+        if (nextChar === '(') {
+          bodyOpenerPending = token;
+        } else if (token === 'set' && (pendingHeadToken === 'update' || pendingHeadToken === 'insert'
+          || pendingHeadToken === 'delete' || pendingHeadToken === 'merge')) {
+          // Plain `UPDATE t SET a = 1`: the body is an open assignment list
+          // until the line ends.  Flag it so the newline handler can mark
+          // the body complete.
+          setClauseSeen = true;
+        }
+      }
+      // For SELECT/WITH statements, when we see a FROM/WHERE/UNION/etc. keyword,
+      // the select-list body is complete.  A following SELECT on the next line
+      // should start a new statement — EXCEPT for UNION/INTERSECT/EXCEPT, which
+      // are set operators (the next SELECT continues the chain) and must NOT
+      // mark the body complete.
+      // For SELECT/WITH statements, when we see a FROM/WHERE/ORDER/etc. keyword,
+      // the select-list body is complete.  A following SELECT on the next line
+      // should start a new statement — EXCEPT for UNION/INTERSECT/EXCEPT, which
+      // are set operators (the next SELECT continues the chain) and must NOT
+      // mark the body complete.
+      if (token === 'from' || token === 'where' || token === 'group' || token === 'having'
+        || token === 'order' || token === 'limit' || token === 'offset'
+        || token === 'into' || token === 'returning') {
+        // Only mark the body complete when we're NOT inside a CTE/subquery
+        // paren.  PG data-modifying CTEs (`WITH del AS (DELETE ...)`) and
+        // regular subqueries (`SELECT * WHERE id IN (SELECT ...)`) contain
+        // their own FROM/RETURNING; they must NOT consume the outer head.
+        if (parenDepth > 0) {
+          // Skip — we're inside a CTE/subquery.
+        } else {
+          const head = nextSqlSignificantToken(text, statementStart);
+          if (head === 'select' || head === 'with') {
+            pendingBodyComplete = true;
+          }
+        }
       }
       markSignificant(text[tokenEnd - 1], tokenEnd, token);
       if (token === 'case' && plsqlDepth > 0) {
@@ -633,17 +802,139 @@ export const findSqlStatementRanges = (sql: string, dbType = ''): SqlStatementRa
       push(justClosedPLSQLBlock ? index + 1 : index);
       statementStart = index + 1;
       parenDepth = 0;
+      parenOpeners.length = 0;
+      bodyOpenerPending = '';
+      bodyClosedBy = '';
+      pendingBodyComplete = true;
       justClosedPLSQLBlock = false;
       continue;
     }
 
-    if (!inSingle && !inDouble && !inBacktick && !inBracket && !isWhitespace(ch)) {
+      if (!inSingle && !inDouble && !inBacktick && !inBracket) {
       if (ch === '(') {
         parenDepth++;
+        // Remember whether this paren was opened by a body keyword
+        // (`VALUES`/`SET`/`ON`/`RETURNING`) so the matching `)` knows it ends the body.
+        // Keywords that open column-lists or other non-body parens do NOT end the body:
+        // `INSERT INTO t (a)` — the column-list paren is closed but the VALUES body
+        // is still pending; keep pendingBodyComplete=false so a following SELECT
+        // can still be absorbed.
+        parenOpeners.push(bodyOpenerPending);
+        bodyOpenerPending = '';
+        // CREATE TABLE/ALTER TABLE: the column-list paren closes the body.  Track
+        // the opener so `CREATE TABLE t (id INT, name VARCHAR(10))\nINSERT ...`
+        // splits the DDL from the following DML.
+        if (lastSignificantToken === 'create' || lastSignificantToken === 'alter') {
+          bodyClosedBy = lastSignificantToken;
+          pendingBodyComplete = true;
+        }
       } else if (ch === ')') {
         parenDepth = Math.max(0, parenDepth - 1);
+        const opener = parenOpeners.pop() || '';
+        // A paren opened by VALUES/SET/RETURNING ends the body clause.  A paren
+        // opened by ON (PG `ON CONFLICT (cols)`) does NOT end the body — the
+        // DO UPDATE/SET clause follows and must be absorbed into the same
+        // statement.  Column-list parens opened by other keywords (`INSERT INTO
+        // t (cols)`, `WITH c AS (subquery)`) also do not end the body because
+        // the parent head is still waiting for its body.
+        if (opener === 'values' || opener === 'set' || opener === 'returning') {
+          pendingBodyComplete = true;
+          bodyClosedBy = opener;
+        }
+        // Preserve the prior token (e.g. `nolock` inside `WITH (NOLOCK)`,
+        // `VARCHAR` after `name`) so the boundary check can detect SQL
+        // Server table hints and recognise the column-list close.
+        markSignificant(ch, index + 1, lastSignificantToken);
+      } else if (ch === '\n') {
+        // `isHorizontalWhitespace` excludes `\n` so the dedicated newline
+        // branch handles line breaks explicitly.  Keep the last significant
+        // token so the boundary check still recognises the line as ending
+        // the previous statement (e.g. `CREATE TABLE t (...)\nINSERT ...`
+        // → previousToken is `10`).  Keep the previous lastSignificantChar
+        // (e.g. `)`) so the boundary check's STATEMENT_END_CHAR test matches.
+        // Without this, `CREATE TABLE t (...)\nINSERT ...` would not split.
+        const prevChar = lastSignificantChar;
+        markSignificant(ch, index + 1, lastSignificantToken);
+        lastSignificantChar = prevChar;
+        // Newline crossing after a balanced-paren, no-in-progress-body state:
+        // - If the pending head needs a body clause (INSERT/UPDATE/DELETE/
+        //   SELECT/WITH/CREATE/ALTER...), peek at the next significant token.
+        //   A line-leading query body (SELECT/WITH/VALUES/TABLE) starts a
+        //   fresh statement; a clause keyword (FROM/WHERE/...) keeps the
+        //   statement open so the body is absorbed.
+        // - If the head is standalone (SAVEPOINT/CALL/...), mark it complete.
+        if (parenDepth === 0 && !bodyOpenerPending) {
+          const head = nextSqlSignificantToken(text, statementStart);
+          if (!NEEDS_BODY_HEADS.has(head)) {
+            pendingBodyComplete = true;
+          } else if (head === 'select' || head === 'with') {
+            // SELECT/WITH heads: the bare select-list (`SELECT 1\nPRAGMA`,
+            // `SELECT 1\nSELECT 2`) is a complete statement once at least one
+            // item has been seen.  When the body is already complete (the
+            // from/where/order rules have fired) we leave it alone; when no
+            // clause has appeared yet, the select-list itself is the body and
+            // a line-leading query-body token starts a fresh statement.
+            // EXCEPTION: if the next token is a query-source head that the
+            // current head absorbs (e.g. `WITH ...\nINSERT ...`), the body
+            // is NOT complete — the next head is part of the same statement.
+            if (pendingBodyComplete) {
+              // already complete
+            } else if (pendingSetOp) {
+              // UNION/INTERSECT/EXCEPT chain: don't complete the body.
+            } else if (selectListItemSeen) {
+              const nextToken = nextSqlSignificantToken(text, index + 1);
+              if (QUERY_SOURCE_HEADS.has(nextToken) && BLOCKING_HEADS[nextToken]?.has(head)) {
+                // Next token is a query-source head that the current head
+                // absorbs (e.g. WITH→INSERT, SELECT→WITH): don't mark
+                // complete — the next head is part of the same statement.
+              } else {
+                // Next token is not a query-source head (e.g. PRAGMA, EXPLAIN
+                // unrelated, standalone SAVEPOINT), OR it is a query-source
+                // head that the current head does NOT absorb (e.g. SELECT→SELECT):
+                // the body IS complete.
+                pendingBodyComplete = true;
+              }
+            }
+          } else if (head === 'explain') {
+            // EXPLAIN absorbs a following SELECT/WITH/VALUES/TABLE as its
+            // own body (`EXPLAIN\nSELECT 1` is one statement).  Don't mark
+            // the body complete just because a query-body token follows.
+            // The EXPLAIN body is "complete" only when its select-list has
+            // a clause (FROM/WHERE/...) or the parens balance.
+          } else {
+            // The pending head is a DML head (INSERT/UPDATE/DELETE/MERGE).
+            // Look at the token that will follow this newline: a
+            // SELECT/WITH/VALUES/TABLE on the next line opens a brand-new
+            // statement, so mark the previous statement's body as complete.
+            // Likewise, a SET assignment (without parens) that has ended on
+            // this line (`UPDATE t SET a = 1\n...`) marks the body complete.
+            if (setClauseSeen) {
+              pendingBodyComplete = true;
+            } else {
+              const nextToken = nextSqlSignificantToken(text, index + 1);
+              if (QUERY_BODY_TOKENS.has(nextToken)) {
+                pendingBodyComplete = true;
+              }
+            }
+          }
+        }
+      } else if (isHorizontalWhitespace(ch)) {
+        // Preserve the last significant character AND token so the boundary
+        // check can detect the SQL Server table hint / prior keyword.
+        markSignificant(ch, index + 1, lastSignificantToken);
+      } else if (!isWhitespace(ch)) {
+        // A non-whitespace, non-identifier, non-paren char (digit, operator,
+        // string-content boundary, ...) still counts as a select-list item
+        // for the SELECT/WITH head.  Numbers and operators alone (`SELECT 1`,
+        // `SELECT -1`) are complete statements after a newline.
+        if (pendingHeadToken === 'select' || pendingHeadToken === 'with') {
+          selectListItemSeen = true;
+        }
+        // Preserve the last significant token (e.g. `nolock` in
+        // `WITH (NOLOCK)`) so the boundary check can detect the SQL Server
+        // table hint / prior keyword.
+        markSignificant(ch, index + 1, lastSignificantToken);
       }
-      markSignificant(ch, index + 1);
     }
   }
 
